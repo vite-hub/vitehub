@@ -84,6 +84,7 @@ function subpath(base: string, path: string): string {
 
 type NitroConfig = Record<string, unknown> & CloudflareAgentStateRollupTarget & CloudflareAgentStateTarget
 type RollupExternalFunction = (source: string, importer?: string, isResolved?: boolean) => boolean | null | undefined | void
+type GeneratedLibsqlAgentStateOptions = Pick<ResolvedAgentModuleOptions["providers"]["state"], "authToken" | "tablePrefix" | "url">
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -93,6 +94,17 @@ function shouldInstallCloudflareAgentState(options: false | ResolvedAgentModuleO
   if (!options || !options.routes.webhooks) return false
   const provider = options.providers.state.provider
   return provider === "auto" || provider === "cloudflare" || provider === "cloudflare-agents"
+}
+
+function resolveLibsqlAgentState(options: false | ResolvedAgentModuleOptions): GeneratedLibsqlAgentStateOptions | undefined {
+  if (!options || !options.routes.webhooks) return
+  const { authToken, provider, tablePrefix, url } = options.providers.state
+  if (provider !== "sqlite" && provider !== "libsql") return
+  return {
+    ...(authToken ? { authToken } : {}),
+    ...(tablePrefix ? { tablePrefix } : {}),
+    ...(url ? { url } : {}),
+  }
 }
 
 function cloneStringArray(value: unknown): string[] | undefined {
@@ -292,6 +304,21 @@ function generatedCloudflareChatStateHelper(): string[] {
   ]
 }
 
+function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions): string[] {
+  return [
+    "",
+    `const viteHubChatStateOptions = ${JSON.stringify(state)}`,
+    "const viteHubChatState = createLibsqlAgentState({",
+    "  ...viteHubChatStateOptions,",
+    "  ...(typeof process === 'object' && process?.env?.VITEHUB_AGENT_STATE_URL ? { url: process.env.VITEHUB_AGENT_STATE_URL } : {}),",
+    "})",
+    "",
+    "function chatStateFromLibsql() {",
+    "  return viteHubChatState",
+    "}",
+  ]
+}
+
 function generatedNetlifyRuntimeHelpers(): string[] {
   return [
     "function waitUntilFromContext(context) {",
@@ -335,7 +362,7 @@ function generatedHostedWorkspaceRuntimeSetup(definitions: DiscoveredAgentDefini
 async function generateAgentWebhookRouteHandler(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
-  options: { chatRoute?: false | string, cloudflareState?: boolean, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { chatRoute?: false | string, cloudflareState?: boolean, libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
   const agentImportBase = options.agentImportBase ?? agentPackageName
   const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
@@ -366,10 +393,16 @@ async function generateAgentWebhookRouteHandler(
   const hostedWorkspaceRuntime = generatedHostedWorkspaceRuntimeSetup(definitions, workspaceImportBase)
   const webhookRoute = typeof options.webhookRoute === "string" ? options.webhookRoute : ""
   const webhookSelector = webhookRoute.includes("[webhook]") ? "getRouterParam(event, 'webhook')" : "''"
+  const webhookStateOption = options.cloudflareState
+    ? "state: chatStateFromCloudflare(cloudflare), "
+    : options.libsqlState
+      ? "state: chatStateFromLibsql(), "
+      : ""
 
   return [
     `import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
     ...(options.cloudflareState ? [`import { createCloudflareAgentState } from ${JSON.stringify(subpath(agentImportBase, "cloudflare"))}`] : []),
+    ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
     `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     `import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(workspaceImportBase, "runtime"))}`,
     ...hostedWorkspaceRuntime.imports,
@@ -417,6 +450,7 @@ async function generateAgentWebhookRouteHandler(
     "",
     ...generatedRuntimeHelpers(),
     ...(options.cloudflareState ? generatedCloudflareChatStateHelper() : []),
+    ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState) : []),
     "",
     `setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].filter(Boolean)))`,
     "",
@@ -438,9 +472,7 @@ async function generateAgentWebhookRouteHandler(
     "    throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
     "  }",
     "  const cloudflare = cloudflareFromEvent(event)",
-    options.cloudflareState
-      ? `  return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare${runtimeRouteOption}, state: chatStateFromCloudflare(cloudflare), waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event) })`
-      : `  return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event) })`,
+    `  return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare${runtimeRouteOption}, ${webhookStateOption}waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event) })`,
     "})",
     "",
   ].join("\n")
@@ -580,7 +612,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
 
 async function writeAgentWebhookRouteHandler(
   root: string,
-  options: { chatRoute?: false | string, cloudflareState?: boolean, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { chatRoute?: false | string, cloudflareState?: boolean, libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentWebhookRouteHandler)
   const definitions = discoverAgentDefinitions({
@@ -1012,6 +1044,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               agentImportBase: getAgentImportBase(agent),
               chatRoute: normalized.routes.chat,
               cloudflareState: shouldInstallCloudflareAgentState(normalized),
+              libsqlState: resolveLibsqlAgentState(normalized),
               ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
               workspaceImportBase: getWorkspaceImportBase(agent),
               webhookRoute: normalized.routes.webhooks,

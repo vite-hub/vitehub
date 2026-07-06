@@ -661,6 +661,44 @@ describe("agent Vite plugin", () => {
     }
   })
 
+  it("writes generated Nitro webhook handlers with sqlite state providers", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+
+    for (const provider of ["sqlite", "libsql"] as const) {
+      const root = await mkdtemp(join(tmpdir(), `vitehub-agent-${provider}-state-routes-`))
+      try {
+        await mkdir(join(root, "server", "agents"), { recursive: true })
+        await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+        const plugin = hubAgent({
+          providers: {
+            state: {
+              provider,
+              tablePrefix: "agent_state_",
+              url: "file:build-state.sqlite",
+            },
+          },
+          routes: { chat: true, webhooks: true },
+        })
+        if (typeof plugin.configResolved === "function") {
+          await plugin.configResolved.call({} as never, { command: "build", root } as never)
+        }
+
+        const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+
+        expect(webhookRoute).toContain("import { createLibsqlAgentState } from \"@vite-hub/agent/state/sqlite\"")
+        expect(webhookRoute).not.toContain("import { createCloudflareAgentState }")
+        expect(webhookRoute).toContain("const viteHubChatStateOptions = {\"tablePrefix\":\"agent_state_\",\"url\":\"file:build-state.sqlite\"}")
+        expect(webhookRoute).toContain("const viteHubChatState = createLibsqlAgentState({")
+        expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_URL")
+        expect(webhookRoute).toContain("function chatStateFromLibsql()")
+        expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, state: chatStateFromLibsql(), waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare, waitUntil: waitUntilFromEvent(event) })")
+      }
+      finally {
+        await rm(root, { force: true, recursive: true })
+      }
+    }
+  })
+
   it("lets built generated Nitro handlers detect the host runtime", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-routes-build-runtime-"))
