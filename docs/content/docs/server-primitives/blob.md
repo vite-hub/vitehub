@@ -74,7 +74,7 @@ export default defineConfig({
 | --- | --- |
 | `blob: false` | Disables Blob runtime configuration. |
 | `blob: { driver: 'fs', base?: string }` | Uses local filesystem storage. Default `base`: `.data/blob`. |
-| `blob: { driver: 'cloudflare-r2', binding?: string, bucketName?: string }` | Uses Cloudflare R2. Default `binding`: `BLOB`. |
+| `blob: { driver: 'cloudflare-r2', binding?: string, bucketName?: string }` | Uses Cloudflare R2. Default `binding`: `BLOB`. HTTP credentials can provide fallback access when no runtime binding exists. |
 | `blob: { driver: 'vercel-blob', token?, access? }` | Uses Vercel Blob. Runtime token can come from `BLOB_READ_WRITE_TOKEN`; access can be `private` or `public`. |
 | `blob: { driver: 'minio', endpoint?: string, bucket?: string, region?: string }` | Uses MinIO or S3-compatible local object storage. |
 | `blob: { stores: Record<string, BlobStoreConfig> }` | Defines named Blob Stores. `stores.default` is required. |
@@ -183,6 +183,42 @@ Blob Capability access should use narrow prefixes and explicit write policy. Use
 Store content types and metadata at write time. Avoid guessing object type later from path names.
 
 Blob stores can back Workspace Stores, but that does not make Blob an agent-facing file tree. Workspace remains the boundary for file operations, rules, snapshots, and diffs.
+
+## Cloudflare R2 bucket
+
+Cloudflare R2 Blob Stores use the configured runtime binding when it exists. `binding` defaults to `BLOB`, and `bucketName` lets ViteHub emit the matching Cloudflare R2 bucket binding in Provider Output.
+
+```ts [vite.config.ts]
+export default defineConfig({
+  blob: {
+    driver: 'cloudflare-r2',
+    binding: 'BLOB',
+    bucketName: 'assets',
+  },
+})
+```
+
+When no runtime binding exists, ViteHub falls back to R2 HTTP access through `files-sdk/r2`. Provide HTTP credentials in config or runtime env.
+
+```env [.env]
+R2_ACCOUNT_ID=account-id
+R2_ACCESS_KEY_ID=access-key-id
+R2_SECRET_ACCESS_KEY=secret-access-key
+R2_BUCKET_NAME=assets
+```
+
+| Config option | Runtime env names |
+| --- | --- |
+| `accountId` | `R2_ACCOUNT_ID`, `CLOUDFLARE_R2_ACCOUNT_ID`, `CLOUDFLARE_ACCOUNT_ID` |
+| `accessKeyId` | `R2_ACCESS_KEY_ID`, `CLOUDFLARE_R2_ACCESS_KEY_ID` |
+| `secretAccessKey` | `R2_SECRET_ACCESS_KEY`, `CLOUDFLARE_R2_SECRET_ACCESS_KEY` |
+| `bucketName` | `BLOB_BUCKET_NAME`, `CLOUDFLARE_R2_BUCKET_NAME`, `R2_BUCKET_NAME` |
+
+Install the optional R2 HTTP dependencies only when you rely on fallback access.
+
+```bash [Terminal]
+pnpm add files-sdk @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
+```
 
 ## MinIO object storage
 
