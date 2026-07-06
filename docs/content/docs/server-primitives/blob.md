@@ -198,7 +198,7 @@ export default defineConfig({
 })
 ```
 
-When no runtime binding exists, ViteHub falls back to R2 HTTP access through `files-sdk/r2`. Provide HTTP credentials in config or runtime env.
+When no runtime binding exists, ViteHub falls back to R2 HTTP access through `files-sdk/r2`. Set `accessKeyId` and `secretAccessKey` with runtime env, not `vite.config.ts`; non-secret values such as `bucketName` can stay in config.
 
 ```env [.env]
 R2_ACCOUNT_ID=account-id
@@ -207,7 +207,7 @@ R2_SECRET_ACCESS_KEY=secret-access-key
 R2_BUCKET_NAME=assets
 ```
 
-| Config option | Runtime env names |
+| Runtime value | Runtime env names |
 | --- | --- |
 | `accountId` | `R2_ACCOUNT_ID`, `CLOUDFLARE_R2_ACCOUNT_ID`, `CLOUDFLARE_ACCOUNT_ID` |
 | `accessKeyId` | `R2_ACCESS_KEY_ID`, `CLOUDFLARE_R2_ACCESS_KEY_ID` |
