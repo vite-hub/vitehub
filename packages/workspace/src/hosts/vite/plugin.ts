@@ -47,7 +47,7 @@ function vercelFunctionRuntimePackages(options: false | ResolvedWorkspaceModuleO
   const hasVercelBlobStore = (options && options.store?.provider === "vercel-blob") || hasVercelBlobWorkspaceDefinition(definitions)
   return [
     { name: WORKSPACE_PACKAGE_NAME, resolveFrom: import.meta.url },
-    ...(hasVercelBlobStore ? [{ name: "files-sdk" }, { name: "@vercel/blob" }] : []),
+    ...(hasVercelBlobStore ? [{ name: "@vercel/blob" }] : []),
   ]
 }
 
