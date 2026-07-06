@@ -3,6 +3,7 @@ import { resolve } from "node:path"
 
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 
+import { formatAgentError } from "./agent-error.ts"
 import { vercelAiGatewayPricing, type AgentUsagePricing } from "./capabilities/usage-telemetry.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
@@ -848,7 +849,8 @@ async function sendDevMessage(
       context.stderr.write("\n[aborted]\n")
       return history
     }
-    throw error
+    context.stderr.write(`${formatAgentError(error, "Agent Dev Loop request failed.")}\n`)
+    return
   }
   if (!response.ok) {
     context.stderr.write(`${await response.text()}\n`)
@@ -991,7 +993,7 @@ async function sendDevMessage(
       }
       if (event.type === "error") {
         clearPendingFallback()
-        context.stderr.write(`\n${event.error}\n`)
+        context.stderr.write(`\n${formatAgentError(event.error, "Agent Invocation Stream failed.")}\n`)
         return
       }
     }
@@ -1002,7 +1004,8 @@ async function sendDevMessage(
       context.stderr.write("\n[aborted]\n")
       return history
     }
-    throw error
+    context.stderr.write(`\n${formatAgentError(error, "Agent Invocation Stream failed.")}\n`)
+    return
   }
   clearPendingFallback()
   if (delayTextForPreview && !previewSeen && output) {
