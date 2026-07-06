@@ -2481,7 +2481,7 @@ describe("agent message protocol", () => {
 
   it("lets Channel triggers expose finish delivery effects", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
+    const { defineChannel, defineFinishEffect, reply } = await import("../src/channels.ts")
     const order: string[] = []
     const effect = vi.fn((context) => {
       order.push(`effect:${context.effect.payload}`)
@@ -2505,10 +2505,7 @@ describe("agent message protocol", () => {
             message: {
               invoke: context => ({
                 delivery: {
-                  finishEffects: event => ({
-                    kind: "reply",
-                    payload: `result:${event.result}:${(event.extensions.get("marker") as { value?: string } | undefined)?.value}`,
-                  }),
+                  finishEffects: defineFinishEffect(event => reply(`result:${event.text}:${(event.extensions.get("marker") as { value?: string } | undefined)?.value}`)),
                 },
                 input: { prompt: "hello" },
                 run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },

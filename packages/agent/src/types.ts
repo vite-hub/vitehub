@@ -183,13 +183,48 @@ export interface PublishedAgentDeliveryArtifact extends AgentDeliveryArtifact {
 
 export interface AgentChannelDeliveryEffectIntent<
   TKind extends AgentChannelDeliveryEffectKind = AgentChannelDeliveryEffectKind,
+  TPayload = AgentChannelDeliveryEffectPayload<TKind>,
 > {
   artifacts?: readonly PublishedAgentDeliveryArtifact[]
   intent?: string
   kind: TKind
   metadata?: Record<string, unknown>
-  payload?: unknown
+  payload?: TPayload
 }
+
+export interface AgentChannelDeliveryReplyPayload {
+  artifacts?: readonly PublishedAgentDeliveryArtifact[]
+  body?: string
+  markdown?: string
+}
+
+export type AgentChannelDeliveryReplyInput = string | AgentChannelDeliveryReplyPayload
+
+export interface AgentChannelDeliveryReactionPayload {
+  action?: "remove" | (string & {})
+  content?: string
+  emoji?: string
+}
+
+export type AgentChannelDeliveryReactionInput = string | AgentChannelDeliveryReactionPayload
+
+export type AgentChannelDeliveryStatusState = "error" | "failure" | "pending" | "success" | (string & {})
+
+export interface AgentChannelDeliveryStatusPayload {
+  context?: string
+  description?: string
+  sha?: string
+  state?: AgentChannelDeliveryStatusState
+  target_url?: string
+}
+
+export type AgentChannelDeliveryStatusInput = AgentChannelDeliveryStatusState | AgentChannelDeliveryStatusPayload
+
+export type AgentChannelDeliveryEffectPayload<TKind extends AgentChannelDeliveryEffectKind> =
+  TKind extends "reaction" ? AgentChannelDeliveryReactionInput
+    : TKind extends "reply" ? AgentChannelDeliveryReplyInput
+      : TKind extends "status" ? AgentChannelDeliveryStatusInput
+        : unknown
 
 export interface AgentChannelDeliveryEffectContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -209,10 +244,11 @@ export interface AgentChannelDeliveryEffectContext<
 
 export interface AgentChannelDeliveryFinishEffectContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
 > extends AgentCallbackContext<TRuntimeConfig> {
-  input: AgentRunInput
+  input: AgentRunInput<CALL_OPTIONS>
   run?: AgentRunMetadata
-  workspace?: ReadonlyWorkspaceFacade | WritableWorkspaceFacade
+  workspace?: ReadonlyWorkspaceFacade
 }
 
 export type AgentChannelDeliveryEffectHandler<
@@ -222,10 +258,19 @@ export type AgentChannelDeliveryEffectHandler<
 export type AgentChannelDeliveryEffects<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 > = Partial<Record<AgentChannelDeliveryEffectKind, AgentChannelDeliveryEffectHandler<TRuntimeConfig> | readonly AgentChannelDeliveryEffectHandler<TRuntimeConfig>[]>>
-export type AgentChannelDeliveryFinishEffect =
+export type AgentChannelDeliveryFinishEffectResult =
+  AgentChannelDeliveryEffectIntent | readonly AgentChannelDeliveryEffectIntent[] | false | null | undefined
+export type AgentChannelDeliveryFinishEffectCallback<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> = (event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, context: AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<AgentChannelDeliveryFinishEffectResult>
+export type AgentChannelDeliveryFinishEffect<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> =
   | AgentChannelDeliveryEffectIntent
   | readonly AgentChannelDeliveryEffectIntent[]
-  | ((event: AgentFinishEvent, context: AgentChannelDeliveryFinishEffectContext) => MaybePromise<AgentChannelDeliveryEffectIntent | readonly AgentChannelDeliveryEffectIntent[] | false | null | undefined>)
+  | AgentChannelDeliveryFinishEffectCallback<TRuntimeConfig, CALL_OPTIONS>
 
 export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
   delivery?: {
@@ -379,6 +424,7 @@ export interface AgentFinishEvent<
   }
   result?: unknown
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>
+  text?: string
 }
 
 export type AgentFinishHook<

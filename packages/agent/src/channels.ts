@@ -1,6 +1,7 @@
 import { createHash, createSign } from "node:crypto"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { deliveryArtifactAttachments } from "./delivery-artifacts.ts"
+import { getAgentFinishText } from "./delivery-effects.ts"
 
 import type {
   AgentCallbackContext,
@@ -29,14 +30,26 @@ import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } f
 import type { Adapter, FileUpload } from "chat"
 
 export { deliveryArtifactAttachments } from "./delivery-artifacts.ts"
+export { defineFinishEffect, getAgentFinishText, reaction, reply, status } from "./delivery-effects.ts"
+export type { AgentChannelDeliveryEffectIntentOptions } from "./delivery-effects.ts"
 export type {
   AgentChannelDeliveryEffectContext,
   AgentChannelDeliveryEffectHandler,
   AgentChannelDeliveryEffectIntent,
+  AgentChannelDeliveryEffectPayload,
   AgentChannelDeliveryEffectKind,
   AgentChannelDeliveryEffects,
   AgentChannelDeliveryFinishEffect,
+  AgentChannelDeliveryFinishEffectCallback,
+  AgentChannelDeliveryFinishEffectResult,
   AgentChannelDeliveryFinishEffectContext,
+  AgentChannelDeliveryReactionInput,
+  AgentChannelDeliveryReactionPayload,
+  AgentChannelDeliveryReplyInput,
+  AgentChannelDeliveryReplyPayload,
+  AgentChannelDeliveryStatusInput,
+  AgentChannelDeliveryStatusPayload,
+  AgentChannelDeliveryStatusState,
   AgentChannelDefinition,
   AgentChannels,
   AgentDeliveryArtifact,
@@ -977,6 +990,7 @@ function reactionContent<TRuntimeConfig extends AgentRuntimeConfig>(
 ): string {
   if (typeof context.effect.payload === "string") return context.effect.payload
   if (isRecord(context.effect.payload) && typeof context.effect.payload.content === "string") return context.effect.payload.content
+  if (isRecord(context.effect.payload) && typeof context.effect.payload.emoji === "string") return context.effect.payload.emoji
   if (context.effect.intent === "completed") return "hooray"
   if (context.effect.intent === "failed") return "confused"
   return "eyes"
@@ -1011,7 +1025,9 @@ function replyBody<TRuntimeConfig extends AgentRuntimeConfig>(
 ): string | undefined {
   if (typeof context.effect.payload === "string") return context.effect.payload
   if (isRecord(context.effect.payload) && typeof context.effect.payload.body === "string") return context.effect.payload.body
+  if (isRecord(context.effect.payload) && typeof context.effect.payload.markdown === "string") return context.effect.payload.markdown
   if (typeof context.effect.metadata?.body === "string") return context.effect.metadata.body
+  if (typeof context.effect.metadata?.markdown === "string") return context.effect.metadata.markdown
 }
 
 function replyBodyWithLinkArtifacts(body: string | undefined, artifacts: readonly PublishedAgentDeliveryArtifact[]): string | undefined {
@@ -1287,12 +1303,6 @@ async function githubBodyWithArtifacts<TRuntimeConfig extends AgentRuntimeConfig
   return rewrittenBody ? `${rewrittenBody}\n\n${explicitArtifacts.join("\n")}` : explicitArtifacts.join("\n")
 }
 
-function finishResultText(result: unknown): string | undefined {
-  if (typeof result === "string") return result
-  if (result instanceof Response) return
-  return isRecord(result) ? maybeString(result.text) : undefined
-}
-
 function finishUsageSummary(event: AgentFinishEvent): string | undefined {
   const usage = event.extensions.get("usage-telemetry")
   return maybeString(usage?.summary)
@@ -1303,7 +1313,7 @@ function githubNote(body: string): string {
 }
 
 function githubPullRequestCommentReplyEffect(event: AgentFinishEvent): AgentChannelDeliveryEffectIntent | undefined {
-  const text = finishResultText(event.result)
+  const text = getAgentFinishText(event)
   if (!text) return
   const body = text.trim() || "_No reply generated._"
   const summary = finishUsageSummary(event)
