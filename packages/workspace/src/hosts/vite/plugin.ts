@@ -13,6 +13,7 @@ import { createWorkspaceCliContributor } from "../../cli.ts"
 import { normalizeWorkspaceOptions } from "../../config.ts"
 import { normalizeWorkspaceDefinition } from "../../core/registry.ts"
 import { installHostedWorkspaceRuntime } from "../../hosted.ts"
+import { installHostedVercelBlobWorkspaceRuntime } from "../../hosted-vercel-blob.ts"
 import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenServerId } from "../../server.ts"
 
 import type { HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
@@ -295,7 +296,10 @@ function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptio
     ? [
         isVercelBlobStore
           ? "import { configureHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'"
-          : "import { configureHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'",
+          : "import { configureHostedWorkspaceRuntime, installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'",
+        isVercelBlobStore
+          ? "import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'"
+          : "import { installHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'",
         "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
       ]
     : [
@@ -304,7 +308,10 @@ function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptio
         `import { ${config ? "setWorkspaceRuntimeConfig, " : ""}setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'`,
       ]
   const runtimeSetup = hostedConfig
-    ? [`  ${isVercelBlobStore ? "configureHostedVercelBlobWorkspaceRuntime" : "configureHostedWorkspaceRuntime"}(${renderRuntimeValue({ root: hostedConfig.root, store: hostedConfig.store })})`]
+    ? [
+        `  ${isVercelBlobStore ? "configureHostedVercelBlobWorkspaceRuntime" : "configureHostedWorkspaceRuntime"}(${renderRuntimeValue({ root: hostedConfig.root, store: hostedConfig.store })})`,
+        `  ${isVercelBlobStore ? "installHostedWorkspaceRuntime" : "installHostedVercelBlobWorkspaceRuntime"}()`,
+      ]
     : [
         ...(installHostedRuntime ? ["  installHostedWorkspaceRuntime()"] : []),
         ...(installHostedRuntime ? ["  installHostedVercelBlobWorkspaceRuntime()"] : []),
@@ -487,6 +494,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     async configureServer(devServer) {
       server = devServer
       installHostedWorkspaceRuntime()
+      installHostedVercelBlobWorkspaceRuntime()
       const tokenOptions = { serverId: workspaceDevTokenServerId(devServer.config.server.port) }
       await refreshWorkspaceDevToken(devServer.config.root, tokenOptions)
       const roots = {
