@@ -84,7 +84,9 @@ function subpath(base: string, path: string): string {
 
 type NitroConfig = Record<string, unknown> & CloudflareAgentStateRollupTarget & CloudflareAgentStateTarget
 type RollupExternalFunction = (source: string, importer?: string, isResolved?: boolean) => boolean | null | undefined | void
-type GeneratedLibsqlAgentStateOptions = Pick<ResolvedAgentModuleOptions["providers"]["state"], "tablePrefix" | "url">
+type GeneratedLibsqlAgentStateOptions = Pick<ResolvedAgentModuleOptions["providers"]["state"], "tablePrefix" | "url"> & {
+  authTokenEnvName?: string
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -96,11 +98,19 @@ function shouldInstallCloudflareAgentState(options: false | ResolvedAgentModuleO
   return provider === "auto" || provider === "cloudflare" || provider === "cloudflare-agents"
 }
 
+function resolveEnvNameForValue(value: string | undefined): string | undefined {
+  if (!value) return
+  return Object.entries(process.env)
+    .find(([name, envValue]) => name && envValue === value)?.[0]
+}
+
 function resolveLibsqlAgentState(options: false | ResolvedAgentModuleOptions): GeneratedLibsqlAgentStateOptions | undefined {
   if (!options) return
-  const { provider, tablePrefix, url } = options.providers.state
+  const { authToken, provider, tablePrefix, url } = options.providers.state
   if (provider !== "sqlite" && provider !== "libsql") return
+  const authTokenEnvName = resolveEnvNameForValue(authToken)
   return {
+    ...(authTokenEnvName ? { authTokenEnvName } : {}),
     ...(tablePrefix ? { tablePrefix } : {}),
     ...(url ? { url } : {}),
   }
@@ -308,11 +318,16 @@ function generatedCloudflareChatStateHelper(): string[] {
 }
 
 function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions): string[] {
+  const { authTokenEnvName, ...stateOptions } = state
+  const configuredAuthTokenOption = authTokenEnvName
+    ? [`  ...(typeof process === 'object' && process?.env?.${authTokenEnvName} ? { authToken: process.env.${authTokenEnvName} } : {}),`]
+    : []
   return [
     "",
-    `const viteHubChatStateOptions = ${JSON.stringify(state)}`,
+    `const viteHubChatStateOptions = ${JSON.stringify(stateOptions)}`,
     "const viteHubChatState = createLibsqlAgentState({",
     "  ...viteHubChatStateOptions,",
+    ...configuredAuthTokenOption,
     "  ...(typeof process === 'object' && process?.env?.VITEHUB_AGENT_STATE_AUTH_TOKEN ? { authToken: process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN } : {}),",
     "  ...(typeof process === 'object' && process?.env?.VITEHUB_AGENT_STATE_URL ? { url: process.env.VITEHUB_AGENT_STATE_URL } : {}),",
     "})",

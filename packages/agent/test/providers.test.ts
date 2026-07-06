@@ -684,6 +684,7 @@ describe("agent Vite plugin", () => {
     for (const provider of ["sqlite", "libsql"] as const) {
       const root = await mkdtemp(join(tmpdir(), `vitehub-agent-${provider}-state-routes-`))
       try {
+        vi.stubEnv("TURSO_AUTH_TOKEN", "build-token")
         await mkdir(join(root, "server", "agents"), { recursive: true })
         await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
         const plugin = hubAgent({
@@ -708,6 +709,7 @@ describe("agent Vite plugin", () => {
         expect(webhookRoute).toContain("const viteHubChatStateOptions = {\"tablePrefix\":\"agent_state_\",\"url\":\"file:build-state.sqlite\"}")
         expect(webhookRoute).not.toContain("build-token")
         expect(webhookRoute).toContain("const viteHubChatState = createLibsqlAgentState({")
+        expect(webhookRoute).toContain("process.env.TURSO_AUTH_TOKEN")
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN")
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_URL")
         expect(webhookRoute).toContain("function chatStateFromLibsql()")
