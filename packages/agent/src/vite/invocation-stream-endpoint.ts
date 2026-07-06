@@ -499,10 +499,15 @@ function devRun(agent: string): AgentRunMetadata {
   }
 }
 
+function exposesCapabilityCli(agent: AgentInput): boolean {
+  const cli = (agent as { cli?: { capabilities?: boolean } }).cli
+  return cli?.capabilities !== false
+}
+
 function withCapabilityCliRun(agent: AgentInput, cli: string, execution: AgentCapabilityCliExecutionInput): AgentInput {
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
-  Object.defineProperty(clone, capabilityCliRunSurface, { value: true })
+  if (exposesCapabilityCli(agent)) Object.defineProperty(clone, capabilityCliRunSurface, { value: true })
   clone.run = async (context) => {
     const tool = context.tools?.[cli]
     if (!tool || tool.metadata?.vitehubCapabilityCli !== true || typeof tool.execute !== "function") {

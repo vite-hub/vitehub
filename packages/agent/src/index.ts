@@ -199,6 +199,7 @@ export type {
   AgentDeliveryArtifact,
   AgentDeliveryArtifactPlacement,
   AgentDefinition,
+  AgentDefinitionCliOptions,
   AgentDevtoolsConfigMetadata,
   AgentDevtoolsConfigValue,
   AgentDevtoolsDriverMetadata,
@@ -348,7 +349,6 @@ export type {
 } from "./chat-trigger.ts"
 
 const syntheticWorkspaceRun = Symbol.for("vitehub.syntheticWorkspaceRun")
-const capabilityCliRunSurface = Symbol.for("vitehub.capabilityCliRunSurface")
 const baseAgentResolve = Symbol("vitehub.baseAgentResolve")
 const baseAgentModel = Symbol("vitehub.baseAgentModel")
 const baseAgentDriverKind = Symbol("vitehub.baseAgentDriverKind")
@@ -791,6 +791,11 @@ function capabilityWorkspaceIsOptional(capability: NormalizedCapability): boolea
     && (metadata as { [optionalWorkspaceCapabilitySymbol]?: unknown })[optionalWorkspaceCapabilitySymbol] === true
 }
 
+function resolveCapabilityCliRunSurface(definition: Pick<AgentDefinition, "cli"> | undefined): boolean {
+  if (definition?.cli?.capabilities !== undefined) return definition.cli.capabilities !== false
+  return true
+}
+
 function sandboxCapabilityRequiresWorkspace(capability: NormalizedCapability): boolean {
   if (capability.id !== "sandbox") return false
   const metadata = capability.metadata as { commands?: unknown } | undefined
@@ -815,7 +820,7 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   const driver = normalizeAgentDriver(options)
-  const { capabilities, channels, description, hooks, messages, runtime, version, workspace } = options
+  const { capabilities, channels, cli, description, hooks, messages, runtime, version, workspace } = options
   const run = driver.kind === "run" ? driver.run : undefined
   const baseCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
@@ -855,6 +860,7 @@ function defineBaseAgent<
     [baseAgentResolve]: resolveBaseAgent,
     channels,
     chat,
+    cli,
     description,
     hooks,
     invoker,
@@ -1321,7 +1327,7 @@ async function createAgentInvocationContext<
         : undefined
     const agentModel = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
     const driverKind = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentDriverKind]
-    const resolveCapabilityCli = (definition as Record<PropertyKey, unknown> | undefined)?.[capabilityCliRunSurface] === true
+    const resolveCapabilityCli = resolveCapabilityCliRunSurface(definition)
     const capabilities = await resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
       context: invocationContext,
       driverKind,

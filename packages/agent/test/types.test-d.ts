@@ -552,6 +552,10 @@ describe("agent public types", () => {
     const _permissionModeDriver: AgentDriver = { harness: { provider: "codex" }, permissionMode: "allow-edits" }
 
     const _sandboxDriver: AgentDriver = { harness: { provider: "codex" }, sandbox: { provider: "sandbox" } }
+    defineAgent({
+      cli: { capabilities: false },
+      driver: { harness: { provider: "codex" } },
+    })
 
     defineAgent({
       driver: { harness: { provider: "codex" } },

@@ -1587,4 +1587,31 @@ describe("agent capability runtime", () => {
       vi.doUnmock("ai")
     }
   })
+
+  it("round-trips Capability CLI exposure through resolved Agent Definitions", async () => {
+    const { defineAgent, defineCapability, runAgentInline, withAgentDefaults } = await import("../src/index.ts")
+    const inventory = defineCapability({
+      cli: {
+        commands: {
+          list: {
+            run: () => [{ id: "item_1" }],
+          },
+        },
+        name: "inventory",
+      },
+      id: "inventory-runtime",
+    })
+    const exposed = withAgentDefaults(defineAgent({
+      capabilities: [inventory],
+      driver: { run: context => Object.keys(context.tools || {}) },
+    }), { inferredName: "chat" })
+    const hidden = withAgentDefaults(defineAgent({
+      capabilities: [inventory],
+      cli: { capabilities: false },
+      driver: { run: context => Object.keys(context.tools || {}) },
+    }), { inferredName: "chat" })
+
+    await expect(runAgentInline(exposed, runtime(), {}, { output: "raw" })).resolves.toEqual(["inventory"])
+    await expect(runAgentInline(hidden, runtime(), {}, { output: "raw" })).resolves.toEqual([])
+  })
 })

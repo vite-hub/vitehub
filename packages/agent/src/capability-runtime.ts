@@ -737,7 +737,7 @@ export async function resolveAgentCapabilities<
   const invocationContext = invocationOptions.context || createAgentInvocationContextStore(input.context)
   const invoker = invocationOptions.invoker || resolveInputAgentInvoker(input.context) || createFallbackAgentInvoker(runtime.run)
   const driverKind = invocationOptions.driverKind || "model"
-  const resolveCapabilityCli = driverKind !== "harness" || invocationOptions.resolveCapabilityCli === true
+  const resolveCapabilityCli = invocationOptions.resolveCapabilityCli ?? driverKind !== "harness"
   ensureAgentInvokerContext(invocationContext, invoker)
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   assertWorkspaceSourceScopesRequireAccess(invocationOptions.workspaceDefinition, capabilities)

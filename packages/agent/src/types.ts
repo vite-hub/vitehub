@@ -858,6 +858,10 @@ export type AgentDriver<
   | AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   | AgentRunDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
 
+export interface AgentDefinitionCliOptions {
+  capabilities?: boolean
+}
+
 type AgentSharedSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -867,6 +871,7 @@ type AgentSharedSettings<
 > = {
   capabilities?: TCapabilities
   channels?: AgentChannels<TRuntimeConfig>
+  cli?: AgentDefinitionCliOptions
   description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
@@ -895,6 +900,7 @@ export interface AgentDefinition<
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
   channels?: AgentChannels<TRuntimeConfig>
   chat?: AgentChatOptions<TRuntimeConfig>
+  cli?: AgentDefinitionCliOptions
   description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig, WorkspaceName> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>

@@ -135,6 +135,7 @@ openapi({
 ```
 
 Run the generated CLI through the Agent Dev Loop.
+Agents expose generated Capability CLI Contributions by default; use `defineAgent({ cli: { capabilities: false } })` to attach the OpenAPI Capability without exposing its CLI surface.
 
 ```bash [Terminal]
 pnpm vitehub agent dev --url http://localhost:3000 --agent support --cli billing -- list-customers --json
