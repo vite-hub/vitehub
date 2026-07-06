@@ -58,7 +58,7 @@ describe("Agent Invocation Stream", () => {
     }
   })
 
-  it("does not destroy Vite responses for AbortError body failures", async () => {
+  it("only treats closed-response AbortError body failures as cleanup", async () => {
     const destroy = vi.fn()
     const res = {
       destroy,
@@ -72,6 +72,29 @@ describe("Agent Invocation Stream", () => {
 
     await writeResponse(res, new Response(new ReadableStream<Uint8Array>({
       pull() {
+        throw new DOMException("aborted", "AbortError")
+      },
+    })))
+
+    expect(destroy).toHaveBeenCalledWith(expect.any(DOMException))
+    destroy.mockClear()
+
+    let close: (() => void) | undefined
+    const closedRes = {
+      destroy,
+      end: vi.fn(),
+      off: vi.fn(),
+      once: vi.fn((_event: string, callback: () => void) => {
+        close = callback
+      }),
+      setHeader: vi.fn(),
+      statusCode: 200,
+      write: vi.fn(() => true),
+    } as unknown as ServerResponse
+
+    await writeResponse(closedRes, new Response(new ReadableStream<Uint8Array>({
+      pull() {
+        close?.()
         throw new DOMException("aborted", "AbortError")
       },
     })))

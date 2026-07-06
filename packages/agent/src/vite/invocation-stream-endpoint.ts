@@ -736,8 +736,9 @@ export async function writeResponse(res: ServerResponse, response: Response): Pr
     res.end()
   }
   catch (error) {
+    const wasClosed = closed
     closed = true
-    if (isAbortError(error)) return
+    if (wasClosed && isAbortError(error)) return
     res.destroy(error instanceof Error ? error : undefined)
   }
   finally {
