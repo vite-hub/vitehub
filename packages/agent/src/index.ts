@@ -2,6 +2,7 @@ import agentRegistry from "#vitehub/agent/registry"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { cloneWithPropertyDescriptors } from "./internal/stream-result.ts"
 import { agentErrorDetails, agentErrorMessage } from "./agent-error.ts"
+import { getAgentFinishText } from "./delivery-effects.ts"
 import { getMessageText } from "./messages.ts"
 import { resolveRuntimeContext } from "@vite-hub/runtime"
 import { isAsyncIterable, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
@@ -80,8 +81,18 @@ import type {
   AgentCapabilityTypeContract,
   AgentChannelDeliveryEffectHandler,
   AgentChannelDeliveryEffectIntent,
+  AgentChannelDeliveryEffectPayload,
   AgentChannelDeliveryFinishEffect,
+  AgentChannelDeliveryFinishEffectCallback,
+  AgentChannelDeliveryFinishEffectResult,
   AgentChannelDeliveryFinishEffectContext,
+  AgentChannelDeliveryReactionInput,
+  AgentChannelDeliveryReactionPayload,
+  AgentChannelDeliveryReplyInput,
+  AgentChannelDeliveryReplyPayload,
+  AgentChannelDeliveryStatusInput,
+  AgentChannelDeliveryStatusPayload,
+  AgentChannelDeliveryStatusState,
   AgentDeliveryArtifact,
   AgentDeliveryArtifactPlacement,
   AgentDefinition,
@@ -177,9 +188,19 @@ export type {
   AgentChannelDeliveryEffectHandler,
   AgentChannelDeliveryFinishEffect,
   AgentChannelDeliveryEffectIntent,
+  AgentChannelDeliveryEffectPayload,
   AgentChannelDeliveryEffectKind,
   AgentChannelDeliveryEffects,
+  AgentChannelDeliveryFinishEffectCallback,
+  AgentChannelDeliveryFinishEffectResult,
   AgentChannelDeliveryFinishEffectContext,
+  AgentChannelDeliveryReactionInput,
+  AgentChannelDeliveryReactionPayload,
+  AgentChannelDeliveryReplyInput,
+  AgentChannelDeliveryReplyPayload,
+  AgentChannelDeliveryStatusInput,
+  AgentChannelDeliveryStatusPayload,
+  AgentChannelDeliveryStatusState,
   AgentChatAgentHookArgs,
   AgentChatErrorHookArgs,
   AgentChatEventHookArgs,
@@ -699,6 +720,7 @@ async function applyChannelDeliveryEffectIntents<
           await handler({
             ...context.runtimeContext,
             channel: active.channel,
+            context: context.context,
             effect: intent,
             ...(finish ? { finish: finish as never } : {}),
             input: context.input,
@@ -734,6 +756,8 @@ function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<voi
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
+export { defineFinishEffect, getAgentFinishText, reaction, reply, status } from "./delivery-effects.ts"
+export type { AgentChannelDeliveryEffectIntentOptions } from "./delivery-effects.ts"
 export { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "./trigger-runtime.ts"
 export type { AgentWebhookVerificationResult, ResolvedAgentTriggerHandledInvocation, ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
 export * from "./messages.ts"
@@ -1501,8 +1525,15 @@ function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream
 function resultWithStreamedText(result: unknown, text: string): unknown {
   if (!text || typeof result === "string") return result
   if (result && typeof result === "object" && !(result instanceof Response)) {
-    const current = (result as { text?: unknown }).text
-    return typeof current === "string" && current ? result : { ...result, text }
+    const descriptor = Object.getOwnPropertyDescriptor(result, "text")
+    const current = descriptor && "value" in descriptor ? descriptor.value : undefined
+    return typeof current === "string" && current ? result : cloneWithPropertyDescriptors(result, {
+      text: {
+        configurable: true,
+        enumerable: true,
+        value: text,
+      },
+    })
   }
   return { raw: result, text }
 }
@@ -1723,6 +1754,7 @@ async function resolveFinishDeliveryEffectIntents<
   const intents: AgentChannelDeliveryEffectIntent[] = []
   const finishContext = {
     ...context.runtimeContext,
+    context: context.context,
     input: context.input,
     run: context.run,
     workspace: context.workspace,
@@ -1746,6 +1778,7 @@ async function finishAgentInvocation<
   const failed = outcome.status === "error"
   const error = failed ? outcome.error : undefined
   const result = outcome.status === "success" ? outcome.result : undefined
+  const text = failed ? undefined : getAgentFinishText({ result })
   try {
     await context.close()
     if (hasFinishWork(context)) {
@@ -1762,6 +1795,7 @@ async function finishAgentInvocation<
         },
         ...(result !== undefined ? { result } : {}),
         runtime: context.runtimeContext,
+        ...(text !== undefined ? { text } : {}),
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       const extensions = await createAgentInvocationExtensions(eventBase as never, context.finishExtensionProviders)
       const finishEvent = { ...eventBase, extensions }
