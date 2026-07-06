@@ -230,6 +230,7 @@ export interface AgentChannelDeliveryEffectContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 > extends AgentCallbackContext<TRuntimeConfig> {
   channel: AgentChannelDefinition<TRuntimeConfig>
+  context: AgentInvocationContextStore
   effect: AgentChannelDeliveryEffectIntent
   finish?: AgentFinishEvent<TRuntimeConfig>
   input: AgentRunInput
@@ -246,6 +247,7 @@ export interface AgentChannelDeliveryFinishEffectContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > extends AgentCallbackContext<TRuntimeConfig> {
+  context: AgentInvocationContextStore
   input: AgentRunInput<CALL_OPTIONS>
   run?: AgentRunMetadata
   workspace?: ReadonlyWorkspaceFacade

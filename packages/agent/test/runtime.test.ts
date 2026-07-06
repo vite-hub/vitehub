@@ -2485,6 +2485,7 @@ describe("agent message protocol", () => {
     const order: string[] = []
     const effect = vi.fn((context) => {
       order.push(`effect:${context.effect.payload}`)
+      expect(context.context.get("review.context")).toEqual({ number: 42 })
       expect(context.finish?.result).toBe("ok")
       expect(context.finish?.extensions.get("marker")).toEqual({ value: "done" })
     })
@@ -2505,9 +2506,13 @@ describe("agent message protocol", () => {
             message: {
               invoke: context => ({
                 delivery: {
-                  finishEffects: defineFinishEffect(event => reply(`result:${event.text}:${(event.extensions.get("marker") as { value?: string } | undefined)?.value}`)),
+                  finishEffects: defineFinishEffect((event, finishContext) => {
+                    const reviewContext = finishContext.context.get<{ number: number }>("review.context")
+                    expect(reviewContext).toEqual({ number: 42 })
+                    return reply(`result:${event.text}:${(event.extensions.get("marker") as { value?: string } | undefined)?.value}:${reviewContext?.number}`)
+                  }),
                 },
-                input: { prompt: "hello" },
+                input: { context: { "review.context": { number: 42 } }, prompt: "hello" },
                 run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
               }),
             },
@@ -2522,7 +2527,7 @@ describe("agent message protocol", () => {
 
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
     expect(effect).toHaveBeenCalledOnce()
-    expect(order).toEqual(["run", "effect:result:ok:done"])
+    expect(order).toEqual(["run", "effect:result:ok:done:42"])
   })
 
   it("lets finish delivery effects publish Workspace artifacts", async () => {

@@ -720,6 +720,7 @@ async function applyChannelDeliveryEffectIntents<
           await handler({
             ...context.runtimeContext,
             channel: active.channel,
+            context: context.context,
             effect: intent,
             ...(finish ? { finish: finish as never } : {}),
             input: context.input,
@@ -1753,6 +1754,7 @@ async function resolveFinishDeliveryEffectIntents<
   const intents: AgentChannelDeliveryEffectIntent[] = []
   const finishContext = {
     ...context.runtimeContext,
+    context: context.context,
     input: context.input,
     run: context.run,
     workspace: context.workspace,

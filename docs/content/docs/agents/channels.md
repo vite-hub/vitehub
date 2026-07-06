@@ -186,6 +186,8 @@ export default defineAgent({
 
 GitHub comments and reviews need hosted markdown URLs instead of channel-native file uploads. The GitHub channel publishes workspace image paths that appear in reply or review bodies, then rewrites those paths to hosted raw URLs. Use `publishWorkspaceArtifacts()` from `@vite-hub/agent/channels` inside a finish effect when explicit GitHub artifacts need public URLs before delivery.
 
+Finish effects receive the final output event plus `context.workspace`, `context.run`, and `context.context` so app-side delivery code can read Workspace files and typed Agent Invocation Context values without re-parsing the stream.
+
 ```ts [server/agents/review.ts]
 import { defineAgent } from '@vite-hub/agent'
 import { defineFinishEffect, github, publishWorkspaceArtifacts, reply } from '@vite-hub/agent/channels'
