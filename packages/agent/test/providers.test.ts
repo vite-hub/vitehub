@@ -218,12 +218,24 @@ describe("agent Vite plugin", () => {
       delete process.env.NETLIFY
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-      const plugin = hubAgent({ routes: { chat: true, discordGateway: true, webhooks: "api/hooks/[webhook]" } })
-      const configResolved = plugin.configResolved as (config: { build?: { outDir?: string }, command: "build", resolve: { alias: Array<{ find: string, replacement: string }> }, root: string }) => Promise<void>
+      const agentOptions = {
+        providers: {
+          state: {
+            authToken: "build-token",
+            provider: "libsql",
+            tablePrefix: "agent_state_",
+            url: "file:build-state.sqlite",
+          },
+        },
+        routes: { chat: true, discordGateway: true, webhooks: "api/hooks/[webhook]" },
+      }
+      const plugin = hubAgent(agentOptions)
+      const configResolved = plugin.configResolved as (config: { agent?: unknown, build?: { outDir?: string }, command: "build", resolve: { alias: Array<{ find: string, replacement: string }> }, root: string }) => Promise<void>
       const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
 
       await configResolved({
+        agent: agentOptions,
         build: { outDir: "dist/client" },
         command: "build",
         resolve: { alias: [{ find: "#support", replacement: join(root, "support.ts") }] },
@@ -245,6 +257,11 @@ describe("agent Vite plugin", () => {
       expect(wrapper).toContain("VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL")
       expect(wrapper).toContain("const webhookRoute = \"/api/hooks/:webhook\"")
       expect(wrapper).toContain("routePath(webhookRoute, { agent, webhook })")
+      expect(wrapper).toContain("import { createLibsqlAgentState } from \"@vite-hub/agent/state/sqlite\"")
+      expect(wrapper).toContain("const viteHubChatStateOptions = {\"tablePrefix\":\"agent_state_\",\"url\":\"file:build-state.sqlite\"}")
+      expect(wrapper).not.toContain("build-token")
+      expect(wrapper).toContain("function chatStateFromLibsql()")
+      expect(wrapper).toContain("handler(request, webhook, { agentName: agent, state: chatStateFromLibsql(), waitUntil })")
       expect(wrapper).not.toContain("runtime: 'vite'")
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith({
         clientOutDir: "dist/client",
@@ -655,6 +672,80 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("const webhookRoutePattern")
       expect(webhookRoute).toContain("const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)")
       expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("writes generated Nitro webhook handlers with sqlite state providers", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+
+    for (const provider of ["sqlite", "libsql"] as const) {
+      const root = await mkdtemp(join(tmpdir(), `vitehub-agent-${provider}-state-routes-`))
+      try {
+        vi.stubEnv("TURSO-AUTH-TOKEN", "build-token-with-hyphen-env")
+        await mkdir(join(root, "server", "agents"), { recursive: true })
+        await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+        const plugin = hubAgent({
+          providers: {
+            state: {
+              authToken: "build-token-with-hyphen-env",
+              provider,
+              tablePrefix: "agent_state_",
+              url: "file:build-state.sqlite",
+            },
+          },
+          routes: { chat: true, webhooks: true },
+        })
+        if (typeof plugin.configResolved === "function") {
+          await plugin.configResolved.call({} as never, { command: "build", root } as never)
+        }
+
+        const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+
+        expect(webhookRoute).toContain("import { createLibsqlAgentState } from \"@vite-hub/agent/state/sqlite\"")
+        expect(webhookRoute).not.toContain("import { createCloudflareAgentState }")
+        expect(webhookRoute).toContain("const viteHubChatStateOptions = {\"tablePrefix\":\"agent_state_\",\"url\":\"file:build-state.sqlite\"}")
+        expect(webhookRoute).not.toContain("build-token-with-hyphen-env")
+        expect(webhookRoute).toContain("const viteHubChatState = createLibsqlAgentState({")
+        expect(webhookRoute).toContain("process.env[\"TURSO-AUTH-TOKEN\"]")
+        expect(webhookRoute).not.toContain("process.env.TURSO-AUTH-TOKEN")
+        expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN")
+        expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_URL")
+        expect(webhookRoute).toContain("function chatStateFromLibsql()")
+        expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, state: chatStateFromLibsql(), waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare, waitUntil: waitUntilFromEvent(event) })")
+      }
+      finally {
+        await rm(root, { force: true, recursive: true })
+      }
+    }
+  })
+
+  it("does not emit sqlite state helpers for chat-only generated routes", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-chat-only-state-routes-"))
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      const plugin = hubAgent({
+        providers: {
+          state: {
+            provider: "libsql",
+            url: "file:build-state.sqlite",
+          },
+        },
+        routes: { chat: true, webhooks: false },
+      })
+      if (typeof plugin.configResolved === "function") {
+        await plugin.configResolved.call({} as never, { command: "build", root } as never)
+      }
+
+      const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+
+      expect(webhookRoute).not.toContain("import { createLibsqlAgentState }")
+      expect(webhookRoute).not.toContain("const viteHubChatStateOptions")
+      expect(webhookRoute).not.toContain("function chatStateFromLibsql()")
     }
     finally {
       await rm(root, { force: true, recursive: true })
