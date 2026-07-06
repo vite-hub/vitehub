@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
 import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
@@ -36,10 +36,18 @@ const generatedNitroWorkspaceRegistry = ".vitehub/nitro/workspace/registry.js"
 const mergeNoExternal = createNoExternalMerger(WORKSPACE_PACKAGE_NAME)
 const workspacesDirSegment = /[\\/](?:server[\\/])?workspaces(?:[\\/]|$)/
 
-function vercelFunctionRuntimePackages(options: false | ResolvedWorkspaceModuleOptions) {
+function hasVercelBlobWorkspaceDefinition(definitions: DiscoveredWorkspaceDefinition[]): boolean {
+  return definitions.some((definition) => {
+    if (!definition.source) return false
+    return /\bprovider\s*:\s*["']vercel-blob["']/.test(definition.source)
+  })
+}
+
+function vercelFunctionRuntimePackages(options: false | ResolvedWorkspaceModuleOptions, definitions: DiscoveredWorkspaceDefinition[] = []) {
+  const hasVercelBlobStore = (options && options.store?.provider === "vercel-blob") || hasVercelBlobWorkspaceDefinition(definitions)
   return [
     { name: WORKSPACE_PACKAGE_NAME, resolveFrom: import.meta.url },
-    ...(options && options.store?.provider === "vercel-blob" ? [{ name: "files-sdk" }, { name: "@vercel/blob" }] : []),
+    ...(hasVercelBlobStore ? [{ name: "files-sdk" }, { name: "@vercel/blob" }] : []),
   ]
 }
 
@@ -485,9 +493,17 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       order: "post",
       async handler() {
         if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        const roots = {
+          projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
+          viteRoot: viteRoot || resolve(resolved.root),
+        }
+        const definitions = discoverDefinitions(roots)
+        await Promise.all(definitions.map(async (definition) => {
+          definition.source = await readFile(definition.path, "utf8")
+        }))
         await copyVercelFunctionRuntimePackages({
-          packages: vercelFunctionRuntimePackages(resolvedOptions),
-          rootDir: projectRoot || resolveViteHubProjectRoot(resolved.root),
+          packages: vercelFunctionRuntimePackages(resolvedOptions, definitions),
+          rootDir: roots.projectRoot,
         })
       },
     },
