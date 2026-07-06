@@ -31,6 +31,9 @@ type BlobListResult = {
   cursor?: string
 }
 
+const filesSdkImport = "files-sdk"
+const vercelBlobImport = "files-sdk/vercel-blob"
+
 function joinBlobPath(...parts: string[]) {
   return parts.map(part => normalizeWorkspacePath(part)).filter(Boolean).join("/")
 }
@@ -43,8 +46,8 @@ function contentType(path: string, fallback?: string) {
 
 async function createVercelFiles(options: VercelBlobWorkspaceStoreOptions) {
   const [{ Files }, { vercelBlob }] = await Promise.all([
-    import("files-sdk").catch(error => handleFilesSdkImportError(error)),
-    import("files-sdk/vercel-blob").catch(error => handleFilesSdkImportError(error)),
+    import(filesSdkImport).catch(error => handleFilesSdkImportError(error)),
+    import(vercelBlobImport).catch(error => handleFilesSdkImportError(error)),
   ])
   return new Files({
     adapter: vercelBlob({
