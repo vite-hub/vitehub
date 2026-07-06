@@ -224,6 +224,25 @@ describe("Vite provider outputs", () => {
     ])
   })
 
+  it("externalizes optional R2 HTTP peers from Cloudflare provider output", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-cloudflare-r2-externals-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
+
+    const { providerOutput } = await prepareProviderOutputs({
+      blob: { driver: "cloudflare-r2", bucketName: "assets" },
+      provider: "cloudflare",
+      rootDir,
+    })
+
+    expect(providerOutput.cloudflare?.bundleOptions.external).toEqual(expect.arrayContaining([
+      "@aws-sdk/client-s3",
+      "@aws-sdk/s3-presigned-post",
+      "@aws-sdk/s3-request-presigner",
+      "files-sdk/r2",
+    ]))
+  })
+
   it("skips provider output for local fs stores", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-local-fs-")
     await mkdir(join(rootDir, "src"), { recursive: true })
