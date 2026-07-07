@@ -109,7 +109,8 @@ describe("workspace CLI", () => {
       }, { fetch: fetchWorkspaceDev as never })
 
       expect(exitCode).toBe(0)
-      expect(stderr.output()).toBe("[vitehub] Workspace command started; first run may materialize sources.\n")
+      expect(stderr.output()).toContain("[workspace] command started; first run may materialize sources.\n")
+      expect(stderr.output()).toContain("[workspace] command completed")
       expect(stdout.output()).toBe("ok\n")
       const [get, post] = fetchWorkspaceDev.mock.calls
       expect(String(get?.[0])).toBe("http://127.0.0.1:4321/__vitehub/workspace/dev")

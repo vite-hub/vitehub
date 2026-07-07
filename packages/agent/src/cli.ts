@@ -80,8 +80,8 @@ interface WorkspaceCommandInput {
 }
 
 const workspaceCommandFeedbackIntervalMs = 15_000
-const workspaceCommandStartedMessage = "[vitehub] Workspace command started; first run may materialize sources.\n"
-const workspaceCommandWaitingMessage = "[vitehub] Workspace command still running; sources may still be materializing.\n"
+const workspaceCommandStartedMessage = "[workspace] command started; first run may materialize sources.\n"
+const workspaceCommandWaitingMessage = "[workspace] command still running; sources may still be materializing.\n"
 
 function startWorkspaceCommandFeedback(context: AgentCliContext): () => void {
   context.stderr.write(workspaceCommandStartedMessage)
@@ -252,6 +252,12 @@ function thinkingFallback(metadata: Record<string, unknown> | undefined): string
 
 function usageNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : undefined
+}
+
+function formatDurationMs(durationMs: unknown): string | undefined {
+  const finite = usageNumber(durationMs)
+  if (finite === undefined) return
+  return finite < 1000 ? `${finite}ms` : `${(finite / 1000).toFixed(1)}s`
 }
 
 function formatUsageNumber(value: number): string {
@@ -433,7 +439,12 @@ function toolHeader(name: string, input?: unknown, output?: unknown): string {
   return `[tool] ${name}${formattedInput ? ` ${formattedInput}` : ""}`
 }
 
-function writeShellOutput(context: AgentCliContext, output: unknown, error: unknown): boolean {
+function writeToolDuration(context: AgentCliContext, durationMs: unknown): void {
+  const duration = formatDurationMs(durationMs)
+  if (duration) context.stderr.write(`  duration: ${duration}\n`)
+}
+
+function writeShellOutput(context: AgentCliContext, output: unknown, error: unknown, durationMs?: number): boolean {
   if (!isRecord(output)) return false
   const stdout = typeof output.stdout === "string" && output.stdout ? output.stdout : undefined
   const stderr = typeof output.stderr === "string" && output.stderr ? output.stderr : undefined
@@ -441,16 +452,29 @@ function writeShellOutput(context: AgentCliContext, output: unknown, error: unkn
   if (stdout) writeDevText(context, stdout)
   if (stderr) writeDevPayload(context, "stderr", stderr)
   writeDevPayload(context, "error", error)
+  writeToolDuration(context, durationMs)
   context.stderr.write("---\n")
   return true
 }
 
-function writeToolTextOutput(context: AgentCliContext, output: unknown): boolean {
+function writeToolTextOutput(context: AgentCliContext, output: unknown, durationMs?: number): boolean {
   const text = toolTextOutput(output)
   if (!text) return false
   writeDevText(context, text)
+  writeToolDuration(context, durationMs)
   context.stderr.write("---\n")
   return true
+}
+
+function progressTag(phase: string): string {
+  return phase.startsWith("workspace.") ? "workspace" : "internal"
+}
+
+function writeProgress(context: AgentCliContext, event: { data?: Record<string, unknown>, durationMs?: number, label?: string, phase: string, status: "completed" | "failed" | "started" }): void {
+  const duration = formatDurationMs(event.durationMs)
+  const status = event.status === "started" ? "" : ` ${event.status}`
+  context.stderr.write(`\n[${progressTag(event.phase)}] ${event.label || event.phase}${status}${duration ? ` (${duration})` : ""}\n`)
+  if (event.status === "failed") writeDevPayload(context, "error", event.data?.error)
 }
 
 function readOptionValue(args: string[], index: number, flag: string): string {
@@ -863,6 +887,7 @@ async function sendDevMessage(
   let previewSeen = false
   const visibleTools = new Set<string>()
   const visibleToolInputs = new Map<string, string | undefined>()
+  const visibleToolStarts = new Map<string, number>()
   const writeUsageNote = () => {
     if (previewSeen) return
     if (!lastUsageRecord || wroteUsageNote) return
@@ -911,6 +936,7 @@ async function sendDevMessage(
       if (event.type === "tool-call" || event.type === "tool-input-start") {
         clearPendingFallback()
         if (event.type === "tool-input-start" && event.input === undefined) continue
+        visibleToolStarts.set(event.id, visibleToolStarts.get(event.id) ?? Date.now())
         if (!visibleTools.has(event.id)) {
           visibleTools.add(event.id)
           visibleToolInputs.set(event.id, toolCommand(event.name, event.input) ?? formatDevPayload(event.input))
@@ -935,15 +961,24 @@ async function sendDevMessage(
       }
       if (event.type === "tool-result") {
         clearPendingFallback()
+        const startedAt = visibleToolStarts.get(event.id)
+        const durationMs = usageNumber(event.durationMs) ?? (startedAt === undefined ? undefined : Date.now() - startedAt)
         if (!visibleTools.has(event.id)) {
           visibleTools.add(event.id)
           context.stderr.write(`\n${toolHeader(event.name, undefined, event.output)}\n`)
         }
         visibleToolInputs.delete(event.id)
-        if (!writeShellOutput(context, event.output, event.error) && !writeToolTextOutput(context, event.output)) {
+        visibleToolStarts.delete(event.id)
+        if (!writeShellOutput(context, event.output, event.error, durationMs) && !writeToolTextOutput(context, event.output, durationMs)) {
           writeDevPayload(context, "output", event.output)
           writeDevPayload(context, "error", event.error)
+          writeToolDuration(context, durationMs)
         }
+        continue
+      }
+      if (event.type === "progress") {
+        clearPendingFallback()
+        writeProgress(context, event)
         continue
       }
       if (event.type === "usage") {
@@ -1049,6 +1084,7 @@ async function sendDevWorkspaceCommand(
     context.stderr.write("No private Agent Dev Loop command token found. Start the Compatible Vite Development Server first.\n")
     return 1
   }
+  const startedAt = Date.now()
   const stopFeedback = startWorkspaceCommandFeedback(context)
   try {
     const response = await fetchImpl(url, {
@@ -1077,6 +1113,7 @@ async function sendDevWorkspaceCommand(
     const result = await response.json().catch(() => ({})) as { exitCode?: unknown, stderr?: unknown, stdout?: unknown }
     if (typeof result.stdout === "string") context.stdout.write(result.stdout)
     if (typeof result.stderr === "string" && result.stderr) context.stderr.write(result.stderr)
+    context.stderr.write(`[workspace] command completed (${formatDurationMs(Date.now() - startedAt)})\n`)
     return typeof result.exitCode === "number" ? result.exitCode : 0
   }
   catch (error) {

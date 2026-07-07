@@ -92,7 +92,8 @@ describe("agent output helpers", () => {
       name: "confirm",
       type: "tool-call",
     })
-    expect(toAgentStreamEvent({ output: 0, toolCallId: "call-1", type: "tool-output-available" }, toolNames)).toEqual({
+    expect(toAgentStreamEvent({ duration: 42, output: 0, toolCallId: "call-1", type: "tool-output-available" }, toolNames)).toEqual({
+      durationMs: 42,
       error: undefined,
       id: "call-1",
       name: "confirm",

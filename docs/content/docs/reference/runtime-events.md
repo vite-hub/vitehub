@@ -55,12 +55,13 @@ An Approval Request is created only when policy requires external approval.
 ## Agent stream events
 
 Agent stream output is package-owned Agent behavior.
-The current event stream includes text deltas, data parts, tool input and result events, approval events, errors, finish events, and usage events.
+The current event stream includes text deltas, data parts, tool input and result events, progress events, approval events, errors, finish events, and usage events.
 
 | Event family | Use |
 | --- | --- |
 | `text-delta` | Stream assistant text. |
-| `tool-call` and `tool-result` | Represent model-facing tool execution. |
+| `tool-call` and `tool-result` | Represent model-facing tool execution. `tool-result.durationMs` can report elapsed tool time. |
+| `progress` | Represent non-tool runtime progress such as `workspace.prepare`. |
 | `approval-request` and `approval-decision` | Represent approval-shaped tool policy. |
 | `error` | Represent recoverable or terminal stream errors. |
 | `finish` | Mark completion. |

@@ -114,7 +114,7 @@ export type StreamEvent =
   | { id?: string, messageId?: string, role?: MessageRole, text: string, type: "text-delta" }
   | { data: unknown, id?: string, messageId?: string, type: "data" }
   | { id: string, input?: unknown, messageId?: string, name: string, type: "tool-call" | "tool-input-start" }
-  | { error?: string, id: string, messageId?: string, name: string, output?: unknown, type: "tool-result" }
+  | { durationMs?: number, error?: string, id: string, messageId?: string, name: string, output?: unknown, type: "tool-result" }
   | { id: string, input?: unknown, messageId?: string, name: string, reason?: string, type: "approval-request" }
   | { approved: boolean, decidedAt?: Date | string, id: string, messageId?: string, reason?: string, type: "approval-decision" }
   | { error: string, id?: string, messageId?: string, recoverable?: boolean, type: "error" }

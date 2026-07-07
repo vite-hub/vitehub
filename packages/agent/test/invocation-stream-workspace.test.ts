@@ -731,6 +731,8 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
 
     expect(events).toEqual([
       expect.objectContaining({ agent: "review", trigger: "github.webhook", type: "start" }),
+      expect.objectContaining({ id: "workspace.prepare:review", phase: "workspace.prepare", status: "started", type: "progress" }),
+      expect.objectContaining({ durationMs: expect.any(Number), id: "workspace.prepare:review", phase: "workspace.prepare", status: "completed", type: "progress" }),
       { error: "Agent Invocation Stream timed out after 100ms.", type: "error" },
       { type: "done" },
     ])
@@ -813,6 +815,8 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
 
     expect(events).toEqual([
       expect.objectContaining({ agent: "chat", trigger: "chat.message", type: "start" }),
+      expect.objectContaining({ id: "workspace.prepare:chat", phase: "workspace.prepare", status: "started", type: "progress" }),
+      expect.objectContaining({ durationMs: expect.any(Number), id: "workspace.prepare:chat", phase: "workspace.prepare", status: "completed", type: "progress" }),
       { text: "kiwi-714", type: "text-delta" },
       { type: "finish" },
       { type: "done" },
@@ -883,6 +887,8 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
 
     expect(events).toEqual([
       expect.objectContaining({ agent: "review", trigger: "github.webhook", type: "start" }),
+      expect.objectContaining({ id: "workspace.prepare:review", phase: "workspace.prepare", status: "started", type: "progress" }),
+      expect.objectContaining({ durationMs: expect.any(Number), id: "workspace.prepare:review", phase: "workspace.prepare", status: "completed", type: "progress" }),
       { text: "Review completed.", type: "text-delta" },
       { type: "finish" },
       { type: "done" },

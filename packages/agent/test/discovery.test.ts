@@ -1547,6 +1547,8 @@ describe("agent chat capability discovery", () => {
 
       expect(events).toEqual([
         expect.objectContaining({ agent: "review", type: "start" }),
+        expect.objectContaining({ id: "workspace.prepare:summary", phase: "workspace.prepare", status: "started", type: "progress" }),
+        expect.objectContaining({ durationMs: expect.any(Number), id: "workspace.prepare:summary", phase: "workspace.prepare", status: "completed", type: "progress" }),
         { text: "ok", type: "text-delta" },
         { type: "finish" },
         { type: "done" },

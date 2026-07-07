@@ -183,6 +183,10 @@ function optionalMessageId(messageId: string | undefined): { messageId?: string 
   return messageId ? { messageId } : {}
 }
 
+function optionalDurationMs(durationMs: number | undefined): { durationMs?: number } {
+  return durationMs === undefined ? {} : { durationMs }
+}
+
 export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, string>): StreamEvent | undefined {
   if (typeof chunk === "string") {
     return { text: chunk, type: "text-delta" }
@@ -214,7 +218,7 @@ export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, strin
   }
   if (type === "tool-result" || type === "tool-output-available") {
     const id = String(value.toolCallId ?? value.id)
-    return { error: typeof value.error === "string" ? value.error : undefined, id, ...optionalMessageId(messageId), name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
+    return { ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error: typeof value.error === "string" ? value.error : undefined, id, ...optionalMessageId(messageId), name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
   }
   if (type === "tool-error" || type === "tool-output-error") {
     const id = String(value.toolCallId ?? value.id)
@@ -223,7 +227,7 @@ export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, strin
       : typeof value.errorText === "string"
         ? value.errorText
         : String(value.error || "Unknown tool error")
-    return { error, id, ...optionalMessageId(messageId), name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
+    return { ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error, id, ...optionalMessageId(messageId), name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
   }
   if (type === "approval-request") {
     return { id: String(value.id), input: value.input, ...optionalMessageId(messageId), name: String(value.name || "approval"), reason: typeof value.reason === "string" ? value.reason : undefined, type: "approval-request" }
