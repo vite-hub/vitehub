@@ -2025,18 +2025,15 @@ describe("defineAgent workspace option", () => {
 
     const scopedWorkspace = prepareHarnessWorkspaceSession.mock.calls[0]?.[0] as Record<string, unknown>
     expect(scopedWorkspace.startSession).toBeTypeOf("function")
-    const overlay = {
+    const forgedReceiver = {
       fs: {
-        exists: vi.fn(async (path: string) => path === "pull-request-context/context.md"),
+        exists: vi.fn(async () => true),
       },
     }
-    await expect((scopedWorkspace.startSession as (this: typeof overlay, options?: { paths?: string[] }) => Promise<unknown>).call(overlay, {
-      paths: ["pull-request-context/context.md"],
-    })).resolves.toBeDefined()
-    await expect((scopedWorkspace.startSession as (this: typeof overlay, options?: { paths?: string[] }) => Promise<unknown>).call(overlay, {
+    await expect((scopedWorkspace.startSession as (this: typeof forgedReceiver, options?: { paths?: string[] }) => Promise<unknown>).call(forgedReceiver, {
       paths: ["private/secret.md"],
     })).rejects.toThrow("Workspace path does not exist")
-    expect(startSession).toHaveBeenCalledWith({ paths: ["pull-request-context/context.md"] })
+    expect(forgedReceiver.fs.exists).not.toHaveBeenCalled()
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],

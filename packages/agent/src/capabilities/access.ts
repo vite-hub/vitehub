@@ -859,10 +859,10 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
     tools,
   }
   if (facadeStarter) {
-    facade.startSession = async function (this: { fs?: ReadonlyWorkspaceFacade["fs"] } | void, options?: WorkspaceSessionOptions) {
+    facade.startSession = async (options?: WorkspaceSessionOptions) => {
       return await facadeStarter.startSession({
         ...options,
-        paths: await scopedSessionPaths(scope, options?.paths, this?.fs),
+        paths: await scopedSessionPaths(scope, options?.paths, fs),
       })
     }
   }
