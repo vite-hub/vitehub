@@ -78,6 +78,13 @@ describe("git capability", () => {
   it("normalizes common git tool input shapes", async () => {
     const { session, tools } = await capabilityTools()
 
+    expect(tools.git_read!.inputSchema).toMatchObject({
+      anyOf: [
+        { required: ["command"] },
+        { required: ["cmd"] },
+        { required: ["args"] },
+      ],
+    })
     await expect(tools.git_read!.execute?.("status --short")).resolves.toMatchObject({
       args: ["status", "--short"],
       command: "git status --short",

@@ -528,6 +528,11 @@ function gitTools(
 function gitInputSchema(commandDescription: string) {
   return {
     additionalProperties: false,
+    anyOf: [
+      { required: ["command"] },
+      { required: ["cmd"] },
+      { required: ["args"] },
+    ],
     properties: {
       command: { description: commandDescription, type: "string" },
       cmd: { description: "Alias for command.", type: "string" },
