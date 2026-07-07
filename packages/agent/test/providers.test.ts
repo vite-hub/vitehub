@@ -2920,6 +2920,7 @@ describe("server helpers", () => {
       },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntilTasks: Promise<unknown>[] = []
     const payload = {
       action: "created",
       comment: { body: "/review", id: 12 },
@@ -2939,10 +2940,12 @@ describe("server helpers", () => {
       method: "POST",
     })
 
-    const response = await handler(request(githubSignature("secret-token", body)))
+    const response = await handler(request(githubSignature("secret-token", body)), undefined, {
+      waitUntil: task => waitUntilTasks.push(task),
+    })
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({ text: "accepted" })
+    await expect(response.json()).resolves.toEqual({ accepted: true, ok: true })
     expect(triggerInputs).toHaveLength(1)
     expect(triggerInputs[0]).toMatchObject({
       github: {
@@ -2963,6 +2966,7 @@ describe("server helpers", () => {
         provider: "github",
       },
     })
+    await Promise.all(waitUntilTasks)
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       run: expect.objectContaining({
         channelId: "github",
@@ -3013,6 +3017,7 @@ describe("server helpers", () => {
       },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntilTasks: Promise<unknown>[] = []
     const body = JSON.stringify({ action: "opened" })
     const response = await handler(new Request("https://example.com/api/github/webhook", {
       body,
@@ -3023,10 +3028,71 @@ describe("server helpers", () => {
         "x-hub-signature-256": githubSignature("secret-token", body),
       },
       method: "POST",
-    }), "")
+    }), "", { waitUntil: task => waitUntilTasks.push(task) })
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toBe("accepted")
+    await expect(response.json()).resolves.toEqual({ accepted: true, ok: true })
+    await Promise.all(waitUntilTasks)
+    expect(run).toHaveBeenCalledOnce()
+  })
+
+  it("acks slow GitHub channel webhooks before the background run completes", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    let releaseRun!: () => void
+    let completed = false
+    const runFinished = new Promise<void>(resolve => {
+      releaseRun = resolve
+    })
+    const run = vi.fn(async () => {
+      await runFinished
+      completed = true
+      return "accepted"
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({ input: { prompt: "github delivery" } }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: {
+        run
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntilTasks: Promise<unknown>[] = []
+    const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/github", {
+      body: JSON.stringify({ action: "opened" }),
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-slow",
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    }), "github", { waitUntil: task => waitUntilTasks.push(task) })
+    const response = await Promise.race([
+      responsePromise,
+      new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 25)),
+    ])
+
+    if (response === "blocked") {
+      releaseRun()
+      await responsePromise
+      throw new Error("GitHub webhook response waited for background run completion.")
+    }
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ accepted: true, ok: true })
+    expect(completed).toBe(false)
+
+    releaseRun()
+    await Promise.all(waitUntilTasks)
+    expect(completed).toBe(true)
     expect(run).toHaveBeenCalledOnce()
   })
 
@@ -3057,6 +3123,7 @@ describe("server helpers", () => {
       },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntilTasks: Promise<unknown>[] = []
     const body = JSON.stringify({ action: "opened" })
     const response = await handler(new Request("https://example.com/api/github/webhook", {
       body,
@@ -3067,10 +3134,11 @@ describe("server helpers", () => {
         "x-hub-signature-256": githubSignature("secret-token", body),
       },
       method: "POST",
-    }), "")
+    }), "", { waitUntil: task => waitUntilTasks.push(task) })
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({})
+    await expect(response.json()).resolves.toEqual({ accepted: true, ok: true })
+    await Promise.all(waitUntilTasks)
     expect(flushed).toBe(true)
     expect(run).toHaveBeenCalledOnce()
   })
@@ -3109,6 +3177,7 @@ describe("server helpers", () => {
       runtime: workflow("support-agent"),
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntilTasks: Promise<unknown>[] = []
     const body = JSON.stringify({ action: "opened" })
     setWorkflowRuntimeConfig({ provider: "vercel" })
 
@@ -3122,7 +3191,7 @@ describe("server helpers", () => {
           "x-hub-signature-256": githubSignature("secret-token", body),
         },
         method: "POST",
-      }), "")
+      }), "", { waitUntil: task => waitUntilTasks.push(task) })
       const response = await Promise.race([
         responsePromise,
         new Promise<"blocked">(resolve => setTimeout(() => resolve("blocked"), 25)),
@@ -3137,12 +3206,8 @@ describe("server helpers", () => {
       const json = await response.json()
 
       expect(response.status).toBe(200)
-      expect(json).toMatchObject({
-        id: "github:delivery-workflow",
-        provider: "vercel",
-        status: "queued",
-      })
-      expect(json).not.toHaveProperty("payload")
+      expect(json).toEqual({ accepted: true, ok: true })
+      await Promise.all(waitUntilTasks)
       releaseRun()
       await vi.waitFor(async () => {
         await expect(getWorkflowRun("support-agent", "github:delivery-workflow")).resolves.toMatchObject({
