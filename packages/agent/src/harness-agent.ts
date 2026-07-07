@@ -57,6 +57,7 @@ type HarnessInstructionSandbox = {
 
 type HarnessAgentConstructor = new (settings: Record<string, unknown>) => HarnessAgentLike
 const harnessResumeStates = new WeakMap<object, Map<string, unknown>>()
+const harnessGeneratedFiles = ["harness-tool.mjs"] as const
 const harnessInstructionFiles = ["AGENTS.md", "CLAUDE.md"] as const
 
 interface HarnessAgentAdapterOptions<
@@ -684,7 +685,7 @@ export function createHarnessAgentAdapter<
       workspaceSession = await prepareHarnessWorkspaceSession(context.workspace, {
         abortSignal,
         ...(hasWorkspaceCommitRules(commitDefinition) ? { definition: commitDefinition } : {}),
-        ignoreWriteBackPaths: harnessInstructions ? harnessInstructionFiles : [],
+        ignoreWriteBackPaths: [...harnessGeneratedFiles, ...(harnessInstructions ? harnessInstructionFiles : [])],
         paths: selectedWorkspaceScopePaths(context, commitDefinition),
         session: session as never,
         sessionWorkDir,
