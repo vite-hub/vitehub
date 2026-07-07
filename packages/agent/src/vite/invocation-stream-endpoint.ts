@@ -158,7 +158,15 @@ function withDeliveryPreviewChannels(
     }]))
     return [channelId, { ...channel, effects }]
   }))
-  return { ...agent, channels } as AgentInput<ViteAgentDevRuntimeContext>
+  const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput<ViteAgentDevRuntimeContext>
+  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
+  Object.defineProperty(clone, "channels", {
+    configurable: true,
+    enumerable: true,
+    value: channels,
+    writable: true,
+  })
+  return clone
 }
 
 function formatCliDeliveryPreview(event: Extract<AgentInvocationStreamEvent, { type: "delivery-preview" }>): string {

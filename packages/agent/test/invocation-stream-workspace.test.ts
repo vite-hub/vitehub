@@ -760,6 +760,82 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     ]))
   })
 
+  it("keeps harness driver metadata when wrapping channel streams for delivery previews", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-stream-harness-preview-metadata-"))
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
+
+    harnessStreamResult.mockReturnValueOnce({
+      fullStream: (async function* () {
+        yield { text: "Scoped review completed.", type: "text-delta" }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const { access } = await import("../src/capabilities.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "changed",
+            scopes: {
+              changed: { paths: ["public"] },
+            },
+          },
+        }),
+      ],
+      channels: {
+        github: defineChannel("github", {
+          effects: { reaction: () => {} },
+          messages: false,
+          triggers: {
+            webhook: {
+              invoke: (context, input) => ({
+                input,
+                run: { channelId: context.trigger.channelId, origin: "github-pull-request-comment", runId: "github-run" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: { mode: "write" },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "review",
+      payload: { prompt: "review" },
+      trigger: "github.webhook",
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+    const events = response.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+
+    expect(events).toEqual([
+      expect.objectContaining({ agent: "review", trigger: "github.webhook", type: "start" }),
+      expect.objectContaining({ id: "workspace.prepare:review", phase: "workspace.prepare", status: "started", type: "progress" }),
+      expect.objectContaining({ durationMs: expect.any(Number), id: "workspace.prepare:review", phase: "workspace.prepare", status: "completed", type: "progress" }),
+      { text: "Scoped review completed.", type: "text-delta" },
+      { type: "finish" },
+      { type: "done" },
+    ])
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
+      paths: ["public", "AGENTS.md", "CLAUDE.md"],
+    }))
+  })
+
   it("sends Agent Dev Loop chat history to harness agents over payload fixture messages", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-stream-harness-history-"))
     await mkdir(join(root, "server", "agents"), { recursive: true })
