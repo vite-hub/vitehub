@@ -57,6 +57,7 @@ type HarnessInstructionSandbox = {
 
 type HarnessAgentConstructor = new (settings: Record<string, unknown>) => HarnessAgentLike
 const harnessResumeStates = new WeakMap<object, Map<string, unknown>>()
+const harnessGeneratedFiles = ["harness-tool.mjs"] as const
 const harnessInstructionFiles = ["AGENTS.md", "CLAUDE.md"] as const
 
 interface HarnessAgentAdapterOptions<
@@ -288,6 +289,13 @@ function toHarnessTools(context: AgentAdapterRunContext): AgentToolSet | undefin
     withJsonCompatibleToolOutputs(applyAgentToolPolicies(context.tools as AgentToolSet) || {}),
     context.devtools?.reportToolStep,
   )
+}
+
+function harnessWriteBackIgnorePaths(context: AgentAdapterRunContext, instructions: string | undefined): string[] {
+  return [
+    ...(hasEntries(context.tools) ? harnessGeneratedFiles : []),
+    ...(instructions ? harnessInstructionFiles : []),
+  ]
 }
 
 function toRunCallbackContext<
@@ -684,7 +692,7 @@ export function createHarnessAgentAdapter<
       workspaceSession = await prepareHarnessWorkspaceSession(context.workspace, {
         abortSignal,
         ...(hasWorkspaceCommitRules(commitDefinition) ? { definition: commitDefinition } : {}),
-        ignoreWriteBackPaths: harnessInstructions ? harnessInstructionFiles : [],
+        ignoreWriteBackPaths: harnessWriteBackIgnorePaths(context, harnessInstructions),
         paths: selectedWorkspaceScopePaths(context, commitDefinition),
         session: session as never,
         sessionWorkDir,

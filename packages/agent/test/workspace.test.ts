@@ -970,6 +970,38 @@ describe("defineAgent workspace option", () => {
     expect(harnessSession.destroy).toHaveBeenCalledOnce()
   })
 
+  it("ignores generated harness tool writeback only when harness tools are generated", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [{
+        id: "support-tools",
+        tools: {
+          lookup: { execute: vi.fn(async () => "ok") },
+        } as never,
+      }],
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {},
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
+      ignoreWriteBackPaths: ["harness-tool.mjs"],
+      session: harnessFileSession,
+      sessionWorkDir: "/workspace/codex-session",
+    }))
+    expect(harnessAgentSettings.at(-1)).toHaveProperty("tools")
+  })
+
   it("passes workspace commit fallback into Harness Workspace Session commits", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const harnessSession = { destroy: vi.fn() }
