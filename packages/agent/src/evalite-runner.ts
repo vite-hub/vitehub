@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import process from "node:process"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
 
 import type { Writable } from "node:stream"
 import type { Evalite } from "evalite/types"
@@ -140,7 +141,7 @@ export async function runAgentEvalite(options: RunAgentEvaliteOptions): Promise<
   server.start(serverPort)
 
   let exitCode: number | undefined
-  const setupFiles = ["evalite/env-setup-file", ...(options.setupFiles || [])]
+  const setupFiles = [fileURLToPath(import.meta.resolve("evalite/env-setup-file")), ...(options.setupFiles || [])]
   const forceRerunTriggers = options.forceRerunTriggers ?? configDefaults.forceRerunTriggers
 
   process.env.EVALITE_REPORT_TRACES = "true"
