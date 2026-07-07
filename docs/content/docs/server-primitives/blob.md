@@ -207,12 +207,12 @@ R2_SECRET_ACCESS_KEY=secret-access-key
 R2_BUCKET_NAME=assets
 ```
 
-| Runtime value | Runtime env names |
+| Runtime value | Source |
 | --- | --- |
 | `accountId` | `R2_ACCOUNT_ID`, `CLOUDFLARE_R2_ACCOUNT_ID`, `CLOUDFLARE_ACCOUNT_ID` |
 | `accessKeyId` | `R2_ACCESS_KEY_ID`, `CLOUDFLARE_R2_ACCESS_KEY_ID` |
 | `secretAccessKey` | `R2_SECRET_ACCESS_KEY`, `CLOUDFLARE_R2_SECRET_ACCESS_KEY` |
-| `bucketName` | `BLOB_BUCKET_NAME`, `CLOUDFLARE_R2_BUCKET_NAME`, `R2_BUCKET_NAME` |
+| `bucketName` | `bucketName` config, or config/build-time `BLOB_BUCKET_NAME`, `CLOUDFLARE_R2_BUCKET_NAME`, `R2_BUCKET_NAME`. Deployed runtime-only env is too late when the stored option is undefined. |
 
 Install the optional R2 HTTP dependencies only when you rely on fallback access.
 
