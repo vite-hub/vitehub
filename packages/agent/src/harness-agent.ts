@@ -291,6 +291,13 @@ function toHarnessTools(context: AgentAdapterRunContext): AgentToolSet | undefin
   )
 }
 
+function harnessWriteBackIgnorePaths(context: AgentAdapterRunContext, instructions: string | undefined): string[] {
+  return [
+    ...(hasEntries(context.tools) ? harnessGeneratedFiles : []),
+    ...(instructions ? harnessInstructionFiles : []),
+  ]
+}
+
 function toRunCallbackContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -685,7 +692,7 @@ export function createHarnessAgentAdapter<
       workspaceSession = await prepareHarnessWorkspaceSession(context.workspace, {
         abortSignal,
         ...(hasWorkspaceCommitRules(commitDefinition) ? { definition: commitDefinition } : {}),
-        ignoreWriteBackPaths: [...harnessGeneratedFiles, ...(harnessInstructions ? harnessInstructionFiles : [])],
+        ignoreWriteBackPaths: harnessWriteBackIgnorePaths(context, harnessInstructions),
         paths: selectedWorkspaceScopePaths(context, commitDefinition),
         session: session as never,
         sessionWorkDir,
