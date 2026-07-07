@@ -756,6 +756,48 @@ describe("sources, loaders, and publishers", () => {
     })
   })
 
+  it("preserves source identity for bundled root-mounted build source assets", async () => {
+    const root = await createRoot()
+    setWorkspaceRuntimeAssetsRegistry({
+      support: createWorkspaceAssets({
+        "AGENTS.md": {
+          load: async () => "# Agents\n",
+          mediaType: "text/markdown",
+        },
+        "README.md": {
+          load: async () => "# Readme\n",
+          mediaType: "text/markdown",
+        },
+      }),
+    })
+
+    const store = createMemoryWorkspaceStore()
+    await syncWorkspaceDefinition({
+      name: "support",
+      rootDir: root,
+      sourceRootDir: join(root, "missing"),
+      sources: {
+        agents: file({
+          content: "# Agents\n",
+          mediaType: "text/markdown",
+          workspacePath: "AGENTS.md",
+        }),
+        readme: file({
+          content: "# Readme\n",
+          mediaType: "text/markdown",
+          workspacePath: "README.md",
+        }),
+      },
+    }, store)
+
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({
+      metadata: { source: "agents" },
+    })
+    await expect(store.readFile("README.md")).resolves.toMatchObject({
+      metadata: { source: "readme" },
+    })
+  })
+
   it("loads omitted files from partially bundled multi-file build sources", async () => {
     const root = await createRoot()
     setWorkspaceRuntimeAssetsRegistry({
