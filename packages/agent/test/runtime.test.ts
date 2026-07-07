@@ -1209,6 +1209,51 @@ describe("agent message protocol", () => {
     expect(session.destroy).toHaveBeenCalledTimes(1)
   })
 
+  it("keeps harness driver markers across split Agent Package module instances", async () => {
+    const indexUrl = new URL("../src/index.ts", import.meta.url).href
+    const indexA = await import(`${indexUrl}?copy=agent-marker-a`) as typeof import("../src/index.ts")
+    const indexB = await import(`${indexUrl}?copy=agent-marker-b`) as typeof import("../src/index.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessStream.mockResolvedValueOnce({
+      fullStream: (async function* () {
+        yield { text: "harness ok", type: "text-delta" }
+      })(),
+    })
+
+    const agent = indexA.defineAgent({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "support",
+            scopes: {
+              support: { paths: [""] },
+            },
+          },
+        }),
+      ],
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: { mode: "write", store: { provider: "memory" } },
+    })
+
+    const output = await indexB.streamAgent(agent as never, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" }, { output: "events" })
+    const events = []
+    for await (const event of output as AsyncIterable<unknown>) events.push(event)
+
+    expect(events).toContainEqual({ text: "harness ok", type: "text-delta" })
+    expect(harnessStream).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: "hello",
+      session,
+    }))
+  })
+
   it("avoids Claude Code bypass permissions when the host process runs as root", async () => {
     const getuid = vi.spyOn(process, "getuid").mockReturnValue(0)
     try {
