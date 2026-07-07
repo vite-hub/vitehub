@@ -44,7 +44,7 @@ export interface GitHubCommitResult {
   treeSha: string;
 }
 
-function processEnv(
+export function processEnv(
   env: Record<string, string | undefined>,
   ...keys: string[]
 ): string | undefined {
@@ -188,7 +188,7 @@ export function resolveGitHubTokenOption(
   const bindingToken = getActiveCloudflareBinding<string>("GITHUB_TOKEN");
   if (bindingToken && !isMaskedGitHubTokenOption(bindingToken)) return bindingToken;
   return (
-    processEnv(env, "WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN")
+    processEnv(env, "WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
   );
 }
 

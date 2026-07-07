@@ -23,8 +23,17 @@ import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import type { WorkspaceDefinition, WorkspaceStore } from "../src/core/types.ts"
 
+const ghAuthToken = vi.hoisted(() => vi.fn<(...args: unknown[]) => string>(() => {
+  throw new Error("missing gh")
+}))
+
+vi.mock("node:child_process", () => ({
+  execFileSync: ghAuthToken,
+}))
+
 const tempDirs: string[] = []
 const workspaceSourceImport = pathToFileURL(join(import.meta.dirname, "../src/index.ts")).href
+const githubTokenEnvNames = ["WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"] as const
 
 async function createRoot() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-root-"))
@@ -33,7 +42,11 @@ async function createRoot() {
 }
 
 afterEach(async () => {
-  delete process.env.GITHUB_TOKEN
+  for (const name of githubTokenEnvNames) delete process.env[name]
+  ghAuthToken.mockReset()
+  ghAuthToken.mockImplementation(() => {
+    throw new Error("missing gh")
+  })
   delete (globalThis as { __env__?: Record<string, unknown> }).__env__
   setStorage(createMemoryStorage())
   resetWorkspaceAssetsRegistry()
@@ -233,6 +246,20 @@ describe("sources, loaders, and publishers", () => {
     expect(process.env.GITHUB_TOKEN).toBeUndefined()
   })
 
+  it.each(["WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GH_TOKEN"] as const)("resolves GitHub auth from %s before the GitHub CLI", async (name) => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    })
+    process.env[name] = "runtime-token"
+    ghAuthToken.mockReturnValue("cli-token\n")
+
+    const githubSource = github({ repo: "acme/private" })
+
+    await githubSource.getKeys({ rootDir: "", workspace: "github-runtime-auth" })
+
+    expect(archiveRequestAuthorization()).toBe("Bearer runtime-token")
+  })
+
   it("re-reads GitHub auth from local env files", async () => {
     const root = await createRoot()
     await writeFile(join(root, ".env"), "GITHUB_TOKEN=first-env-file-token\n")
@@ -335,6 +362,22 @@ describe("sources, loaders, and publishers", () => {
     await githubSource.getKeys({ rootDir: "", workspace: "github-public" })
 
     expect(archiveRequestAuthorization()).toBeUndefined()
+    expect(ghAuthToken).toHaveBeenCalledWith("gh", ["auth", "token", "--hostname", "github.com"], expect.objectContaining({
+      stdio: ["ignore", "pipe", "ignore"],
+    }))
+  })
+
+  it("falls back to GitHub CLI auth when no configured token exists", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    })
+    ghAuthToken.mockReturnValue("cli-token\n")
+
+    const githubSource = github({ repo: "acme/private" })
+
+    await githubSource.getKeys({ rootDir: "", workspace: "github-cli-auth" })
+
+    expect(archiveRequestAuthorization()).toBe("Bearer cli-token")
   })
 
   it("falls back to GitHub archives when the public tree API is rate limited", async () => {

@@ -2,6 +2,7 @@ import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflar
 import { github as createGitHubSource, type GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source"
 
 import { resolveWorkspaceEnv } from "../env.ts"
+import { processEnv, resolveGitHubTokenOption } from "../providers/github/shared.ts"
 import type { MaybePromise, WorkspaceSource, WorkspaceSourceResolutionContext } from "../core/types.ts"
 
 type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "scopes" | "sync" | "validate">
@@ -10,6 +11,7 @@ type TypedWorkspaceSource<T> = WorkspaceSource & SourceScopes<T>
 type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
 type GitHubAuth = NonNullable<SourcePackageGitHubSourceOptions["auth"]>
 type GitHubResolvedSourceOptions = Omit<GitHubSourceOptions, "repo"> & Partial<Pick<GitHubSourceOptions, "repo">>
+const githubTokenEnvNames = ["WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"] as const
 
 export interface GitHubSourceOptions extends Omit<SourcePackageGitHubSourceOptions, "auth">, SourceRuntimeOptions {
   auth?: GitHubAuth
@@ -39,13 +41,13 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
   const sourceByRootAndToken = new Map<string, typeof baseSource>()
 
   async function getSourceForRoot(rootDir: string) {
-    const envFileToken = await resolveWorkspaceEnv(rootDir, "GITHUB_TOKEN")
-    const cacheKey = `${rootDir}\0${envFileToken ?? ""}`
+    const token = await resolveGitHubAuth(resolvedOptions.auth, rootDir)
+    const cacheKey = `${rootDir}\0${token || ""}`
     const cachedSource = sourceByRootAndToken.get(cacheKey)
     if (cachedSource) return cachedSource
     const source = createGitHubSource({
       ...resolvedOptions,
-      auth: createGitHubAuthResolver(resolvedOptions.auth, envFileToken),
+      auth: token,
     })
     sourceByRootAndToken.set(cacheKey, source)
     return source
@@ -156,18 +158,44 @@ function inferRepositoryMount(repo: string | undefined) {
   return repo?.split("/").filter(Boolean).at(-1)
 }
 
-function createGitHubAuthResolver(auth: GitHubAuth | undefined, envFileToken?: string) {
+function createGitHubAuthResolver(auth: GitHubAuth | undefined) {
   if (auth === false) return false
   return () => {
-    return resolveGitHubAuth(auth)
+    return resolveExplicitGitHubAuth(auth)
       || getActiveCloudflareBinding<string>("GITHUB_TOKEN")
-      || process.env.GITHUB_TOKEN
-      || envFileToken
+      || processEnv(process.env, ...githubTokenEnvNames)
   }
 }
 
-function resolveGitHubAuth(auth: GitHubAuth | undefined): string | undefined {
+async function resolveGitHubAuth(auth: GitHubAuth | undefined, rootDir: string): Promise<GitHubAuth | undefined> {
+  if (auth === false) return false
+  return resolveExplicitGitHubAuth(auth)
+    || resolveGitHubTokenOption({})
+    || await resolveGitHubEnvFileToken(rootDir)
+    || await resolveGitHubCliToken()
+}
+
+function resolveExplicitGitHubAuth(auth: GitHubAuth | undefined): string | undefined {
   if (auth === false) return undefined
   if (typeof auth === "function") return auth()
   return typeof auth === "string" ? auth : undefined
+}
+
+async function resolveGitHubEnvFileToken(rootDir: string): Promise<string | undefined> {
+  const env = Object.fromEntries(await Promise.all(githubTokenEnvNames.map(async name => [name, await resolveWorkspaceEnv(rootDir, name)] as const)))
+  return processEnv(env, ...githubTokenEnvNames)
+}
+
+async function resolveGitHubCliToken(): Promise<string | undefined> {
+  try {
+    const { execFileSync } = await import("node:child_process")
+    return execFileSync("gh", ["auth", "token", "--hostname", "github.com"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 2_000,
+    }).trim() || undefined
+  }
+  catch {
+    return
+  }
 }
