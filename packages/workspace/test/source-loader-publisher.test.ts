@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { collectWorkspaceStoreAssetBundle, syncDiscoveredWorkspaceAssetBundles, writeWorkspaceAssetsRegistry } from "../src/build/assets.ts"
 import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets } from "../src/build/integration.ts"
 import { resetWorkspaceAssetsRegistry } from "../src/asset-registry.ts"
-import { custom, defineWorkspace, file, github, glob, useWorkspace } from "../src/index.ts"
+import { custom, defineWorkspace, file, github, glob, markdown, useWorkspace } from "../src/index.ts"
 import * as loader from "../src/loader.ts"
 import * as publish from "../src/publish.ts"
 import { registerWorkspace } from "../src/test.ts"
@@ -709,7 +709,97 @@ describe("sources, loaders, and publishers", () => {
     })
   })
 
-  it("falls back to loaders when runtime assets miss a current build source", async () => {
+  it("syncs bundled markdown sources without probe keys when the original source root is absent", async () => {
+    const root = await createRoot()
+    const directory = join(root, "server", "agents", "support")
+    const sourceRoot = join(directory, "workspace")
+    await mkdir(sourceRoot, { recursive: true })
+    await writeFile(join(sourceRoot, "README.md"), "# Bundled Markdown\n")
+    await writeFile(join(directory, "config.mjs"), [
+      `import { markdown } from '${workspaceSourceImport}'`,
+      "export default {",
+      "  sources: { readme: markdown({ mount: '', path: 'README.md', workspacePath: 'README.md' }) },",
+      "}",
+      "",
+    ].join("\n"))
+
+    const [bundle] = await syncDiscoveredWorkspaceAssetBundles([{
+      handler: join(directory, "config.mjs"),
+      name: "support",
+      path: join(directory, "config.mjs"),
+      source: "test",
+      sourceRootDir: sourceRoot,
+    }], root, {
+      root: join(root, ".vitehub", "workspaces"),
+      store: { provider: "memory" },
+      assets: true,
+    })
+    await rm(sourceRoot, { recursive: true, force: true })
+    setWorkspaceRuntimeAssetsRegistry({
+      support: createWorkspaceAssets(Object.fromEntries(bundle!.files.map(file => [
+        file.path,
+        {
+          load: async () => file.content,
+          mediaType: file.mediaType,
+          metadata: file.metadata,
+        },
+      ]))),
+    })
+
+    const store = createMemoryWorkspaceStore()
+    await syncWorkspaceDefinition({
+      name: "support",
+      rootDir: root,
+      sourceRootDir: sourceRoot,
+      sources: { readme: markdown({ mount: "", path: "README.md", workspacePath: "README.md" }) },
+    }, store)
+
+    await expect(store.readFile("README.md")).resolves.toMatchObject({
+      content: new TextEncoder().encode("# Bundled Markdown\n"),
+      mediaType: "text/markdown",
+      metadata: { source: "readme" },
+    })
+  })
+
+  it("trusts complete bundled build source assets without probe keys when the original source root is absent", async () => {
+    const root = await createRoot()
+    setWorkspaceRuntimeAssetsRegistry({
+      support: createWorkspaceAssets({
+        "docs/README.md": {
+          load: async () => "# Bundled Docs\n",
+          mediaType: "text/markdown",
+          metadata: { source: "docs" },
+        },
+      }),
+    })
+
+    const store = createMemoryWorkspaceStore()
+    await syncWorkspaceDefinition({
+      name: "support",
+      rootDir: root,
+      sourceRootDir: join(root, "missing"),
+      sources: {
+        docs: custom({
+          mount: "docs",
+          async getKeys() {
+            throw new Error("source root is unavailable")
+          },
+          async getItem() {
+            throw new Error("source root is unavailable")
+          },
+        }),
+      },
+    }, store)
+
+    await expect(store.readFile("docs/README.md")).resolves.toMatchObject({
+      content: "# Bundled Docs\n",
+      mediaType: "text/markdown",
+      metadata: { source: "docs" },
+    })
+  })
+
+  it("hydrates bundled runtime assets and loads unbundled build sources", async () => {
+    const root = await createRoot()
     setWorkspaceRuntimeAssetsRegistry({
       support: createWorkspaceAssets({
         "skills/agent-browser/SKILL.md": {
@@ -722,6 +812,8 @@ describe("sources, loaders, and publishers", () => {
     const store = createMemoryWorkspaceStore()
     await syncWorkspaceDefinition({
       name: "support",
+      rootDir: root,
+      sourceRootDir: join(root, "missing"),
       sources: {
         agentBrowserSkill: file({
           content: "# Browser\n",
@@ -729,7 +821,7 @@ describe("sources, loaders, and publishers", () => {
           workspacePath: "skills/agent-browser/SKILL.md",
         }),
         instructions: file({
-          content: "# Agent\n",
+          content: "# Instructions\n",
           mediaType: "text/markdown",
           workspacePath: "AGENTS.md",
         }),
@@ -740,7 +832,150 @@ describe("sources, loaders, and publishers", () => {
       content: "# Browser\n",
     })
     await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({
-      content: "# Agent\n",
+      content: "# Instructions\n",
+    })
+  })
+
+  it("preserves source identity for bundled root-mounted build source assets", async () => {
+    const root = await createRoot()
+    setWorkspaceRuntimeAssetsRegistry({
+      support: createWorkspaceAssets({
+        "AGENTS.md": {
+          load: async () => "# Agents\n",
+          mediaType: "text/markdown",
+        },
+        "README.md": {
+          load: async () => "# Readme\n",
+          mediaType: "text/markdown",
+        },
+      }),
+    })
+
+    const store = createMemoryWorkspaceStore()
+    await syncWorkspaceDefinition({
+      name: "support",
+      rootDir: root,
+      sourceRootDir: join(root, "missing"),
+      sources: {
+        agents: file({
+          content: "# Agents\n",
+          mediaType: "text/markdown",
+          workspacePath: "AGENTS.md",
+        }),
+        readme: file({
+          content: "# Readme\n",
+          mediaType: "text/markdown",
+          workspacePath: "README.md",
+        }),
+      },
+    }, store)
+
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({
+      metadata: { source: "agents" },
+    })
+    await expect(store.readFile("README.md")).resolves.toMatchObject({
+      metadata: { source: "readme" },
+    })
+  })
+
+  it("loads omitted files from partially bundled multi-file build sources", async () => {
+    const root = await createRoot()
+    setWorkspaceRuntimeAssetsRegistry({
+      support: createWorkspaceAssets({
+        "docs/README.md": {
+          load: async () => "# Bundled Docs\n",
+          mediaType: "text/markdown",
+        },
+      }),
+    })
+
+    const store = createMemoryWorkspaceStore()
+    await syncWorkspaceDefinition({
+      name: "support",
+      rootDir: root,
+      sourceRootDir: join(root, "missing"),
+      sources: {
+        docs: custom({
+          mount: "docs",
+          async getKeys() {
+            return ["README.md", "TODO.md"]
+          },
+          async getItem(key) {
+            return {
+              key,
+              content: key === "README.md" ? "# Source Docs\n" : "# Todo\n",
+              mediaType: "text/markdown",
+            }
+          },
+        }),
+        instructions: file({
+          content: "# Instructions\n",
+          mediaType: "text/markdown",
+          workspacePath: "AGENTS.md",
+        }),
+      },
+    }, store)
+
+    await expect(store.readFile("docs/README.md")).resolves.toMatchObject({
+      content: "# Source Docs\n",
+    })
+    await expect(store.readFile("docs/TODO.md")).resolves.toMatchObject({
+      content: "# Todo\n",
+    })
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({
+      content: "# Instructions\n",
+    })
+  })
+
+  it("loads omitted files from partially bundled multi-file build sources with preserved metadata", async () => {
+    const root = await createRoot()
+    setWorkspaceRuntimeAssetsRegistry({
+      support: createWorkspaceAssets({
+        "docs/README.md": {
+          load: async () => "# Bundled Docs\n",
+          mediaType: "text/markdown",
+          metadata: { source: "docs" },
+        },
+      }),
+    })
+
+    const store = createMemoryWorkspaceStore()
+    await syncWorkspaceDefinition({
+      name: "support",
+      rootDir: root,
+      sourceRootDir: join(root, "missing"),
+      sources: {
+        docs: custom({
+          mount: "docs",
+          async getKeys() {
+            return ["README.md", "TODO.md"]
+          },
+          async getItem(key) {
+            return {
+              key,
+              content: key === "README.md" ? "# Source Docs\n" : "# Todo\n",
+              mediaType: "text/markdown",
+            }
+          },
+        }),
+        instructions: file({
+          content: "# Instructions\n",
+          mediaType: "text/markdown",
+          workspacePath: "AGENTS.md",
+        }),
+      },
+    }, store)
+
+    await expect(store.readFile("docs/README.md")).resolves.toMatchObject({
+      content: "# Source Docs\n",
+      metadata: { source: "docs" },
+    })
+    await expect(store.readFile("docs/TODO.md")).resolves.toMatchObject({
+      content: "# Todo\n",
+      metadata: { source: "docs" },
+    })
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({
+      content: "# Instructions\n",
     })
   })
 

@@ -36,14 +36,19 @@ export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, s
   const buildSources = normalizeWorkspaceSources(definition.sources)
     .filter(source => source.materialize === "build")
   const hasBuildSourceState = await reconcileBuildSourceMounts(store, buildSources)
-  if (!hasExplicitLoaders && await syncRuntimeBuildAssets(definition, store, buildSources)) {
+  const bundledBuildSources = !hasExplicitLoaders
+    ? await syncRuntimeBuildAssets(definition, store, buildSources)
+    : undefined
+  if (bundledBuildSources && buildSources.every(source => bundledBuildSources.has(source.key))) {
     const snapshot = await store.snapshot({ name: "sync" })
     await publishWorkspaceSnapshot(definition, store, snapshot)
     return
   }
   if (!hasBuildSourceState && !hasExplicitLoaders) return
 
-  const normalizedSources = buildSources.map(source => createMountedBuildSource(source))
+  const normalizedSources = buildSources
+    .filter(source => !bundledBuildSources?.has(source.key))
+    .map(source => createMountedBuildSource(source))
   const ctx: LoaderContext = {
     workspace: definition.name,
     rootDir: ctxSource.rootDir,
@@ -85,38 +90,88 @@ async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources:
   return hasBuildSourceState
 }
 
-async function syncRuntimeBuildAssets(definition: WorkspaceDefinition, store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[]): Promise<boolean> {
-  if (!currentSources.length) return false
+async function syncRuntimeBuildAssets(definition: WorkspaceDefinition, store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[]): Promise<Set<string> | undefined> {
+  if (!currentSources.length) return undefined
 
   let assets: WorkspaceAssets
   try {
     assets = useWorkspaceAssets(definition.name)
   }
   catch (error) {
-    if (error instanceof WorkspaceNotFoundError) return false
+    if (error instanceof WorkspaceNotFoundError) return undefined
     throw error
   }
 
   const entries = await assets.list("", { recursive: true })
   const files = entries.filter(entry => entry.type === "file")
-  const coveredSources = new Set<string>()
+  const bundledPaths = new Set(files.map(entry => entry.path))
+  const bundledSourceByPath = new Map<string, string>()
+  const bundledBuildSources = new Set<string>()
+  for (const source of currentSources) {
+    if (await hasCompleteBundledBuildSource(definition, store, source, bundledPaths, files, bundledSourceByPath)) {
+      bundledBuildSources.add(source.key)
+    }
+  }
   for (const entry of files) {
-    const source = findBuildSourceForPath(entry.path, currentSources)
-    if (source) coveredSources.add(source.key)
+    const sourceKey = typeof entry.metadata?.source === "string"
+      ? entry.metadata.source
+      : bundledSourceByPath.get(entry.path) || findBuildSourceForPath(entry.path, currentSources)?.key
     await store.writeFile(entry.path, {
       path: entry.path,
       content: await assets.readFile(entry.path, { encoding: "binary" }),
       mediaType: entry.mediaType,
-      metadata: source ? { source: source.key } : undefined,
+      metadata: sourceKey ? { ...entry.metadata, source: sourceKey } : entry.metadata,
     })
   }
-  return currentSources.every(source => coveredSources.has(source.key))
+  return bundledBuildSources
+}
+
+async function hasCompleteBundledBuildSource(
+  definition: WorkspaceDefinition,
+  store: WorkspaceStore,
+  source: ResolvedWorkspaceSource,
+  bundledPaths: Set<string>,
+  bundledFiles?: Array<{ path: string, metadata?: Record<string, unknown> }>,
+  bundledSourceByPath?: Map<string, string>,
+): Promise<boolean> {
+  const probeKeys = source.source.probeKeys
+  if (!probeKeys?.length) {
+    const paths = bundledFiles
+      ?.filter(file => file.metadata?.source === source.key)
+      .map(file => file.path) ?? []
+    const sourcePaths = await tryListBuildSourcePaths(definition, store, source)
+    if (sourcePaths && !sourcePaths.every(path => paths.includes(path))) return false
+    for (const path of paths) bundledSourceByPath?.set(path, source.key)
+    return paths.length > 0
+  }
+  const paths = probeKeys.map(key => normalizeWorkspacePath(`${source.mountPath}/${key}`))
+  if (!paths.every(path => bundledPaths.has(path))) return false
+  for (const path of paths) bundledSourceByPath?.set(path, source.key)
+  return true
+}
+
+async function tryListBuildSourcePaths(
+  definition: WorkspaceDefinition,
+  store: WorkspaceStore,
+  source: ResolvedWorkspaceSource,
+): Promise<string[] | undefined> {
+  const ctx = createSourceContext(definition, { key: source.key, mountPath: source.mountPath }, store)
+  try {
+    await source.source.prepare?.(ctx)
+    return (await source.source.getKeys(ctx))
+      .map(key => normalizeWorkspacePath(`${source.mountPath}/${key}`))
+  }
+  catch {
+    return undefined
+  }
 }
 
 function findBuildSourceForPath(path: string, sources: ResolvedWorkspaceSource[]): ResolvedWorkspaceSource | undefined {
-  return sources
+  const matches = sources
     .filter(source => !source.mountPath || path === source.mountPath || path.startsWith(`${source.mountPath}/`))
     .sort((left, right) => right.mountPath.length - left.mountPath.length)[0]
+  if (!matches?.mountPath && sources.filter(source => !source.mountPath).length > 1) return undefined
+  return matches
 }
 
 async function readSyncedBuildSources(store: WorkspaceStore): Promise<SyncedBuildSource[]> {
