@@ -10,7 +10,7 @@ export type AgentInvocationStreamEvent =
   | StreamEvent
   | { channelId?: string, effect: AgentChannelDeliveryEffectIntent, run?: AgentRunMetadata, type: "delivery-preview" }
   | { error: string, type: "error" }
-  | { data?: Record<string, unknown>, durationMs?: number, id: string, label?: string, phase: "workspace.prepare", status: "completed" | "failed" | "started", type: "progress" }
+  | { data?: Record<string, unknown>, durationMs?: number, id: string, label?: string, phase: "workspace.prepare" | (string & {}), status: "completed" | "failed" | "started" | "updating", type: "progress" }
   | { agent: string, metadata?: Record<string, unknown>, run?: unknown, trigger?: string, type: "start" }
   | { type: "done" }
 

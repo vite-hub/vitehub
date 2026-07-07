@@ -467,10 +467,11 @@ function writeToolTextOutput(context: AgentCliContext, output: unknown, duration
 }
 
 function progressTag(phase: string): string {
+  if (phase.startsWith("agent.harness")) return "harness"
   return phase.startsWith("workspace.") ? "workspace" : "internal"
 }
 
-function writeProgress(context: AgentCliContext, event: { data?: Record<string, unknown>, durationMs?: number, label?: string, phase: string, status: "completed" | "failed" | "started" }): void {
+function writeProgress(context: AgentCliContext, event: { data?: Record<string, unknown>, durationMs?: number, label?: string, phase: string, status: "completed" | "failed" | "started" | "updating" }): void {
   const duration = formatDurationMs(event.durationMs)
   const status = event.status === "started" ? "" : ` ${event.status}`
   context.stderr.write(`\n[${progressTag(event.phase)}] ${event.label || event.phase}${status}${duration ? ` (${duration})` : ""}\n`)

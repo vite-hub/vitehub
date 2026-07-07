@@ -727,6 +727,9 @@ describe("agent CLI", () => {
           { agent: "review", trigger: "github.webhook", type: "start" },
           { id: "workspace.prepare:review", label: "Preparing workspace", phase: "workspace.prepare", status: "started", type: "progress" },
           { durationMs: 1500, id: "workspace.prepare:review", label: "Preparing workspace", phase: "workspace.prepare", status: "completed", type: "progress" },
+          { id: "agent.harness:create", label: "Creating harness agent", phase: "agent.harness", status: "started", type: "progress" },
+          { durationMs: 250, id: "agent.harness:create", label: "Creating harness agent", phase: "agent.harness", status: "updating", type: "progress" },
+          { durationMs: 42, id: "runtime.inspect", phase: "runtime.inspect", status: "completed", type: "progress" },
           { type: "finish" },
           { type: "done" },
         ])
@@ -749,7 +752,12 @@ describe("agent CLI", () => {
     expect(exitCodeWithPrompt).toBe(0)
     expect(progressStderr.output()).toContain("[workspace] Preparing workspace\n")
     expect(progressStderr.output()).toContain("[workspace] Preparing workspace completed (1.5s)")
+    expect(progressStderr.output()).toContain("[harness] Creating harness agent\n")
+    expect(progressStderr.output()).toContain("[harness] Creating harness agent updating (250ms)")
+    expect(progressStderr.output()).toContain("[internal] runtime.inspect completed (42ms)")
     expect(progressStderr.output()).not.toContain("[tool] Preparing workspace")
+    expect(progressStderr.output()).not.toContain("[tool] Creating harness agent")
+    expect(progressStderr.output()).not.toContain("[tool] runtime.inspect")
   })
 
   it("adds best-effort pricing to Agent Dev Loop usage notes", async () => {
@@ -845,6 +853,8 @@ describe("agent CLI", () => {
     expect(stderr.output()).toContain("url: https://assets.example/login.png")
     expect(stderr.output()).toContain("[delivery preview] would reply on github")
     expect(stderr.output()).toContain("[delivery] remove reaction eyes on github")
+    expect(stderr.output()).not.toContain("[tool] reaction")
+    expect(stderr.output()).not.toContain("[tool] reply")
     expect(stderr.output()).toContain("body: **Summary:** Short review.")
     expect(stderr.output()).toContain("Usage telemetry")
     expect(stderr.output()).toContain("large table")
