@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { normalizeWorkspaceSources } from "../src/sources/config.ts"
+import { normalizeWorkspaceSource, normalizeWorkspaceSources } from "../src/sources/config.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
 import { custom, defineWorkspace, github, glob } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/core/registry.ts"
@@ -148,7 +148,7 @@ describe("lazy sources", () => {
     await expect(view.readFile("skills/SKILL.md")).resolves.toBe("# Skills\n")
   })
 
-  it("defaults cached GitHub sources to lazy repo basename mounts", () => {
+  it("defaults keyed cached GitHub sources to source-key mounts", () => {
     const resolved = normalizeWorkspaceSources({
       forecastingEngine: githubSource({
         cache: { maxAge: 3600 },
@@ -159,11 +159,22 @@ describe("lazy sources", () => {
     expect(resolved).toEqual([
       expect.objectContaining({
         key: "forecastingEngine",
-        mountPath: "forecasting-engine",
+        mountPath: "forecastingEngine",
         materialize: "lazy",
         cache: { maxAge: 3600 },
       }),
     ])
+  })
+
+  it("falls back to GitHub repo basename mounts for numeric source keys", () => {
+    const resolved = normalizeWorkspaceSource("0", githubSource({
+      repo: "onmax/forecasting-engine",
+    }))
+
+    expect(resolved).toEqual(expect.objectContaining({
+      key: "0",
+      mountPath: "forecasting-engine",
+    }))
   })
 
   it("keeps explicit GitHub source mount and materialization options", () => {

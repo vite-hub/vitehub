@@ -64,6 +64,7 @@ function jsonResponse(value: unknown, status = 200) {
 interface StubGitHubSourceOptions {
   apiStatus?: number
   archiveStatus?: number
+  defaultBranch?: string
 }
 
 function createTarGz(files: Record<string, string>) {
@@ -94,6 +95,7 @@ function createTarGz(files: Record<string, string>) {
 function stubGitHubSource(files: Record<string, string>, options: StubGitHubSourceOptions | number = 200) {
   const apiStatus = typeof options === "number" ? options : options.apiStatus ?? 200
   const archiveStatus = typeof options === "number" ? options : options.archiveStatus ?? 200
+  const defaultBranch = typeof options === "number" ? "main" : options.defaultBranch ?? "main"
 
   vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
     const requestUrl = String(url)
@@ -108,10 +110,10 @@ function stubGitHubSource(files: Record<string, string>, options: StubGitHubSour
     }
 
     if (requestUrl === "https://api.github.com/repos/acme/app" || requestUrl === "https://api.github.com/repos/acme/private" || requestUrl === "https://api.github.com/repos/acme/public") {
-      return jsonResponse({ default_branch: "main" })
+      return jsonResponse({ default_branch: defaultBranch })
     }
 
-    if (requestUrl.endsWith("/commits/main")) {
+    if (requestUrl.endsWith(`/commits/${defaultBranch}`)) {
       return jsonResponse({ sha: "latest-commit-sha" })
     }
 
@@ -183,12 +185,12 @@ describe("sources, loaders, and publishers", () => {
   it("resolves default GitHub refs to a commit snapshot", async () => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
-    })
+    }, { defaultBranch: "trunk" })
 
     const githubSource = github({ repo: "acme/app" })
 
     await expect(githubSource.getKeys({ rootDir: "", workspace: "github-default-ref" })).resolves.toEqual(["docs/README.md"])
-    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/commits/main"))).toBe(true)
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/commits/trunk"))).toBe(true)
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/tar.gz/latest-commit-sha"))).toBe(true)
   })
 

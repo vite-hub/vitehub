@@ -117,7 +117,7 @@ export function normalizeWorkspaceSource(key: string, input: WorkspaceSourceInpu
   const mount = normalizeSourceMount(source)
   const cache = mount.cache ?? normalizeSourceCache(source) ?? false
   const sync = normalizeSourceSync(source.sync)
-  const mountPath = typeof mount.path === "string" ? mount.path : key
+  const mountPath = typeof mount.path === "string" ? mount.path : defaultSourceMountPath(key, source)
   const requestDescriptor = getWorkspaceSourceRequestDescriptor(source)
   const scopes = normalizeSourceScopes(key, source.scopes)
   if (requestDescriptor) assertWorkspaceSourceRequestDescriptorKey(key)
@@ -306,10 +306,7 @@ function inferredSourceDefaults(family: WorkspaceSourceFamily, input: WorkspaceS
   }
 
   if (family === "github") {
-    const record = input as Record<string, unknown>
-    return copySourceRuntimeOptions(input, {
-      mount: input.mount ?? inferRepositoryMount(record.repo),
-    })
+    return copySourceRuntimeOptions(input)
   }
 
   if (family === "mcpResources") {
@@ -368,6 +365,19 @@ function inferFetchWorkspacePath(input: Record<string, unknown>) {
 
 function inferRepositoryMount(repo: unknown) {
   return typeof repo === "string" ? repo.split("/").filter(Boolean).at(-1) : undefined
+}
+
+function defaultSourceMountPath(key: string, source: WorkspaceSource) {
+  if (key && !/^\d+$/.test(key)) return key
+  return inferRepositoryMount(sourceFingerprintRepo(source)) ?? key
+}
+
+function sourceFingerprintRepo(source: WorkspaceSource) {
+  const fingerprint = source.fingerprint
+  if (!isPlainRecord(fingerprint)) return
+  if (typeof fingerprint.repo === "string") return fingerprint.repo
+  const options = fingerprint.options
+  if (isPlainRecord(options) && typeof options.repo === "string") return options.repo
 }
 
 function dirname(path: string) {
