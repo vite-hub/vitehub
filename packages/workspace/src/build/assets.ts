@@ -19,6 +19,7 @@ import type { ResolvedWorkspaceModuleOptions, WorkspaceContent, WorkspaceDefinit
 export interface WorkspaceAssetFile {
   content: WorkspaceContent
   mediaType?: string
+  metadata?: Record<string, unknown>
   path: string
 }
 
@@ -79,7 +80,7 @@ export async function collectWorkspaceStoreAssetBundle(name: string, store: Work
     const path = normalizeSafeWorkspacePath(entry.path)
     const file = await store.readFile(path)
     if (file) {
-      files.push({ content: file.content, mediaType: file.mediaType, path })
+      files.push({ content: file.content, mediaType: file.mediaType, metadata: file.metadata, path })
     }
   }
 
@@ -152,7 +153,7 @@ export function createWorkspaceAssetsRegistryContents(
       const entries = bundle.files.map((file) => {
         const modulePath = modulePaths.get(`${bundle.name}\0${file.path}`)
         const importPath = modulePath ? createImportPath(registryFile, modulePath) : pathToFileURL(file.path).href
-        return `      ${JSON.stringify(file.path)}: { load: async () => (await import(${JSON.stringify(importPath)})).default, mediaType: ${JSON.stringify(file.mediaType)} },`
+        return `      ${JSON.stringify(file.path)}: { load: async () => (await import(${JSON.stringify(importPath)})).default, mediaType: ${JSON.stringify(file.mediaType)}, metadata: ${JSON.stringify(file.metadata)} },`
       })
       return [
         `  ${JSON.stringify(bundle.name)}: createWorkspaceAssets({`,

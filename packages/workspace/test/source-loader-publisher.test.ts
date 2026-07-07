@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { collectWorkspaceStoreAssetBundle, syncDiscoveredWorkspaceAssetBundles, writeWorkspaceAssetsRegistry } from "../src/build/assets.ts"
 import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets } from "../src/build/integration.ts"
 import { resetWorkspaceAssetsRegistry } from "../src/asset-registry.ts"
-import { custom, defineWorkspace, file, github, glob, useWorkspace } from "../src/index.ts"
+import { custom, defineWorkspace, file, github, glob, markdown, useWorkspace } from "../src/index.ts"
 import * as loader from "../src/loader.ts"
 import * as publish from "../src/publish.ts"
 import { registerWorkspace } from "../src/test.ts"
@@ -663,6 +663,58 @@ describe("sources, loaders, and publishers", () => {
 
     await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({
       content: new TextEncoder().encode("# Bundled Support\n"),
+    })
+  })
+
+  it("syncs bundled markdown sources without probe keys when the original source root is absent", async () => {
+    const root = await createRoot()
+    const directory = join(root, "server", "agents", "support")
+    const sourceRoot = join(directory, "workspace")
+    await mkdir(sourceRoot, { recursive: true })
+    await writeFile(join(sourceRoot, "README.md"), "# Bundled Markdown\n")
+    await writeFile(join(directory, "config.mjs"), [
+      `import { markdown } from '${workspaceSourceImport}'`,
+      "export default {",
+      "  sources: { readme: markdown({ mount: '', path: 'README.md', workspacePath: 'README.md' }) },",
+      "}",
+      "",
+    ].join("\n"))
+
+    const [bundle] = await syncDiscoveredWorkspaceAssetBundles([{
+      handler: join(directory, "config.mjs"),
+      name: "support",
+      path: join(directory, "config.mjs"),
+      source: "test",
+      sourceRootDir: sourceRoot,
+    }], root, {
+      root: join(root, ".vitehub", "workspaces"),
+      store: { provider: "memory" },
+      assets: true,
+    })
+    await rm(sourceRoot, { recursive: true, force: true })
+    setWorkspaceRuntimeAssetsRegistry({
+      support: createWorkspaceAssets(Object.fromEntries(bundle!.files.map(file => [
+        file.path,
+        {
+          load: async () => file.content,
+          mediaType: file.mediaType,
+          metadata: file.metadata,
+        },
+      ]))),
+    })
+
+    const store = createMemoryWorkspaceStore()
+    await syncWorkspaceDefinition({
+      name: "support",
+      rootDir: root,
+      sourceRootDir: sourceRoot,
+      sources: { readme: markdown({ mount: "", path: "README.md", workspacePath: "README.md" }) },
+    }, store)
+
+    await expect(store.readFile("README.md")).resolves.toMatchObject({
+      content: new TextEncoder().encode("# Bundled Markdown\n"),
+      mediaType: "text/markdown",
+      metadata: { source: "readme" },
     })
   })
 

@@ -15,6 +15,7 @@ import type {
 interface WorkspaceAssetFile {
   load: () => Promise<WorkspaceContent>
   mediaType?: string
+  metadata?: Record<string, unknown>
 }
 
 type WorkspaceAssetFiles<TKey extends string = string> = Record<TKey, WorkspaceAssetFile>
@@ -88,6 +89,7 @@ export function createWorkspaceAssets<TKey extends string = string>(files: Works
       return {
         digest: await sha256(content),
         mediaType: entry.mediaType,
+        metadata: entry.metadata,
         path,
         size: contentSize(content),
         type: "file" as const,

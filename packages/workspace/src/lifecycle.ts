@@ -106,7 +106,7 @@ async function syncRuntimeBuildAssets(definition: WorkspaceDefinition, store: Wo
   const files = entries.filter(entry => entry.type === "file")
   const bundledPaths = new Set(files.map(entry => entry.path))
   const bundledBuildSources = new Set(currentSources
-    .filter(source => hasCompleteBundledBuildSource(source, bundledPaths))
+    .filter(source => hasCompleteBundledBuildSource(source, bundledPaths, files))
     .map(source => source.key))
   for (const entry of files) {
     const source = findBuildSourceForPath(entry.path, currentSources)
@@ -114,13 +114,14 @@ async function syncRuntimeBuildAssets(definition: WorkspaceDefinition, store: Wo
       path: entry.path,
       content: await assets.readFile(entry.path, { encoding: "binary" }),
       mediaType: entry.mediaType,
-      metadata: source ? { source: source.key } : undefined,
+      metadata: entry.metadata || (source ? { source: source.key } : undefined),
     })
   }
   return bundledBuildSources
 }
 
-function hasCompleteBundledBuildSource(source: ResolvedWorkspaceSource, bundledPaths: Set<string>): boolean {
+function hasCompleteBundledBuildSource(source: ResolvedWorkspaceSource, bundledPaths: Set<string>, bundledFiles?: Array<{ metadata?: Record<string, unknown> }>): boolean {
+  if (bundledFiles?.some(entry => entry.metadata?.source === source.key)) return true
   const probeKeys = source.source.probeKeys
   if (!probeKeys?.length) return false
   return probeKeys.every(key => bundledPaths.has(normalizeWorkspacePath(`${source.mountPath}/${key}`)))
