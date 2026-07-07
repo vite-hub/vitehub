@@ -24,6 +24,7 @@ export interface GitCapabilityOptions {
 
 interface GitCommandInput {
   args?: string[]
+  cmd?: string
   command?: string
   cwd?: string
 }
@@ -426,20 +427,39 @@ function defaultGitCwd(context: { context?: { get(key: string): unknown } }): st
   return pullRequestGitSetup(context)?.mount
 }
 
+function normalizeGitCommandString(command: string): string {
+  const trimmed = command.trim()
+  if (!trimmed || trimmed === "git" || trimmed.startsWith("git ")) return trimmed
+  const [subcommand] = trimmed.split(/\s+/, 1)
+  return readSubcommands.has(subcommand!) || writeSubcommands.has(subcommand!) ? `git ${trimmed}` : trimmed
+}
+
 function normalizeGitToolInput(input: unknown, defaultCwd: string | undefined): GitCommandInput {
   if (typeof input === "string") {
     return {
-      command: input,
+      command: normalizeGitCommandString(input),
       ...(defaultCwd ? { cwd: defaultCwd } : {}),
     }
   }
   if (!isGitRecord(input)) return {}
-  const command = typeof input.command === "string" ? input.command : gitCommandFromArgs(input.args)
+  const command = typeof input.command === "string"
+    ? input.command
+    : typeof input.cmd === "string"
+      ? input.cmd
+      : gitCommandFromArgs(input.args)
   return {
     ...input,
-    ...(command ? { command } : {}),
+    ...(command ? { command: normalizeGitCommandString(command) } : {}),
     ...(input.cwd === undefined && defaultCwd ? { cwd: defaultCwd } : {}),
   }
+}
+
+function normalizeGitToolPolicy(policy: GitCapabilityToolPolicy | undefined, defaultCwd: string | undefined): GitCapabilityToolPolicy | undefined {
+  if (typeof policy !== "function") return policy
+  return context => policy({
+    ...context,
+    input: normalizeGitToolInput(context.input, defaultCwd),
+  })
 }
 
 function limitOutput(output: string, maxOutputLength: number): { output: string, truncated?: boolean } {
@@ -494,8 +514,8 @@ function gitTools(
   const tools: AgentToolSet = {
     git_read: {
       description: "Run one read-only git command in the workspace.",
-      execute: (input: unknown) => run(input as GitCommandInput, false),
-      inputSchema: gitInputSchema("Read-only git command, for example `git status --short`, `git diff --stat`, or `git log --oneline -n 20`."),
+      execute: (input: unknown) => run(input, false),
+      inputSchema: gitInputSchema("Read-only git command, for example `git status --short`, `git diff --stat`, or `git log --oneline -n 20`. Bare git subcommands are accepted and normalized to start with `git`. Pass one command only; do not use shell composition such as `&&` or `|`."),
       name: "git_read",
     },
   }
@@ -503,10 +523,10 @@ function gitTools(
   if (mode === "write") {
     tools.git_write = {
       description: "Run one local git write command in the workspace. Supports fetch, checkout, and switch on a clean working tree.",
-      execute: (input: unknown) => run(input as GitCommandInput, true),
-      inputSchema: gitInputSchema("Local git command, for example `git fetch origin pull/123/head` or `git switch main`."),
+      execute: (input: unknown) => run(input, true),
+      inputSchema: gitInputSchema("Local git command, for example `git fetch origin pull/123/head` or `git switch main`. Bare git subcommands are accepted and normalized to start with `git`. Pass one command only; do not use shell composition such as `&&` or `|`."),
       name: "git_write",
-      policy: options.policy || "require-approval",
+      policy: normalizeGitToolPolicy(options.policy, defaultCwd) || "require-approval",
     }
   }
 
@@ -516,11 +536,21 @@ function gitTools(
 function gitInputSchema(commandDescription: string) {
   return {
     additionalProperties: false,
+    anyOf: [
+      { required: ["command"] },
+      { required: ["cmd"] },
+      { required: ["args"] },
+    ],
     properties: {
       command: { description: commandDescription, type: "string" },
+      cmd: { description: "Alias for command.", type: "string" },
+      args: {
+        description: "Git command argv. The leading `git` word is optional.",
+        items: { type: "string" },
+        type: "array",
+      },
       cwd: { description: "Workspace-relative directory. Defaults to the workspace root.", type: "string" },
     },
-    required: ["command"],
     type: "object",
   }
 }

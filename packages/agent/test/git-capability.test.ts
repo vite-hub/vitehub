@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { git } from "../src/capabilities.ts"
+import { applyAgentToolPolicies } from "../src/tool-runtime.ts"
 
 import type { AgentToolSet } from "../src/types.ts"
 import type { WorkspaceSession } from "@vite-hub/workspace"
@@ -75,6 +76,35 @@ describe("git capability", () => {
     expect(session.exec).toHaveBeenCalledWith("git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace", timeout: undefined }))
   })
 
+  it("normalizes common git tool input shapes", async () => {
+    const { session, tools } = await capabilityTools()
+
+    expect(tools.git_read!.inputSchema).toMatchObject({
+      anyOf: [
+        { required: ["command"] },
+        { required: ["cmd"] },
+        { required: ["args"] },
+      ],
+    })
+    await expect(tools.git_read!.execute?.("status --short")).resolves.toMatchObject({
+      args: ["status", "--short"],
+      command: "git status --short",
+    })
+    await expect(tools.git_read!.execute?.({ cmd: "diff --stat" })).resolves.toMatchObject({
+      args: ["diff", "--stat"],
+      command: "git diff --stat",
+    })
+    await expect(tools.git_read!.execute?.({ args: ["show", "HEAD:README.md"] })).resolves.toMatchObject({
+      args: ["show", "HEAD:README.md"],
+      command: "git show HEAD:README.md",
+    })
+    await expect(tools.git_read!.execute?.({ command: "git diff --stat && git diff" })).rejects.toThrow("without shell composition")
+
+    expect(session.exec).toHaveBeenCalledWith("git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace" }))
+    expect(session.exec).toHaveBeenCalledWith("git", ["diff", "--stat"], expect.objectContaining({ cwd: "/workspace" }))
+    expect(session.exec).toHaveBeenCalledWith("git", ["show", "HEAD:README.md"], expect.objectContaining({ cwd: "/workspace" }))
+  })
+
   it("keeps workspace sessions scoped to each tool resolution", async () => {
     const capability = git()
     if (typeof capability.tools !== "function") throw new Error("git capability must expose tool resolver")
@@ -131,6 +161,29 @@ describe("git capability", () => {
     expect(session.exec).toHaveBeenNthCalledWith(1, "git", ["status", "--porcelain"], expect.objectContaining({ cwd: "/workspace/portal", timeout: undefined }))
     expect(session.exec).toHaveBeenNthCalledWith(2, "git", ["switch", "feature/pr-1"], expect.objectContaining({ cwd: "/workspace/portal", timeout: undefined }))
     expect(session.commit).toHaveBeenCalledWith({ message: "git switch" })
+  })
+
+  it("evaluates custom write policies with normalized git inputs", async () => {
+    const session = gitSession()
+    const policy = vi.fn(({ input }: { input?: unknown }) => {
+      if (typeof input === "object" && input !== null && (input as { command?: unknown }).command === "git checkout main") return "deny"
+      return "allow"
+    })
+    const { tools } = await capabilityTools(git({ mode: "write", policy }), session)
+    const guardedTools = applyAgentToolPolicies(tools)!
+
+    await expect(guardedTools.git_write!.execute?.({ cmd: "checkout main" })).rejects.toThrow()
+    await expect(guardedTools.git_write!.execute?.({ args: ["checkout", "main"] })).rejects.toThrow()
+
+    expect(policy).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      input: expect.objectContaining({ cmd: "checkout main", command: "git checkout main" }),
+      name: "git_write",
+    }))
+    expect(policy).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      input: expect.objectContaining({ args: ["checkout", "main"], command: "git checkout main" }),
+      name: "git_write",
+    }))
+    expect(session.exec).not.toHaveBeenCalled()
   })
 
   it("fetches only configured remotes in write mode", async () => {
