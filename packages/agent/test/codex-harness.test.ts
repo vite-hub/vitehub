@@ -47,6 +47,23 @@ describe("codexDriver", () => {
     }
   })
 
+  it("creates isolated default local sandbox sessions", async () => {
+    const { codexDriver } = await import("../src/harness/codex.ts")
+    const driver = codexDriver() as { sandbox?: { createSession: () => Promise<{ defaultWorkingDirectory: string, destroy: () => Promise<void> }> } }
+    const first = await driver.sandbox?.createSession()
+    const second = await driver.sandbox?.createSession()
+
+    try {
+      expect(first?.defaultWorkingDirectory).toContain("vitehub-harness-")
+      expect(second?.defaultWorkingDirectory).toContain("vitehub-harness-")
+      expect(first?.defaultWorkingDirectory).not.toBe(second?.defaultWorkingDirectory)
+    }
+    finally {
+      await first?.destroy()
+      await second?.destroy()
+    }
+  })
+
   it("preserves explicit Codex auth settings", async () => {
     const { codexDriver } = await import("../src/harness/codex.ts")
 

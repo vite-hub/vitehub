@@ -36,7 +36,6 @@ export function codexDriver(options: CodexDriverOptions = {}): AgentHarnessDrive
       ? {}
       : {
           sandbox: createLocalHarnessSandbox({
-            rootDir: "/tmp",
             ...sandbox,
             env: codexLocalEnv({
               authJson,
