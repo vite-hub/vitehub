@@ -677,7 +677,7 @@ async function generateAgentDiscordGatewayRouteHandler(
 
   return [
     `import { withAgentDefaults, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
-    `import { createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    `import { createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server"))}`,
     "import { createError, defineEventHandler, getRequestHeader, getRequestHeaders, getRequestURL, getRouterParam } from 'h3'",
     imports,
     "",

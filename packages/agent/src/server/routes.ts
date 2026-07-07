@@ -903,6 +903,118 @@ function audioData(value: unknown): AudioData | undefined {
   return undefined
 }
 
+const chatTextAttachmentMaxBytes = 1024 * 1024
+const textAttachmentExtensions = new Set(["csv", "json", "log", "md", "txt", "yaml", "yml"])
+const textAttachmentMimeTypes = new Set(["application/json", "application/x-yaml", "application/yaml", "text/csv"])
+const chatTextAttachmentOversizeMessage = `[vitehub] Chat text attachment exceeds ${chatTextAttachmentMaxBytes} bytes.`
+
+function isTextAttachment(attachment: Attachment): boolean {
+  if (attachment.type !== "file") return false
+  const mimeType = typeof attachment.mimeType === "string"
+    ? attachment.mimeType.split(";")[0]?.trim().toLowerCase()
+    : undefined
+  if (mimeType?.startsWith("text/") || (mimeType && textAttachmentMimeTypes.has(mimeType)) || mimeType?.endsWith("+json") || mimeType?.endsWith("+yaml")) {
+    return true
+  }
+  const extension = attachment.name?.split(".").pop()?.toLowerCase()
+  return !!extension && textAttachmentExtensions.has(extension)
+}
+
+function checkedTextAttachmentBytes(value: unknown, options: { rejectOversizedTextAttachments?: boolean } = {}): Uint8Array | undefined {
+  const bytes = value instanceof ArrayBuffer
+    ? new Uint8Array(value)
+    : value instanceof Uint8Array ? value : undefined
+  if (!bytes) return
+  if (bytes.byteLength > chatTextAttachmentMaxBytes) {
+    if (!options.rejectOversizedTextAttachments) return
+    throw new Error(chatTextAttachmentOversizeMessage)
+  }
+  return bytes
+}
+
+function isTextAttachmentOversizeError(error: unknown): boolean {
+  return error instanceof Error && error.message === chatTextAttachmentOversizeMessage
+}
+
+async function fetchTextAttachmentBytes(url: string, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<Uint8Array | undefined> {
+  const response = await fetch(url)
+  if (!response.ok) return
+  const contentLengthHeader = response.headers.get("content-length")
+  const contentLength = contentLengthHeader === null ? undefined : Number(contentLengthHeader)
+  if (typeof contentLength === "number" && Number.isFinite(contentLength) && contentLength > chatTextAttachmentMaxBytes) {
+    if (!options.rejectOversizedTextAttachments) return
+    throw new Error(chatTextAttachmentOversizeMessage)
+  }
+  if (!response.body) {
+    return checkedTextAttachmentBytes(await response.arrayBuffer(), options)
+  }
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let byteLength = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    const chunk = value instanceof Uint8Array ? value : new Uint8Array(value)
+    byteLength += chunk.byteLength
+    if (byteLength > chatTextAttachmentMaxBytes) {
+      await reader.cancel().catch(() => undefined)
+      if (!options.rejectOversizedTextAttachments) return
+      throw new Error(chatTextAttachmentOversizeMessage)
+    }
+    chunks.push(chunk)
+  }
+
+  const bytes = new Uint8Array(byteLength)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
+
+async function textAttachmentBytes(attachment: Attachment, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<Uint8Array | undefined> {
+  if (typeof attachment.size === "number" && attachment.size > chatTextAttachmentMaxBytes) {
+    if (!options.rejectOversizedTextAttachments) return
+    throw new Error(chatTextAttachmentOversizeMessage)
+  }
+  if (typeof attachment.fetchData === "function") {
+    try {
+      return checkedTextAttachmentBytes(await attachment.fetchData(), options)
+    }
+    catch (error) {
+      if (isTextAttachmentOversizeError(error)) throw error
+      return undefined
+    }
+  }
+  if (attachment.data instanceof Blob) {
+    return checkedTextAttachmentBytes(await attachment.data.arrayBuffer(), options)
+  }
+  const bytes = checkedTextAttachmentBytes(attachment.data, options)
+  if (bytes) return bytes
+  if (typeof attachment.url !== "string" || !attachment.url) return undefined
+  try {
+    return await fetchTextAttachmentBytes(attachment.url, options)
+  }
+  catch (error) {
+    if (isTextAttachmentOversizeError(error)) throw error
+    return undefined
+  }
+}
+
+async function textPartFromAttachment(attachment: Attachment, index: number, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<MessagePart | undefined> {
+  if (!isTextAttachment(attachment)) return undefined
+  const bytes = await textAttachmentBytes(attachment, options)
+  if (!bytes?.byteLength) return undefined
+  const name = attachment.name || `attachment-${index + 1}`
+  return {
+    id: `attachment-${index + 1}`,
+    text: `\n\nText attachment (${name}):\n\n${new TextDecoder().decode(bytes).trimEnd()}`,
+    type: "text",
+  }
+}
+
 function audioPartFromAttachment(attachment: Attachment, index: number): MessagePart | undefined {
   const mediaType = typeof attachment.mimeType === "string" && attachment.mimeType.startsWith("audio/")
     ? attachment.mimeType
@@ -961,10 +1073,14 @@ function attachmentFallbackText(attachments: Attachment[]): string {
   return `Sent attachments: ${summary}.`
 }
 
-function chatMessageParts(message: ChatSdkMessage, options: { includeAudioAttachments?: boolean } = {}): MessagePart[] {
+async function chatMessageParts(message: ChatSdkMessage, options: { includeAudioAttachments?: boolean, rejectOversizedTextAttachments?: boolean } = {}): Promise<MessagePart[]> {
   const parts: MessagePart[] = []
   if (message.text) {
     parts.push({ id: "text-0", text: message.text, type: "text" })
+  }
+  for (const [index, attachment] of message.attachments.entries()) {
+    const part = await textPartFromAttachment(attachment, index, options)
+    if (part) parts.push(part)
   }
   if (options.includeAudioAttachments) {
     for (const [index, attachment] of message.attachments.entries()) {
@@ -998,16 +1114,16 @@ function chatMessageMetadata(thread: Thread, message: ChatSdkMessage, messageCon
   })
 }
 
-function chatSdkMessageToUiMessage(
+async function chatSdkMessageToUiMessage(
   message: ChatSdkMessage,
   metadata?: Record<string, unknown>,
-  options?: { includeAudioAttachments?: boolean },
-): UIMessageLike {
+  options?: { includeAudioAttachments?: boolean, rejectOversizedTextAttachments?: boolean },
+): Promise<UIMessageLike> {
   return {
     createdAt: isoDate(message.metadata.dateSent),
     id: message.id,
     ...(metadata ? { metadata } : {}),
-    parts: chatMessageParts(message, options),
+    parts: await chatMessageParts(message, options),
     role: message.author.isMe ? "assistant" : "user",
   }
 }
@@ -1040,21 +1156,24 @@ async function chatTriggerMessages(
   messageContext?: MessageContext,
   messageOptions?: { includeAudioAttachments?: boolean },
 ): Promise<UIMessageLike[]> {
-  const current = chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), messageOptions)
+  const current = await chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), {
+    ...messageOptions,
+    rejectOversizedTextAttachments: true,
+  })
   const limit = chatTriggerHistoryLimit(resolveChatTriggerHistory(options))
   if (!limit) return [current]
 
   const fetchedNewestFirst: UIMessageLike[] = []
   try {
     for await (const item of thread.messages) {
-      fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item, undefined, messageOptions))
+      fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : await chatSdkMessageToUiMessage(item, undefined, messageOptions))
       if (fetchedNewestFirst.length >= limit) break
     }
   } catch {}
 
   const durable = await durableChatThreadMessages(thread, limit)
   const messages = [
-    ...durable.map(item => item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item, undefined, messageOptions)),
+    ...(await Promise.all(durable.map(item => item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item, undefined, messageOptions)))),
     ...fetchedNewestFirst.slice().reverse(),
   ].reduce<UIMessageLike[]>((deduped, item) => {
     if (!item.id) {
@@ -1319,7 +1438,9 @@ async function handleChatSdkMessage(
       }),
     }
     const messages = await chatTriggerMessages(thread, message, options, messageContext, messageOptions)
-    const currentMessage = chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), messageOptions)
+    const currentMessage = message.id
+      ? messages.find(item => item.id === message.id)
+      : messages.at(-1)
     if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) return
     input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, messages, messageContext, registration.channelId)
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
@@ -2396,8 +2517,8 @@ export function createDiscordGatewayRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
 ): (request: Request, options: AgentDiscordGatewayRouteOptions) => Promise<Response> {
   return async (request, handlerOptions) => {
-    if (request.method !== "GET" && request.method !== "POST") {
-      return createJsonErrorResponse(405, "Discord Gateway route only accepts GET or POST requests.")
+    if (request.method !== "GET") {
+      return createJsonErrorResponse(405, "Discord Gateway route only accepts GET requests.")
     }
 
     const context = createRuntimeContext(

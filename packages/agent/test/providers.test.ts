@@ -43,7 +43,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
       }
       const chat = rawMessage.chat as { id?: number | string } | undefined
       const from = rawMessage.from as { email?: string, id?: number | string, mail?: string, userPrincipalName?: string, username?: string } | undefined
-      const document = rawMessage.document as { file_id?: string, file_name?: string, file_size?: number, mime_type?: string } | undefined
+      const document = rawMessage.document as { content?: string, file_id?: string, file_name?: string, file_size?: number, mime_type?: string, url?: string } | undefined
       const photos = rawMessage.photo as Array<{ file_id?: string, file_size?: number, height?: number, width?: number }> | undefined
       const photo = photos?.at(-1)
       const date = typeof rawMessage.date === "number"
@@ -67,6 +67,16 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
                 name: document.file_name,
                 size: document.file_size,
                 type: "file",
+              }]
+          : document && (typeof document.file_id === "string" || typeof document.url === "string" || typeof document.content === "string")
+            ? [{
+                ...(typeof document.content === "string" ? { fetchData: async () => Buffer.from(document.content ?? "") } : {}),
+                ...(typeof document.file_id === "string" ? { fetchMetadata: { fileId: document.file_id } } : {}),
+                ...(document.mime_type ? { mimeType: document.mime_type } : {}),
+                name: document.file_name,
+                size: document.file_size,
+                type: "file",
+                ...(typeof document.url === "string" ? { url: document.url } : {}),
               }]
           : typeof photo?.file_id === "string"
             ? [{
@@ -449,6 +459,7 @@ describe("agent Vite plugin", () => {
 
       const gatewayRoute = await readFile(join(root, ".vitehub/agent/discord-gateway-route.ts"), "utf8")
 
+      expect(gatewayRoute).toContain("import { createDiscordGatewayRouteHandler } from \"@vite-hub/agent/server\"")
       expect(gatewayRoute).toContain("createDiscordGatewayRouteHandler")
       expect(gatewayRoute).toContain("VITEHUB_DISCORD_GATEWAY_SECRET")
       expect(gatewayRoute).toContain("VITEHUB_DISCORD_GATEWAY_DURATION_MS")
@@ -2204,6 +2215,105 @@ describe("server helpers", () => {
     }))
   })
 
+  it("maps text-like file attachments to text parts", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(({ messages }) => messages.at(-1)?.parts
+      .filter((part: { type?: string }) => part.type === "text")
+      .map((part: { text?: string }) => part.text)
+      .join(""))
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({ adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 42,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          document: {
+            content: "# Notes\n- first\n",
+            file_id: "notes-file",
+            file_name: "notes.md",
+            file_size: 16,
+            mime_type: "text/markdown; charset=utf-8",
+          },
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1010,
+          text: "see attached",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      messages: [expect.objectContaining({
+        parts: [
+          expect.objectContaining({ text: "see attached", type: "text" }),
+          expect.objectContaining({
+            text: "\n\nText attachment (notes.md):\n\n# Notes\n- first",
+            type: "text",
+          }),
+        ],
+      })],
+    }))
+  })
+
+  it("rejects oversized text-like file attachments before chat access", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { access } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const admitChat = vi.fn(() => true)
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      capabilities: [access({ chat: { resolve: admitChat } })],
+      channels: {
+        telegram: telegram({ adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      await expect(handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 42,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092800,
+            document: {
+              content: "small",
+              file_id: "large-log",
+              file_name: "large.log",
+              file_size: 1024 * 1024 + 1,
+              mime_type: "text/plain",
+            },
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 1011,
+          },
+        }),
+        method: "POST",
+      }), "telegram")).rejects.toThrow("[vitehub] Chat text attachment exceeds 1048576 bytes.")
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+    expect(admitChat).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it("maps audio mime file attachments for custom audio capabilities", async () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -2452,7 +2562,7 @@ describe("server helpers", () => {
   it("forwards Discord Gateway events to the registered webhook id", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")
-    const { createDiscordGatewayRouteHandler } = await import("../src/server/internal.ts")
+    const { createDiscordGatewayRouteHandler } = await import("../src/server.ts")
     const startGatewayListener = vi.fn(async () => Response.json({ ok: true }))
     const adapter = {
       ...createTestChatAdapter(),
@@ -2485,10 +2595,111 @@ describe("server helpers", () => {
     )
   })
 
+  it("rejects non-GET Discord Gateway requests", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createDiscordGatewayRouteHandler } = await import("../src/server.ts")
+    const adapter = {
+      ...createTestChatAdapter(),
+      name: "discord",
+      startGatewayListener: vi.fn(async () => Response.json({ ok: true })),
+    }
+    const agent = defineAgent({
+      channels: {
+        discord: discord({ adapter: () => adapter as never }),
+      },
+      driver: {
+        run: vi.fn(),
+      },
+    })
+    const handler = createDiscordGatewayRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway", {
+      method: "POST",
+    }), { webhookUrl: "https://example.com/api/_vitehub/agents/support/webhooks/discord" })
+
+    expect(response.status).toBe(405)
+    await expect(response.json()).resolves.toMatchObject({
+      message: "Discord Gateway route only accepts GET requests.",
+    })
+    expect(adapter.startGatewayListener).not.toHaveBeenCalled()
+  })
+
+  it("maps Discord Gateway URL-only text file attachments through the registered webhook", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createDiscordGatewayRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("expanded Discord prompt\n", {
+      headers: { "content-length": "24", "content-type": "text/plain" },
+    }))
+    const adapter = {
+      ...createTestChatAdapter(),
+      name: "discord",
+      startGatewayListener: vi.fn(async (_options, _durationMs, _abortSignal, webhookUrl) => {
+        if (!webhookUrl) return Response.json({ ok: false }, { status: 500 })
+        return await webhookHandler(new Request(webhookUrl, {
+          body: JSON.stringify({
+            message: {
+              chat: { id: "support" },
+              document: {
+                file_name: "message.txt",
+                file_size: 24,
+                mime_type: "text/plain",
+                url: "https://cdn.example/message.txt",
+              },
+              from: { id: "42", username: "maxi" },
+              message_id: "msg-1",
+            },
+          }),
+          method: "POST",
+        }), "discord-events")
+      }),
+    }
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: {
+        discord: discord({
+          adapter: () => adapter as never,
+          webhooks: { id: "discord-events" },
+        }),
+      },
+      driver: {
+        run,
+      },
+    })
+    const webhookHandler = createChannelWebhookRouteHandler(agent as never)
+    const gatewayHandler = createDiscordGatewayRouteHandler(agent as never)
+
+    try {
+      const response = await gatewayHandler(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"), {
+        webhookUrl: webhook => `https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`,
+      })
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      expect(adapter.startGatewayListener).toHaveBeenCalledOnce()
+      expect(fetch).toHaveBeenCalledWith("https://cdn.example/message.txt")
+      expect(run).toHaveBeenCalledWith(expect.objectContaining({
+        messages: [expect.objectContaining({
+          parts: [
+            expect.objectContaining({
+              text: "\n\nText attachment (message.txt):\n\nexpanded Discord prompt",
+              type: "text",
+            }),
+          ],
+        })],
+      }))
+    }
+    finally {
+      fetch.mockRestore()
+    }
+  })
+
   it("starts Discord Gateway listeners for every Discord channel", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")
-    const { createDiscordGatewayRouteHandler } = await import("../src/server/internal.ts")
+    const { createDiscordGatewayRouteHandler } = await import("../src/server.ts")
     let resolveSupportGateway!: (response: Response) => void
     let markSupportGatewayStarted!: () => void
     const supportGatewayStarted = new Promise<void>(resolve => {
@@ -3954,6 +4165,163 @@ describe("server helpers", () => {
       ])
     }
     finally {
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("skips oversized text attachments from durable thread history", async () => {
+    const { telegram } = await import("../src/channels.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { getMessageText } = await import("../src/messages.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-history-oversized-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const runs: string[][] = []
+    try {
+      await state.connect?.()
+      await state.appendToList("msg-history:telegram:456", new Message({
+        attachments: [{
+          fetchMetadata: { fileId: "old-log" },
+          mimeType: "text/plain",
+          name: "old.log",
+          size: 1024 * 1024 + 1,
+          type: "file",
+        }],
+        author: {
+          fullName: "Maxi",
+          isBot: false,
+          isMe: false,
+          userId: "123",
+          userName: "maxi",
+        },
+        formatted: { children: [], type: "root" },
+        id: "40",
+        metadata: { dateSent: new Date("2026-06-10T12:00:00.000Z"), edited: false },
+        raw: null,
+        text: "old context",
+        threadId: "telegram:456",
+      }).toJSON(), { maxLength: 25 })
+      const adapter = createTestChatAdapter({ persistThreadHistory: true })
+      const agent = defineAgent({
+        channels: {
+          telegram: telegram({ adapter: () => adapter as never }),
+        },
+        driver: {
+          run: ({ messages }) => {
+            runs.push(messages.map(getMessageText))
+            return "ok"
+          },
+        },
+        messages: {
+          state: () => state,
+          stream: false,
+          threadHistory: { maxMessages: 25 },
+          triggerHistory: { maxMessages: 25, source: "thread" },
+        },
+      })
+      const handler = createChannelWebhookRouteHandler(agent as never)
+
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 41,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092841,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 41,
+            text: "current after large history",
+          },
+        }),
+        method: "POST",
+      }), "telegram")
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      expect(runs).toEqual([["old context", "current after large history"]])
+    }
+    finally {
+      await state.disconnect?.()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("falls back when durable thread history text attachment URLs fail", async () => {
+    const { telegram } = await import("../src/channels.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { getMessageText } = await import("../src/messages.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("stale attachment"))
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-history-stale-attachment-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const runs: string[][] = []
+    try {
+      await state.connect?.()
+      await state.appendToList("msg-history:telegram:456", new Message({
+        attachments: [{
+          mimeType: "text/plain",
+          name: "old.txt",
+          size: 12,
+          type: "file",
+          url: "https://cdn.example/old.txt",
+        }],
+        author: {
+          fullName: "Maxi",
+          isBot: false,
+          isMe: false,
+          userId: "123",
+          userName: "maxi",
+        },
+        formatted: { children: [], type: "root" },
+        id: "40",
+        metadata: { dateSent: new Date("2026-06-10T12:00:00.000Z"), edited: false },
+        raw: null,
+        text: "",
+        threadId: "telegram:456",
+      }).toJSON(), { maxLength: 25 })
+      const adapter = createTestChatAdapter({ persistThreadHistory: true })
+      const agent = defineAgent({
+        channels: {
+          telegram: telegram({ adapter: () => adapter as never }),
+        },
+        driver: {
+          run: ({ messages }) => {
+            runs.push(messages.map(getMessageText))
+            return "ok"
+          },
+        },
+        messages: {
+          state: () => state,
+          stream: false,
+          threadHistory: { maxMessages: 25 },
+          triggerHistory: { maxMessages: 25, source: "thread" },
+        },
+      })
+      const handler = createChannelWebhookRouteHandler(agent as never)
+
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 42,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092842,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 42,
+            text: "current after stale history",
+          },
+        }),
+        method: "POST",
+      }), "telegram")
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      expect(fetch).toHaveBeenCalledWith("https://cdn.example/old.txt")
+      expect(runs).toEqual([["Sent a file attachment.", "current after stale history"]])
+    }
+    finally {
+      fetch.mockRestore()
+      await state.disconnect?.()
       await rm(stateDir, { force: true, recursive: true })
     }
   })
