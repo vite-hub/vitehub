@@ -54,7 +54,6 @@ describe("inputCommands", () => {
       capabilities: [inputCommands({
         commands: {
           review: {
-            description: "Review the request.",
           },
         },
       })],
@@ -403,11 +402,17 @@ describe("inputCommands", () => {
       },
     })).toThrow("lowercase stable identifier")
 
+    expect(inputCommands({
+      commands: {
+        review: { run: () => undefined },
+      },
+    }).metadata).toMatchObject({ commands: { review: {} } })
+
     expect(() => inputCommands({
       commands: {
-        review: { run: () => undefined } as never,
+        review: { description: "", run: () => undefined },
       },
-    })).toThrow("requires a description")
+    })).toThrow("description must be a non-empty string")
 
     expect(() => inputCommands({
       commands: {
