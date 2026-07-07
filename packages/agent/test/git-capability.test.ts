@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { git } from "../src/capabilities.ts"
+import { applyAgentToolPolicies } from "../src/tool-runtime.ts"
 
 import type { AgentToolSet } from "../src/types.ts"
 import type { WorkspaceSession } from "@vite-hub/workspace"
@@ -160,6 +161,29 @@ describe("git capability", () => {
     expect(session.exec).toHaveBeenNthCalledWith(1, "git", ["status", "--porcelain"], expect.objectContaining({ cwd: "/workspace/portal", timeout: undefined }))
     expect(session.exec).toHaveBeenNthCalledWith(2, "git", ["switch", "feature/pr-1"], expect.objectContaining({ cwd: "/workspace/portal", timeout: undefined }))
     expect(session.commit).toHaveBeenCalledWith({ message: "git switch" })
+  })
+
+  it("evaluates custom write policies with normalized git inputs", async () => {
+    const session = gitSession()
+    const policy = vi.fn(({ input }: { input?: unknown }) => {
+      if (typeof input === "object" && input !== null && (input as { command?: unknown }).command === "git checkout main") return "deny"
+      return "allow"
+    })
+    const { tools } = await capabilityTools(git({ mode: "write", policy }), session)
+    const guardedTools = applyAgentToolPolicies(tools)!
+
+    await expect(guardedTools.git_write!.execute?.({ cmd: "checkout main" })).rejects.toThrow()
+    await expect(guardedTools.git_write!.execute?.({ args: ["checkout", "main"] })).rejects.toThrow()
+
+    expect(policy).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      input: expect.objectContaining({ cmd: "checkout main", command: "git checkout main" }),
+      name: "git_write",
+    }))
+    expect(policy).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      input: expect.objectContaining({ args: ["checkout", "main"], command: "git checkout main" }),
+      name: "git_write",
+    }))
+    expect(session.exec).not.toHaveBeenCalled()
   })
 
   it("fetches only configured remotes in write mode", async () => {

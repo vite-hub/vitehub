@@ -454,6 +454,14 @@ function normalizeGitToolInput(input: unknown, defaultCwd: string | undefined): 
   }
 }
 
+function normalizeGitToolPolicy(policy: GitCapabilityToolPolicy | undefined, defaultCwd: string | undefined): GitCapabilityToolPolicy | undefined {
+  if (typeof policy !== "function") return policy
+  return context => policy({
+    ...context,
+    input: normalizeGitToolInput(context.input, defaultCwd),
+  })
+}
+
 function limitOutput(output: string, maxOutputLength: number): { output: string, truncated?: boolean } {
   if (output.length <= maxOutputLength) return { output }
   return {
@@ -518,7 +526,7 @@ function gitTools(
       execute: (input: unknown) => run(input, true),
       inputSchema: gitInputSchema("Local git command, for example `git fetch origin pull/123/head` or `git switch main`. Bare git subcommands are accepted and normalized to start with `git`. Pass one command only; do not use shell composition such as `&&` or `|`."),
       name: "git_write",
-      policy: options.policy || "require-approval",
+      policy: normalizeGitToolPolicy(options.policy, defaultCwd) || "require-approval",
     }
   }
 
