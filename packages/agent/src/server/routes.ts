@@ -16,7 +16,7 @@ import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
 import { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "../trigger-runtime.ts"
 import { toHttpErrorResponse } from "../http-error.ts"
-import { isWorkflowRun, toAgentFetchResponse } from "../http-response.ts"
+import { isWorkflowRun } from "../http-response.ts"
 import { createChatDevtoolsStreamResponse } from "../chat/devtools-stream.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 
@@ -2318,10 +2318,11 @@ export function createChannelWebhookRouteHandler(
       return createBadRequest("Agent webhook route requires a webhook id.")
     }
 
+    const waitUntil = await resolveRuntimeWaitUntil(handlerOptions.waitUntil)
     const context = createRuntimeContext(
       request,
       undefined,
-      await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+      waitUntil,
       handlerOptions.cloudflare,
       handlerOptions.runtime,
     )
@@ -2351,14 +2352,20 @@ export function createChannelWebhookRouteHandler(
             await context.flushWaitUntil?.()
             return invocation.response
           }
-          const result = await runAgent(agent as never, {
-            ...context,
-            ...(invocation.run ? { run: invocation.run } : {}),
-          } as never, invocation.input as never)
-          if (!isWorkflowRun(result) || result.status !== "queued") {
-            await context.flushWaitUntil?.()
-          }
-          return toAgentFetchResponse(result, false)
+          const runContext = createRuntimeContext(
+            request,
+            invocation.run,
+            waitUntil,
+            handlerOptions.cloudflare,
+            handlerOptions.runtime,
+          )
+          context.waitUntil(runWithRuntimeCloudflareEnv(runContext, async () => {
+            const result = await runAgent(agent as never, runContext as never, invocation.input as never)
+            if (!isWorkflowRun(result) || result.status !== "queued") {
+              await runContext.flushWaitUntil?.()
+            }
+          }))
+          return Response.json({ accepted: true, ok: true })
         }
         catch (error) {
           const response = toHttpErrorResponse(error)
