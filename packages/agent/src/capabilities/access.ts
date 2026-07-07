@@ -314,8 +314,8 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       if (!context.workspace) {
         throw new Error("[vitehub] access({ workspace }) requires an explicit workspace.")
       }
-      if ("diff" in context.workspace) {
-        throw new Error("[vitehub] access({ workspace }) is read-only in the first version and requires workspace.mode: \"read\".")
+      if ("diff" in context.workspace && context.driver?.kind !== "harness") {
+        throw new Error("[vitehub] access({ workspace }) with workspace.mode: \"write\" is only supported for harness Agent Drivers.")
       }
       const workspaceRuntime = await loadWorkspaceAccessRuntime()
       const scope = await resolveWorkspaceScope(options.workspace, context, workspaceRuntime)
@@ -781,6 +781,7 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
   let fs: ReadonlyWorkspaceFacade<Name>["fs"]
   const sourceRequestExecution = workspaceRuntime.getWorkspaceSourceRequestExecution(workspace.fs)
   const starter = workspaceSessionStarter(workspace.fs)
+  const facadeStarter = workspaceSessionStarter(workspace as object)
   fs = workspaceRuntime.attachWorkspaceSourceRequestExecution({
     async readFile(path, options) {
       const normalized = normalizeScopePath(path)
@@ -850,10 +851,17 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
   tools.inspect = createTools as ReadonlyWorkspaceFacade<Name>["tools"]["inspect"]
   tools.none = () => ({})
 
-  return {
+  const facade: ReadonlyWorkspaceFacade<Name> & Partial<WorkspaceSessionStarter> = {
     fs,
     tools,
   }
+  if (facadeStarter) {
+    facade.startSession = async (options?: WorkspaceSessionOptions) => await facadeStarter.startSession({
+      ...options,
+      paths: scopedSessionPaths(scope, options?.paths),
+    })
+  }
+  return facade
 }
 
 function scopedSourceRequestExecution(
