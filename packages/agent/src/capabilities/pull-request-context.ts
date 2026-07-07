@@ -584,7 +584,8 @@ function createPullRequestContext<
       if (sources && Object.hasOwn(sources, source.key)) {
         throw new Error(`[vitehub] ${capabilityId}() sources cannot use reserved Workspace Source key "${source.key}".`)
       }
-      grantSelectedWorkspaceScopePath(context.context, source.mount)
+      grantSelectedWorkspaceScopePath(context.context, `${source.mount}/${defaultMarkdownSourcePath}`)
+      grantSelectedWorkspaceScopePath(context.context, `${source.mount}/${defaultJsonSourcePath}`)
       return {
         ...(rules ? { rules } : {}),
         sources: {

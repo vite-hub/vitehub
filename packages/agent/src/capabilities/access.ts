@@ -314,8 +314,8 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       if (!context.workspace) {
         throw new Error("[vitehub] access({ workspace }) requires an explicit workspace.")
       }
-      if ("diff" in context.workspace) {
-        throw new Error("[vitehub] access({ workspace }) is read-only in the first version and requires workspace.mode: \"read\".")
+      if ("diff" in context.workspace && context.driver?.kind !== "harness") {
+        throw new Error("[vitehub] access({ workspace }) with workspace.mode: \"write\" is only supported for harness Agent Drivers.")
       }
       const workspaceRuntime = await loadWorkspaceAccessRuntime()
       const scope = await resolveWorkspaceScope(options.workspace, context, workspaceRuntime)
@@ -757,7 +757,7 @@ function workspaceSessionStarter(input: object): WorkspaceSessionStarter | undef
     : undefined
 }
 
-function scopedSessionPaths(scope: ResolvedWorkspaceScope, paths: readonly string[] | undefined): string[] | undefined {
+async function scopedSessionPaths(scope: ResolvedWorkspaceScope, paths: readonly string[] | undefined, fs?: ReadonlyWorkspaceFacade["fs"]): Promise<string[] | undefined> {
   if (scope.all) return paths ? [...paths] : undefined
   const requestedPaths = paths?.length ? paths : [""]
   const scopedPaths = new Set<string>()
@@ -767,6 +767,9 @@ function scopedSessionPaths(scope: ResolvedWorkspaceScope, paths: readonly strin
       const grantPath = normalizeScopePath(grant.path)
       if (pathContains(grantPath, requested)) scopedPaths.add(requested)
       else if (!requested || pathContains(requested, grantPath)) scopedPaths.add(grantPath)
+    }
+    if (paths?.length && fs && !scopedPaths.has(requested) && isReadablePath(scope, requested) && await fs.exists(requested)) {
+      scopedPaths.add(requested)
     }
   }
   if (!scopedPaths.size) throw notFound(requestedPaths[0] || "")
@@ -781,6 +784,7 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
   let fs: ReadonlyWorkspaceFacade<Name>["fs"]
   const sourceRequestExecution = workspaceRuntime.getWorkspaceSourceRequestExecution(workspace.fs)
   const starter = workspaceSessionStarter(workspace.fs)
+  const facadeStarter = workspaceSessionStarter(workspace as object)
   fs = workspaceRuntime.attachWorkspaceSourceRequestExecution({
     async readFile(path, options) {
       const normalized = normalizeScopePath(path)
@@ -826,7 +830,7 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
           async startSession(options?: WorkspaceSessionOptions) {
             return await starter.startSession({
               ...options,
-              paths: scopedSessionPaths(scope, options?.paths),
+              paths: await scopedSessionPaths(scope, options?.paths),
             })
           },
         }
@@ -850,10 +854,19 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
   tools.inspect = createTools as ReadonlyWorkspaceFacade<Name>["tools"]["inspect"]
   tools.none = () => ({})
 
-  return {
+  const facade: ReadonlyWorkspaceFacade<Name> & Partial<WorkspaceSessionStarter> = {
     fs,
     tools,
   }
+  if (facadeStarter) {
+    facade.startSession = async (options?: WorkspaceSessionOptions) => {
+      return await facadeStarter.startSession({
+        ...options,
+        paths: await scopedSessionPaths(scope, options?.paths, fs),
+      })
+    }
+  }
+  return facade
 }
 
 function scopedSourceRequestExecution(

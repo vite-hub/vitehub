@@ -370,6 +370,8 @@ describe("pullRequestContext", () => {
   it("grants the default source to the selected Workspace Scope", async () => {
     const { access, pullRequestContext } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
+    const context = createAgentInvocationContextStore()
 
     const resolved = await resolveAgentCapabilities({
       capabilities: [
@@ -389,6 +391,7 @@ describe("pullRequestContext", () => {
         }),
       ],
     }, runtime(), {}, emptyWorkspace() as never, "read", {
+      context,
       workspaceDefinition: {
         name: "review",
         sources: {},
@@ -396,6 +399,11 @@ describe("pullRequestContext", () => {
     })
 
     await expect(resolved.workspace?.fs.readFile("pull-request-context/context.md")).resolves.toContain("Change Request 42 in acme/app.")
+    expect(context.get("access")).toMatchObject({
+      workspaceScope: {
+        paths: ["src", "pull-request-context/context.md", "pull-request-context/context.json"],
+      },
+    })
   })
 
   it("grants the default source to an inline Workspace Scope selection", async () => {

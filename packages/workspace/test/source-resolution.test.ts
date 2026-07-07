@@ -1156,6 +1156,41 @@ describe("Workspace Source Resolution", () => {
     }
   })
 
+  it("preserves top-level Workspace Session starters on readonly source overlays", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const startSession = vi.fn(async () => ({ close: vi.fn() }))
+    const scopedFacade = {
+      ...facade(base),
+      startSession,
+    }
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        pullRequest: custom({
+          materialize: "lazy",
+          mount: "pull-request",
+          async getKeys() {
+            return ["body.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# Pull request\n" }
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(scopedFacade, definition, {
+      invocation,
+      overlay: true,
+    })
+
+    expect(workspace).toHaveProperty("startSession")
+    await (workspace as ReadonlyWorkspaceFacade & { startSession(options?: { paths?: string[] }): Promise<unknown> }).startSession({
+      paths: ["public"],
+    })
+    expect(startSession).toHaveBeenCalledWith({ paths: ["public"] })
+  })
+
   it("starts writable overlay sessions from contributed sources and rules", async () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {

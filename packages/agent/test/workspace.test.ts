@@ -338,6 +338,63 @@ describe("defineAgent workspace option", () => {
     expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
   })
 
+  it("scopes write-mode harness Workspace Sessions through access()", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    const startSession = vi.fn(async () => ({ close: vi.fn() }))
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+    useWorkspace.mockReturnValueOnce({
+      diff,
+      fs: { exists, list, readFile, stat, writeFile },
+      materializeSources: vi.fn(),
+      snapshot,
+      startSession,
+      sync: vi.fn(),
+      tools: Object.assign(tools, {
+        inspect: inspectTools,
+        none: vi.fn(() => ({})),
+        readonly: inspectTools,
+        write: writeTools,
+      }),
+    } as unknown as WritableWorkspaceFacade)
+
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "review",
+            scopes: {
+              review: { paths: ["src"] },
+            },
+          },
+        }),
+      ],
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: { mode: "write" },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    const scopedWorkspace = prepareHarnessWorkspaceSession.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(scopedWorkspace.startSession).toBeTypeOf("function")
+    await (scopedWorkspace.startSession as (options?: { paths?: string[] }) => Promise<unknown>)({
+      paths: ["src/app.ts", "private/secret.md"],
+    })
+    expect(startSession).toHaveBeenCalledWith({ paths: ["src/app.ts"] })
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
+      paths: ["src", "AGENTS.md", "CLAUDE.md"],
+      session: harnessFileSession,
+      sessionWorkDir: "/workspace/codex-session",
+    }))
+  })
+
   it("keeps harness workspace sessions open through text fallback", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const harnessSession = { destroy: vi.fn() }
@@ -1920,9 +1977,23 @@ describe("defineAgent workspace option", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { access, pullRequestContext } = await import("../src/capabilities.ts")
     const harnessWorkspaceSession = { close: vi.fn() }
-    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    const startSession = vi.fn(async () => ({ close: vi.fn() }))
+    useWorkspace.mockReturnValueOnce({
+      diff,
+      fs: { exists, list, readFile, stat, writeFile },
+      snapshot,
+      startSession,
+      sync: vi.fn(),
+      tools: Object.assign(tools, {
+        inspect: inspectTools,
+        none: vi.fn(() => ({})),
+        readonly: inspectTools,
+        write: writeTools,
+      }),
+    } as unknown as WritableWorkspaceFacade)
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+    exists.mockImplementation(async (path: string) => path === "pull-request-context/context.md")
 
     const agent = withAgentDefaults(defineAgent({
       capabilities: [
@@ -1944,7 +2015,7 @@ describe("defineAgent workspace option", () => {
       driver: {
         harness: { provider: "codex" },
       },
-      workspace: {},
+      workspace: { mode: "write" },
     }), { workspace: "docs" })
 
     await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
@@ -1952,10 +2023,27 @@ describe("defineAgent workspace option", () => {
       text: "ok",
     })
 
+    const scopedWorkspace = prepareHarnessWorkspaceSession.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(scopedWorkspace.startSession).toBeTypeOf("function")
+    const forgedReceiver = {
+      fs: {
+        exists: vi.fn(async () => true),
+      },
+    }
+    await expect((scopedWorkspace.startSession as (this: typeof forgedReceiver, options?: { paths?: string[] }) => Promise<unknown>).call(forgedReceiver, {
+      paths: ["private/secret.md"],
+    })).rejects.toThrow("Workspace path does not exist")
+    expect(forgedReceiver.fs.exists).not.toHaveBeenCalled()
+    exists.mockImplementation(async (path: string) => path === "pull-request-context" || path === "pull-request-context/context.md")
+    const callsBeforeParentRequest = startSession.mock.calls.length
+    await expect((scopedWorkspace.startSession as (options?: { paths?: string[] }) => Promise<unknown>)({
+      paths: ["pull-request-context"],
+    })).rejects.toThrow("Workspace path does not exist")
+    expect(startSession).toHaveBeenCalledTimes(callsBeforeParentRequest)
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
-      paths: ["public", "AGENTS.md", "CLAUDE.md", "pull-request-context"],
+      paths: ["public", "AGENTS.md", "CLAUDE.md", "pull-request-context/context.md", "pull-request-context/context.json"],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     })
