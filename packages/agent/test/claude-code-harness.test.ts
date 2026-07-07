@@ -50,6 +50,93 @@ vi.mock("@ai-sdk/harness-claude-code", () => ({
   createClaudeCode: createAiSdkClaudeCode,
 }))
 
+describe("claudeCodeDriver", () => {
+  it("defaults to ambient Claude Code auth and local sandbox credentials", async () => {
+    const { claudeCodeDriver } = await import("../src/harness/claude-code.ts")
+
+    const driver = claudeCodeDriver()
+
+    expect(createAiSdkClaudeCode).toHaveBeenLastCalledWith({ auth: { anthropic: {} } })
+    expect(driver).toMatchObject({
+      credentials: { label: "Claude Code", source: "ambient" },
+      harness: { settings: { auth: { anthropic: {} } } },
+      sandbox: { providerId: "local" },
+    })
+  })
+
+  it("keeps host Anthropic env out of the default local Claude Code sandbox", async () => {
+    const originalApiKey = process.env.ANTHROPIC_API_KEY
+    const originalAuthToken = process.env.ANTHROPIC_AUTH_TOKEN
+    const originalBaseUrl = process.env.ANTHROPIC_BASE_URL
+    process.env.ANTHROPIC_API_KEY = "host-key"
+    process.env.ANTHROPIC_AUTH_TOKEN = "host-token"
+    process.env.ANTHROPIC_BASE_URL = "https://host.example"
+
+    try {
+      const { claudeCodeDriver } = await import("../src/harness/claude-code.ts")
+      const driver = claudeCodeDriver({ env: { EXTRA_CLAUDE_ENV: "1" } }) as { sandbox?: { createSession: () => Promise<{ destroy: () => Promise<void>, env: Record<string, string> }> } }
+      const session = await driver.sandbox?.createSession()
+
+      try {
+        expect(session?.env.ANTHROPIC_API_KEY).toBeUndefined()
+        expect(session?.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
+        expect(session?.env.ANTHROPIC_BASE_URL).toBeUndefined()
+        expect(session?.env.EXTRA_CLAUDE_ENV).toBe("1")
+        expect(session?.env.PATH).toContain("node_modules/.bin")
+      }
+      finally {
+        await session?.destroy()
+      }
+    }
+    finally {
+      restoreEnv("ANTHROPIC_API_KEY", originalApiKey)
+      restoreEnv("ANTHROPIC_AUTH_TOKEN", originalAuthToken)
+      restoreEnv("ANTHROPIC_BASE_URL", originalBaseUrl)
+    }
+  })
+
+  it("preserves explicit Claude Code auth settings and sandbox env", async () => {
+    const originalApiKey = process.env.ANTHROPIC_API_KEY
+    process.env.ANTHROPIC_API_KEY = "host-key"
+
+    try {
+      const { claudeCodeDriver } = await import("../src/harness/claude-code.ts")
+      const driver = claudeCodeDriver({
+        auth: { anthropic: { apiKey: "explicit-auth-key" } },
+        maxTurns: 3,
+        model: "claude-sonnet-4-5",
+        sandbox: {
+          env: { ANTHROPIC_API_KEY: "explicit-sandbox-key" },
+        },
+      }) as { sandbox?: { createSession: () => Promise<{ destroy: () => Promise<void>, env: Record<string, string> }> } }
+      const session = await driver.sandbox?.createSession()
+
+      try {
+        expect(createAiSdkClaudeCode).toHaveBeenLastCalledWith({
+          auth: { anthropic: { apiKey: "explicit-auth-key" } },
+          maxTurns: 3,
+          model: "claude-sonnet-4-5",
+        })
+        expect(session?.env.ANTHROPIC_API_KEY).toBe("explicit-sandbox-key")
+      }
+      finally {
+        await session?.destroy()
+      }
+    }
+    finally {
+      restoreEnv("ANTHROPIC_API_KEY", originalApiKey)
+    }
+  })
+
+  it("can disable the default local Claude Code sandbox", async () => {
+    const { claudeCodeDriver } = await import("../src/harness/claude-code.ts")
+
+    const driver = claudeCodeDriver({ sandbox: false })
+
+    expect(driver).not.toHaveProperty("sandbox")
+  })
+})
+
 describe("createClaudeCode", () => {
   it("defaults to direct Anthropic auth so host AI Gateway env does not leak into Claude Code", async () => {
     const { createClaudeCode } = await import("../src/harness/claude-code.ts")
@@ -99,3 +186,11 @@ describe("createClaudeCode", () => {
     })
   })
 })
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key]
+    return
+  }
+  process.env[key] = value
+}

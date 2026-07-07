@@ -24,10 +24,12 @@ pnpm add @vite-hub/agent @vite-hub/workspace ai
 
 Add the AI SDK model provider you pass to `model`.
 
-For AI SDK harness drivers, add the harness packages:
+For AI SDK harness drivers, add the harness package you use:
 
 ```sh
 pnpm add @ai-sdk/harness @ai-sdk/harness-codex
+# or
+pnpm add @ai-sdk/harness @ai-sdk/harness-claude-code
 ```
 
 For non-local omitted sandbox fallback, also add `@ai-sdk/sandbox-vercel`.
@@ -87,6 +89,8 @@ export default defineAgent({
   ],
 })
 ```
+
+For Claude Code, use `claudeCodeDriver()` from `@vite-hub/agent/harness/claude-code`. It accepts `createClaudeCode()` settings such as `auth`, `model`, and `maxTurns`, and uses the same local sandbox default unless `sandbox: false` is set.
 
 `driver.harness` is the AI SDK harness adapter instance. Workspace-backed harness drivers in Vite dev use ViteHub's local harness sandbox by default and receive a Harness Workspace Session prepared from the selected Workspace. Outside the local workspace path, ViteHub uses the AI SDK Vercel Sandbox default when `@ai-sdk/sandbox-vercel` is installed. Harness sandbox provider setup is Agent Package runtime plumbing; use `driver.sandbox` when an Agent needs a specific harness process or session provider. Add `sandbox({ commands })` only when the model should receive `sandbox_exec`. `driver.harness`, `driver.sessionKey`, and `driver.sandbox` can be callbacks when one Agent Definition needs invocation-scoped harness setup. When `access()` narrows Workspace Scope, ViteHub materializes only that selected scope plus generated source descriptors. Read mode materializes files and discards sandbox changes; write mode syncs additions, updates, and deletions back through Workspace rules. V1 configures built-in harness permissions internally with the no-approval policy and does not expose a public permission option. Skills stay a Capability through `skills()` rather than becoming a root Agent Definition field. For harness drivers, `skills()` relies on mounted Workspace files and does not inject model instructions or Workspace Shell tools. Put harness guidance in Workspace files such as `AGENTS.md`; Sources, Capabilities, and Skills do not inject extra model instructions by default.
 

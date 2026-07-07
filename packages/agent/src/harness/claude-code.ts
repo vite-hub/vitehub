@@ -1,4 +1,8 @@
+import { join } from "node:path"
+
 import { createClaudeCode as createAiSdkClaudeCode } from "@ai-sdk/harness-claude-code"
+
+import { createLocalHarnessSandbox, type LocalHarnessSandboxOptions } from "./local-sandbox.ts"
 
 import type {
   HarnessV1Bootstrap,
@@ -8,6 +12,38 @@ import type {
   HarnessV1StreamPart,
 } from "@ai-sdk/harness"
 import type { ClaudeCodeHarnessSettings } from "@ai-sdk/harness-claude-code"
+import type { AgentHarnessCredentialSource, AgentHarnessDriver } from "../types.ts"
+
+export interface ClaudeCodeDriverOptions extends ClaudeCodeHarnessSettings {
+  credentials?: AgentHarnessCredentialSource
+  env?: Record<string, string | undefined>
+  sandbox?: false | LocalHarnessSandboxOptions
+}
+
+export function claudeCodeDriver(options: ClaudeCodeDriverOptions = {}): AgentHarnessDriver {
+  const {
+    credentials,
+    env,
+    sandbox,
+    ...settings
+  } = options
+
+  return {
+    credentials: credentials ?? { label: "Claude Code", source: "ambient" },
+    harness: createClaudeCode(settings),
+    ...(sandbox === false
+      ? {}
+      : {
+          sandbox: createLocalHarnessSandbox({
+            ...sandbox,
+            env: claudeCodeLocalEnv({
+              ...env,
+              ...sandbox?.env,
+            }),
+          }),
+        }),
+  }
+}
 
 export function createClaudeCode(settings: ClaudeCodeHarnessSettings = {}): ReturnType<typeof createAiSdkClaudeCode> {
   const harness = createAiSdkClaudeCode({
@@ -28,6 +64,24 @@ export function createClaudeCode(settings: ClaudeCodeHarnessSettings = {}): Retu
     async doStart(options) {
       return guardEmptyClaudeCodeSession(await harness.doStart(options))
     },
+  }
+}
+
+function claudeCodeLocalEnv(env: Record<string, string | undefined> = {}): Record<string, string | undefined> {
+  const hostEnv = { ...process.env }
+  delete hostEnv.ANTHROPIC_API_KEY
+  delete hostEnv.ANTHROPIC_AUTH_TOKEN
+  delete hostEnv.ANTHROPIC_BASE_URL
+  const home = env.HOME ?? hostEnv.HOME
+
+  return {
+    ...hostEnv,
+    ...env,
+    PATH: [
+      join(process.cwd(), "node_modules", ".bin"),
+      home ? join(home, ".local", "bin") : undefined,
+      env.PATH ?? hostEnv.PATH,
+    ].filter(Boolean).join(":"),
   }
 }
 
