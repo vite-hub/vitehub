@@ -99,10 +99,10 @@ async function syncRuntimeBuildAssets(definition: WorkspaceDefinition, store: Wo
 
   const entries = await assets.list("", { recursive: true })
   const files = entries.filter(entry => entry.type === "file")
-  const coveredSources = new Set<string>()
+  let hasBundledSourceAsset = false
   for (const entry of files) {
     const source = findBuildSourceForPath(entry.path, currentSources)
-    if (source) coveredSources.add(source.key)
+    if (source) hasBundledSourceAsset = true
     await store.writeFile(entry.path, {
       path: entry.path,
       content: await assets.readFile(entry.path, { encoding: "binary" }),
@@ -110,7 +110,7 @@ async function syncRuntimeBuildAssets(definition: WorkspaceDefinition, store: Wo
       metadata: source ? { source: source.key } : undefined,
     })
   }
-  return currentSources.every(source => coveredSources.has(source.key))
+  return hasBundledSourceAsset
 }
 
 function findBuildSourceForPath(path: string, sources: ResolvedWorkspaceSource[]): ResolvedWorkspaceSource | undefined {

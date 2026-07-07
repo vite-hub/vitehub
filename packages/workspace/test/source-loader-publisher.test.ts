@@ -666,7 +666,8 @@ describe("sources, loaders, and publishers", () => {
     })
   })
 
-  it("falls back to loaders when runtime assets miss a current build source", async () => {
+  it("hydrates bundled runtime assets when assets miss a current build source", async () => {
+    const root = await createRoot()
     setWorkspaceRuntimeAssetsRegistry({
       support: createWorkspaceAssets({
         "skills/agent-browser/SKILL.md": {
@@ -679,25 +680,20 @@ describe("sources, loaders, and publishers", () => {
     const store = createMemoryWorkspaceStore()
     await syncWorkspaceDefinition({
       name: "support",
+      rootDir: root,
+      sourceRootDir: join(root, "missing"),
       sources: {
         agentBrowserSkill: file({
           content: "# Browser\n",
           mediaType: "text/markdown",
           workspacePath: "skills/agent-browser/SKILL.md",
         }),
-        instructions: file({
-          content: "# Agent\n",
-          mediaType: "text/markdown",
-          workspacePath: "AGENTS.md",
-        }),
+        instructions: file("AGENTS.md"),
       },
     }, store)
 
     await expect(store.readFile("skills/agent-browser/SKILL.md")).resolves.toMatchObject({
       content: "# Browser\n",
-    })
-    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({
-      content: "# Agent\n",
     })
   })
 
