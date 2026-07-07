@@ -768,7 +768,7 @@ async function scopedSessionPaths(scope: ResolvedWorkspaceScope, paths: readonly
       if (pathContains(grantPath, requested)) scopedPaths.add(requested)
       else if (!requested || pathContains(requested, grantPath)) scopedPaths.add(grantPath)
     }
-    if (paths?.length && fs && !scopedPaths.has(requested) && await fs.exists(requested)) {
+    if (paths?.length && fs && !scopedPaths.has(requested) && isReadablePath(scope, requested) && await fs.exists(requested)) {
       scopedPaths.add(requested)
     }
   }

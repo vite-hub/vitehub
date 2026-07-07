@@ -2034,6 +2034,12 @@ describe("defineAgent workspace option", () => {
       paths: ["private/secret.md"],
     })).rejects.toThrow("Workspace path does not exist")
     expect(forgedReceiver.fs.exists).not.toHaveBeenCalled()
+    exists.mockImplementation(async (path: string) => path === "pull-request-context" || path === "pull-request-context/context.md")
+    const callsBeforeParentRequest = startSession.mock.calls.length
+    await expect((scopedWorkspace.startSession as (options?: { paths?: string[] }) => Promise<unknown>)({
+      paths: ["pull-request-context"],
+    })).rejects.toThrow("Workspace path does not exist")
+    expect(startSession).toHaveBeenCalledTimes(callsBeforeParentRequest)
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
