@@ -65,6 +65,12 @@ function isWritableWorkspaceFacade<Name extends WorkspaceName>(workspace: Readon
   return typeof (workspace as WritableWorkspaceFacade<Name>).fs.writeFile === "function"
 }
 
+function workspaceSessionStarter<Name extends WorkspaceName>(workspace: ReadonlyWorkspaceFacade<Name>): Pick<Workspace, "startSession"> | undefined {
+  return typeof (workspace as ReadonlyWorkspaceFacade<Name> & Partial<Pick<Workspace, "startSession">>).startSession === "function"
+    ? workspace as ReadonlyWorkspaceFacade<Name> & Pick<Workspace, "startSession">
+    : undefined
+}
+
 function writeOperations(options: WritableWorkspaceFacadeToolOptions | undefined) {
   return {
     appendFile: options?.appendFile !== false,
@@ -496,12 +502,18 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     }
   }
 
+  const readonlyWorkspace: ReadonlyWorkspaceFacade<Name> & Partial<Pick<Workspace, "startSession">> = {
+    fs,
+    tools,
+  }
+  const starter = workspaceSessionStarter(workspace)
+  if (starter) {
+    readonlyWorkspace.startSession = async options => await starter.startSession(options)
+  }
+
   return {
     definition: resolvedDefinition,
-    workspace: {
-      fs,
-      tools,
-    },
+    workspace: readonlyWorkspace,
   }
 }
 
