@@ -75,6 +75,28 @@ describe("git capability", () => {
     expect(session.exec).toHaveBeenCalledWith("git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace", timeout: undefined }))
   })
 
+  it("normalizes common git tool input shapes", async () => {
+    const { session, tools } = await capabilityTools()
+
+    await expect(tools.git_read!.execute?.("status --short")).resolves.toMatchObject({
+      args: ["status", "--short"],
+      command: "git status --short",
+    })
+    await expect(tools.git_read!.execute?.({ cmd: "diff --stat" })).resolves.toMatchObject({
+      args: ["diff", "--stat"],
+      command: "git diff --stat",
+    })
+    await expect(tools.git_read!.execute?.({ args: ["show", "HEAD:README.md"] })).resolves.toMatchObject({
+      args: ["show", "HEAD:README.md"],
+      command: "git show HEAD:README.md",
+    })
+    await expect(tools.git_read!.execute?.({ command: "git diff --stat && git diff" })).rejects.toThrow("without shell composition")
+
+    expect(session.exec).toHaveBeenCalledWith("git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace" }))
+    expect(session.exec).toHaveBeenCalledWith("git", ["diff", "--stat"], expect.objectContaining({ cwd: "/workspace" }))
+    expect(session.exec).toHaveBeenCalledWith("git", ["show", "HEAD:README.md"], expect.objectContaining({ cwd: "/workspace" }))
+  })
+
   it("keeps workspace sessions scoped to each tool resolution", async () => {
     const capability = git()
     if (typeof capability.tools !== "function") throw new Error("git capability must expose tool resolver")
