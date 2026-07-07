@@ -47,7 +47,7 @@ export type InputCommandCall = (input: InputCommandRunInput) => MaybePromise<Inp
 export interface InputCommand {
   call?: InputCommandCall
   channels?: readonly string[]
-  description: string
+  description?: string
   hooks?: InputCommandHooks
   run?: InputCommandCall
 }
@@ -109,8 +109,8 @@ function normalizeInputCommands(options: InputCommandsOptions): Record<string, I
     if (!command || typeof command !== "object") {
       throw new TypeError(`[vitehub] Input command "${name}" must be an object.`)
     }
-    if (typeof command.description !== "string" || !command.description.trim()) {
-      throw new TypeError(`[vitehub] Input command "${name}" requires a description.`)
+    if (command.description !== undefined && (typeof command.description !== "string" || !command.description.trim())) {
+      throw new TypeError(`[vitehub] Input command "${name}" description must be a non-empty string.`)
     }
     if (command.channels !== undefined && (!Array.isArray(command.channels) || command.channels.some(channel => typeof channel !== "string" || !channel.trim()))) {
       throw new TypeError(`[vitehub] Input command "${name}" channels must be non-empty Channel IDs.`)
@@ -402,7 +402,7 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
     metadata: {
       commands: Object.fromEntries(Object.entries(commands).map(([name, command]) => [name, {
         ...(command.channels?.length ? { channels: [...command.channels] } : {}),
-        description: command.description,
+        ...(command.description ? { description: command.description } : {}),
       }])),
       trigger,
     },

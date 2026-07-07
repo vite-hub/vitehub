@@ -575,7 +575,6 @@ describe("agent public types", () => {
 
     inputCommands({
       commands: {
-        // @ts-expect-error input commands require user-facing descriptions
         review: {
           run: () => undefined,
         },
