@@ -29,10 +29,7 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
   if (typeof input === "function") return resolvableGitHubSource(input)
 
   const options = input
-  const resolvedOptions = {
-    ...options,
-    mount: options.mount ?? inferRepositoryMount(options.repo),
-  }
+  const resolvedOptions = { ...options }
   const baseSource = createGitHubSource({
     ...resolvedOptions,
     auth: createGitHubAuthResolver(resolvedOptions.auth),
@@ -152,10 +149,6 @@ function pullRequestSource(value: unknown): { ref?: string, repo?: string } | un
     ...(typeof ref === "string" && ref ? { ref } : {}),
     ...(typeof repo === "string" && repo ? { repo } : {}),
   }
-}
-
-function inferRepositoryMount(repo: string | undefined) {
-  return repo?.split("/").filter(Boolean).at(-1)
 }
 
 function createGitHubAuthResolver(auth: GitHubAuth | undefined) {
