@@ -374,9 +374,9 @@ export type {
 } from "./chat-trigger.ts"
 
 const syntheticWorkspaceRun = Symbol.for("vitehub.syntheticWorkspaceRun")
-const baseAgentResolve = Symbol("vitehub.baseAgentResolve")
-const baseAgentModel = Symbol("vitehub.baseAgentModel")
-const baseAgentDriverKind = Symbol("vitehub.baseAgentDriverKind")
+const baseAgentResolve = Symbol.for("vitehub.baseAgentResolve")
+const baseAgentModel = Symbol.for("vitehub.baseAgentModel")
+const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
 const workflowSpecifier = "@vite-hub/workflow"
 const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
 
