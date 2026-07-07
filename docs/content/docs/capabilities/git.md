@@ -17,8 +17,8 @@ The Agent must use a git-capable Workspace Session.
 
 ## What it adds
 
-The Capability adds `git_read` in read mode.
-In write mode it also adds `git_write` for a narrow set of local git operations.
+The Capability adds one model-facing `shell` tool for controlled Git commands.
+In write mode, the same tool can also run a narrow set of local Git operations.
 
 ## Configuration
 
@@ -37,10 +37,10 @@ export default defineAgent({
 
 ## Runtime behavior
 
-`git_read` accepts one `git` command without shell composition.
+`shell` accepts one `git` command without shell composition.
 Read mode allows source-history commands such as `status`, `diff`, `log`, `show`, `grep`, and ref inspection.
 
-`git_write` supports only `fetch`, `checkout`, and `switch` on a clean working tree.
+Write mode supports only `fetch`, `checkout`, and `switch` on a clean working tree.
 It blocks commit, push, reset, rebase, tag, arbitrary remote URLs, shell composition, and path escapes outside the Workspace.
 
 ## Requirements
@@ -52,7 +52,7 @@ The Workspace requirement is write-mode because ViteHub may need session-local G
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Receives `git_read`, plus `git_write` in write mode. |
+| Model-backed | Receives one controlled Git `shell` tool. |
 | Harness-backed | Does not receive model-facing Git tools by default. |
 | Custom-run-backed | Can use the Workspace Session directly and may inspect Capability metadata. |
 
@@ -60,15 +60,15 @@ The Workspace requirement is write-mode because ViteHub may need session-local G
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `mode` | `"read" \| "write"` | `"read"` | Adds `git_write` when set to `"write"`. |
+| `mode` | `"read" \| "write"` | `"read"` | Allows local `fetch`, `checkout`, and `switch` commands through `shell` when set to `"write"`. |
 | `maxOutputLength` | `number` | `30000` | Maximum stdout/stderr characters returned per command. |
-| `policy` | `AgentToolPolicyDecision \| function` | `"require-approval"` | Policy for `git_write`. |
+| `policy` | `AgentToolPolicyDecision \| function` | `"require-approval"` | Policy for write-mode `shell` commands. Read-only Git commands are allowed without approval. |
 | `timeout` | `number` | none | Execution timeout passed to Workspace Session git commands. |
 
 ## Inspect and verify
 
 Inspect the Agent tool list in DevTools.
-Run `git status --short` through `git_read`, then verify unsupported commands such as `git push` are rejected.
+Run `git status --short` through `shell`, then verify unsupported commands such as `git push` are rejected.
 
 ## Reference
 
