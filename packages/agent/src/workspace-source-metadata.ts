@@ -16,6 +16,7 @@ interface WorkspaceSourceMetadataDescriptor {
   materialize?: WorkspaceMaterializeMode
   mount?: WorkspaceSourceMount
   probeKeys?: string[]
+  repositoryMount?: string
   scopes?: readonly string[]
   source?: WorkspaceSource
   sync?: WorkspaceSourceSyncConfig
@@ -45,7 +46,7 @@ export function normalizeAgentWorkspaceSource(key: string, input: WorkspaceSourc
   const mount = normalizeSourceMount(descriptor.mount)
   const cache = normalizeSourceCache(mount.cache ?? descriptor.cache) ?? false
   const sync = normalizeSourceSync(descriptor.sync)
-  const mountPath = typeof mount.path === "string" ? mount.path : key
+  const mountPath = typeof mount.path === "string" ? mount.path : defaultSourceMountPath(key, descriptor)
   const scopes = normalizeWorkspaceSourceScopes(key, descriptor.scopes)
 
   return {
@@ -186,7 +187,7 @@ function fetchSourceDefaults(input: Record<string, unknown>): WorkspaceSourceMet
 
 function githubSourceDefaults(input: Record<string, unknown>): WorkspaceSourceMetadataDescriptor {
   return {
-    mount: input.mount as WorkspaceSourceMount | undefined ?? inferRepositoryMount(input.repo),
+    repositoryMount: inferRepositoryMount(input.repo),
   }
 }
 
@@ -206,6 +207,7 @@ function copySourceRuntimeOptions(
     materialize: input.materialize as WorkspaceMaterializeMode | undefined ?? defaults.materialize,
     mount: input.mount as WorkspaceSourceMount | undefined ?? defaults.mount,
     probeKeys: input.probeKeys as string[] | undefined ?? defaults.probeKeys,
+    repositoryMount: defaults.repositoryMount,
     scopes: input.scopes as readonly string[] | undefined ?? defaults.scopes,
     sync: input.sync as WorkspaceSourceSyncConfig | undefined ?? defaults.sync,
   }
@@ -286,6 +288,19 @@ function inferFetchWorkspacePath(input: Record<string, unknown>) {
 
 function inferRepositoryMount(repo: unknown) {
   return typeof repo === "string" ? repo.split("/").filter(Boolean).at(-1) : undefined
+}
+
+function defaultSourceMountPath(key: string, descriptor: WorkspaceSourceMetadataDescriptor) {
+  if (key && !/^\d+$/.test(key)) return key
+  return descriptor.repositoryMount ?? inferRepositoryMount(sourceFingerprintRepo(descriptor.source)) ?? key
+}
+
+function sourceFingerprintRepo(source: WorkspaceSource | undefined) {
+  const fingerprint = source?.fingerprint
+  if (!isPlainRecord(fingerprint)) return
+  if (typeof fingerprint.repo === "string") return fingerprint.repo
+  const options = fingerprint.options
+  if (isPlainRecord(options) && typeof options.repo === "string") return options.repo
 }
 
 function joinSourcePath(mountPath: string, sourcePath: string): string {
