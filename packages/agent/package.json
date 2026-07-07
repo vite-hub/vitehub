@@ -69,6 +69,10 @@
       "types": "./dist/harness/claude-code.d.ts",
       "import": "./dist/harness/claude-code.js"
     },
+    "./harness/codex": {
+      "types": "./dist/harness/codex.d.ts",
+      "import": "./dist/harness/codex.js"
+    },
     "./harness/local-sandbox": {
       "types": "./dist/harness/local-sandbox.d.ts",
       "import": "./dist/harness/local-sandbox.js"
