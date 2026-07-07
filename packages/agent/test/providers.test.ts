@@ -43,7 +43,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
       }
       const chat = rawMessage.chat as { id?: number | string } | undefined
       const from = rawMessage.from as { email?: string, id?: number | string, mail?: string, userPrincipalName?: string, username?: string } | undefined
-      const document = rawMessage.document as { content?: string, file_id?: string, file_name?: string, file_size?: number, mime_type?: string } | undefined
+      const document = rawMessage.document as { content?: string, file_id?: string, file_name?: string, file_size?: number, mime_type?: string, url?: string } | undefined
       const photos = rawMessage.photo as Array<{ file_id?: string, file_size?: number, height?: number, width?: number }> | undefined
       const photo = photos?.at(-1)
       const date = typeof rawMessage.date === "number"
@@ -68,14 +68,15 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
                 size: document.file_size,
                 type: "file",
               }]
-          : typeof document?.file_id === "string"
+          : document && (typeof document.file_id === "string" || typeof document.url === "string" || typeof document.content === "string")
             ? [{
-                fetchData: async () => Buffer.from(document.content ?? ""),
-                fetchMetadata: { fileId: document.file_id },
+                ...(typeof document.content === "string" ? { fetchData: async () => Buffer.from(document.content ?? "") } : {}),
+                ...(typeof document.file_id === "string" ? { fetchMetadata: { fileId: document.file_id } } : {}),
                 ...(document.mime_type ? { mimeType: document.mime_type } : {}),
                 name: document.file_name,
                 size: document.file_size,
                 type: "file",
+                ...(typeof document.url === "string" ? { url: document.url } : {}),
               }]
           : typeof photo?.file_id === "string"
             ? [{
@@ -2624,11 +2625,14 @@ describe("server helpers", () => {
     expect(adapter.startGatewayListener).not.toHaveBeenCalled()
   })
 
-  it("maps Discord Gateway text file attachments through the registered webhook", async () => {
+  it("maps Discord Gateway URL-only text file attachments through the registered webhook", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")
     const { createDiscordGatewayRouteHandler } = await import("../src/server.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("expanded Discord prompt\n", {
+      headers: { "content-length": "24", "content-type": "text/plain" },
+    }))
     const adapter = {
       ...createTestChatAdapter(),
       name: "discord",
@@ -2639,11 +2643,10 @@ describe("server helpers", () => {
             message: {
               chat: { id: "support" },
               document: {
-                content: "expanded Discord prompt\n",
-                file_id: "prompt-file",
                 file_name: "message.txt",
                 file_size: 24,
                 mime_type: "text/plain",
+                url: "https://cdn.example/message.txt",
               },
               from: { id: "42", username: "maxi" },
               message_id: "msg-1",
@@ -2668,23 +2671,29 @@ describe("server helpers", () => {
     const webhookHandler = createChannelWebhookRouteHandler(agent as never)
     const gatewayHandler = createDiscordGatewayRouteHandler(agent as never)
 
-    const response = await gatewayHandler(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"), {
-      webhookUrl: webhook => `https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`,
-    })
+    try {
+      const response = await gatewayHandler(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"), {
+        webhookUrl: webhook => `https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`,
+      })
 
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ ok: true })
-    expect(adapter.startGatewayListener).toHaveBeenCalledOnce()
-    expect(run).toHaveBeenCalledWith(expect.objectContaining({
-      messages: [expect.objectContaining({
-        parts: [
-          expect.objectContaining({
-            text: "\n\nText attachment (message.txt):\n\nexpanded Discord prompt",
-            type: "text",
-          }),
-        ],
-      })],
-    }))
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      expect(adapter.startGatewayListener).toHaveBeenCalledOnce()
+      expect(fetch).toHaveBeenCalledWith("https://cdn.example/message.txt")
+      expect(run).toHaveBeenCalledWith(expect.objectContaining({
+        messages: [expect.objectContaining({
+          parts: [
+            expect.objectContaining({
+              text: "\n\nText attachment (message.txt):\n\nexpanded Discord prompt",
+              type: "text",
+            }),
+          ],
+        })],
+      }))
+    }
+    finally {
+      fetch.mockRestore()
+    }
   })
 
   it("starts Discord Gateway listeners for every Discord channel", async () => {

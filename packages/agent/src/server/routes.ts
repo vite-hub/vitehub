@@ -931,6 +931,44 @@ function checkedTextAttachmentBytes(value: unknown, options: { rejectOversizedTe
   return bytes
 }
 
+async function fetchTextAttachmentBytes(url: string, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<Uint8Array | undefined> {
+  const response = await fetch(url)
+  if (!response.ok) return
+  const contentLengthHeader = response.headers.get("content-length")
+  const contentLength = contentLengthHeader === null ? undefined : Number(contentLengthHeader)
+  if (typeof contentLength === "number" && Number.isFinite(contentLength) && contentLength > chatTextAttachmentMaxBytes) {
+    if (!options.rejectOversizedTextAttachments) return
+    throw new Error(`[vitehub] Chat text attachment exceeds ${chatTextAttachmentMaxBytes} bytes.`)
+  }
+  if (!response.body) {
+    return checkedTextAttachmentBytes(await response.arrayBuffer(), options)
+  }
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let byteLength = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    const chunk = value instanceof Uint8Array ? value : new Uint8Array(value)
+    byteLength += chunk.byteLength
+    if (byteLength > chatTextAttachmentMaxBytes) {
+      await reader.cancel().catch(() => undefined)
+      if (!options.rejectOversizedTextAttachments) return
+      throw new Error(`[vitehub] Chat text attachment exceeds ${chatTextAttachmentMaxBytes} bytes.`)
+    }
+    chunks.push(chunk)
+  }
+
+  const bytes = new Uint8Array(byteLength)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
+
 async function textAttachmentBytes(attachment: Attachment, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<Uint8Array | undefined> {
   if (typeof attachment.size === "number" && attachment.size > chatTextAttachmentMaxBytes) {
     if (!options.rejectOversizedTextAttachments) return
@@ -942,7 +980,11 @@ async function textAttachmentBytes(attachment: Attachment, options: { rejectOver
   if (attachment.data instanceof Blob) {
     return checkedTextAttachmentBytes(await attachment.data.arrayBuffer(), options)
   }
-  return checkedTextAttachmentBytes(attachment.data, options)
+  const bytes = checkedTextAttachmentBytes(attachment.data, options)
+  if (bytes) return bytes
+  return typeof attachment.url === "string" && attachment.url
+    ? await fetchTextAttachmentBytes(attachment.url, options)
+    : undefined
 }
 
 async function textPartFromAttachment(attachment: Attachment, index: number, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<MessagePart | undefined> {
