@@ -32,6 +32,7 @@ export default defineConfig({
       "src/cli.ts",
       "src/eval.ts",
       "src/harness/claude-code.ts",
+      "src/harness/codex.ts",
       "src/harness/local-sandbox.ts",
       "src/state/sqlite.ts",
       "src/cloudflare/state.ts",

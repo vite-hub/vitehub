@@ -66,18 +66,16 @@ Harness-backed agents use AI SDK `HarnessAgent` behind the ViteHub Agent Driver 
 
 ```ts
 // server/agents/codex/config.ts
-import { createCodex } from "@ai-sdk/harness-codex"
 import { defineAgent } from "@vite-hub/agent"
 import { skills } from "@vite-hub/agent/capabilities"
+import { codexDriver } from "@vite-hub/agent/harness/codex"
 import { file } from "@vite-hub/workspace"
 
 export default defineAgent({
-  driver: {
-    harness: createCodex({
-      model: "gpt-5.5",
-      reasoningEffort: "low",
-    }),
-  },
+  driver: codexDriver({
+    model: "gpt-5.5",
+    reasoningEffort: "low",
+  }),
   workspace: {
     mode: "write",
     sources: {
