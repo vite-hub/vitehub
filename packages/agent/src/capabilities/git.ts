@@ -157,7 +157,7 @@ function assertGitRead(args: string[]): void {
   for (const arg of args.slice(1)) {
     const option = optionName(arg)
     if (blockedReadOptions.has(option) || arg === "-O" || arg.startsWith("-O")) {
-      throw new Error(`[vitehub] git ${subcommand} option ${option} is not available through git_read.`)
+      throw new Error(`[vitehub] git ${subcommand} option ${option} is not available through the controlled git shell.`)
     }
     assertWorkspaceArg(arg)
   }
@@ -194,7 +194,7 @@ function assertNoBlockedOptions(args: string[], blockedOptions: Set<string>): vo
   for (const arg of args.slice(1)) {
     const option = optionName(arg)
     if (blockedOptions.has(option) || blockedOptions.has(arg.slice(0, 2))) {
-      throw new Error(`[vitehub] git ${args[0]} option ${option} is not available through git_write.`)
+      throw new Error(`[vitehub] git ${args[0]} option ${option} is not available through the controlled git shell.`)
     }
     assertWorkspaceArg(arg)
   }
@@ -204,14 +204,14 @@ function assertGitFetch(args: string[]): void {
   for (const arg of args.slice(1)) {
     const option = optionName(arg)
     if (blockedFetchOptions.has(option) || blockedFetchOptions.has(arg.slice(0, 2))) {
-      throw new Error(`[vitehub] git fetch option ${option} is not available through git_write.`)
+      throw new Error(`[vitehub] git fetch option ${option} is not available through the controlled git shell.`)
     }
   }
   const [, ...refspecs] = fetchPositionals(args)
   for (const refspec of refspecs) {
     assertWorkspaceArg(refspec)
     if (refspec.startsWith("+") || refspec.includes(":")) {
-      throw new Error("[vitehub] git fetch cannot update local ref destinations through git_write.")
+      throw new Error("[vitehub] git fetch cannot update local ref destinations through the controlled git shell.")
     }
   }
 }
@@ -454,14 +454,6 @@ function normalizeGitToolInput(input: unknown, defaultCwd: string | undefined): 
   }
 }
 
-function normalizeGitToolPolicy(policy: GitCapabilityToolPolicy | undefined, defaultCwd: string | undefined): GitCapabilityToolPolicy | undefined {
-  if (typeof policy !== "function") return policy
-  return context => policy({
-    ...context,
-    input: normalizeGitToolInput(context.input, defaultCwd),
-  })
-}
-
 function limitOutput(output: string, maxOutputLength: number): { output: string, truncated?: boolean } {
   if (output.length <= maxOutputLength) return { output }
   return {
@@ -474,6 +466,27 @@ async function cleanWorkingTree(session: WorkspaceSession, cwd: string, timeout:
   const result = await session.exec("git", ["status", "--porcelain"], gitExecOptions(cwd, timeout))
   if (result.exitCode !== 0) throw new Error(result.stderr || result.stdout || "[vitehub] git status failed.")
   if (result.stdout.trim()) throw new Error("[vitehub] git write commands require a clean working tree.")
+}
+
+function gitShellPolicy(policy: GitCapabilityToolPolicy | undefined, defaultCwd: string | undefined): GitCapabilityToolPolicy {
+  return async (context) => {
+    let args: string[] | undefined
+    try {
+      const input = normalizeGitToolInput(context.input, defaultCwd)
+      args = typeof input.command === "string" ? parseGitCommand(input.command) : undefined
+    }
+    catch {
+      return "allow"
+    }
+    if (!args || !writeSubcommands.has(args[0]!)) return "allow"
+    if (typeof policy === "function") {
+      return policy({
+        ...context,
+        input: normalizeGitToolInput(context.input, defaultCwd),
+      })
+    }
+    return policy || "require-approval"
+  }
 }
 
 function gitTools(
@@ -511,46 +524,29 @@ function gitTools(
     }
   }
 
-  const tools: AgentToolSet = {
-    git_read: {
-      description: "Run one read-only git command in the workspace.",
-      execute: (input: unknown) => run(input, false),
-      inputSchema: gitInputSchema("Read-only git command, for example `git status --short`, `git diff --stat`, or `git log --oneline -n 20`. Bare git subcommands are accepted and normalized to start with `git`. Pass one command only; do not use shell composition such as `&&` or `|`."),
-      name: "git_read",
+  return {
+    shell: {
+      description: mode === "write"
+        ? "Run one controlled git command in the workspace shell. Supports read-only git commands plus local fetch, checkout, and switch on a clean working tree."
+        : "Run one controlled read-only git command in the workspace shell.",
+      execute: (input: unknown) => run(input, mode === "write"),
+      inputSchema: gitShellInputSchema(mode === "write"
+        ? "Git shell command, for example `git status --short`, `git diff --stat`, `git log --oneline -n 20`, `git fetch origin pull/123/head`, or `git switch main`. Bare git subcommands are accepted and normalized to start with `git`. Pass one command only; do not use shell composition such as `&&` or `|`."
+        : "Read-only git shell command, for example `git status --short`, `git diff --stat`, or `git log --oneline -n 20`. Bare git subcommands are accepted and normalized to start with `git`. Pass one command only; do not use shell composition such as `&&` or `|`."),
+      name: "shell",
+      ...(mode === "write" ? { policy: gitShellPolicy(options.policy, defaultCwd) } : {}),
     },
   }
-
-  if (mode === "write") {
-    tools.git_write = {
-      description: "Run one local git write command in the workspace. Supports fetch, checkout, and switch on a clean working tree.",
-      execute: (input: unknown) => run(input, true),
-      inputSchema: gitInputSchema("Local git command, for example `git fetch origin pull/123/head` or `git switch main`. Bare git subcommands are accepted and normalized to start with `git`. Pass one command only; do not use shell composition such as `&&` or `|`."),
-      name: "git_write",
-      policy: normalizeGitToolPolicy(options.policy, defaultCwd) || "require-approval",
-    }
-  }
-
-  return tools
 }
 
-function gitInputSchema(commandDescription: string) {
+function gitShellInputSchema(commandDescription: string) {
   return {
     additionalProperties: false,
-    anyOf: [
-      { required: ["command"] },
-      { required: ["cmd"] },
-      { required: ["args"] },
-    ],
     properties: {
       command: { description: commandDescription, type: "string" },
-      cmd: { description: "Alias for command.", type: "string" },
-      args: {
-        description: "Git command argv. The leading `git` word is optional.",
-        items: { type: "string" },
-        type: "array",
-      },
-      cwd: { description: "Workspace-relative directory. Defaults to the workspace root.", type: "string" },
+      cwd: { description: "Workspace-relative directory. Defaults to the pull request checkout when available, otherwise the workspace root.", type: "string" },
     },
+    required: ["command"],
     type: "object",
   }
 }

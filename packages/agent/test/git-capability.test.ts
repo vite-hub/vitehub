@@ -63,46 +63,43 @@ describe("git capability", () => {
     expect(() => git({ mode: "remote-write" as never })).toThrow("Git mode must be \"read\" or \"write\"")
   })
 
-  it("exposes only read git commands in read mode", async () => {
+  it("exposes a controlled read-only shell tool in read mode", async () => {
     const { session, tools } = await capabilityTools()
 
-    expect(Object.keys(tools)).toEqual(["git_read"])
-    await expect(tools.git_read!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
+    expect(Object.keys(tools)).toEqual(["shell"])
+    await expect(tools.shell!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
       args: ["status", "--short"],
       cwd: "/workspace",
       stdout: "ok\n",
     })
-    await expect(tools.git_read!.execute?.({ command: "git switch main" })).rejects.toThrow("requires git({ mode: \"write\" })")
+    await expect(tools.shell!.execute?.({ command: "git switch main" })).rejects.toThrow("requires git({ mode: \"write\" })")
     expect(session.exec).toHaveBeenCalledWith("git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace", timeout: undefined }))
   })
 
-  it("normalizes common git tool input shapes", async () => {
+  it("exposes a command-only shell input schema", async () => {
     const { session, tools } = await capabilityTools()
+    const schema = tools.shell!.inputSchema as { anyOf?: unknown, properties?: Record<string, unknown>, required?: string[] }
 
-    expect(tools.git_read!.inputSchema).toMatchObject({
-      anyOf: [
-        { required: ["command"] },
-        { required: ["cmd"] },
-        { required: ["args"] },
-      ],
+    expect(schema).toMatchObject({
+      additionalProperties: false,
+      properties: {
+        command: { type: "string" },
+        cwd: { type: "string" },
+      },
+      required: ["command"],
+      type: "object",
     })
-    await expect(tools.git_read!.execute?.("status --short")).resolves.toMatchObject({
+    expect(schema.anyOf).toBeUndefined()
+    expect(schema.properties).not.toHaveProperty("cmd")
+    expect(schema.properties).not.toHaveProperty("args")
+    await expect(tools.shell!.execute?.({ command: "status --short" })).resolves.toMatchObject({
       args: ["status", "--short"],
       command: "git status --short",
     })
-    await expect(tools.git_read!.execute?.({ cmd: "diff --stat" })).resolves.toMatchObject({
-      args: ["diff", "--stat"],
-      command: "git diff --stat",
-    })
-    await expect(tools.git_read!.execute?.({ args: ["show", "HEAD:README.md"] })).resolves.toMatchObject({
-      args: ["show", "HEAD:README.md"],
-      command: "git show HEAD:README.md",
-    })
-    await expect(tools.git_read!.execute?.({ command: "git diff --stat && git diff" })).rejects.toThrow("without shell composition")
+    await expect(tools.shell!.execute?.({ command: "ls -la" })).rejects.toThrow("must start with `git`")
+    await expect(tools.shell!.execute?.({ command: "git diff --stat && git diff" })).rejects.toThrow("without shell composition")
 
     expect(session.exec).toHaveBeenCalledWith("git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace" }))
-    expect(session.exec).toHaveBeenCalledWith("git", ["diff", "--stat"], expect.objectContaining({ cwd: "/workspace" }))
-    expect(session.exec).toHaveBeenCalledWith("git", ["show", "HEAD:README.md"], expect.objectContaining({ cwd: "/workspace" }))
   })
 
   it("keeps workspace sessions scoped to each tool resolution", async () => {
@@ -118,10 +115,10 @@ describe("git capability", () => {
     const firstTools = await capability.tools(firstContext as never) as AgentToolSet
     const secondTools = await capability.tools(secondContext as never) as AgentToolSet
 
-    await expect(firstTools.git_read!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
+    await expect(firstTools.shell!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
       stdout: "ok\n",
     })
-    await expect(secondTools.git_read!.execute?.({ command: "git log --oneline -n 1" })).resolves.toMatchObject({
+    await expect(secondTools.shell!.execute?.({ command: "git log --oneline -n 1" })).resolves.toMatchObject({
       stdout: "ok\n",
     })
 
@@ -141,19 +138,19 @@ describe("git capability", () => {
   it("blocks git read options that escape inspection boundaries", async () => {
     const { tools } = await capabilityTools()
 
-    await expect(tools.git_read!.execute?.({ command: "git grep -O=sh TODO" })).rejects.toThrow("not available through git_read")
-    await expect(tools.git_read!.execute?.({ command: "git grep --open-files-in-pager=sh TODO" })).rejects.toThrow("not available through git_read")
-    await expect(tools.git_read!.execute?.({ command: "git diff --no-index /etc/passwd README.md" })).rejects.toThrow("not available through git_read")
-    await expect(tools.git_read!.execute?.({ command: "git show /etc/passwd" })).rejects.toThrow("must stay inside the workspace")
+    await expect(tools.shell!.execute?.({ command: "git grep -O=sh TODO" })).rejects.toThrow("not available through the controlled git shell")
+    await expect(tools.shell!.execute?.({ command: "git grep --open-files-in-pager=sh TODO" })).rejects.toThrow("not available through the controlled git shell")
+    await expect(tools.shell!.execute?.({ command: "git diff --no-index /etc/passwd README.md" })).rejects.toThrow("not available through the controlled git shell")
+    await expect(tools.shell!.execute?.({ command: "git show /etc/passwd" })).rejects.toThrow("must stay inside the workspace")
   })
 
   it("runs local write commands only on a clean tree", async () => {
     const session = gitSession()
     const { startSession, tools } = await capabilityTools(git({ mode: "write", policy: "allow" }), session)
 
-    expect(Object.keys(tools)).toEqual(["git_read", "git_write"])
-    expect(tools.git_write!.policy).toBe("allow")
-    await expect(tools.git_write!.execute?.({ command: "git switch feature/pr-1", cwd: "portal" })).resolves.toMatchObject({
+    expect(Object.keys(tools)).toEqual(["shell"])
+    expect(typeof tools.shell!.policy).toBe("function")
+    await expect(tools.shell!.execute?.({ command: "git switch feature/pr-1", cwd: "portal" })).resolves.toMatchObject({
       args: ["switch", "feature/pr-1"],
       cwd: "/workspace/portal",
     })
@@ -161,6 +158,18 @@ describe("git capability", () => {
     expect(session.exec).toHaveBeenNthCalledWith(1, "git", ["status", "--porcelain"], expect.objectContaining({ cwd: "/workspace/portal", timeout: undefined }))
     expect(session.exec).toHaveBeenNthCalledWith(2, "git", ["switch", "feature/pr-1"], expect.objectContaining({ cwd: "/workspace/portal", timeout: undefined }))
     expect(session.commit).toHaveBeenCalledWith({ message: "git switch" })
+  })
+
+  it("defaults write commands to approval and allows read commands without approval", async () => {
+    const { tools } = await capabilityTools(git({ mode: "write" }))
+    const policy = tools.shell!.policy
+
+    if (typeof policy !== "function") throw new Error("shell policy must be executable")
+
+    await expect(policy({ name: "shell", input: { command: "git status --short" } })).resolves.toBe("allow")
+    await expect(policy({ name: "shell", input: { command: "git fetch origin pull/123/head" } })).resolves.toBe("require-approval")
+    await expect(policy({ name: "shell", input: { command: "git checkout main" } })).resolves.toBe("require-approval")
+    await expect(policy({ name: "shell", input: { command: "git switch main" } })).resolves.toBe("require-approval")
   })
 
   it("evaluates custom write policies with normalized git inputs", async () => {
@@ -172,53 +181,52 @@ describe("git capability", () => {
     const { tools } = await capabilityTools(git({ mode: "write", policy }), session)
     const guardedTools = applyAgentToolPolicies(tools)!
 
-    await expect(guardedTools.git_write!.execute?.({ cmd: "checkout main" })).rejects.toThrow()
-    await expect(guardedTools.git_write!.execute?.({ args: ["checkout", "main"] })).rejects.toThrow()
+    await expect(guardedTools.shell!.execute?.({ command: "checkout main" })).rejects.toThrow()
+    await expect(guardedTools.shell!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
+      args: ["status", "--short"],
+    })
 
-    expect(policy).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      input: expect.objectContaining({ cmd: "checkout main", command: "git checkout main" }),
-      name: "git_write",
+    expect(policy).toHaveBeenCalledOnce()
+    expect(policy).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ command: "git checkout main" }),
+      name: "shell",
     }))
-    expect(policy).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      input: expect.objectContaining({ args: ["checkout", "main"], command: "git checkout main" }),
-      name: "git_write",
-    }))
-    expect(session.exec).not.toHaveBeenCalled()
+    expect(session.exec).toHaveBeenCalledOnce()
   })
 
   it("fetches only configured remotes in write mode", async () => {
     const session = gitSession({ remotes: "origin\nupstream\n" })
     const { tools } = await capabilityTools(git({ mode: "write" }), session)
 
-    await expect(tools.git_write!.execute?.({ command: "git fetch origin pull/123/head" })).resolves.toMatchObject({
+    await expect(tools.shell!.execute?.({ command: "git fetch origin pull/123/head" })).resolves.toMatchObject({
       args: ["fetch", "origin", "pull/123/head"],
     })
-    await expect(tools.git_write!.execute?.({ command: "git fetch /tmp/repo.git main" })).rejects.toThrow("configured remotes")
-    await expect(tools.git_write!.execute?.({ command: "git fetch user@example.com:repo main" })).rejects.toThrow("configured remotes")
+    await expect(tools.shell!.execute?.({ command: "git fetch /tmp/repo.git main" })).rejects.toThrow("configured remotes")
+    await expect(tools.shell!.execute?.({ command: "git fetch user@example.com:repo main" })).rejects.toThrow("configured remotes")
   })
 
   it("blocks destructive local git write flags and refspec destinations", async () => {
     const { tools } = await capabilityTools(git({ mode: "write" }))
 
-    await expect(tools.git_write!.execute?.({ command: "git switch -C review HEAD" })).rejects.toThrow("not available through git_write")
-    await expect(tools.git_write!.execute?.({ command: "git checkout -B review HEAD" })).rejects.toThrow("not available through git_write")
-    await expect(tools.git_write!.execute?.({ command: "git fetch origin pull/123/head:review" })).rejects.toThrow("cannot update local ref destinations")
-    await expect(tools.git_write!.execute?.({ command: "git fetch origin +pull/123/head" })).rejects.toThrow("cannot update local ref destinations")
-    await expect(tools.git_write!.execute?.({ command: "git fetch --refmap=refs/*:refs/* origin pull/123/head" })).rejects.toThrow("not available through git_write")
-    await expect(tools.git_write!.execute?.({ command: "git fetch --upload-pack=\"sh -c whoami\" origin" })).rejects.toThrow("not available through git_write")
-    await expect(tools.git_write!.execute?.({ command: "git fetch --upload-pack sh origin" })).rejects.toThrow("not available through git_write")
-    await expect(tools.git_write!.execute?.({ command: "git fetch --tags origin" })).rejects.toThrow("not available through git_write")
-    await expect(tools.git_write!.execute?.({ command: "git fetch -P origin" })).rejects.toThrow("not available through git_write")
-    await expect(tools.git_write!.execute?.({ command: "git fetch -u origin" })).rejects.toThrow("not available through git_write")
+    await expect(tools.shell!.execute?.({ command: "git switch -C review HEAD" })).rejects.toThrow("not available through the controlled git shell")
+    await expect(tools.shell!.execute?.({ command: "git checkout -B review HEAD" })).rejects.toThrow("not available through the controlled git shell")
+    await expect(tools.shell!.execute?.({ command: "git fetch origin pull/123/head:review" })).rejects.toThrow("cannot update local ref destinations")
+    await expect(tools.shell!.execute?.({ command: "git fetch origin +pull/123/head" })).rejects.toThrow("cannot update local ref destinations")
+    await expect(tools.shell!.execute?.({ command: "git fetch --refmap=refs/*:refs/* origin pull/123/head" })).rejects.toThrow("not available through the controlled git shell")
+    await expect(tools.shell!.execute?.({ command: "git fetch --upload-pack=\"sh -c whoami\" origin" })).rejects.toThrow("not available through the controlled git shell")
+    await expect(tools.shell!.execute?.({ command: "git fetch --upload-pack sh origin" })).rejects.toThrow("not available through the controlled git shell")
+    await expect(tools.shell!.execute?.({ command: "git fetch --tags origin" })).rejects.toThrow("not available through the controlled git shell")
+    await expect(tools.shell!.execute?.({ command: "git fetch -P origin" })).rejects.toThrow("not available through the controlled git shell")
+    await expect(tools.shell!.execute?.({ command: "git fetch -u origin" })).rejects.toThrow("not available through the controlled git shell")
   })
 
   it("rejects dirty write commands and remote publication commands", async () => {
     const dirty = gitSession({ status: "M README.md\n" })
     const { tools } = await capabilityTools(git({ mode: "write" }), dirty)
 
-    await expect(tools.git_write!.execute?.({ command: "git checkout main" })).rejects.toThrow("clean working tree")
-    await expect(tools.git_write!.execute?.({ command: "git push origin main" })).rejects.toThrow("git push is not available")
-    await expect(tools.git_write!.execute?.({ command: "git fetch https://example.com/repo.git main" })).rejects.toThrow("configured remotes")
+    await expect(tools.shell!.execute?.({ command: "git checkout main" })).rejects.toThrow("clean working tree")
+    await expect(tools.shell!.execute?.({ command: "git push origin main" })).rejects.toThrow("git push is not available")
+    await expect(tools.shell!.execute?.({ command: "git fetch https://example.com/repo.git main" })).rejects.toThrow("configured remotes")
     expect(dirty.commit).not.toHaveBeenCalled()
   })
 
@@ -226,7 +234,7 @@ describe("git capability", () => {
     const session = gitSession()
     const { startSession, tools } = await capabilityTools(git(), session)
 
-    await expect(tools.git_read!.execute?.({ command: "git status --short", cwd: "packages/agent" })).resolves.toMatchObject({
+    await expect(tools.shell!.execute?.({ command: "git status --short", cwd: "packages/agent" })).resolves.toMatchObject({
       cwd: "/workspace/packages/agent",
       stdout: "ok\n",
     })
@@ -263,7 +271,7 @@ describe("git capability", () => {
       },
     })
 
-    await expect(tools.git_read!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
+    await expect(tools.shell!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
       cwd: "/workspace/vitehub",
       stdout: "ok\n",
     })
@@ -300,7 +308,7 @@ describe("git capability", () => {
       },
     })
 
-    await expect(tools.git_read!.execute?.({ command: "git status --short" })).rejects.toThrow("fetch failed")
+    await expect(tools.shell!.execute?.({ command: "git status --short" })).rejects.toThrow("fetch failed")
     expect(session.close).toHaveBeenCalledOnce()
   })
 
@@ -330,7 +338,7 @@ describe("git capability", () => {
       },
     })
 
-    await expect(tools.git_read!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
+    await expect(tools.shell!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
       cwd: "/workspace/vitehub",
     })
 
@@ -367,7 +375,7 @@ describe("git capability", () => {
       },
     })
 
-    await expect(tools.git_write!.execute?.({ command: "git switch vitehub-base" })).resolves.toMatchObject({
+    await expect(tools.shell!.execute?.({ command: "git switch vitehub-base" })).resolves.toMatchObject({
       args: ["switch", "vitehub-base"],
       cwd: "/workspace/vitehub",
     })
@@ -390,7 +398,7 @@ describe("git capability", () => {
       },
     })
 
-    await expect(tools.git_read!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
+    await expect(tools.shell!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
       cwd: "/workspace",
       stdout: "ok\n",
     })
@@ -418,7 +426,7 @@ describe("git capability", () => {
       },
     })
 
-    await expect(tools.git_read!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
+    await expect(tools.shell!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
       cwd: "/workspace",
       stdout: "ok\n",
     })
