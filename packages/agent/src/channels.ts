@@ -552,7 +552,8 @@ function declaredInputCommand<TRuntimeConfig extends AgentRuntimeConfig>(
 function githubPullRequestCommandFromInput(input: unknown): GitHubPullRequestCommand | undefined {
   const payload = inputPayload(input)
   const facts = inputGithubFacts(input)
-  if (!payload || facts?.event !== "issue_comment" || payload.action !== "created") return
+  const event = maybeString(facts?.event)
+  if (!payload || (event && event !== "issue_comment") || payload.action !== "created") return
   if (!payload.issue?.pull_request) return
   const body = maybeString(payload.comment?.body)
   const parsed = body ? parseSlashCommand(body) : undefined
@@ -565,6 +566,7 @@ function githubPullRequestCommandFromInput(input: unknown): GitHubPullRequestCom
   const pullRequestUrl = maybeString(payload.issue.pull_request.url)
   if (!repository || !owner || !repo || !login || !issueNumber || !commentId || !pullRequestUrl) return
   const association = maybeString(payload.comment?.author_association) || maybeString(payload.issue.author_association)
+  const installationId = maybeNumber(facts?.installationId) ?? maybeNumber(payload.installation?.id)
   return {
     action: "created",
     actor: {
@@ -579,7 +581,7 @@ function githubPullRequestCommandFromInput(input: unknown): GitHubPullRequestCom
     commentId,
     ...(maybeString(payload.comment?.node_id) ? { commentNodeId: maybeString(payload.comment?.node_id) } : {}),
     ...(maybeString(facts?.deliveryId) ? { deliveryId: maybeString(facts?.deliveryId) } : {}),
-    ...(maybeNumber(facts?.installationId) ? { installationId: maybeNumber(facts?.installationId) } : {}),
+    ...(installationId ? { installationId } : {}),
     issueNumber,
     owner,
     pullRequestUrl,
@@ -1536,6 +1538,54 @@ function ignored(reason: string) {
   return Response.json({ accepted: false, ok: true, reason })
 }
 
+function githubPullRequestRunContextFromInput(input: unknown): GitHubPullRequestRunContext | undefined {
+  if (!isRecord(input)) return
+  const value = isRecord(input.pullRequest) && isRecord(input.pullRequest.pullRequest) ? input.pullRequest : input
+  if (!isRecord(value.pullRequest) || !isRecord(value.repository) || !isRecord(value.run) || !isRecord(value.trigger)) return
+  return value as unknown as GitHubPullRequestRunContext
+}
+
+function githubCommandFromRunContext(value: GitHubPullRequestRunContext): GitHubPullRequestCommand | undefined {
+  const repository = maybeString(value.repository.fullName)
+  const [fallbackOwner, fallbackRepo] = repository?.split("/") || []
+  const owner = maybeString(value.repository.owner) || fallbackOwner
+  const repo = maybeString(value.repository.name) || fallbackRepo
+  const issueNumber = maybeNumber(value.pullRequest.number)
+  const commentId = maybeNumber(value.trigger.comment.id)
+  const pullRequestUrl = maybeString(value.pullRequest.apiUrl)
+  const login = maybeString(value.trigger.actor.login)
+  if (!repository || !owner || !repo || !issueNumber || !commentId || !pullRequestUrl || !login) return
+  return {
+    action: value.trigger.action,
+    actor: value.trigger.actor,
+    args: value.trigger.args,
+    body: maybeString(value.trigger.comment.body) || value.trigger.command,
+    command: value.trigger.command,
+    commentId,
+    ...(maybeString(value.trigger.comment.nodeId) ? { commentNodeId: maybeString(value.trigger.comment.nodeId) } : {}),
+    ...(maybeString(value.trigger.deliveryId) ? { deliveryId: maybeString(value.trigger.deliveryId) } : {}),
+    ...(maybeNumber(value.trigger.installationId) ? { installationId: maybeNumber(value.trigger.installationId) } : {}),
+    issueNumber,
+    owner,
+    pullRequestUrl,
+    repo,
+    repository,
+  }
+}
+
+function githubPullRequestDevPrompt(input: Record<string, unknown>, pullRequest: GitHubPullRequestRunContext): string {
+  const command = maybeString(pullRequest.trigger.command)
+  const args = maybeString(pullRequest.trigger.args)
+  return maybeString(input.prompt) || maybeString(pullRequest.trigger.comment.body) || (command && args ? `${command} ${args}` : command) || "/review"
+}
+
+function githubDevPayload(input: unknown): GitHubIssueCommentPayload | undefined {
+  const payload = inputPayloadOrBody(input)
+  if (payload) return payload
+  if (!isRecord(input) || !isRecord(input.issue) || !isRecord(input.comment)) return
+  return input as GitHubIssueCommentPayload
+}
+
 function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
   pullRequest: boolean | GitHubPullRequestCommentEventOptions<TRuntimeConfig> | undefined,
   app?: true | GitHubAppOptions<TRuntimeConfig>,
@@ -1559,6 +1609,63 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         return {
           ...(finishEffects ? { delivery: { finishEffects } } : {}),
           input: pullRequestCommandInput(command, pullRequest),
+          run: {
+            ...pullRequest.run,
+            channelId: context.trigger.channelId,
+          },
+        }
+      },
+    },
+    dev: {
+      webhooks: [],
+      async invoke(context, input): Promise<AgentTriggerInvokeResult> {
+        const inputRecord = isRecord(input) ? input : {}
+        const finishEffects = githubPullRequestCommentFinishEffects(options)
+        const existingPullRequest = githubPullRequestRunContextFromInput(input)
+        const controls = {
+          ...(inputRecord.abortSignal ? { abortSignal: inputRecord.abortSignal as AbortSignal } : {}),
+          ...(typeof inputRecord.timeout === "number" ? { timeout: inputRecord.timeout } : {}),
+        }
+        if (existingPullRequest) {
+          const command = githubCommandFromUnknown(inputRecord.github) || githubCommandFromRunContext(existingPullRequest)
+          if (command && declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
+          return {
+            ...(finishEffects ? { delivery: { finishEffects } } : {}),
+            input: {
+              ...controls,
+              context: {
+                ...(command ? { github: command } : {}),
+                pullRequest: existingPullRequest,
+              },
+              prompt: githubPullRequestDevPrompt(inputRecord, existingPullRequest),
+            },
+            run: {
+              ...existingPullRequest.run,
+              channelId: context.trigger.channelId,
+            },
+          }
+        }
+
+        const payload = githubDevPayload(input)
+        const command = githubPullRequestCommandFromInput(isRecord(input) ? { ...input, payload } : { payload })
+        if (!payload && !command) return options.ignored?.("missing_payload") || ignored("missing_payload")
+        if (!command) return options.ignored?.("not_command") || ignored("not_command")
+        if (declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
+        const metadata = await githubPullRequestMetadata(app, context, command, options, payload)
+        const pullRequest = githubPullRequestRunContext(command, {
+          ...options,
+          threadId: options.threadId || maybeString(payload?.issue?.pull_request?.html_url) || maybeString(payload?.issue?.html_url) || command.pullRequestUrl,
+        }, payload, metadata)
+        return {
+          ...(finishEffects ? { delivery: { finishEffects } } : {}),
+          input: {
+            ...controls,
+            context: {
+              github: command,
+              pullRequest,
+            },
+            prompt: maybeString(inputRecord.prompt) || command.body,
+          },
           run: {
             ...pullRequest.run,
             channelId: context.trigger.channelId,

@@ -2,6 +2,31 @@ import { generateKeyPairSync } from "node:crypto"
 
 import { describe, expect, it, vi } from "vitest"
 
+function githubIssueCommentPayload(body = "/review please") {
+  return {
+    action: "created",
+    comment: {
+      body,
+      id: 99,
+      node_id: "comment-node",
+      user: { id: 1, login: "mona", type: "User" },
+    },
+    issue: {
+      html_url: "https://github.test/acme/app/issues/42",
+      number: 42,
+      pull_request: {
+        html_url: "https://github.test/acme/app/pull/42",
+        url: "https://api.github.test/repos/acme/app/pulls/42",
+      },
+      title: "Improve app",
+    },
+    installation: { id: 123 },
+    repository: {
+      full_name: "acme/app",
+    },
+  }
+}
+
 describe("agent channels", () => {
   it("falls back to output fields when finish result text is empty", async () => {
     const { getAgentFinishText } = await import("../src/channels.ts")
@@ -138,6 +163,121 @@ describe("agent channels", () => {
       type: "file",
       url: "https://assets.example/reports/review.pdf",
     }])
+  })
+
+  it("accepts GitHub issue_comment payloads without delivery facts", async () => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({ pullRequest: { reply: false } })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    const context = {
+      capabilities: [],
+      channel,
+      trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+    }
+
+    const result = await trigger.invoke(context as never, { payload: githubIssueCommentPayload() })
+    if (result instanceof Response) throw new Error("Expected GitHub webhook invocation.")
+
+    expect(result.input.context?.github).toMatchObject({
+      args: "please",
+      command: "/review",
+      installationId: 123,
+      repository: "acme/app",
+    })
+    expect(result.input.context?.pullRequest).toMatchObject({
+      pullRequest: { number: 42 },
+      repository: { fullName: "acme/app" },
+    })
+
+    const withEmptyFacts = await trigger.invoke(context as never, { payload: githubIssueCommentPayload("/review generated route"), github: {} })
+    if (withEmptyFacts instanceof Response) throw new Error("Expected GitHub webhook invocation with empty facts.")
+    expect(withEmptyFacts.input.context?.github).toMatchObject({
+      args: "generated route",
+      command: "/review",
+      installationId: 123,
+      repository: "acme/app",
+    })
+  })
+
+  it("invokes GitHub PR dev trigger from context and raw payload", async () => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({ pullRequest: true })
+    const trigger = channel.triggers?.dev
+    if (!trigger) throw new Error("Missing GitHub dev trigger.")
+    expect(trigger.webhooks).toEqual([])
+    const context = {
+      capabilities: [],
+      channel,
+      trigger: { channelId: "github", id: "github.dev", name: "dev", source: "channel" },
+    }
+    const pullRequest = {
+      pullRequest: {
+        apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
+        number: 42,
+        source: { mount: "app", ref: "refs/pull/42/head", repo: "acme/app" },
+      },
+      repository: { fullName: "acme/app", name: "app", owner: "acme" },
+      run: { messageId: "99", origin: "github-pull-request-comment", runId: "github:acme/app#42:comment:99", threadId: "pr-42" },
+      trigger: {
+        action: "created",
+        actor: { login: "mona" },
+        args: "docs",
+        command: "/review",
+        comment: { id: 99, nodeId: "comment-node" },
+        event: "issue_comment",
+        installationId: 123,
+      },
+    }
+    const devRun = { origin: "dev", runId: "dev:from-loop", threadId: "dev:agent" }
+
+    const fromContext = await trigger.invoke(context as never, { pullRequest, run: devRun })
+    if (fromContext instanceof Response) throw new Error("Expected GitHub context invocation.")
+    expect(fromContext.input).toMatchObject({
+      context: {
+        github: {
+          commentId: 99,
+          commentNodeId: "comment-node",
+          command: "/review",
+          installationId: 123,
+          repository: "acme/app",
+        },
+        pullRequest,
+      },
+      prompt: "/review docs",
+    })
+    expect(fromContext.run).toMatchObject({
+      channelId: "github",
+      origin: "github-pull-request-comment",
+      runId: "github:acme/app#42:comment:99",
+      threadId: "pr-42",
+    })
+
+    const blocked = await trigger.invoke({
+      ...context,
+      capabilities: [{ metadata: { commands: { review: { channels: ["other"] } }, trigger: "/" } }],
+    } as never, { pullRequest })
+    if (!(blocked instanceof Response)) throw new Error("Expected blocked GitHub context response.")
+    await expect(blocked.json()).resolves.toMatchObject({ reason: "not_command" })
+
+    const fromPayload = await trigger.invoke(context as never, { ...githubIssueCommentPayload("/review raw payload"), run: devRun })
+    if (fromPayload instanceof Response) throw new Error("Expected GitHub payload invocation.")
+    expect(fromPayload.input.context?.github).toMatchObject({
+      args: "raw payload",
+      command: "/review",
+      installationId: 123,
+      repository: "acme/app",
+    })
+    expect(fromPayload.input.context?.pullRequest).toMatchObject({
+      pullRequest: { number: 42 },
+      repository: { fullName: "acme/app" },
+    })
+    expect(fromPayload.run).toMatchObject({
+      channelId: "github",
+      origin: "github-pull-request-comment",
+      runId: "github:acme/app#42:comment:99",
+      threadId: "https://github.test/acme/app/pull/42",
+    })
   })
 
   it("posts GitHub PR reviews with inline published image artifacts", async () => {
