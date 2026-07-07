@@ -377,6 +377,9 @@ describe("agent capability runtime", () => {
       ],
     }, runtime(), {})
 
+    expect(resolved.tools?.workspace?.description).toContain("`run`")
+    expect(resolved.tools?.workspace?.description).not.toContain("`run --json`")
+
     const result = await resolved.tools?.workspace?.execute?.({
       argv: ["run", "pnpm", "test", "--help", "--filter", "api"],
       json: true,
