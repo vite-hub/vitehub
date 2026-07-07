@@ -718,6 +718,43 @@ describe("sources, loaders, and publishers", () => {
     })
   })
 
+  it("trusts complete bundled build source assets without probe keys when the original source root is absent", async () => {
+    const root = await createRoot()
+    setWorkspaceRuntimeAssetsRegistry({
+      support: createWorkspaceAssets({
+        "docs/README.md": {
+          load: async () => "# Bundled Docs\n",
+          mediaType: "text/markdown",
+          metadata: { source: "docs" },
+        },
+      }),
+    })
+
+    const store = createMemoryWorkspaceStore()
+    await syncWorkspaceDefinition({
+      name: "support",
+      rootDir: root,
+      sourceRootDir: join(root, "missing"),
+      sources: {
+        docs: custom({
+          mount: "docs",
+          async getKeys() {
+            throw new Error("source root is unavailable")
+          },
+          async getItem() {
+            throw new Error("source root is unavailable")
+          },
+        }),
+      },
+    }, store)
+
+    await expect(store.readFile("docs/README.md")).resolves.toMatchObject({
+      content: "# Bundled Docs\n",
+      mediaType: "text/markdown",
+      metadata: { source: "docs" },
+    })
+  })
+
   it("hydrates bundled runtime assets and loads unbundled build sources", async () => {
     const root = await createRoot()
     setWorkspaceRuntimeAssetsRegistry({
