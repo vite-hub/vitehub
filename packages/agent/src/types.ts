@@ -558,6 +558,7 @@ export interface AgentCapabilityCliCommand<
   examples?: readonly string[]
   input?: AgentCapabilityCliStandardSchemaV1<TInput>
   output?: AgentCapabilityCliStandardSchemaV1<TOutput> | AgentCapabilityCliOutputDefinition<TOutput>
+  rest?: true
   run?: {
     bivarianceHack(context: AgentCapabilityCliRunContext<TRuntimeConfig, Name, TInput>): MaybePromise<TOutput>
   }["bivarianceHack"]

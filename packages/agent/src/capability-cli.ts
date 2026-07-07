@@ -149,7 +149,7 @@ function commandLeaves<TRuntimeConfig extends AgentRuntimeConfig, Name extends W
 
 function firstExample(cliName: string, path: string[], command: AgentCapabilityCliCommand): string {
   const example = command.examples?.[0]
-  return example || `${cliName} ${path.join(" ")}${outputFormat(command.output, false) === "json" ? " --json" : ""}`
+  return example || `${cliName} ${path.join(" ")}${command.rest !== true && outputFormat(command.output, false) === "json" ? " --json" : ""}`
 }
 
 function toolInputExample(cliName: string, path: string[], command: AgentCapabilityCliCommand): string {
@@ -272,12 +272,22 @@ function resolveCommand<TRuntimeConfig extends AgentRuntimeConfig, Name extends 
   if (!isLeaf(node as AgentCapabilityCliCommand<TRuntimeConfig, Name>)) {
     throw new Error(`Missing ${cli.name} subcommand. Run \`${cli.name}${path.length ? ` ${path.join(" ")}` : ""} --help\`.`)
   }
+  const command = node as LeafCliCommand<TRuntimeConfig, Name>
+  if (command.rest === true) {
+    return {
+      argv,
+      command,
+      input: { argv: argv.slice(index) },
+      json: execution.json === true,
+      path,
+    }
+  }
   if (argv.slice(index).some(isHelpFlag)) {
     return { help: nodeHelp(cli, path), json: execution.json === true, path }
   }
   return {
     argv,
-    command: node as LeafCliCommand<TRuntimeConfig, Name>,
+    command,
     path,
     ...parseFlags(argv.slice(index), execution.input, execution.json),
   }
