@@ -3,6 +3,7 @@ import { SourceError } from "../../core/errors.ts"
 export async function requestGitHubJson<T>(input: {
   ref: string
   repo: string
+  signal?: AbortSignal
   token?: string
   url: string
 }): Promise<T> {
@@ -13,6 +14,7 @@ export async function requestGitHubJson<T>(input: {
       "user-agent": "vitehub-source",
       "x-github-api-version": "2022-11-28",
     },
+    signal: input.signal,
   })
 
   if (!response.ok) {
@@ -28,6 +30,7 @@ export async function requestGitHubJson<T>(input: {
 export async function fetchGitHubArchive(input: {
   ref: string
   repo: string
+  signal?: AbortSignal
   token?: string
 }) {
   const response = await fetch(`https://codeload.github.com/${input.repo}/tar.gz/${encodeURIComponent(input.ref)}`, {
@@ -35,6 +38,7 @@ export async function fetchGitHubArchive(input: {
       ...(input.token ? { authorization: `Bearer ${input.token}` } : {}),
       "user-agent": "vitehub-source",
     },
+    signal: input.signal,
   })
 
   if (!response.ok) {

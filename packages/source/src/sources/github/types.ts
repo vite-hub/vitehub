@@ -25,6 +25,14 @@ export interface GitHubFile<TKey extends string = string> {
   sha: string | undefined
 }
 
+export interface GitHubContentResponse {
+  content?: string
+  encoding?: string
+  path?: string
+  sha?: string
+  type?: "dir" | "file" | string
+}
+
 export interface GitHubArchiveFile {
   content: Uint8Array
   path: string

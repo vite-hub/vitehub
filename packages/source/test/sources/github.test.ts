@@ -89,6 +89,28 @@ describe("@vite-hub/source GitHub source", () => {
     await expect(useSource("dbt").read("models/marts/orders.sql")).resolves.toBe("select 1\n")
   })
 
+  it("reads a single GitHub file through the contents API without downloading the archive", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+      "docs/guide.md": "# Guide\n",
+    })
+
+    const docs = github({ repo: "acme/app", root: "docs" })
+
+    await expect(docs.getItem("README.md", {
+      abortSignal: new AbortController().signal,
+      rootDir: process.cwd(),
+    })).resolves.toMatchObject({
+      content: new TextEncoder().encode("# Docs\n"),
+      key: "README.md",
+    })
+
+    const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
+    const contentsCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/contents/docs/README.md"))
+    expect(archiveCalls).toHaveLength(0)
+    expect(contentsCalls).toHaveLength(1)
+  })
+
   it("reads non-ASCII paths from GitHub archive PAX headers", async () => {
     stubGitHubSource({
       "docs/café.md": "# Café\n",

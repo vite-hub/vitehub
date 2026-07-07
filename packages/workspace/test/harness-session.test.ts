@@ -22,9 +22,9 @@ function sandboxRun(files: string[] = [], directories: string[] = [], symlinks: 
   })
 }
 
-function expectArchiveWrite(writeBinaryFile: ReturnType<typeof vi.fn>, root = "/work/agent") {
+function expectArchiveWrite(writeBinaryFile: ReturnType<typeof vi.fn>, root = "/work/agent", abortSignal: AbortSignal | undefined = undefined) {
   expect(writeBinaryFile).toHaveBeenCalledWith({
-    abortSignal: undefined,
+    abortSignal,
     content: expect.any(Uint8Array),
     path: `${root}/.vitehub-workspace.tar.gz`,
   })
@@ -289,6 +289,66 @@ describe("Harness Workspace Session", () => {
     expect(materializeSources).toHaveBeenCalledWith({ path: "" })
     expect(list).toHaveBeenCalledWith("", { recursive: true })
     expectArchiveWrite(writeBinaryFile)
+
+    await session.close()
+  })
+
+  it("passes materialization progress and abort signals to source materialization", async () => {
+    const abortController = new AbortController()
+    const onMaterializeProgress = vi.fn()
+    const sourceFile = bytes("Details\n")
+    const materializeSources = vi.fn(async (options?: Record<string, unknown>) => {
+      await (options?.onProgress as ((event: unknown) => Promise<void> | void) | undefined)?.({
+        mountPath: "portal",
+        path: options?.path,
+        source: "portal",
+        status: "started",
+      })
+      return {
+        bytes: sourceFile.byteLength,
+        directories: 1,
+        durationMs: 1,
+        files: 1,
+        path: options?.path || "",
+        sources: [{ mountPath: "portal", source: "portal", status: "ready" }],
+      }
+    })
+    const stat = vi.fn(async () => ({ path: "portal", type: "directory" }))
+    const list = vi.fn(async () => [
+      { path: "portal", type: "directory" },
+      { mediaType: "text/markdown", path: "portal/details.md", type: "file" },
+    ])
+    const readFile = vi.fn(async () => sourceFile)
+    const writeBinaryFile = vi.fn(async () => {})
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: { list, materializeSources, readFile, stat },
+      tools: {},
+    } as never, {
+      abortSignal: abortController.signal,
+      onMaterializeProgress,
+      paths: ["portal"],
+      session: {
+        run: sandboxRun(),
+        writeBinaryFile,
+      },
+      sessionWorkDir: "/work/agent",
+    })
+
+    expect(materializeSources).toHaveBeenCalledWith({
+      abortSignal: abortController.signal,
+      onProgress: onMaterializeProgress,
+      path: "portal",
+    })
+    expect(onMaterializeProgress).toHaveBeenCalledWith(expect.objectContaining({
+      mountPath: "portal",
+      path: "portal",
+      source: "portal",
+      status: "started",
+    }))
+    expect(stat).toHaveBeenCalledWith("portal")
+    expect(list).toHaveBeenCalledWith("portal", { recursive: true })
+    expectArchiveWrite(writeBinaryFile, "/work/agent", abortController.signal)
 
     await session.close()
   })

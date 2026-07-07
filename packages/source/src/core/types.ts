@@ -8,6 +8,7 @@ export type ReadSourceResult<TOptions extends ReadSourceOptions | undefined = un
   TOptions extends { encoding: "binary" } ? Uint8Array : string
 
 export interface SourceContext {
+  abortSignal?: AbortSignal
   rootDir: string
   sourceRootDir?: string
   source?: string

@@ -14,6 +14,8 @@ import type {
   WorkspaceDefinition,
   WorkspaceDiff,
   WorkspaceEntry,
+  WorkspaceMaterializeSourcesOptions,
+  WorkspacePrepareSessionProgressEvent,
   WorkspaceSession,
   WorkspaceSessionOptions,
 } from "../core/types.ts"
@@ -33,6 +35,8 @@ export interface PrepareHarnessWorkspaceSessionOptions {
   commit?: (diff: WorkspaceDiff) => { message?: string } | false | null | undefined
   definition?: WorkspaceDefinition
   ignoreWriteBackPaths?: readonly string[]
+  onMaterializeProgress?: WorkspaceMaterializeSourcesOptions["onProgress"]
+  onProgress?: (event: WorkspacePrepareSessionProgressEvent) => void | Promise<void>
   paths?: readonly string[]
   session: HarnessSandboxSession
   sessionWorkDir: string
@@ -45,8 +49,9 @@ type InitialTree = {
   directories: Set<string>
   files: Map<string, InitialFile>
 }
-type SourceMaterializer = (options?: { path?: string }) => Promise<unknown>
+type SourceMaterializer = (options?: WorkspaceMaterializeSourcesOptions) => Promise<unknown>
 type WorkspaceFsWithSources = { materializeSources?: SourceMaterializer }
+type PrepareProgressReporter = PrepareHarnessWorkspaceSessionOptions["onProgress"]
 const archivePath = ".vitehub-workspace.tar.gz"
 const tarBlockSize = 512
 const workspaceReadConcurrency = 16
@@ -102,6 +107,40 @@ async function runSandbox(
   return result
 }
 
+async function withPrepareProgress<T>(
+  onProgress: PrepareProgressReporter | undefined,
+  event: Pick<WorkspacePrepareSessionProgressEvent, "id" | "label"> & { data?: Record<string, unknown> },
+  fn: () => Promise<T>,
+): Promise<T> {
+  const startedAt = Date.now()
+  await onProgress?.({ data: event.data, id: event.id, label: event.label, status: "started" })
+  try {
+    const result = await fn()
+    await onProgress?.({
+      data: event.data,
+      durationMs: Date.now() - startedAt,
+      id: event.id,
+      label: event.label,
+      status: "completed",
+    })
+    return result
+  }
+  catch (error) {
+    await onProgress?.({
+      data: {
+        ...event.data,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      durationMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+      id: event.id,
+      label: event.label,
+      status: "failed",
+    })
+    throw error
+  }
+}
+
 function workspaceFiles(entries: WorkspaceEntry[]) {
   return entries
     .filter(entry => entry.type === "file")
@@ -149,13 +188,17 @@ async function workspaceEntries(workspace: WorkspaceFacade, paths: string[] | un
   return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path))
 }
 
-async function materializeWorkspaceSourcesForSession(workspace: WorkspaceFacade, paths: string[] | undefined) {
+async function materializeWorkspaceSourcesForSession(
+  workspace: WorkspaceFacade,
+  paths: string[] | undefined,
+  options: Pick<WorkspaceMaterializeSourcesOptions, "abortSignal" | "onProgress"> = {},
+) {
   const materialize = workspaceSourceMaterializer(workspace)
   if (!materialize) return
 
   if (paths && !paths.length) return
   await Promise.all((paths || [""]).map(async (path) => {
-    await materialize({ path }).catch((error) => {
+    await materialize({ ...options, path }).catch((error) => {
       if (path && isMissingWorkspacePathError(error)) return
       throw error
     })
@@ -329,9 +372,24 @@ async function copyWorkspaceToSandbox(
   sessionWorkDir: string,
   abortSignal: AbortSignal | undefined,
   paths: string[] | undefined,
+  onMaterializeProgress: WorkspaceMaterializeSourcesOptions["onProgress"] | undefined,
+  onProgress: PrepareProgressReporter | undefined,
 ) {
-  await materializeWorkspaceSourcesForSession(workspace, paths)
-  const entries = await workspaceEntries(workspace, paths)
+  await withPrepareProgress(onProgress, {
+    data: { paths: paths ?? null },
+    id: "workspace.prepare.materialize",
+    label: "Materializing workspace sources",
+  }, async () => {
+    await materializeWorkspaceSourcesForSession(workspace, paths, {
+      ...(abortSignal ? { abortSignal } : {}),
+      ...(onMaterializeProgress ? { onProgress: onMaterializeProgress } : {}),
+    })
+  })
+  const entries = await withPrepareProgress(onProgress, {
+    data: { paths: paths ?? null },
+    id: "workspace.prepare.entries",
+    label: "Resolving workspace entries",
+  }, async () => await workspaceEntries(workspace, paths))
   const directoriesToCreate = new Set(workspaceDirectories(entries))
   const initialTree: InitialTree = {
     archiveDirectories: directoriesToCreate,
@@ -340,19 +398,36 @@ async function copyWorkspaceToSandbox(
   }
   const files = workspaceFiles(entries)
   for (const entry of files) addParentDirectories(directoriesToCreate, entry.path)
-  await forEachConcurrent(files, workspaceReadConcurrency, async (entry) => {
-    const content = await workspace.fs.readFile(entry.path, { encoding: "binary" })
-    const bytes = contentToBytes(content)
-    initialTree.files.set(entry.path, {
-      content: bytes,
-      mediaType: entry.mediaType,
-      symlinkTarget: entry.metadata?.gitMode === "120000"
-        ? typeof entry.metadata.symlinkTarget === "string" ? entry.metadata.symlinkTarget : new TextDecoder().decode(bytes)
-        : undefined,
+  await withPrepareProgress(onProgress, {
+    data: { files: files.length },
+    id: "workspace.prepare.read-files",
+    label: "Reading workspace files",
+  }, async () => {
+    await forEachConcurrent(files, workspaceReadConcurrency, async (entry) => {
+      const content = await workspace.fs.readFile(entry.path, { encoding: "binary" })
+      const bytes = contentToBytes(content)
+      initialTree.files.set(entry.path, {
+        content: bytes,
+        mediaType: entry.mediaType,
+        symlinkTarget: entry.metadata?.gitMode === "120000"
+          ? typeof entry.metadata.symlinkTarget === "string" ? entry.metadata.symlinkTarget : new TextDecoder().decode(bytes)
+          : undefined,
+      })
     })
   })
-  await resetSandboxWorkDir(sandbox, sessionWorkDir, abortSignal)
-  await extractWorkspaceArchive(sandbox, sessionWorkDir, initialTree, directoriesToCreate, abortSignal)
+  await withPrepareProgress(onProgress, {
+    id: "workspace.prepare.reset-sandbox",
+    label: "Resetting sandbox workspace",
+  }, async () => {
+    await resetSandboxWorkDir(sandbox, sessionWorkDir, abortSignal)
+  })
+  await withPrepareProgress(onProgress, {
+    data: { directories: directoriesToCreate.size, files: initialTree.files.size },
+    id: "workspace.prepare.extract-archive",
+    label: "Extracting workspace archive",
+  }, async () => {
+    await extractWorkspaceArchive(sandbox, sessionWorkDir, initialTree, directoriesToCreate, abortSignal)
+  })
   return initialTree
 }
 
@@ -426,10 +501,14 @@ export async function prepareHarnessWorkspaceSession(
 ): Promise<HarnessWorkspaceSession> {
   const paths = normalizeSessionPaths(options.paths)
   const ignoreWriteBackPaths = new Set((options.ignoreWriteBackPaths || []).map(normalizeHarnessWorkspacePath))
-  const initialTree = await copyWorkspaceToSandbox(workspace, options.session, options.sessionWorkDir, options.abortSignal, paths)
+  const initialTree = await copyWorkspaceToSandbox(workspace, options.session, options.sessionWorkDir, options.abortSignal, paths, options.onMaterializeProgress, options.onProgress)
   const sessionOptions: WorkspaceSessionOptions | undefined = paths ? { paths } : undefined
   const workspaceSession = isWritableWorkspaceFacade(workspace) && (paths === undefined || paths.length)
-    ? await workspace.startSession(sessionOptions)
+    ? await withPrepareProgress(options.onProgress, {
+        data: { paths: paths ?? null },
+        id: "workspace.prepare.start-session",
+        label: "Starting workspace write session",
+      }, async () => await workspace.startSession(sessionOptions))
     : undefined
 
   return {

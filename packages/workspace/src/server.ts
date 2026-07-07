@@ -8,7 +8,7 @@ import { useWorkspace } from "./core/use.ts"
 
 import type { H3Event } from "h3"
 import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade } from "./core/use.ts"
-import type { ExecResult, WorkspaceDefinition, WorkspaceName, WorkspaceSession, WorkspaceSessionOptions } from "./core/types.ts"
+import type { ExecResult, WorkspaceDefinition, WorkspaceMaterializeSourcesOptions, WorkspaceName, WorkspacePrepareSessionProgressEvent, WorkspaceSession, WorkspaceSessionOptions } from "./core/types.ts"
 
 export const workspaceDevRoute = "/__vitehub/workspace/dev"
 export const workspaceDevHeader = "x-vitehub-workspace-dev"
@@ -23,6 +23,8 @@ type WorkspaceInput<Name extends WorkspaceName> =
 type WorkspaceSessionStarter = {
   startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
 }
+type WorkspaceSourceMaterializer = (options?: WorkspaceMaterializeSourcesOptions) => Promise<unknown>
+type WorkspaceWithMaterializeSources = { materializeSources?: WorkspaceSourceMaterializer }
 type ResponseBody = ConstructorParameters<typeof Response>[0]
 type ResponseHeaders = ConstructorParameters<typeof Headers>[0]
 
@@ -52,6 +54,7 @@ export interface WorkspaceDevCommandInput<Name extends WorkspaceName = Workspace
   args?: string[]
   command: string
   definition?: WorkspaceDefinition
+  onProgress?: (event: WorkspacePrepareSessionProgressEvent) => void | Promise<void>
   paths?: readonly string[]
   timeout?: number
   workspace: Name | WritableWorkspaceFacade<Name> | (ReadonlyWorkspaceFacade<Name> & { fs: ReadonlyWorkspaceFacade<Name>["fs"] & Partial<WorkspaceSessionStarter> })
@@ -175,6 +178,70 @@ function workspaceSessionStarter(input: unknown): WorkspaceSessionStarter | unde
     : undefined
 }
 
+function workspaceSourceMaterializer(input: unknown): WorkspaceSourceMaterializer | undefined {
+  return input && typeof input === "object" && typeof (input as WorkspaceWithMaterializeSources).materializeSources === "function"
+    ? (input as WorkspaceWithMaterializeSources).materializeSources!.bind(input)
+    : undefined
+}
+
+async function withWorkspaceDevProgress<T>(
+  onProgress: WorkspaceDevCommandInput["onProgress"] | undefined,
+  event: Pick<WorkspacePrepareSessionProgressEvent, "id" | "label"> & { data?: Record<string, unknown> },
+  fn: () => Promise<T>,
+): Promise<T> {
+  const startedAt = Date.now()
+  await onProgress?.({ data: event.data, id: event.id, label: event.label, status: "started" })
+  try {
+    const result = await fn()
+    await onProgress?.({ data: event.data, durationMs: Date.now() - startedAt, id: event.id, label: event.label, status: "completed" })
+    return result
+  }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    await onProgress?.({
+      data: { ...event.data, error: message },
+      durationMs: Date.now() - startedAt,
+      error: message,
+      id: event.id,
+      label: event.label,
+      status: "failed",
+    })
+    throw error
+  }
+}
+
+async function materializeWorkspaceDevSources(
+  workspace: Awaited<ReturnType<typeof resolveWorkspace>>,
+  input: WorkspaceDevCommandInput,
+) {
+  const materialize = workspaceSourceMaterializer(workspace) ?? workspaceSourceMaterializer(workspace.fs)
+  if (!materialize) return
+  const paths = input.paths?.length ? input.paths : [""]
+  await withWorkspaceDevProgress(input.onProgress, {
+    data: { paths },
+    id: "workspace.dev.materialize",
+    label: "Materializing workspace sources",
+  }, async () => {
+    await Promise.all(paths.map(async (path) => {
+      await materialize({
+        abortSignal: input.abortSignal,
+        onProgress: async event => await input.onProgress?.({
+          data: { ...event },
+          durationMs: event.durationMs,
+          error: event.error,
+          id: `workspace.dev.materialize.${event.source}`,
+          label: `Materializing source ${event.source}`,
+          status: event.status,
+        }),
+        path,
+      }).catch((error) => {
+        if (path && isNotFoundError(error)) return
+        throw error
+      })
+    }))
+  })
+}
+
 export async function readWorkspaceFileResponse<Name extends WorkspaceName>(
   options: WorkspaceFileResponseOptions<Name>,
 ): Promise<Response> {
@@ -241,7 +308,12 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
   const starter = workspaceSessionStarter(workspace) ?? workspaceSessionStarter(workspace.fs)
   const startSession = starter?.startSession.bind(starter)
   if (!startSession) throw new Error("Workspace Dev command requires a Workspace Session.")
-  const session = await startSession(input.paths ? { paths: input.paths } : undefined)
+  await materializeWorkspaceDevSources(workspace, input)
+  const session = await withWorkspaceDevProgress(input.onProgress, {
+    data: { paths: input.paths ?? null },
+    id: "workspace.dev.start-session",
+    label: "Starting workspace session",
+  }, async () => await startSession(input.paths ? { paths: input.paths } : undefined))
   const execOptions = { abortSignal: input.abortSignal, timeout: input.timeout }
   try {
     const result = input.args

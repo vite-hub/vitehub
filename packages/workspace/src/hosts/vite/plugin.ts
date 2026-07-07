@@ -132,6 +132,11 @@ function validateWorkspaceDevRequest(server: ViteDevServer, req: IncomingMessage
   }
 }
 
+function acceptsWorkspaceDevStream(req: IncomingMessage): boolean {
+  const accept = Array.isArray(req.headers.accept) ? req.headers.accept.join(",") : req.headers.accept
+  return Boolean(accept?.includes("application/x-ndjson"))
+}
+
 async function readRequestBody(req: IncomingMessage): Promise<string> {
   let body = ""
   req.setEncoding("utf8")
@@ -172,6 +177,34 @@ async function writeResponse(res: ServerResponse, response: Response): Promise<v
 
 function isWorkspaceDevRoute(req: IncomingMessage): boolean {
   return new URL(req.url || "/", "http://localhost").pathname === workspaceDevRoute
+}
+
+function streamWorkspaceDevCommand(input: Parameters<typeof runWorkspaceDevCommand>[0]): Response {
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream({
+    async start(controller) {
+      const write = (value: unknown) => controller.enqueue(encoder.encode(`${JSON.stringify(value)}\n`))
+      try {
+        const result = await runWorkspaceDevCommand({
+          ...input,
+          onProgress: async event => write({ event, type: "progress" }),
+        })
+        write({ result, type: "result" })
+      }
+      catch (error) {
+        write({ error: error instanceof Error ? error.message : String(error), type: "error" })
+      }
+      finally {
+        controller.close()
+      }
+    },
+  })
+  return new Response(stream, {
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "application/x-ndjson; charset=utf-8",
+    },
+  })
 }
 
 async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMessage, workspaces: Array<{ name: string }>, tokenOptions: WorkspaceDevTokenOptions, abortSignal?: AbortSignal): Promise<Response> {
@@ -215,7 +248,7 @@ async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMes
   const args = command.args as string[] | undefined
   const paths = command.paths as string[] | undefined
   const timeout = typeof command.timeout === "number" && Number.isFinite(command.timeout) ? command.timeout : undefined
-  return Response.json(await runWorkspaceDevCommand({
+  const input = {
     abortSignal,
     ...(args ? { args } : {}),
     command: command.command,
@@ -223,7 +256,10 @@ async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMes
     ...(paths?.length ? { paths } : {}),
     ...(timeout ? { timeout } : {}),
     workspace: command.workspace,
-  }))
+  }
+  return acceptsWorkspaceDevStream(req)
+    ? streamWorkspaceDevCommand(input)
+    : Response.json(await runWorkspaceDevCommand(input))
 }
 
 function hasNitroPlugin(value: unknown): boolean {
