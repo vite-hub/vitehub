@@ -280,6 +280,94 @@ describe("lazy sources", () => {
     ])
   })
 
+  it("reports source progress while materializing", async () => {
+    const progress: unknown[] = []
+    const view = createWorkspaceSourceView({
+      name: "lazy-progress",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# A\n" }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({
+      onProgress(event) {
+        progress.push(event)
+      },
+      path: "docs",
+      sources: ["docs"],
+    })
+
+    expect(progress).toEqual([
+      expect.objectContaining({
+        mountPath: "docs",
+        path: "docs",
+        source: "docs",
+        status: "started",
+      }),
+      expect.objectContaining({
+        bytes: 4,
+        files: 1,
+        mountPath: "docs",
+        path: "docs",
+        source: "docs",
+        status: "updating",
+      }),
+      expect.objectContaining({
+        bytes: 4,
+        durationMs: expect.any(Number),
+        files: 1,
+        mountPath: "docs",
+        path: "docs",
+        source: "docs",
+        status: "completed",
+      }),
+    ])
+  })
+
+  it("materializes concrete source files without expanding the whole source", async () => {
+    const getKeys = vi.fn(async () => {
+      throw new Error("full source key expansion should not run")
+    })
+    const getItem = vi.fn(async (key: string) => ({ key, path: key, content: "# A\n" }))
+    const getItems = vi.fn(async () => {
+      throw new Error("full source expansion should not run")
+    })
+    const view = createWorkspaceSourceView({
+      name: "lazy-direct-file",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          getKeys,
+          getItem,
+          getItems,
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ path: "docs/a.md", sources: ["docs"] })).resolves.toMatchObject({
+      files: 1,
+      sources: [expect.objectContaining({ source: "docs", status: "ready" })],
+    })
+    expect(getItem).toHaveBeenCalledWith("a.md", expect.any(Object))
+    expect(getItem).toHaveBeenCalledTimes(1)
+    expect(getKeys).not.toHaveBeenCalled()
+    expect(getItems).not.toHaveBeenCalled()
+    await expect(view.stat("docs/a.md")).resolves.toMatchObject({ path: "docs/a.md", type: "file" })
+    await expect(view.exists("docs/a.md")).resolves.toBe(true)
+    await expect(view.readFile("docs/a.md")).resolves.toBe("# A\n")
+    expect(getItem).toHaveBeenCalledTimes(1)
+    expect(getKeys).not.toHaveBeenCalled()
+    expect(getItems).not.toHaveBeenCalled()
+  })
+
   it("lets sources read existing workspace files while materializing", async () => {
     let previousReport = ""
     const store = createMemoryWorkspaceStore()

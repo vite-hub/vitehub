@@ -67,9 +67,10 @@ export function createSourceContext(
   definition: WorkspaceDefinition,
   source?: { key: string, mountPath: string },
   store?: WorkspaceStore,
-  options: { selectedWorkspaceScope?: WorkspaceSelectedScope } = {},
+  options: { abortSignal?: AbortSignal, selectedWorkspaceScope?: WorkspaceSelectedScope } = {},
 ): SourceContext {
   return {
+    abortSignal: options.abortSignal,
     mountPath: source?.mountPath,
     rootDir: definition.rootDir || process.cwd(),
     selectedWorkspaceScope: options.selectedWorkspaceScope,

@@ -11,7 +11,7 @@ import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader } from "..
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { Connect } from "vite"
 
-const runWorkspaceDevCommand = vi.hoisted(() => vi.fn(async (_input?: { abortSignal?: AbortSignal }) => ({
+const runWorkspaceDevCommand = vi.hoisted(() => vi.fn(async (_input?: { abortSignal?: AbortSignal, onProgress?: (event: { id: string, label: string, status: "started" | "completed" }) => void | Promise<void> }) => ({
   exitCode: 0,
   stderr: "",
   stdout: "ok\n",
@@ -263,6 +263,76 @@ describe("hubWorkspace", () => {
       }),
       workspace: "docs",
     }))
+  })
+
+  it("streams Workspace Dev command progress from the Vite endpoint", async () => {
+    const root = await createViteRoot()
+    const handlers: Connect.NextHandleFunction[] = []
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const { readWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenHeader, workspaceDevTokenServerId } = await import("../src/server.ts")
+    const plugin = hubWorkspace()
+    const configResolved = plugin.configResolved as (config: { command: "serve", root: string }) => Promise<void>
+
+    runWorkspaceDevCommand.mockImplementationOnce(async (input?: { onProgress?: (event: { id: string, label: string, status: "started" }) => void | Promise<void> }) => {
+      await input?.onProgress?.({
+        id: "workspace.dev.materialize",
+        label: "Materializing workspace sources",
+        status: "started",
+      })
+      return {
+        exitCode: 0,
+        stderr: "",
+        stdout: "ok\n",
+      }
+    })
+
+    await configResolved({ command: "serve", root })
+    await configurePluginServer(plugin, {
+      config: { root, server: { port: 3000 } },
+      middlewares: {
+        use: vi.fn((handler: Connect.NextHandleFunction) => handlers.push(handler)),
+      },
+      resolvedUrls: { local: ["http://localhost:3000/"] },
+      ssrLoadModule: vi.fn(async () => ({
+        default: {
+          docs: async () => ({ default: { store: { provider: "memory" } } }),
+        },
+      })),
+      watcher: { on: vi.fn() },
+    })
+    const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
+
+    const output = await invokeMiddleware(handlers[0]!, {
+      workspaceCommand: {
+        command: "pnpm",
+        workspace: "docs",
+      },
+    }, workspaceDevRoute, {
+      accept: "application/x-ndjson",
+      "content-type": "application/json",
+      [workspaceDevHeader]: workspaceDevHeaderValue,
+      [workspaceDevTokenHeader]: token,
+    })
+
+    const lines = output.trim().split("\n").map(line => JSON.parse(line))
+    expect(lines).toEqual([
+      {
+        event: {
+          id: "workspace.dev.materialize",
+          label: "Materializing workspace sources",
+          status: "started",
+        },
+        type: "progress",
+      },
+      {
+        result: {
+          exitCode: 0,
+          stderr: "",
+          stdout: "ok\n",
+        },
+        type: "result",
+      },
+    ])
   })
 
   it("aborts Workspace Dev commands when the client disconnects", async () => {

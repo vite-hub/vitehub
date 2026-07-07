@@ -19,6 +19,18 @@ function stream() {
   }
 }
 
+function ndjsonResponse(lines: unknown[]) {
+  const encoder = new TextEncoder()
+  return new Response(new ReadableStream({
+    start(controller) {
+      for (const line of lines) controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`))
+      controller.close()
+    },
+  }), {
+    headers: { "content-type": "application/x-ndjson; charset=utf-8" },
+  })
+}
+
 describe("workspace CLI", () => {
   it("keeps the private Workspace Dev token outside the Vite root", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-token-"))
@@ -71,13 +83,35 @@ describe("workspace CLI", () => {
     try {
       const fetchWorkspaceDev = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
         if (init?.method === "POST") {
-          return Response.json({
-            args: ["-e", "console.log(process.argv[1])", "hello world", "--timeout=30000"],
-            command: "node",
-            exitCode: 0,
-            stderr: "",
-            stdout: "ok\n",
-          })
+          return ndjsonResponse([
+            {
+              event: {
+                id: "workspace.dev.materialize",
+                label: "Materializing workspace sources",
+                status: "started",
+              },
+              type: "progress",
+            },
+            {
+              event: {
+                data: { bytes: 12, files: 1 },
+                id: "workspace.dev.materialize.docs",
+                label: "Materializing source docs",
+                status: "updating",
+              },
+              type: "progress",
+            },
+            {
+              result: {
+                args: ["-e", "console.log(process.argv[1])", "hello world", "--timeout=30000"],
+                command: "node",
+                exitCode: 0,
+                stderr: "",
+                stdout: "ok\n",
+              },
+              type: "result",
+            },
+          ])
         }
         return Response.json({
           root: rootDir,
@@ -110,6 +144,8 @@ describe("workspace CLI", () => {
 
       expect(exitCode).toBe(0)
       expect(stderr.output()).toContain("[workspace] command started; first run may materialize sources.\n")
+      expect(stderr.output()).toContain("[workspace] Materializing workspace sources...\n")
+      expect(stderr.output()).toContain("[workspace] Materializing source docs: 1 file, 12 bytes\n")
       expect(stderr.output()).toContain("[workspace] command completed")
       expect(stdout.output()).toBe("ok\n")
       const [get, post] = fetchWorkspaceDev.mock.calls
@@ -119,6 +155,7 @@ describe("workspace CLI", () => {
         [workspaceDevHeader]: workspaceDevHeaderValue,
       })
       expect(post?.[1]?.headers).toMatchObject({
+        accept: "application/x-ndjson, application/json",
         "content-type": "application/json",
         [workspaceDevHeader]: workspaceDevHeaderValue,
         [workspaceDevTokenHeader]: token,
@@ -136,6 +173,56 @@ describe("workspace CLI", () => {
     finally {
       await rm(rootDir, { force: true, recursive: true })
     }
+  })
+
+  it("reports Workspace Dev preparation progress while starting sessions", async () => {
+    const progress: unknown[] = []
+    const exec = vi.fn(async () => ({
+      exitCode: 0,
+      stderr: "",
+      stdout: "ok\n",
+    }))
+    const diff = vi.fn(async () => ({ entries: [] }))
+    const close = vi.fn(async () => {})
+    const materializeSources = vi.fn(async (options?: { onProgress?: (event: unknown) => void | Promise<void>, path?: string }) => {
+      await options?.onProgress?.({
+        bytes: 3,
+        files: 1,
+        mountPath: "docs",
+        path: options.path || "",
+        source: "docs",
+        status: "updating",
+      })
+      return { bytes: 3, directories: 1, durationMs: 1, files: 1, path: options?.path || "", sources: [] }
+    })
+    const workspace = {
+      materializeSources,
+      startSession: vi.fn(async () => ({ close, diff, exec })),
+    }
+
+    await expect(runWorkspaceDevCommand({
+      command: "echo ok",
+      onProgress: (event) => {
+        progress.push(event)
+      },
+      paths: ["docs/README.md"],
+      workspace: workspace as never,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "ok\n",
+    })
+
+    expect(materializeSources).toHaveBeenCalledWith(expect.objectContaining({
+      path: "docs/README.md",
+    }))
+    expect(workspace.startSession).toHaveBeenCalledWith({ paths: ["docs/README.md"] })
+    expect(progress).toEqual([
+      expect.objectContaining({ id: "workspace.dev.materialize", status: "started" }),
+      expect.objectContaining({ data: expect.objectContaining({ source: "docs" }), id: "workspace.dev.materialize.docs", status: "updating" }),
+      expect.objectContaining({ id: "workspace.dev.materialize", status: "completed" }),
+      expect.objectContaining({ id: "workspace.dev.start-session", status: "started" }),
+      expect.objectContaining({ id: "workspace.dev.start-session", status: "completed" }),
+    ])
   })
 
   it("uses the portable Workspace shell for string Workspace Dev commands", async () => {

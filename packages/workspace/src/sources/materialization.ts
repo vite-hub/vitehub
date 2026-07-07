@@ -22,6 +22,7 @@ import type {
   WorkspaceStore,
   WorkspaceDefinition,
   WorkspaceMaterializeSourcesOptions,
+  WorkspaceMaterializeSourcesProgressEvent,
   WorkspaceMaterializeSourcesResult,
   WorkspaceSourceMaterializationStatus,
 } from "../core/types.ts"
@@ -132,6 +133,42 @@ function shouldMaterializeSource(source: ResolvedWorkspaceSource, options: Works
   return source.materialize === "build" && Boolean(options?.path)
 }
 
+function throwIfAborted(signal: AbortSignal | undefined) {
+  if (!signal?.aborted) return
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new WorkspaceError("[vitehub] Workspace source materialization aborted.")
+}
+
+async function reportMaterializationProgress(
+  options: WorkspaceMaterializeSourcesOptions | undefined,
+  source: ResolvedWorkspaceSource,
+  event: Omit<WorkspaceMaterializeSourcesProgressEvent, "mountPath" | "path" | "source">,
+) {
+  await options?.onProgress?.({
+    ...event,
+    mountPath: source.mountPath,
+    path: normalizeWorkspacePath(options?.path || ""),
+    source: source.key,
+  })
+}
+
+function shouldReportMaterializationUpdate(lastReportedAt: number, files: number) {
+  return files === 1 || files % 25 === 0 || Date.now() - lastReportedAt >= 1_000
+}
+
+function looksLikeConcreteFilePath(path: string) {
+  const name = posix.basename(path)
+  return name.includes(".") || ["Dockerfile", "LICENSE", "Makefile", "Procfile", "README"].includes(name)
+}
+
+function directMaterializationSourceKey(source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined): string | undefined {
+  const requested = normalizeWorkspacePath(options?.path || "")
+  if (!requested || !sourceMountContainsPath(source, requested) || requested === source.mountPath) return
+  const sourcePath = source.mountPath ? requested.slice(source.mountPath.length + 1) : requested
+  return sourcePath && looksLikeConcreteFilePath(sourcePath) ? sourcePath : undefined
+}
+
 function parentDirectoryPaths(path: string) {
   const parts = normalizeWorkspacePath(path).split("/").filter(Boolean)
   const paths: string[] = []
@@ -222,6 +259,13 @@ async function* iterateMaterializationEntries(
   configHash: string,
   options: WorkspaceMaterializeSourcesOptions | undefined,
 ): AsyncGenerator<MaterializationEntry> {
+  const directKey = directMaterializationSourceKey(source, options)
+  if (directKey) {
+    const entry = createMaterializationEntry(source, await source.source.getItem(directKey, ctx), undefined)
+    if (materializationPathMatches(entry.path, options)) yield entry
+    return
+  }
+
   if (source.source.getItems) {
     for await (const item of iterateSourceItems(source, ctx)) {
       const entry = createMaterializationEntry(source, item, await source.source.getMeta?.(item.key, ctx))
@@ -264,6 +308,9 @@ export async function materializeWorkspaceSources(
   let bytes = 0
 
   for (const source of sources) {
+    throwIfAborted(options.abortSignal)
+    const sourceStarted = Date.now()
+    await reportMaterializationProgress(options, source, { status: "started" })
     const configHash = await sourceConfigHash(source)
     const existing = await readSourceSnapshotMetadata(store, source.key)
     const completeSource = materializesCompleteSource(source, options)
@@ -279,6 +326,12 @@ export async function materializeWorkspaceSources(
       })
       files += existing?.files || 0
       bytes += existing?.bytes || 0
+      await reportMaterializationProgress(options, source, {
+        bytes: existing?.bytes || 0,
+        durationMs: Date.now() - sourceStarted,
+        files: existing?.files || 0,
+        status: "completed",
+      })
       continue
     }
 
@@ -298,9 +351,12 @@ export async function materializeWorkspaceSources(
 
     let sourceFiles = 0
     let sourceBytes = 0
+    let lastProgressAt = 0
     try {
-      const ctx = createSourceContext(definition, source, store)
+      const ctx = createSourceContext(definition, source, store, { abortSignal: options.abortSignal })
+      throwIfAborted(options.abortSignal)
       await source.source.prepare?.(ctx)
+      throwIfAborted(options.abortSignal)
       if (source.mountPath) {
         await store.mkdir(source.mountPath, { recursive: true })
       }
@@ -309,6 +365,7 @@ export async function materializeWorkspaceSources(
       const directorySet = new Set<string>(source.mountPath ? [source.mountPath] : [])
       const nextPaths = new Set<string>()
       for await (const entry of iterateMaterializationEntries(source, ctx, store, existing, configHash, options)) {
+        throwIfAborted(options.abortSignal)
         const path = entry.path
         nextPaths.add(path)
         const parts = path.split("/")
@@ -329,6 +386,14 @@ export async function materializeWorkspaceSources(
               bytes: sourceBytes,
               items: checkpointItems(itemMetadata),
               cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
+            })
+          }
+          if (shouldReportMaterializationUpdate(lastProgressAt, sourceFiles)) {
+            lastProgressAt = Date.now()
+            await reportMaterializationProgress(options, source, {
+              bytes: sourceBytes,
+              files: sourceFiles,
+              status: "updating",
             })
           }
           continue
@@ -362,7 +427,16 @@ export async function materializeWorkspaceSources(
             cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
           })
         }
+        if (shouldReportMaterializationUpdate(lastProgressAt, sourceFiles)) {
+          lastProgressAt = Date.now()
+          await reportMaterializationProgress(options, source, {
+            bytes: sourceBytes,
+            files: sourceFiles,
+            status: "updating",
+          })
+        }
       }
+      throwIfAborted(options.abortSignal)
       await removeStaleMaterializedSourceFiles(store, source, nextPaths, options, { removeUntracked: Boolean(source.mountPath) })
       const readyItems = Object.fromEntries([...nextPaths].flatMap((path) => {
         const metadata = itemMetadata[path]
@@ -392,6 +466,13 @@ export async function materializeWorkspaceSources(
       files += sourceFiles
       bytes += sourceBytes
       directories += directorySet.size
+      await reportMaterializationProgress(options, source, {
+        bytes: sourceBytes,
+        directories: directorySet.size,
+        durationMs: Date.now() - sourceStarted,
+        files: sourceFiles,
+        status: "completed",
+      })
     }
     catch (error) {
       const failed: SourceSnapshotMetadata = {
@@ -405,8 +486,16 @@ export async function materializeWorkspaceSources(
         items: checkpointItems(itemMetadata),
         cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
       }
-      await writeSourceSnapshotMetadata(store, failed)
+      if (!options.abortSignal?.aborted) await writeSourceSnapshotMetadata(store, failed)
       resultSources.push(failed)
+      await reportMaterializationProgress(options, source, {
+        bytes: sourceBytes,
+        durationMs: Date.now() - sourceStarted,
+        error: failed.error,
+        files: sourceFiles,
+        status: "failed",
+      })
+      if (options.abortSignal?.aborted) throw error
     }
   }
 

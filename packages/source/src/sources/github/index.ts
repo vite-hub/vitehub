@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer"
 import { defineCachedFunction } from "ocache"
 
 import { SourceError } from "../../core/errors.ts"
@@ -6,8 +7,8 @@ import { parseGitHubArchive } from "./archive.ts"
 import { createGitHubCacheKey, normalizeGitHubCache } from "./cache.ts"
 import { fetchGitHubArchive, requestGitHubJson } from "./client.ts"
 
-import type { Source } from "../../core/types.ts"
-import type { GitHubCommitResponse, GitHubFile, GitHubRepositoryResponse, GitHubSourceOptions } from "./types.ts"
+import type { Source, SourceContext } from "../../core/types.ts"
+import type { GitHubCommitResponse, GitHubContentResponse, GitHubFile, GitHubRepositoryResponse, GitHubSourceOptions } from "./types.ts"
 
 function normalizeGitHubRoot(path = "") {
   return normalizeSourcePath(path).split("/").filter(part => part && part !== ".").join("/")
@@ -53,19 +54,25 @@ export function github<const TKey extends string = string>(options: GitHubSource
     return normalized.slice(root.length + 1) as TKey
   }
 
+  function repoPathForKey(key: string) {
+    const normalized = normalizeSourcePath(key)
+    return root ? `${root}/${normalized}` : normalized
+  }
+
   function shouldInclude(key: string) {
     if (options.include && !matchesAny(key, options.include)) return false
     if (options.exclude && matchesAny(key, options.exclude)) return false
     return true
   }
 
-  async function resolveRef(token = auth) {
+  async function resolveRef(token = auth, signal?: AbortSignal) {
     if (configuredRef) return configuredRef
 
     try {
       const repo = await requestGitHubJson<GitHubRepositoryResponse>({
         ref: "default",
         repo: options.repo,
+        signal,
         token,
         url: `https://api.github.com/repos/${options.repo}`,
       })
@@ -73,6 +80,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
       const commit = await requestGitHubJson<GitHubCommitResponse>({
         ref: defaultBranch,
         repo: options.repo,
+        signal,
         token,
         url: `https://api.github.com/repos/${options.repo}/commits/${encodeURIComponent(defaultBranch)}`,
       })
@@ -104,13 +112,13 @@ export function github<const TKey extends string = string>(options: GitHubSource
         () => resolveRef(token),
       )
 
-  async function getRef(token = refreshAuth()) {
-    return await cachedResolveRef(token)
+  async function getRef(token = refreshAuth(), signal?: AbortSignal) {
+    return signal ? await resolveRef(token, signal) : await cachedResolveRef(token)
   }
 
-  async function loadArchiveFiles(token = auth) {
-    const ref = await getRef(token)
-    const archive = await fetchGitHubArchive({ ref, repo: options.repo, token })
+  async function loadArchiveFiles(token = auth, signal?: AbortSignal) {
+    const ref = await getRef(token, signal)
+    const archive = await fetchGitHubArchive({ ref, repo: options.repo, signal, token })
     return parseGitHubArchive(archive)
       .map((entry): GitHubFile<TKey> | undefined => {
         const key = keyForRepoPath(entry.path)
@@ -125,8 +133,8 @@ export function github<const TKey extends string = string>(options: GitHubSource
       .filter((file): file is GitHubFile<TKey> => Boolean(file))
   }
 
-  async function loadFiles(token = auth) {
-    return await loadArchiveFiles(token)
+  async function loadFiles(token = auth, signal?: AbortSignal) {
+    return await loadArchiveFiles(token, signal)
   }
 
   const loadedFiles = new Map<string, Promise<GitHubFile<TKey>[]>>()
@@ -147,6 +155,43 @@ export function github<const TKey extends string = string>(options: GitHubSource
 
   function getFiles(token = refreshAuth()) {
     return cachedLoadFiles(token)
+  }
+
+  async function loadFile(key: TKey, token = auth, signal?: AbortSignal): Promise<GitHubFile<TKey>> {
+    const normalizedKey = normalizeSourcePath(key) as TKey
+    if (!normalizedKey || !shouldInclude(normalizedKey)) {
+      throw new SourceError(`[vitehub] github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
+    }
+    const ref = await getRef(token, signal)
+    const repoPath = repoPathForKey(normalizedKey)
+    const file = await requestGitHubJson<GitHubContentResponse | GitHubContentResponse[]>({
+      ref,
+      repo: options.repo,
+      signal,
+      token,
+      url: `https://api.github.com/repos/${options.repo}/contents/${encodeURIComponent(repoPath).replace(/%2F/g, "/")}?ref=${encodeURIComponent(ref)}`,
+    })
+    if (Array.isArray(file) || file.type === "dir") {
+      throw new SourceError(`[vitehub] github(${JSON.stringify(options.repo)}) expected ${JSON.stringify(key)} to be a file, but it is a directory.`)
+    }
+    if (file.encoding !== "base64" || typeof file.content !== "string") {
+      throw new SourceError(`[vitehub] github(${JSON.stringify(options.repo)}) did not include file content for ${JSON.stringify(key)}.`)
+    }
+    return {
+      content: new Uint8Array(Buffer.from(file.content.replace(/\s/g, ""), "base64")),
+      key: normalizedKey,
+      path: normalizedKey,
+      sha: file.sha || ref,
+    }
+  }
+
+  async function getFile(key: TKey, ctx?: SourceContext, token = refreshAuth()) {
+    if (ctx?.abortSignal) return await loadFile(key, token, ctx.abortSignal)
+    const file = (await getFiles(token)).find(file => file.key === key)
+    if (!file) {
+      throw new SourceError(`[vitehub] github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
+    }
+    return file
   }
 
   function fetchContent(key: TKey, file: GitHubFile<TKey>) {
@@ -193,27 +238,26 @@ export function github<const TKey extends string = string>(options: GitHubSource
         },
       })))
     },
-    async getMeta(key) {
+    async getMeta(key, ctx) {
       const token = refreshAuth()
-      const file = (await getFiles(token)).find(file => file.key === key)
+      const file = ctx?.abortSignal
+        ? await loadFile(key, token, ctx.abortSignal).catch(() => undefined)
+        : (await getFiles(token)).find(file => file.key === key)
       if (!file) return
       return {
-        ref: await getRef(token),
+        ref: await getRef(token, ctx?.abortSignal),
         sha: file.sha,
       }
     },
-    async getItem(key) {
+    async getItem(key, ctx) {
       const token = refreshAuth()
-      const file = (await getFiles(token)).find(file => file.key === key)
-      if (!file) {
-        throw new SourceError(`[vitehub] github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
-      }
+      const file = await getFile(key, ctx, token)
       return {
-        key,
+        key: file.key,
         path: file.path,
         content: await fetchContent(key, file),
         metadata: {
-          ref: await getRef(token),
+          ref: await getRef(token, ctx?.abortSignal),
           sha: file.sha,
         },
       }

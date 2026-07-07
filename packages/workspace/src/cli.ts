@@ -54,6 +54,26 @@ interface WorkspaceDevTarget {
   url: string
 }
 
+interface WorkspaceDevProgressEvent {
+  data?: Record<string, unknown>
+  durationMs?: number
+  error?: string
+  id: string
+  label: string
+  status: "started" | "updating" | "completed" | "failed"
+}
+
+type WorkspaceDevStreamLine =
+  | { event?: WorkspaceDevProgressEvent, type?: "progress" }
+  | { result?: WorkspaceDevCommandResult, type?: "result" }
+  | { error?: string, type?: "error" }
+
+interface WorkspaceDevCommandResult {
+  exitCode?: unknown
+  stderr?: unknown
+  stdout?: unknown
+}
+
 const workspaceCommandFeedbackIntervalMs = 15_000
 const workspaceCommandStartedMessage = "[workspace] command started; first run may materialize sources.\n"
 const workspaceCommandWaitingMessage = "[workspace] command still running; sources may still be materializing.\n"
@@ -67,6 +87,71 @@ function startWorkspaceCommandFeedback(context: WorkspaceCliContext): () => void
 
 function formatDurationMs(durationMs: number): string {
   return durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(1)}s`
+}
+
+function workspaceDevDataNumber(event: WorkspaceDevProgressEvent, key: string): number | undefined {
+  const value = event.data?.[key]
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+function writeWorkspaceDevProgress(context: WorkspaceCliContext, event: WorkspaceDevProgressEvent): void {
+  const duration = typeof event.durationMs === "number" ? ` (${formatDurationMs(event.durationMs)})` : ""
+  if (event.status === "started") {
+    context.stderr.write(`[workspace] ${event.label}...\n`)
+    return
+  }
+  if (event.status === "updating") {
+    const files = workspaceDevDataNumber(event, "files")
+    const bytes = workspaceDevDataNumber(event, "bytes")
+    const detail = files === undefined ? "" : `: ${files} file${files === 1 ? "" : "s"}${bytes === undefined ? "" : `, ${bytes} bytes`}`
+    context.stderr.write(`[workspace] ${event.label}${detail}\n`)
+    return
+  }
+  if (event.status === "failed") {
+    context.stderr.write(`[workspace] ${event.label} failed${duration}${event.error ? `: ${event.error}` : ""}\n`)
+    return
+  }
+  context.stderr.write(`[workspace] ${event.label} completed${duration}\n`)
+}
+
+function isWorkspaceDevStream(response: Response): boolean {
+  return response.headers.get("content-type")?.toLowerCase().includes("application/x-ndjson") === true
+}
+
+function handleWorkspaceDevStreamLine(line: string, context: WorkspaceCliContext): WorkspaceDevCommandResult | undefined {
+  const parsed = JSON.parse(line) as WorkspaceDevStreamLine
+  if (parsed.type === "progress" && parsed.event) {
+    writeWorkspaceDevProgress(context, parsed.event)
+    return
+  }
+  if (parsed.type === "error") {
+    context.stderr.write(`${parsed.error || "Workspace Dev command failed."}\n`)
+    return { exitCode: 1, stderr: "", stdout: "" }
+  }
+  if (parsed.type === "result") return parsed.result || {}
+}
+
+async function readWorkspaceDevStream(response: Response, context: WorkspaceCliContext): Promise<WorkspaceDevCommandResult> {
+  const reader = response.body?.getReader()
+  if (!reader) return {}
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let result: WorkspaceDevCommandResult | undefined
+  for (;;) {
+    const { done, value } = await reader.read()
+    buffer += decoder.decode(value, { stream: !done })
+    let newline = buffer.indexOf("\n")
+    while (newline >= 0) {
+      const line = buffer.slice(0, newline).trim()
+      buffer = buffer.slice(newline + 1)
+      if (line) result = handleWorkspaceDevStreamLine(line, context) ?? result
+      newline = buffer.indexOf("\n")
+    }
+    if (done) break
+  }
+  const line = buffer.trim()
+  if (line) result = handleWorkspaceDevStreamLine(line, context) ?? result
+  return result || {}
 }
 
 function writeWorkspaceDevUsage(context: WorkspaceCliContext): void {
@@ -229,6 +314,7 @@ async function sendWorkspaceCommand(
         },
       }),
       headers: {
+        accept: "application/x-ndjson, application/json",
         "content-type": "application/json",
         [workspaceDevHeader]: workspaceDevHeaderValue,
         [workspaceDevTokenHeader]: token,
@@ -239,7 +325,10 @@ async function sendWorkspaceCommand(
       context.stderr.write(`${await response.text()}\n`)
       return 1
     }
-    const result = await response.json().catch(() => ({})) as { exitCode?: unknown, stderr?: unknown, stdout?: unknown }
+    if (isWorkspaceDevStream(response)) stopFeedback()
+    const result = isWorkspaceDevStream(response)
+      ? await readWorkspaceDevStream(response, context)
+      : await response.json().catch(() => ({})) as WorkspaceDevCommandResult
     if (typeof result.stdout === "string") context.stdout.write(result.stdout)
     if (typeof result.stderr === "string" && result.stderr) context.stderr.write(result.stderr)
     context.stderr.write(`[workspace] command completed (${formatDurationMs(Date.now() - startedAt)})\n`)

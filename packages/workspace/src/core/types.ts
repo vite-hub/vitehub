@@ -297,6 +297,7 @@ export interface SourceContextWorkspaceFiles {
 }
 
 export interface SourceContext {
+  abortSignal?: AbortSignal
   mountPath?: string
   rootDir: string
   selectedWorkspaceScope?: WorkspaceSelectedScope
@@ -699,9 +700,32 @@ export interface WorkspaceSourceMaterializationStatus {
   error?: string
 }
 
+export interface WorkspaceMaterializeSourcesProgressEvent {
+  bytes?: number
+  directories?: number
+  durationMs?: number
+  error?: string
+  files?: number
+  mountPath: string
+  path: string
+  source: string
+  status: "started" | "updating" | "completed" | "failed"
+}
+
 export interface WorkspaceMaterializeSourcesOptions {
+  abortSignal?: AbortSignal
+  onProgress?: (event: WorkspaceMaterializeSourcesProgressEvent) => void | Promise<void>
   sources?: string[]
   path?: string
+}
+
+export interface WorkspacePrepareSessionProgressEvent {
+  data?: Record<string, unknown>
+  durationMs?: number
+  error?: string
+  id: string
+  label: string
+  status: "started" | "updating" | "completed" | "failed"
 }
 
 export interface WorkspaceMaterializeSourcesResult {
