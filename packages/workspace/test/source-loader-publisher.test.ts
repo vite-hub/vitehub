@@ -666,7 +666,7 @@ describe("sources, loaders, and publishers", () => {
     })
   })
 
-  it("hydrates bundled runtime assets when assets miss a current build source", async () => {
+  it("hydrates bundled runtime assets and loads unbundled build sources", async () => {
     const root = await createRoot()
     setWorkspaceRuntimeAssetsRegistry({
       support: createWorkspaceAssets({
@@ -688,12 +688,19 @@ describe("sources, loaders, and publishers", () => {
           mediaType: "text/markdown",
           workspacePath: "skills/agent-browser/SKILL.md",
         }),
-        instructions: file("AGENTS.md"),
+        instructions: file({
+          content: "# Instructions\n",
+          mediaType: "text/markdown",
+          workspacePath: "AGENTS.md",
+        }),
       },
     }, store)
 
     await expect(store.readFile("skills/agent-browser/SKILL.md")).resolves.toMatchObject({
       content: "# Browser\n",
+    })
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({
+      content: "# Instructions\n",
     })
   })
 
