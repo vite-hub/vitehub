@@ -1977,9 +1977,23 @@ describe("defineAgent workspace option", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { access, pullRequestContext } = await import("../src/capabilities.ts")
     const harnessWorkspaceSession = { close: vi.fn() }
-    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    const startSession = vi.fn(async () => ({ close: vi.fn() }))
+    useWorkspace.mockReturnValueOnce({
+      diff,
+      fs: { exists, list, readFile, stat, writeFile },
+      snapshot,
+      startSession,
+      sync: vi.fn(),
+      tools: Object.assign(tools, {
+        inspect: inspectTools,
+        none: vi.fn(() => ({})),
+        readonly: inspectTools,
+        write: writeTools,
+      }),
+    } as unknown as WritableWorkspaceFacade)
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+    exists.mockImplementation(async (path: string) => path === "pull-request-context/context.md")
 
     const agent = withAgentDefaults(defineAgent({
       capabilities: [
@@ -2001,7 +2015,7 @@ describe("defineAgent workspace option", () => {
       driver: {
         harness: { provider: "codex" },
       },
-      workspace: {},
+      workspace: { mode: "write" },
     }), { workspace: "docs" })
 
     await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
@@ -2009,6 +2023,20 @@ describe("defineAgent workspace option", () => {
       text: "ok",
     })
 
+    const scopedWorkspace = prepareHarnessWorkspaceSession.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(scopedWorkspace.startSession).toBeTypeOf("function")
+    const overlay = {
+      fs: {
+        exists: vi.fn(async (path: string) => path === "pull-request-context/context.md"),
+      },
+    }
+    await expect((scopedWorkspace.startSession as (this: typeof overlay, options?: { paths?: string[] }) => Promise<unknown>).call(overlay, {
+      paths: ["pull-request-context/context.md"],
+    })).resolves.toBeDefined()
+    await expect((scopedWorkspace.startSession as (this: typeof overlay, options?: { paths?: string[] }) => Promise<unknown>).call(overlay, {
+      paths: ["private/secret.md"],
+    })).rejects.toThrow("Workspace path does not exist")
+    expect(startSession).toHaveBeenCalledWith({ paths: ["pull-request-context/context.md"] })
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],

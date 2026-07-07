@@ -757,7 +757,7 @@ function workspaceSessionStarter(input: object): WorkspaceSessionStarter | undef
     : undefined
 }
 
-function scopedSessionPaths(scope: ResolvedWorkspaceScope, paths: readonly string[] | undefined): string[] | undefined {
+async function scopedSessionPaths(scope: ResolvedWorkspaceScope, paths: readonly string[] | undefined, fs?: ReadonlyWorkspaceFacade["fs"]): Promise<string[] | undefined> {
   if (scope.all) return paths ? [...paths] : undefined
   const requestedPaths = paths?.length ? paths : [""]
   const scopedPaths = new Set<string>()
@@ -767,6 +767,9 @@ function scopedSessionPaths(scope: ResolvedWorkspaceScope, paths: readonly strin
       const grantPath = normalizeScopePath(grant.path)
       if (pathContains(grantPath, requested)) scopedPaths.add(requested)
       else if (!requested || pathContains(requested, grantPath)) scopedPaths.add(grantPath)
+    }
+    if (paths?.length && fs && !scopedPaths.has(requested) && await fs.exists(requested)) {
+      scopedPaths.add(requested)
     }
   }
   if (!scopedPaths.size) throw notFound(requestedPaths[0] || "")
@@ -827,7 +830,7 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
           async startSession(options?: WorkspaceSessionOptions) {
             return await starter.startSession({
               ...options,
-              paths: scopedSessionPaths(scope, options?.paths),
+              paths: await scopedSessionPaths(scope, options?.paths),
             })
           },
         }
@@ -856,10 +859,12 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
     tools,
   }
   if (facadeStarter) {
-    facade.startSession = async (options?: WorkspaceSessionOptions) => await facadeStarter.startSession({
-      ...options,
-      paths: scopedSessionPaths(scope, options?.paths),
-    })
+    facade.startSession = async function (this: { fs?: ReadonlyWorkspaceFacade["fs"] } | void, options?: WorkspaceSessionOptions) {
+      return await facadeStarter.startSession({
+        ...options,
+        paths: await scopedSessionPaths(scope, options?.paths, this?.fs),
+      })
+    }
   }
   return facade
 }
