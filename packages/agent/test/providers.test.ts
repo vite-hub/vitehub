@@ -4246,6 +4246,86 @@ describe("server helpers", () => {
     }
   })
 
+  it("falls back when durable thread history text attachment URLs fail", async () => {
+    const { telegram } = await import("../src/channels.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { getMessageText } = await import("../src/messages.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("stale attachment"))
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-history-stale-attachment-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const runs: string[][] = []
+    try {
+      await state.connect?.()
+      await state.appendToList("msg-history:telegram:456", new Message({
+        attachments: [{
+          mimeType: "text/plain",
+          name: "old.txt",
+          size: 12,
+          type: "file",
+          url: "https://cdn.example/old.txt",
+        }],
+        author: {
+          fullName: "Maxi",
+          isBot: false,
+          isMe: false,
+          userId: "123",
+          userName: "maxi",
+        },
+        formatted: { children: [], type: "root" },
+        id: "40",
+        metadata: { dateSent: new Date("2026-06-10T12:00:00.000Z"), edited: false },
+        raw: null,
+        text: "",
+        threadId: "telegram:456",
+      }).toJSON(), { maxLength: 25 })
+      const adapter = createTestChatAdapter({ persistThreadHistory: true })
+      const agent = defineAgent({
+        channels: {
+          telegram: telegram({ adapter: () => adapter as never }),
+        },
+        driver: {
+          run: ({ messages }) => {
+            runs.push(messages.map(getMessageText))
+            return "ok"
+          },
+        },
+        messages: {
+          state: () => state,
+          stream: false,
+          threadHistory: { maxMessages: 25 },
+          triggerHistory: { maxMessages: 25, source: "thread" },
+        },
+      })
+      const handler = createChannelWebhookRouteHandler(agent as never)
+
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 42,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092842,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 42,
+            text: "current after stale history",
+          },
+        }),
+        method: "POST",
+      }), "telegram")
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      expect(fetch).toHaveBeenCalledWith("https://cdn.example/old.txt")
+      expect(runs).toEqual([["Sent a file attachment.", "current after stale history"]])
+    }
+    finally {
+      fetch.mockRestore()
+      await state.disconnect?.()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("runs non-streaming chat webhooks inline for workflow-backed agents", async () => {
     const { workflow } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")

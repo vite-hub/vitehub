@@ -906,6 +906,7 @@ function audioData(value: unknown): AudioData | undefined {
 const chatTextAttachmentMaxBytes = 1024 * 1024
 const textAttachmentExtensions = new Set(["csv", "json", "log", "md", "txt", "yaml", "yml"])
 const textAttachmentMimeTypes = new Set(["application/json", "application/x-yaml", "application/yaml", "text/csv"])
+const chatTextAttachmentOversizeMessage = `[vitehub] Chat text attachment exceeds ${chatTextAttachmentMaxBytes} bytes.`
 
 function isTextAttachment(attachment: Attachment): boolean {
   if (attachment.type !== "file") return false
@@ -926,9 +927,13 @@ function checkedTextAttachmentBytes(value: unknown, options: { rejectOversizedTe
   if (!bytes) return
   if (bytes.byteLength > chatTextAttachmentMaxBytes) {
     if (!options.rejectOversizedTextAttachments) return
-    throw new Error(`[vitehub] Chat text attachment exceeds ${chatTextAttachmentMaxBytes} bytes.`)
+    throw new Error(chatTextAttachmentOversizeMessage)
   }
   return bytes
+}
+
+function isTextAttachmentOversizeError(error: unknown): boolean {
+  return error instanceof Error && error.message === chatTextAttachmentOversizeMessage
 }
 
 async function fetchTextAttachmentBytes(url: string, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<Uint8Array | undefined> {
@@ -938,7 +943,7 @@ async function fetchTextAttachmentBytes(url: string, options: { rejectOversizedT
   const contentLength = contentLengthHeader === null ? undefined : Number(contentLengthHeader)
   if (typeof contentLength === "number" && Number.isFinite(contentLength) && contentLength > chatTextAttachmentMaxBytes) {
     if (!options.rejectOversizedTextAttachments) return
-    throw new Error(`[vitehub] Chat text attachment exceeds ${chatTextAttachmentMaxBytes} bytes.`)
+    throw new Error(chatTextAttachmentOversizeMessage)
   }
   if (!response.body) {
     return checkedTextAttachmentBytes(await response.arrayBuffer(), options)
@@ -955,7 +960,7 @@ async function fetchTextAttachmentBytes(url: string, options: { rejectOversizedT
     if (byteLength > chatTextAttachmentMaxBytes) {
       await reader.cancel().catch(() => undefined)
       if (!options.rejectOversizedTextAttachments) return
-      throw new Error(`[vitehub] Chat text attachment exceeds ${chatTextAttachmentMaxBytes} bytes.`)
+      throw new Error(chatTextAttachmentOversizeMessage)
     }
     chunks.push(chunk)
   }
@@ -972,19 +977,30 @@ async function fetchTextAttachmentBytes(url: string, options: { rejectOversizedT
 async function textAttachmentBytes(attachment: Attachment, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<Uint8Array | undefined> {
   if (typeof attachment.size === "number" && attachment.size > chatTextAttachmentMaxBytes) {
     if (!options.rejectOversizedTextAttachments) return
-    throw new Error(`[vitehub] Chat text attachment exceeds ${chatTextAttachmentMaxBytes} bytes.`)
+    throw new Error(chatTextAttachmentOversizeMessage)
   }
   if (typeof attachment.fetchData === "function") {
-    return checkedTextAttachmentBytes(await attachment.fetchData(), options)
+    try {
+      return checkedTextAttachmentBytes(await attachment.fetchData(), options)
+    }
+    catch (error) {
+      if (isTextAttachmentOversizeError(error)) throw error
+      return undefined
+    }
   }
   if (attachment.data instanceof Blob) {
     return checkedTextAttachmentBytes(await attachment.data.arrayBuffer(), options)
   }
   const bytes = checkedTextAttachmentBytes(attachment.data, options)
   if (bytes) return bytes
-  return typeof attachment.url === "string" && attachment.url
-    ? await fetchTextAttachmentBytes(attachment.url, options)
-    : undefined
+  if (typeof attachment.url !== "string" || !attachment.url) return undefined
+  try {
+    return await fetchTextAttachmentBytes(attachment.url, options)
+  }
+  catch (error) {
+    if (isTextAttachmentOversizeError(error)) throw error
+    return undefined
+  }
 }
 
 async function textPartFromAttachment(attachment: Attachment, index: number, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<MessagePart | undefined> {
