@@ -509,6 +509,43 @@ function devRun(agent: string): AgentRunMetadata {
   }
 }
 
+async function streamAgentWithWorkspaceProgress(
+  entry: AgentInvocationStreamEntry,
+  emit: (event: AgentInvocationStreamEvent) => void,
+  signal: AbortSignal,
+  run: () => ReturnType<typeof streamAgent>,
+): ReturnType<typeof streamAgent> {
+  const workspace = agentWorkspaceName(entry)
+  if (!workspace) return await run()
+
+  const startedAt = Date.now()
+  const id = `workspace.prepare:${workspace}`
+  const label = "Preparing workspace"
+  if (!signal.aborted) emit({ data: { workspace }, id, label, phase: "workspace.prepare", status: "started", type: "progress" })
+  try {
+    const output = await run()
+    if (!signal.aborted) emit({ data: { workspace }, durationMs: Date.now() - startedAt, id, label, phase: "workspace.prepare", status: "completed", type: "progress" })
+    return output
+  }
+  catch (error) {
+    if (!signal.aborted) {
+      emit({
+        data: {
+          error: error instanceof Error ? error.message : String(error),
+          workspace,
+        },
+        durationMs: Date.now() - startedAt,
+        id,
+        label,
+        phase: "workspace.prepare",
+        status: "failed",
+        type: "progress",
+      })
+    }
+    throw error
+  }
+}
+
 function exposesCapabilityCli(agent: AgentInput): boolean {
   const cli = (agent as { cli?: { capabilities?: boolean } }).cli
   return cli?.capabilities !== false
@@ -676,9 +713,9 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
         const previewAgent = withDeliveryPreviewChannels(entry.agent, event => {
           if (!signal.aborted) emit(event)
         })
-        output = await streamAgent(previewAgent as never, { ...context, ...(invocation.run ? { run: invocation.run } : {}) } as never, withDevLoopControls(invocation.input, signal, timeout) as never, {
+        output = await streamAgentWithWorkspaceProgress(entry, emit, signal, async () => await streamAgent(previewAgent as never, { ...context, ...(invocation.run ? { run: invocation.run } : {}) } as never, withDevLoopControls(invocation.input, signal, timeout) as never, {
           output: "events",
-        })
+        }))
       }
     }
     else {
@@ -687,7 +724,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
       const previewAgent = withDeliveryPreviewChannels(entry.agent, event => {
         if (!signal.aborted) emit(event)
       })
-      output = await streamAgent(previewAgent as never, context as never, {
+      output = await streamAgentWithWorkspaceProgress(entry, emit, signal, async () => await streamAgent(previewAgent as never, context as never, {
         ...payload,
         abortSignal: signal,
         ...(typeof body.invokerProfileId === "string" && payload?.invokerProfileId === undefined
@@ -695,7 +732,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
           : {}),
         messages: uiMessagesToAgentMessages(messages),
         timeout,
-      }, { output: "events" })
+      }, { output: "events" }))
     }
     for await (const event of streamAgentOutputToEvents(output)) {
       if (signal.aborted) return

@@ -250,7 +250,8 @@ describe("agent CLI", () => {
 
       expect(exitCode).toBe(0)
       expect(stdout.output()).toBe("ok\n")
-      expect(stderr.output()).toBe(`Loaded payload: ${payloadPath}\n[vitehub] Workspace command started; first run may materialize sources.\n`)
+      expect(stderr.output()).toContain(`Loaded payload: ${payloadPath}\n[workspace] command started; first run may materialize sources.\n`)
+      expect(stderr.output()).toContain("[workspace] command completed")
       const post = fetchAgentStream.mock.calls[1]
       expect(post?.[1]?.headers).toMatchObject({
         [workspaceDevTokenHeader]: token,
@@ -637,17 +638,17 @@ describe("agent CLI", () => {
           { agent: "support", trigger: "chat.message", type: "start" },
           { id: "tool-1", name: "shell", type: "tool-input-start" },
           { id: "tool-1", input: { command: "cat file.md" }, name: "shell", type: "tool-call" },
-          { id: "tool-1", name: "shell", output: { command: "cat file.md", exitCode: 0, stderr: "", stdout: longOutput }, type: "tool-result" },
+          { durationMs: 1200, id: "tool-1", name: "shell", output: { command: "cat file.md", exitCode: 0, stderr: "", stdout: longOutput }, type: "tool-result" },
           { id: "tool-4", input: { cmd: "pnpm test" }, name: "bash", type: "tool-call" },
           { id: "tool-5", input: {}, name: "mcp_nuxt_get_documentation_page", type: "tool-input-start" },
           { id: "tool-5", input: { path: "/docs/4.x/api/composables/use-lazy-fetch" }, name: "mcp_nuxt_get_documentation_page", type: "tool-call" },
           { id: "tool-5", name: "mcp_nuxt_get_documentation_page", output: { content: "useLazyFetch docs" }, type: "tool-result" },
           { id: "tool-8", input: { command: "sleep 10" }, name: "shell", type: "tool-input-start" },
           { id: "tool-6", input: { query: "Agent Dev Loop" }, name: "search_docs", type: "tool-input-start" },
-          { id: "tool-6", name: "search_docs", output: { text: "search result" }, type: "tool-result" },
+          { durationMs: 42, id: "tool-6", name: "search_docs", output: { text: "search result" }, type: "tool-result" },
           { id: "tool-7", input: {}, name: "lookup_doc", type: "tool-call" },
           { id: "tool-7", input: { slug: "final" }, name: "lookup_doc", type: "tool-call" },
-          { id: "tool-7", name: "lookup_doc", output: { text: "lookup result" }, type: "tool-result" },
+          { durationMs: 7, id: "tool-7", name: "lookup_doc", output: { text: "lookup result" }, type: "tool-result" },
           { id: "tool-12", input: { argv: ["purchase-orders"] }, name: "portal", type: "tool-call" },
           { id: "tool-12", input: { argv: ["purchase-orders"], input: { limit: 100, planningGroupId: "demo" }, json: true }, name: "portal", type: "tool-call" },
           { id: "tool-15", input: { argv: ["post"], input: "abc" }, name: "portal", type: "tool-call" },
@@ -684,6 +685,7 @@ describe("agent CLI", () => {
 
     expect(exitCode).toBe(0)
     expect(stderr.output()).toContain("[tool] cat file.md")
+    expect(stderr.output()).toContain("duration: 1.2s")
     expect(stderr.output()).toContain("[tool] pnpm test")
     expect(stderr.output()).not.toContain("[tool] bash")
     expect(stderr.output()).not.toContain("[tool done]")
@@ -691,8 +693,8 @@ describe("agent CLI", () => {
     expect(stderr.output()).toContain(`\n[tool] mcp_nuxt_get_documentation_page\n  input: {"path":"/docs/4.x/api/composables/use-lazy-fetch"}\n`)
     expect(stderr.output()).toContain(`output: {"content":"useLazyFetch docs"}`)
     expect(stderr.output()).toContain(`\n[tool] sleep 10\n`)
-    expect(stderr.output()).toContain(`\n[tool] search_docs {"query":"Agent Dev Loop"}\nsearch result\n---\n`)
-    expect(stderr.output()).toContain(`\n[tool] lookup_doc\n  input: {"slug":"final"}\nlookup result\n---\n`)
+    expect(stderr.output()).toContain(`\n[tool] search_docs {"query":"Agent Dev Loop"}\nsearch result\n  duration: 42ms\n---\n`)
+    expect(stderr.output()).toContain(`\n[tool] lookup_doc\n  input: {"slug":"final"}\nlookup result\n  duration: 7ms\n---\n`)
     expect(stderr.output()).not.toContain(`\n[tool] lookup_doc {}\n`)
     expect(stderr.output()).toContain(`\n[tool] portal purchase-orders\n`)
     expect(stderr.output()).toContain(`\n[tool] portal purchase-orders --json --input '{"limit":100,"planningGroupId":"demo"}'\n`)
@@ -716,6 +718,38 @@ describe("agent CLI", () => {
     expect(stderr.output()).not.toContain("[usage]")
     expect(stderr.output().match(/\[tool\] cat file\.md/g)).toHaveLength(1)
     expect(stdout.output()).toContain("done\n\n> [!NOTE]\n> Usage: cost ~$0.000004; 17 tokens: 10 in / 7 out; 3 reasoning tokens; time 2.0s; speed 3.5 tok/s")
+  })
+
+  it("renders Agent Dev Loop workspace progress outside tool output", async () => {
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return ndjson([
+          { agent: "review", trigger: "github.webhook", type: "start" },
+          { id: "workspace.prepare:review", label: "Preparing workspace", phase: "workspace.prepare", status: "started", type: "progress" },
+          { durationMs: 1500, id: "workspace.prepare:review", label: "Preparing workspace", phase: "workspace.prepare", status: "completed", type: "progress" },
+          { type: "finish" },
+          { type: "done" },
+        ])
+      }
+      return Response.json({
+        agents: [{ name: "review", triggers: ["github.webhook"] }],
+        root: "/repo",
+      })
+    })
+    const progressStderr = stream()
+    const exitCodeWithPrompt = await runAgentDevCli(["--agent", "review", "--trigger", "github.webhook", "-p", "/review"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr: progressStderr,
+      stdout: stream(),
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCodeWithPrompt).toBe(0)
+    expect(progressStderr.output()).toContain("[workspace] Preparing workspace\n")
+    expect(progressStderr.output()).toContain("[workspace] Preparing workspace completed (1.5s)")
+    expect(progressStderr.output()).not.toContain("[tool] Preparing workspace")
   })
 
   it("adds best-effort pricing to Agent Dev Loop usage notes", async () => {
