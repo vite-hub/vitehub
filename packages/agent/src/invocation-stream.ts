@@ -74,7 +74,7 @@ export function createAgentInvocationStreamResponse(
   function fail(controller: ReadableStreamDefaultController<Uint8Array>, cause: unknown): void {
     if (closed) return
     clearTimeoutSignal()
-    abortController.abort(cause)
+    abort(cause)
     try {
       write(controller, {
         error: cause instanceof Error ? cause.message : "Agent Invocation Stream event could not be serialized.",
@@ -85,6 +85,15 @@ export function createAgentInvocationStreamResponse(
     catch {
       closed = true
       controller.error(cause)
+    }
+  }
+
+  function abort(cause?: unknown): void {
+    try {
+      abortController.abort(cause)
+    }
+    catch (error) {
+      if (!isAbortError(error)) throw error
     }
   }
 
@@ -125,9 +134,13 @@ export function createAgentInvocationStreamResponse(
     cancel() {
       clearTimeoutSignal()
       closed = true
-      abortController.abort()
+      abort()
     },
   }), {
     headers: { "content-type": "application/x-ndjson" },
   })
+}
+
+function isAbortError(error: unknown): error is Error {
+  return error instanceof Error && error.name === "AbortError"
 }

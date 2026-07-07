@@ -708,7 +708,7 @@ function routeMatches(req: IncomingMessage): boolean {
   return new URL(req.url || "/", "http://localhost").pathname === agentInvocationStreamRoute
 }
 
-async function writeResponse(res: ServerResponse, response: Response): Promise<void> {
+export async function writeResponse(res: ServerResponse, response: Response): Promise<void> {
   res.statusCode = response.status
   for (const [name, value] of response.headers) {
     res.setHeader(name, value)
@@ -721,7 +721,9 @@ async function writeResponse(res: ServerResponse, response: Response): Promise<v
   const reader = response.body.getReader()
   let closed = false
   const cancel = () => {
-    if (!closed) void reader.cancel().catch(() => {})
+    if (closed) return
+    closed = true
+    Promise.resolve().then(() => reader.cancel()).catch(() => {})
   }
   res.once("close", cancel)
   try {
@@ -734,7 +736,9 @@ async function writeResponse(res: ServerResponse, response: Response): Promise<v
     res.end()
   }
   catch (error) {
+    const wasClosed = closed
     closed = true
+    if (wasClosed && isAbortError(error)) return
     res.destroy(error instanceof Error ? error : undefined)
   }
   finally {
@@ -742,6 +746,10 @@ async function writeResponse(res: ServerResponse, response: Response): Promise<v
     res.off("close", cancel)
     reader.releaseLock()
   }
+}
+
+function isAbortError(error: unknown): error is Error {
+  return error instanceof Error && error.name === "AbortError"
 }
 
 function errorResponse(error: unknown): Response {
