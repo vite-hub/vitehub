@@ -847,6 +847,58 @@ describe("sources, loaders, and publishers", () => {
     })
   })
 
+  it("loads omitted files from partially bundled multi-file build sources with preserved metadata", async () => {
+    const root = await createRoot()
+    setWorkspaceRuntimeAssetsRegistry({
+      support: createWorkspaceAssets({
+        "docs/README.md": {
+          load: async () => "# Bundled Docs\n",
+          mediaType: "text/markdown",
+          metadata: { source: "docs" },
+        },
+      }),
+    })
+
+    const store = createMemoryWorkspaceStore()
+    await syncWorkspaceDefinition({
+      name: "support",
+      rootDir: root,
+      sourceRootDir: join(root, "missing"),
+      sources: {
+        docs: custom({
+          mount: "docs",
+          async getKeys() {
+            return ["README.md", "TODO.md"]
+          },
+          async getItem(key) {
+            return {
+              key,
+              content: key === "README.md" ? "# Source Docs\n" : "# Todo\n",
+              mediaType: "text/markdown",
+            }
+          },
+        }),
+        instructions: file({
+          content: "# Instructions\n",
+          mediaType: "text/markdown",
+          workspacePath: "AGENTS.md",
+        }),
+      },
+    }, store)
+
+    await expect(store.readFile("docs/README.md")).resolves.toMatchObject({
+      content: "# Source Docs\n",
+      metadata: { source: "docs" },
+    })
+    await expect(store.readFile("docs/TODO.md")).resolves.toMatchObject({
+      content: "# Todo\n",
+      metadata: { source: "docs" },
+    })
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({
+      content: "# Instructions\n",
+    })
+  })
+
   it("purges stale build source files when source maps change", async () => {
     const store = createMemoryWorkspaceStore()
     let keys = ["README.md", "stale.md"]

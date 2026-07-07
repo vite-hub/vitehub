@@ -117,7 +117,7 @@ async function syncRuntimeBuildAssets(definition: WorkspaceDefinition, store: Wo
       path: entry.path,
       content: await assets.readFile(entry.path, { encoding: "binary" }),
       mediaType: entry.mediaType,
-      metadata: entry.metadata || (sourceKey ? { source: sourceKey } : undefined),
+      metadata: sourceKey ? { ...entry.metadata, source: sourceKey } : entry.metadata,
     })
   }
   return bundledBuildSources
@@ -129,7 +129,6 @@ function hasCompleteBundledBuildSource(
   bundledFiles?: Array<{ path: string, metadata?: Record<string, unknown> }>,
   bundledSourceByPath?: Map<string, string>,
 ): boolean {
-  if (bundledFiles?.some(entry => entry.metadata?.source === source.key)) return true
   const probeKeys = source.source.probeKeys
   if (!probeKeys?.length) return false
   const paths = probeKeys.map(key => normalizeWorkspacePath(`${source.mountPath}/${key}`))
