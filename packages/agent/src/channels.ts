@@ -1617,6 +1617,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
       },
     },
     dev: {
+      webhooks: [],
       async invoke(context, input): Promise<AgentTriggerInvokeResult> {
         const inputRecord = isRecord(input) ? input : {}
         const finishEffects = githubPullRequestCommentFinishEffects(options)

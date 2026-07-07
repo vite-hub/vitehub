@@ -205,6 +205,7 @@ describe("agent channels", () => {
     const channel = github({ pullRequest: true })
     const trigger = channel.triggers?.dev
     if (!trigger) throw new Error("Missing GitHub dev trigger.")
+    expect(trigger.webhooks).toEqual([])
     const context = {
       capabilities: [],
       channel,
