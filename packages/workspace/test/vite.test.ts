@@ -896,7 +896,7 @@ describe("hubWorkspace", () => {
     })
   })
 
-  it("materializes files-sdk for Vercel Blob workspace build output", async () => {
+  it("materializes @vercel/blob for Vercel Blob workspace build output", async () => {
     const root = await createViteRoot()
     const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubWorkspace } = await import("../src/vite.ts")
@@ -915,14 +915,13 @@ describe("hubWorkspace", () => {
     expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
       packages: [
         { name: "@vite-hub/workspace", resolveFrom: expect.any(String) },
-        { name: "files-sdk" },
         { name: "@vercel/blob" },
       ],
       rootDir: root,
     })
   })
 
-  it("materializes files-sdk for definition-level Vercel Blob workspace build output", async () => {
+  it("materializes @vercel/blob for definition-level Vercel Blob workspace build output", async () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src/docs.workspace.ts"), [
       `import { defineWorkspace } from "@vite-hub/workspace"`,
@@ -943,7 +942,6 @@ describe("hubWorkspace", () => {
     expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
       packages: [
         { name: "@vite-hub/workspace", resolveFrom: expect.any(String) },
-        { name: "files-sdk" },
         { name: "@vercel/blob" },
       ],
       rootDir: root,

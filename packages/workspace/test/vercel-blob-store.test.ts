@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 declare global {
-  var __vitehubWorkspaceImportFilesSdkPeer: ((specifier: string) => Promise<unknown>) | undefined
+  var __vitehubWorkspaceImportVercelBlobPeer: (() => Promise<unknown>) | undefined
 }
 
 const blobMock = vi.hoisted(() => {
@@ -20,7 +20,7 @@ const blobMock = vi.hoisted(() => {
     get: vi.fn(async (input: string) => {
       const current = store.get(pathnameFromUrl(input))
       return current
-        ? { statusCode: 200, stream: new Response(current.body).body }
+        ? { blob: { contentType: "application/octet-stream", size: current.body.byteLength }, statusCode: 200, stream: new Response(current.body).body }
         : { statusCode: 404, stream: null }
     }),
     head: vi.fn(async (pathname: string) => {
@@ -52,91 +52,15 @@ const blobMock = vi.hoisted(() => {
   }
 })
 
-const filesSdkModules = {
-  "files-sdk": {
-    Files: class {
-      constructor(private options: { adapter: ReturnType<typeof filesSdkModules["files-sdk/vercel-blob"]["vercelBlob"]> }) {}
-
-      delete(key: string) {
-        return this.options.adapter.delete(key)
-      }
-
-      download(key: string) {
-        return this.options.adapter.download(key)
-      }
-
-      head(key: string) {
-        return this.options.adapter.head(key)
-      }
-
-      list(options: { cursor?: string, limit?: number, prefix: string }) {
-        return this.options.adapter.list(options)
-      }
-
-      upload(key: string, body: Blob | Uint8Array | string, options?: { contentType?: string }) {
-        void options
-        return this.options.adapter.upload(key, body)
-      }
-    },
-  },
-  "files-sdk/vercel-blob": {
-    vercelBlob: () => ({
-      name: "vercel-blob",
-      raw: {},
-      async upload(pathname: string, body: Blob | Uint8Array | string) {
-        const result = await blobMock.put(pathname, body)
-        return {
-          contentType: "application/octet-stream",
-          key: result.pathname,
-          lastModified: Date.now(),
-          size: result.size,
-        }
-      },
-      async download(pathname: string) {
-        const result = await blobMock.get(pathname)
-        if (result.statusCode !== 200 || !result.stream) throw Object.assign(new Error("not found"), { code: "NotFound" })
-        const bytes = await new Response(result.stream).arrayBuffer()
-        return {
-          arrayBuffer: async () => bytes,
-          key: pathname,
-          lastModified: Date.now(),
-          metadata: {},
-          size: bytes.byteLength,
-          text: async () => new TextDecoder().decode(bytes),
-          type: "application/octet-stream",
-        }
-      },
-      async head(pathname: string) {
-        const result = await blobMock.head(pathname)
-        if (!result) throw Object.assign(new Error("not found"), { code: "NotFound" })
-        return {
-          key: pathname,
-          lastModified: result.uploadedAt.getTime(),
-          metadata: {},
-          size: result.size,
-          type: "application/octet-stream",
-        }
-      },
-      async list(options: { prefix?: string } = {}) {
-        const result = await blobMock.list(options)
-        return {
-          items: result.blobs.map(blob => ({
-            key: blob.pathname,
-            lastModified: blob.uploadedAt.getTime(),
-            metadata: {},
-            size: blob.size,
-            type: "application/octet-stream",
-          })),
-        }
-      },
-      async delete(pathname: string) {
-        await blobMock.del(pathname)
-      },
-    }),
-  },
+const vercelBlobModule = {
+  del: blobMock.del,
+  get: blobMock.get,
+  head: blobMock.head,
+  list: blobMock.list,
+  put: blobMock.put,
 }
 
-globalThis.__vitehubWorkspaceImportFilesSdkPeer = async (specifier: string) => filesSdkModules[specifier as keyof typeof filesSdkModules]
+globalThis.__vitehubWorkspaceImportVercelBlobPeer = async () => vercelBlobModule
 
 afterEach(() => {
   blobMock.clear()
@@ -159,7 +83,16 @@ describe("Vercel Blob workspace store", () => {
     }, "docs")
 
     await store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "hello" })
+    expect(blobMock.put).toHaveBeenCalledWith("workspace/e2e/docs/files/docs/readme.md", expect.any(Blob), expect.objectContaining({
+      access: "private",
+      allowOverwrite: true,
+      token: "token",
+    }))
     expect(await store.readFile("docs/readme.md")).toMatchObject({ path: "docs/readme.md" })
+    expect(blobMock.get).toHaveBeenCalledWith("workspace/e2e/docs/files/docs/readme.md", expect.objectContaining({
+      access: "private",
+      token: "token",
+    }))
     blobMock.get.mockClear()
     expect(await store.glob("**/*.md")).toEqual([
       expect.objectContaining({ path: "docs/readme.md", type: "file" }),

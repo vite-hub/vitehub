@@ -31,23 +31,25 @@ type BlobListResult = {
   cursor?: string
 }
 
-type FilesSdkModule = {
-  Files: new (options: { adapter: unknown }) => {
-    delete(key: string): Promise<void>
-    download(key: string): Promise<Blob>
-    head(key: string): Promise<BlobListItem>
-    list(options: { cursor?: string, limit?: number, prefix: string }): Promise<BlobListResult>
-    upload(key: string, body: Blob | Uint8Array | string, options?: { contentType?: string }): Promise<void>
-  }
-}
-
 type VercelBlobModule = {
-  vercelBlob(options: {
+  del(key: string, options?: { token?: string }): Promise<void>
+  get(key: string, options: { access: "private" | "public", token?: string }): Promise<{
+    blob: { contentType: string, size: number }
+    statusCode: 200
+    stream: ReadableStream<Uint8Array>
+  } | { statusCode: 304, stream: null } | null>
+  head(key: string, options?: { token?: string }): Promise<{ contentType?: string, pathname: string, size: number, uploadedAt: Date }>
+  list(options: { cursor?: string, limit?: number, prefix: string, token?: string }): Promise<{
+    blobs: Array<{ pathname: string, size?: number, uploadedAt?: Date }>
+    cursor?: string
+  }>
+  put(key: string, body: Blob | Uint8Array | string, options: {
     access: "private" | "public"
     addRandomSuffix: boolean
     allowOverwrite: boolean
+    contentType?: string
     token?: string
-  }): unknown
+  }): Promise<unknown>
 }
 
 function joinBlobPath(...parts: string[]) {
@@ -60,51 +62,88 @@ function contentType(path: string, fallback?: string) {
   if (path.endsWith(".md") || path.endsWith(".txt")) return "text/plain; charset=utf-8"
 }
 
-async function createVercelFiles(options: VercelBlobWorkspaceStoreOptions) {
-  const [{ Files }, { vercelBlob }] = await Promise.all([
-    importFilesSdkPeer<FilesSdkModule>("files-sdk"),
-    importFilesSdkPeer<VercelBlobModule>("files-sdk/vercel-blob"),
-  ])
-  return new Files({
-    adapter: vercelBlob({
-      access: options.access || "private",
-      addRandomSuffix: false,
-      allowOverwrite: true,
-      token: options.token,
-    }),
-  })
+function auth(options: VercelBlobWorkspaceStoreOptions) {
+  return options.token ? { token: options.token } : {}
 }
 
-async function importFilesSdkPeer<T>(specifier: string): Promise<T> {
+async function createVercelBlobClient(options: VercelBlobWorkspaceStoreOptions) {
+  const blob = await importVercelBlobPeer()
+  const access = options.access || "private"
+  return {
+    async delete(key: string): Promise<void> {
+      await blob.del(key, auth(options))
+    },
+    async download(key: string): Promise<Blob> {
+      const result = await blob.get(key, { access, ...auth(options) })
+      if (!result || result.statusCode !== 200 || !result.stream) throw Object.assign(new Error("not found"), { code: "NotFound" })
+      return await new Response(result.stream, {
+        headers: result.blob.contentType ? { "content-type": result.blob.contentType } : undefined,
+      }).blob()
+    },
+    async head(key: string): Promise<BlobListItem> {
+      const result = await blob.head(key, auth(options))
+      return {
+        key: result.pathname,
+        lastModified: result.uploadedAt.getTime(),
+        size: result.size,
+        type: result.contentType,
+      }
+    },
+    async list(optionsInput: { cursor?: string, limit?: number, prefix: string }): Promise<BlobListResult> {
+      const result = await blob.list({ ...optionsInput, ...auth(options) })
+      return {
+        cursor: result.cursor,
+        items: result.blobs.map(item => ({
+          key: item.pathname,
+          lastModified: item.uploadedAt?.getTime(),
+          size: item.size,
+        })),
+      }
+    },
+    async upload(key: string, body: Blob | Uint8Array | string, uploadOptions: { contentType?: string } = {}): Promise<void> {
+      await blob.put(key, body, {
+        access,
+        addRandomSuffix: false,
+        allowOverwrite: true,
+        contentType: uploadOptions.contentType,
+        ...auth(options),
+      })
+    },
+  }
+}
+
+const vercelBlobPeerSpecifier = "@vercel/blob"
+
+async function importVercelBlobPeer(): Promise<VercelBlobModule> {
   try {
-    const testImport = (globalThis as { __vitehubWorkspaceImportFilesSdkPeer?: (specifier: string) => Promise<unknown> }).__vitehubWorkspaceImportFilesSdkPeer
-    if (testImport) return await testImport(specifier) as T
-    return await import(specifier) as T
+    const testImport = (globalThis as { __vitehubWorkspaceImportVercelBlobPeer?: () => Promise<unknown> }).__vitehubWorkspaceImportVercelBlobPeer
+    if (testImport) return await testImport() as VercelBlobModule
+    return await import(vercelBlobPeerSpecifier) as VercelBlobModule
   }
   catch (error) {
-    handleFilesSdkImportError(error)
+    handleVercelBlobImportError(error)
   }
 }
 
-function handleFilesSdkImportError(error: unknown): never {
-  if (isMissingFilesSdkError(error)) {
-    throw new WorkspaceError("[vitehub] files-sdk is required for the Vercel Blob Workspace Store. Package: files-sdk.", { cause: error })
+function handleVercelBlobImportError(error: unknown): never {
+  if (isMissingVercelBlobError(error)) {
+    throw new WorkspaceError("[vitehub] @vercel/blob is required for the Vercel Blob Workspace Store. Package: @vercel/blob.", { cause: error })
   }
   throw error
 }
 
-function isMissingFilesSdkError(error: unknown) {
+function isMissingVercelBlobError(error: unknown) {
   if (!(error instanceof Error)) return false
   const code = (error as { code?: unknown }).code
   if (code !== "ERR_MODULE_NOT_FOUND" && code !== "MODULE_NOT_FOUND") return false
-  return error.message.includes("Cannot find package 'files-sdk'")
-    || error.message.includes("Cannot find module 'files-sdk'")
+  return error.message.includes("Cannot find package '@vercel/blob'")
+    || error.message.includes("Cannot find module '@vercel/blob'")
 }
 
 class VercelBlobWorkspaceStore implements WorkspaceStore {
   #baseline: WorkspaceSnapshot | undefined
   #options: VercelBlobWorkspaceStoreOptions
-  #files: ReturnType<typeof createVercelFiles> | undefined
+  #files: ReturnType<typeof createVercelBlobClient> | undefined
 
   constructor(options: VercelBlobWorkspaceStoreOptions, private workspaceName: string) {
     this.#options = resolveRuntimeVercelBlobWorkspaceStore(options, typeof process !== "undefined" ? process.env : {})
@@ -119,7 +158,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   }
 
   async #client() {
-    this.#files ||= createVercelFiles(this.#options)
+    this.#files ||= createVercelBlobClient(this.#options)
     return await this.#files
   }
 
