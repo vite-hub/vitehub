@@ -180,21 +180,12 @@ function writeDevText(context: AgentCliContext, value: unknown): boolean {
   return true
 }
 
-function compactPreviewText(text: string): string {
-  const withoutDetails = text.replace(/<details\b[\s\S]*?<\/details>/gi, "").trim()
-  const firstLine = withoutDetails.split(/\r?\n/).map(line => line.trim()).find(Boolean) || text.trim()
-  return firstLine
-    .replace(/^#+\s*/, "")
-    .replace(/^\*\*(.+?):\*\*\s*/, "$1: ")
-    .replace(/^\*\*(.+?)\*\*:\s*/, "$1: ")
-}
-
 function deliveryPreviewPayload(value: unknown): { label: string, value: unknown } | undefined {
-  if (typeof value === "string") return { label: "payload", value: compactPreviewText(value) }
+  if (typeof value === "string") return { label: "payload", value: value.trim() }
   if (!isRecord(value)) return value === undefined ? undefined : { label: "payload", value }
   for (const label of ["body", "text", "markdown"]) {
     const text = value[label]
-    if (typeof text === "string") return { label, value: compactPreviewText(text) }
+    if (typeof text === "string") return { label, value: text.trim() }
   }
   return { label: "payload", value }
 }
@@ -870,12 +861,9 @@ async function sendDevMessage(
   let wroteUsageNote = false
   let finishSeen = false
   let previewSeen = false
-  const delayTextForPreview = Boolean(parsed.trigger && parsed.trigger !== "chat.message")
-  let canWriteDelayedUsage = false
   const visibleTools = new Set<string>()
   const visibleToolInputs = new Map<string, string | undefined>()
   const writeUsageNote = () => {
-    if (delayTextForPreview && !canWriteDelayedUsage) return
     if (previewSeen) return
     if (!lastUsageRecord || wroteUsageNote) return
     const usage = formatUsageRecord(lastUsageRecord, Date.now() - startedAt)
@@ -917,7 +905,7 @@ async function sendDevMessage(
       if (event.type === "text-delta") {
         clearPendingFallback()
         output += event.text
-        if (!delayTextForPreview) context.stdout.write(event.text)
+        context.stdout.write(event.text)
         continue
       }
       if (event.type === "tool-call" || event.type === "tool-input-start") {
@@ -1008,12 +996,7 @@ async function sendDevMessage(
     return
   }
   clearPendingFallback()
-  if (delayTextForPreview && !previewSeen && output) {
-    context.stdout.write(output)
-    canWriteDelayedUsage = true
-    writeUsageNote()
-  }
-  if (!delayTextForPreview || output && !previewSeen) context.stdout.write("\n")
+  if (output) context.stdout.write("\n")
   if (!output && needsApproval) return
   return messages.length || output ? [...messages, assistantMessage(output, messages.length)] : []
 }

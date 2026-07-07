@@ -120,6 +120,7 @@ export interface GitHubAppOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
   fetch?: typeof fetch
   installationId?: GitHubAppValue<number | string | undefined, TRuntimeConfig>
   privateKey?: GitHubAppValue<string | { unseal: () => string } | undefined, TRuntimeConfig>
+  privateKeyPath?: GitHubAppValue<string | undefined, TRuntimeConfig>
   statusContext?: string
   userAgent?: string
   webhookSecret?: GitHubAppValue<false | string | { unseal: () => string } | undefined, TRuntimeConfig>
@@ -605,12 +606,13 @@ async function githubPullRequestMetadata<TRuntimeConfig extends AgentRuntimeConf
   const fallback = {
     ...(fallbackBody ? { body: fallbackBody } : {}),
   }
-  if (!app) return fallback
 
   try {
-    const appOptions = githubAppOptions(app) || {}
+    const appOptions = app ? githubAppOptions(app) || {} : {}
+    const token = await githubPullRequestMetadataToken(app, context, command.installationId)
+    if (!token) return fallback
     const fetcher = appOptions.fetch || fetch
-    const headers = githubApiHeaders(await githubAppInstallationToken(app, context, command.installationId), appOptions.userAgent)
+    const headers = githubApiHeaders(token, appOptions.userAgent)
     const apiBaseUrl = appOptions.apiBaseUrl || "https://api.github.com"
     const [pullRequest, comments, files] = await Promise.all([
       githubApiJson(fetcher, command.pullRequestUrl, headers),
@@ -811,15 +813,20 @@ async function githubEnv(event?: unknown): Promise<Record<string, unknown>> {
         appId: process.env.GITHUB_APP_ID,
         appInstallationId: process.env.GITHUB_APP_INSTALLATION_ID,
         appPrivateKey: process.env.GITHUB_APP_PRIVATE_KEY,
+        appPrivateKeyPath: process.env.GITHUB_APP_PRIVATE_KEY_PATH,
+        token: process.env.VITEHUB_GITHUB_TOKEN || process.env.GH_TOKEN || process.env.GITHUB_TOKEN,
         webhookSecret: process.env.GITHUB_WEBHOOK_SECRET,
       }
     : {}
   try {
     const module = await import(/* @vite-ignore */ serverEnvModuleId) as { useServerEnv?: (event?: unknown) => unknown }
     const env = module.useServerEnv?.(event)
+    const github = isRecord(env) && isRecord(env.github)
+      ? Object.fromEntries(Object.entries(env.github).filter(([, value]) => value !== undefined))
+      : {}
     return {
       ...fallback,
-      ...(isRecord(env) && isRecord(env.github) ? env.github : {}),
+      ...github,
     }
   }
   catch {
@@ -862,7 +869,18 @@ async function githubAppPrivateKey<TRuntimeConfig extends AgentRuntimeConfig>(
 ) {
   const inline = cleanSecret(await githubAppSetting(options, env, "privateKey", "appPrivateKey", context))
   if (inline) return inline.replace(/\\n/g, "\n")
-  throw new Error("[vitehub] Missing GitHub App privateKey. github.appPrivateKey or GITHUB_APP_PRIVATE_KEY is required.")
+  const path = cleanSecret(await githubAppSetting(options, env, "privateKeyPath", "appPrivateKeyPath", context))
+  if (path) {
+    try {
+      const { readFileSync } = await import(/* @vite-ignore */ "node:fs")
+      const file = readFileSync(path, "utf8").trim()
+      if (file) return file.replace(/\\n/g, "\n")
+    }
+    catch (error) {
+      throw new Error(`[vitehub] Failed to read GitHub App privateKeyPath: ${path}`, { cause: error })
+    }
+  }
+  throw new Error("[vitehub] Missing GitHub App privateKey. github.app.privateKey, github.app.privateKeyPath, GITHUB_APP_PRIVATE_KEY, or GITHUB_APP_PRIVATE_KEY_PATH is required.")
 }
 
 function base64url(value: string | Buffer) {
@@ -905,6 +923,23 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
   const expiresAt = isRecord(body) && typeof body.expires_at === "string" ? Date.parse(body.expires_at) : Date.now() + 9 * 60_000
   githubAppTokenCache.set(cacheKey, { expiresAt, token })
   return token
+}
+
+async function githubPullRequestMetadataToken<TRuntimeConfig extends AgentRuntimeConfig>(
+  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+  context: GitHubAppContext<TRuntimeConfig>,
+  installation?: number,
+) {
+  const env = await githubEnv(context)
+  const token = cleanSecret(env.token)
+  if (!app) return token
+  try {
+    return await githubAppInstallationToken(app, context, installation)
+  }
+  catch (error) {
+    if (token) return token
+    throw error
+  }
 }
 
 async function githubAppWebhookSecret<TRuntimeConfig extends AgentRuntimeConfig>(

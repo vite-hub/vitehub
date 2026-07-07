@@ -1,4 +1,7 @@
 import { generateKeyPairSync } from "node:crypto"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
@@ -198,6 +201,66 @@ describe("agent channels", () => {
       installationId: 123,
       repository: "acme/app",
     })
+  })
+
+  it("uses token fallback to fetch GitHub PR metadata", async () => {
+    const { github } = await import("../src/channels.ts")
+    const previousToken = process.env.VITEHUB_GITHUB_TOKEN
+    process.env.VITEHUB_GITHUB_TOKEN = "metadata-token"
+    try {
+      const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        const href = String(url)
+        expect(init?.headers).toMatchObject({ authorization: "Bearer metadata-token" })
+        if (href.endsWith("/pulls/42")) {
+          return Response.json({
+            base: { ref: "main", repo: { full_name: "acme/app" }, sha: "base-sha" },
+            body: "metadata body",
+            head: { ref: "feature", repo: { full_name: "acme/fork" }, sha: "head-sha" },
+          })
+        }
+        if (href.includes("/issues/42/comments")) {
+          if (new URL(href).searchParams.get("page")) return Response.json([])
+          return Response.json([{ body: "comment body", html_url: "https://github.test/acme/app/pull/42#issuecomment-1", id: 1 }])
+        }
+        if (href.includes("/pulls/42/files")) {
+          if (new URL(href).searchParams.get("page")) return Response.json([])
+          return Response.json([{ filename: "src/app.ts", status: "modified" }])
+        }
+        throw new Error(`Unexpected GitHub API call: ${href}`)
+      })
+      const channel = github({
+        app: {
+          apiBaseUrl: "https://api.github.test",
+          fetch: fetcher as typeof fetch,
+        },
+        pullRequest: { reply: false },
+      })
+      const trigger = channel.triggers?.webhook
+      if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+
+      const result = await trigger.invoke({
+        capabilities: [],
+        channel,
+        trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+      } as never, { payload: githubIssueCommentPayload() })
+      if (result instanceof Response) throw new Error("Expected GitHub webhook invocation.")
+
+      expect(result.input.context?.pullRequest).toMatchObject({
+        pullRequest: {
+          base: { ref: "main", repo: "acme/app", sha: "base-sha" },
+          body: "metadata body",
+          comments: [{ body: "comment body", id: 1 }],
+          files: [{ filename: "src/app.ts", status: "modified" }],
+          head: { ref: "feature", repo: "acme/fork", sha: "head-sha" },
+          number: 42,
+        },
+      })
+      expect(fetcher.mock.calls.map(([url]) => String(url))).not.toContain("https://api.github.test/app/installations/123/access_tokens")
+    }
+    finally {
+      if (previousToken === undefined) delete process.env.VITEHUB_GITHUB_TOKEN
+      else process.env.VITEHUB_GITHUB_TOKEN = previousToken
+    }
   })
 
   it("invokes GitHub PR dev trigger from context and raw payload", async () => {
@@ -465,6 +528,8 @@ describe("agent channels", () => {
     const { github } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-github-app-key-"))
+    const privateKeyPath = join(rootDir, "app.pem")
     const statusBodies: Array<Record<string, unknown>> = []
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const href = String(url)
@@ -478,53 +543,59 @@ describe("agent channels", () => {
       }
       throw new Error(`Unexpected GitHub API call: ${href}`)
     })
-    const channel = github({
-      app: {
-        apiBaseUrl: "https://api.github.test",
-        appId: "4",
-        fetch: fetcher as typeof fetch,
-        installationId: 789,
-        privateKey: privateKeyPem,
-        statusContext: "ViteHub Test",
-      },
-    })
-    const statusEffect = channel.effects?.status
-    if (typeof statusEffect !== "function") throw new Error("Missing GitHub status effect.")
-
-    await statusEffect({
-      channel,
-      effect: {
-        kind: "status",
-        payload: "success",
-      },
-      input: {
-        context: {
-          github: {
-            action: "created",
-            actor: { login: "onmax" },
-            args: "",
-            body: "/review",
-            command: "/review",
-            commentId: 99,
-            installationId: 789,
-            issueNumber: 42,
-            owner: "vite-hub",
-            pullRequestUrl: "https://api.github.test/repos/vite-hub/vitehub/pulls/42",
-            repo: "vitehub",
-            repository: "vite-hub/vitehub",
-          },
+    try {
+      await writeFile(privateKeyPath, privateKeyPem, "utf8")
+      const channel = github({
+        app: {
+          apiBaseUrl: "https://api.github.test",
+          appId: "4",
+          fetch: fetcher as typeof fetch,
+          installationId: 789,
+          privateKeyPath,
+          statusContext: "ViteHub Test",
         },
-        prompt: "/review",
-      },
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    } as never)
+      })
+      const statusEffect = channel.effects?.status
+      if (typeof statusEffect !== "function") throw new Error("Missing GitHub status effect.")
 
-    expect(statusBodies).toEqual([{
-      context: "ViteHub Test",
-      state: "success",
-    }])
+      await statusEffect({
+        channel,
+        effect: {
+          kind: "status",
+          payload: "success",
+        },
+        input: {
+          context: {
+            github: {
+              action: "created",
+              actor: { login: "onmax" },
+              args: "",
+              body: "/review",
+              command: "/review",
+              commentId: 99,
+              installationId: 789,
+              issueNumber: 42,
+              owner: "vite-hub",
+              pullRequestUrl: "https://api.github.test/repos/vite-hub/vitehub/pulls/42",
+              repo: "vitehub",
+              repository: "vite-hub/vitehub",
+            },
+          },
+          prompt: "/review",
+        },
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      } as never)
+
+      expect(statusBodies).toEqual([{
+        context: "ViteHub Test",
+        state: "success",
+      }])
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
   })
 
   it("ignores GitHub PR delivery effects without pull request context", async () => {
