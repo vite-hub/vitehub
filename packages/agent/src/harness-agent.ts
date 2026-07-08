@@ -170,7 +170,7 @@ function workspaceSourceHarnessPaths(context: AgentAdapterRunContext): string[] 
     : undefined
   return normalizeAgentWorkspaceSources(sources).flatMap((source) => {
     if (source.scopes?.length && scope && !scope.all && !source.scopes.includes(scope.scope)) return []
-    if (source.materialize === "build" && source.probeKeys?.length) {
+    if (source.probeKeys?.length) {
       return source.probeKeys.map(key => [source.mountPath, key].filter(Boolean).join("/"))
     }
     return []
