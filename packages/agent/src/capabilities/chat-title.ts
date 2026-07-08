@@ -137,7 +137,7 @@ function agentTriggerId(context: AgentCapabilityRuntimeContext): string | undefi
 }
 
 function supportsChatTitleDelivery(context: AgentCapabilityRuntimeContext): boolean {
-  return context.context.get<boolean>(messageChannelTitleSupportContextKey) !== false
+  return context.context.get<boolean>(messageChannelTitleSupportContextKey) === true
 }
 
 function shouldProvideChatTitleFinishExtension(context: AgentCapabilityRuntimeContext): boolean {
