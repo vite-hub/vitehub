@@ -1883,8 +1883,8 @@ function hasTitleDeliveryEffectProvider(providers: readonly AgentChannelDelivery
   })
 }
 
-function hasUnknownFinishDeliveryEffectProvider(providers: readonly AgentChannelDeliveryFinishEffect[]): boolean {
-  return providers.some(provider => typeof provider === "function" && provider.kind === undefined)
+function hasDeferredFinishDeliveryEffectProvider(providers: readonly AgentChannelDeliveryFinishEffect[]): boolean {
+  return providers.some(provider => typeof provider === "function" && (provider.kind === undefined || Boolean(provider.active)))
 }
 
 async function prepareProvisionalTitleDeliverySupport<
@@ -1932,7 +1932,7 @@ async function finishAgentInvocation<
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       context.context.set("agent.finishHook", Boolean(context.finishHook), { overwrite: true })
       const provisionalActiveDeliveryProviders = await prepareProvisionalTitleDeliverySupport(context, eventBase)
-      if (context.finishHook || provisionalActiveDeliveryProviders.length || hasUnknownFinishDeliveryEffectProvider(context.finishDeliveryEffectProviders)) {
+      if (context.finishHook || provisionalActiveDeliveryProviders.length || hasDeferredFinishDeliveryEffectProvider(context.finishDeliveryEffectProviders)) {
         const extensions = await createAgentInvocationExtensions(eventBase as never, context.finishExtensionProviders)
         const finishEvent = { ...eventBase, extensions }
         const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, finishEvent as never)

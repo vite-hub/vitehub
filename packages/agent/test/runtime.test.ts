@@ -2971,12 +2971,13 @@ describe("agent message protocol", () => {
     }))
   })
 
-  it("evaluates finish delivery active predicates after finish extensions resolve", async () => {
+  it("evaluates known-kind finish delivery active predicates after finish extensions resolve", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
     const delivered = vi.fn()
     const finishEffect = ((finish) => finish.reply("Extension enabled")) as AgentChannelDeliveryFinishEffectCallback
     finishEffect.active = finish => finish.extensions.get("extension-gated-delivery", "enabled") === true
+    finishEffect.kind = "reply"
     const agent = defineAgent({
       capabilities: [
         defineCapability({
