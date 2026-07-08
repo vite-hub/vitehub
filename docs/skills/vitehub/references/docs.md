@@ -26,6 +26,7 @@ Use the smallest page that answers the current task. Prefer raw Markdown URLs fo
 | Workspace context | `https://vitehub.dev/raw/docs/agents/workspace-context.md` |
 | Capabilities overview | `https://vitehub.dev/raw/docs/capabilities/index.md` |
 | Official Capabilities | `https://vitehub.dev/raw/docs/capabilities/official-capabilities.md` |
+| Browser Capability | `https://vitehub.dev/raw/docs/capabilities/browser.md` |
 | Skills Capability | `https://vitehub.dev/raw/docs/capabilities/skills.md` |
 | Workspace Shell | `https://vitehub.dev/raw/docs/capabilities/workspace-shell.md` |
 | Git and repository hosts | `https://vitehub.dev/raw/docs/capabilities/git.md` and `https://vitehub.dev/raw/docs/capabilities/repository-host.md` |
