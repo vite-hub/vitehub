@@ -28,6 +28,7 @@ export interface HarnessSandboxSession {
 
 export interface HarnessWorkspaceSession {
   close(error?: unknown): Promise<void>
+  refreshGitBaseline(): Promise<void>
 }
 
 export interface PrepareHarnessWorkspaceSessionOptions {
@@ -558,6 +559,14 @@ export async function prepareHarnessWorkspaceSession(
       finally {
         await workspaceSession?.close()
       }
+    },
+    async refreshGitBaseline() {
+      await withPrepareProgress(options.onProgress, {
+        id: "workspace.prepare.git-status",
+        label: "Preparing workspace status",
+      }, async () => {
+        await initializeSandboxGitBaseline(options.session, options.sessionWorkDir, options.abortSignal)
+      })
     },
   }
 }

@@ -105,6 +105,26 @@ describe("Harness Workspace Session", () => {
     await session.close()
   })
 
+  it("refreshes the harness git baseline after support files are written", async () => {
+    const run = sandboxRun()
+    const writeBinaryFile = vi.fn(async () => {})
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: { list: vi.fn(async () => []), readFile: vi.fn() },
+      tools: {},
+    } as never, {
+      session: { run, writeBinaryFile },
+      sessionWorkDir: "/work/agent",
+    })
+
+    await session.refreshGitBaseline()
+
+    expect(run).toHaveBeenCalledTimes(3)
+    expectGitBaseline(run)
+
+    await session.close()
+  })
+
   it("preserves GitHub symlinks in the harness archive", async () => {
     const list = vi.fn(async () => [
       { path: "AGENTS.md", type: "file" },
