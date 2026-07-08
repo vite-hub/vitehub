@@ -107,6 +107,12 @@ export default defineConfig({
 })
 ```
 
+## DevTools inspection
+
+With `hubAgent()` and the ViteHub DevTools shell active, open the Agent Chat feature and type `//inspect`.
+DevTools handles this Host Command locally and adds a transcript summary of the resolved Agent Definition surface without sending the command to the Agent.
+Use it to verify the selected driver, tools, Workspace files and Sources, instructions, Agent Invoker Profiles, warnings, and metadata status before debugging model output.
+
 ## Capabilities
 
 - `chat()` exposes the agent as a chat surface; see the [First Agent guide](https://vitehub.dev/docs/getting-started/first-agent).

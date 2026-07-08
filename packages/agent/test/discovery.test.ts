@@ -528,6 +528,59 @@ describe("agent chat capability discovery", () => {
     expect(textFromUiMessage(fallbackFinalState.uiMessages[1])).toBe("answered as devtools:maximo@quiver.dk with workspace")
   })
 
+  it("handles chat devtools Host Commands before agent invocation", async () => {
+    const root = await createTempRoot("vitehub-agent-devtools-host-command-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const run = vi.fn(() => "agent response")
+    const agent = defineAgent({
+      capabilities: [chat()],
+      driver: { run },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
+
+    await configurePluginServer(plugin, server)
+
+    const inspectResponse = await invokeMiddleware(handlers[0]!, {
+      action: "send",
+      chat: "support",
+      stream: true,
+      text: "//inspect",
+    })
+    const inspectEvents = inspectResponse.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+    const inspectState = inspectEvents.filter(event => event.type === "state").at(-1)?.state
+
+    expect(inspectEvents.at(-1)).toEqual({ type: "done" })
+    expect(run).not.toHaveBeenCalled()
+    expect(textFromUiMessage(inspectState.uiMessages[0])).toBe("//inspect")
+    expect(textFromUiMessage(inspectState.uiMessages[1])).toContain("Agent inspection")
+    expect(textFromUiMessage(inspectState.uiMessages[1])).toContain("Driver: Custom-run Agent Driver")
+
+    const unknownResponse = await invokeMiddleware(handlers[0]!, {
+      action: "send",
+      chat: "support",
+      stream: true,
+      text: "//wat",
+    })
+    const unknownEvents = unknownResponse.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+    const unknownState = unknownEvents.filter(event => event.type === "state").at(-1)?.state
+
+    expect(unknownEvents.at(-1)).toEqual({ type: "done" })
+    expect(run).not.toHaveBeenCalled()
+    expect(textFromUiMessage(unknownState.uiMessages.at(-1))).toContain("Unknown Host Command: `//wat`")
+    expect(textFromUiMessage(unknownState.uiMessages.at(-1))).toContain("//inspect")
+  })
+
   it("serves Agent Invocation Stream events from the Vite endpoint", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -2142,6 +2195,12 @@ describe("agent chat capability discovery", () => {
           { text: "done", type: "text" },
         ],
         role: "assistant",
+      },
+      {
+        id: "host-command",
+        metadata: { hostCommand: { name: "inspect", status: "handled" } },
+        parts: [{ text: "//inspect", type: "text" }],
+        role: "user",
       },
     ])
 
