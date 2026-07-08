@@ -903,7 +903,7 @@ function audioData(value: unknown): AudioData | undefined {
   return undefined
 }
 
-const chatTextAttachmentMaxBytes = 1024 * 1024
+const chatTextAttachmentMaxBytes = 8 * 1024 * 1024
 const textAttachmentExtensions = new Set(["csv", "json", "log", "md", "txt", "yaml", "yml"])
 const textAttachmentMimeTypes = new Set(["application/json", "application/x-yaml", "application/yaml", "text/csv"])
 const chatTextAttachmentOversizeMessage = `[vitehub] Chat text attachment exceeds ${chatTextAttachmentMaxBytes} bytes.`

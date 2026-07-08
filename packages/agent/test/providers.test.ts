@@ -2277,52 +2277,35 @@ describe("server helpers", () => {
         ],
       })],
     }))
-  })
 
-  it("rejects oversized text-like file attachments before chat access", async () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
-    const { access } = await import("../src/capabilities.ts")
-    const { defineAgent } = await import("../src/index.ts")
-    const { telegram } = await import("../src/channels.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const adapter = createTestChatAdapter()
-    const admitChat = vi.fn(() => true)
-    const run = vi.fn(() => "ok")
-    const agent = defineAgent({
-      capabilities: [access({ chat: { resolve: admitChat } })],
-      channels: {
-        telegram: telegram({ adapter: () => adapter as never }),
-      },
-      driver: { run },
-    })
-    const handler = createChannelWebhookRouteHandler(agent as never)
-
-    try {
-      await expect(handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
-        body: JSON.stringify({
-          update_id: 42,
-          message: {
-            chat: { id: 456, type: "private" },
-            date: 1781092800,
-            document: {
-              content: "small",
-              file_id: "large-log",
-              file_name: "large.log",
-              file_size: 1024 * 1024 + 1,
-              mime_type: "text/plain",
-            },
-            from: { first_name: "Maxi", id: 123, username: "maxi" },
-            message_id: 1011,
+    const attachmentBody = "x".repeat(1024 * 1024 + 1)
+    const attachmentPrefix = "\n\nText attachment (large-prompt.txt):\n\n"
+    run.mockClear()
+    const largeResponse = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 42,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          document: {
+            content: attachmentBody,
+            file_id: "large-prompt-file",
+            file_name: "large-prompt.txt",
+            file_size: attachmentBody.length,
+            mime_type: "text/plain",
           },
-        }),
-        method: "POST",
-      }), "telegram")).rejects.toThrow("[vitehub] Chat text attachment exceeds 1048576 bytes.")
-    }
-    finally {
-      consoleError.mockRestore()
-    }
-    expect(admitChat).not.toHaveBeenCalled()
-    expect(run).not.toHaveBeenCalled()
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1012,
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+    const largePrompt = run.mock.results.at(-1)?.value as string | undefined
+
+    expect(largeResponse.status).toBe(200)
+    await expect(largeResponse.json()).resolves.toEqual({ ok: true })
+    expect(largePrompt?.startsWith(attachmentPrefix)).toBe(true)
+    expect(largePrompt).toHaveLength(attachmentPrefix.length + attachmentBody.length)
   })
 
   it("maps audio mime file attachments for custom audio capabilities", async () => {
@@ -2636,14 +2619,22 @@ describe("server helpers", () => {
     expect(adapter.startGatewayListener).not.toHaveBeenCalled()
   })
 
-  it("maps Discord Gateway URL-only text file attachments through the registered webhook", async () => {
+  it("maps Discord Gateway URL-only text file attachments and rejects oversized text-like content", async () => {
+    const { access } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")
     const { createDiscordGatewayRouteHandler } = await import("../src/server.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("expanded Discord prompt\n", {
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("expanded Discord prompt\n", {
       headers: { "content-length": "24", "content-type": "text/plain" },
     }))
+    let document: { file_name: string, file_size?: number, mime_type: string, url: string } = {
+      file_name: "message.txt",
+      file_size: 24,
+      mime_type: "text/plain",
+      url: "https://cdn.example/message.txt",
+    }
+    let messageId = "msg-1"
     const adapter = {
       ...createTestChatAdapter(),
       name: "discord",
@@ -2653,22 +2644,19 @@ describe("server helpers", () => {
           body: JSON.stringify({
             message: {
               chat: { id: "support" },
-              document: {
-                file_name: "message.txt",
-                file_size: 24,
-                mime_type: "text/plain",
-                url: "https://cdn.example/message.txt",
-              },
+              document,
               from: { id: "42", username: "maxi" },
-              message_id: "msg-1",
+              message_id: messageId,
             },
           }),
           method: "POST",
         }), "discord-events")
       }),
     }
+    const admitChat = vi.fn(() => true)
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
+      capabilities: [access({ chat: { resolve: admitChat } })],
       channels: {
         discord: discord({
           adapter: () => adapter as never,
@@ -2701,6 +2689,25 @@ describe("server helpers", () => {
           ],
         })],
       }))
+
+      fetch.mockResolvedValueOnce(new Response("too large", {
+        headers: { "content-length": String(8 * 1024 * 1024 + 1), "content-type": "text/plain" },
+      }))
+      document = {
+        file_name: "large.log",
+        mime_type: "text/plain",
+        url: "https://cdn.example/large.log",
+      }
+      messageId = "msg-oversized"
+      admitChat.mockClear()
+      run.mockClear()
+
+      await expect(gatewayHandler(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"), {
+        webhookUrl: webhook => `https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`,
+      })).rejects.toThrow("[vitehub] Chat text attachment exceeds 8388608 bytes.")
+      expect(fetch).toHaveBeenCalledWith("https://cdn.example/large.log")
+      expect(admitChat).not.toHaveBeenCalled()
+      expect(run).not.toHaveBeenCalled()
     }
     finally {
       fetch.mockRestore()
@@ -4261,7 +4268,7 @@ describe("server helpers", () => {
           fetchMetadata: { fileId: "old-log" },
           mimeType: "text/plain",
           name: "old.log",
-          size: 1024 * 1024 + 1,
+          size: 8 * 1024 * 1024 + 1,
           type: "file",
         }],
         author: {
