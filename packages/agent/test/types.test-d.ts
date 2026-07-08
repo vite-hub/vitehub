@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, getAgentFinishText, reaction, reply, status, type AgentActor, type AgentCapabilityCliCommand, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentDeliveryArtifact, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, type AgentActor, type AgentCapabilityCliCommand, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentDeliveryArtifact, type AgentDriver, type AgentFinishEvent, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
 import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, getUsageTelemetry, git, inputCommands, kv, mcp, observability, openapi, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
@@ -678,28 +678,33 @@ describe("agent public types", () => {
     }
     const channel: AgentChannelDefinition = teams()
     expectTypeOf(channel.kind).toEqualTypeOf<string>()
-    const reviewFinishEffect: AgentChannelDeliveryFinishEffect = event => ({
+    const reviewFinishEffect: AgentChannelDeliveryFinishEffect = context => ({
       kind: "reply",
-      payload: event.result,
+      payload: context.output,
     })
     const renderBody = async (text: string, workspace?: ReadonlyWorkspaceFacade) => `${text}:${Boolean(workspace)}`
-    const typedFinishEffect = defineFinishEffect(async (event, { context, request, workspace }) => {
-      expectTypeOf(event.text).toEqualTypeOf<string | undefined>()
-      expectTypeOf(getAgentFinishText(event)).toEqualTypeOf<string | undefined>()
-      expectTypeOf(context).toEqualTypeOf<AgentChannelDeliveryFinishEffectContext["context"]>()
-      expectTypeOf(context.get<{ repository: string }>("review.context")).toEqualTypeOf<{ repository: string } | undefined>()
-      expectTypeOf(request).toEqualTypeOf<Request | undefined>()
-      expectTypeOf(workspace).toEqualTypeOf<ReadonlyWorkspaceFacade | undefined>()
-      if (event.error) return reply(`failed: ${event.errorMessage}`)
-      const text = event.text
+    const typedFinishEffect = defineFinishEffect(async (context, event) => {
+      expectTypeOf(event).toEqualTypeOf<AgentFinishEvent | undefined>()
+      expectTypeOf(context.event).toEqualTypeOf<AgentFinishEvent>()
+      expectTypeOf(context.output).toEqualTypeOf<unknown>()
+      expectTypeOf(context.result).toEqualTypeOf<AgentRunResult | undefined>()
+      expectTypeOf(context.text).toEqualTypeOf<string | undefined>()
+      expectTypeOf(context.context).toEqualTypeOf<AgentChannelDeliveryFinishEffectContext["context"]>()
+      expectTypeOf(context.context.get<{ repository: string }>("review.context")).toEqualTypeOf<{ repository: string } | undefined>()
+      expectTypeOf(context.request).toEqualTypeOf<Request | undefined>()
+      expectTypeOf(context.workspace).toEqualTypeOf<ReadonlyWorkspaceFacade | undefined>()
+      if (context.error) return context.reply(`failed: ${context.errorMessage}`)
+      const text = context.result?.text
       if (!text) return
-      return reply(await renderBody(text, workspace))
+      return context.reply(await renderBody(text, context.workspace))
     })
     expectTypeOf(typedFinishEffect).toMatchTypeOf<AgentChannelDeliveryFinishEffect>()
-    expectTypeOf(reply("done")).toEqualTypeOf<AgentChannelDeliveryEffectIntent<"reply">>()
-    expectTypeOf(reaction("eyes")).toEqualTypeOf<AgentChannelDeliveryEffectIntent<"reaction">>()
-    expectTypeOf(status("pending")).toEqualTypeOf<AgentChannelDeliveryEffectIntent<"status">>()
-    expectTypeOf(reply({ markdown: "done" }).payload).toEqualTypeOf<AgentChannelDeliveryReplyPayload | string | undefined>()
+    defineFinishEffect((context) => {
+      expectTypeOf(context.reply("done")).toEqualTypeOf<AgentChannelDeliveryEffectIntent<"reply">>()
+      expectTypeOf(context.reaction("eyes")).toEqualTypeOf<AgentChannelDeliveryEffectIntent<"reaction">>()
+      expectTypeOf(context.status("pending")).toEqualTypeOf<AgentChannelDeliveryEffectIntent<"status">>()
+      expectTypeOf(context.reply({ markdown: "done" }).payload).toEqualTypeOf<AgentChannelDeliveryReplyPayload | string | undefined>()
+    })
     // @ts-expect-error Development samples belong in CLI payload files, not Channel options.
     teams({ dev: { samples: {} } })
     // @ts-expect-error Development samples belong in CLI payload files, not Channel Definitions.
@@ -724,15 +729,14 @@ describe("agent public types", () => {
             expectTypeOf(input.text).toEqualTypeOf<string>()
             return {
               delivery: {
-                finishEffects: (event, context) => {
+                finishEffects: (context, event) => {
+                  expectTypeOf(event).toEqualTypeOf<AgentFinishEvent | undefined>()
                   expectTypeOf(context.context).toEqualTypeOf<AgentChannelDeliveryFinishEffectContext["context"]>()
                   expectTypeOf(context.request).toEqualTypeOf<Request | undefined>()
                   expectTypeOf(context.workspace).toEqualTypeOf<AgentChannelDeliveryFinishEffectContext["workspace"]>()
-                  return {
+                  return context.reply(String(context.output), {
                     artifacts: [{ path: "screenshots/result.png", url: "https://assets.example/result.png" }],
-                    kind: "reply",
-                    payload: event.result,
-                  }
+                  })
                 },
               },
               input: { prompt: input.text },
@@ -749,7 +753,7 @@ describe("agent public types", () => {
         id: "feedback",
         prepare(context) {
           context.delivery.effect({ intent: "started", kind: "reaction" })
-          context.delivery.finishEffect(event => ({ kind: "reply", payload: event.result }))
+          context.delivery.finishEffect(context => context.reply(String(context.output)))
         },
       }, inputCommands({
         commands: {

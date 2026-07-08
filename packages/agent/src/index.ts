@@ -2,7 +2,11 @@ import agentRegistry from "#vitehub/agent/registry"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { cloneWithPropertyDescriptors } from "./internal/stream-result.ts"
 import { agentErrorDetails, agentErrorMessage } from "./agent-error.ts"
-import { getAgentFinishText } from "./delivery-effects.ts"
+import {
+  createReactionDeliveryEffectIntent,
+  createReplyDeliveryEffectIntent,
+  createStatusDeliveryEffectIntent,
+} from "./delivery-effects.ts"
 import { getMessageText } from "./messages.ts"
 import { resolveRuntimeContext } from "@vite-hub/runtime"
 import { isAsyncIterable, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
@@ -188,6 +192,7 @@ export type {
   AgentChannelDeliveryEffectHandler,
   AgentChannelDeliveryFinishEffect,
   AgentChannelDeliveryEffectIntent,
+  AgentChannelDeliveryEffectIntentOptions,
   AgentChannelDeliveryEffectPayload,
   AgentChannelDeliveryEffectKind,
   AgentChannelDeliveryEffects,
@@ -757,8 +762,7 @@ function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<voi
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
-export { defineFinishEffect, getAgentFinishText, reaction, reply, status } from "./delivery-effects.ts"
-export type { AgentChannelDeliveryEffectIntentOptions } from "./delivery-effects.ts"
+export { defineFinishEffect } from "./delivery-effects.ts"
 export { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "./trigger-runtime.ts"
 export type { AgentWebhookVerificationResult, ResolvedAgentTriggerHandledInvocation, ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
 export * from "./messages.ts"
@@ -1753,16 +1757,30 @@ async function resolveFinishDeliveryEffectIntents<
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<AgentChannelDeliveryEffectIntent[]> {
   const intents: AgentChannelDeliveryEffectIntent[] = []
+  const result = event.result === undefined ? undefined : toAgentRunResult(event.result)
   const finishContext = {
     ...context.runtimeContext,
+    actor: context.actor,
     context: context.context,
+    ...(event.error !== undefined ? { error: event.error } : {}),
+    ...(event.errorMessage !== undefined ? { errorMessage: event.errorMessage } : {}),
+    event,
+    extensions: event.extensions,
     input: context.input,
+    invocation: event.invocation,
+    invoker: context.invoker,
+    ...(event.result !== undefined ? { output: event.result } : {}),
+    reaction: createReactionDeliveryEffectIntent,
+    reply: createReplyDeliveryEffectIntent,
+    ...(result !== undefined ? { result } : {}),
     request: context.runtimeContext.request,
     run: context.run,
+    status: createStatusDeliveryEffectIntent,
+    ...(event.text !== undefined ? { text: event.text } : {}),
     workspace: context.workspace,
   }
   for (const provider of providers) {
-    const intent = typeof provider === "function" ? await provider(event, finishContext) : provider
+    const intent = typeof provider === "function" ? await provider(finishContext, event) : provider
     if (!intent) continue
     appendDeliveryEffectIntent(intents, intent)
   }
@@ -1780,7 +1798,7 @@ async function finishAgentInvocation<
   const failed = outcome.status === "error"
   const error = failed ? outcome.error : undefined
   const result = outcome.status === "success" ? outcome.result : undefined
-  const text = failed ? undefined : getAgentFinishText({ result })
+  const text = failed || result === undefined ? undefined : toAgentRunResult(result).text
   try {
     await context.close()
     if (hasFinishWork(context)) {

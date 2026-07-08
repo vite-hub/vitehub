@@ -148,10 +148,11 @@ export function observability<
       if (options.instrumentation) context.modelExecution.instrument(options.instrumentation as never)
       if (options.onEvent) {
         // Returning false reuses finish-time lifecycle scheduling without creating a Channel Delivery Effect.
-        context.delivery.finishEffect(async (event): Promise<false> => {
+        context.delivery.finishEffect(async (context): Promise<false> => {
+          const event = context.event as AgentFinishEvent<TRuntimeConfig>
           if (event.errorMessage !== undefined) {
             await notify(options.onEvent, {
-              ...finishEventBase(event as AgentFinishEvent<TRuntimeConfig>),
+              ...finishEventBase(event),
               durationMs: event.invocation.durationMs,
               error: event.error,
               status: "failed",
@@ -161,7 +162,7 @@ export function observability<
           }
 
           await notify(options.onEvent, {
-            ...finishEventBase(event as AgentFinishEvent<TRuntimeConfig>),
+            ...finishEventBase(event),
             durationMs: event.invocation.durationMs,
             result: event.result,
             status: "completed",

@@ -299,7 +299,7 @@ function mergeInputCommandResult(input: AgentRunInput, result: Partial<AgentRunI
 }
 
 function inputCommandCall(command: InputCommand): InputCommandCall {
-  return command.call || command.run || (({ args }) => args)
+  return command.call || command.run || (({ args, command }) => args || command.description)
 }
 
 function activeChannelId(context: AgentCapabilityRuntimeContext): string | undefined {
@@ -380,10 +380,10 @@ function scheduleInputCommandFinishHook(
 ): void {
   const hook = command.hooks?.["agent:finish"]
   if (!hook) return
-  context.delivery.finishEffect(async (event) => {
+  context.delivery.finishEffect(async (context) => {
     const effects: AgentChannelDeliveryEffectIntent[] = []
     await hook({
-      ...event,
+      ...context.event,
       args: invocation.args,
       command,
       message: finishPhaseMessage(effects),

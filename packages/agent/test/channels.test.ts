@@ -31,23 +31,46 @@ function githubIssueCommentPayload(body = "/review please") {
 }
 
 describe("agent channels", () => {
-  it("falls back to output fields when finish result text is empty", async () => {
-    const { getAgentFinishText } = await import("../src/channels.ts")
+  it("uses normalized finish context text for default GitHub PR replies", async () => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({ pullRequest: true })
+    const trigger = channel.triggers?.dev
+    if (!trigger) throw new Error("Missing GitHub dev trigger.")
 
-    expect(getAgentFinishText({
-      result: {
-        _output: "structured fallback",
-        output: "output fallback",
-        text: "",
+    const result = await trigger.invoke({
+      capabilities: [],
+      channel,
+      trigger: { channelId: "github", id: "github.dev", name: "dev", source: "channel" },
+    } as never, {
+      pullRequest: {
+        pullRequest: {
+          apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
+          number: 42,
+          source: { mount: "app", ref: "refs/pull/42/head", repo: "acme/app" },
+        },
+        repository: { fullName: "acme/app", name: "app", owner: "acme" },
+        run: { messageId: "99", origin: "github-pull-request-comment", runId: "github:acme/app#42:comment:99", threadId: "pr-42" },
+        trigger: {
+          action: "created",
+          actor: { login: "mona" },
+          args: "",
+          command: "/review",
+          comment: { id: 99, nodeId: "comment-node" },
+          event: "issue_comment",
+          installationId: 123,
+        },
       },
-    })).toBe("output fallback")
+    })
+    if (result instanceof Response) throw new Error("Expected GitHub context invocation.")
+    const finishEffect = result.delivery?.finishEffects
+    if (typeof finishEffect !== "function") throw new Error("Missing GitHub finish effect.")
 
-    expect(getAgentFinishText({
-      result: {
-        _output: "structured fallback",
-        text: "",
-      },
-    })).toBe("structured fallback")
+    await expect(Promise.resolve(finishEffect({
+      extensions: { get: () => undefined },
+      reply: (input: string) => ({ kind: "reply", payload: input }),
+      result: { text: "output fallback" },
+      text: "event fallback",
+    } as never))).resolves.toEqual({ kind: "reply", payload: "output fallback" })
   })
 
   it("creates Discord adapters from provider defaults", async () => {

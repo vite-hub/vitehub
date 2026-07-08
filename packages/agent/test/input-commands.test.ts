@@ -62,6 +62,38 @@ describe("inputCommands", () => {
     expect(resolved.input.prompt).toBe("auth changes")
   })
 
+  it("uses command descriptions for command-only default rewrites", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [inputCommands({
+        commands: {
+          summary: {
+            description: "Summarize the request.",
+          },
+        },
+      })],
+    }, runtime(), { prompt: "/summary" })
+
+    expect(resolved.input.prompt).toBe("Summarize the request.")
+  })
+
+  it("removes command-only text for the default command rewrite", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [inputCommands({
+        commands: {
+          summary: {},
+        },
+      })],
+    }, runtime(), { prompt: "/summary" })
+
+    expect(resolved.input.prompt).toBe("")
+  })
+
   it("keeps command-only message text when a string handler returns empty args", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")

@@ -1,7 +1,6 @@
 import { createHash, createSign } from "node:crypto"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { deliveryArtifactAttachments } from "./delivery-artifacts.ts"
-import { getAgentFinishText } from "./delivery-effects.ts"
 
 import type {
   AgentCallbackContext,
@@ -13,6 +12,7 @@ import type {
   AgentChannelDeliveryEffectIntent,
   AgentChannelDeliveryEffects,
   AgentChannelDeliveryFinishEffect,
+  AgentChannelDeliveryFinishEffectContext,
   AgentDeliveryArtifact,
   AgentChannelWebhookRegistrationDefinition,
   AgentFinishEvent,
@@ -30,12 +30,12 @@ import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } f
 import type { Adapter, FileUpload } from "chat"
 
 export { deliveryArtifactAttachments } from "./delivery-artifacts.ts"
-export { defineFinishEffect, getAgentFinishText, reaction, reply, status } from "./delivery-effects.ts"
-export type { AgentChannelDeliveryEffectIntentOptions } from "./delivery-effects.ts"
+export { defineFinishEffect } from "./delivery-effects.ts"
 export type {
   AgentChannelDeliveryEffectContext,
   AgentChannelDeliveryEffectHandler,
   AgentChannelDeliveryEffectIntent,
+  AgentChannelDeliveryEffectIntentOptions,
   AgentChannelDeliveryEffectPayload,
   AgentChannelDeliveryEffectKind,
   AgentChannelDeliveryEffects,
@@ -1340,8 +1340,8 @@ async function githubBodyWithArtifacts<TRuntimeConfig extends AgentRuntimeConfig
   return rewrittenBody ? `${rewrittenBody}\n\n${explicitArtifacts.join("\n")}` : explicitArtifacts.join("\n")
 }
 
-function finishUsageSummary(event: AgentFinishEvent): string | undefined {
-  const usage = event.extensions.get("usage-telemetry")
+function finishUsageSummary(context: AgentChannelDeliveryFinishEffectContext): string | undefined {
+  const usage = context.extensions.get("usage-telemetry")
   return maybeString(usage?.summary)
 }
 
@@ -1349,15 +1349,12 @@ function githubNote(body: string): string {
   return `> [!NOTE]\n${body.split("\n").map(line => `> ${line}`).join("\n")}`
 }
 
-function githubPullRequestCommentReplyEffect(event: AgentFinishEvent): AgentChannelDeliveryEffectIntent | undefined {
-  const text = getAgentFinishText(event)
+function githubPullRequestCommentReplyEffect(context: AgentChannelDeliveryFinishEffectContext): AgentChannelDeliveryEffectIntent | undefined {
+  const text = context.result?.text ?? context.text
   if (!text) return
   const body = text.trim() || "_No reply generated._"
-  const summary = finishUsageSummary(event)
-  return {
-    kind: "reply",
-    payload: summary ? `${body}\n\n${githubNote(summary)}` : body,
-  }
+  const summary = finishUsageSummary(context)
+  return context.reply(summary ? `${body}\n\n${githubNote(summary)}` : body)
 }
 
 function githubPullRequestCommentFinishEffects(
