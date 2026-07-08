@@ -1906,9 +1906,14 @@ async function finishAgentInvocation<
       if (context.finishDeliveryEffectProviders.length) {
         await setChannelDeliverySupportContext(context.channels, context.context, context.runtimeContext, context.input, context.run)
       }
+      const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, {
+        ...eventBase,
+        extensions: { get: () => undefined } as unknown as AgentFinishExtensions,
+      } as AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>)
+      if (!context.finishHook && !activeDeliveryProviders.length) return
       const extensions = await createAgentInvocationExtensions(eventBase as never, context.finishExtensionProviders)
       const finishEvent = { ...eventBase, extensions }
-      await applyChannelDeliveryEffectIntents(context, await resolveFinishDeliveryEffectIntents(activeFinishDeliveryEffectProviders(context, finishEvent as never), finishEvent as never, context), finishEvent as never)
+      await applyChannelDeliveryEffectIntents(context, await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context), finishEvent as never)
       await runObservedAgentHook(context.hooks, {
         ids: { runId: context.run?.runId },
         name: "agent:finish",
