@@ -53,7 +53,7 @@ function normalizeNitroRoute(route: string): string {
 }
 
 function blobServeNitroRoute(serve: BlobServeConfig): string {
-  return `${normalizeNitroRoute(serve.route).replace(/\/+$/, "")}/**:pathname`
+  return `${normalizeNitroRoute(serve.route).replace(/\/+$/, "")}/**`
 }
 
 function mergeNitroBlobServeHandler(value: unknown, serve?: BlobServeConfig): Record<string, unknown> {
@@ -77,7 +77,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig): string {
     `const storeName = ${JSON.stringify(serve.store)}`,
     "",
     "export default defineEventHandler(async (event) => {",
-    "  const pathname = getRouterParam(event, 'pathname', { decode: false }) || ''",
+    "  const pathname = getRouterParam(event, '_', { decode: false }) || ''",
     "  if (!pathname) throw createError({ statusCode: 404, statusMessage: 'Blob not found' })",
     "  return await blob.store(storeName).serve(event, pathname)",
     "})",

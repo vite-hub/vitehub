@@ -62,7 +62,7 @@ describe("hubBlob", () => {
       nitro: {
         handlers: [{
           handler: ".vitehub/blob/serve-route.ts",
-          route: "/api/_vitehub/blob/**:pathname",
+          route: "/api/_vitehub/blob/**",
         }],
       },
     })
@@ -93,7 +93,7 @@ describe("hubBlob", () => {
 
     const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
     expect(handler).toContain("const storeName = \"media\"")
-    expect(handler).toContain("getRouterParam(event, 'pathname', { decode: false })")
+    expect(handler).toContain("getRouterParam(event, '_', { decode: false })")
     expect(handler).toContain("blob.store(storeName).serve(event, pathname)")
   })
 })
