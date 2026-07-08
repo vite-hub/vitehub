@@ -38,6 +38,14 @@ function expectArchiveExtract(run: ReturnType<typeof vi.fn>, root = "/work/agent
   })
 }
 
+function expectGitBaseline(run: ReturnType<typeof vi.fn>, root = "/work/agent") {
+  expect(run).toHaveBeenCalledWith({
+    abortSignal: undefined,
+    command: "if command -v git >/dev/null 2>&1; then git init -q && git config user.email vitehub@example.invalid && git config user.name ViteHub && git add -A && git commit --allow-empty --no-gpg-sign -qm workspace-baseline || true; fi",
+    workingDirectory: root,
+  })
+}
+
 function expectWorkDirReset(run: ReturnType<typeof vi.fn>, writeBinaryFile: ReturnType<typeof vi.fn>, root = "/work/agent") {
   const parent = root.replace(/\/[^/]+$/, "") || "/"
   const name = root.split("/").filter(Boolean).at(-1) || root
@@ -92,6 +100,7 @@ describe("Harness Workspace Session", () => {
     expect(readFile).toHaveBeenCalledWith("README.md", { encoding: "binary" })
     expectArchiveWrite(writeBinaryFile)
     expectArchiveExtract(run)
+    expectGitBaseline(run)
 
     await session.close()
   })
@@ -729,7 +738,7 @@ describe("Harness Workspace Session", () => {
     expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
   })
 
-  it("does not write ignored harness instruction files back to Workspace", async () => {
+  it("does not write ignored harness support paths back to Workspace", async () => {
     const workspaceSession = {
       close: vi.fn(async () => {}),
       commit: vi.fn(async () => {}),
@@ -744,16 +753,23 @@ describe("Harness Workspace Session", () => {
 
     const session = await prepareHarnessWorkspaceSession({
       fs: {
-        list: vi.fn(async () => [{ mediaType: "text/markdown", path: "AGENTS.md", type: "file" }]),
+        list: vi.fn(async () => [
+          { mediaType: "text/markdown", path: "AGENTS.md", type: "file" },
+          { path: "notes", type: "directory" },
+          { mediaType: "text/markdown", path: "notes/keep.md", type: "file" },
+        ]),
         readFile: vi.fn(async () => bytes("old instructions")),
       },
       startSession: vi.fn(async () => workspaceSession),
       tools: {},
     } as never, {
-      ignoreWriteBackPaths: ["AGENTS.md", "CLAUDE.md"],
+      ignoreWriteBackPaths: ["AGENTS.md", "CLAUDE.md", "notes"],
       session: {
         readBinaryFile: vi.fn(async ({ path }: { path: string }) => bytes(path)),
-        run: sandboxRun(["AGENTS.md", "CLAUDE.md", "summary.md"]),
+        run: sandboxRun(
+          [".git/config", "AGENTS.md", "CLAUDE.md", "notes/generated.md", "summary.md"],
+          [".git", ".git/refs", "notes"],
+        ),
         writeBinaryFile: vi.fn(async () => {}),
       },
       sessionWorkDir: "/work/agent",
@@ -764,6 +780,11 @@ describe("Harness Workspace Session", () => {
     expect(workspaceSession.writeFile).toHaveBeenCalledWith("summary.md", bytes("/work/agent/summary.md"), { mediaType: "text/markdown" })
     expect(workspaceSession.writeFile).not.toHaveBeenCalledWith("AGENTS.md", expect.anything(), expect.anything())
     expect(workspaceSession.writeFile).not.toHaveBeenCalledWith("CLAUDE.md", expect.anything(), expect.anything())
+    expect(workspaceSession.writeFile).not.toHaveBeenCalledWith(".git/config", expect.anything(), expect.anything())
+    expect(workspaceSession.writeFile).not.toHaveBeenCalledWith("notes/generated.md", expect.anything(), expect.anything())
+    expect(workspaceSession.rm).not.toHaveBeenCalledWith("notes/keep.md", expect.anything())
+    expect(workspaceSession.mkdir).not.toHaveBeenCalledWith(".git", expect.anything())
+    expect(workspaceSession.mkdir).not.toHaveBeenCalledWith("notes", expect.anything())
     expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
   })
 

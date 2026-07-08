@@ -96,6 +96,13 @@ function normalizeSessionPaths(paths?: readonly string[]): string[] | undefined 
   return normalized.sort((left, right) => left.length - right.length || left.localeCompare(right))
 }
 
+function isIgnoredWriteBackPath(path: string, ignoreWriteBackPaths: Set<string>) {
+  for (const ignoredPath of ignoreWriteBackPaths) {
+    if (path === ignoredPath || path.startsWith(`${ignoredPath}/`)) return true
+  }
+  return false
+}
+
 async function runSandbox(
   sandbox: HarnessSandboxSession,
   options: { abortSignal?: AbortSignal, command: string, workingDirectory?: string },
@@ -338,6 +345,18 @@ async function extractWorkspaceArchive(
   })
 }
 
+async function initializeSandboxGitBaseline(
+  sandbox: HarnessSandboxSession,
+  sessionWorkDir: string,
+  abortSignal: AbortSignal | undefined,
+) {
+  await runSandbox(sandbox, {
+    abortSignal,
+    command: "if command -v git >/dev/null 2>&1; then git init -q && git config user.email vitehub@example.invalid && git config user.name ViteHub && git add -A && git commit --allow-empty --no-gpg-sign -qm workspace-baseline || true; fi",
+    workingDirectory: sessionWorkDir,
+  })
+}
+
 async function listSandboxPaths(
   sandbox: HarnessSandboxSession,
   sessionWorkDir: string,
@@ -428,6 +447,12 @@ async function copyWorkspaceToSandbox(
   }, async () => {
     await extractWorkspaceArchive(sandbox, sessionWorkDir, initialTree, directoriesToCreate, abortSignal)
   })
+  await withPrepareProgress(onProgress, {
+    id: "workspace.prepare.git-status",
+    label: "Preparing workspace status",
+  }, async () => {
+    await initializeSandboxGitBaseline(sandbox, sessionWorkDir, abortSignal)
+  })
   return initialTree
 }
 
@@ -445,23 +470,26 @@ async function copySandboxChangesToWorkspace(
     throw new Error("[vitehub] Harness Workspace Session write mode requires sandbox.readBinaryFile.")
   }
 
+  const ignoredWriteBackPaths = new Set([...ignoreWriteBackPaths, ".git"])
   const sandboxDirectories = await listSandboxPaths(sandbox, sessionWorkDir, "d", abortSignal)
   const sandboxFiles = await listSandboxPaths(sandbox, sessionWorkDir, "f", abortSignal)
   const sandboxSymlinks = await listSandboxPaths(sandbox, sessionWorkDir, "l", abortSignal)
   const sandboxFileEntries = new Set([...sandboxFiles, ...sandboxSymlinks])
   for (const path of initialTree.files.keys()) {
-    if (ignoreWriteBackPaths.has(path)) continue
+    if (isIgnoredWriteBackPath(path, ignoredWriteBackPaths)) continue
     if (!sandboxFileEntries.has(path)) await session.rm(path, { force: true })
   }
   for (const path of [...initialTree.directories].sort((left, right) => right.length - left.length)) {
+    if (isIgnoredWriteBackPath(path, ignoredWriteBackPaths)) continue
     if (!sandboxDirectories.has(path)) await session.rm(path, { force: true, recursive: true })
   }
   for (const path of sandboxDirectories) {
+    if (isIgnoredWriteBackPath(path, ignoredWriteBackPaths)) continue
     if (initialTree.archiveDirectories.has(path)) continue
     await session.mkdir(path, { recursive: true } satisfies MkdirOptions)
   }
   for (const path of sandboxFiles) {
-    if (ignoreWriteBackPaths.has(path)) continue
+    if (isIgnoredWriteBackPath(path, ignoredWriteBackPaths)) continue
     const initial = initialTree.files.get(path)
     const content = await sandbox.readBinaryFile({
       abortSignal,
@@ -473,7 +501,7 @@ async function copySandboxChangesToWorkspace(
     })
   }
   for (const path of sandboxSymlinks) {
-    if (ignoreWriteBackPaths.has(path)) continue
+    if (isIgnoredWriteBackPath(path, ignoredWriteBackPaths)) continue
     const initial = initialTree.files.get(path)
     const target = await readSandboxSymlinkTarget(sandbox, sessionWorkDir, path, abortSignal)
     if (initial?.symlinkTarget === target) continue
