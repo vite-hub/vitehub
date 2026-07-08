@@ -75,6 +75,14 @@ describe("hubBlob", () => {
         route: "/assets",
         store: "media",
       },
+      stores: {
+        default: {
+          driver: "fs",
+        },
+        media: {
+          driver: "fs",
+        },
+      },
     })
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
 

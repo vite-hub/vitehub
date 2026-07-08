@@ -214,13 +214,13 @@ describe("blob config", () => {
       serve: {
         publicBaseUrl: "https://assets.example",
         route: "assets",
-        store: "media",
+        store: "default",
       },
     })).toEqual({
       serve: {
         publicBaseUrl: "https://assets.example",
         route: "assets",
-        store: "media",
+        store: "default",
       },
       store: {
         base: ".data/assets",
@@ -231,6 +231,15 @@ describe("blob config", () => {
 
   it("rejects invalid serving config", () => {
     expect(() => normalizeBlobOptions({ serve: "yes" } as never)).toThrow("`blob.serve` must be true or a plain object.")
+  })
+
+  it("rejects serving from an unknown single Blob store", () => {
+    expect(() => normalizeBlobOptions({
+      driver: "fs",
+      serve: {
+        store: "media",
+      },
+    })).toThrow("`blob.serve.store` must reference a configured Blob store: \"media\".")
   })
 
   it("normalizes named stores with a required default store", () => {
@@ -261,6 +270,61 @@ describe("blob config", () => {
         },
       },
     })
+  })
+
+  it("normalizes serving from a configured named Blob store", () => {
+    expect(normalizeBlobOptions({
+      serve: {
+        store: "assets",
+      },
+      stores: {
+        assets: {
+          base: ".data/assets",
+          driver: "fs",
+        },
+        default: {
+          base: ".data/blob",
+          driver: "fs",
+        },
+      },
+    })).toEqual({
+      serve: {
+        route: "/api/_vitehub/blob",
+        store: "assets",
+      },
+      store: {
+        base: ".data/blob",
+        driver: "fs",
+      },
+      stores: {
+        assets: {
+          base: ".data/assets",
+          driver: "fs",
+        },
+        default: {
+          base: ".data/blob",
+          driver: "fs",
+        },
+      },
+    })
+  })
+
+  it("rejects serving from an unknown named Blob store", () => {
+    expect(() => normalizeBlobOptions({
+      serve: {
+        store: "media",
+      },
+      stores: {
+        assets: {
+          base: ".data/assets",
+          driver: "fs",
+        },
+        default: {
+          base: ".data/blob",
+          driver: "fs",
+        },
+      },
+    })).toThrow("`blob.serve.store` must reference a configured Blob store: \"media\".")
   })
 
   it("rejects named stores without a default store", () => {

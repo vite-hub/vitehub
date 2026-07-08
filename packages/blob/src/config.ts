@@ -149,11 +149,20 @@ function normalizeServeOptions(value: BlobServeOptions | undefined): ResolvedBlo
   }
 }
 
+function assertServeStore(
+  serve: ResolvedBlobModuleOptions["serve"],
+  stores: Record<string, ResolvedBlobModuleOptions["store"]>,
+): void {
+  if (!serve || serve.store in stores) return
+  throw new TypeError(`\`blob.serve.store\` must reference a configured Blob store: ${JSON.stringify(serve.store)}.`)
+}
+
 function createResolvedConfig(
   store: ResolvedBlobModuleOptions["store"],
   stores?: Record<string, ResolvedBlobModuleOptions["store"]>,
   serve?: ResolvedBlobModuleOptions["serve"],
 ): ResolvedBlobModuleOptions {
+  assertServeStore(serve, stores ? { default: store, ...stores } : { default: store })
   return stores
     ? { store, stores: { default: store, ...stores }, ...(serve ? { serve } : {}) }
     : { store, ...(serve ? { serve } : {}) }
