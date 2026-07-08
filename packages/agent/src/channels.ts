@@ -1230,7 +1230,9 @@ export async function messageChannelSupportsTitleEffect<TRuntimeConfig extends A
 export function channelHasCustomTitleEffect<TRuntimeConfig extends AgentRuntimeConfig>(
   channel: AgentChannelDefinition<TRuntimeConfig>,
 ): boolean {
+  const titleEffect = channel.effects?.title
   return customTitleEffectChannels.has(channel)
+    || Boolean(titleEffect && titleEffect !== messageChannelTitleEffect)
 }
 
 async function messageChannelTitleEffect<TRuntimeConfig extends AgentRuntimeConfig>(
