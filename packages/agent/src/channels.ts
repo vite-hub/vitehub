@@ -1238,7 +1238,7 @@ async function messageChannelTitleEffect<TRuntimeConfig extends AgentRuntimeConf
     return
   }
   const setAssistantTitle = adapterSetAssistantTitle(adapter)
-  if (setAssistantTitle) {
+  if (adapter && setAssistantTitle) {
     await setAssistantTitle(adapter.channelIdFromThreadId(context.run.threadId), context.run.threadId, title)
   }
 }
