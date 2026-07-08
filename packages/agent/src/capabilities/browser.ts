@@ -15,8 +15,6 @@ Use the \`agent-browser\` CLI through the bash tool for headless browser work.
 
 - Run \`agent-browser --help\` before non-trivial browser work.
 - Save screenshots inside the workspace, usually under \`screenshots/\`.
-- Upload selected screenshots with \`blob_edit\` using \`workspacePath\`.
-- Include the public URL returned by Blob when referencing uploaded assets.
 `
 
 function normalizeSkillPath(path: string): string {

@@ -609,6 +609,29 @@ describe("agent capability runtime", () => {
     ])
   })
 
+  it("does not mention Blob tools in the default browser skill", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [browser()],
+    }, runtime(), {}, emptyWorkspace() as never, "write", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    const source = resolved.workspaceDefinition?.sources?.["skill.browser"]
+    expect(typeof source).toBe("object")
+    expect(source).not.toBeNull()
+    if (!source || typeof source !== "object") throw new Error("Expected browser skill source object.")
+    const content = (source as { content?: unknown }).content
+    expect(content).toContain("Save screenshots inside the workspace")
+    expect(content).not.toContain("blob_edit")
+    expect(content).not.toContain("Blob")
+  })
+
   it("requires Access when capability workspace contributions add scoped sources", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 
