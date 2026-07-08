@@ -39,6 +39,11 @@ const generatedAgentWebhookRouteHandler = ".vitehub/agent/chat-webhook-route.ts"
 const generatedAgentNetlifyFunction = ".vitehub/agent/netlify-function.mjs"
 const netlifyAgentFunctionName = "vitehub-agent"
 const workspacePackageName = "@vite-hub/workspace"
+const optionalMessageAdapterRuntimeExternals = [
+  "bufferutil",
+  "utf-8-validate",
+  "zlib-sync",
+]
 const optionalNetlifyAgentBundleExternals = [
   "@ai-sdk/harness",
   "@ai-sdk/harness/*",
@@ -53,6 +58,7 @@ const optionalNetlifyAgentBundleExternals = [
   "@vite-hub/workflow/*",
   "agents",
   "evalite/*",
+  ...optionalMessageAdapterRuntimeExternals,
   "vitest/*",
 ]
 
@@ -84,6 +90,17 @@ function subpath(base: string, path: string): string {
 
 type NitroConfig = Record<string, unknown> & CloudflareAgentStateRollupTarget & CloudflareAgentStateTarget
 type RollupExternalFunction = (source: string, importer?: string, isResolved?: boolean) => boolean | null | undefined | void
+type RollupExternalOption = string | RegExp | (string | RegExp)[] | RollupExternalFunction
+type BuildWithRollupOptions = {
+  build?: {
+    rolldownOptions?: {
+      external?: RollupExternalOption
+    }
+    rollupOptions?: {
+      external?: RollupExternalOption
+    }
+  }
+}
 type GeneratedLibsqlAgentStateOptions = Pick<ResolvedAgentModuleOptions["providers"]["state"], "tablePrefix" | "url"> & {
   authTokenEnvName?: string
 }
@@ -137,19 +154,38 @@ function cloneCloudflareAgentStateMigrations(value: unknown): CloudflareAgentSta
   })
 }
 
-function mergeCloudflareWorkersExternal(external: unknown): unknown {
-  if (external === undefined) return ["cloudflare:workers"]
-  if (typeof external === "string") return external === "cloudflare:workers" ? external : [external, "cloudflare:workers"]
-  if (external instanceof RegExp) return [external, "cloudflare:workers"]
+function mergeRollupExternals(external: RollupExternalOption | undefined, additions: readonly string[]): RollupExternalOption | undefined {
+  if (external === undefined) return [...additions]
+  if (typeof external === "string") return additions.includes(external) ? [...additions] : [external, ...additions]
+  if (external instanceof RegExp) return [external, ...additions]
   if (Array.isArray(external)) {
-    return external.includes("cloudflare:workers") ? external : [...external, "cloudflare:workers"]
+    const missing = additions.filter(source => !external.includes(source))
+    return missing.length ? [...external, ...missing] : external
   }
   if (typeof external === "function") {
     const externalFunction = external as RollupExternalFunction
     return (source: string, importer?: string, isResolved?: boolean) =>
-      source === "cloudflare:workers" || Boolean(externalFunction(source, importer, isResolved))
+      additions.includes(source) || Boolean(externalFunction(source, importer, isResolved))
   }
   return external
+}
+
+function mergeCloudflareWorkersExternal(external: RollupExternalOption | undefined): RollupExternalOption | undefined {
+  return mergeRollupExternals(external, ["cloudflare:workers", ...optionalMessageAdapterRuntimeExternals])
+}
+
+function mergeBuildExternal(config: BuildWithRollupOptions, additions: readonly string[]): BuildWithRollupOptions["build"] {
+  return {
+    ...config.build,
+    rolldownOptions: {
+      ...config.build?.rolldownOptions,
+      external: mergeRollupExternals(config.build?.rolldownOptions?.external, additions),
+    },
+    rollupOptions: {
+      ...config.build?.rollupOptions,
+      external: mergeRollupExternals(config.build?.rollupOptions?.external, additions),
+    },
+  }
 }
 
 function cloneNitroConfig(value: unknown): NitroConfig {
@@ -190,7 +226,7 @@ function mergeCloudflareAgentStateNitroConfig(value: unknown): NitroConfig {
   configureCloudflareAgentState(nitro)
   installCloudflareAgentStateEntrypoint(nitro)
   nitro.rollupConfig ||= {}
-  nitro.rollupConfig.external = mergeCloudflareWorkersExternal(nitro.rollupConfig.external)
+  nitro.rollupConfig.external = mergeCloudflareWorkersExternal(nitro.rollupConfig.external as RollupExternalOption | undefined)
   return nitro
 }
 
@@ -1049,6 +1085,11 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const mergedNitro = mergeNitroHandlers(nitro, nitroHandlers)
       return {
         ...(typeof agent !== "undefined" ? { agent } : {}),
+        ...(nitroHandlers.length
+          ? {
+              build: mergeBuildExternal(config as BuildWithRollupOptions, optionalMessageAdapterRuntimeExternals),
+            }
+          : {}),
         ...(nitroHandlers.length || installCloudflareState
           ? {
               nitro: mergedNitro,

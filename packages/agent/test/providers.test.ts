@@ -23,6 +23,12 @@ function githubSignature(secret: string, body: string) {
   return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
 }
 
+const optionalMessageAdapterRuntimeExternals = [
+  "bufferutil",
+  "utf-8-validate",
+  "zlib-sync",
+]
+
 function createTestChatAdapter(options: { deferMessageProcessing?: boolean, missingIncomingMessageId?: boolean, persistThreadHistory?: boolean, secret?: string } = {}) {
   let chatInstance: ChatInstance | undefined
   let sentMessageId = 0
@@ -294,6 +300,7 @@ describe("agent Vite plugin", () => {
                 "@vite-hub/workflow/*",
                 "agents",
                 "evalite/*",
+                ...optionalMessageAdapterRuntimeExternals,
                 "vitest/*",
               ],
               format: "esm",
@@ -584,9 +591,12 @@ describe("agent Vite plugin", () => {
     expect(output.nitro?.cloudflare?.wrangler?.migrations).not.toContainEqual(expect.objectContaining({
       deleted_classes: ["ViteHubAgentStateDO"],
     }))
-    expect(output.nitro?.rollupConfig?.external).toEqual(["cloudflare:workers"])
+    expect(output.nitro?.rollupConfig?.external).toEqual(["cloudflare:workers", ...optionalMessageAdapterRuntimeExternals])
     expect(output.nitro?.rollupConfig?.plugins?.some(plugin => plugin.name === "vitehub-agent-cloudflare-state-exports:ViteHubAgentStateDO")).toBe(true)
-    expect(output.build).toBeUndefined()
+    expect(output.build).toEqual({
+      rolldownOptions: { external: ["existing", ...optionalMessageAdapterRuntimeExternals] },
+      rollupOptions: { external: optionalMessageAdapterRuntimeExternals },
+    })
   })
 
   it("keeps Cloudflare chat state opt-out when the state provider is memory", async () => {
@@ -614,7 +624,10 @@ describe("agent Vite plugin", () => {
     })
     expect(output.nitro?.cloudflare).toBeUndefined()
     expect(output.nitro?.rollupConfig).toBeUndefined()
-    expect(output.build).toBeUndefined()
+    expect(output.build).toEqual({
+      rolldownOptions: { external: optionalMessageAdapterRuntimeExternals },
+      rollupOptions: { external: optionalMessageAdapterRuntimeExternals },
+    })
   })
 
   it("skips Nitro handlers for Deno generated output", async () => {

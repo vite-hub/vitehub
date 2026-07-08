@@ -12,6 +12,11 @@ import { resolveRuntimeContext } from "@vite-hub/runtime"
 import { isAsyncIterable, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import { resolveAgentChannelChatOptions } from "./internal/channels.ts"
+import {
+  channelHasCustomTitleEffect,
+  messageChannelSupportsTitleEffect,
+  messageChannelTitleSupportContextKey,
+} from "./channels.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import {
   createFallbackAgentInvoker,
@@ -103,6 +108,7 @@ import type {
   AgentDriverContribution,
   AgentDriverKind,
   AgentFinishEvent,
+  AgentFinishExtensions,
   AgentChatOptions,
   AgentHandlerOptions,
   AgentInput,
@@ -680,6 +686,41 @@ function activeDeliveryChannel<TRuntimeConfig extends AgentRuntimeConfig, CALL_O
   const channelId = run?.channelId || trigger?.channelId
   const channel = channelId ? channels?.[channelId] : undefined
   return channel && channelId ? { channel, channelId, trigger } : undefined
+}
+
+async function setChannelDeliverySupportContext<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  channels: AgentChannels<TRuntimeConfig> | undefined,
+  invocationContext: AgentInvocationContextStore,
+  runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+  run?: AgentRunMetadata,
+): Promise<void> {
+  const active = activeDeliveryChannel(channels, invocationContext, run)
+  if (!active) return
+  if (!channelDeliveryEffectHandlers(active.channel, { kind: "title" }).length) {
+    invocationContext.set(messageChannelTitleSupportContextKey, false, { overwrite: true })
+    return
+  }
+  if (channelHasCustomTitleEffect(active.channel)) {
+    invocationContext.set(messageChannelTitleSupportContextKey, true, { overwrite: true })
+    return
+  }
+  const { runtimeConfig: _runtimeConfig, ...callbackContext } = runtimeContext
+  const supported = await messageChannelSupportsTitleEffect({
+    ...callbackContext,
+    channel: active.channel,
+    context: invocationContext,
+    effect: { kind: "title" },
+    input,
+    request: runtimeContext.request,
+    run,
+    trigger: {
+      channelId: active.channelId,
+      ...(active.trigger?.id ? { id: active.trigger.id } : {}),
+      ...(active.trigger?.name ? { name: active.trigger.name } : {}),
+    },
+  })
+  invocationContext.set(messageChannelTitleSupportContextKey, supported, { overwrite: true })
 }
 
 async function applyChannelDeliveryEffectIntents<
@@ -1760,14 +1801,32 @@ async function resolveFinishDeliveryEffectIntents<
   CALL_OPTIONS,
 >(
   providers: readonly AgentChannelDeliveryFinishEffect[],
-  event: AgentFinishEvent,
+  event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<AgentChannelDeliveryEffectIntent[]> {
   const intents: AgentChannelDeliveryEffectIntent[] = []
+  const finishContext = createFinishDeliveryEffectContext(event, context)
+  for (const provider of providers) {
+    const intent = typeof provider === "function" ? await provider(finishContext, event) : provider
+    if (!intent) continue
+    appendDeliveryEffectIntent(intents, intent)
+  }
+  return intents
+}
+
+function createFinishDeliveryEffectContext<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+): AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS> {
   const result = event.result === undefined ? undefined : toAgentRunResult(event.result)
-  const finishContext = {
+  const active = activeDeliveryChannel(context.channels, context.context, context.run)
+  return {
     ...context.runtimeContext,
     actor: context.actor,
+    ...(active ? { channel: active.channel } : {}),
     context: context.context,
     ...(event.error !== undefined ? { error: event.error } : {}),
     ...(event.errorMessage !== undefined ? { errorMessage: event.errorMessage } : {}),
@@ -1786,12 +1845,59 @@ async function resolveFinishDeliveryEffectIntents<
     ...(event.text !== undefined ? { text: event.text } : {}),
     workspace: context.workspace,
   }
-  for (const provider of providers) {
-    const intent = typeof provider === "function" ? await provider(finishContext, event) : provider
-    if (!intent) continue
-    appendDeliveryEffectIntent(intents, intent)
-  }
-  return intents
+}
+
+function activeFinishDeliveryEffectProviders<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+  event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
+): AgentChannelDeliveryFinishEffect[] {
+  if (!context.finishDeliveryEffectProviders.length) return []
+  const active = createFinishDeliveryEffectContext(event, context)
+  return context.finishDeliveryEffectProviders.filter((provider) => {
+    if (typeof provider !== "function" || !provider.active) return true
+    return provider.active(active)
+  })
+}
+
+function provisionalFinishEvent<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+  eventBase: Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">,
+): AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS> {
+  return {
+    ...eventBase,
+    extensions: { get: () => undefined } as unknown as AgentFinishExtensions,
+  } as AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>
+}
+
+function hasTitleDeliveryEffectProvider(providers: readonly AgentChannelDeliveryFinishEffect[]): boolean {
+  return providers.some((provider) => {
+    if (typeof provider === "function") return provider.kind === "title"
+    const effects = Array.isArray(provider) ? provider : [provider]
+    return effects.some(effect => effect.kind === "title")
+  })
+}
+
+function hasDeferredFinishDeliveryEffectProvider(providers: readonly AgentChannelDeliveryFinishEffect[]): boolean {
+  return providers.some(provider => typeof provider === "function" && (provider.kind === undefined || Boolean(provider.active)))
+}
+
+async function prepareProvisionalTitleDeliverySupport<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+  eventBase: Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">,
+): Promise<AgentChannelDeliveryFinishEffect[]> {
+  const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, provisionalFinishEvent(context, eventBase))
+  if (!hasTitleDeliveryEffectProvider(activeDeliveryProviders)) return activeDeliveryProviders
+  await setChannelDeliverySupportContext(context.channels, context.context, context.runtimeContext, context.input, context.run)
+  return activeFinishDeliveryEffectProviders(context, provisionalFinishEvent(context, eventBase))
 }
 
 async function finishAgentInvocation<
@@ -1824,17 +1930,22 @@ async function finishAgentInvocation<
         runtime: context.runtimeContext,
         ...(text !== undefined ? { text } : {}),
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
-      const extensions = await createAgentInvocationExtensions(eventBase as never, context.finishExtensionProviders)
-      const finishEvent = { ...eventBase, extensions }
-      await applyChannelDeliveryEffectIntents(context, await resolveFinishDeliveryEffectIntents(context.finishDeliveryEffectProviders, finishEvent as never, context), finishEvent as never)
-      await runObservedAgentHook(context.hooks, {
-        ids: { runId: context.run?.runId },
-        name: "agent:finish",
-        owner: "agent",
-        phase: "finish",
-      }, async () => {
-        await context.finishHook?.(finishEvent)
-      })
+      context.context.set("agent.finishHook", Boolean(context.finishHook), { overwrite: true })
+      const provisionalActiveDeliveryProviders = await prepareProvisionalTitleDeliverySupport(context, eventBase)
+      if (context.finishHook || provisionalActiveDeliveryProviders.length || hasDeferredFinishDeliveryEffectProvider(context.finishDeliveryEffectProviders)) {
+        const extensions = await createAgentInvocationExtensions(eventBase as never, context.finishExtensionProviders)
+        const finishEvent = { ...eventBase, extensions }
+        const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, finishEvent as never)
+        await applyChannelDeliveryEffectIntents(context, await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context), finishEvent as never)
+        await runObservedAgentHook(context.hooks, {
+          ids: { runId: context.run?.runId },
+          name: "agent:finish",
+          owner: "agent",
+          phase: "finish",
+        }, async () => {
+          await context.finishHook?.(finishEvent)
+        })
+      }
     }
     if (!failed) await commitWorkspaceChanges(context)
     if (!failed) {

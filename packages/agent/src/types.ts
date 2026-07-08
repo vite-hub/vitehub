@@ -90,8 +90,10 @@ declare global {
 export interface AgentInvocationContextValues extends ViteHubAgentInvocationContextValues {
   access: AgentAccessInvocationContextValue
   actor: AgentActor
+  "agent.finishHook": boolean
   "channel.delivery.effects": AgentChannelDeliveryEffectIntent[]
   "channel.delivery.finishEffects": AgentChannelDeliveryFinishEffect[]
+  "channel.delivery.supportsTitle": boolean
   invoker: AgentInvoker
 }
 
@@ -254,6 +256,7 @@ export interface AgentChannelDeliveryFinishEffectContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > extends AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS> {
+  channel?: AgentChannelDefinition<any>
   error?: unknown
   errorMessage?: string
   event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>
@@ -281,7 +284,11 @@ export type AgentChannelDeliveryFinishEffectResult =
 export type AgentChannelDeliveryFinishEffectCallback<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-> = (context: AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS>, event?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<AgentChannelDeliveryFinishEffectResult>
+> = {
+  (context: AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS>, event?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>): MaybePromise<AgentChannelDeliveryFinishEffectResult>
+  active?: (context: AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS>) => boolean
+  kind?: AgentChannelDeliveryEffectKind
+}
 export type AgentChannelDeliveryFinishEffect<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,

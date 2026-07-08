@@ -31,6 +31,9 @@ import type { PullRequestContextValue } from "./capabilities/pull-request-contex
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { Adapter, FileUpload } from "chat"
 
+export const messageChannelTitleSupportContextKey = "channel.delivery.supportsTitle"
+const customTitleEffectChannels = new WeakSet<object>()
+
 export { deliveryArtifactAttachments } from "./delivery-artifacts.ts"
 export { defineFinishEffect } from "./delivery-effects.ts"
 export type {
@@ -1185,12 +1188,77 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
   }
 }
 
+function titleEffectPayloadTitle(value: unknown): string | undefined {
+  const title = typeof value === "string" ? value : isRecord(value) ? value.title : undefined
+  return typeof title === "string" ? maybeString(title.trim()) : undefined
+}
+
+type ThreadTitleAdapter = Adapter & {
+  setThreadTitle?: (threadId: string, title: string) => MaybePromise<unknown>
+}
+
+type AssistantTitleAdapter = Adapter & {
+  setAssistantTitle?: (channelId: string, threadTs: string, title: string) => MaybePromise<unknown>
+}
+
+function adapterSetThreadTitle(adapter: Adapter | undefined) {
+  const setThreadTitle = (adapter as ThreadTitleAdapter | undefined)?.setThreadTitle
+  return typeof setThreadTitle === "function" ? setThreadTitle.bind(adapter) : undefined
+}
+
+function adapterSetAssistantTitle(adapter: Adapter | undefined) {
+  const setAssistantTitle = (adapter as AssistantTitleAdapter | undefined)?.setAssistantTitle
+  return typeof setAssistantTitle === "function" ? setAssistantTitle.bind(adapter) : undefined
+}
+
+async function messageChannelTitleAdapter<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+): Promise<Adapter | undefined> {
+  return context.channel.adapter
+    ? await resolveEffectOption(context.channel.adapter as MaybeResolvable<Adapter, AgentChannelDeliveryEffectContext<TRuntimeConfig>>, context)
+    : undefined
+}
+
+export async function messageChannelSupportsTitleEffect<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+): Promise<boolean> {
+  if (!context.run?.threadId) return false
+  const adapter = await messageChannelTitleAdapter(context)
+  return Boolean(adapterSetThreadTitle(adapter) || adapterSetAssistantTitle(adapter))
+}
+
+export function channelHasCustomTitleEffect<TRuntimeConfig extends AgentRuntimeConfig>(
+  channel: AgentChannelDefinition<TRuntimeConfig>,
+): boolean {
+  const titleEffect = channel.effects?.title
+  return customTitleEffectChannels.has(channel)
+    || Boolean(titleEffect && titleEffect !== messageChannelTitleEffect)
+}
+
+async function messageChannelTitleEffect<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+): Promise<void> {
+  const title = titleEffectPayloadTitle(context.effect.payload)
+  if (!title || !context.run?.threadId) return
+  const adapter = await messageChannelTitleAdapter(context)
+  const setThreadTitle = adapterSetThreadTitle(adapter)
+  if (setThreadTitle) {
+    await setThreadTitle(context.run.threadId, title)
+    return
+  }
+  const setAssistantTitle = adapterSetAssistantTitle(adapter)
+  if (adapter && setAssistantTitle) {
+    await setAssistantTitle(adapter.channelIdFromThreadId(context.run.threadId), context.run.threadId, title)
+  }
+}
+
 function messageChannelDeliveryEffects<TRuntimeConfig extends AgentRuntimeConfig>(
   effects: AgentChannelDeliveryEffects<TRuntimeConfig> | undefined,
 ): AgentChannelDeliveryEffects<TRuntimeConfig> {
   return {
     ...effects,
     reply: effects?.reply ?? messageChannelReplyEffect,
+    title: effects?.title ?? messageChannelTitleEffect,
   }
 }
 
@@ -1740,12 +1808,14 @@ export function defineChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentR
   const effects = messages !== false && options.adapter
     ? messageChannelDeliveryEffects(options.effects)
     : options.effects
-  return {
+  const channel: AgentChannelDefinition<TRuntimeConfig> = {
     ...options,
     ...(effects ? { effects } : {}),
     kind,
     messages,
   }
+  if (options.effects?.title) customTitleEffectChannels.add(channel)
+  return channel
 }
 
 export function discord<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
