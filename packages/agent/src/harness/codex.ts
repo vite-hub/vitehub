@@ -7,14 +7,19 @@ import { createCodex } from "@ai-sdk/harness-codex"
 import { createLocalHarnessSandbox, type LocalHarnessSandboxOptions } from "./local-sandbox.ts"
 
 import type { CodexHarnessSettings } from "@ai-sdk/harness-codex"
-import type { AgentHarnessCredentialSource, AgentHarnessDriver } from "../types.ts"
+import type { AgentHarnessCredentialSource, AgentHarnessDriver, AgentHarnessSandboxProviderInput } from "../types.ts"
+
+type CodexDriverSandboxOptions =
+  | false
+  | LocalHarnessSandboxOptions
+  | AgentHarnessSandboxProviderInput
 
 export interface CodexDriverOptions extends CodexHarnessSettings {
   authJson?: string
   authJsonPath?: string
   credentials?: AgentHarnessCredentialSource
   env?: Record<string, string | undefined>
-  sandbox?: false | LocalHarnessSandboxOptions
+  sandbox?: CodexDriverSandboxOptions
 }
 
 export function codexDriver(options: CodexDriverOptions = {}): AgentHarnessDriver {
@@ -28,27 +33,51 @@ export function codexDriver(options: CodexDriverOptions = {}): AgentHarnessDrive
   } = options
   const defaultOpenAIAuth = settings.auth === undefined
   const auth = settings.auth ?? { openai: {} }
+  const sandboxProvider = codexSandboxProvider({
+    authJson,
+    authJsonPath,
+    env,
+    preferOpenAI: defaultOpenAIAuth,
+    sandbox,
+  })
 
   return {
     credentials: credentials ?? { label: "Codex", source: "ambient" },
     harness: createCodex({ ...settings, auth }),
-    ...(sandbox === false
-      ? {}
-      : {
-          sandbox: createLocalHarnessSandbox({
-            ...sandbox,
-            env: codexLocalEnv({
-              authJson,
-              authJsonPath,
-              env: {
-                ...env,
-                ...sandbox?.env,
-              },
-              preferOpenAI: defaultOpenAIAuth,
-            }),
-          }),
-        }),
+    ...(sandboxProvider ? { sandbox: sandboxProvider } : {}),
   }
+}
+
+function codexSandboxProvider(options: {
+  authJson?: string
+  authJsonPath?: string
+  env?: Record<string, string | undefined>
+  preferOpenAI: boolean
+  sandbox?: CodexDriverSandboxOptions
+}): AgentHarnessDriver["sandbox"] | undefined {
+  const { sandbox } = options
+  if (sandbox === false) return
+  if (typeof sandbox === "function" || isHarnessSandboxProvider(sandbox)) return sandbox
+
+  const localOptions = sandbox as LocalHarnessSandboxOptions | undefined
+  return createLocalHarnessSandbox({
+    ...localOptions,
+    env: codexLocalEnv({
+      authJson: options.authJson,
+      authJsonPath: options.authJsonPath,
+      env: {
+        ...options.env,
+        ...localOptions?.env,
+      },
+      preferOpenAI: options.preferOpenAI,
+    }),
+  })
+}
+
+function isHarnessSandboxProvider(value: unknown): value is AgentHarnessSandboxProviderInput {
+  if (!value || typeof value !== "object") return false
+  const provider = value as { createSession?: unknown, specificationVersion?: unknown }
+  return typeof provider.createSession === "function" || provider.specificationVersion === "harness-sandbox-v1"
 }
 
 function codexLocalEnv(options: {
