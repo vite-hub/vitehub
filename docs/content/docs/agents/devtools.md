@@ -38,6 +38,15 @@ Use the Agent DevTools Feature to answer the basic discovery questions before de
 
 If discovery is wrong, fix the Agent Definition before inspecting model output.
 
+## Inspect from chat
+
+Type `//inspect` in the Agent DevTools chat composer to add a local inspection summary to the transcript.
+It is a Host Command, so DevTools handles it before Agent Invocation and does not send it to the Agent.
+The summary points at the resolved Agent Definition surface: driver metadata, tool count, visible Workspace files and Sources, instruction documents, Agent Invoker Profiles, warnings, and metadata status.
+Use the side panel for the full config, files, tools, instructions, and metadata.
+
+Other `//...` Host Commands are handled locally and are not forwarded to the Agent.
+
 ## Inspect an invocation
 
 DevTools should show each Agent Invocation through the same public runtime boundaries used by server routes and trigger consumers.
