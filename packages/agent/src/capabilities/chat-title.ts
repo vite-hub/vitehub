@@ -532,6 +532,7 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
       }
       titleDeliveryEffect.active = finish =>
         Boolean(finish.channel) && finish.context.get<boolean>(messageChannelTitleSupportContextKey) !== false
+      titleDeliveryEffect.kind = "title"
       context.delivery.finishEffect(titleDeliveryEffect)
       context.output.render((result) => {
         if (hasChatTitleApplied(result)) return result

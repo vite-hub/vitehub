@@ -2801,6 +2801,44 @@ describe("agent message protocol", () => {
     expect(adapter).not.toHaveBeenCalled()
   })
 
+  it("does not resolve message Channel title adapters for inactive title finish effects", async () => {
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const adapter = vi.fn(() => {
+      throw new Error("adapter should not resolve")
+    })
+    const titleEffect = (() => ({ kind: "title", payload: { title: "Inactive title" } })) as AgentChannelDeliveryFinishEffectCallback
+    titleEffect.active = () => false
+    titleEffect.kind = "title"
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "inactive-title",
+          prepare(context) {
+            context.delivery.finishEffect(titleEffect)
+          },
+        }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          adapter,
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { messages: [createMessage({ role: "user", text: "plain message" })] },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
+    expect(adapter).not.toHaveBeenCalled()
+  })
+
   it("ignores chat title delivery when message Channel adapters cannot set titles", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
@@ -2931,6 +2969,44 @@ describe("agent message protocol", () => {
     expect(titleEffect).toHaveBeenCalledWith(expect.objectContaining({
       effect: { kind: "title", payload: { title: "Prepared title" } },
     }))
+  })
+
+  it("evaluates finish delivery active predicates after finish extensions resolve", async () => {
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const delivered = vi.fn()
+    const finishEffect = ((finish) => finish.reply("Extension enabled")) as AgentChannelDeliveryFinishEffectCallback
+    finishEffect.active = finish => finish.extensions.get("extension-gated-delivery", "enabled") === true
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "extension-gated-delivery",
+          prepare(context) {
+            context.finish.provide(() => ({ enabled: true }))
+            context.delivery.finishEffect(finishEffect)
+          },
+        }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          effects: {
+            reply: ({ effect }) => delivered(effect.payload),
+          },
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { messages: [createMessage({ role: "user", text: "deliver reply" })] },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
+    expect(delivered).toHaveBeenCalledWith("Extension enabled")
   })
 
   it("ignores unsupported delivery effect intents with observer metadata", async () => {
