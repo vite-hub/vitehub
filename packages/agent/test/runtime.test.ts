@@ -2526,7 +2526,7 @@ describe("agent message protocol", () => {
 
   it("lets Channel triggers expose finish delivery effects", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { defineChannel, defineFinishEffect, reply } = await import("../src/channels.ts")
+    const { defineChannel, defineFinishEffect } = await import("../src/channels.ts")
     const order: string[] = []
     const effect = vi.fn((context) => {
       order.push(`effect:${context.effect.payload}`)
@@ -2551,10 +2551,13 @@ describe("agent message protocol", () => {
             message: {
               invoke: context => ({
                 delivery: {
-                  finishEffects: defineFinishEffect((event, finishContext) => {
-                    const reviewContext = finishContext.context.get<{ number: number }>("review.context")
+                  finishEffects: defineFinishEffect((context, event) => {
+                    const reviewContext = context.context.get<{ number: number }>("review.context")
                     expect(reviewContext).toEqual({ number: 42 })
-                    return reply(`result:${event.text}:${(event.extensions.get("marker") as { value?: string } | undefined)?.value}:${reviewContext?.number}`)
+                    expect(context.event).toBe(event)
+                    expect(context.output).toBe("ok")
+                    expect(context.result?.text).toBe("ok")
+                    return context.reply(`result:${context.text}:${(context.extensions.get("marker") as { value?: string } | undefined)?.value}:${reviewContext?.number}`)
                   }),
                 },
                 input: { context: { "review.context": { number: 42 } }, prompt: "hello" },
@@ -2599,8 +2602,8 @@ describe("agent message protocol", () => {
             message: {
               invoke: context => ({
                 delivery: {
-                  finishEffects: async (_event, finishContext) => ({
-                    artifacts: await publishWorkspaceArtifacts(finishContext, [{
+                  finishEffects: async context => ({
+                    artifacts: await publishWorkspaceArtifacts(context, [{
                       mediaType: "image/png",
                       path: "screenshots/result.png",
                       placement: "inline",
@@ -2647,7 +2650,7 @@ describe("agent message protocol", () => {
         defineCapability({
           id: "feedback",
           prepare(context) {
-            context.delivery.finishEffect(event => ({ kind: "reply", payload: `done:${event.result}` }))
+            context.delivery.finishEffect(context => context.reply(`done:${context.output}`))
           },
         }),
       ],
@@ -4294,10 +4297,7 @@ describe("agent message protocol", () => {
                 text: `${(result as { text?: string }).text}\n${usage?.summary}`,
               }
             })
-            context.delivery.finishEffect(event => ({
-              kind: "reply",
-              payload: (event.result as { text?: string }).text,
-            }))
+            context.delivery.finishEffect(context => context.reply(context.result!.text!))
           },
         }),
       ],
@@ -4373,10 +4373,7 @@ describe("agent message protocol", () => {
               ...result as Record<string, unknown>,
               text: `${(result as { text?: string }).text}:final`,
             }))
-            context.delivery.finishEffect(event => ({
-              kind: "reply",
-              payload: (event.result as { text?: string }).text,
-            }))
+            context.delivery.finishEffect(context => context.reply(context.result!.text!))
           },
         }),
       ],
@@ -4439,10 +4436,7 @@ describe("agent message protocol", () => {
                 text: `${(result as { text?: string }).text}\n${usage?.summary}`,
               }
             })
-            context.delivery.finishEffect(event => ({
-              kind: "reply",
-              payload: (event.result as { text?: string }).text,
-            }))
+            context.delivery.finishEffect(context => context.reply(context.result!.text!))
           },
         }),
       ],
@@ -4544,10 +4538,7 @@ describe("agent message protocol", () => {
                 text: `${(result as { text?: string }).text}\n${usage?.summary}`,
               }
             })
-            context.delivery.finishEffect(event => ({
-              kind: "reply",
-              payload: (event.result as { text?: string }).text,
-            }))
+            context.delivery.finishEffect(context => context.reply(context.result!.text!))
           },
         }),
       ],
@@ -4677,10 +4668,7 @@ describe("agent message protocol", () => {
                 text: `${(result as { text?: string }).text}\n${usage?.summary}`,
               }
             })
-            context.delivery.finishEffect(event => ({
-              kind: "reply",
-              payload: (event.result as { text?: string }).text,
-            }))
+            context.delivery.finishEffect(context => context.reply(context.result!.text!))
           },
         }),
       ],

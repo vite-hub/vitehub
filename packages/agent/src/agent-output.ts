@@ -14,30 +14,41 @@ function textFromContent(content: unknown): string | undefined {
     if (!part || typeof part !== "object") return []
 
     const record = part as Record<string, unknown>
-    if (record.type !== "text" && record.type !== "text-delta") return []
+    const type = ownValue(record, "type")
+    if (type !== "text" && type !== "text-delta") return []
 
-    const value = record.text ?? record.textDelta ?? record.delta
+    const value = ownValue(record, "text") ?? ownValue(record, "textDelta") ?? ownValue(record, "delta")
     return typeof value === "string" ? [value] : []
   }).join("")
 
   return text ? text : undefined
 }
 
+function ownValue(record: Record<string, unknown>, key: string): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(record, key)
+  return descriptor && "value" in descriptor ? descriptor.value : undefined
+}
+
 function textFromResult(result: Record<string, unknown>): string | undefined {
-  if (typeof result.text === "string") return result.text
-  if (typeof result.output === "string") return result.output
-  if (typeof result._output === "string") return result._output
-  const contentText = textFromContent(result.content)
+  const text = ownValue(result, "text")
+  if (typeof text === "string" && text) return text
+  const output = ownValue(result, "output")
+  if (typeof output === "string" && output) return output
+  const rawOutput = ownValue(result, "_output")
+  if (typeof rawOutput === "string" && rawOutput) return rawOutput
+  const contentText = textFromContent(ownValue(result, "content"))
   if (contentText) return contentText
 
-  const steps = result.steps
+  const steps = ownValue(result, "steps")
   if (Array.isArray(steps)) {
     for (const step of steps.slice().reverse()) {
-      if (step && typeof step === "object" && typeof (step as { text?: unknown }).text === "string") {
-        return (step as { text: string }).text
+      if (step && typeof step === "object") {
+        const record = step as Record<string, unknown>
+        const stepText = ownValue(record, "text")
+        if (typeof stepText === "string" && stepText) return stepText
+        const stepContentText = textFromContent(ownValue(record, "content"))
+        if (stepContentText) return stepContentText
       }
-      const stepContentText = textFromContent((step as { content?: unknown }).content)
-      if (stepContentText) return stepContentText
     }
   }
 }
@@ -49,12 +60,12 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
 
   const result = value as Record<string, unknown>
   return {
-    finishReason: result.finishReason,
+    finishReason: ownValue(result, "finishReason"),
     raw: value,
     text: textFromResult(result),
-    usage: result.usage,
-    usageRecord: result.usageRecord as AgentUsageRecord | undefined,
-    warnings: result.warnings,
+    usage: ownValue(result, "usage"),
+    usageRecord: ownValue(result, "usageRecord") as AgentUsageRecord | undefined,
+    warnings: ownValue(result, "warnings"),
   }
 }
 

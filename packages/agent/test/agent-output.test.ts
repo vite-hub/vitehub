@@ -43,6 +43,19 @@ describe("agent output helpers", () => {
     })
   })
 
+  it("falls back to output fields when result text is empty", () => {
+    expect(toAgentRunResult({
+      _output: "structured fallback",
+      output: "output fallback",
+      text: "",
+    }).text).toBe("output fallback")
+
+    expect(toAgentRunResult({
+      _output: "structured fallback",
+      text: "",
+    }).text).toBe("structured fallback")
+  })
+
   it("falls back to the latest step text for AI SDK result objects", () => {
     const value = {
       finishReason: "stop",
@@ -68,6 +81,18 @@ describe("agent output helpers", () => {
     }
 
     expect(toAgentRunResult(value).text).toBe("latest result")
+  })
+
+  it("falls back to top-level content text for AI SDK result objects", () => {
+    const value = {
+      content: [
+        { text: "final", type: "text" },
+        { textDelta: " result", type: "text-delta" },
+      ],
+      finishReason: "stop",
+    }
+
+    expect(toAgentRunResult(value).text).toBe("final result")
   })
 
   it("tracks tool names across stream events", () => {

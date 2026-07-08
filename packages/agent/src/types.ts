@@ -192,6 +192,12 @@ export interface AgentChannelDeliveryEffectIntent<
   payload?: TPayload
 }
 
+export interface AgentChannelDeliveryEffectIntentOptions {
+  artifacts?: readonly PublishedAgentDeliveryArtifact[]
+  intent?: string
+  metadata?: Record<string, unknown>
+}
+
 export interface AgentChannelDeliveryReplyPayload {
   artifacts?: readonly PublishedAgentDeliveryArtifact[]
   body?: string
@@ -247,11 +253,19 @@ export interface AgentChannelDeliveryEffectContext<
 export interface AgentChannelDeliveryFinishEffectContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-> extends AgentCallbackContext<TRuntimeConfig> {
-  context: AgentInvocationContextStore
-  input: AgentRunInput<CALL_OPTIONS>
+> extends AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS> {
+  error?: unknown
+  errorMessage?: string
+  event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>
+  extensions: AgentFinishExtensions
+  invocation: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>["invocation"]
+  output?: unknown
+  reaction: (input: AgentChannelDeliveryReactionInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"reaction">
+  reply: (input: AgentChannelDeliveryReplyInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"reply">
+  result?: AgentRunResult
   request?: Request
-  run?: AgentRunMetadata
+  status: (input: AgentChannelDeliveryStatusInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"status">
+  text?: string
   workspace?: ReadonlyWorkspaceFacade
 }
 
@@ -267,7 +281,7 @@ export type AgentChannelDeliveryFinishEffectResult =
 export type AgentChannelDeliveryFinishEffectCallback<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-> = (event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, context: AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<AgentChannelDeliveryFinishEffectResult>
+> = (context: AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS>, event?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<AgentChannelDeliveryFinishEffectResult>
 export type AgentChannelDeliveryFinishEffect<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
