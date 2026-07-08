@@ -1408,7 +1408,6 @@ async function createAgentInvocationContext<
     const agentModel = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
     const driverKind = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentDriverKind]
     const resolveCapabilityCli = resolveCapabilityCliRunSurface(definition)
-    await setChannelDeliverySupportContext(definition?.channels, invocationContext, runtimeContext, input, context.run)
     const capabilities = await resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
       context: invocationContext,
       driverKind,
@@ -1867,6 +1866,9 @@ async function finishAgentInvocation<
         runtime: context.runtimeContext,
         ...(text !== undefined ? { text } : {}),
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
+      if (context.finishDeliveryEffectProviders.length) {
+        await setChannelDeliverySupportContext(context.channels, context.context, context.runtimeContext, context.input, context.run)
+      }
       const extensions = await createAgentInvocationExtensions(eventBase as never, context.finishExtensionProviders)
       const finishEvent = { ...eventBase, extensions }
       await applyChannelDeliveryEffectIntents(context, await resolveFinishDeliveryEffectIntents(context.finishDeliveryEffectProviders, finishEvent as never, context), finishEvent as never)

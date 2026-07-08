@@ -2735,6 +2735,33 @@ describe("agent message protocol", () => {
     expect(setAssistantTitle).toHaveBeenCalledWith("channel:thread-1", "thread-1", "Prepared title")
   })
 
+  it("does not resolve message Channel title adapters without title finish effects", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const adapter = vi.fn(() => {
+      throw new Error("adapter should not resolve")
+    })
+    const agent = defineAgent({
+      channels: {
+        portal: defineChannel("portal", {
+          adapter,
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { messages: [createMessage({ role: "user", text: "plain message" })] },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
+    expect(adapter).not.toHaveBeenCalled()
+  })
+
   it("ignores chat title delivery when message Channel adapters cannot set titles", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
