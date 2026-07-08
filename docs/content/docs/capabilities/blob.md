@@ -19,6 +19,7 @@ Use the configuration example below as the starting point, then tighten modes, p
 
 The Capability contributes `blob_read` for get, head, and list operations.
 When configured with write mode, it also contributes `blob_edit` for putting or deleting objects.
+`blob_edit` can upload inline content or a Workspace file through `workspacePath`.
 
 ## Configuration
 
@@ -42,6 +43,8 @@ export default defineAgent({
 ViteHub selects the configured Blob store and exposes a small Storage Capability Tool Surface.
 Read mode supports one object read, metadata read, or prefix list operation per tool call.
 Write mode adds put/delete operations with approval required by default.
+Put operations accept either `body` or `workspacePath`, not both.
+Delete operations return `{ pathname, deleted: true }`.
 
 ## Requirements
 
@@ -73,6 +76,20 @@ The Capability should fail before exposing tools.
 | `mode` | `"read" \| "write"` | `"read"` | Adds `blob_edit` when set to `"write"`. |
 | `store` | `string` | default store | Selects a named Blob store when the Blob primitive supports `store()`. |
 | `policy` | `AgentToolPolicyDecision \| function` | `"require-approval"` | Policy for `blob_edit`. |
+
+## Workspace uploads
+
+Use `workspacePath` when another Capability writes an artifact into the Workspace and the Agent should upload that file to Blob storage.
+The path is Workspace-relative.
+
+```ts [Agent tool call]
+await blob_edit({
+  operation: 'put',
+  pathname: 'review/screenshots/home.png',
+  workspacePath: 'screenshots/home.png',
+  options: { contentType: 'image/png' },
+})
+```
 
 ## Reference
 

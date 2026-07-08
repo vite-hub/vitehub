@@ -14,6 +14,7 @@ Use them when the Agent needs a named ability that ViteHub owns end to end, incl
 import {
   access,
   blob,
+  browser,
   chat,
   chatSummary,
   chatTitle,
@@ -50,6 +51,7 @@ import {
 | Chat behavior | [`chat()`](/docs/capabilities/chat) | A chat surface should start Agent Invocations and manage Chat History behavior. |
 | Input commands | [`inputCommands()`](/docs/capabilities/input-commands) | Explicit user commands should transform or enrich input before the Agent runs. |
 | Subagents | [`subagents()`](/docs/capabilities/subagents) | A model-backed Agent should delegate bounded work to named Agent Definitions through model-facing tools. |
+| Browser automation | [`browser()`](/docs/capabilities/browser) | The Agent needs headless browser evidence through the global `bash` tool and an included browser skill file. |
 | Workspace files | [`workspaceShell()`](/docs/capabilities/workspace-shell) | The Agent should inspect or edit Workspace files, or run allowlisted Workspace-session commands, through constrained Workspace tools. |
 | Git source history | [`git()`](/docs/capabilities/git) | The Agent needs bounded Git source-history inspection or local Workspace Session git state selection. |
 | Pull Request context | [`pullRequestContext()`](/docs/capabilities/pull-request-context) | A trigger or host already knows the current Change Request and the Agent should inspect that normalized context in the Workspace. |

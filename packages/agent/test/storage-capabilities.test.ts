@@ -229,7 +229,7 @@ describe("storage capabilities", () => {
     await tools.blob_edit!.execute?.({ operation: "put", pathname: "images/from-workspace.png", workspacePath: "screenshots/result.png" })
     await expect(Promise.resolve().then(() => tools.blob_edit!.execute?.({ body: "inline", operation: "put", pathname: "images/a.png", workspacePath: "screenshots/result.png" }))).rejects.toThrow("body or workspacePath")
     await expect(Promise.resolve().then(() => tools.blob_edit!.execute?.({ operation: "put", pathname: "images/a.png" }))).rejects.toThrow("body or workspacePath")
-    await tools.blob_edit!.execute?.({ operation: "delete", pathname: "images/a.png" })
+    await expect(tools.blob_edit!.execute?.({ operation: "delete", pathname: "images/a.png" })).resolves.toEqual({ pathname: "images/a.png", deleted: true })
     expect(store.put).toHaveBeenCalledWith("images/a.png", body, { contentType: "image/png" })
     expect(workspace.fs.readFile).toHaveBeenCalledWith("screenshots/result.png", { encoding: "binary" })
     expect(store.put).toHaveBeenCalledWith("images/from-workspace.png", workspaceBytes, undefined)

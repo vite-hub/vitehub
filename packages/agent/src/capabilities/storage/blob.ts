@@ -123,7 +123,9 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
             return method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(path, body, putOptions)
           }
           if (operation === "delete") {
-            return method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "del")(assertString(pathname, "blob_edit pathname"))
+            const path = assertString(pathname, "blob_edit pathname")
+            await method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "del")(path)
+            return { pathname: path, deleted: true }
           }
           throw new Error(`[vitehub] Unsupported blob_edit operation: ${String(operation)}`)
         },

@@ -920,6 +920,17 @@ describe("defineAgent workspace option", () => {
     })).toThrow("workspaceShell({ commands }) requires workspace.mode: \"write\"")
   })
 
+  it("requires writable workspace for browser bash commands", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { browser } = await import("../src/capabilities.ts")
+
+    expect(() => defineAgent({
+      capabilities: [browser()],
+      driver: { model: {} as never },
+      workspace: { mode: "read" },
+    })).toThrow("browser() bash requires workspace.mode: \"write\"")
+  })
+
   it("uses write mode for named workspace references", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { workspaceShell } = await import("../src/capabilities.ts")

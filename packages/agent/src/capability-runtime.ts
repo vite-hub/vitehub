@@ -6,6 +6,7 @@ import {
   createCapabilityCliTool,
 } from "./capability-cli.ts"
 import { getAccessCapabilityOptions } from "./capabilities/access-metadata.ts"
+import { normalizeWorkspaceCommandEntries, workspaceCommandTools } from "./capabilities/workspace-command.ts"
 import { createMessage } from "./messages.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import { normalizeAgentWorkspaceSource, workspaceSourceScopeNames, workspaceSourceScopePaths } from "./workspace-source-metadata.ts"
@@ -20,6 +21,7 @@ import type {
   AgentCallbackContext,
   AgentCapabilityCliContribution,
   AgentCapabilityContext,
+  AgentCapabilityBashCommand,
   AgentCapabilityDefinition,
   AgentCapabilityWorkspaceContribution,
   AgentCapabilityTypeContract,
@@ -74,6 +76,7 @@ type InternalAgentCapabilityWithGeneratedCli<
   resolveCli?: InternalAgentCapabilityCliResolver<TRuntimeConfig, Name>
   [workspaceMaterializationPathsSymbol]?: readonly string[]
 }
+type AgentCapabilityBashEntry = Extract<AgentCapabilityBashCommand, { command: string }>
 type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
 type AgentCapabilityDefinitionInput<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -173,6 +176,29 @@ function capabilityUsesWorkspaceAccess(capability: AgentCapabilityDefinition): b
     && capability.metadata.workspace === true
 }
 
+function capabilityBashCommands(capabilities: readonly AgentCapabilityDefinition[]): AgentCapabilityBashEntry[] {
+  const commands = new Map<string, AgentCapabilityBashEntry>()
+  for (const capability of capabilities) {
+    if (!capability.bash?.length) continue
+    for (const entry of normalizeWorkspaceCommandEntries(capability.bash, `${capability.id} bash`)) {
+      if (!commands.has(entry.command)) commands.set(entry.command, entry)
+    }
+  }
+  return [...commands.values()]
+}
+
+function createBashTools(capabilities: readonly AgentCapabilityDefinition[], workspace: unknown): AgentToolSet | undefined {
+  const commands = capabilityBashCommands(capabilities)
+  if (!commands.length) return
+  const summary = commands.map(entry => entry.description ? `${entry.command} (${entry.description})` : entry.command).join(", ")
+  return workspaceCommandTools(commands, "write", undefined, workspace, {
+    commitMessage: "bash command",
+    description: `Run one registered command in a trusted Workspace Session. Available commands: ${summary}.`,
+    missingWorkspaceMessage: "[vitehub] bash requires an executable Workspace Session.",
+    toolName: "bash",
+  })
+}
+
 export function defineCapability<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -190,6 +216,9 @@ export function defineCapability<
   assertCapabilityId((capability as { id?: unknown }).id)
   const cli = (capability as AgentCapabilityDefinition).cli
   assertCapabilityCliContribution((capability as { id: string }).id, cli)
+  if ((capability as AgentCapabilityDefinition).bash !== undefined) {
+    normalizeWorkspaceCommandEntries((capability as AgentCapabilityDefinition).bash, `${(capability as { id: string }).id} bash`)
+  }
   return capability
 }
 
@@ -1053,6 +1082,13 @@ export async function resolveAgentCapabilities<
       }
     }
     await applyWorkspaceContributions()
+    if (invocationOptions.resolveTools !== false) {
+      const bashTools = createBashTools(capabilities, currentWorkspace)
+      if (bashTools) {
+        recordDriverContribution("Capability tools", "bash", Object.keys(bashTools))
+        tools = { ...tools, ...bashTools }
+      }
+    }
     for (const { capability, context } of capabilityContexts) {
       let cli: AgentCapabilityCliContribution<TRuntimeConfig, Name> | undefined
       const resolveCli = (capability as InternalAgentCapabilityWithGeneratedCli<TRuntimeConfig, Name>).resolveCli

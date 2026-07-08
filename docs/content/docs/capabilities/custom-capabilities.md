@@ -114,6 +114,34 @@ export function ticketContext() {
 
 For harness-backed Agents, declare files a Capability needs through `requires.workspace.paths` or contribute them through Workspace Sources. The harness Workspace Session materializes the selected Workspace scope; applications should not maintain a separate harness-specific path list.
 
+## Contribute bash commands
+
+Use `bash` when a Capability owns a real executable that should appear in ViteHub's global model-facing `bash` tool.
+Each entry can be an executable name or an object with a command, description, and optional install package name.
+
+```ts [server/agents/capabilities/browser-preview.ts]
+import { defineCapability } from '@vite-hub/agent'
+
+export function browserPreview() {
+  return defineCapability({
+    id: 'browser-preview',
+    bash: [
+      {
+        command: 'agent-browser',
+        description: 'Run headless browser.',
+        install: 'agent-browser',
+      },
+    ],
+  })
+}
+```
+
+ViteHub merges all Capability `bash` entries into one `bash` tool.
+The tool schema only accepts registered executable names, and each call runs inside a trusted Workspace Session.
+
+`bash` is a runtime tool surface, not a Capability factory.
+Do not create a `bash()` Capability or use `workspaceShell()` as the public owner for product-specific executables.
+
 ## Add a Capability CLI
 
 Use `cli` when the Capability owns a real command tree that agents and developers should run instead of a generic shell command.

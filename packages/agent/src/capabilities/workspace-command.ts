@@ -18,6 +18,19 @@ type WorkspaceCommandWorkspace = {
   startSession: () => Promise<WorkspaceSession>
 }
 
+export interface WorkspaceCommandEntry {
+  command: string
+  description?: string
+  install?: string
+}
+
+interface WorkspaceCommandToolOptions {
+  commitMessage?: string
+  description?: string
+  missingWorkspaceMessage?: string
+  toolName?: string
+}
+
 const unsafeCommand = /[\s\x00-\x1F\x7F]/
 const blockedEnvKeys = new Set([
   "NODE_OPTIONS",
@@ -25,16 +38,38 @@ const blockedEnvKeys = new Set([
   "PATH",
 ])
 
-export function validateWorkspaceCommands(commands: unknown, label = "workspaceShell({ commands })"): string[] {
+export function normalizeWorkspaceCommandEntries(commands: unknown, label = "workspaceShell({ commands })"): WorkspaceCommandEntry[] {
   if (!Array.isArray(commands) || !commands.length) {
     throw new TypeError(`[vitehub] ${label} requires at least one command.`)
   }
-  for (const command of commands) {
-    if (typeof command !== "string" || !isValidCommand(command)) {
+  return commands.map((entry) => {
+    if (typeof entry === "string") {
+      if (!isValidCommand(entry)) {
+        throw new TypeError(`[vitehub] ${label} accepts simple executable names or absolute paths without whitespace/control characters.`)
+      }
+      return { command: entry }
+    }
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
       throw new TypeError(`[vitehub] ${label} accepts simple executable names or absolute paths without whitespace/control characters.`)
     }
-  }
-  return commands
+    const command = (entry as WorkspaceCommandEntry).command
+    if (!isValidCommand(command)) {
+      throw new TypeError(`[vitehub] ${label} accepts simple executable names or absolute paths without whitespace/control characters.`)
+    }
+    const description = (entry as WorkspaceCommandEntry).description
+    const install = (entry as WorkspaceCommandEntry).install
+    if (description !== undefined && typeof description !== "string") {
+      throw new TypeError(`[vitehub] ${label} description must be a string.`)
+    }
+    if (install !== undefined && typeof install !== "string") {
+      throw new TypeError(`[vitehub] ${label} install must be a string.`)
+    }
+    return { command, ...(description ? { description } : {}), ...(install ? { install } : {}) }
+  })
+}
+
+export function validateWorkspaceCommands(commands: unknown, label = "workspaceShell({ commands })"): string[] {
+  return normalizeWorkspaceCommandEntries(commands, label).map(entry => entry.command)
 }
 
 function isValidCommand(command: string): boolean {
@@ -92,26 +127,31 @@ function normalizeCwd(cwd: unknown): string {
   return parts.length ? `/workspace/${parts.join("/")}` : "/workspace"
 }
 
-function assertWorkspace(workspace: unknown): asserts workspace is WorkspaceCommandWorkspace {
+function assertWorkspace(workspace: unknown, message: string): asserts workspace is WorkspaceCommandWorkspace {
   if (!workspace || typeof workspace !== "object" || typeof (workspace as { startSession?: unknown }).startSession !== "function") {
-    throw new Error("[vitehub] workspaceShell({ commands }) requires an executable Workspace Session. Trusted workspace/session execution requires a writable workspace.")
+    throw new Error(message)
   }
 }
 
 export function workspaceCommandTools(
-  commands: string[],
+  commands: readonly (string | WorkspaceCommandEntry)[],
   mode: AgentCapabilityMode,
   timeout: number | undefined,
   workspace: unknown,
+  options: WorkspaceCommandToolOptions = {},
 ): AgentToolSet {
+  const entries = commands.map(command => typeof command === "string" ? { command } : command)
+  const commandNames = entries.map(entry => entry.command)
+  const toolName = options.toolName || "workspace_exec"
+  const summary = entries.map(entry => entry.description ? `${entry.command} (${entry.description})` : entry.command).join(", ")
   return {
-    workspace_exec: defineInternalTool({
-      description: `Run one configured command in a trusted Workspace Session at the workspace root. Allowed commands: ${commands.join(", ")}.`,
+    [toolName]: defineInternalTool({
+      description: options.description || `Run one configured command in a trusted Workspace Session at the workspace root. Allowed commands: ${summary}.`,
       inputSchema: {
         additionalProperties: false,
         properties: {
           args: { items: { type: "string" }, type: "array" },
-          command: { enum: commands, type: "string" },
+          command: { enum: commandNames, type: "string" },
           cwd: { description: "Workspace-relative directory. Defaults to the workspace root.", type: "string" },
           env: { additionalProperties: { type: "string" }, type: "object" },
           timeout: { type: "number" },
@@ -119,20 +159,20 @@ export function workspaceCommandTools(
         required: ["command"],
         type: "object",
       },
-      name: "workspace_exec",
+      name: toolName,
       async execute(input: unknown) {
         const value = input as WorkspaceCommandInput
-        if (!value || typeof value.command !== "string") throw new TypeError("[vitehub] workspace_exec requires a command.")
-        if (!commands.includes(value.command)) throw new Error(`[vitehub] Workspace command "${value.command}" is not allowed.`)
+        if (!value || typeof value.command !== "string") throw new TypeError(`[vitehub] ${toolName} requires a command.`)
+        if (!commandNames.includes(value.command)) throw new Error(`[vitehub] Workspace command "${value.command}" is not allowed.`)
         const args = stringArray(value.args, "args")
         const cwd = normalizeCwd(value.cwd)
         const env = envRecord(value.env)
-        const commandTimeout = normalizeWorkspaceCommandTimeout(value.timeout, "workspace_exec timeout") ?? timeout
-        assertWorkspace(workspace)
+        const commandTimeout = normalizeWorkspaceCommandTimeout(value.timeout, `${toolName} timeout`) ?? timeout
+        assertWorkspace(workspace, options.missingWorkspaceMessage || "[vitehub] workspaceShell({ commands }) requires an executable Workspace Session. Trusted workspace/session execution requires a writable workspace.")
         const session = await workspace.startSession()
         try {
           const result = await session.exec(value.command, args, { cwd, env, timeout: commandTimeout })
-          if (mode === "write" && result.exitCode === 0) await session.commit({ message: "workspace shell command" })
+          if (mode === "write" && result.exitCode === 0) await session.commit({ message: options.commitMessage || "workspace shell command" })
           return result
         }
         finally {
