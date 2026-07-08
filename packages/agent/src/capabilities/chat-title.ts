@@ -1,6 +1,7 @@
 import { defineCapability } from "../capability-runtime.ts"
 import { getMessageText } from "../messages.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
+import { supportsMessageChannelTitleEffect } from "../channels.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -414,7 +415,8 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
         const resolvedTitle = await getTitle()
         return resolvedTitle ? { title: resolvedTitle } : undefined
       })
-      context.delivery.finishEffect((finish) => {
+      context.delivery.finishEffect(async (finish) => {
+        if (finish.channel && !await supportsMessageChannelTitleEffect({ channel: finish.channel, run: finish.run })) return
         const resolvedTitle = finish.extensions.get(capabilityId, "title")
         return typeof resolvedTitle === "string" && resolvedTitle.trim()
           ? { kind: "title", payload: { title: resolvedTitle.trim() } }

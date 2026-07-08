@@ -254,6 +254,7 @@ export interface AgentChannelDeliveryFinishEffectContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > extends AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS> {
+  channel?: AgentChannelDefinition<any>
   error?: unknown
   errorMessage?: string
   event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>

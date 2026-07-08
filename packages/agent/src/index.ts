@@ -1760,14 +1760,16 @@ async function resolveFinishDeliveryEffectIntents<
   CALL_OPTIONS,
 >(
   providers: readonly AgentChannelDeliveryFinishEffect[],
-  event: AgentFinishEvent,
+  event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<AgentChannelDeliveryEffectIntent[]> {
   const intents: AgentChannelDeliveryEffectIntent[] = []
   const result = event.result === undefined ? undefined : toAgentRunResult(event.result)
+  const active = activeDeliveryChannel(context.channels, context.context, context.run)
   const finishContext = {
     ...context.runtimeContext,
     actor: context.actor,
+    ...(active ? { channel: active.channel } : {}),
     context: context.context,
     ...(event.error !== undefined ? { error: event.error } : {}),
     ...(event.errorMessage !== undefined ? { errorMessage: event.errorMessage } : {}),

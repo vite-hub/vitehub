@@ -1190,16 +1190,32 @@ function titleEffectPayloadTitle(value: unknown): string | undefined {
   return typeof title === "string" ? maybeString(title.trim()) : undefined
 }
 
+type AssistantTitleAdapter = Adapter & {
+  setAssistantTitle?: (channelId: string, threadTs: string, title: string) => MaybePromise<unknown>
+}
+
+async function messageChannelTitleAdapter<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: Pick<AgentChannelDeliveryEffectContext<TRuntimeConfig>, "channel" | "run"> & Partial<AgentChannelDeliveryEffectContext<TRuntimeConfig>>,
+): Promise<AssistantTitleAdapter | undefined> {
+  if (!context.run?.threadId || !context.channel.adapter) return
+  const adapter = await resolveEffectOption(context.channel.adapter as MaybeResolvable<Adapter, AgentChannelDeliveryEffectContext<TRuntimeConfig>>, context as AgentChannelDeliveryEffectContext<TRuntimeConfig>)
+  const setAssistantTitle = (adapter as AssistantTitleAdapter | undefined)?.setAssistantTitle
+  return typeof setAssistantTitle === "function" ? adapter as AssistantTitleAdapter : undefined
+}
+
+export async function supportsMessageChannelTitleEffect<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: Pick<AgentChannelDeliveryEffectContext<TRuntimeConfig>, "channel" | "run"> & Partial<AgentChannelDeliveryEffectContext<TRuntimeConfig>>,
+): Promise<boolean> {
+  return Boolean(await messageChannelTitleAdapter(context))
+}
+
 async function messageChannelTitleEffect<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
 ): Promise<void> {
   const title = titleEffectPayloadTitle(context.effect.payload)
   if (!title || !context.run?.threadId) return
-  const adapter = context.channel.adapter
-    ? await resolveEffectOption(context.channel.adapter as MaybeResolvable<Adapter, AgentChannelDeliveryEffectContext<TRuntimeConfig>>, context)
-    : undefined
-  const setThreadTitle = (adapter as (Adapter & { setThreadTitle?: (threadId: string, title: string) => MaybePromise<unknown> }) | undefined)?.setThreadTitle
-  if (typeof setThreadTitle === "function") await setThreadTitle(context.run.threadId, title)
+  const adapter = await messageChannelTitleAdapter(context)
+  if (adapter) await adapter.setAssistantTitle!(adapter.channelIdFromThreadId(context.run.threadId), context.run.threadId, title)
 }
 
 function messageChannelDeliveryEffects<TRuntimeConfig extends AgentRuntimeConfig>(

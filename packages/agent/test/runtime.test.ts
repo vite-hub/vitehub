@@ -2678,7 +2678,7 @@ describe("agent message protocol", () => {
   it("delivers chat titles through message Channels", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
-    const setThreadTitle = vi.fn()
+    const setAssistantTitle = vi.fn()
     const agent = defineAgent({
       capabilities: [chatTitle({ execute: () => "Prepared title", id: "thread-title" })],
       channels: {
@@ -2686,7 +2686,7 @@ describe("agent message protocol", () => {
           adapter: {
             channelIdFromThreadId: (threadId: string) => threadId,
             postMessage: vi.fn(),
-            setThreadTitle,
+            setAssistantTitle,
           } as never,
           triggers: {
             message: {
@@ -2702,14 +2702,15 @@ describe("agent message protocol", () => {
     })
 
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
-    expect(setThreadTitle).toHaveBeenCalledWith("thread-1", "Prepared title")
+    expect(setAssistantTitle).toHaveBeenCalledWith("thread-1", "thread-1", "Prepared title")
   })
 
   it("ignores chat title delivery when message Channel adapters cannot set titles", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
+    const execute = vi.fn(() => "Prepared title")
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute: () => "Prepared title" })],
+      capabilities: [chatTitle({ execute })],
       channels: {
         portal: defineChannel("portal", {
           adapter: {
@@ -2730,6 +2731,7 @@ describe("agent message protocol", () => {
     })
 
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
+    expect(execute).not.toHaveBeenCalled()
   })
 
   it("ignores unsupported delivery effect intents with observer metadata", async () => {
