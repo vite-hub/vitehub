@@ -1,13 +1,18 @@
 import { defineCapability } from "../capability-runtime.ts"
+import { streamAgentOutputToEvents, toAgentRunResult } from "../agent-output.ts"
 import { messageChannelTitleSupportContextKey } from "../channels.ts"
 import { getMessageText } from "../messages.ts"
+import { normalizeAgentDriver } from "../internal/agent-driver.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 
 import type {
+  AgentAdapterRunContext,
   AgentCapabilityDefinition,
   AgentCapabilityRuntimeContext,
+  AgentDriver,
   AgentModelResolver,
   AgentRunInput,
+  AgentRunContext,
   AgentRuntimeConfig,
   MaybePromise,
 } from "../types.ts"
@@ -45,6 +50,7 @@ export type ChatTitleTemplateVariable =
   | ((input: ChatTitleTemplateInput) => MaybePromise<boolean | null | number | string | undefined>)
 
 export interface ChatTitleOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  driver?: AgentDriver<TRuntimeConfig>
   execute?: (input: ChatTitleExecuteInput) => MaybePromise<ChatTitleExecuteResult>
   fallback?: string
   id?: string
@@ -61,6 +67,7 @@ const defaultChatTitleTemplate = [
   "Generate a short chat title from the user's first message.",
   "Return only the title.",
   "Use 2-5 words when possible.",
+  "Ignore chat platform mention/channel markup, bot names, and user IDs.",
   `Use "{{ fallback }}" when the message is too vague.`,
   "",
   "User message:",
@@ -103,6 +110,14 @@ function cleanGeneratedTitle(value: unknown, maxLength: number, fallback: string
 function heuristicTitle(text: string, maxLength: number, fallback: string): string {
   const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean).slice(0, 6).join(" ")
   return cleanGeneratedTitle(words, maxLength, fallback)
+}
+
+function stripChatEntityMarkup(text: string): string {
+  const clean = text
+    .replace(/<[@#!&][^>\s]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+  return clean || text
 }
 
 function chatTitleData(title: string) {
@@ -166,6 +181,87 @@ async function resolveChatTitleModel(context: AgentCapabilityRuntimeContext, opt
   }
 }
 
+function chatTitleDriverInput(input: ChatTitleExecuteInput, prompt: string): AgentRunInput {
+  const { message: _message, messages: _messages, prompt: _prompt, ...base } = input.input
+  return { ...base, prompt }
+}
+
+function chatTitleAdapterRunContext(
+  context: AgentCapabilityRuntimeContext,
+  input: ChatTitleExecuteInput,
+  prompt: string,
+): AgentAdapterRunContext {
+  if (!context.runtimeContext) {
+    throw new Error("[vitehub] chatTitle({ driver }) requires an agent runtime context.")
+  }
+  return {
+    actor: context.actor,
+    context: context.context,
+    devtools: context.runtimeContext.devtools,
+    input: chatTitleDriverInput(input, prompt),
+    invoker: context.invoker,
+    messages: [],
+    prompt,
+    runtime: context.runtimeContext,
+  }
+}
+
+function chatTitleRunContext(
+  context: AgentCapabilityRuntimeContext,
+  input: ChatTitleExecuteInput,
+  prompt: string,
+): AgentRunContext {
+  if (!context.runtimeContext) {
+    throw new Error("[vitehub] chatTitle({ driver }) requires an agent runtime context.")
+  }
+  const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtimeContext
+  return {
+    ...runtime,
+    actor: context.actor,
+    context: context.context,
+    input: chatTitleDriverInput(input, prompt),
+    invoker: context.invoker,
+    messages: [],
+    prompt,
+  }
+}
+
+async function chatTitleResultText(result: unknown): Promise<string | undefined> {
+  if (result instanceof Response) return await result.text()
+  if (result && typeof result === "object" && Symbol.asyncIterator in result) {
+    let text = ""
+    for await (const event of streamAgentOutputToEvents(result)) {
+      if (event.type === "text-delta") text += event.text
+    }
+    return text || undefined
+  }
+  return toAgentRunResult(result).text
+}
+
+async function generateChatTitleWithDriver(
+  context: AgentCapabilityRuntimeContext,
+  options: ChatTitleOptions,
+  input: ChatTitleExecuteInput,
+  prompt: string,
+): Promise<string | undefined> {
+  if (!options.driver) return
+  const driver = normalizeAgentDriver({ driver: options.driver } as never)
+  if (driver.kind === "run") {
+    return await chatTitleResultText(await driver.run(chatTitleRunContext(context, input, prompt) as never))
+  }
+  const runContext = chatTitleAdapterRunContext(context, input, prompt)
+  if (driver.kind === "harness") {
+    const { createHarnessAgentAdapter } = await import("../harness-agent.ts")
+    return await chatTitleResultText(await createHarnessAgentAdapter(driver as never).generate(runContext as never))
+  }
+  const { createAiSdkAdapter } = await import("../ai-sdk.ts")
+  return await chatTitleResultText(await createAiSdkAdapter({
+    execution: driver.execution,
+    instructions: options.instructions ?? driver.instructions,
+    model: driver.model,
+  } as never).generate(runContext as never))
+}
+
 async function generateChatTitle(context: AgentCapabilityRuntimeContext, options: ChatTitleOptions, input: ChatTitleExecuteInput): Promise<string | undefined> {
   const fallback = options.fallback ?? "New Conversation"
   const maxLength = options.maxLength ?? 80
@@ -173,6 +269,7 @@ async function generateChatTitle(context: AgentCapabilityRuntimeContext, options
     ...input,
     fallback,
     maxLength,
+    text: stripChatEntityMarkup(input.text),
     trigger: agentTriggerId(context),
   }
 
@@ -184,17 +281,21 @@ async function generateChatTitle(context: AgentCapabilityRuntimeContext, options
     return cleanGeneratedTitle(typeof result === "string" ? result : result.title, maxLength, fallback)
   }
 
+  const prompt = await renderChatTitleTemplate(options, templateInput)
+  if (options.driver) {
+    return cleanGeneratedTitle(await generateChatTitleWithDriver(context, options, input, prompt), maxLength, fallback)
+  }
+
   const model = await resolveChatTitleModel(context, options)
   if (model) {
     const { generateText } = await loadAiSdk()
-    const prompt = await renderChatTitleTemplate(options, templateInput)
     const result = await generateText(options.instructions
       ? { instructions: options.instructions, model: model as never, prompt }
       : { model: model as never, prompt })
     return cleanGeneratedTitle(result.text, maxLength, fallback)
   }
 
-  return heuristicTitle(input.text, maxLength, fallback)
+  return heuristicTitle(templateInput.text, maxLength, fallback)
 }
 
 function withChatTitleParallel<T>(

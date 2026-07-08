@@ -5034,7 +5034,7 @@ describe("agent message protocol", () => {
       })
 
       await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-        messages: [createMessage({ role: "user", text: "Need help with invoices" })],
+        messages: [createMessage({ role: "user", text: "<@1523327881886040225> Need help with invoices" })],
       })
 
       expect(generateText).toHaveBeenCalledWith({
@@ -5043,6 +5043,7 @@ describe("agent message protocol", () => {
           "Generate a short chat title from the user's first message.",
           "Return only the title.",
           "Use 2-5 words when possible.",
+          "Ignore chat platform mention/channel markup, bot names, and user IDs.",
           `Use "New Conversation" when the message is too vague.`,
           "",
           "User message:",
@@ -5054,6 +5055,45 @@ describe("agent message protocol", () => {
     finally {
       vi.doUnmock("ai")
     }
+  })
+
+  it("generates chat titles with a harness title driver", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const session = { destroy: vi.fn() }
+    const sandbox = { providerId: "local-test", specificationVersion: "harness-sandbox-v1" }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({ text: "Como Estas" })
+
+    const agent = defineAgent({
+      capabilities: [
+        chatTitle({
+          driver: {
+            harness: { provider: "codex" },
+            sandbox,
+          },
+          fallback: "Bitacora",
+        }),
+      ],
+      driver: { run: () => ({ text: "ok" }) },
+      hooks: {
+        "agent:finish": finish,
+      },
+    })
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "<@1523327881886040225> como estas tio" })],
+    })
+
+    const prompt = (harnessGenerate.mock.calls[0]![0] as { prompt: string }).prompt
+    expect(prompt).toContain("como estas tio")
+    expect(prompt).not.toContain("<@1523327881886040225>")
+    expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({ session }))
+    expect(harnessAgentSettings.at(-1)).toMatchObject({
+      harness: { provider: "codex" },
+      sandbox,
+    })
+    expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toEqual({ title: "Como Estas" })
   })
 
   it("renders custom chat title templates and skips unmatched triggers", async () => {
