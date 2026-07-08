@@ -140,6 +140,10 @@ function supportsChatTitleDelivery(context: AgentCapabilityRuntimeContext): bool
   return context.context.get<boolean>(messageChannelTitleSupportContextKey) !== false
 }
 
+function shouldProvideChatTitleFinishExtension(context: AgentCapabilityRuntimeContext): boolean {
+  return supportsChatTitleDelivery(context) || context.context.get<boolean>("agent.finishHook") === true
+}
+
 async function resolveTemplateVariables(options: ChatTitleOptions, input: ChatTitleTemplateInput): Promise<Record<string, unknown>> {
   const variables: Record<string, unknown> = {}
   for (const [name, value] of Object.entries(options.variables || {})) {
@@ -516,7 +520,7 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
       }
 
       context.finish.provide(async () => {
-        if (!supportsChatTitleDelivery(context)) return
+        if (!shouldProvideChatTitleFinishExtension(context)) return
         const resolvedTitle = await getTitle()
         return resolvedTitle ? { title: resolvedTitle } : undefined
       })
@@ -526,7 +530,8 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
           ? { kind: "title", payload: { title: resolvedTitle.trim() } }
           : undefined
       }
-      titleDeliveryEffect.active = finish => Boolean(finish.channel)
+      titleDeliveryEffect.active = finish =>
+        Boolean(finish.channel) && finish.context.get<boolean>(messageChannelTitleSupportContextKey) !== false
       context.delivery.finishEffect(titleDeliveryEffect)
       context.output.render((result) => {
         if (hasChatTitleApplied(result)) return result

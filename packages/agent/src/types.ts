@@ -90,6 +90,7 @@ declare global {
 export interface AgentInvocationContextValues extends ViteHubAgentInvocationContextValues {
   access: AgentAccessInvocationContextValue
   actor: AgentActor
+  "agent.finishHook": boolean
   "channel.delivery.effects": AgentChannelDeliveryEffectIntent[]
   "channel.delivery.finishEffects": AgentChannelDeliveryFinishEffect[]
   "channel.delivery.supportsTitle": boolean

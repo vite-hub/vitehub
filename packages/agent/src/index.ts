@@ -1906,6 +1906,7 @@ async function finishAgentInvocation<
       if (context.finishDeliveryEffectProviders.length) {
         await setChannelDeliverySupportContext(context.channels, context.context, context.runtimeContext, context.input, context.run)
       }
+      context.context.set("agent.finishHook", Boolean(context.finishHook), { overwrite: true })
       const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, {
         ...eventBase,
         extensions: { get: () => undefined } as unknown as AgentFinishExtensions,
