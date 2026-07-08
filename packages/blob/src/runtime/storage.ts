@@ -4,7 +4,7 @@ import { createDriver as createCloudflareR2Driver } from "../drivers/cloudflare.
 
 import { getBlobRuntimeConfig, getNamedBlobRuntimeStorage, setNamedBlobRuntimeStorage } from "./state.ts"
 
-import type { BlobStorage, BlobStoreName, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "../types.ts"
+import type { BlobObject, BlobStorage, BlobStoreName, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "../types.ts"
 
 const driverModules = {
   akamai: "akamai",
@@ -63,6 +63,20 @@ async function createConfiguredBlobStorage(config: ResolvedBlobModuleOptions): P
   return createBlobStorage(driver)
 }
 
+function joinServedBlobUrl(...parts: string[]): string {
+  return parts
+    .filter(Boolean)
+    .map((part, index) => index === 0 ? part.replace(/\/+$/, "") : part.replace(/^\/+|\/+$/g, ""))
+    .join("/")
+}
+
+async function withServedBlobUrl(name: string, object: BlobObject): Promise<BlobObject> {
+  const config = await getBlobRuntimeConfig()
+  const serve = config && typeof config === "object" ? config.serve : undefined
+  if (!serve?.publicBaseUrl || serve.store !== name) return object
+  return { ...object, url: joinServedBlobUrl(serve.publicBaseUrl, serve.route, object.pathname) }
+}
+
 async function resolveStorage(name = "default") {
   const existing = getNamedBlobRuntimeStorage(name)
   if (existing) {
@@ -86,9 +100,12 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
   return {
     async del(pathnames) { await (await resolveStorage(name)).del(pathnames) },
     async get(pathname) { return (await resolveStorage(name)).get(pathname) },
-    async head(pathname) { return (await resolveStorage(name)).head(pathname) },
-    async list(options) { return (await resolveStorage(name)).list(options) },
-    async put(pathname, body, options) { return (await resolveStorage(name)).put(pathname, body, options) },
+    async head(pathname) { return withServedBlobUrl(name, await (await resolveStorage(name)).head(pathname)) },
+    async list(options) {
+      const result = await (await resolveStorage(name)).list(options)
+      return { ...result, blobs: await Promise.all(result.blobs.map(object => withServedBlobUrl(name, object))) }
+    },
+    async put(pathname, body, options) { return withServedBlobUrl(name, await (await resolveStorage(name)).put(pathname, body, options)) },
     async serve(event, pathname) { return (await resolveStorage(name)).serve(event, pathname) },
     store(storeName: BlobStoreName) { return createRuntimeBlobStorage(storeName) },
   }

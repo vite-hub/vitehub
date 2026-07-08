@@ -18,6 +18,7 @@ import type {
   ResolvedMinioBlobStoreConfig,
   ResolvedVercelBlobStoreConfig,
   VercelBlobStoreConfig,
+  BlobServeOptions,
 } from "./types.ts"
 
 export interface BlobResolutionInput {
@@ -30,6 +31,7 @@ const DEFAULT_MINIO_BUCKET = "vitehub-blob"
 const DEFAULT_MINIO_ENDPOINT = "http://localhost:9000"
 const DEFAULT_MINIO_REGION = "us-east-1"
 const DEFAULT_NETLIFY_BLOBS_STORE = "vitehub-blob"
+export const DEFAULT_BLOB_SERVE_ROUTE = "/api/_vitehub/blob"
 const MINIO_ACCESS_KEY_ENV = ["MINIO_ACCESS_KEY_ID", "MINIO_ACCESS_KEY", "MINIO_ROOT_USER", "AWS_ACCESS_KEY_ID"] as const
 const MINIO_SECRET_KEY_ENV = ["MINIO_SECRET_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD", "AWS_SECRET_ACCESS_KEY"] as const
 
@@ -136,8 +138,34 @@ function resolveExplicitStore(
   }
 }
 
-function createResolvedConfig(store: ResolvedBlobModuleOptions["store"], stores?: Record<string, ResolvedBlobModuleOptions["store"]>): ResolvedBlobModuleOptions {
-  return stores ? { store, stores: { default: store, ...stores } } : { store }
+function normalizeServeOptions(value: BlobServeOptions | undefined): ResolvedBlobModuleOptions["serve"] {
+  if (value === undefined || value === false) return
+  if (value === true) return { route: DEFAULT_BLOB_SERVE_ROUTE, store: "default" }
+  if (!isPlainObject(value)) throw new TypeError("`blob.serve` must be true or a plain object.")
+  return {
+    route: trimmed(value.route) || DEFAULT_BLOB_SERVE_ROUTE,
+    store: trimmed(value.store) || "default",
+    ...(trimmed(value.publicBaseUrl) ? { publicBaseUrl: trimmed(value.publicBaseUrl) } : {}),
+  }
+}
+
+function assertServeStore(
+  serve: ResolvedBlobModuleOptions["serve"],
+  stores: Record<string, ResolvedBlobModuleOptions["store"]>,
+): void {
+  if (!serve || serve.store in stores) return
+  throw new TypeError(`\`blob.serve.store\` must reference a configured Blob store: ${JSON.stringify(serve.store)}.`)
+}
+
+function createResolvedConfig(
+  store: ResolvedBlobModuleOptions["store"],
+  stores?: Record<string, ResolvedBlobModuleOptions["store"]>,
+  serve?: ResolvedBlobModuleOptions["serve"],
+): ResolvedBlobModuleOptions {
+  assertServeStore(serve, stores ? { default: store, ...stores } : { default: store })
+  return stores
+    ? { store, stores: { default: store, ...stores }, ...(serve ? { serve } : {}) }
+    : { store, ...(serve ? { serve } : {}) }
 }
 
 function hasStoresConfig(options: BlobModuleOptions | undefined): options is BlobStoresConfig {
@@ -163,7 +191,10 @@ export function normalizeBlobOptions(
   const env = input.env || process.env
   const hosting = normalizeHosting(input.hosting)
   const explicit = options as BlobStoreConfig | undefined
-  const implicitCloudflare = options as Partial<CloudflareR2BlobStoreConfig> | undefined
+  const optionRecord = options as { serve?: BlobServeOptions } | undefined
+  const serve = normalizeServeOptions(optionRecord?.serve)
+  const { serve: _serve, ...storeOptions } = options || {}
+  const implicitCloudflare = storeOptions as Partial<CloudflareR2BlobStoreConfig> | undefined
 
   if (hasStoresConfig(options)) {
     const resolvedStores = Object.fromEntries(
@@ -171,30 +202,30 @@ export function normalizeBlobOptions(
     )
     const defaultStore = resolvedStores.default
     if (!defaultStore) throw new TypeError("`blob.stores.default` is required when using named Blob stores.")
-    return createResolvedConfig(defaultStore, resolvedStores)
+    return createResolvedConfig(defaultStore, resolvedStores, serve)
   }
 
   if (explicit?.driver) {
-    return createResolvedConfig(resolveExplicitStore(explicit, env))
+    return createResolvedConfig(resolveExplicitStore(storeOptions as unknown as BlobStoreConfig, env), undefined, serve)
   }
 
   if (hosting.includes("cloudflare")) {
-    return createResolvedConfig(resolveCloudflareStore(implicitCloudflare, env))
+    return createResolvedConfig(resolveCloudflareStore(implicitCloudflare, env), undefined, serve)
   }
 
   if (hosting.includes("netlify")) {
-    return createResolvedConfig(resolveNetlifyStore())
+    return createResolvedConfig(resolveNetlifyStore(), undefined, serve)
   }
 
   if (hasVercelBlobEnv(env)) {
-    return createResolvedConfig(resolveVercelStore())
+    return createResolvedConfig(resolveVercelStore(), undefined, serve)
   }
 
   if (hosting.includes("vercel")) {
-    return createResolvedConfig(resolveVercelStore())
+    return createResolvedConfig(resolveVercelStore(), undefined, serve)
   }
 
-  return createResolvedConfig(resolveFsStore())
+  return createResolvedConfig(resolveFsStore(), undefined, serve)
 }
 
 export function warnVercelBlobFallback(

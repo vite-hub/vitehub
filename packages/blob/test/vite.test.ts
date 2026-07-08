@@ -1,3 +1,7 @@
+import { mkdtemp, readFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { describe, expect, it } from "vitest"
 
 import { BLOB_VIRTUAL_CONFIG_ID, hubBlob } from "../src/vite.ts"
@@ -48,5 +52,48 @@ describe("hubBlob", () => {
 
     expect(code).toContain("export const blob =")
     expect(code).toContain(".virtual/blob")
+  })
+
+  it("registers an opt-in Nitro serving route", async () => {
+    const plugin = hubBlob({ serve: true })
+    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+
+    expect(config({}, { command: "serve" })).toMatchObject({
+      nitro: {
+        handlers: [{
+          handler: ".vitehub/blob/serve-route.ts",
+          route: "/api/_vitehub/blob/**",
+        }],
+      },
+    })
+  })
+
+  it("writes the generated Nitro serving route handler", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-serve-route-"))
+    const plugin = hubBlob({
+      serve: {
+        route: "/assets",
+        store: "media",
+      },
+      stores: {
+        default: {
+          driver: "fs",
+        },
+        media: {
+          driver: "fs",
+        },
+      },
+    })
+    const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
+
+    await configResolved({
+      build: { outDir: "dist" },
+      root,
+    } as never)
+
+    const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
+    expect(handler).toContain("const storeName = \"media\"")
+    expect(handler).toContain("getRouterParam(event, '_', { decode: false })")
+    expect(handler).toContain("blob.store(storeName).serve(event, pathname)")
   })
 })

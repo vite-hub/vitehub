@@ -194,6 +194,54 @@ describe("blob config", () => {
     expect(() => normalizeBlobOptions("blob" as never)).toThrow("`blob` must be a plain object.")
   })
 
+  it("normalizes opt-in serving defaults", () => {
+    expect(normalizeBlobOptions({ serve: true })).toEqual({
+      serve: {
+        route: "/api/_vitehub/blob",
+        store: "default",
+      },
+      store: {
+        base: ".data/blob",
+        driver: "fs",
+      },
+    })
+  })
+
+  it("normalizes configured serving options without changing store config", () => {
+    expect(normalizeBlobOptions({
+      driver: "fs",
+      base: ".data/assets",
+      serve: {
+        publicBaseUrl: "https://assets.example",
+        route: "assets",
+        store: "default",
+      },
+    })).toEqual({
+      serve: {
+        publicBaseUrl: "https://assets.example",
+        route: "assets",
+        store: "default",
+      },
+      store: {
+        base: ".data/assets",
+        driver: "fs",
+      },
+    })
+  })
+
+  it("rejects invalid serving config", () => {
+    expect(() => normalizeBlobOptions({ serve: "yes" } as never)).toThrow("`blob.serve` must be true or a plain object.")
+  })
+
+  it("rejects serving from an unknown single Blob store", () => {
+    expect(() => normalizeBlobOptions({
+      driver: "fs",
+      serve: {
+        store: "media",
+      },
+    })).toThrow("`blob.serve.store` must reference a configured Blob store: \"media\".")
+  })
+
   it("normalizes named stores with a required default store", () => {
     expect(normalizeBlobOptions({
       stores: {
@@ -222,6 +270,61 @@ describe("blob config", () => {
         },
       },
     })
+  })
+
+  it("normalizes serving from a configured named Blob store", () => {
+    expect(normalizeBlobOptions({
+      serve: {
+        store: "assets",
+      },
+      stores: {
+        assets: {
+          base: ".data/assets",
+          driver: "fs",
+        },
+        default: {
+          base: ".data/blob",
+          driver: "fs",
+        },
+      },
+    })).toEqual({
+      serve: {
+        route: "/api/_vitehub/blob",
+        store: "assets",
+      },
+      store: {
+        base: ".data/blob",
+        driver: "fs",
+      },
+      stores: {
+        assets: {
+          base: ".data/assets",
+          driver: "fs",
+        },
+        default: {
+          base: ".data/blob",
+          driver: "fs",
+        },
+      },
+    })
+  })
+
+  it("rejects serving from an unknown named Blob store", () => {
+    expect(() => normalizeBlobOptions({
+      serve: {
+        store: "media",
+      },
+      stores: {
+        assets: {
+          base: ".data/assets",
+          driver: "fs",
+        },
+        default: {
+          base: ".data/blob",
+          driver: "fs",
+        },
+      },
+    })).toThrow("`blob.serve.store` must reference a configured Blob store: \"media\".")
   })
 
   it("rejects named stores without a default store", () => {
