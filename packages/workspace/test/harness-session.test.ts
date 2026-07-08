@@ -41,7 +41,7 @@ function expectArchiveExtract(run: ReturnType<typeof vi.fn>, root = "/work/agent
 function expectGitBaseline(run: ReturnType<typeof vi.fn>, root = "/work/agent") {
   expect(run).toHaveBeenCalledWith({
     abortSignal: undefined,
-    command: "if command -v git >/dev/null 2>&1; then git init -q && git config user.email vitehub@example.invalid && git config user.name ViteHub && git add -A -f && git commit --allow-empty --no-gpg-sign -qm workspace-baseline || true; fi",
+    command: "if command -v git >/dev/null 2>&1; then git init -q && git config user.email vitehub@example.invalid && git config user.name ViteHub && git add -A -f && git commit --allow-empty --no-gpg-sign --no-verify -qm workspace-baseline || true; fi",
     workingDirectory: root,
   })
 }
