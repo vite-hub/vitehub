@@ -1,7 +1,7 @@
 import { defineCapability } from "../capability-runtime.ts"
+import { messageChannelTitleSupportContextKey } from "../channels.ts"
 import { getMessageText } from "../messages.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
-import { supportsMessageChannelTitleEffect } from "../channels.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -118,6 +118,10 @@ function shouldRunForTrigger(filter: ChatTitleOptions["trigger"], trigger: strin
 function agentTriggerId(context: AgentCapabilityRuntimeContext): string | undefined {
   const trigger = context.context.get<{ id?: unknown }>("agent.trigger")
   return typeof trigger?.id === "string" ? trigger.id : undefined
+}
+
+function supportsChatTitleDelivery(context: AgentCapabilityRuntimeContext): boolean {
+  return context.context.get<boolean>(messageChannelTitleSupportContextKey) !== false
 }
 
 async function resolveTemplateVariables(options: ChatTitleOptions, input: ChatTitleTemplateInput): Promise<Record<string, unknown>> {
@@ -412,11 +416,11 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
       }
 
       context.finish.provide(async () => {
+        if (!supportsChatTitleDelivery(context)) return
         const resolvedTitle = await getTitle()
         return resolvedTitle ? { title: resolvedTitle } : undefined
       })
-      context.delivery.finishEffect(async (finish) => {
-        if (finish.channel && !await supportsMessageChannelTitleEffect({ channel: finish.channel, run: finish.run })) return
+      context.delivery.finishEffect((finish) => {
         const resolvedTitle = finish.extensions.get(capabilityId, "title")
         return typeof resolvedTitle === "string" && resolvedTitle.trim()
           ? { kind: "title", payload: { title: resolvedTitle.trim() } }

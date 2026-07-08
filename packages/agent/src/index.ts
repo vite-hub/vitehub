@@ -12,6 +12,10 @@ import { resolveRuntimeContext } from "@vite-hub/runtime"
 import { isAsyncIterable, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import { resolveAgentChannelChatOptions } from "./internal/channels.ts"
+import {
+  messageChannelSupportsTitleEffect,
+  messageChannelTitleSupportContextKey,
+} from "./channels.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import {
   createFallbackAgentInvoker,
@@ -680,6 +684,37 @@ function activeDeliveryChannel<TRuntimeConfig extends AgentRuntimeConfig, CALL_O
   const channelId = run?.channelId || trigger?.channelId
   const channel = channelId ? channels?.[channelId] : undefined
   return channel && channelId ? { channel, channelId, trigger } : undefined
+}
+
+async function setChannelDeliverySupportContext<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  channels: AgentChannels<TRuntimeConfig> | undefined,
+  invocationContext: AgentInvocationContextStore,
+  runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+  run?: AgentRunMetadata,
+): Promise<void> {
+  const active = activeDeliveryChannel(channels, invocationContext, run)
+  if (!active) return
+  if (!channelDeliveryEffectHandlers(active.channel, { kind: "title" }).length) {
+    invocationContext.set(messageChannelTitleSupportContextKey, false, { overwrite: true })
+    return
+  }
+  const { runtimeConfig: _runtimeConfig, ...callbackContext } = runtimeContext
+  const supported = await messageChannelSupportsTitleEffect({
+    ...callbackContext,
+    channel: active.channel,
+    context: invocationContext,
+    effect: { kind: "title" },
+    input,
+    request: runtimeContext.request,
+    run,
+    trigger: {
+      channelId: active.channelId,
+      ...(active.trigger?.id ? { id: active.trigger.id } : {}),
+      ...(active.trigger?.name ? { name: active.trigger.name } : {}),
+    },
+  })
+  invocationContext.set(messageChannelTitleSupportContextKey, supported, { overwrite: true })
 }
 
 async function applyChannelDeliveryEffectIntents<
@@ -1368,6 +1403,7 @@ async function createAgentInvocationContext<
     const agentModel = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
     const driverKind = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentDriverKind]
     const resolveCapabilityCli = resolveCapabilityCliRunSurface(definition)
+    await setChannelDeliverySupportContext(definition?.channels, invocationContext, runtimeContext, input, context.run)
     const capabilities = await resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
       context: invocationContext,
       driverKind,

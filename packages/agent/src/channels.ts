@@ -31,6 +31,8 @@ import type { PullRequestContextValue } from "./capabilities/pull-request-contex
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { Adapter, FileUpload } from "chat"
 
+export const messageChannelTitleSupportContextKey = "channel.delivery.supportsTitle"
+
 export { deliveryArtifactAttachments } from "./delivery-artifacts.ts"
 export { defineFinishEffect } from "./delivery-effects.ts"
 export type {
@@ -1190,23 +1192,38 @@ function titleEffectPayloadTitle(value: unknown): string | undefined {
   return typeof title === "string" ? maybeString(title.trim()) : undefined
 }
 
+type ThreadTitleAdapter = Adapter & {
+  setThreadTitle?: (threadId: string, title: string) => MaybePromise<unknown>
+}
+
 type AssistantTitleAdapter = Adapter & {
   setAssistantTitle?: (channelId: string, threadTs: string, title: string) => MaybePromise<unknown>
 }
 
-async function messageChannelTitleAdapter<TRuntimeConfig extends AgentRuntimeConfig>(
-  context: Pick<AgentChannelDeliveryEffectContext<TRuntimeConfig>, "channel" | "run"> & Partial<AgentChannelDeliveryEffectContext<TRuntimeConfig>>,
-): Promise<AssistantTitleAdapter | undefined> {
-  if (!context.run?.threadId || !context.channel.adapter) return
-  const adapter = await resolveEffectOption(context.channel.adapter as MaybeResolvable<Adapter, AgentChannelDeliveryEffectContext<TRuntimeConfig>>, context as AgentChannelDeliveryEffectContext<TRuntimeConfig>)
-  const setAssistantTitle = (adapter as AssistantTitleAdapter | undefined)?.setAssistantTitle
-  return typeof setAssistantTitle === "function" ? adapter as AssistantTitleAdapter : undefined
+function adapterSetThreadTitle(adapter: Adapter | undefined) {
+  const setThreadTitle = (adapter as ThreadTitleAdapter | undefined)?.setThreadTitle
+  return typeof setThreadTitle === "function" ? setThreadTitle.bind(adapter) : undefined
 }
 
-export async function supportsMessageChannelTitleEffect<TRuntimeConfig extends AgentRuntimeConfig>(
-  context: Pick<AgentChannelDeliveryEffectContext<TRuntimeConfig>, "channel" | "run"> & Partial<AgentChannelDeliveryEffectContext<TRuntimeConfig>>,
+function adapterSetAssistantTitle(adapter: Adapter | undefined) {
+  const setAssistantTitle = (adapter as AssistantTitleAdapter | undefined)?.setAssistantTitle
+  return typeof setAssistantTitle === "function" ? setAssistantTitle.bind(adapter) : undefined
+}
+
+async function messageChannelTitleAdapter<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+): Promise<Adapter | undefined> {
+  return context.channel.adapter
+    ? await resolveEffectOption(context.channel.adapter as MaybeResolvable<Adapter, AgentChannelDeliveryEffectContext<TRuntimeConfig>>, context)
+    : undefined
+}
+
+export async function messageChannelSupportsTitleEffect<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
 ): Promise<boolean> {
-  return Boolean(await messageChannelTitleAdapter(context))
+  if (!context.run?.threadId) return false
+  const adapter = await messageChannelTitleAdapter(context)
+  return Boolean(adapterSetThreadTitle(adapter) || adapterSetAssistantTitle(adapter))
 }
 
 async function messageChannelTitleEffect<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -1215,7 +1232,15 @@ async function messageChannelTitleEffect<TRuntimeConfig extends AgentRuntimeConf
   const title = titleEffectPayloadTitle(context.effect.payload)
   if (!title || !context.run?.threadId) return
   const adapter = await messageChannelTitleAdapter(context)
-  if (adapter) await adapter.setAssistantTitle!(adapter.channelIdFromThreadId(context.run.threadId), context.run.threadId, title)
+  const setThreadTitle = adapterSetThreadTitle(adapter)
+  if (setThreadTitle) {
+    await setThreadTitle(context.run.threadId, title)
+    return
+  }
+  const setAssistantTitle = adapterSetAssistantTitle(adapter)
+  if (setAssistantTitle) {
+    await setAssistantTitle(adapter.channelIdFromThreadId(context.run.threadId), context.run.threadId, title)
+  }
 }
 
 function messageChannelDeliveryEffects<TRuntimeConfig extends AgentRuntimeConfig>(

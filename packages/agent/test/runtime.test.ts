@@ -2705,6 +2705,36 @@ describe("agent message protocol", () => {
     expect(setAssistantTitle).toHaveBeenCalledWith("thread-1", "thread-1", "Prepared title")
   })
 
+  it("delivers chat titles through Slack Assistant message Channels", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const setAssistantTitle = vi.fn()
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => "Prepared title", id: "thread-title" })],
+      channels: {
+        slack: defineChannel("slack", {
+          adapter: {
+            channelIdFromThreadId: (threadId: string) => `channel:${threadId}`,
+            postMessage: vi.fn(),
+            setAssistantTitle,
+          } as never,
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "slack-run", threadId: "thread-1" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "slack.message", {})).resolves.toBe("ok")
+    expect(setAssistantTitle).toHaveBeenCalledWith("channel:thread-1", "thread-1", "Prepared title")
+  })
+
   it("ignores chat title delivery when message Channel adapters cannot set titles", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")

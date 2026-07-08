@@ -92,6 +92,7 @@ export interface AgentInvocationContextValues extends ViteHubAgentInvocationCont
   actor: AgentActor
   "channel.delivery.effects": AgentChannelDeliveryEffectIntent[]
   "channel.delivery.finishEffects": AgentChannelDeliveryFinishEffect[]
+  "channel.delivery.supportsTitle": boolean
   invoker: AgentInvoker
 }
 
