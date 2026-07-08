@@ -68,10 +68,74 @@ describe("workspace CLI", () => {
     await expect(hubWorkspace().vitehub?.cli?.()).resolves.toEqual({
       namespaces: [{
         description: "Workspace development workflows.",
-        features: [expect.objectContaining({ name: "dev" })],
+        features: [expect.objectContaining({
+          name: "dev",
+          usage: "vitehub workspace dev <workspace> [exec <command...>]",
+        })],
         name: "workspace",
       }],
     })
+  })
+
+  it("prints Workspace Dev exec usage", async () => {
+    const stderr = stream()
+    const stdout = stream()
+
+    const exitCode = await runWorkspaceDevCli(["--help"], {
+      cwd: process.cwd(),
+      env: {},
+      rootDir: process.cwd(),
+      stderr,
+      stdout,
+    })
+
+    expect(exitCode).toBe(0)
+    expect(stderr.output()).toBe("")
+    expect(stdout.output()).toContain("Usage: vitehub workspace dev <workspace> [exec <command...>]")
+    expect(stdout.output()).toContain("Omit exec to open the interactive command loop.")
+  })
+
+  it("opens the Workspace Dev command loop when no command is provided", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-cli-loop-"))
+    const stderr = stream()
+    const stdout = stream()
+    const close = vi.fn()
+    const question = vi.fn(async () => ".exit")
+    const originalIsTTY = process.stdin.isTTY
+    vi.doMock("node:readline/promises", () => ({
+      createInterface: vi.fn(() => ({ close, question })),
+    }))
+    process.stdin.isTTY = true
+    try {
+      const fetchWorkspaceDev = vi.fn(async () => Response.json({
+        root: rootDir,
+        workspaces: [{ name: "docs" }],
+      }))
+
+      const exitCode = await runWorkspaceDevCli([
+        "--url",
+        "http://127.0.0.1:4321",
+        "docs",
+      ], {
+        cwd: rootDir,
+        env: {},
+        rootDir,
+        stderr,
+        stdout,
+      }, { fetch: fetchWorkspaceDev as never })
+
+      expect(exitCode).toBe(0)
+      expect(stderr.output()).toBe("")
+      expect(stdout.output()).toContain("Connected to docs at http://127.0.0.1:4321\n")
+      expect(question).toHaveBeenCalledWith("> ")
+      expect(close).toHaveBeenCalledOnce()
+      expect(fetchWorkspaceDev).toHaveBeenCalledOnce()
+    }
+    finally {
+      process.stdin.isTTY = originalIsTTY
+      vi.doUnmock("node:readline/promises")
+      await rm(rootDir, { force: true, recursive: true })
+    }
   })
 
   it("runs Workspace Dev commands through the Workspace dev endpoint", async () => {
@@ -103,8 +167,8 @@ describe("workspace CLI", () => {
             },
             {
               result: {
-                args: ["-e", "console.log(process.argv[1])", "hello world", "--timeout=30000"],
-                command: "node",
+                args: ["README.md"],
+                command: "cat",
                 exitCode: 0,
                 stderr: "",
                 stdout: "ok\n",
@@ -129,11 +193,9 @@ describe("workspace CLI", () => {
         "AGENTS.md",
         "--path=backlog",
         "docs",
-        "node",
-        "-e",
-        "console.log(process.argv[1])",
-        "hello world",
-        "--timeout=30000",
+        "exec",
+        "cat",
+        "README.md",
       ], {
         cwd: rootDir,
         env: {},
@@ -162,8 +224,8 @@ describe("workspace CLI", () => {
       })
       expect(JSON.parse(String(post?.[1]?.body))).toEqual({
         workspaceCommand: {
-          args: ["-e", "console.log(process.argv[1])", "hello world", "--timeout=30000"],
-          command: "node",
+          args: ["README.md"],
+          command: "cat",
           paths: ["AGENTS.md", "backlog"],
           timeout: 10000,
           workspace: "docs",
@@ -173,6 +235,25 @@ describe("workspace CLI", () => {
     finally {
       await rm(rootDir, { force: true, recursive: true })
     }
+  })
+
+  it("rejects bare Workspace Dev command args with exec guidance", async () => {
+    const stderr = stream()
+    const stdout = stream()
+    const fetchWorkspaceDev = vi.fn()
+
+    const exitCode = await runWorkspaceDevCli(["docs", "cat", "README.md"], {
+      cwd: process.cwd(),
+      env: {},
+      rootDir: process.cwd(),
+      stderr,
+      stdout,
+    }, { fetch: fetchWorkspaceDev as never })
+
+    expect(exitCode).toBe(1)
+    expect(fetchWorkspaceDev).not.toHaveBeenCalled()
+    expect(stderr.output()).toContain("Unexpected argument: cat. Use exec <command...> for one-shot commands.")
+    expect(stdout.output()).toContain("Usage: vitehub workspace dev <workspace> [exec <command...>]")
   })
 
   it("reports Workspace Dev preparation progress while starting sessions", async () => {

@@ -137,13 +137,13 @@ Use `vitehub workspace dev` when you want a direct command against a Workspace w
 Start the app's Vite dev server first, then run the command from another terminal.
 
 ```bash [Terminal]
-pnpm vitehub workspace dev --url http://localhost:5173 docs pnpm test --filter api
-pnpm vitehub workspace dev --timeout 180000 docs "npm run lint"
+pnpm vitehub workspace dev --url http://localhost:5173 docs exec pnpm test --filter api
+pnpm vitehub workspace dev --timeout 180000 docs exec "npm run lint"
 ```
 
 The command runs through the Workspace dev endpoint exposed by `hubWorkspace()` on the Compatible Vite Development Server.
 ViteHub materializes a Workspace Session, executes the command, prints stdout and stderr, and commits the session when the command exits successfully.
-Put Workspace Dev options before the Workspace target; flags after the command begins are preserved for that command.
+Put Workspace Dev options before the Workspace target; use `exec` before one-shot command args.
 If you omit the command in an interactive terminal, the CLI opens a prompt for repeated Workspace commands.
 
 ```txt [Output]
