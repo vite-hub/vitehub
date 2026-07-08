@@ -6,6 +6,7 @@ import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/
 import { chat, chatTitle, observability, schedule, subagents } from "../src/capabilities.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 
+import type { AgentChannelDeliveryFinishEffectCallback } from "../src/index.ts"
 import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
 
 const harnessAgentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
@@ -2673,6 +2674,44 @@ describe("agent message protocol", () => {
 
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
     expect(effect).toHaveBeenCalledOnce()
+  })
+
+  it("evaluates result-dependent finish delivery effects with the finished result", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const delivered = vi.fn()
+    const finishEffect: AgentChannelDeliveryFinishEffectCallback = context => context.reply(context.result!.text!)
+    finishEffect.active = context => context.result?.text === "deliver me"
+
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "result-dependent-delivery",
+          prepare(context) {
+            context.delivery.finishEffect(finishEffect)
+          },
+        }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          effects: {
+            reply({ effect }) {
+              delivered(effect.payload)
+            },
+          },
+          messages: false,
+        }),
+      },
+      driver: { run: () => ({ text: "deliver me" }) },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { channelId: "portal", runId: "portal-run" },
+      runtime: "unknown" as const,
+      waitUntil: vi.fn(),
+    }, {})).resolves.toEqual({ text: "deliver me" })
+    expect(delivered).toHaveBeenCalledWith("deliver me")
   })
 
   it("delivers chat titles through message Channels", async () => {

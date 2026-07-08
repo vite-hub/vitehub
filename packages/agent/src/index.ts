@@ -1717,7 +1717,7 @@ function hasFinishWork<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
-  return Boolean(context.finishHook || activeFinishDeliveryEffectProviders(context).length)
+  return Boolean(context.finishHook || context.finishDeliveryEffectProviders.length)
 }
 
 type AgentInvocationFinishOutcome =
