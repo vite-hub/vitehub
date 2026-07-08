@@ -692,7 +692,7 @@ export function createHarnessAgentAdapter<
   }
 
   async function createAgentAndSession(context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>) {
-    let workspaceSession: { close: (error?: unknown) => MaybePromise<void> } | undefined
+    let workspaceSession: { close: (error?: unknown) => MaybePromise<void>, refreshGitBaseline?: () => MaybePromise<void> } | undefined
     const agent = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal) => {
       if (!context.workspace) return
       const harnessInstructions = await resolveHarnessInstructions(context)
@@ -710,6 +710,7 @@ export function createHarnessAgentAdapter<
       })
       try {
         await writeHarnessInstructionFiles(session as HarnessInstructionSandbox, sessionWorkDir, abortSignal, harnessInstructions)
+        if (harnessInstructions) await workspaceSession.refreshGitBaseline?.()
       }
       catch (error) {
         await workspaceSession.close(error)

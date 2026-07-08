@@ -148,7 +148,7 @@ async function createSession(options: LocalHarnessSandboxOptions, sessionId: str
   const session = {
     cleanup: options.cleanup ?? !options.rootDir,
     defaultWorkingDirectory: rootDir,
-    description: `Local shell sandbox rooted at ${rootDir}.`,
+    description: "Workspace shell.",
     env,
     id: sessionId || randomUUID(),
     ports: options.ports || [4000],

@@ -16,6 +16,7 @@ describe("local harness sandbox", () => {
 
       const result = await session.run({ command: "cat input.txt" })
 
+      expect(session.description).toBe("Workspace shell.")
       expect(result).toMatchObject({ exitCode: 0, stdout: "hello" })
       await expect(session.getPortUrl({ port: 4000, protocol: "ws" })).resolves.toBe("ws://127.0.0.1:4000")
     }

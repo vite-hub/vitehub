@@ -1163,7 +1163,7 @@ describe("defineAgent workspace option", () => {
     const document = "# Support\n\n@./policy.md\n\n::source{key=\"docs\"}\nUse docs for source-backed answers.\n::\n"
     await writeLocalFile(join(sourceRootDir, "instructions.md"), document)
     await writeLocalFile(join(sourceRootDir, "policy.md"), "Use imported policy.\n")
-    const harnessWorkspaceSession = { close: vi.fn() }
+    const harnessWorkspaceSession = { close: vi.fn(), refreshGitBaseline: vi.fn() }
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
     exists.mockResolvedValueOnce(true)
     readFile.mockResolvedValueOnce(document)
@@ -1195,6 +1195,7 @@ describe("defineAgent workspace option", () => {
       expect.objectContaining({ path: "/workspace/codex-session/CLAUDE.md" }),
     ]))
     expect(new TextDecoder().decode(writes[0]!.content)).toBe("# Support\n\nUse imported policy.\n\nUse docs for source-backed answers.\n")
+    expect(harnessWorkspaceSession.refreshGitBaseline).toHaveBeenCalledOnce()
     expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
   })
 
