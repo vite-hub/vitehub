@@ -331,12 +331,7 @@ function normalizeUsageSummaryOptions(summary: UsageTelemetryOptions["summary"])
   return typeof summary === "object" && summary !== null ? summary : {}
 }
 
-async function formatUsageSummary(record: AgentUsageRecord, options: UsageTelemetrySummaryOptions = {}): Promise<string | undefined> {
-  const subject = typeof options.subject === "string" && options.subject.trim() ? options.subject.trim() : "This invocation"
-  if (options.format) {
-    const summary = await options.format(record, { subject })
-    return summary || undefined
-  }
+function formatDefaultUsageSummary(record: AgentUsageRecord, subject: string): string | undefined {
   const cost = formatUsageCost(record.cost)
   const tokens = formatUsageTokens(record.usage)
   const details = formatUsageDetails(record.usage?.details)
@@ -348,6 +343,15 @@ async function formatUsageSummary(record: AgentUsageRecord, options: UsageTeleme
   if (tokens) return `${subject} used ${tokens}${run ? ` ${run}` : ""}.`
   if (details) return `${subject} ${details}${run ? ` ${run}` : ""}.`
   if (run) return `${subject} ran ${run}.`
+}
+
+async function formatUsageSummary(record: AgentUsageRecord, options: UsageTelemetrySummaryOptions = {}): Promise<string | undefined> {
+  const subject = typeof options.subject === "string" && options.subject.trim() ? options.subject.trim() : "This invocation"
+  if (options.format) {
+    const summary = await options.format(record, { subject })
+    return summary || undefined
+  }
+  return formatDefaultUsageSummary(record, subject)
 }
 
 async function usageRecordForFinish(
@@ -545,13 +549,19 @@ function cloneWithUsageTelemetryStream<T extends UnknownRecord>(
 
 export type UsageTelemetryFinishEvent = Pick<AgentFinishEvent, "extensions">
 
-export function getUsageTelemetry(event: UsageTelemetryFinishEvent | undefined): AgentUsageRecord | undefined {
+function getUsageTelemetryRecord(event: UsageTelemetryFinishEvent | undefined): AgentUsageRecord | undefined {
   return event?.extensions.get("usage-telemetry")
+}
+
+export function getUsageTelemetry(event: UsageTelemetryFinishEvent | undefined): string | undefined {
+  const record = getUsageTelemetryRecord(event)
+  if (!record) return
+  return record.summary || formatDefaultUsageSummary(record, "This invocation")
 }
 
 export interface UsageTelemetryCapabilityFactory {
   (options?: UsageTelemetryOptions): AgentCapabilityDefinition
-  from: typeof getUsageTelemetry
+  from: typeof getUsageTelemetryRecord
 }
 
 export const usageTelemetry: UsageTelemetryCapabilityFactory = Object.assign((options: UsageTelemetryOptions = {}): AgentCapabilityDefinition => {
@@ -587,7 +597,7 @@ export const usageTelemetry: UsageTelemetryCapabilityFactory = Object.assign((op
       })
     },
   })
-}, { from: getUsageTelemetry })
+}, { from: getUsageTelemetryRecord })
 
 function decimalToParts(value: string): { scale: bigint, units: bigint } {
   const trimmed = value.trim()

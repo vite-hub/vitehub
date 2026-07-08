@@ -1,5 +1,5 @@
 import { chmodSync, existsSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { createCodex } from "@ai-sdk/harness-codex"
@@ -86,10 +86,11 @@ function codexLocalEnv(options: {
   env?: Record<string, string | undefined>
   preferOpenAI: boolean
 }): Record<string, string | undefined> {
-  const env = {
+  const env: Record<string, string | undefined> = {
     ...process.env,
     ...options.env,
   }
+  stripGitHubSecrets(env)
 
   if (options.preferOpenAI) {
     delete env.AI_GATEWAY_API_KEY
@@ -98,7 +99,7 @@ function codexLocalEnv(options: {
 
   const codexHome = codexHomeFromAuth({
     authJson: options.authJson ?? env.CODEX_AUTH_JSON,
-    authJsonPath: options.authJsonPath,
+    authJsonPath: options.authJsonPath ?? env.CODEX_AUTH_JSON_PATH ?? ambientCodexAuthJsonPath(),
   })
   if (codexHome) env.CODEX_HOME = codexHome
   env.PATH = [
@@ -107,6 +108,19 @@ function codexLocalEnv(options: {
     env.PATH,
   ].filter(Boolean).join(":")
   return env
+}
+
+function stripGitHubSecrets(env: Record<string, string | undefined>): void {
+  for (const key of Object.keys(env)) {
+    if (/^(?:GITHUB|GH|VITEHUB_GITHUB)_/.test(key) && /(?:TOKEN|SECRET|PRIVATE_KEY|WEBHOOK|APP_ID)/.test(key)) {
+      delete env[key]
+    }
+  }
+}
+
+function ambientCodexAuthJsonPath(): string | undefined {
+  const path = join(homedir(), ".codex", "auth.json")
+  return existsSync(path) ? path : undefined
 }
 
 function codexHomeFromAuth(options: { authJson?: string, authJsonPath?: string }): string | undefined {

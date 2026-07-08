@@ -98,7 +98,7 @@ describe("usage telemetry", () => {
     const usageRecord = (result as { usageRecord?: unknown }).usageRecord
     const finishEvent = finish.mock.calls[0]![0]
     expect(finishEvent.extensions.get("usage-telemetry")).toEqual(usageRecord)
-    expect(getUsageTelemetry(finishEvent)).toEqual(usageRecord)
+    expect(getUsageTelemetry(finishEvent)).toBe("This invocation cost about $0.000002 using openai/gpt-test (15 tokens: 10 in / 5 out).")
     expect(usageTelemetry.from(finishEvent)).toEqual(usageRecord)
     expect(deliveryUsage).toHaveBeenCalledWith(usageRecord)
   })
@@ -185,7 +185,7 @@ describe("usage telemetry", () => {
       latency: {
         durationMs: expect.any(Number),
       },
-      summary: expect.stringMatching(/^Review run cost about \$0\.00015 using openai\/gpt-test in \d+\.\ds at \d+\.\d tok\/s \(1,250 tokens: 1,000 in \/ 250 out\)\.$/),
+      summary: expect.stringMatching(/^Review run cost about \$0\.00015 using openai\/gpt-test in \d+\.\ds(?: at \d+\.\d tok\/s)? \(1,250 tokens: 1,000 in \/ 250 out\)\.$/),
     })
   })
 

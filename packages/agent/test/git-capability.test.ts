@@ -73,7 +73,25 @@ describe("git capability", () => {
       stdout: "ok\n",
     })
     await expect(tools.shell!.execute?.({ command: "git switch main" })).rejects.toThrow("requires git({ mode: \"write\" })")
-    expect(session.exec).toHaveBeenCalledWith("git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace", timeout: undefined }))
+    expect(session.exec).toHaveBeenCalledWith("git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace", timeout: 60_000 }))
+  })
+
+  it("does not truncate git output by default", async () => {
+    const session = gitSession()
+    const output = "x".repeat(40_000)
+    session.exec.mockResolvedValueOnce({
+      args: ["show"],
+      command: "git",
+      exitCode: 0,
+      stderr: "",
+      stdout: output,
+    })
+    const { tools } = await capabilityTools(git(), session)
+
+    await expect(tools.shell!.execute?.({ command: "git show HEAD" })).resolves.toMatchObject({
+      outputTruncated: undefined,
+      stdout: output,
+    })
   })
 
   it("exposes a command-only shell input schema", async () => {
@@ -155,8 +173,8 @@ describe("git capability", () => {
       cwd: "/workspace/portal",
     })
     expect(startSession).toHaveBeenCalledWith(undefined)
-    expect(session.exec).toHaveBeenNthCalledWith(1, "git", ["status", "--porcelain"], expect.objectContaining({ cwd: "/workspace/portal", timeout: undefined }))
-    expect(session.exec).toHaveBeenNthCalledWith(2, "git", ["switch", "feature/pr-1"], expect.objectContaining({ cwd: "/workspace/portal", timeout: undefined }))
+    expect(session.exec).toHaveBeenNthCalledWith(1, "git", ["status", "--porcelain"], expect.objectContaining({ cwd: "/workspace/portal", timeout: 60_000 }))
+    expect(session.exec).toHaveBeenNthCalledWith(2, "git", ["switch", "feature/pr-1"], expect.objectContaining({ cwd: "/workspace/portal", timeout: 60_000 }))
     expect(session.commit).toHaveBeenCalledWith({ message: "git switch" })
   })
 

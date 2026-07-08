@@ -1,3 +1,7 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { describe, expect, it, vi } from "vitest"
 
 const createCodex = vi.hoisted(() => vi.fn(settings => ({ provider: "codex", settings })))
@@ -23,8 +27,14 @@ describe("codexDriver", () => {
   it("keeps host AI Gateway env out of the default local Codex sandbox", async () => {
     const originalGatewayKey = process.env.AI_GATEWAY_API_KEY
     const originalGatewayBaseUrl = process.env.AI_GATEWAY_BASE_URL
+    const originalGitHubToken = process.env.GITHUB_TOKEN
+    const originalGitHubPrivateKey = process.env.GITHUB_APP_PRIVATE_KEY
+    const originalGitHubWebhookSecret = process.env.VITEHUB_GITHUB_WEBHOOK_SECRET
     process.env.AI_GATEWAY_API_KEY = "host-key"
     process.env.AI_GATEWAY_BASE_URL = "https://gateway.example"
+    process.env.GITHUB_TOKEN = "github-token"
+    process.env.GITHUB_APP_PRIVATE_KEY = "github-private-key"
+    process.env.VITEHUB_GITHUB_WEBHOOK_SECRET = "github-webhook-secret"
 
     try {
       const { codexDriver } = await import("../src/harness/codex.ts")
@@ -34,6 +44,9 @@ describe("codexDriver", () => {
       try {
         expect(session?.env.AI_GATEWAY_API_KEY).toBeUndefined()
         expect(session?.env.AI_GATEWAY_BASE_URL).toBeUndefined()
+        expect(session?.env.GITHUB_TOKEN).toBeUndefined()
+        expect(session?.env.GITHUB_APP_PRIVATE_KEY).toBeUndefined()
+        expect(session?.env.VITEHUB_GITHUB_WEBHOOK_SECRET).toBeUndefined()
         expect(session?.env.EXTRA_CODEX_ENV).toBe("1")
         expect(session?.env.PATH).toContain("node_modules/.bin")
       }
@@ -44,6 +57,35 @@ describe("codexDriver", () => {
     finally {
       restoreEnv("AI_GATEWAY_API_KEY", originalGatewayKey)
       restoreEnv("AI_GATEWAY_BASE_URL", originalGatewayBaseUrl)
+      restoreEnv("GITHUB_TOKEN", originalGitHubToken)
+      restoreEnv("GITHUB_APP_PRIVATE_KEY", originalGitHubPrivateKey)
+      restoreEnv("VITEHUB_GITHUB_WEBHOOK_SECRET", originalGitHubWebhookSecret)
+    }
+  })
+
+  it("uses ambient local Codex auth when explicit auth is omitted", async () => {
+    const originalHome = process.env.HOME
+    const home = await mkdtemp(join(tmpdir(), "vitehub-codex-home-"))
+    await mkdir(join(home, ".codex"), { recursive: true })
+    await writeFile(join(home, ".codex", "auth.json"), "{\"token\":\"local\"}\n")
+    process.env.HOME = home
+
+    try {
+      const { codexDriver } = await import("../src/harness/codex.ts")
+      const driver = codexDriver() as { sandbox?: { createSession: () => Promise<{ destroy: () => Promise<void>, env: Record<string, string> }> } }
+      const session = await driver.sandbox?.createSession()
+
+      try {
+        expect(session?.env.CODEX_HOME).toContain("vitehub-codex-home-")
+        await expect(readFile(join(session!.env.CODEX_HOME, "auth.json"), "utf8")).resolves.toBe("{\"token\":\"local\"}\n")
+      }
+      finally {
+        await session?.destroy()
+      }
+    }
+    finally {
+      restoreEnv("HOME", originalHome)
+      await rm(home, { force: true, recursive: true })
     }
   })
 

@@ -45,8 +45,13 @@ describe("agent channels", () => {
       pullRequest: {
         pullRequest: {
           apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
+          body: "Review body",
+          comments: [{ body: "Looks good", id: 100, user: { login: "hubot" } }],
+          files: [{ additions: 5, deletions: 2, filename: "src/app.ts", status: "modified" }],
+          labels: ["review"],
           number: 42,
           source: { mount: "app", ref: "refs/pull/42/head", repo: "acme/app" },
+          title: "Improve app",
         },
         repository: { fullName: "acme/app", name: "app", owner: "acme" },
         run: { messageId: "99", origin: "github-pull-request-comment", runId: "github:acme/app#42:comment:99", threadId: "pr-42" },
@@ -71,6 +76,51 @@ describe("agent channels", () => {
       result: { text: "output fallback" },
       text: "event fallback",
     } as never))).resolves.toEqual({ kind: "reply", payload: "output fallback" })
+  })
+
+  it("exposes a GitHub pull request reader for invocation context", async () => {
+    const { pullRequest } = await import("../src/channels.ts")
+    const context = {
+      pullRequest: {
+        pullRequest: {
+          apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
+          body: "Review body",
+          comments: [{ body: "Looks good", id: 100, user: { login: "hubot" } }],
+          files: [{ additions: 5, deletions: 2, filename: "src/app.ts", status: "modified" }],
+          labels: ["review"],
+          number: 42,
+          source: { mount: "app", ref: "refs/pull/42/head", repo: "acme/app" },
+          title: "Improve app",
+        },
+        repository: { fullName: "acme/app", name: "app", owner: "acme" },
+        run: { messageId: "99", origin: "github-pull-request-comment", runId: "github:acme/app#42:comment:99", threadId: "pr-42" },
+        trigger: {
+          action: "created",
+          actor: { login: "mona" },
+          args: "",
+          command: "/review",
+          comment: { id: 99 },
+          event: "issue_comment",
+        },
+      },
+    }
+
+    expect(pullRequest.read({
+      context: {
+        get: key => context[key as keyof typeof context],
+      },
+    })).toMatchObject({
+      body: "Review body",
+      comments: [{ body: "Looks good", id: 100, user: { login: "hubot" } }],
+      files: [{ additions: 5, deletions: 2, filename: "src/app.ts", status: "modified" }],
+      labels: ["review"],
+      number: 42,
+      provider: "github",
+      repository: "acme/app",
+      source: { mount: "app", ref: "refs/pull/42/head", repo: "acme/app" },
+      title: "Improve app",
+    })
+    expect(() => pullRequest.read({ context: { get: () => undefined } })).toThrow("requires pull request invocation context")
   })
 
   it("creates Discord adapters from provider defaults", async () => {
