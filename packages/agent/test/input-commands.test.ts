@@ -62,7 +62,7 @@ describe("inputCommands", () => {
     expect(resolved.input.prompt).toBe("auth changes")
   })
 
-  it("uses command descriptions for command-only default rewrites", async () => {
+  it("uses command names for command-only default rewrites with descriptions", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 
@@ -76,10 +76,10 @@ describe("inputCommands", () => {
       })],
     }, runtime(), { prompt: "/summary" })
 
-    expect(resolved.input.prompt).toBe("Summarize the request.")
+    expect(resolved.input.prompt).toBe("summary")
   })
 
-  it("removes command-only text for the default command rewrite", async () => {
+  it("uses the command name for command-only default rewrites without descriptions", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 
@@ -91,7 +91,31 @@ describe("inputCommands", () => {
       })],
     }, runtime(), { prompt: "/summary" })
 
-    expect(resolved.input.prompt).toBe("")
+    expect(resolved.input.prompt).toBe("summary")
+  })
+
+  it("accepts hook-only commands and rewrites bare commands to the command name", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const hook = vi.fn()
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [inputCommands({
+        commands: {
+          summary: {
+            hooks: {
+              "agent:input": hook,
+            },
+          },
+        },
+      })],
+    }, runtime(), { prompt: "/summary" })
+
+    expect(resolved.input.prompt).toBe("summary")
+    expect(hook).toHaveBeenCalledWith(expect.objectContaining({
+      name: "summary",
+      text: "/summary",
+    }))
   })
 
   it("keeps command-only message text when a string handler returns empty args", async () => {

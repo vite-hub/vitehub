@@ -1,5 +1,6 @@
 import { createHash, createSign } from "node:crypto"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
+import { readPullRequestContext } from "./capabilities/pull-request-context.ts"
 import { deliveryArtifactAttachments } from "./delivery-artifacts.ts"
 
 import type {
@@ -26,6 +27,7 @@ import type {
   MaybeResolvable,
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
+import type { PullRequestContextValue } from "./capabilities/pull-request-context.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { Adapter, FileUpload } from "chat"
 
@@ -272,6 +274,12 @@ export interface GitHubPullRequestRunContext {
   }
 }
 
+export interface GitHubPullRequestReadInvocation {
+  context: {
+    get: (key: string) => unknown
+  }
+}
+
 declare global {
   interface ViteHubWorkspaceSourceResolutionContextMap {
     github: GitHubPullRequestCommand
@@ -281,6 +289,21 @@ declare global {
     github: GitHubPullRequestCommand
     pullRequest: GitHubPullRequestRunContext
   }
+}
+
+function githubPullRequestRunContextFromUnknown(input: unknown): GitHubPullRequestRunContext | undefined {
+  if (!isRecord(input)) return
+  const value = isRecord(input.pullRequest) && isRecord(input.pullRequest.pullRequest) ? input.pullRequest : input
+  if (!isRecord(value.pullRequest) || !isRecord(value.repository) || !isRecord(value.run) || !isRecord(value.trigger)) return
+  return value as unknown as GitHubPullRequestRunContext
+}
+
+export const pullRequest = {
+  read(invocation: GitHubPullRequestReadInvocation): PullRequestContextValue {
+    const context = readPullRequestContext(invocation)
+    if (!context) throw new Error("[vitehub] pullRequest.read() requires pull request invocation context.")
+    return context
+  },
 }
 
 export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
@@ -1571,10 +1594,7 @@ function ignored(reason: string) {
 }
 
 function githubPullRequestRunContextFromInput(input: unknown): GitHubPullRequestRunContext | undefined {
-  if (!isRecord(input)) return
-  const value = isRecord(input.pullRequest) && isRecord(input.pullRequest.pullRequest) ? input.pullRequest : input
-  if (!isRecord(value.pullRequest) || !isRecord(value.repository) || !isRecord(value.run) || !isRecord(value.trigger)) return
-  return value as unknown as GitHubPullRequestRunContext
+  return githubPullRequestRunContextFromUnknown(input)
 }
 
 function githubCommandFromRunContext(value: GitHubPullRequestRunContext): GitHubPullRequestCommand | undefined {

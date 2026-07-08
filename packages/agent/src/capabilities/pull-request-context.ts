@@ -394,7 +394,7 @@ function normalizePullRequestContext(value: unknown): PullRequestContextValue | 
   }
 }
 
-function readPullRequestContext(context: unknown, contextKey = "pullRequest"): PullRequestContextValue | undefined {
+export function readPullRequestContext(context: unknown, contextKey = "pullRequest"): PullRequestContextValue | undefined {
   if (isRecord(context) && isRecord(context.context) && typeof context.context.get === "function") {
     return normalizePullRequestContext(context.context.get(contextKey))
   }

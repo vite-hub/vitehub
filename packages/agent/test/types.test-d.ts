@@ -2,7 +2,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, type AgentActor, type AgentCapabilityCliCommand, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentDeliveryArtifact, type AgentDriver, type AgentFinishEvent, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
 import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, getUsageTelemetry, git, inputCommands, kv, mcp, observability, openapi, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
-import { defineChannel, github, http, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
+import { defineChannel, github, http, pullRequest, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
@@ -375,7 +375,7 @@ describe("agent public types", () => {
           expectTypeOf(event.extensions.get<TranscriptionResult[]>("transcribe")).toEqualTypeOf<TranscriptionResult[] | undefined>()
           expectTypeOf(event.extensions.get("usage-telemetry")).toEqualTypeOf<AgentUsageRecord | undefined>()
           expectTypeOf(event.extensions.get("usage-telemetry", "usage")).toEqualTypeOf<AgentUsageRecord["usage"] | undefined>()
-          expectTypeOf(getUsageTelemetry(event)).toEqualTypeOf<AgentUsageRecord | undefined>()
+          expectTypeOf(getUsageTelemetry(event)).toEqualTypeOf<string | undefined>()
           expectTypeOf(usageTelemetry.from(event)).toEqualTypeOf<AgentUsageRecord | undefined>()
           expectTypeOf(event.errorMessage).toEqualTypeOf<string | undefined>()
         },
@@ -903,10 +903,13 @@ describe("agent public types", () => {
         docs: file("AGENTS.md"),
         forecastingEngine: githubSource({ repo: "acme/forecasting-engine" }),
         pullRequest: githubSource(({ invocation }) => {
-          const pullRequest = invocation.context.get("pullRequest")
-          expectTypeOf(pullRequest).toEqualTypeOf<GitHubPullRequestRunContext | undefined>()
-          if (!pullRequest) return false
+          const source = pullRequest.read(invocation).source
+          if (!source?.repo || !source.ref) return false
+          expectTypeOf(source.repo).toEqualTypeOf<string>()
+          expectTypeOf(source.ref).toEqualTypeOf<string>()
           return {
+            repo: source.repo,
+            ref: source.ref,
             root: "portal",
           }
         }),

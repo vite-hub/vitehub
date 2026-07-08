@@ -1,5 +1,5 @@
 import { defineCapability } from "../capability-runtime.ts"
-import { getUsageTelemetry, usageTelemetry } from "./usage-telemetry.ts"
+import { usageTelemetry } from "./usage-telemetry.ts"
 
 import type {
   AgentActor,
@@ -89,7 +89,7 @@ function resultKind(result: unknown): string {
 }
 
 function usageRecordFromFinishEvent(event: AgentFinishEvent): AgentUsageRecord | undefined {
-  return getUsageTelemetry(event)
+  return usageTelemetry.from(event)
 }
 
 function capabilityEventBase<TRuntimeConfig extends AgentRuntimeConfig>(

@@ -72,7 +72,8 @@ const blockedCheckoutOptions = new Set(["--force", "--merge", "--orphan", "--pat
 const blockedFetchOptions = new Set(["--force", "--prune-tags", "--refmap", "--tags", "--update-head-ok", "--upload-pack", "-P", "-f", "-t", "-u"])
 const fetchOptionsWithValue = new Set(["--deepen", "--depth", "--filter", "--jobs", "--negotiation-tip", "--refmap", "--recurse-submodules", "--server-option", "--shallow-exclude", "--shallow-since", "--upload-pack"])
 const blockedSwitchOptions = new Set(["--create", "--discard-changes", "--force", "--force-create", "--guess", "--merge", "--orphan", "--track", "-C", "-c", "-f", "-m", "-t"])
-const defaultMaxOutputLength = 30_000
+const defaultMaxOutputLength = Number.POSITIVE_INFINITY
+const defaultTimeout = 60_000
 const gitEnv = {
   GIT_PAGER: "cat",
   GIT_TERMINAL_PROMPT: "0",
@@ -554,6 +555,7 @@ function gitShellInputSchema(commandDescription: string) {
 export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefinition {
   const mode = normalizeMode(options.mode, "Git")
   const maxOutputLength = options.maxOutputLength ?? defaultMaxOutputLength
+  const timeout = options.timeout ?? defaultTimeout
   const sessionStates = new WeakMap<object, GitSessionState>()
 
   function sessionState(context: object): GitSessionState {
@@ -578,7 +580,7 @@ export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefiniti
       if (!state.sessionPromises.has(key)) {
         state.sessionPromises.set(key, workspace.startSession(workspacePath ? { paths: [workspacePath] } : undefined).then(async (session) => {
           try {
-            const prepared = await preparePullRequestGitSession(session, workspacePath, context, options.timeout)
+            const prepared = await preparePullRequestGitSession(session, workspacePath, context, timeout)
             return { commitWrites: !prepared, session }
           }
           catch (error) {
@@ -617,7 +619,7 @@ export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefiniti
     tools: context => gitTools(mode, {
       maxOutputLength,
       policy: options.policy,
-      timeout: options.timeout,
+      timeout,
     }, getSessionResolver(context), defaultGitCwd(context)),
     close: closeSession,
   })
