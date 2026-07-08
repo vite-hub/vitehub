@@ -9,6 +9,7 @@ import type {
   AgentAdapterRunContext,
   AgentCapabilityDefinition,
   AgentCapabilityRuntimeContext,
+  AgentChannelDeliveryFinishEffectCallback,
   AgentDriver,
   AgentModelResolver,
   AgentRunInput,
@@ -521,12 +522,14 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
         const resolvedTitle = await getTitle()
         return resolvedTitle ? { title: resolvedTitle } : undefined
       })
-      context.delivery.finishEffect((finish) => {
+      const titleDeliveryEffect: AgentChannelDeliveryFinishEffectCallback = (finish) => {
         const resolvedTitle = finish.extensions.get(capabilityId, "title")
         return typeof resolvedTitle === "string" && resolvedTitle.trim()
           ? { kind: "title", payload: { title: resolvedTitle.trim() } }
           : undefined
-      })
+      }
+      titleDeliveryEffect.active = finish => Boolean(finish.channel)
+      context.delivery.finishEffect(titleDeliveryEffect)
       context.output.render((result) => {
         if (hasChatTitleApplied(result)) return result
         if (isStreamTextResult(result)) {

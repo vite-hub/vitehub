@@ -283,7 +283,10 @@ export type AgentChannelDeliveryFinishEffectResult =
 export type AgentChannelDeliveryFinishEffectCallback<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-> = (context: AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS>, event?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<AgentChannelDeliveryFinishEffectResult>
+> = {
+  (context: AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS>, event?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>): MaybePromise<AgentChannelDeliveryFinishEffectResult>
+  active?: (context: AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS>) => boolean
+}
 export type AgentChannelDeliveryFinishEffect<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,

@@ -4115,6 +4115,26 @@ describe("agent message protocol", () => {
     expect(extension).not.toHaveBeenCalled()
   })
 
+  it("does not generate chat titles for plain agent runs without title delivery", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => {
+      throw new Error("title should not run")
+    })
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute })],
+      driver: { run: () => ({ text: "ok" }) },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {
+      messages: [createMessage({ role: "user", text: "Name this chat" })],
+    })).resolves.toMatchObject({ text: "ok" })
+    expect(execute).not.toHaveBeenCalled()
+  })
+
   it("does not rerun finish lifecycle when a finish hook fails", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finishError = new Error("finish failed")

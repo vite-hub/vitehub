@@ -108,6 +108,7 @@ import type {
   AgentDriverContribution,
   AgentDriverKind,
   AgentFinishEvent,
+  AgentFinishExtensions,
   AgentChatOptions,
   AgentHandlerOptions,
   AgentInput,
@@ -1716,7 +1717,7 @@ function hasFinishWork<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
-  return Boolean(context.finishHook || context.finishDeliveryEffectProviders.length)
+  return Boolean(context.finishHook || activeFinishDeliveryEffectProviders(context).length)
 }
 
 type AgentInvocationFinishOutcome =
@@ -1804,9 +1805,25 @@ async function resolveFinishDeliveryEffectIntents<
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<AgentChannelDeliveryEffectIntent[]> {
   const intents: AgentChannelDeliveryEffectIntent[] = []
+  const finishContext = createFinishDeliveryEffectContext(event, context)
+  for (const provider of providers) {
+    const intent = typeof provider === "function" ? await provider(finishContext, event) : provider
+    if (!intent) continue
+    appendDeliveryEffectIntent(intents, intent)
+  }
+  return intents
+}
+
+function createFinishDeliveryEffectContext<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+): AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS> {
   const result = event.result === undefined ? undefined : toAgentRunResult(event.result)
   const active = activeDeliveryChannel(context.channels, context.context, context.run)
-  const finishContext = {
+  return {
     ...context.runtimeContext,
     actor: context.actor,
     ...(active ? { channel: active.channel } : {}),
@@ -1828,12 +1845,32 @@ async function resolveFinishDeliveryEffectIntents<
     ...(event.text !== undefined ? { text: event.text } : {}),
     workspace: context.workspace,
   }
-  for (const provider of providers) {
-    const intent = typeof provider === "function" ? await provider(finishContext, event) : provider
-    if (!intent) continue
-    appendDeliveryEffectIntent(intents, intent)
-  }
-  return intents
+}
+
+function activeFinishDeliveryEffectProviders<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+  event?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
+): AgentChannelDeliveryFinishEffect[] {
+  if (!context.finishDeliveryEffectProviders.length) return []
+  const active = event ? createFinishDeliveryEffectContext(event, context) : undefined
+  return context.finishDeliveryEffectProviders.filter((provider) => {
+    if (typeof provider !== "function" || !provider.active) return true
+    const activeContext = active ?? createFinishDeliveryEffectContext({
+      actor: context.actor,
+      extensions: { get: () => undefined } as unknown as AgentFinishExtensions,
+      input: context.input,
+      invocation: {
+        durationMs: Date.now() - context.startedAt,
+        ...(context.run ? { run: context.run } : {}),
+      },
+      invoker: context.invoker,
+      runtime: context.runtimeContext,
+    } as AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, context)
+    return provider.active(activeContext)
+  })
 }
 
 async function finishAgentInvocation<
@@ -1871,7 +1908,7 @@ async function finishAgentInvocation<
       }
       const extensions = await createAgentInvocationExtensions(eventBase as never, context.finishExtensionProviders)
       const finishEvent = { ...eventBase, extensions }
-      await applyChannelDeliveryEffectIntents(context, await resolveFinishDeliveryEffectIntents(context.finishDeliveryEffectProviders, finishEvent as never, context), finishEvent as never)
+      await applyChannelDeliveryEffectIntents(context, await resolveFinishDeliveryEffectIntents(activeFinishDeliveryEffectProviders(context, finishEvent as never), finishEvent as never, context), finishEvent as never)
       await runObservedAgentHook(context.hooks, {
         ids: { runId: context.run?.runId },
         name: "agent:finish",
