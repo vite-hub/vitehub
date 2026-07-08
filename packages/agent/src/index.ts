@@ -1910,18 +1910,19 @@ async function finishAgentInvocation<
         ...eventBase,
         extensions: { get: () => undefined } as unknown as AgentFinishExtensions,
       } as AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>)
-      if (!context.finishHook && !activeDeliveryProviders.length) return
-      const extensions = await createAgentInvocationExtensions(eventBase as never, context.finishExtensionProviders)
-      const finishEvent = { ...eventBase, extensions }
-      await applyChannelDeliveryEffectIntents(context, await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context), finishEvent as never)
-      await runObservedAgentHook(context.hooks, {
-        ids: { runId: context.run?.runId },
-        name: "agent:finish",
-        owner: "agent",
-        phase: "finish",
-      }, async () => {
-        await context.finishHook?.(finishEvent)
-      })
+      if (context.finishHook || activeDeliveryProviders.length) {
+        const extensions = await createAgentInvocationExtensions(eventBase as never, context.finishExtensionProviders)
+        const finishEvent = { ...eventBase, extensions }
+        await applyChannelDeliveryEffectIntents(context, await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context), finishEvent as never)
+        await runObservedAgentHook(context.hooks, {
+          ids: { runId: context.run?.runId },
+          name: "agent:finish",
+          owner: "agent",
+          phase: "finish",
+        }, async () => {
+          await context.finishHook?.(finishEvent)
+        })
+      }
     }
     if (!failed) await commitWorkspaceChanges(context)
     if (!failed) {

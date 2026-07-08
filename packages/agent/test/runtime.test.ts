@@ -4207,6 +4207,45 @@ describe("agent message protocol", () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
+  it("auto-commits workspace writes when finish delivery effects are inactive", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { defineWorkspace, useWorkspace } = await import("@vite-hub/workspace")
+    const { registerWorkspace } = await import("@vite-hub/workspace/test")
+    const workspaceName = `inactive-finish-auto-commit-${Math.random().toString(36).slice(2)}`
+    const inactiveFinishEffect: AgentChannelDeliveryFinishEffectCallback = context => context.reply("unused")
+    inactiveFinishEffect.active = () => false
+    registerWorkspace(workspaceName, defineWorkspace({
+      commit: true,
+      store: { provider: "memory" },
+    }))
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "inactive-finish-effect",
+          prepare(context) {
+            context.delivery.finishEffect(inactiveFinishEffect)
+          },
+        }),
+      ],
+      driver: { async run({ workspace }) {
+          await (workspace as WritableWorkspaceFacade).fs.writeFile("notes.md", "committed")
+          return { text: "ok" }
+        } },
+      workspace: {
+        mode: "write",
+        name: workspaceName,
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).resolves.toMatchObject({ text: "ok" })
+
+    await expect(useWorkspace(workspaceName, { mode: "write" }).diff()).resolves.toMatchObject({ entries: [] })
+  })
+
   it("does not rerun finish lifecycle when a finish hook fails", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finishError = new Error("finish failed")
