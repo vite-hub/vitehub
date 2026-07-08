@@ -90,13 +90,14 @@ function subpath(base: string, path: string): string {
 
 type NitroConfig = Record<string, unknown> & CloudflareAgentStateRollupTarget & CloudflareAgentStateTarget
 type RollupExternalFunction = (source: string, importer?: string, isResolved?: boolean) => boolean | null | undefined | void
+type RollupExternalOption = string | RegExp | (string | RegExp)[] | RollupExternalFunction
 type BuildWithRollupOptions = {
   build?: {
     rolldownOptions?: {
-      external?: unknown
+      external?: RollupExternalOption
     }
     rollupOptions?: {
-      external?: unknown
+      external?: RollupExternalOption
     }
   }
 }
@@ -153,9 +154,9 @@ function cloneCloudflareAgentStateMigrations(value: unknown): CloudflareAgentSta
   })
 }
 
-function mergeRollupExternals(external: unknown, additions: readonly string[]): unknown {
+function mergeRollupExternals(external: RollupExternalOption | undefined, additions: readonly string[]): RollupExternalOption | undefined {
   if (external === undefined) return [...additions]
-  if (typeof external === "string") return additions.includes(external) ? additions : [external, ...additions]
+  if (typeof external === "string") return additions.includes(external) ? [...additions] : [external, ...additions]
   if (external instanceof RegExp) return [external, ...additions]
   if (Array.isArray(external)) {
     const missing = additions.filter(source => !external.includes(source))
@@ -169,7 +170,7 @@ function mergeRollupExternals(external: unknown, additions: readonly string[]): 
   return external
 }
 
-function mergeCloudflareWorkersExternal(external: unknown): unknown {
+function mergeCloudflareWorkersExternal(external: RollupExternalOption | undefined): RollupExternalOption | undefined {
   return mergeRollupExternals(external, ["cloudflare:workers", ...optionalMessageAdapterRuntimeExternals])
 }
 
@@ -225,7 +226,7 @@ function mergeCloudflareAgentStateNitroConfig(value: unknown): NitroConfig {
   configureCloudflareAgentState(nitro)
   installCloudflareAgentStateEntrypoint(nitro)
   nitro.rollupConfig ||= {}
-  nitro.rollupConfig.external = mergeCloudflareWorkersExternal(nitro.rollupConfig.external)
+  nitro.rollupConfig.external = mergeCloudflareWorkersExternal(nitro.rollupConfig.external as RollupExternalOption | undefined)
   return nitro
 }
 
