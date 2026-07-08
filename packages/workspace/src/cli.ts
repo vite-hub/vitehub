@@ -156,9 +156,10 @@ async function readWorkspaceDevStream(response: Response, context: WorkspaceCliC
 
 function writeWorkspaceDevUsage(context: WorkspaceCliContext): void {
   context.stdout.write([
-    "Usage: vitehub workspace dev <workspace> [command...] [--url <url>] [--timeout <ms>]",
+    "Usage: vitehub workspace dev <workspace> [exec <command...>] [--url <url>] [--timeout <ms>]",
     "",
     "Run Workspace commands through a running Vite Development Server.",
+    "Omit exec to open the interactive command loop.",
     "",
     "Options:",
     "  --url <url>       Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
@@ -225,12 +226,14 @@ function parseWorkspaceDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedWo
       parsed.workspace = arg
       continue
     }
-    const [command, ...commandArgs] = args.slice(index)
-    if (command?.trim()) {
+    if (arg === "exec") {
+      const [command, ...commandArgs] = args.slice(index + 1)
+      if (!command?.trim()) throw new Error("workspace dev exec requires a command.")
       parsed.command = command
       if (commandArgs.length) parsed.args = commandArgs
+      break
     }
-    break
+    throw new Error(`Unexpected argument: ${arg}. Use exec <command...> for one-shot commands.`)
   }
   return parsed
 }
@@ -399,7 +402,7 @@ export function createWorkspaceCliContributor(): WorkspaceCliContributor {
         description: "Run commands through a Workspace Session.",
         name: "dev",
         run: async (args, context) => await runWorkspaceDevCli(args, context),
-        usage: "vitehub workspace dev <workspace> [command...]",
+        usage: "vitehub workspace dev <workspace> [exec <command...>]",
       }],
       name: "workspace",
     }],
