@@ -194,6 +194,45 @@ describe("blob config", () => {
     expect(() => normalizeBlobOptions("blob" as never)).toThrow("`blob` must be a plain object.")
   })
 
+  it("normalizes opt-in serving defaults", () => {
+    expect(normalizeBlobOptions({ serve: true })).toEqual({
+      serve: {
+        route: "/api/_vitehub/blob",
+        store: "default",
+      },
+      store: {
+        base: ".data/blob",
+        driver: "fs",
+      },
+    })
+  })
+
+  it("normalizes configured serving options without changing store config", () => {
+    expect(normalizeBlobOptions({
+      driver: "fs",
+      base: ".data/assets",
+      serve: {
+        publicBaseUrl: "https://assets.example",
+        route: "assets",
+        store: "media",
+      },
+    })).toEqual({
+      serve: {
+        publicBaseUrl: "https://assets.example",
+        route: "assets",
+        store: "media",
+      },
+      store: {
+        base: ".data/assets",
+        driver: "fs",
+      },
+    })
+  })
+
+  it("rejects invalid serving config", () => {
+    expect(() => normalizeBlobOptions({ serve: "yes" } as never)).toThrow("`blob.serve` must be true or a plain object.")
+  })
+
   it("normalizes named stores with a required default store", () => {
     expect(normalizeBlobOptions({
       stores: {

@@ -384,6 +384,52 @@ describe("blob runtime", () => {
     }))
   })
 
+  it("decorates objects from the served store with public URLs", async () => {
+    setBlobRuntimeConfig({
+      serve: {
+        publicBaseUrl: "https://assets.example/",
+        route: "/api/_vitehub/blob/",
+        store: "assets",
+      },
+      store: {
+        access: "public",
+        driver: "vercel-blob",
+        token: "default-token",
+      },
+      stores: {
+        assets: {
+          access: "public",
+          driver: "vercel-blob",
+          token: "assets-token",
+        },
+        default: {
+          access: "public",
+          driver: "vercel-blob",
+          token: "default-token",
+        },
+      },
+    })
+    ;(vercelBlobMock.list as any).mockResolvedValue({
+      blobs: [{
+        contentType: "text/plain",
+        pathname: "notes/served.txt",
+        size: 5,
+        uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
+      }],
+      hasMore: false,
+    })
+
+    const put = await blob.store("assets").put("notes/served.txt", "value")
+    const head = await blob.store("assets").head("notes/served.txt")
+    const list = await blob.store("assets").list()
+    const otherStore = await blob.put("notes/private.txt", "value")
+
+    expect(put.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
+    expect(head.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
+    expect(list.blobs[0]?.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
+    expect(otherStore.url).toBe("https://blob.example/notes/private.txt")
+  })
+
   it("rejects missing named stores at runtime", async () => {
     setBlobRuntimeConfig({
       store: {

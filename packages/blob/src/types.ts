@@ -299,17 +299,34 @@ export type ResolvedBlobStoreConfig =
 
 export type BlobStoreName = "default" | (string & {})
 
-export interface BlobStoresConfig {
+export type BlobServeOptions = boolean | {
+  publicBaseUrl?: string
+  route?: string
+  store?: BlobStoreName
+}
+
+export interface BlobServeConfig {
+  publicBaseUrl?: string
+  route: string
+  store: BlobStoreName
+}
+
+interface BlobModuleBaseOptions {
+  serve?: BlobServeOptions
+}
+
+export interface BlobStoresConfig extends BlobModuleBaseOptions {
   stores: Record<string, BlobStoreConfig>
 }
 
 export type BlobModuleOptions =
   | false
   | BlobStoresConfig
-  | ({ driver?: undefined } & Partial<Pick<ResolvedCloudflareR2BlobStoreConfig, "binding" | "bucketName">>)
-  | BlobStoreConfig
+  | (BlobModuleBaseOptions & { driver?: undefined } & Partial<Pick<ResolvedCloudflareR2BlobStoreConfig, "binding" | "bucketName">>)
+  | (BlobModuleBaseOptions & BlobStoreConfig)
 
 export interface ResolvedBlobModuleOptions {
+  serve?: BlobServeConfig
   store: ResolvedBlobStoreConfig
   stores?: Record<string, ResolvedBlobStoreConfig>
 }
