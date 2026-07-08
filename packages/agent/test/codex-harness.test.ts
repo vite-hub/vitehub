@@ -64,12 +64,40 @@ describe("codexDriver", () => {
     }
   })
 
+  it("passes through explicit harness sandbox providers", async () => {
+    const { codexDriver } = await import("../src/harness/codex.ts")
+    const provider = {
+      providerId: "isolated",
+      specificationVersion: "harness-sandbox-v1",
+      createSession: vi.fn(),
+    }
+
+    const driver = codexDriver({ sandbox: provider })
+
+    expect(driver.sandbox).toBe(provider)
+  })
+
+  it("passes through harness sandbox provider resolvers", async () => {
+    const { codexDriver } = await import("../src/harness/codex.ts")
+    const provider = {
+      providerId: "isolated",
+      specificationVersion: "harness-sandbox-v1",
+      createSession: vi.fn(),
+    }
+    const resolver = vi.fn(() => provider)
+
+    const driver = codexDriver({ sandbox: resolver })
+
+    expect(driver.sandbox).toBe(resolver)
+  })
+
   it("preserves explicit Codex auth settings", async () => {
     const { codexDriver } = await import("../src/harness/codex.ts")
 
-    codexDriver({ auth: { gateway: { apiKey: "gateway-key" } }, sandbox: false })
+    const driver = codexDriver({ auth: { gateway: { apiKey: "gateway-key" } }, sandbox: false })
 
     expect(createCodex).toHaveBeenLastCalledWith({ auth: { gateway: { apiKey: "gateway-key" } } })
+    expect(driver.sandbox).toBeUndefined()
   })
 })
 
