@@ -5172,6 +5172,36 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toEqual({ title: "Como Estas" })
   })
 
+  it("generates chat titles from stream-result title drivers", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [
+        chatTitle({
+          driver: {
+            run: () => ({
+              stream: (async function* () {
+                yield { text: "Streamed ", type: "text-delta" }
+                yield { text: "title", type: "text-delta" }
+              })(),
+            }),
+          },
+          fallback: "Fallback title",
+        }),
+      ],
+      driver: { run: () => ({ text: "ok" }) },
+      hooks: {
+        "agent:finish": finish,
+      },
+    })
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Need a sidebar title" })],
+    })
+
+    expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toEqual({ title: "Streamed title" })
+  })
+
   it("renders custom chat title templates and skips unmatched triggers", async () => {
     const generateText = vi.fn(async () => ({ text: "Portal Forecast Help" }))
     vi.doMock("ai", () => ({ generateText, jsonSchema: vi.fn(schema => schema) }))

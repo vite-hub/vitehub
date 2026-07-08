@@ -228,14 +228,11 @@ function chatTitleRunContext(
 }
 
 async function chatTitleResultText(result: unknown): Promise<string | undefined> {
-  if (result instanceof Response) return await result.text()
-  if (result && typeof result === "object" && Symbol.asyncIterator in result) {
-    let text = ""
-    for await (const event of streamAgentOutputToEvents(result)) {
-      if (event.type === "text-delta") text += event.text
-    }
-    return text || undefined
+  let text = ""
+  for await (const event of streamAgentOutputToEvents(result)) {
+    if (event.type === "text-delta") text += event.text
   }
+  if (text) return text
   return toAgentRunResult(result).text
 }
 
