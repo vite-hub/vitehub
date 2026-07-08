@@ -7,6 +7,12 @@ export {
   getAgentChatContext,
 } from "../chat-trigger.ts"
 export {
+  browser,
+} from "./browser.ts"
+export type {
+  BrowserCapabilityOptions,
+} from "./browser.ts"
+export {
   chatSummary,
 } from "./chat-summary.ts"
 export {

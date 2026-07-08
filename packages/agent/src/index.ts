@@ -803,6 +803,9 @@ function validateWorkspaceCapabilities<Name extends WorkspaceName>(options: Work
         throw new Error("[vitehub] workspaceShell({ mode: \"write\" }) requires workspace.mode: \"write\".")
       }
     }
+    if (capabilityRequiresBashWorkspace(capability) && workspaceMode !== "write") {
+      throw new Error(`[vitehub] ${capability.id}() bash requires workspace.mode: "write".`)
+    }
     if (capability.id === "sandbox") {
       validateSandboxCommands((capability.metadata as { commands?: unknown } | undefined)?.commands)
     }
@@ -835,10 +838,14 @@ function sandboxCapabilityRequiresWorkspace(capability: NormalizedCapability): b
   return Array.isArray(metadata?.commands)
 }
 
+function capabilityRequiresBashWorkspace(capability: NormalizedCapability): boolean {
+  return Boolean(capability.bash?.length)
+}
+
 function validateNonWorkspaceCapabilities(capabilities: NormalizedCapability[], hasWorkspace: boolean): void {
   if (hasWorkspace) return
   for (const capability of capabilities) {
-    if (capability.workspace && !capabilityWorkspaceIsOptional(capability) || capability.id === "workspace-shell" || sandboxCapabilityRequiresWorkspace(capability) || accessCapabilityRequiresWorkspace(capability)) {
+    if (capability.workspace && !capabilityWorkspaceIsOptional(capability) || capability.id === "workspace-shell" || sandboxCapabilityRequiresWorkspace(capability) || accessCapabilityRequiresWorkspace(capability) || capabilityRequiresBashWorkspace(capability)) {
       const name = capability.id === "workspace-shell" ? "workspaceShell" : capability.id
       throw new Error(`[vitehub] ${name}() requires an explicit workspace.`)
     }

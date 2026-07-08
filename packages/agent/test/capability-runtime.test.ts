@@ -539,6 +539,76 @@ describe("agent capability runtime", () => {
     ])
   })
 
+  it("creates one global bash tool from capability bash contributions", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const session = {
+      close: vi.fn(),
+      commit: vi.fn(),
+      exec: vi.fn(async (command: string, args: string[] = []) => ({ args, command, exitCode: 0, stderr: "", stdout: "ok\n" })),
+    }
+    const workspace = {
+      ...writableWorkspace(),
+      startSession: vi.fn(async () => session),
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({ id: "noop" }),
+        defineCapability({
+          bash: [
+            { command: "agent-browser", description: "Run headless browser." },
+            "node",
+          ],
+          id: "browser",
+        }),
+      ],
+    }, runtime(), {}, workspace as never, "write")
+
+    expect(Object.keys(resolved.tools || {})).toEqual(["bash"])
+    expect(resolved.tools?.bash?.description).toContain("agent-browser (Run headless browser.)")
+    await expect(resolved.tools?.bash?.execute?.({
+      args: ["--help"],
+      command: "agent-browser",
+      cwd: "screenshots",
+    })).resolves.toMatchObject({ exitCode: 0, stdout: "ok\n" })
+    expect(session.exec).toHaveBeenCalledWith("agent-browser", ["--help"], {
+      cwd: "/workspace/screenshots",
+      env: undefined,
+      timeout: undefined,
+    })
+    expect(session.commit).toHaveBeenCalledWith({ message: "bash command" })
+    expect(session.close).toHaveBeenCalledOnce()
+    await expect(resolved.tools?.bash?.execute?.({ command: "pnpm" })).rejects.toThrow("not allowed")
+  })
+
+  it("applies browser workspace source contributions", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [browser({ skillContent: "# Browser\nUse bash.\n" })],
+    }, runtime(), {}, emptyWorkspace() as never, "write", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    expect(resolved.workspaceDefinition?.sources?.["skill.browser"]).toMatchObject({
+      materialize: "lazy",
+      mediaType: "text/markdown",
+      workspacePath: "skills/browser/SKILL.md",
+    })
+    expect(Object.keys(resolved.tools || {})).toEqual(["bash"])
+    expect(resolved.registries.workspaceContributions).toEqual([
+      {
+        capabilityId: "browser",
+        rules: [],
+        sources: ["skill.browser"],
+      },
+    ])
+  })
+
   it("requires Access when capability workspace contributions add scoped sources", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 

@@ -631,6 +631,14 @@ export type AgentCapabilityToolResolver<
   | Record<string, unknown>
   | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<Record<string, unknown> | undefined>)
 
+export type AgentCapabilityBashCommand =
+  | string
+  | {
+      command: string
+      description?: string
+      install?: string
+    }
+
 export interface AgentCapabilityWorkspaceContribution {
   rules?: WorkspaceRules
   sources?: Record<string, WorkspaceSourceInput>
@@ -737,6 +745,7 @@ export interface AgentCapabilityDefinition<
   TTypeContract extends AgentCapabilityTypeContract = AgentCapabilityTypeContract,
 > {
   readonly __vitehubTypeContract?: TTypeContract
+  bash?: readonly AgentCapabilityBashCommand[]
   bind?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   chatAttachments?: {
