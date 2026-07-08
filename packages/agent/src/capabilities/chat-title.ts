@@ -390,8 +390,9 @@ function chatTitleUiMessageStreamOverride(toUIMessageStream: ToUIMessageStream |
 export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: ChatTitleOptions<TRuntimeConfig> = {},
 ): AgentCapabilityDefinition<TRuntimeConfig> {
+  const capabilityId = options.id || "chat-title"
   return defineCapability({
-    id: options.id || "chat-title",
+    id: capabilityId,
     output(context) {
       const messages = context.input.messages()
       const message = firstUserMessage(messages)
@@ -412,6 +413,12 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
       context.finish.provide(async () => {
         const resolvedTitle = await getTitle()
         return resolvedTitle ? { title: resolvedTitle } : undefined
+      })
+      context.delivery.finishEffect((finish) => {
+        const resolvedTitle = finish.extensions.get(capabilityId, "title")
+        return typeof resolvedTitle === "string" && resolvedTitle.trim()
+          ? { kind: "title", payload: { title: resolvedTitle.trim() } }
+          : undefined
       })
       context.output.render((result) => {
         if (hasChatTitleApplied(result)) return result

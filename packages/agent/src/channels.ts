@@ -1185,12 +1185,30 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
   }
 }
 
+function titleEffectPayloadTitle(value: unknown): string | undefined {
+  const title = typeof value === "string" ? value : isRecord(value) ? value.title : undefined
+  return typeof title === "string" ? maybeString(title.trim()) : undefined
+}
+
+async function messageChannelTitleEffect<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+): Promise<void> {
+  const title = titleEffectPayloadTitle(context.effect.payload)
+  if (!title || !context.run?.threadId) return
+  const adapter = context.channel.adapter
+    ? await resolveEffectOption(context.channel.adapter as MaybeResolvable<Adapter, AgentChannelDeliveryEffectContext<TRuntimeConfig>>, context)
+    : undefined
+  const setThreadTitle = (adapter as (Adapter & { setThreadTitle?: (threadId: string, title: string) => MaybePromise<unknown> }) | undefined)?.setThreadTitle
+  if (typeof setThreadTitle === "function") await setThreadTitle(context.run.threadId, title)
+}
+
 function messageChannelDeliveryEffects<TRuntimeConfig extends AgentRuntimeConfig>(
   effects: AgentChannelDeliveryEffects<TRuntimeConfig> | undefined,
 ): AgentChannelDeliveryEffects<TRuntimeConfig> {
   return {
     ...effects,
     reply: effects?.reply ?? messageChannelReplyEffect,
+    title: effects?.title ?? messageChannelTitleEffect,
   }
 }
 
