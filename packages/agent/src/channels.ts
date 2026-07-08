@@ -32,6 +32,7 @@ import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } f
 import type { Adapter, FileUpload } from "chat"
 
 export const messageChannelTitleSupportContextKey = "channel.delivery.supportsTitle"
+const customTitleEffectChannels = new WeakSet<object>()
 
 export { deliveryArtifactAttachments } from "./delivery-artifacts.ts"
 export { defineFinishEffect } from "./delivery-effects.ts"
@@ -1226,6 +1227,12 @@ export async function messageChannelSupportsTitleEffect<TRuntimeConfig extends A
   return Boolean(adapterSetThreadTitle(adapter) || adapterSetAssistantTitle(adapter))
 }
 
+export function channelHasCustomTitleEffect<TRuntimeConfig extends AgentRuntimeConfig>(
+  channel: AgentChannelDefinition<TRuntimeConfig>,
+): boolean {
+  return customTitleEffectChannels.has(channel)
+}
+
 async function messageChannelTitleEffect<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
 ): Promise<void> {
@@ -1799,12 +1806,14 @@ export function defineChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentR
   const effects = messages !== false && options.adapter
     ? messageChannelDeliveryEffects(options.effects)
     : options.effects
-  return {
+  const channel: AgentChannelDefinition<TRuntimeConfig> = {
     ...options,
     ...(effects ? { effects } : {}),
     kind,
     messages,
   }
+  if (options.effects?.title) customTitleEffectChannels.add(channel)
+  return channel
 }
 
 export function discord<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(

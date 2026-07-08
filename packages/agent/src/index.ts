@@ -13,6 +13,7 @@ import { isAsyncIterable, streamAgentOutputToEvents, toAgentRunResult, toAgentSt
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import { resolveAgentChannelChatOptions } from "./internal/channels.ts"
 import {
+  channelHasCustomTitleEffect,
   messageChannelSupportsTitleEffect,
   messageChannelTitleSupportContextKey,
 } from "./channels.ts"
@@ -697,6 +698,10 @@ async function setChannelDeliverySupportContext<TRuntimeConfig extends AgentRunt
   if (!active) return
   if (!channelDeliveryEffectHandlers(active.channel, { kind: "title" }).length) {
     invocationContext.set(messageChannelTitleSupportContextKey, false, { overwrite: true })
+    return
+  }
+  if (channelHasCustomTitleEffect(active.channel)) {
+    invocationContext.set(messageChannelTitleSupportContextKey, true, { overwrite: true })
     return
   }
   const { runtimeConfig: _runtimeConfig, ...callbackContext } = runtimeContext

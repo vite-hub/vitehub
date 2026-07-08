@@ -2764,6 +2764,42 @@ describe("agent message protocol", () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
+  it("delivers chat titles through custom message Channel title effects", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const execute = vi.fn(() => "Prepared title")
+    const titleEffect = vi.fn()
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute })],
+      channels: {
+        portal: defineChannel("portal", {
+          adapter: {
+            channelIdFromThreadId: (threadId: string) => threadId,
+            postMessage: vi.fn(),
+          } as never,
+          effects: {
+            title: titleEffect,
+          },
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
+    expect(execute).toHaveBeenCalledOnce()
+    expect(titleEffect).toHaveBeenCalledWith(expect.objectContaining({
+      effect: { kind: "title", payload: { title: "Prepared title" } },
+    }))
+  })
+
   it("ignores unsupported delivery effect intents with observer metadata", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
