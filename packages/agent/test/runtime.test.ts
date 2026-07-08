@@ -5056,6 +5056,35 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("does not render chat title templates for heuristic fallback titles", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const template = vi.fn(() => "Rendered template")
+    const variable = vi.fn(() => "Rendered variable")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [
+        chatTitle({
+          template,
+          variables: {
+            area: variable,
+          },
+        }),
+      ],
+      driver: { run: () => ({ text: "ok" }) },
+      hooks: {
+        "agent:finish": finish,
+      },
+    })
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Need help with invoices today" })],
+    })
+
+    expect(template).not.toHaveBeenCalled()
+    expect(variable).not.toHaveBeenCalled()
+    expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toEqual({ title: "Need help with invoices today" })
+  })
+
   it("generates chat titles with the default template and agent model", async () => {
     const generateText = vi.fn(async () => ({ text: '"Generated invoice title"' }))
     vi.doMock("ai", () => ({

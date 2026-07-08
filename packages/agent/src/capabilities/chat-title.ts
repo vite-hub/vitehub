@@ -282,13 +282,14 @@ async function generateChatTitle(context: AgentCapabilityRuntimeContext, options
     return cleanGeneratedTitle(typeof result === "string" ? result : result.title, maxLength, fallback)
   }
 
-  const prompt = await renderChatTitleTemplate(options, templateInput)
   if (options.driver) {
+    const prompt = await renderChatTitleTemplate(options, templateInput)
     return cleanGeneratedTitle(await generateChatTitleWithDriver(context, options, input, prompt), maxLength, fallback)
   }
 
   const model = await resolveChatTitleModel(context, options)
   if (model) {
+    const prompt = await renderChatTitleTemplate(options, templateInput)
     const { generateText } = await loadAiSdk()
     const result = await generateText(options.instructions
       ? { instructions: options.instructions, model: model as never, prompt }
