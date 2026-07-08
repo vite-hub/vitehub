@@ -173,8 +173,19 @@ function workspaceSourceHarnessPaths(context: AgentAdapterRunContext): string[] 
     if (source.materialize === "build" && source.probeKeys?.length) {
       return source.probeKeys.map(key => [source.mountPath, key].filter(Boolean).join("/"))
     }
-    if (source.materialize === "lazy") return [source.mountPath || ""]
     return []
+  })
+}
+
+function hasLazyWorkspaceSources(context: AgentAdapterRunContext): boolean {
+  const sources = context.workspaceDefinition?.sources
+  if (!sources) return false
+  const scope = hasTrustedWorkspaceAccessScope(context.context)
+    ? context.context.get("access")?.workspaceScope
+    : undefined
+  return normalizeAgentWorkspaceSources(sources).some((source) => {
+    if (source.scopes?.length && scope && !scope.all && !source.scopes.includes(scope.scope)) return false
+    return source.materialize === "lazy"
   })
 }
 
@@ -196,15 +207,15 @@ function harnessSupportWorkspacePaths(context: AgentAdapterRunContext, definitio
   ])
 }
 
-function withHarnessInstructionPaths(paths: readonly string[]): string[] {
-  return paths.length ? compactWorkspacePaths([...harnessInstructionFiles, ...paths]) : []
+function withHarnessInstructionPaths(paths: readonly string[], includeEmpty = false): string[] {
+  return paths.length || includeEmpty ? compactWorkspacePaths([...harnessInstructionFiles, ...paths]) : []
 }
 
 function explicitHarnessWorkspacePaths(context: AgentAdapterRunContext, definition = context.workspaceDefinition): string[] {
   return withHarnessInstructionPaths([
     ...harnessSupportWorkspacePaths(context, definition),
     ...workspaceSourceHarnessPaths(context),
-  ])
+  ], hasLazyWorkspaceSources(context))
 }
 
 function selectedWorkspaceScopePaths(context: AgentAdapterRunContext, definition = context.workspaceDefinition): string[] | undefined {

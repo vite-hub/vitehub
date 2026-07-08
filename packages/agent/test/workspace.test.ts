@@ -1252,7 +1252,7 @@ describe("defineAgent workspace option", () => {
     })
   })
 
-  it("passes lazy source mount roots into Harness Workspace Sessions", async () => {
+  it("keeps lazy source mount roots out of initial Harness Workspace Sessions", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { custom } = await import("@vite-hub/workspace")
     const harnessWorkspaceSession = { close: vi.fn() }
@@ -1297,7 +1297,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
-      paths: ["docs", "portal", "AGENTS.md", "CLAUDE.md"],
+      paths: ["AGENTS.md", "CLAUDE.md"],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     })
@@ -1457,7 +1457,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
-      paths: ["docs", "AGENTS.md", "CLAUDE.md"],
+      paths: ["AGENTS.md", "CLAUDE.md"],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     }))
