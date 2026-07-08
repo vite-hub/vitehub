@@ -41,7 +41,7 @@ function expectArchiveExtract(run: ReturnType<typeof vi.fn>, root = "/work/agent
 function expectGitBaseline(run: ReturnType<typeof vi.fn>, root = "/work/agent") {
   expect(run).toHaveBeenCalledWith({
     abortSignal: undefined,
-    command: "if command -v git >/dev/null 2>&1; then git init -q && git config user.email vitehub@example.invalid && git config user.name ViteHub && git add -A && git commit --allow-empty --no-gpg-sign -qm workspace-baseline || true; fi",
+    command: "if command -v git >/dev/null 2>&1; then git init -q && git config user.email vitehub@example.invalid && git config user.name ViteHub && git add -A -f && git commit --allow-empty --no-gpg-sign -qm workspace-baseline || true; fi",
     workingDirectory: root,
   })
 }
@@ -121,6 +121,31 @@ describe("Harness Workspace Session", () => {
 
     expect(run).toHaveBeenCalledTimes(3)
     expectGitBaseline(run)
+
+    await session.close()
+  })
+
+  it("force-adds materialized files to the harness git baseline", async () => {
+    const run = sandboxRun()
+    const writeBinaryFile = vi.fn(async () => {})
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: {
+        list: vi.fn(async () => [
+          { path: ".gitignore", type: "file" },
+          { path: "app.log", type: "file" },
+        ]),
+        readFile: vi.fn(async (path: string) => path === ".gitignore" ? bytes("*.log\n") : bytes("tracked log\n")),
+      },
+      tools: {},
+    } as never, {
+      session: { run, writeBinaryFile },
+      sessionWorkDir: "/work/agent",
+    })
+
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      command: expect.stringContaining("git add -A -f"),
+    }))
 
     await session.close()
   })

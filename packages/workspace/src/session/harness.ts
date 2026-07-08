@@ -353,7 +353,7 @@ async function initializeSandboxGitBaseline(
 ) {
   await runSandbox(sandbox, {
     abortSignal,
-    command: "if command -v git >/dev/null 2>&1; then git init -q && git config user.email vitehub@example.invalid && git config user.name ViteHub && git add -A && git commit --allow-empty --no-gpg-sign -qm workspace-baseline || true; fi",
+    command: "if command -v git >/dev/null 2>&1; then git init -q && git config user.email vitehub@example.invalid && git config user.name ViteHub && git add -A -f && git commit --allow-empty --no-gpg-sign -qm workspace-baseline || true; fi",
     workingDirectory: sessionWorkDir,
   })
 }
