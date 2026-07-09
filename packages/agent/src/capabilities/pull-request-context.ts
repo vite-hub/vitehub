@@ -865,6 +865,7 @@ function targetRepositoryHostRecord(client: RepositoryHostClient, target: Reposi
 }
 
 export function readRepositoryHostContext(input: unknown, contextKey: string = defaultRepositoryHostContextKey): AsyncRecord<RepositoryHostContextValue> {
+  if (isAsyncRecord(input)) return input
   const store = contextReader(input)
   const value = store?.get(contextKey) ?? (isRecord(input) ? input[contextKey] : undefined)
   if (isAsyncRecord(value)) return value

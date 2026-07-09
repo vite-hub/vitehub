@@ -519,6 +519,7 @@ describe("repositoryHostContext", () => {
 
     const host = context.get("repositoryHost")
     expect(host).toHaveProperty("get")
+    expect(repositoryHostContext.read(host)).toBe(host)
     await expect(repositoryHostContext.read({ context }).get("pullRequest")).resolves.toMatchObject({
       number: 42,
       repository: "acme/app",
