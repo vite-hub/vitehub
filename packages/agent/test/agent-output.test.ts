@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 
+import { applyStreamEvent } from "../src/messages.ts"
 import {
   streamAgentOutputToEvents,
   toAgentRunResult,
@@ -215,6 +216,19 @@ describe("agent output helpers", () => {
       { text: "ok", type: "text-delta" },
       { reason: "stop", type: "finish" },
     ])
+  })
+
+  it("folds data-prefixed stream events into messages", () => {
+    const messages = applyStreamEvent([], {
+      data: { title: "Chat title", type: "chat-title" },
+      type: "data-chat-title",
+    })
+
+    expect(messages).toEqual([{
+      id: expect.any(String),
+      parts: [{ data: { title: "Chat title", type: "chat-title" }, type: "data-chat-title" }],
+      role: "assistant",
+    }])
   })
 
   it("does not duplicate an existing raw async iterable finish event", async () => {

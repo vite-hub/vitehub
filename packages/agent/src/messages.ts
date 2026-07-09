@@ -336,6 +336,10 @@ export function validateMessage(message: Message): void {
       case "error":
         break
       default:
+        if (typeof part.type === "string" && part.type.startsWith("data-")) {
+          if (!("data" in part)) throw new TypeError("[vitehub:messages] data part requires data.")
+          break
+        }
         throw new TypeError(`[vitehub:messages] Unsupported message part type: ${String((part as { type?: unknown }).type)}.`)
     }
   }
