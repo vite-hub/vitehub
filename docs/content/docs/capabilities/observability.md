@@ -37,7 +37,7 @@ When `onEvent` is configured, it also emits a `finish` or `error` event after th
 It provides an `observability` finish extension with `{ status, durationMs, resultKind, usage }` for completed invocations and `{ status, durationMs, usage }` for failed invocations.
 Agent Evals and the Agent test runner capture this finish extension automatically.
 
-Usage is exposed as a JSON-compatible Agent Usage Record. Finish hooks can read it from `event.usage`, and Channel Delivery finish effects can read it from `context.usage`.
+ViteHub exposes usage as a JSON-compatible Agent Usage Record. Finish hooks can read it from `event.usage`, and Channel Delivery finish effects can read it from `context.usage`.
 Applications own any formatting into text, chat messages, web UI, markdown, notes, billing records, or review comments.
 
 ## Eval assertions
