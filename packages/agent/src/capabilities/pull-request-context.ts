@@ -666,18 +666,23 @@ function repositoryHostContextValues(input: unknown): Partial<RepositoryHostCont
   const record = isRecord(input) ? input : undefined
   const rawIssue = record?.issue ?? store?.get("issue")
   const rawPullRequest = record?.pullRequest ?? store?.get("pullRequest") ?? input
-  const pullRequest = readPullRequestContext(rawPullRequest) || normalizeHostPullRequest(rawPullRequest, {})
+  const directPullRequest = readPullRequestContext(rawPullRequest)
   const issue = normalizeHostIssue(rawIssue, {
-    number: pullRequest?.number,
-    repository: pullRequest?.repository,
-  }) || (pullRequest ? normalizeHostIssue({
-    body: pullRequest.body,
-    htmlUrl: pullRequest.htmlUrl,
-    labels: pullRequest.labels,
-    number: pullRequest.number,
-    pullRequest: { htmlUrl: pullRequest.htmlUrl, url: pullRequest.apiUrl },
-    title: pullRequest.title,
-  }, { number: pullRequest.number, repository: pullRequest.repository }) : undefined)
+    number: directPullRequest?.number,
+    repository: directPullRequest?.repository,
+  }) || (directPullRequest ? normalizeHostIssue({
+    body: directPullRequest.body,
+    htmlUrl: directPullRequest.htmlUrl,
+    labels: directPullRequest.labels,
+    number: directPullRequest.number,
+    pullRequest: { htmlUrl: directPullRequest.htmlUrl, url: directPullRequest.apiUrl },
+    title: directPullRequest.title,
+  }, { number: directPullRequest.number, repository: directPullRequest.repository }) : undefined)
+  const pullRequest = directPullRequest || normalizeHostPullRequest(rawPullRequest, {
+    issue,
+    number: issue?.number,
+    repository: issue?.repository,
+  })
 
   return {
     ...(issue ? { issue } : {}),

@@ -69,6 +69,49 @@ describe("repositoryHostContext", () => {
     await expect(resolved.workspace?.fs.readFile("pull-request-context/context.md")).rejects.toThrow("missing")
   })
 
+  it("preserves pull request context from static GitHub issue payloads", async () => {
+    const { repositoryHostContext } = await import("../src/capabilities.ts")
+    const context = createAgentInvocationContextStore()
+
+    await resolveAgentCapabilities({
+      capabilities: [
+        repositoryHostContext({
+          context: {
+            issue: {
+              body: "PR body",
+              html_url: "https://github.test/acme/app/pull/42",
+              labels: [{ name: "bug" }],
+              number: 42,
+              pull_request: {
+                html_url: "https://github.test/acme/app/pull/42",
+                url: "https://api.github.test/repos/acme/app/pulls/42",
+              },
+              repository: "acme/app",
+              title: "Fix UI",
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      context,
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    const host = repositoryHostContext.read({ context })
+    await expect(host.keys()).resolves.toEqual(["issue", "pullRequest", "body", "labels"])
+    await expect(host.get("pullRequest")).resolves.toMatchObject({
+      body: "PR body",
+      htmlUrl: "https://github.test/acme/app/pull/42",
+      labels: ["bug"],
+      number: 42,
+      repository: "acme/app",
+      title: "Fix UI",
+    })
+  })
+
   it("resolves GitHub issue targets lazily and exposes PR-specific keys only for pull requests", async () => {
     const { repositoryHostContext } = await import("../src/capabilities.ts")
     const read = vi.fn<RepositoryHostClient["read"]>(async request => {
