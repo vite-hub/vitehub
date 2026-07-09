@@ -574,7 +574,7 @@ describe("agent capability runtime", () => {
     expect(session.exec).toHaveBeenCalledWith("agent-browser", ["--help"], {
       cwd: "/workspace/screenshots",
       env: undefined,
-      timeout: undefined,
+      timeout: 60_000,
     })
     expect(session.commit).toHaveBeenCalledWith({ message: "bash command" })
     expect(session.close).toHaveBeenCalledOnce()
