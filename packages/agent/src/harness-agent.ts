@@ -198,9 +198,14 @@ function pathContains(container: string, path: string): boolean {
   return !container || path === container || path.startsWith(`${container}/`)
 }
 
-function normalizeActiveHarnessWorkspacePath(path: string): string {
-  const stripped = path.replace(/\\/g, "/").replace(/^\/workspace(?:\/|$)/, "").replace(/^\/+|\/+$/g, "").replace(/\/+/g, "/")
-  const parts = stripped.split("/").filter(Boolean)
+function normalizeActiveHarnessWorkspacePath(sessionWorkDir: string, path: string): string {
+  const normalizedWorkDir = sessionWorkDir.replace(/\\/g, "/").replace(/\/+$/g, "").replace(/\/+/g, "/")
+  const normalizedPath = path.replace(/\\/g, "/").replace(/\/+/g, "/")
+  const stripped = normalizedPath.startsWith(`${normalizedWorkDir}/`) || normalizedPath === normalizedWorkDir
+    ? normalizedPath.slice(normalizedWorkDir.length)
+    : normalizedPath.replace(/^\/workspace(?:\/|$)/, "")
+  const workspacePath = stripped.replace(/^\/+|\/+$/g, "").replace(/\/+/g, "/")
+  const parts = workspacePath.split("/").filter(Boolean)
   if (parts.some(part => part === "." || part === "..")) {
     throw new Error(`[vitehub] Workspace path must stay inside the workspace: "${path}".`)
   }
@@ -215,12 +220,13 @@ function activeHarnessWorkspaceFiles(session: HarnessFileSandbox, sessionWorkDir
   if (!session.readBinaryFile) return
   return {
     async readFile(path: string) {
-      const workspacePath = normalizeActiveHarnessWorkspacePath(path)
-      if (!workspacePath) return
-      return await session.readBinaryFile?.({
+      const workspacePath = normalizeActiveHarnessWorkspacePath(sessionWorkDir, path)
+      if (!workspacePath) return { active: true as const, body: undefined }
+      const body = await session.readBinaryFile?.({
         abortSignal,
         path: joinHarnessSessionPath(sessionWorkDir, workspacePath),
       }) ?? undefined
+      return { active: true as const, body }
     },
   }
 }

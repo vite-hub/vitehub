@@ -113,8 +113,11 @@ async function resolveBlobStore(context: AgentCapabilityContext, options: BlobCa
 }
 
 async function readWorkspaceBlobBody(context: AgentCapabilityContext, path: string) {
-  const activeBody = await readActiveHarnessWorkspaceFile(context.context, path)
-  if (activeBody !== undefined) return activeBody
+  const activeRead = await readActiveHarnessWorkspaceFile(context.context, path)
+  if (activeRead) {
+    if (activeRead.body !== undefined) return activeRead.body
+    throw new Error(`[vitehub] blob_edit workspacePath was not found in the active Harness Workspace Session: "${path}".`)
+  }
   if (!context.fs?.readFile) throw new Error("[vitehub] blob_edit workspacePath requires a Workspace file system.")
   return await context.fs.readFile(path as never, { encoding: "binary" })
 }

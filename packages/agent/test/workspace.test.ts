@@ -357,7 +357,7 @@ describe("defineAgent workspace option", () => {
       await tools.blob_edit.execute({
         operation: "put",
         pathname: "screenshots/result.png",
-        workspacePath: "screenshots/result.png",
+        workspacePath: "/workspace/codex-session/screenshots/result.png",
       })
       return { finishReason: "stop", text: "ok" }
     })
