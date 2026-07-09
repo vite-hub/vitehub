@@ -139,7 +139,16 @@ export interface RepositoryHostContextValue {
   pullRequest?: PullRequestContextValue
 }
 
-export type RepositoryHostContextInput = Partial<RepositoryHostContextValue> | PullRequestContextValue
+interface RepositoryHostIssueContextInput extends Omit<RepositoryHostIssueContext, "labels"> {
+  labels?: JsonValue[]
+}
+
+type RepositoryHostContextStaticInput = Partial<Omit<RepositoryHostContextValue, "issue" | "labels"> & {
+  issue?: RepositoryHostIssueContextInput
+  labels?: JsonValue[]
+}>
+
+export type RepositoryHostContextInput = RepositoryHostContextStaticInput | PullRequestContextValue
 
 export type RepositoryHostContextTargetValue = number | string | RepositoryHostTarget | (JsonObject & {
   number?: number | string
