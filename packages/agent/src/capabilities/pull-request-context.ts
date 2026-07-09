@@ -529,6 +529,7 @@ function normalizeHostIssue(value: unknown, fallback: { number?: number | string
     number,
     ...(pullRequest ? {
       pullRequest: {
+        ...(maybeString(pullRequest.apiUrl) ? { apiUrl: maybeString(pullRequest.apiUrl) } : {}),
         ...(maybeString(pullRequest.url) ? { apiUrl: maybeString(pullRequest.url) } : {}),
         ...(maybeString(pullRequest.htmlUrl) ? { htmlUrl: maybeString(pullRequest.htmlUrl) } : {}),
         ...(maybeString(pullRequest.html_url) ? { htmlUrl: maybeString(pullRequest.html_url) } : {}),
@@ -547,6 +548,7 @@ function normalizeHostPullRequest(value: unknown, fallback: { issue?: Repository
   if (!isRecord(value)) {
     if (!fallback.issue?.pullRequest || fallback.number === undefined || !fallback.repository) return
     return {
+      ...(fallback.issue.pullRequest.apiUrl ? { apiUrl: fallback.issue.pullRequest.apiUrl } : {}),
       ...(fallback.issue.body ? { body: fallback.issue.body } : {}),
       ...(fallback.issue.pullRequest.htmlUrl || fallback.issue.htmlUrl ? { htmlUrl: fallback.issue.pullRequest.htmlUrl || fallback.issue.htmlUrl } : {}),
       ...(fallback.issue.labels ? { labels: fallback.issue.labels } : {}),
@@ -563,7 +565,9 @@ function normalizeHostPullRequest(value: unknown, fallback: { issue?: Repository
   const head = normalizedRef(value.head)
   const labels = normalizedLabelNames(value.labels) || fallback.issue?.labels
   return {
+    ...(maybeString(value.apiUrl) ? { apiUrl: maybeString(value.apiUrl) } : {}),
     ...(maybeString(value.url) ? { apiUrl: maybeString(value.url) } : {}),
+    ...(!maybeString(value.apiUrl) && !maybeString(value.url) && fallback.issue?.pullRequest?.apiUrl ? { apiUrl: fallback.issue.pullRequest.apiUrl } : {}),
     ...(base ? { base } : {}),
     ...(base?.ref ? { baseRef: base.ref } : {}),
     ...(maybeString(value.body) || fallback.issue?.body ? { body: maybeString(value.body) || fallback.issue!.body! } : {}),

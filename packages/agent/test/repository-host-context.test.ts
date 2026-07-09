@@ -123,6 +123,7 @@ describe("repositoryHostContext", () => {
             issue: {
               number: 42,
               pullRequest: {
+                apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
                 htmlUrl: "https://github.test/acme/app/pull/42",
               },
               repository: "acme/app",
@@ -140,6 +141,7 @@ describe("repositoryHostContext", () => {
 
     const host = repositoryHostContext.read({ context })
     await expect(host.get("pullRequest")).resolves.toMatchObject({
+      apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
       htmlUrl: "https://github.test/acme/app/pull/42",
       number: 42,
       repository: "acme/app",
@@ -200,6 +202,7 @@ describe("repositoryHostContext", () => {
       }
       if (request.operation === "changeRequest") {
         return {
+          apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
           base: { ref: "main" },
           head: { ref: "feature", repo: { full_name: "acme/app" } },
           number: 42,
@@ -242,6 +245,7 @@ describe("repositoryHostContext", () => {
     ])
     expect(read).toHaveBeenCalledTimes(2)
     await expect(host.get("pullRequest")).resolves.toMatchObject({
+      apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
       head: { ref: "feature", repo: "acme/app" },
       headRef: "feature",
       number: 42,
@@ -410,6 +414,7 @@ describe("repositoryHostContext", () => {
     }, runtime(), {}, undefined, "read", { context })
 
     expect(context.get("pullRequest")).toMatchObject({
+      apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
       baseRef: "main",
       headRef: "feature",
       number: 42,
