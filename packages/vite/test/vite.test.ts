@@ -5,7 +5,10 @@ const queueMocks = vi.hoisted(() => ({
 }))
 
 vi.mock("@vite-hub/agent", () => ({ defineAgent: "define-agent" }))
-vi.mock("@vite-hub/agent/capabilities", () => ({ workspaceShell: "workspace-shell" }))
+vi.mock("@vite-hub/agent/capabilities", () => ({
+  repositoryHostContext: "repository-host-context",
+  workspaceShell: "workspace-shell",
+}))
 vi.mock("@vite-hub/agent/channels", () => ({ stream: "stream-channel" }))
 vi.mock("@vite-hub/agent/vite", () => ({ hubAgent: () => ({ name: "@vite-hub/agent/vite" }) }))
 vi.mock("@vite-hub/blob/vite", () => ({ hubBlob: () => ({ name: "@vite-hub/blob/vite" }) }))
@@ -103,6 +106,7 @@ describe("vitehub", () => {
 
   it("forwards the Agent Definition import surface", () => {
     expect(agent.defineAgent).toBe("define-agent")
+    expect(capabilities.repositoryHostContext).toBe("repository-host-context")
     expect(capabilities.workspaceShell).toBe("workspace-shell")
     expect(channels.stream).toBe("stream-channel")
   })

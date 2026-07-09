@@ -28,6 +28,7 @@ export {
   pullRequestContext,
   rateLimit,
   repositoryHost,
+  repositoryHostContext,
   sandbox,
   schedule,
   skills,
