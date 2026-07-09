@@ -198,6 +198,25 @@ describe("agent output helpers", () => {
     ])
   })
 
+  it("preserves data-prefixed stream events before text and finish", async () => {
+    const output = (async function* () {
+      yield { data: { title: "Chat title", type: "chat-title" }, type: "data-chat-title" }
+      yield { text: "ok", type: "text-delta" }
+      yield { finishReason: "stop", type: "finish" }
+    })()
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { data: { title: "Chat title", type: "chat-title" }, id: undefined, type: "data-chat-title" },
+      { text: "ok", type: "text-delta" },
+      { reason: "stop", type: "finish" },
+    ])
+  })
+
   it("does not duplicate an existing raw async iterable finish event", async () => {
     const output = (async function* () {
       yield { text: "ok", type: "text-delta" }
