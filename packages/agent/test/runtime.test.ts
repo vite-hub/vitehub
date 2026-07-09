@@ -4995,6 +4995,82 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("preserves ViteHub event usage for generated ui-message-stream finish work", async () => {
+    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const delivered = vi.fn()
+    const finish = vi.fn()
+
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "delivery-ui-generated-streamed-usage",
+          output(context) {
+            context.output.final((result) => {
+              const usage = (result as { usageRecord?: { usage?: { totalTokens?: number } } }).usageRecord?.usage
+              return {
+                ...result as Record<string, unknown>,
+                text: `${(result as { text?: string }).text}:${usage?.totalTokens}`,
+              }
+            })
+            context.delivery.finishEffect(context => context.reply(context.result!.text!))
+          },
+        }),
+        usageTelemetry(),
+      ],
+      channels: {
+        review: defineChannel("review", {
+          effects: {
+            reply({ effect }) {
+              delivered(effect.payload)
+            },
+          },
+          messages: false,
+        }),
+      },
+      hooks: {
+        "agent:finish": finish,
+      },
+      driver: { run: () => (async function* () {
+          yield { delta: "event ", type: "text-delta" }
+          yield { delta: "usage", type: "text-delta" }
+          yield {
+            type: "usage",
+            usageRecord: {
+              usage: {
+                inputTokens: 8,
+                outputTokens: 5,
+                totalTokens: 13,
+              },
+            },
+          }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: {
+        channelId: "review",
+        runId: "run-1",
+      },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+    while (true) {
+      const { done } = await reader.read()
+      if (done) break
+    }
+
+    expect(delivered).toHaveBeenCalledWith("event usage:13")
+    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
+      inputTokens: 8,
+      outputTokens: 5,
+      totalTokens: 13,
+    })
+  })
+
   it("runs agent finish hooks after generated streams are consumed", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const order: string[] = []
