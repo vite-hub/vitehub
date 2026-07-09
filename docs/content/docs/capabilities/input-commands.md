@@ -49,6 +49,7 @@ export default defineAgent({
 
 `inputCommands()` runs during the input phase.
 It finds command invocations in the latest user text, calls the matching command handler, and updates the Agent Run Input before other model-facing behavior consumes it.
+Commands without a handler are accepted and removed from model input; they do not implicitly pass arguments or command names through as prompts.
 Command `agent:input` hooks run after the command updates the input and before the Agent Driver runs.
 Command `agent:finish` hooks run for completed and failed Agent Invocations.
 
