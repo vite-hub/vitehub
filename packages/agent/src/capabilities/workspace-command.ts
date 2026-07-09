@@ -37,6 +37,7 @@ const blockedEnvKeys = new Set([
   "NODE_PATH",
   "PATH",
 ])
+const defaultWorkspaceCommandTimeout = 60_000
 
 export function normalizeWorkspaceCommandEntries(commands: unknown, label = "workspaceShell({ commands })"): WorkspaceCommandEntry[] {
   if (!Array.isArray(commands) || !commands.length) {
@@ -167,7 +168,7 @@ export function workspaceCommandTools(
         const args = stringArray(value.args, "args")
         const cwd = normalizeCwd(value.cwd)
         const env = envRecord(value.env)
-        const commandTimeout = normalizeWorkspaceCommandTimeout(value.timeout, `${toolName} timeout`) ?? timeout
+        const commandTimeout = normalizeWorkspaceCommandTimeout(value.timeout, `${toolName} timeout`) ?? timeout ?? defaultWorkspaceCommandTimeout
         assertWorkspace(workspace, options.missingWorkspaceMessage || "[vitehub] workspaceShell({ commands }) requires an executable Workspace Session. Trusted workspace/session execution requires a writable workspace.")
         const session = await workspace.startSession()
         try {

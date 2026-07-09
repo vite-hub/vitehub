@@ -96,7 +96,7 @@ describe("workspaceShell capability", () => {
 
     await expect(tools.workspace_exec!.execute?.({ command: "agent-browser" })).resolves.toMatchObject({ exitCode: 0 })
 
-    expect(session.exec).toHaveBeenCalledWith("agent-browser", [], { cwd: "/workspace", env: undefined, timeout: undefined })
+    expect(session.exec).toHaveBeenCalledWith("agent-browser", [], { cwd: "/workspace", env: undefined, timeout: 60_000 })
     expect(session.commit).toHaveBeenCalledWith({ message: "workspace shell command" })
     expect(session.close).toHaveBeenCalledOnce()
   })
