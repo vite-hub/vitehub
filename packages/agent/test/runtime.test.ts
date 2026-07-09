@@ -5994,6 +5994,30 @@ describe("agent message protocol", () => {
     expect(messages.at(-1)?.parts.map(part => part.type).sort()).toEqual(["data-chat-title", "text"])
   })
 
+  it("preserves data part ids when async event streams become UI message streams", async () => {
+    const { readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: { run: () => (async function* () {
+          yield { data: { city: "Seattle" }, id: "weather-1", type: "data-weather" }
+          yield { text: "answer", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Weather?" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    expect(messages.at(-1)?.parts.filter(part => part.type === "data-weather")).toEqual([
+      { data: { city: "Seattle" }, id: "weather-1", type: "data-weather" },
+    ])
+  })
+
   it("renders custom async event streams returned from runAgent", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
