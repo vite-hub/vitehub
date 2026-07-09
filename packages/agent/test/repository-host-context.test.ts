@@ -112,6 +112,42 @@ describe("repositoryHostContext", () => {
     })
   })
 
+  it("preserves pull request context from static GitHub issue comment payloads", async () => {
+    const { repositoryHostContext } = await import("../src/capabilities.ts")
+    const host = repositoryHostContext.read({
+      action: "created",
+      comment: { body: "/review", id: 99, user: { login: "mona" } },
+      issue: {
+        body: "PR body",
+        html_url: "https://github.test/acme/app/pull/42",
+        number: 42,
+        pull_request: {
+          html_url: "https://github.test/acme/app/pull/42",
+          url: "https://api.github.test/repos/acme/app/pulls/42",
+        },
+        title: "Fix UI",
+      },
+      repository: { full_name: "acme/app" },
+    })
+
+    await expect(host.keys()).resolves.toEqual(["issue", "pullRequest", "body"])
+    await expect(host.get("issue")).resolves.toMatchObject({
+      number: 42,
+      pullRequest: {
+        apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
+        htmlUrl: "https://github.test/acme/app/pull/42",
+      },
+      repository: "acme/app",
+    })
+    await expect(host.get("pullRequest")).resolves.toMatchObject({
+      body: "PR body",
+      htmlUrl: "https://github.test/acme/app/pull/42",
+      number: 42,
+      repository: "acme/app",
+      title: "Fix UI",
+    })
+  })
+
   it("resolves GitHub issue targets lazily and exposes PR-specific keys only for pull requests", async () => {
     const { repositoryHostContext } = await import("../src/capabilities.ts")
     const read = vi.fn<RepositoryHostClient["read"]>(async request => {

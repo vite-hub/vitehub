@@ -679,12 +679,13 @@ function contextReader(input: unknown): ContextReader | undefined {
 function repositoryHostContextValues(input: unknown): Partial<RepositoryHostContextValue> {
   const store = contextReader(input)
   const record = isRecord(input) ? input : undefined
+  const rootRepository = normalizedRepositoryFullName(record?.repository)
   const rawIssue = record?.issue ?? store?.get("issue")
   const rawPullRequest = record?.pullRequest ?? record?.pull_request ?? store?.get("pullRequest") ?? (record?.issue ? undefined : input)
   const directPullRequest = readPullRequestContext(rawPullRequest)
   const issue = normalizeHostIssue(rawIssue, {
     number: directPullRequest?.number,
-    repository: directPullRequest?.repository,
+    repository: directPullRequest?.repository || rootRepository,
   }) || (directPullRequest ? normalizeHostIssue({
     body: directPullRequest.body,
     htmlUrl: directPullRequest.htmlUrl,
@@ -696,7 +697,7 @@ function repositoryHostContextValues(input: unknown): Partial<RepositoryHostCont
   const pullRequest = directPullRequest || normalizeHostPullRequest(rawPullRequest, {
     issue,
     number: issue?.number,
-    repository: issue?.repository,
+    repository: issue?.repository || rootRepository,
   })
 
   return {
