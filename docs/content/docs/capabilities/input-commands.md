@@ -85,7 +85,7 @@ Check DevTools metadata for the `inputCommands` Capability and its command descr
 | `id` | `string` | `"inputCommands"` | Capability id. |
 | `trigger` | `string` | `"/"` | Non-whitespace command prefix. |
 | `commands.*.description` | `string` | required | Command description for metadata and inspection. |
-| `commands.*.call` | `(input) => AgentRunInput \| Response \| string \| void` | required | Handler that accepts, rejects, transforms, or enriches invocation input. |
+| `commands.*.call` | `(input) => AgentRunInput \| Response \| string \| void` | argument passthrough | Handler that accepts, rejects, transforms, or enriches invocation input. |
 | `commands.*.channels` | `string[]` | all channels | Optional configured Channel ID allowlist. |
 | `commands.*.hooks` | `{ 'agent:input'?, 'agent:finish'? }` | none | Command-scoped lifecycle hooks with `ctx.message.reply/update/react` delivery primitives. |
 

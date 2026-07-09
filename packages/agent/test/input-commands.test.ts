@@ -62,7 +62,7 @@ describe("inputCommands", () => {
     expect(resolved.input.prompt).toBe("auth changes")
   })
 
-  it("uses command names for command-only default rewrites with descriptions", async () => {
+  it("keeps command-only default rewrites with descriptions", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 
@@ -76,10 +76,10 @@ describe("inputCommands", () => {
       })],
     }, runtime(), { prompt: "/summary" })
 
-    expect(resolved.input.prompt).toBe("summary")
+    expect(resolved.input.prompt).toBe("/summary")
   })
 
-  it("uses the command name for command-only default rewrites without descriptions", async () => {
+  it("keeps command-only default rewrites without descriptions", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 
@@ -91,10 +91,10 @@ describe("inputCommands", () => {
       })],
     }, runtime(), { prompt: "/summary" })
 
-    expect(resolved.input.prompt).toBe("summary")
+    expect(resolved.input.prompt).toBe("/summary")
   })
 
-  it("accepts hook-only commands and rewrites bare commands to the command name", async () => {
+  it("accepts hook-only commands and keeps bare commands", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const hook = vi.fn()
@@ -111,7 +111,7 @@ describe("inputCommands", () => {
       })],
     }, runtime(), { prompt: "/summary" })
 
-    expect(resolved.input.prompt).toBe("summary")
+    expect(resolved.input.prompt).toBe("/summary")
     expect(hook).toHaveBeenCalledWith(expect.objectContaining({
       name: "summary",
       text: "/summary",
