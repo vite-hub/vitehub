@@ -207,11 +207,11 @@ type ContextReader = {
 async function resolveMaybeFunction<TValue, TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName>(
   value: TValue | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<TValue | false | null | undefined>) | undefined,
   context: AgentCapabilityContext<TRuntimeConfig, Name>,
-): Promise<TValue | undefined> {
+): Promise<TValue | false | null | undefined> {
   const resolved = typeof value === "function"
     ? await (value as (context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<TValue | false | null | undefined>)(context)
     : value
-  return resolved || undefined
+  return resolved
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -560,9 +560,13 @@ function normalizeHostPullRequest(value: unknown, fallback: { issue?: Repository
 
 export function readPullRequestContext(context: unknown, contextKey = "pullRequest"): PullRequestContextValue | undefined {
   if (isRecord(context) && isRecord(context.context) && typeof context.context.get === "function") {
-    return normalizePullRequestContext(context.context.get(contextKey))
+    const value = context.context.get(contextKey)
+    return normalizePullRequestContext(value) || normalizePullRequestContext(isRecord(value) ? value.__pullRequestContext : undefined)
   }
-  if (isRecord(context) && typeof context.get === "function") return normalizePullRequestContext(context.get(contextKey))
+  if (isRecord(context) && typeof context.get === "function") {
+    const value = context.get(contextKey)
+    return normalizePullRequestContext(value) || normalizePullRequestContext(isRecord(value) ? value.__pullRequestContext : undefined)
+  }
   return normalizePullRequestContext(context)
 }
 
@@ -677,7 +681,7 @@ function repositoryHostContextValues(input: unknown): Partial<RepositoryHostCont
 
 function staticRepositoryHostRecord(input: unknown): AsyncRecord<RepositoryHostContextValue> {
   const values = repositoryHostContextValues(input)
-  return createAsyncRecord<RepositoryHostContextValue, RepositoryHostContextKey>(
+  return Object.assign(createAsyncRecord<RepositoryHostContextValue, RepositoryHostContextKey>(
     "repositoryHostContext()",
     repositoryHostContextKeys,
     () => repositoryHostContextKeys.filter(key => values[key] !== undefined),
@@ -689,7 +693,7 @@ function staticRepositoryHostRecord(input: unknown): AsyncRecord<RepositoryHostC
       labels: () => values.labels,
       pullRequest: () => values.pullRequest,
     },
-  )
+  ), values.pullRequest ? { __pullRequestContext: values.pullRequest } : {}) as AsyncRecord<RepositoryHostContextValue> & { __pullRequestContext?: PullRequestContextValue }
 }
 
 function repositoryParts(target: RepositoryHostContextTarget, nested?: Record<string, unknown>) {
@@ -851,7 +855,7 @@ export interface PullRequestContextCapabilityFactory {
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     Name extends WorkspaceName = WorkspaceName,
-    const TContextKey extends string = "repositoryHost",
+    const TContextKey extends string = "pullRequest",
   >(
     options?: PullRequestContextOptions<TRuntimeConfig, Name> & { contextKey?: TContextKey },
   ): AgentCapabilityDefinition<TRuntimeConfig, Name, RepositoryHostContextCapabilityTypeContract<TContextKey>>
@@ -871,8 +875,20 @@ function createRepositoryHostContext<
 
   async function recordContext(context: AgentCapabilityContext<TRuntimeConfig, Name>) {
     if (recordedContexts.has(context.context)) return
+    const hasContextOption = "context" in options
+    const hasTargetOption = "target" in options
     const input = await resolveMaybeFunction(options.context, context)
     const target = await resolveMaybeFunction(options.target, context)
+    const existing = context.context.get(contextKey)
+    if (existing !== undefined) {
+      recordedContexts.add(context.context)
+      return
+    }
+    if (target === false || target === null || target === undefined) {
+      if ((hasContextOption || hasTargetOption) && (input === false || input === null || input === undefined)) {
+        return
+      }
+    }
     const value = target
       ? targetRepositoryHostRecord(await resolveRepositoryHostContextClient(options, context), target)
       : staticRepositoryHostRecord(input ?? context)
@@ -895,13 +911,14 @@ function createRepositoryHostContext<
 function createPullRequestContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-  const TContextKey extends string = "repositoryHost",
+  const TContextKey extends string = "pullRequest",
 >(
   options: PullRequestContextOptions<TRuntimeConfig, Name> & { contextKey?: TContextKey } = {},
 ): AgentCapabilityDefinition<TRuntimeConfig, Name, RepositoryHostContextCapabilityTypeContract<TContextKey>> {
   return createRepositoryHostContext({
     ...options,
     id: options.id || "pull-request-context",
+    contextKey: options.contextKey ?? "pullRequest",
   })
 }
 

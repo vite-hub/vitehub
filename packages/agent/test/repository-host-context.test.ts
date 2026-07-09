@@ -212,4 +212,94 @@ describe("repositoryHostContext", () => {
       title: "Review me",
     })
   })
+
+  it("records pullRequestContext under the legacy pullRequest key by default", async () => {
+    const { pullRequestContext } = await import("../src/capabilities.ts")
+    const context = createAgentInvocationContextStore()
+
+    await resolveAgentCapabilities({
+      capabilities: [
+        pullRequestContext({
+          context: {
+            pullRequest: {
+              base: { ref: "main" },
+              number: 42,
+              repository: "acme/app",
+              title: "Review me",
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      context,
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    expect(pullRequestContext.read({ context })).toMatchObject({
+      number: 42,
+      repository: "acme/app",
+      title: "Review me",
+    })
+    expect(context.get("repositoryHost")).toBeUndefined()
+  })
+
+  it("does not add repository host context when configured resolvers opt out", async () => {
+    const { repositoryHostContext } = await import("../src/capabilities.ts")
+    const context = createAgentInvocationContextStore()
+    const existing = { issue: { number: 7, repository: "acme/app" } }
+    context.set("repositoryHost", existing)
+
+    await resolveAgentCapabilities({
+      capabilities: [
+        repositoryHostContext({
+          context: () => undefined,
+          target: () => undefined,
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      context,
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    expect(context.get("repositoryHost")).toBe(existing)
+
+    await resolveAgentCapabilities({
+      capabilities: [
+        repositoryHostContext({
+          target: { number: 7, repo: "acme/app" },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      context,
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    expect(context.get("repositoryHost")).toBe(existing)
+
+    const skippedContext = createAgentInvocationContextStore()
+    await resolveAgentCapabilities({
+      capabilities: [
+        repositoryHostContext({
+          target: () => false,
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      context: skippedContext,
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    expect(skippedContext.get("repositoryHost")).toBeUndefined()
+  })
 })
