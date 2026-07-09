@@ -153,6 +153,32 @@ describe("agent channels", () => {
     }
   })
 
+  it("marks Discord adapters for long-content splitting without passing ViteHub options through", async () => {
+    vi.resetModules()
+    const adapter = { name: "discord" }
+    const createDiscordAdapter = vi.fn(() => adapter)
+    vi.doMock("@chat-adapter/discord", () => ({ createDiscordAdapter }))
+    try {
+      const { discord } = await import("../src/channels.ts")
+      const channel = discord({
+        adapter: {
+          botToken: "bot-token",
+          longContent: { mode: "split" },
+        },
+      })
+
+      if (typeof channel.adapter !== "function") throw new Error("Expected Discord adapter resolver.")
+      const resolved = await channel.adapter({} as never)
+      expect(resolved).toBe(adapter)
+      expect(createDiscordAdapter).toHaveBeenCalledWith({ botToken: "bot-token" })
+      expect((resolved as unknown as { [key: symbol]: unknown })[Symbol.for("vitehub.discord.longContent.mode")]).toBe("split")
+    }
+    finally {
+      vi.doUnmock("@chat-adapter/discord")
+      vi.resetModules()
+    }
+  })
+
   it("publishes explicit Workspace artifacts", async () => {
     const { publishWorkspaceArtifacts } = await import("../src/channels.ts")
     const content = new Uint8Array([1, 2, 3])
