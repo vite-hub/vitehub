@@ -211,6 +211,7 @@ async function writeEventsToUiMessageStream(
     const usageRecord = usageRecordFromStreamChunk(event, events)
     if (usageRecord) options.onUsageRecord?.(usageRecord)
     const type = streamEventType(event)
+    if (!type) continue
     if (type === "text-delta") {
       const text = (event as { delta?: unknown, text?: unknown }).text ?? (event as { delta?: unknown }).delta
       if (typeof text !== "string" || !text) continue
