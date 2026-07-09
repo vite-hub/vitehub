@@ -392,6 +392,18 @@ describe("repositoryHostContext", () => {
     })
   })
 
+  it("declares repository-host requirements for pullRequestContext targets without explicit clients", async () => {
+    const { pullRequestContext } = await import("../src/capabilities.ts")
+
+    expect(pullRequestContext({
+      target: { pullRequest: 42, repo: "acme/app" },
+    }).requires).toEqual([{ primitive: "repository-host" }])
+    expect(pullRequestContext({
+      client: { provider: "github", read: vi.fn() },
+      target: { pullRequest: 42, repo: "acme/app" },
+    }).requires).toBeUndefined()
+  })
+
   it("records pullRequestContext under the legacy pullRequest key by default", async () => {
     const { pullRequestContext } = await import("../src/capabilities.ts")
     const context = createAgentInvocationContextStore()

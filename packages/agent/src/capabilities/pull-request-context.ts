@@ -987,6 +987,7 @@ function createPullRequestContext<
       kind: "pull-request-context",
     },
     prepare: recordContext,
+    requires: options.target && !options.client ? [{ primitive: "repository-host" }] : undefined,
     triggers: options.triggers,
   })
 }
