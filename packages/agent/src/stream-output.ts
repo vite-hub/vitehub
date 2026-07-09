@@ -235,9 +235,9 @@ async function writeEventsToUiMessageStream(
       writer.write({ type: "tool-output-available", toolCallId: tool.id, toolName: tool.name, output: tool.output })
       continue
     }
-    if (type === "data") {
+    if (type === "data" || type.startsWith("data-")) {
       const data = (event as { data?: unknown }).data
-      writer.write({ type: uiDataType(data), data })
+      writer.write({ type: type === "data" ? uiDataType(data) : type, data })
       continue
     }
     if (type === "finish") {

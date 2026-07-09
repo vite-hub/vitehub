@@ -6536,7 +6536,7 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       driver: { run: () => (async function* () {
-          yield { data: { title: "Async title", type: "chat-title" }, type: "data" }
+          yield { data: { title: "Async title" }, type: "data-chat-title" }
           yield { text: "hello", type: "text-delta" }
           yield { id: "tool-1", input: { query: "users" }, name: "search", type: "tool-call" }
           yield { id: "tool-1", name: "search", output: "42", type: "tool-result" }
@@ -6554,7 +6554,7 @@ describe("agent message protocol", () => {
 
     expect(messages.at(-1)?.parts.map(part => part.type)).toEqual(["data-chat-title", "text", "tool-search"])
     expect(messages.at(-1)?.parts[0]).toEqual({
-      data: { title: "Async title", type: "chat-title" },
+      data: { title: "Async title" },
       type: "data-chat-title",
     })
   })
