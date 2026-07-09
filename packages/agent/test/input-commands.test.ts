@@ -46,7 +46,7 @@ describe("inputCommands", () => {
     expect(resolved.input.prompt).toBe("/summary")
   })
 
-  it("uses command args as the default command rewrite", async () => {
+  it("removes accepted command text when no handler is configured", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 
@@ -59,10 +59,10 @@ describe("inputCommands", () => {
       })],
     }, runtime(), { prompt: "/review auth changes" })
 
-    expect(resolved.input.prompt).toBe("auth changes")
+    expect(resolved.input.prompt).toBe("")
   })
 
-  it("keeps command-only default rewrites with descriptions", async () => {
+  it("removes command-only text when no handler is configured", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 
@@ -76,10 +76,10 @@ describe("inputCommands", () => {
       })],
     }, runtime(), { prompt: "/summary" })
 
-    expect(resolved.input.prompt).toBe("/summary")
+    expect(resolved.input.prompt).toBe("")
   })
 
-  it("keeps command-only default rewrites without descriptions", async () => {
+  it("removes command-only text without using command names", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 
@@ -91,10 +91,10 @@ describe("inputCommands", () => {
       })],
     }, runtime(), { prompt: "/summary" })
 
-    expect(resolved.input.prompt).toBe("/summary")
+    expect(resolved.input.prompt).toBe("")
   })
 
-  it("accepts hook-only commands and keeps bare commands", async () => {
+  it("accepts hook-only commands and removes bare command text", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const hook = vi.fn()
@@ -111,7 +111,7 @@ describe("inputCommands", () => {
       })],
     }, runtime(), { prompt: "/summary" })
 
-    expect(resolved.input.prompt).toBe("/summary")
+    expect(resolved.input.prompt).toBe("")
     expect(hook).toHaveBeenCalledWith(expect.objectContaining({
       name: "summary",
       text: "/summary",
