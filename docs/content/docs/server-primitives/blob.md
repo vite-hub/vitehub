@@ -76,8 +76,11 @@ export default defineConfig({
 | `blob: { driver: 'fs', base?: string }` | Uses local filesystem storage. Default `base`: `.data/blob`. |
 | `blob: { driver: 'cloudflare-r2', binding?: string, bucketName?: string }` | Uses Cloudflare R2. Default `binding`: `BLOB`. HTTP credentials can provide fallback access when no runtime binding exists. |
 | `blob: { driver: 'vercel-blob', token?, access? }` | Uses Vercel Blob. Runtime token can come from `BLOB_READ_WRITE_TOKEN`; access can be `private` or `public`. |
-| `blob: { driver: 'minio', endpoint?: string, bucket?: string, region?: string }` | Uses MinIO or S3-compatible local object storage. |
+| `blob: { driver: 's3', bucket, endpoint?, region? }` | Uses production S3-compatible object storage. |
+| `blob: { driver: 'minio', endpoint?: string, bucket?: string, region?: string }` | Uses MinIO for local or Docker Compose object storage. |
 | `blob: { stores: Record<string, BlobStoreConfig> }` | Defines named Blob Stores. `stores.default` is required. |
+| `blob: { serve: true }` | Generates an opt-in Nitro route at `/api/_vitehub/blob/**` for serving the Default Blob Store. |
+| `blob: { serve: { route, store?, publicBaseUrl? } }` | Generates an opt-in Nitro route at `route/**` for an explicit public or app-owned path. |
 
 ## Providers
 
@@ -132,6 +135,37 @@ import { blob } from '@vite-hub/blob'
 export const reports = blob.store('reports')
 ```
 
+## Serve blob-backed assets
+
+Blob serving is opt-in. Set `serve` in the Blob config, or pass `hubBlob({ serve: true })`, to generate a Nitro route that serves Blob-backed assets through `blob.serve()`.
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [hubBlob()],
+  blob: {
+    driver: 'fs',
+    serve: true,
+  },
+})
+```
+
+`serve: true` uses `/api/_vitehub/blob` as the route base. ViteHub chooses a namespaced API route by default so generated handlers avoid app routes, static assets, and framework asset directories. The default also mirrors server API route conventions.
+
+Use an explicit `serve.route` for product-facing asset URLs.
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [hubBlob()],
+  blob: {
+    driver: 's3',
+    bucket: 'app-assets',
+    serve: { route: '/assets' },
+  },
+})
+```
+
+The generated Nitro route maps `${route}/**` to the selected Blob Store and delegates streaming to `blob.store(storeName).serve(event, pathname)`. The default route is a safe framework default. It is not a recommendation that every app expose public assets under `/api`.
+
 ## Runtime Helper
 
 `blob` implements `BlobStorage`.
@@ -184,6 +218,8 @@ Store content types and metadata at write time. Avoid guessing object type later
 
 Blob stores can back Workspace Stores, but that does not make Blob an agent-facing file tree. Workspace remains the boundary for file operations, rules, snapshots, and diffs.
 
+Blob stores binary objects and small object metadata. Keep catalogs, indexes, permissions, search records, domain records, and richer metadata queries in KV, Database, or another NoSQL/catalog store next to Blob.
+
 ## Cloudflare R2 bucket
 
 Cloudflare R2 Blob Stores use the configured runtime binding when it exists. `binding` defaults to `BLOB`, and `bucketName` lets ViteHub emit the matching Cloudflare R2 bucket binding in Provider Output.
@@ -219,6 +255,30 @@ Install the optional R2 HTTP dependencies only when you rely on fallback access.
 ```bash [Terminal]
 pnpm add files-sdk @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
 ```
+
+## S3-compatible object storage
+
+Use `driver: 's3'` for production S3-compatible object storage that is not one of ViteHub's provider-specific drivers.
+
+```bash [Terminal]
+pnpm add files-sdk @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
+```
+
+```ts [vite.config.ts]
+export default defineConfig({
+  blob: {
+    driver: 's3',
+    bucket: 'app-assets',
+    endpoint: process.env.S3_ENDPOINT,
+    region: process.env.S3_REGION,
+    publicBaseUrl: 'https://assets.example.com',
+  },
+})
+```
+
+Store S3 credentials in Server Env or the provider credential chain used by the S3 SDK. Put non-secret routing values such as `bucket`, `endpoint`, `region`, and `publicBaseUrl` in config.
+
+Use Cloudflare R2 when the app runs with an R2 binding or R2 HTTP credentials. Use MinIO when local development or Docker Compose should exercise S3-compatible semantics.
 
 ## MinIO object storage
 
