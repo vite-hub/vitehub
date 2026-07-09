@@ -10,7 +10,7 @@ import { streamAgentOutputToEvents, toAgentRunResult } from "../src/output.ts"
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, StreamEvent } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import { fetch as fetchSource, file, github as githubSource, type ReadonlyWorkspaceFacade } from "@vite-hub/workspace"
-import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, PullRequestContextValue, RepositoryHostClient, RepositoryHostContextValue, TranscriptionResult, UsageTelemetrySummaryOptions } from "../src/capabilities.ts"
+import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, PullRequestContextValue, RepositoryHostClient, RepositoryHostContextValue, TranscriptionResult } from "../src/capabilities.ts"
 
 describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
@@ -157,12 +157,6 @@ describe("agent public types", () => {
             number: 12,
             repository: "acme/app",
           } satisfies PullRequestContextValue,
-          rules: {
-            "artifacts/review/**": { write: true },
-          },
-          sources: {
-            pullRequest: file({ mount: "pull-request", path: "README.md" }),
-          },
         }),
         skills(),
         skills({ path: "skills/agent-browser", source: githubSource({ repo: "vercel/vercel-plugin", root: "skills/agent-browser" }) }),
@@ -178,17 +172,7 @@ describe("agent public types", () => {
             return "transcript"
           },
         }),
-        usageTelemetry({ summary: true }),
-        usageTelemetry({ summary: { subject: "Review run" } satisfies UsageTelemetrySummaryOptions }),
-        usageTelemetry({
-          summary: {
-            format(record, { subject }) {
-              expectTypeOf(record.usage?.totalTokens).toEqualTypeOf<number | undefined>()
-              expectTypeOf(subject).toEqualTypeOf<string>()
-              return "usage"
-            },
-          },
-        }),
+        usageTelemetry(),
         observability({
           instrumentation: {
             callSettings({ callSettings, run }) {
@@ -207,9 +191,7 @@ describe("agent public types", () => {
               expectTypeOf(event.status).toEqualTypeOf<"failed">()
             }
           },
-          usageTelemetry: { summary: true },
         }),
-        observability({ usageTelemetry: false }),
         chatTitle({
           model: () => ({}),
           template({ fallback, maxLength, text, trigger }) {
