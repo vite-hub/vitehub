@@ -737,7 +737,7 @@ async function finishDiscordSplitStream(thread: Thread, sent: unknown, markdown:
   if (!rendered || rendered.length <= discordMaxContentLength) return
   const [first, ...rest] = discordContentParts(rendered)
   if (first && sent && typeof sent === "object" && "edit" in sent && typeof sent.edit === "function") {
-    await sent.edit({ raw: first })
+    await sent.edit({ attachments: [], raw: first })
   }
   else if (first) {
     await thread.post({ raw: first })
@@ -1563,7 +1563,9 @@ async function handleChatSdkMessage(
       const result = await runAgentInline(agent as never, runContext as never, invocationInput as never)
       const text = await collectAgentOutput(result)
       if (text) {
-        await thread.post({ markdown: text })
+        if (!await postDiscordSplitContent(thread, { markdown: text })) {
+          await thread.post({ markdown: text })
+        }
       }
       await flushChatFinishExtensionMessages(thread, chatFinish)
     }
