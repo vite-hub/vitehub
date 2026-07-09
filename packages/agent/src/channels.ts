@@ -332,6 +332,9 @@ export interface DiscordAdapterOptions {
   apiUrl?: string
   applicationId?: string
   botToken?: string | { unseal: () => string }
+  longContent?: {
+    mode: "split" | "truncate"
+  }
   mentionRoleIds?: string[]
   publicKey?: string | { unseal: () => string }
   userName?: string
@@ -1633,6 +1636,7 @@ function discordAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
     return input as AgentChannelOptions<TRuntimeConfig>["adapter"]
   }
   const options: DiscordAdapterOptions = input === true ? {} : input
+  const { longContent, ...adapterOptions } = options
   return async () => {
     let createDiscordAdapter: (options?: Record<string, unknown>) => Adapter
     try {
@@ -1641,11 +1645,18 @@ function discordAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
     catch (error) {
       throw new Error("[vitehub] discord({ adapter: true }) requires @chat-adapter/discord to be installed.", { cause: error })
     }
-    return createDiscordAdapter({
-      ...options,
-      ...(options.botToken ? { botToken: cleanSecret(options.botToken) } : {}),
-      ...(options.publicKey ? { publicKey: cleanSecret(options.publicKey) } : {}),
+    const adapter = createDiscordAdapter({
+      ...adapterOptions,
+      ...(adapterOptions.botToken ? { botToken: cleanSecret(adapterOptions.botToken) } : {}),
+      ...(adapterOptions.publicKey ? { publicKey: cleanSecret(adapterOptions.publicKey) } : {}),
     })
+    if (longContent?.mode === "split") {
+      Object.defineProperty(adapter, Symbol.for("vitehub.discord.longContent.mode"), {
+        configurable: true,
+        value: "split",
+      })
+    }
+    return adapter
   }
 }
 

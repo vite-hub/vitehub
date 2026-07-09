@@ -1,7 +1,7 @@
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { createRuntimeWaitUntilController } from "@vite-hub/runtime"
-import { Chat, StreamingPlan } from "chat"
+import { Chat, StreamingPlan, convertEmojiPlaceholders } from "chat"
 
 import { resolveAgentTriggerInvocation, resolveAgentTriggers, runAgent, runAgentInline, streamAgent, streamAgentTrigger } from "../index.ts"
 import { streamAgentOutputToEvents } from "../agent-output.ts"
@@ -554,6 +554,9 @@ type ChatTextStream = AsyncIterable<string> & {
   getText: () => string
 }
 
+const discordMaxContentLength = 2000
+const discordLongContentModeSymbol = Symbol.for("vitehub.discord.longContent.mode")
+
 function startChatTypingRefresh(thread: Thread, context: ViteAgentRouteRuntimeContext): ChatTypingRefresh {
   let stopped = false
   let timeout: ReturnType<typeof setTimeout> | undefined
@@ -654,13 +657,109 @@ function chatStreamPostable(thread: Thread, response: ChatTextStream): ChatTextS
     : response
 }
 
+function discordLongContentMode(adapter: Adapter): "split" | undefined {
+  return (adapter as Adapter & { [discordLongContentModeSymbol]?: "split" })[discordLongContentModeSymbol]
+}
+
+function splitContentAtLimit(content: string, limit: number): string[] {
+  const parts: string[] = []
+  let rest = content.trimEnd()
+  while (rest.length > limit) {
+    let index = -1
+    for (const marker of ["\n\n", "\n"]) {
+      index = rest.lastIndexOf(marker, limit)
+      if (index > 0) {
+        index += marker.length
+        break
+      }
+    }
+    if (index <= 0) {
+      for (let i = limit; i > 0; i--) {
+        if (/\s/.test(rest[i] || "")) {
+          index = i + 1
+          break
+        }
+      }
+    }
+    if (index <= 0) index = limit
+    parts.push(rest.slice(0, index).trimEnd())
+    rest = rest.slice(index).trimStart()
+  }
+  if (rest) parts.push(rest)
+  return parts
+}
+
+function discordContentParts(content: string): string[] {
+  if (content.length <= discordMaxContentLength) return [content]
+  let total = Math.ceil(content.length / (discordMaxContentLength - " (1/1)".length))
+  while (true) {
+    const markerLength = ` (${total}/${total})`.length
+    const parts = splitContentAtLimit(content, discordMaxContentLength - markerLength)
+    if (parts.length === total) {
+      return parts.map((part, index) => `${part} (${index + 1}/${total})`)
+    }
+    total = parts.length
+  }
+}
+
+function hasChatFiles(postable: AdapterPostableMessage): boolean {
+  if (typeof postable !== "object" || postable === null) return false
+  const value = postable as { attachments?: unknown[], files?: unknown[] }
+  return (Array.isArray(value.attachments) && value.attachments.length > 0)
+    || (Array.isArray(value.files) && value.files.length > 0)
+}
+
+function renderDiscordPostable(adapter: Adapter, postable: AdapterPostableMessage): string | undefined {
+  if (hasChatFiles(postable)) return undefined
+  if (typeof postable === "object" && postable !== null && ("card" in postable || "type" in postable)) return undefined
+  const converter = (adapter as Adapter & { formatConverter?: { renderPostable?: (message: AdapterPostableMessage) => string } }).formatConverter
+  if (converter?.renderPostable) {
+    return convertEmojiPlaceholders(converter.renderPostable(postable), "discord")
+  }
+  if (typeof postable === "string") return postable
+  if (typeof postable === "object" && postable !== null && "raw" in postable && typeof postable.raw === "string") return postable.raw
+  if (typeof postable === "object" && postable !== null && "markdown" in postable && typeof postable.markdown === "string") return postable.markdown
+}
+
+async function postDiscordSplitContent(thread: Thread, postable: AdapterPostableMessage): Promise<boolean> {
+  if (discordLongContentMode(thread.adapter) !== "split") return false
+  const rendered = renderDiscordPostable(thread.adapter, postable)
+  if (!rendered || rendered.length <= discordMaxContentLength) return false
+  for (const part of discordContentParts(rendered)) {
+    await thread.post({ raw: part })
+  }
+  return true
+}
+
+async function finishDiscordSplitStream(thread: Thread, sent: unknown, markdown: string): Promise<void> {
+  if (!markdown || discordLongContentMode(thread.adapter) !== "split") return
+  const rendered = renderDiscordPostable(thread.adapter, { markdown })
+  if (!rendered || rendered.length <= discordMaxContentLength) return
+  const [first, ...rest] = discordContentParts(rendered)
+  if (first && sent && typeof sent === "object" && "edit" in sent && typeof sent.edit === "function") {
+    await sent.edit({ raw: first })
+  }
+  else if (first) {
+    await thread.post({ raw: first })
+  }
+  for (const part of rest) {
+    await thread.post({ raw: part })
+  }
+}
+
+function sentMessageText(sent: unknown): string {
+  return sent && typeof sent === "object" && "text" in sent && typeof sent.text === "string" ? sent.text : ""
+}
+
 async function postChatStream(
   thread: Thread,
   response: ChatTextStream,
   fallback: string | null | undefined,
 ): Promise<void> {
+  let sent: unknown
   if (fallback === undefined) {
-    await thread.post(chatStreamPostable(thread, response) as never)
+    sent = await thread.post(chatStreamPostable(thread, response) as never)
+    await finishDiscordSplitStream(thread, sent, response.getText() || sentMessageText(sent))
     return
   }
 
@@ -669,7 +768,8 @@ async function postChatStream(
   const previous = chatThread._fallbackStreamingPlaceholderText
   chatThread._fallbackStreamingPlaceholderText = fallback
   try {
-    await thread.post(chatStreamPostable(thread, response) as never)
+    sent = await thread.post(chatStreamPostable(thread, response) as never)
+    await finishDiscordSplitStream(thread, sent, response.getText() || sentMessageText(sent))
   }
   finally {
     chatThread._fallbackStreamingPlaceholderText = previous
@@ -1283,13 +1383,16 @@ function chatMessageDeliveryArtifacts(message: AgentChatMessage): readonly Publi
 
 async function postChatMessage(thread: Thread, message: AgentChatMessage): Promise<void> {
   if (typeof message !== "object" || message === null) {
+    if (await postDiscordSplitContent(thread, message)) return
     await thread.post(message)
     return
   }
 
   const attachments = deliveryArtifactAttachments(chatMessageDeliveryArtifacts(message))
   if (!attachments.length) {
-    await thread.post(isTextChatMessage(message) ? message.text : message as AdapterPostableMessage)
+    const postable = isTextChatMessage(message) ? message.text : message as AdapterPostableMessage
+    if (await postDiscordSplitContent(thread, postable)) return
+    await thread.post(postable)
     return
   }
 
