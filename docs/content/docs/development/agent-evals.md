@@ -104,7 +104,7 @@ export default defineConfig({
 | Source-grounded answer | Expected citation, phrase, or refusal when the Source does not answer. |
 | Capability behavior | Tool was used, rejected, omitted, or reported through `hasCapabilityExtension(id)` as expected. |
 | Access boundary | Scoped-out Workspace content does not appear in the answer. |
-| Cost or latency | Agent Usage Record stays within the expected budget when telemetry is attached. |
+| Cost or latency | Agent Usage Record stays within the expected budget when Agent usage exists. |
 
 Use `callsTool(name)` and `doesNotCallTool(name)` from `@vite-hub/agent/eval` for tool-use expectations. They read the Agent test runner's normalized tool steps, so the eval does not need to match rendered tool output text.
 

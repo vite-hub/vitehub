@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
 import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/runtime"
-import { chat, chatTitle, observability, schedule, subagents } from "../src/capabilities.ts"
+import { chat, chatTitle, observability, schedule, subagents, usageTelemetry } from "../src/capabilities.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 
 import type { AgentChannelDeliveryFinishEffectCallback } from "../src/index.ts"
@@ -161,7 +161,7 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("enables usage telemetry from observability by default", async () => {
+  it("adds core usage to observability finish metadata", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
@@ -187,131 +187,18 @@ describe("agent message protocol", () => {
 
     expect(result).toMatchObject({
       text: "ok",
-      usageRecord: {
-        usage: {
-          inputTokens: 4,
-          outputTokens: 6,
-          totalTokens: 10,
-        },
-      },
     })
     const extensions = finish.mock.calls[0]![0].extensions
-    const usage = extensions.get("usage-telemetry")
-    expect(usage).toBe((result as { usageRecord?: unknown }).usageRecord)
-    expect(extensions.get("observability", "usage")).toBe(usage)
-  })
-
-  it("lets observability opt out of default usage telemetry", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const finish = vi.fn()
-    const usageRecord = {
+    expect(extensions.get("observability", "usage")).toMatchObject({
       usage: {
-        inputTokens: 4,
-        outputTokens: 6,
         totalTokens: 10,
       },
-    }
-    const agent = defineAgent({
-      capabilities: [observability({ usageTelemetry: false })],
-      hooks: {
-        "agent:finish": finish,
-      },
-      driver: { run: () => ({
-          text: "ok",
-          usageRecord,
-        }) },
     })
-
-    const result = await runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, { prompt: "hello" })
-
-    expect((result as { usageRecord?: unknown }).usageRecord).toBe(usageRecord)
-    const extensions = finish.mock.calls[0]![0].extensions
-    expect(extensions.get("usage-telemetry")).toBeUndefined()
-    expect(extensions.get("observability", "usage")).toBeUndefined()
   })
 
-  it("keeps observability usage opt-out order-independent with explicit usage telemetry", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const { usageTelemetry } = await import("../src/capabilities.ts")
-    const orders = [
-      () => [usageTelemetry(), observability({ usageTelemetry: false })],
-      () => [observability({ usageTelemetry: false }), usageTelemetry()],
-    ]
-
-    for (const capabilities of orders) {
-      const finish = vi.fn()
-      const agent = defineAgent({
-        capabilities: capabilities(),
-        hooks: {
-          "agent:finish": finish,
-        },
-        driver: { run: () => ({
-            text: "ok",
-            totalUsage: {
-              inputTokens: 4,
-              outputTokens: 6,
-            },
-          }) },
-      })
-
-      const result = await runAgent(agent, {
-        memo: vi.fn(),
-        runtime: "unknown",
-        waitUntil: vi.fn(),
-      }, { prompt: "hello" })
-
-      expect((result as { usageRecord?: unknown }).usageRecord).toEqual(expect.objectContaining({
-        usage: expect.objectContaining({
-          totalTokens: 10,
-        }),
-      }))
-      const extensions = finish.mock.calls[0]![0].extensions
-      expect(extensions.get("usage-telemetry")).toBe((result as { usageRecord?: unknown }).usageRecord)
-      expect(extensions.get("observability", "usage")).toBeUndefined()
-    }
-  })
-
-  it("uses explicit usage telemetry configuration for observability", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const { usageTelemetry } = await import("../src/capabilities.ts")
-    const finish = vi.fn()
-    const onUsage = vi.fn()
-    const agent = defineAgent({
-      capabilities: [
-        usageTelemetry({ onUsage }),
-        observability(),
-      ],
-      hooks: {
-        "agent:finish": finish,
-      },
-      driver: { run: () => ({
-          text: "ok",
-          totalUsage: {
-            inputTokens: 8,
-            outputTokens: 2,
-          },
-        }) },
-    })
-
-    await runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, { prompt: "hello" })
-
-    expect(onUsage).toHaveBeenCalledTimes(1)
-    const extensions = finish.mock.calls[0]![0].extensions
-    const usage = extensions.get("usage-telemetry")
-    expect(extensions.get("observability", "usage")).toBe(usage)
-  })
-
-  it("preserves explicit capability order over nested defaults", async () => {
+  it("normalizes usage added by output renderers", async () => {
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
-    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [
         observability(),
@@ -327,8 +214,10 @@ describe("agent message protocol", () => {
             }))
           },
         }),
-        usageTelemetry(),
       ],
+      hooks: {
+        "agent:finish": finish,
+      },
       driver: { run: () => ({ text: "ok" }) },
     })
 
@@ -338,10 +227,14 @@ describe("agent message protocol", () => {
       waitUntil: vi.fn(),
     }, { prompt: "hello" })).resolves.toMatchObject({
       text: "ok",
-      usageRecord: {
-        usage: {
-          totalTokens: 10,
-        },
+      totalUsage: {
+        inputTokens: 4,
+        outputTokens: 6,
+      },
+    })
+    expect(finish.mock.calls[0]![0].extensions.get("observability", "usage")).toMatchObject({
+      usage: {
+        totalTokens: 10,
       },
     })
   })
@@ -1467,7 +1360,6 @@ describe("agent message protocol", () => {
 
   it("labels non-token harness usage with sanitized credentials", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const { usageTelemetry } = await import("../src/capabilities.ts")
     const session = { destroy: vi.fn() }
     harnessCreateSession.mockResolvedValueOnce(session)
     harnessGenerate.mockResolvedValueOnce({
@@ -1479,7 +1371,6 @@ describe("agent message protocol", () => {
     })
 
     const agent = defineAgent({
-      capabilities: [usageTelemetry()],
       driver: {
         credentials: { label: "local Codex", source: "ambient" },
         harness: { provider: "codex" },
@@ -1505,7 +1396,7 @@ describe("agent message protocol", () => {
 
   it("runs lifecycle capabilities around harness Agent Drivers", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const { inputCommands, rateLimit, usageTelemetry } = await import("../src/capabilities.ts")
+    const { inputCommands, rateLimit } = await import("../src/capabilities.ts")
     const session = { destroy: vi.fn() }
     harnessCreateSession.mockResolvedValueOnce(session)
     harnessGenerate.mockResolvedValueOnce({
@@ -1531,7 +1422,6 @@ describe("agent message protocol", () => {
           limit: 5,
           window: "1m",
         }),
-        usageTelemetry(),
       ],
       driver: {
         harness: { provider: "codex" },
@@ -1578,35 +1468,21 @@ describe("agent message protocol", () => {
     expect(harnessGenerate).not.toHaveBeenCalled()
   })
 
-  it("finalizes harness result output before finish hooks", async () => {
-    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
-    const { usageTelemetry } = await import("../src/capabilities.ts")
+  it("finalizes harness result usage before finish hooks", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const session = { destroy: vi.fn() }
     harnessCreateSession.mockResolvedValueOnce(session)
     harnessGenerate.mockResolvedValueOnce({
       text: "ok",
       usage: {
-        actions: 2,
+        inputTokens: 1,
+        outputTokens: 1,
       },
     })
 
     const agent = defineAgent({
-      capabilities: [
-        usageTelemetry({ summary: { subject: "Harness run" } }),
-        defineCapability({
-          id: "harness-output",
-          output(context) {
-            context.output.final((result, renderContext) => {
-              const usage = renderContext.output.extensions.get<{ summary?: string }>("usage-telemetry")
-              return {
-                ...result as Record<string, unknown>,
-                text: `${(result as { text?: string }).text}\n${usage?.summary}`,
-              }
-            })
-          },
-        }),
-      ],
+      capabilities: [usageTelemetry()],
       driver: {
         harness: { provider: "codex" },
       },
@@ -1616,23 +1492,24 @@ describe("agent message protocol", () => {
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({
-      text: "ok\nHarness run reported actions: 2.",
+      text: "ok",
       usageRecord: {
         usage: {
-          details: {
-            actions: 2,
-          },
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
         },
       },
     })
-    expect(finish.mock.calls[0]![0].result).toMatchObject({
-      text: "ok\nHarness run reported actions: 2.",
+    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
+      inputTokens: 1,
+      outputTokens: 1,
+      totalTokens: 2,
     })
   })
 
-  it("finalizes harness stream output before finish hooks", async () => {
-    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
-    const { usageTelemetry } = await import("../src/capabilities.ts")
+  it("finalizes harness stream usage before finish hooks", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const session = { destroy: vi.fn() }
     harnessCreateSession.mockResolvedValueOnce(session)
@@ -1649,21 +1526,6 @@ describe("agent message protocol", () => {
     })
 
     const agent = defineAgent({
-      capabilities: [
-        usageTelemetry({ summary: { subject: "Harness stream" } }),
-        defineCapability({
-          id: "harness-stream-output",
-          output(context) {
-            context.output.final((result, renderContext) => {
-              const usage = renderContext.output.extensions.get<{ summary?: string }>("usage-telemetry")
-              return {
-                ...result as Record<string, unknown>,
-                text: `${(result as { text?: string }).text}\n${usage?.summary}`,
-              }
-            })
-          },
-        }),
-      ],
       driver: {
         harness: { provider: "codex" },
       },
@@ -1693,7 +1555,13 @@ describe("agent message protocol", () => {
       { type: "finish" },
     ])
     expect(finish.mock.calls[0]![0].result).toMatchObject({
-      text: "ok\nHarness stream reported actions: 3.",
+      usageRecord: {
+        usage: {
+          details: {
+            actions: 3,
+          },
+        },
+      },
     })
   })
 
@@ -1789,69 +1657,6 @@ describe("agent message protocol", () => {
     }
 
     expect(chunks).toContainEqual({ delta: "native", id: "msg-1", type: "text-delta" })
-    expect(toUIMessageStreamMock).toHaveBeenCalledOnce()
-    expect(session.destroy).toHaveBeenCalledOnce()
-  })
-
-  it("keeps aliased harness UI message streams readable with usage telemetry", async () => {
-    const { defineAgent, streamAgent } = await import("../src/index.ts")
-    const { usageTelemetry } = await import("../src/capabilities.ts")
-    const session = { destroy: vi.fn() }
-    const onUsage = vi.fn()
-    harnessCreateSession.mockResolvedValueOnce(session)
-    const nativeStream = new ReadableStream<unknown>({
-      start(controller) {
-        controller.enqueue({ messageId: "msg-1", type: "start" })
-        controller.enqueue({ id: "msg-1", type: "text-start" })
-        controller.enqueue({ delta: "native", id: "msg-1", type: "text-delta" })
-        controller.enqueue({ id: "msg-1", type: "text-end" })
-        controller.enqueue({
-          finishReason: "stop",
-          totalUsage: {
-            inputTokens: 1,
-            outputTokens: 2,
-          },
-          type: "finish",
-        })
-        controller.close()
-      },
-    })
-    const toUIMessageStreamMock = vi.fn(function (this: { stream: ReadableStream<unknown> }) {
-      return this.stream
-    })
-    harnessStream.mockResolvedValueOnce({
-      fullStream: nativeStream,
-      stream: nativeStream,
-      toUIMessageStream: toUIMessageStreamMock,
-    })
-
-    const agent = defineAgent({
-      capabilities: [usageTelemetry({ onUsage })],
-      driver: {
-        harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
-      },
-    })
-
-    const stream = await streamAgent(
-      agent,
-      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
-      { prompt: "hello" },
-      { output: "ui-message-stream" },
-    ) as ReadableStream<unknown>
-    const chunks: unknown[] = []
-    for await (const chunk of stream) {
-      chunks.push(chunk)
-    }
-
-    expect(chunks).toContainEqual({ delta: "native", id: "msg-1", type: "text-delta" })
-    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
-      usage: {
-        inputTokens: 1,
-        outputTokens: 2,
-        totalTokens: 3,
-      },
-    }), expect.anything())
     expect(toUIMessageStreamMock).toHaveBeenCalledOnce()
     expect(session.destroy).toHaveBeenCalledOnce()
   })
@@ -3393,7 +3198,7 @@ describe("agent message protocol", () => {
 
   it("feeds GitHub PR comment commands through input commands and write-back effects", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { inputCommands, usageTelemetry } = await import("../src/capabilities.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
     const { github } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
@@ -3521,7 +3326,7 @@ describe("agent message protocol", () => {
             },
           },
         },
-      }), usageTelemetry({ summary: { subject: "Review run" } })],
+      })],
       channels: {
         github: github({
           app: {
@@ -3582,7 +3387,7 @@ describe("agent message protocol", () => {
     expect(fetcher).toHaveBeenCalledWith(
       "https://api.github.test/repos/vite-hub/vitehub/issues/42/comments",
       expect.objectContaining({
-        body: expect.stringContaining("\"body\":\"Review completed.\\n\\n> [!NOTE]\\n> Review run used 15 tokens: 10 in / 5 out"),
+        body: JSON.stringify({ body: "Review completed." }),
         method: "POST",
       }),
     )
@@ -4625,23 +4430,19 @@ describe("agent message protocol", () => {
 
     try {
       const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
-      const { usageTelemetry } = await import("../src/capabilities.ts")
       const finish = vi.fn()
       const agent = defineAgent({
         capabilities: [
-          usageTelemetry({ summary: { subject: "Model run" } }),
           defineCapability({
             id: "model-output",
             output(context) {
-              context.output.final((result, renderContext) => {
-                const usage = renderContext.output.extensions.get<{ summary?: string }>("usage-telemetry")
-                return {
-                  ...result as Record<string, unknown>,
-                  text: `${(result as { text?: string }).text}\n${usage?.summary}`,
-                }
-              })
+              context.output.final(result => ({
+                ...result as Record<string, unknown>,
+                text: `${(result as { text?: string }).text}:final`,
+              }))
             },
           }),
+          usageTelemetry(),
         ],
         hooks: {
           "agent:finish": finish,
@@ -4654,7 +4455,7 @@ describe("agent message protocol", () => {
         runtime: "unknown",
         waitUntil: vi.fn(),
       }, {})).resolves.toMatchObject({
-        text: "ok\nModel run used 6 tokens: 4 in / 2 out.",
+        text: "ok:final",
         usageRecord: {
           usage: {
             inputTokens: 4,
@@ -4664,7 +4465,12 @@ describe("agent message protocol", () => {
         },
       })
       expect(finish.mock.calls[0]![0].result).toMatchObject({
-        text: "ok\nModel run used 6 tokens: 4 in / 2 out.",
+        text: "ok:final",
+      })
+      expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
+        inputTokens: 4,
+        outputTokens: 2,
+        totalTokens: 6,
       })
     }
     finally {
@@ -4672,25 +4478,38 @@ describe("agent message protocol", () => {
     }
   })
 
+  it("does not resolve unused usage for invocations without finish work", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const usage = {
+      then() {
+        throw new Error("usage should be unused")
+      },
+    }
+    const agent = defineAgent({
+      driver: { run: () => ({ text: "ok", usage }), },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).resolves.toMatchObject({ text: "ok" })
+  })
+
   it("runs final output renderers before finish delivery effects", async () => {
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
-    const { usageTelemetry } = await import("../src/capabilities.ts")
     const delivered = vi.fn()
 
     const agent = defineAgent({
       capabilities: [
-        usageTelemetry({ summary: { subject: "Review run" } }),
         defineCapability({
           id: "delivery-output",
           output(context) {
-            context.output.final((result, renderContext) => {
-              const usage = renderContext.output.extensions.get<{ summary?: string }>("usage-telemetry")
-              return {
-                ...result as Record<string, unknown>,
-                text: `${(result as { text?: string }).text}\n${usage?.summary}`,
-              }
-            })
+            context.output.final(result => ({
+              ...result as Record<string, unknown>,
+              text: `${(result as { text?: string }).text}:final`,
+            }))
             context.delivery.finishEffect(context => context.reply(context.result!.text!))
           },
         }),
@@ -4750,7 +4569,7 @@ describe("agent message protocol", () => {
       },
       { type: "finish" },
     ])
-    expect(delivered).toHaveBeenCalledWith("raw review\nReview run used 15 tokens: 10 in / 5 out.")
+    expect(delivered).toHaveBeenCalledWith("raw review:final")
   })
 
   it("runs final output renderers for bare event streams before finish delivery effects", async () => {
@@ -4814,20 +4633,18 @@ describe("agent message protocol", () => {
   it("carries bare stream usage events into final output renderers", async () => {
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
-    const { usageTelemetry } = await import("../src/capabilities.ts")
     const delivered = vi.fn()
 
     const agent = defineAgent({
       capabilities: [
-        usageTelemetry({ summary: { subject: "Review run" } }),
         defineCapability({
           id: "bare-usage-output",
           output(context) {
-            context.output.final((result, renderContext) => {
-              const usage = renderContext.output.extensions.get<{ summary?: string }>("usage-telemetry")
+            context.output.final((result) => {
+              const usage = (result as { usageRecord?: { usage?: { totalTokens?: number } } }).usageRecord
               return {
                 ...result as Record<string, unknown>,
-                text: `${(result as { text?: string }).text}\n${usage?.summary}`,
+                text: `${(result as { text?: string }).text}:${usage?.usage?.totalTokens}`,
               }
             })
             context.delivery.finishEffect(context => context.reply(context.result!.text!))
@@ -4873,7 +4690,7 @@ describe("agent message protocol", () => {
 
     for await (const _event of stream as AsyncIterable<unknown>) {}
 
-    expect(delivered).toHaveBeenCalledWith("bare review\nReview run used 7 tokens: 3 in / 4 out.")
+    expect(delivered).toHaveBeenCalledWith("bare review:7")
   })
 
   it("defers runAgent final renderers for bare streams until consumption", async () => {
@@ -4915,21 +4732,18 @@ describe("agent message protocol", () => {
   it("exposes explicit stream usage events to final output renderers", async () => {
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
-    const { usageTelemetry } = await import("../src/capabilities.ts")
     const delivered = vi.fn()
-    const onUsage = vi.fn()
 
     const agent = defineAgent({
       capabilities: [
-        usageTelemetry({ onUsage, summary: { subject: "Review run" } }),
         defineCapability({
           id: "explicit-usage-output",
           output(context) {
-            context.output.final((result, renderContext) => {
-              const usage = renderContext.output.extensions.get<{ summary?: string }>("usage-telemetry")
+            context.output.final((result) => {
+              const usage = (result as { usageRecord?: { usage?: { totalTokens?: number } } }).usageRecord
               return {
                 ...result as Record<string, unknown>,
-                text: `${(result as { text?: string }).text}\n${usage?.summary}`,
+                text: `${(result as { text?: string }).text}:${usage?.usage?.totalTokens}`,
               }
             })
             context.delivery.finishEffect(context => context.reply(context.result!.text!))
@@ -4995,16 +4809,7 @@ describe("agent message protocol", () => {
       },
       { type: "finish" },
     ])
-    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
-      usage: {
-        inputTokens: 10,
-        outputTokens: 5,
-        totalTokens: 15,
-      },
-    }), expect.objectContaining({
-      run: expect.objectContaining({ runId: "run-1" }),
-    }))
-    expect(delivered).toHaveBeenCalledWith("raw review\nReview run used 15 tokens: 10 in / 5 out.")
+    expect(delivered).toHaveBeenCalledWith("raw review:15")
   })
 
   it("routes stream final output renderer failures through finish lifecycle", async () => {
@@ -5046,20 +4851,19 @@ describe("agent message protocol", () => {
   it("runs final output renderers before ui-message-stream finish delivery effects", async () => {
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
-    const { usageTelemetry } = await import("../src/capabilities.ts")
     const delivered = vi.fn()
 
     const agent = defineAgent({
       capabilities: [
-        usageTelemetry({ summary: { subject: "Review ui" } }),
         defineCapability({
           id: "delivery-ui-output",
           output(context) {
-            context.output.final((result, renderContext) => {
-              const usage = renderContext.output.extensions.get<{ summary?: string }>("usage-telemetry")
+            context.output.final((result) => {
+              const usage = (result as { usage?: { inputTokens?: number, outputTokens?: number } }).usage
+              const total = (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0)
               return {
                 ...result as Record<string, unknown>,
-                text: `${(result as { text?: string }).text}\n${usage?.summary}`,
+                text: `${(result as { text?: string }).text}:${total}`,
               }
             })
             context.delivery.finishEffect(context => context.reply(context.result!.text!))
@@ -5109,7 +4913,162 @@ describe("agent message protocol", () => {
       if (done) break
     }
 
-    expect(delivered).toHaveBeenCalledWith("ui review\nReview ui used 3 tokens: 1 in / 2 out.")
+    expect(delivered).toHaveBeenCalledWith("ui review:3")
+  })
+
+  it("preserves streamed usage for ui-message-stream finish work", async () => {
+    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const delivered = vi.fn()
+    const finish = vi.fn()
+
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "delivery-ui-streamed-usage",
+          output(context) {
+            context.output.final((result) => {
+              const usage = (result as { usageRecord?: { usage?: { totalTokens?: number } } }).usageRecord?.usage
+              return {
+                ...result as Record<string, unknown>,
+                text: `${(result as { text?: string }).text}:${usage?.totalTokens}`,
+              }
+            })
+            context.delivery.finishEffect(context => context.reply(context.result!.text!))
+          },
+        }),
+        usageTelemetry(),
+      ],
+      channels: {
+        review: defineChannel("review", {
+          effects: {
+            reply({ effect }) {
+              delivered(effect.payload)
+            },
+          },
+          messages: false,
+        }),
+      },
+      hooks: {
+        "agent:finish": finish,
+      },
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              start(controller) {
+                controller.enqueue({ delta: "ui ", type: "text-delta" })
+                controller.enqueue({ delta: "usage", type: "text-delta" })
+                controller.enqueue({
+                  totalUsage: {
+                    inputTokens: 4,
+                    outputTokens: 6,
+                  },
+                  type: "finish",
+                })
+                controller.close()
+              },
+            })
+          },
+        }) },
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: {
+        channelId: "review",
+        runId: "run-1",
+      },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+    while (true) {
+      const { done } = await reader.read()
+      if (done) break
+    }
+
+    expect(delivered).toHaveBeenCalledWith("ui usage:10")
+    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
+      inputTokens: 4,
+      outputTokens: 6,
+      totalTokens: 10,
+    })
+  })
+
+  it("preserves ViteHub event usage for generated ui-message-stream finish work", async () => {
+    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const delivered = vi.fn()
+    const finish = vi.fn()
+
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "delivery-ui-generated-streamed-usage",
+          output(context) {
+            context.output.final((result) => {
+              const usage = (result as { usageRecord?: { usage?: { totalTokens?: number } } }).usageRecord?.usage
+              return {
+                ...result as Record<string, unknown>,
+                text: `${(result as { text?: string }).text}:${usage?.totalTokens}`,
+              }
+            })
+            context.delivery.finishEffect(context => context.reply(context.result!.text!))
+          },
+        }),
+        usageTelemetry(),
+      ],
+      channels: {
+        review: defineChannel("review", {
+          effects: {
+            reply({ effect }) {
+              delivered(effect.payload)
+            },
+          },
+          messages: false,
+        }),
+      },
+      hooks: {
+        "agent:finish": finish,
+      },
+      driver: { run: () => (async function* () {
+          yield { delta: "event ", type: "text-delta" }
+          yield { delta: "usage", type: "text-delta" }
+          yield {
+            type: "usage",
+            usageRecord: {
+              usage: {
+                inputTokens: 8,
+                outputTokens: 5,
+                totalTokens: 13,
+              },
+            },
+          }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: {
+        channelId: "review",
+        runId: "run-1",
+      },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+    while (true) {
+      const { done } = await reader.read()
+      if (done) break
+    }
+
+    expect(delivered).toHaveBeenCalledWith("event usage:13")
+    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
+      inputTokens: 8,
+      outputTokens: 5,
+      totalTokens: 13,
+    })
   })
 
   it("runs agent finish hooks after generated streams are consumed", async () => {

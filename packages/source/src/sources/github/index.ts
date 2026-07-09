@@ -120,6 +120,17 @@ export function github<const TKey extends string = string>(options: GitHubSource
     return signal ? await resolveRef(token, signal) : await cachedResolveRef(token)
   }
 
+  async function validateConfiguredRef(token = auth, signal?: AbortSignal): Promise<void> {
+    if (!configuredRef) return
+    await requestGitHubJson<GitHubCommitResponse>({
+      ref: configuredRef,
+      repo: options.repo,
+      signal,
+      token,
+      url: `https://api.github.com/repos/${options.repo}/commits/${encodeURIComponent(configuredRef)}`,
+    })
+  }
+
   async function loadArchiveFiles(token = auth, signal?: AbortSignal) {
     const ref = await getRef(token, signal)
     const archive = await fetchGitHubArchive({ ref, repo: options.repo, signal, token })
@@ -178,8 +189,8 @@ export function github<const TKey extends string = string>(options: GitHubSource
     }
     catch (error) {
       if (isGitHubAccessError(error)) {
-        const files = signal ? await loadArchiveFiles(token, signal) : await getFiles(token)
-        return files.find(file => file.key === normalizedKey)
+        await validateConfiguredRef(token, signal)
+        return
       }
       if (shouldResolveMainFallback(error)) {
         const files = signal ? await loadArchiveFiles(token, signal) : await getFiles(token)

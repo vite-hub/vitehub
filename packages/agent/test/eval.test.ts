@@ -250,6 +250,45 @@ describe("agent eval", () => {
     expect(score.score).toBe(1)
   })
 
+  it("uses normalized finish usage in eval observations", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineEval, staysUnderTokenBudget } = await import("../src/eval.ts")
+
+    defineEval({
+      agent: defineAgent({
+        driver: {
+          run: () => ({
+            text: "ok",
+            totalUsage: {
+              inputTokens: 4,
+              outputTokens: 5,
+            },
+          }),
+        },
+      }),
+      name: "support",
+      scorers: [staysUnderTokenBudget(10)],
+      scenarios: [{
+        input: { prompt: "hello" },
+        name: "support",
+      }],
+    })
+
+    const output = await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input)
+    const score = await evaliteCalls[0]!.opts.scorers[0].scorer({ output })
+
+    expect(output.usage).toEqual({
+      inputTokens: 4,
+      outputTokens: 5,
+      totalTokens: 9,
+    })
+    expect(output.scores[0]).toMatchObject({
+      passed: true,
+      score: 1,
+    })
+    expect(score.score).toBe(1)
+  })
+
   it("requires test callbacks to send one message", async () => {
     const { defineEval } = await import("../src/eval.ts")
 

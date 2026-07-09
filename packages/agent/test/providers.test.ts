@@ -2011,7 +2011,7 @@ describe("server helpers", () => {
 
   it("handles Chat SDK webhooks through the chat capability", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { access, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const { access } = await import("../src/capabilities.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
@@ -2056,14 +2056,6 @@ describe("server helpers", () => {
           webhooks: {
             telegram: {},
           },
-        }),
-        usageTelemetry({
-          pricing: staticModelPricing({
-            "openai/gpt-test": {
-              input: "0.00000010",
-              output: "0.00000020",
-            },
-          }),
         }),
       ],
       invoker: {
@@ -4599,17 +4591,17 @@ describe("server helpers", () => {
     }
   })
 
-  it("lets agent finish hooks post usage telemetry for non-streaming model chat webhooks", async () => {
-    const { staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+  it("lets agent finish hooks post usage for non-streaming model chat webhooks", async () => {
+    const { usageTelemetry } = await import("../src/capabilities.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const finish = vi.fn(async (event) => {
       const chat = event.extensions.get("chat") as { provider?: string, sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
-      const usage = event.extensions.get("usage-telemetry") as { usage?: { totalTokens?: number } } | undefined
+      const usage = event.extensions.get("usage-telemetry")
       if (chat && usage) {
         await chat.sendMessage?.({
-          markdown: `Custom usage: \`${usage.usage?.totalTokens}\` tokens via ${chat.provider}`,
+          markdown: `Custom usage: \`${usage.totalTokens}\` tokens via ${chat.provider}`,
         })
       }
     })
@@ -4634,6 +4626,7 @@ describe("server helpers", () => {
     }
     const agent = {
       capabilities: [
+        usageTelemetry(),
         defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
@@ -4642,14 +4635,6 @@ describe("server helpers", () => {
           webhooks: {
             telegram: {},
           },
-        }),
-        usageTelemetry({
-          pricing: staticModelPricing({
-            "openai/gpt-test": {
-              input: "0.00000010",
-              output: "0.00000020",
-            },
-          }),
         }),
       ],
       hooks: {
@@ -4681,21 +4666,11 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Custom usage: `15` tokens via telegram" })
     expect(finish).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(expect.objectContaining({
-      cost: expect.objectContaining({
-        amount: "0.0000018",
-        currency: "USD",
-      }),
-      latency: expect.objectContaining({
-        durationMs: 900,
-      }),
-      model: {
-        id: "openai/gpt-test",
-      },
-      usage: {
-        inputTokens: 12,
-        outputTokens: 3,
-        totalTokens: 15,
-      },
+      durationMs: 900,
+      inputTokens: 12,
+      modelId: "openai/gpt-test",
+      outputTokens: 3,
+      totalTokens: 15,
     }))
     expect(finish.mock.calls[0]![0].extensions.get("chat")).toEqual(expect.objectContaining({
       provider: "telegram",
@@ -5202,6 +5177,7 @@ describe("server helpers", () => {
     })
     const agent = defineAgent({
       capabilities: [
+        usageTelemetry(),
         defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
@@ -5211,7 +5187,6 @@ describe("server helpers", () => {
             telegram: {},
           },
         }),
-        usageTelemetry(),
       ],
       hooks: {
         "agent:finish": finish,
@@ -5254,18 +5229,18 @@ describe("server helpers", () => {
     expect(finish).toHaveBeenCalledOnce()
   })
 
-  it("lets agent finish hooks compose usage telemetry and chat follow-up messages", async () => {
+  it("lets agent finish hooks compose usage and chat follow-up messages", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { access, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const { access, usageTelemetry } = await import("../src/capabilities.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const finish = vi.fn(async (event) => {
       const chat = event.extensions.get("chat") as { provider?: string, sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
-      const usage = event.extensions.get("usage-telemetry") as { usage?: { totalTokens?: number } } | undefined
+      const usage = event.extensions.get("usage-telemetry")
       if (chat && usage) {
         await chat.sendMessage?.({
-          markdown: `Custom usage: \`${usage.usage?.totalTokens}\` tokens via ${chat.provider}`,
+          markdown: `Custom usage: \`${usage.totalTokens}\` tokens via ${chat.provider}`,
         })
       }
     })
@@ -5276,6 +5251,7 @@ describe("server helpers", () => {
             resolve: () => true,
           },
         }),
+        usageTelemetry(),
         defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
@@ -5283,14 +5259,6 @@ describe("server helpers", () => {
           webhooks: {
             telegram: {},
           },
-        }),
-        usageTelemetry({
-          pricing: staticModelPricing({
-            "openai/gpt-test": {
-              input: "0.00000010",
-              output: "0.00000020",
-            },
-          }),
         }),
       ],
       hooks: {
@@ -5330,11 +5298,10 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:789", { markdown: "Custom usage: `15` tokens via telegram" })
     expect(finish).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(expect.objectContaining({
-      usage: {
-        inputTokens: 10,
-        outputTokens: 5,
-        totalTokens: 15,
-      },
+      inputTokens: 10,
+      modelId: "openai/gpt-test",
+      outputTokens: 5,
+      totalTokens: 15,
     }))
     expect(finish.mock.calls[0]![0].extensions.get("chat")).toEqual(expect.objectContaining({
       provider: "telegram",

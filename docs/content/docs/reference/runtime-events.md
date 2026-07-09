@@ -65,12 +65,16 @@ The current event stream includes text deltas, data parts, tool input and result
 | `approval-request` and `approval-decision` | Represent approval-shaped tool policy. |
 | `error` | Represent recoverable or terminal stream errors. |
 | `finish` | Mark completion. |
-| `usage` | Carry an Agent Usage Record when telemetry is attached. |
+| `usage` | Carry an Agent Usage Record when an Agent Driver reports usage. |
 
 ## Agent Usage Record
 
 Agent Usage Records normalize usage across model-backed, harness-backed, and custom-run-backed Agent Drivers when usage exists.
 Token fields appear only when the provider reports them or ViteHub can derive them safely.
+
+Streams can carry the full Agent Usage Record through `{ type: "usage", usageRecord }`.
+At finish time, enable `usageTelemetry()` and read primitive JSON from `event.extensions.get("usage-telemetry")` or `context.extensions.get("usage-telemetry")`.
+Applications format that JSON when a product surface needs text, UI, notes, billing records, or comments.
 
 ## Related
 

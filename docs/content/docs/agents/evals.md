@@ -94,8 +94,9 @@ Use `--watch` while editing prompts or scenarios. Use `--threshold` and `--outpu
 
 ## Score useful behavior
 
-Good evals score source-grounded answers, refusal behavior, expected tool use, no source leakage, and regressions in usage or latency when telemetry is attached.
+Good evals score source-grounded answers, refusal behavior, expected tool use, no source leakage, and regressions in usage or latency when Agent usage exists.
 When the behavior belongs to a Capability, assert its finish extension instead of duplicating host-specific hooks.
+Use `observability.usage` for the raw Agent Usage Record, or `usage-telemetry` for primitive usage JSON.
 
 ```ts [server/agents/support.eval.ts]
 import { defineEval, hasCapabilityExtension } from '@vite-hub/agent/eval'
@@ -107,7 +108,7 @@ export default defineEval({
     await t.send('What changed in the order forecast?')
     t.hasCapabilityExtension('observability')
     t.expect(hasCapabilityExtension('observability', 'status'))
-    t.expect(hasCapabilityExtension('usage-telemetry'))
+    t.expect(hasCapabilityExtension('observability', 'usage'))
   },
 })
 ```

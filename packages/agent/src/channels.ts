@@ -1434,21 +1434,11 @@ async function githubBodyWithArtifacts<TRuntimeConfig extends AgentRuntimeConfig
   return rewrittenBody ? `${rewrittenBody}\n\n${explicitArtifacts.join("\n")}` : explicitArtifacts.join("\n")
 }
 
-function finishUsageSummary(context: AgentChannelDeliveryFinishEffectContext): string | undefined {
-  const usage = context.extensions.get("usage-telemetry")
-  return maybeString(usage?.summary)
-}
-
-function githubNote(body: string): string {
-  return `> [!NOTE]\n${body.split("\n").map(line => `> ${line}`).join("\n")}`
-}
-
 function githubPullRequestCommentReplyEffect(context: AgentChannelDeliveryFinishEffectContext): AgentChannelDeliveryEffectIntent | undefined {
   const text = context.result?.text ?? context.text
   if (!text) return
   const body = text.trim() || "_No reply generated._"
-  const summary = finishUsageSummary(context)
-  return context.reply(summary ? `${body}\n\n${githubNote(summary)}` : body)
+  return context.reply(body)
 }
 
 function githubPullRequestCommentFinishEffects(

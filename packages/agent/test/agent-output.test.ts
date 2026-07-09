@@ -20,7 +20,9 @@ describe("agent output helpers", () => {
       raw: value,
       text: "ok",
       usage: { inputTokens: 1 },
-      usageRecord: undefined,
+      usageRecord: {
+        usage: { inputTokens: 1 },
+      },
       warnings: [],
     })
   })
@@ -38,7 +40,9 @@ describe("agent output helpers", () => {
       raw: value,
       text: "ok from output",
       usage: { inputTokens: 1 },
-      usageRecord: undefined,
+      usageRecord: {
+        usage: { inputTokens: 1 },
+      },
       warnings: undefined,
     })
   })
@@ -285,6 +289,9 @@ describe("agent output helpers", () => {
       {
         type: "usage",
         usageRecord: {
+          latency: {
+            durationMs: 1000,
+          },
           model: {
             id: "claude-opus-4-8",
             provider: "googleVertex.anthropic.messages",
