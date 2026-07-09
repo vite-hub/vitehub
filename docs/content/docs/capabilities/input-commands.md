@@ -48,6 +48,7 @@ export default defineAgent({
 
 `inputCommands()` runs during the input phase.
 It finds command invocations in the latest user text, calls the matching command handler, and updates the Agent Run Input before other model-facing behavior consumes it.
+Commands without a handler are accepted and removed from model input; they do not implicitly pass arguments or command names through as prompts.
 Command `agent:input` hooks run after the command updates the input and before the Agent Driver runs.
 Command `agent:finish` hooks run for completed and failed Agent Invocations.
 
@@ -85,7 +86,7 @@ Check DevTools metadata for the `inputCommands` Capability and its command descr
 | `id` | `string` | `"inputCommands"` | Capability id. |
 | `trigger` | `string` | `"/"` | Non-whitespace command prefix. |
 | `commands.*.description` | `string` | required | Command description for metadata and inspection. |
-| `commands.*.call` | `(input) => AgentRunInput \| Response \| string \| void` | argument passthrough | Handler that accepts, rejects, transforms, or enriches invocation input. |
+| `commands.*.call` | `(input) => AgentRunInput \| Response \| string \| void` | accept and remove | Handler that accepts, rejects, transforms, or enriches invocation input. |
 | `commands.*.channels` | `string[]` | all channels | Optional configured Channel ID allowlist. |
 | `commands.*.hooks` | `{ 'agent:input'?, 'agent:finish'? }` | none | Command-scoped lifecycle hooks with `ctx.message.reply/update/react` delivery primitives. |
 
