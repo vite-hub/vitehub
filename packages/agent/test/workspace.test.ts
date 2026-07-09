@@ -379,7 +379,7 @@ describe("defineAgent workspace option", () => {
     })
 
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
-      paths: ["AGENTS.md", "CLAUDE.md", "screenshots"],
+      paths: undefined,
     }))
     expect(harnessFileSession.readBinaryFile).toHaveBeenCalledWith({
       abortSignal: undefined,
@@ -390,7 +390,7 @@ describe("defineAgent workspace option", () => {
 
   it("scopes write-mode harness Workspace Sessions through access()", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const { access } = await import("../src/capabilities.ts")
+    const { access, blob } = await import("../src/capabilities.ts")
     const harnessWorkspaceSession = { close: vi.fn() }
     const startSession = vi.fn(async () => ({ close: vi.fn() }))
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
@@ -420,6 +420,7 @@ describe("defineAgent workspace option", () => {
             },
           },
         }),
+        blob({ mode: "write" }),
       ],
       driver: {
         harness: { provider: "codex" },

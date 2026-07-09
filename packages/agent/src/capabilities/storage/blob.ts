@@ -81,8 +81,8 @@ function normalizeAssetPath(path: string): string {
 }
 
 function normalizeAssetPaths(mode: AgentCapabilityMode, value: BlobCapabilityOptions["assetPaths"]): string[] {
-  if (mode !== "write" || value === false) return []
-  const paths = value === undefined || value === true
+  if (mode !== "write" || value === undefined || value === false) return []
+  const paths = value === true
     ? ["screenshots"]
     : Array.isArray(value)
       ? value
