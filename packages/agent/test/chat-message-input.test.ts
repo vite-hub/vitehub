@@ -191,6 +191,23 @@ describe("chat message trigger input", () => {
     ])
   })
 
+  it("preserves UI data parts in follow-up history", () => {
+    const result = createChatMessageTriggerInput({}, {
+      messages: [{
+        parts: [
+          { data: { city: "Seattle" }, id: "weather-1", type: "data-weather" },
+          { text: "The forecast is ready.", type: "text" },
+        ],
+        role: "assistant",
+      }],
+    })
+
+    expect(result.input.messages?.[0]?.parts).toEqual([
+      { data: { city: "Seattle" }, id: "weather-1", type: "data-weather" },
+      { id: "text-1", text: "The forecast is ready.", type: "text" },
+    ])
+  })
+
   it("preserves failed UI tool calls", () => {
     const result = createChatMessageTriggerInput({}, {
       messages: [{

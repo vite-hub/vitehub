@@ -115,6 +115,13 @@ function uiMessagePartsToAgentParts(message: UIMessageLike): Array<MessagePart |
     if (!part || typeof part !== "object") return []
     const record = part as Record<string, unknown>
     if (record.type === "text" && typeof record.text === "string") return [record.text]
+    if ((record.type === "data" || (typeof record.type === "string" && record.type.startsWith("data-"))) && "data" in record) {
+      return [{
+        data: record.data,
+        ...(typeof record.id === "string" ? { id: record.id } : {}),
+        type: record.type as "data" | `data-${string}`,
+      }]
+    }
     if (record.type === "audio") return uiAudioPartToAgentPart(record)
     if (record.type === "dynamic-tool" || (typeof record.type === "string" && record.type.startsWith("tool-"))) {
       const state = typeof record.state === "string" ? record.state : undefined
