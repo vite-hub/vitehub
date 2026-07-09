@@ -65,9 +65,13 @@ export interface ChatTitleOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
 }
 
 const defaultChatTitleTemplate = [
-  "Generate a short chat title from the user's first message.",
+  "Summarize the user's request as a short chat title.",
   "Return only the title.",
-  "Use 2-5 words when possible.",
+  "Use 4-8 words when possible.",
+  `Keep it under {{ maxLength }} characters.`,
+  "Do not answer the request.",
+  "Use the user's language.",
+  "Do not use emoji.",
   "Ignore chat platform mention/channel markup, bot names, and user IDs.",
   `Use "{{ fallback }}" when the message is too vague.`,
   "",
@@ -103,9 +107,13 @@ function cleanGeneratedTitle(value: unknown, maxLength: number, fallback: string
     .replace(/^["'`]+|["'`]+$/g, "")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, maxLength)
-    .trim()
-  return title || fallback
+  if (!title) return fallback
+  if (title.length <= maxLength) return title
+  const cut = title.slice(0, maxLength + 1)
+  const boundary = cut.lastIndexOf(" ")
+  return (boundary >= 20 ? cut.slice(0, boundary) : title.slice(0, maxLength))
+    .replace(/[\s"'`.!?:;,/-]+$/g, "")
+    .trim() || fallback
 }
 
 function heuristicTitle(text: string, maxLength: number, fallback: string): string {
