@@ -254,7 +254,7 @@ function normalizedLabelNames(value: unknown): string[] | undefined {
     if (isRecord(item) && maybeString(item.name)) return [maybeString(item.name)!]
     return []
   })
-  return labels.length ? labels : undefined
+  return labels.length ? labels : value.length === 0 ? [] : undefined
 }
 
 function isPresent<T>(value: T | undefined): value is T {

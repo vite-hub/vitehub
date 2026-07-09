@@ -244,6 +244,8 @@ describe("repositoryHostContext", () => {
 
     const host = repositoryHostContext.read({ context })
     await expect(host.keys()).resolves.toEqual(["issue", "body", "labels", "comments"])
+    await expect(host.has("labels")).resolves.toBe(true)
+    await expect(host.get("labels")).resolves.toEqual([])
     await expect(host.get("pullRequest")).resolves.toBeUndefined()
     await expect(host.get("files")).resolves.toBeUndefined()
     await expect(host.get("wat" as never)).rejects.toThrow('Unknown repositoryHostContext() key "wat"')
@@ -282,17 +284,21 @@ describe("repositoryHostContext", () => {
   it("preserves repository from static issue-only context", async () => {
     const { repositoryHostContext } = await import("../src/capabilities.ts")
 
-    await expect(repositoryHostContext.read({
+    const host = repositoryHostContext.read({
       issue: {
+        labels: [],
         number: 7,
         repository: { fullName: "acme/app" },
         title: "Plain issue",
       },
-    }).get("issue")).resolves.toMatchObject({
+    })
+
+    await expect(host.get("issue")).resolves.toMatchObject({
       number: 7,
       repository: "acme/app",
       title: "Plain issue",
     })
+    await expect(host.get("labels")).resolves.toEqual([])
   })
 
   it("keeps the old synchronous pull request reader for source and git consumers", async () => {
