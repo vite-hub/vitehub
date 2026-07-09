@@ -53,6 +53,45 @@ Use `hubBlob()` in Vite to resolve blob config and expose the `blob` runtime hel
 
 Core drivers include local `fs`, [Vercel Blob](https://vercel.com/docs/vercel-blob), [Cloudflare R2](https://developers.cloudflare.com/r2/), S3-compatible stores, and [files-sdk](https://files-sdk.dev/).
 
+Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. `serve: true` uses `/api/_vitehub/blob` as a safe namespaced API route. Use `serve.route` for product-facing paths such as `/assets`.
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  blob: {
+    driver: "fs",
+    serve: { route: "/assets" },
+  },
+  plugins: [hubBlob()],
+})
+```
+
+Blob stores binary objects and small object metadata. Keep catalogs, indexes, permissions, search records, domain records, and richer metadata queries in KV, Database, or another NoSQL/catalog store next to Blob.
+
+## S3-compatible storage
+
+Use `driver: "s3"` for production S3-compatible object storage. Use `driver: "minio"` for local or Docker Compose object storage, and use `driver: "cloudflare-r2"` for Cloudflare R2.
+
+```sh
+pnpm add files-sdk @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
+```
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  blob: {
+    driver: "s3",
+    bucket: "app-assets",
+    endpoint: process.env.S3_ENDPOINT,
+    region: process.env.S3_REGION,
+    publicBaseUrl: "https://assets.example.com",
+  },
+  plugins: [hubBlob()],
+})
+```
+
+Store S3 credentials in Server Env or the provider credential chain used by the S3 SDK.
+
 ## MinIO
 
 MinIO is the Docker-friendly S3-compatible path. Select it explicitly:
