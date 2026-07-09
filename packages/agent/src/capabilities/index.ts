@@ -46,6 +46,7 @@ export {
   repositoryHost,
 } from "./repository-host.ts"
 export {
+  repositoryHostContext,
   pullRequestContext,
 } from "./pull-request-context.ts"
 export {
@@ -252,6 +253,10 @@ export type {
   RepositoryHostWriteRequest,
 } from "./repository-host.ts"
 export type {
+  AsyncRecord,
+  JsonObject,
+  JsonPrimitive,
+  JsonValue,
   PullRequestContextCapabilityFactory,
   PullRequestContextComment,
   PullRequestContextFile,
@@ -259,10 +264,17 @@ export type {
   PullRequestContextOptions,
   PullRequestContextRef,
   PullRequestContextResolver,
-  PullRequestContextRules,
-  PullRequestContextSources,
   PullRequestContextUser,
   PullRequestContextValue,
+  RepositoryHostContextCapabilityFactory,
+  RepositoryHostContextInput,
+  RepositoryHostContextOptions,
+  RepositoryHostContextResolver,
+  RepositoryHostContextTarget,
+  RepositoryHostContextTargetResolver,
+  RepositoryHostContextTargetValue,
+  RepositoryHostContextValue,
+  RepositoryHostIssueContext,
 } from "./pull-request-context.ts"
 export type {
   LlmRouteDecision,

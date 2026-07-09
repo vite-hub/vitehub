@@ -1,30 +1,45 @@
-import { hasTrustedWorkspaceAccessScope } from "../access-runtime.ts"
-import { defineCapability, optionalWorkspaceCapabilitySymbol } from "../capability-runtime.ts"
+import { defineCapability } from "../capability-runtime.ts"
+import { requirePrimitive } from "./storage/shared.ts"
 
 import type {
-  AgentInvocationContextStore,
   AgentCapabilityContext,
   AgentCapabilityDefinition,
   AgentCapabilityTypeContract,
-  AgentCapabilityWorkspaceContribution,
   AgentRuntimeConfig,
   AgentTriggerDefinition,
   MaybePromise,
 } from "../types.ts"
-import type {
-  WorkspaceSource,
-  WorkspaceName,
-  WorkspaceRules,
-  WorkspaceSourceInput,
-} from "@vite-hub/workspace"
+import type { RepositoryHostClient, RepositoryHostProvider, RepositoryHostTarget } from "./repository-host.ts"
+import type { WorkspaceName } from "@vite-hub/workspace"
 
-export interface PullRequestContextUser {
+export type JsonPrimitive = string | number | boolean | null
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[]
+
+export interface JsonObject {
+  [key: string]: JsonValue | undefined
+}
+
+export interface AsyncRecord<T extends { [K in keyof T]: JsonValue | undefined }> {
+  keys(): Promise<readonly (keyof T & string)[]>
+  has<K extends keyof T & string>(key: K): Promise<boolean>
+  has(key: string): Promise<boolean>
+  get<K extends keyof T & string>(key: K): Promise<T[K] | undefined>
+  get(key: string): Promise<T[keyof T] | undefined>
+  pick<const K extends readonly (keyof T & string)[]>(keys: K): Promise<Partial<Pick<T, K[number]>>>
+  pick(keys: readonly string[]): Promise<Partial<T>>
+  entries(keys?: readonly (keyof T & string)[]): AsyncIterable<readonly [keyof T & string, T[keyof T & string]]>
+  entries(keys?: readonly string[]): AsyncIterable<readonly [keyof T & string, T[keyof T & string]]>
+  resolveAll(): Promise<Partial<T>>
+  toJSON(): never
+}
+
+export interface PullRequestContextUser extends JsonObject {
   id?: number | string
   login?: string
   type?: string
 }
 
-export interface PullRequestContextComment {
+export interface PullRequestContextComment extends JsonObject {
   authorAssociation?: string
   body?: string
   createdAt?: string
@@ -35,26 +50,26 @@ export interface PullRequestContextComment {
   user?: PullRequestContextUser
 }
 
-export interface PullRequestContextFile {
+export interface PullRequestContextFile extends JsonObject {
   additions?: number | string
   deletions?: number | string
   filename?: string
   status?: string
 }
 
-export interface PullRequestContextRef {
+export interface PullRequestContextRef extends JsonObject {
   ref?: string
   repo?: string
   sha?: string
 }
 
-export interface PullRequestContextMetadata {
+export interface PullRequestContextMetadata extends JsonObject {
   omittedComments?: number | string
   omittedFiles?: number | string
   unavailable?: string
 }
 
-export interface PullRequestContextValue {
+export interface PullRequestContextValue extends JsonObject {
   actor?: string
   apiUrl?: string
   base?: PullRequestContextRef
@@ -72,19 +87,19 @@ export interface PullRequestContextValue {
   number: number | string
   provider?: string
   repository: string
-  run?: {
+  run?: JsonObject & {
     messageId?: string
     origin?: string
     runId?: string
     threadId?: string
   }
-  source?: {
+  source?: JsonObject & {
     mount?: string
     ref?: string
     repo?: string
   }
   title?: string
-  trigger?: {
+  trigger?: JsonObject & {
     action?: string
     actor?: PullRequestContextUser
     args?: string
@@ -97,48 +112,97 @@ export interface PullRequestContextValue {
   }
 }
 
-export type PullRequestContextResolver<
+export interface RepositoryHostIssueContext extends JsonObject {
+  apiUrl?: string
+  body?: string
+  htmlUrl?: string
+  id?: number | string
+  labels?: string[]
+  nodeId?: string
+  number: number | string
+  pullRequest?: JsonObject & {
+    apiUrl?: string
+    htmlUrl?: string
+  }
+  repository?: string
+  state?: string
+  title?: string
+  user?: PullRequestContextUser
+}
+
+export interface RepositoryHostContextValue {
+  body?: string
+  comments?: PullRequestContextComment[]
+  files?: PullRequestContextFile[]
+  issue?: RepositoryHostIssueContext
+  labels?: string[]
+  pullRequest?: PullRequestContextValue
+}
+
+export type RepositoryHostContextInput = Partial<RepositoryHostContextValue> | PullRequestContextValue
+
+export type RepositoryHostContextTargetValue = number | string | RepositoryHostTarget | (JsonObject & {
+  number?: number | string
+})
+
+export interface RepositoryHostContextTarget {
+  host?: string
+  issue?: RepositoryHostContextTargetValue
+  number?: number | string
+  owner?: string
+  pullRequest?: RepositoryHostContextTargetValue
+  repo?: string
+  repository?: string
+}
+
+export type RepositoryHostContextResolver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> = (context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<PullRequestContextValue | false | null | undefined>
+> = (context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<RepositoryHostContextInput | false | null | undefined>
 
-export type PullRequestContextSources<
+export type RepositoryHostContextTargetResolver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> =
-  | Record<string, WorkspaceSourceInput>
-  | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<Record<string, WorkspaceSourceInput> | false | null | undefined>)
+> = (context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<RepositoryHostContextTarget | false | null | undefined>
 
-export type PullRequestContextRules<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
-> =
-  | WorkspaceRules
-  | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<WorkspaceRules | false | null | undefined>)
-
-export interface PullRequestContextOptions<
+export interface RepositoryHostContextOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
-  context?: PullRequestContextValue | PullRequestContextResolver<TRuntimeConfig, Name>
+  client?: RepositoryHostClient | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<RepositoryHostClient>)
+  context?: RepositoryHostContextInput | RepositoryHostContextResolver<TRuntimeConfig, Name>
   contextKey?: string
   id?: string
-  rules?: PullRequestContextRules<TRuntimeConfig, Name>
-  sources?: PullRequestContextSources<TRuntimeConfig, Name>
+  provider?: RepositoryHostProvider
+  target?: RepositoryHostContextTarget | RepositoryHostContextTargetResolver<TRuntimeConfig, Name>
   triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, Name, any, any>>
 }
 
-type PullRequestContextCapabilityTypeContract<
-  TContextKey extends string = "pullRequest",
+export type PullRequestContextOptions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> = RepositoryHostContextOptions<TRuntimeConfig, Name>
+
+export type PullRequestContextResolver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> = RepositoryHostContextResolver<TRuntimeConfig, Name>
+
+type RepositoryHostContextCapabilityTypeContract<
+  TContextKey extends string = "repositoryHost",
 > = AgentCapabilityTypeContract & {
-  invocationContext: Record<TContextKey, PullRequestContextValue>
+  invocationContext: Record<TContextKey, AsyncRecord<RepositoryHostContextValue>>
 }
 
-const defaultSourceKey = "pullRequestContext"
-const defaultSourceMount = "pull-request-context"
-const defaultMarkdownSourcePath = "context.md"
-const defaultJsonSourcePath = "context.json"
-const defaultCapabilityId = "pull-request-context"
+const defaultRepositoryHostContextId = "repository-host-context"
+const defaultRepositoryHostContextKey = "repositoryHost"
+const repositoryHostContextKeys = ["issue", "pullRequest", "body", "labels", "comments", "files"] as const
+
+type RepositoryHostContextKey = typeof repositoryHostContextKeys[number]
+type ContextReader = {
+  get: (key: string) => unknown
+  has?: (key: string) => boolean
+}
 
 async function resolveMaybeFunction<TValue, TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName>(
   value: TValue | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<TValue | false | null | undefined>) | undefined,
@@ -148,10 +212,6 @@ async function resolveMaybeFunction<TValue, TRuntimeConfig extends AgentRuntimeC
     ? await (value as (context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<TValue | false | null | undefined>)(context)
     : value
   return resolved || undefined
-}
-
-function frontmatterValue(value: unknown): string {
-  return typeof value === "number" ? String(value) : JSON.stringify(value)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -172,14 +232,29 @@ function maybeStrings(value: unknown): string[] | undefined {
   return items.length ? items : undefined
 }
 
+function normalizedLabelNames(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return
+  const labels = value.flatMap((item) => {
+    if (typeof item === "string" && item) return [item]
+    if (isRecord(item) && maybeString(item.name)) return [maybeString(item.name)!]
+    return []
+  })
+  return labels.length ? labels : undefined
+}
+
 function isPresent<T>(value: T | undefined): value is T {
   return value !== undefined
+}
+
+function normalizedRepositoryFullName(value: unknown): string | undefined {
+  if (typeof value === "string" && value) return value
+  return isRecord(value) ? maybeString(value.fullName) || maybeString(value.full_name) : undefined
 }
 
 function normalizedRef(value: unknown): PullRequestContextRef | undefined {
   if (!isRecord(value)) return
   const ref = maybeString(value.ref)
-  const repo = maybeString(value.repo)
+  const repo = normalizedRepositoryFullName(value.repo) || maybeString(value.repo)
   const sha = maybeString(value.sha)
   if (!ref && !repo && !sha) return
   return {
@@ -214,14 +289,25 @@ function normalizedComment(value: unknown): PullRequestContextComment | undefine
   if (id === undefined && !body && !user) return
   return {
     ...(maybeString(value.authorAssociation) ? { authorAssociation: maybeString(value.authorAssociation) } : {}),
+    ...(maybeString(value.author_association) ? { authorAssociation: maybeString(value.author_association) } : {}),
     ...(body ? { body } : {}),
     ...(maybeString(value.createdAt) ? { createdAt: maybeString(value.createdAt) } : {}),
+    ...(maybeString(value.created_at) ? { createdAt: maybeString(value.created_at) } : {}),
     ...(maybeString(value.htmlUrl) ? { htmlUrl: maybeString(value.htmlUrl) } : {}),
+    ...(maybeString(value.html_url) ? { htmlUrl: maybeString(value.html_url) } : {}),
     ...(id !== undefined ? { id } : {}),
     ...(maybeString(value.nodeId) ? { nodeId: maybeString(value.nodeId) } : {}),
+    ...(maybeString(value.node_id) ? { nodeId: maybeString(value.node_id) } : {}),
     ...(maybeString(value.updatedAt) ? { updatedAt: maybeString(value.updatedAt) } : {}),
+    ...(maybeString(value.updated_at) ? { updatedAt: maybeString(value.updated_at) } : {}),
     ...(user ? { user } : {}),
   }
+}
+
+function normalizedComments(value: unknown): PullRequestContextComment[] | undefined {
+  if (!Array.isArray(value)) return
+  const comments = value.map(normalizedComment).filter(isPresent)
+  return comments.length ? comments : []
 }
 
 function normalizedFile(value: unknown): PullRequestContextFile | undefined {
@@ -234,6 +320,12 @@ function normalizedFile(value: unknown): PullRequestContextFile | undefined {
     filename,
     ...(maybeString(value.status) ? { status: maybeString(value.status) } : {}),
   }
+}
+
+function normalizedFiles(value: unknown): PullRequestContextFile[] | undefined {
+  if (!Array.isArray(value)) return
+  const files = value.map(normalizedFile).filter(isPresent)
+  return files.length ? files : []
 }
 
 function normalizedMetadata(value: unknown): PullRequestContextMetadata | undefined {
@@ -302,11 +394,6 @@ function normalizedTrigger(value: unknown): PullRequestContextValue["trigger"] |
   }
 }
 
-function normalizedRepositoryFullName(value: unknown): string | undefined {
-  if (typeof value === "string" && value) return value
-  return isRecord(value) ? maybeString(value.fullName) : undefined
-}
-
 function normalizePullRequestContext(value: unknown): PullRequestContextValue | undefined {
   if (!isRecord(value)) return
 
@@ -314,10 +401,10 @@ function normalizePullRequestContext(value: unknown): PullRequestContextValue | 
   const flatRepository = normalizedRepositoryFullName(value.repository)
   if (flatNumber !== undefined && flatRepository) {
     const base = normalizedFlatRef(value.base, maybeString(value.baseRef))
-    const comments = Array.isArray(value.comments) ? value.comments.map(normalizedComment).filter(isPresent) : undefined
-    const files = Array.isArray(value.files) ? value.files.map(normalizedFile).filter(isPresent) : undefined
+    const comments = normalizedComments(value.comments)
+    const files = normalizedFiles(value.files)
     const head = normalizedFlatRef(value.head, maybeString(value.headRef))
-    const labels = maybeStrings(value.labels)
+    const labels = normalizedLabelNames(value.labels) || maybeStrings(value.labels)
     const metadata = normalizedMetadata(value.metadata)
     const run = normalizedRun(value.run)
     const source = normalizedSource(value.source)
@@ -331,15 +418,17 @@ function normalizePullRequestContext(value: unknown): PullRequestContextValue | 
     return {
       ...(actor ? { actor } : {}),
       ...(maybeString(value.apiUrl) ? { apiUrl: maybeString(value.apiUrl) } : {}),
+      ...(maybeString(value.url) ? { apiUrl: maybeString(value.url) } : {}),
       ...(base ? { base } : {}),
       ...(base?.ref ? { baseRef: base.ref } : {}),
       ...(maybeString(value.body) ? { body: maybeString(value.body) } : {}),
-      ...(comments?.length ? { comments } : {}),
+      ...(comments !== undefined ? { comments } : {}),
       ...(deliveryId ? { deliveryId } : {}),
-      ...(files?.length ? { files } : {}),
+      ...(files !== undefined ? { files } : {}),
       ...(head ? { head } : {}),
       ...(source?.ref || head?.ref ? { headRef: source?.ref || head?.ref } : {}),
       ...(maybeString(value.htmlUrl) ? { htmlUrl: maybeString(value.htmlUrl) } : {}),
+      ...(maybeString(value.html_url) ? { htmlUrl: maybeString(value.html_url) } : {}),
       ...(maybeContextValue(value.id) !== undefined ? { id: maybeContextValue(value.id) } : {}),
       ...(labels ? { labels } : {}),
       ...(metadata ? { metadata } : {}),
@@ -358,9 +447,9 @@ function normalizePullRequestContext(value: unknown): PullRequestContextValue | 
   const number = maybeContextValue(pullRequest?.number)
   const repositoryName = maybeString(repository?.fullName)
   if (!pullRequest || number === undefined || !repositoryName) return
-  const comments = Array.isArray(pullRequest.comments) ? pullRequest.comments.map(normalizedComment).filter(isPresent) : undefined
-  const files = Array.isArray(pullRequest.files) ? pullRequest.files.map(normalizedFile).filter(isPresent) : undefined
-  const labels = maybeStrings(pullRequest.labels)
+  const comments = normalizedComments(pullRequest.comments)
+  const files = normalizedFiles(pullRequest.files)
+  const labels = normalizedLabelNames(pullRequest.labels) || maybeStrings(pullRequest.labels)
   const metadata = normalizedMetadata(pullRequest.metadata)
   const base = normalizedRef(pullRequest.base)
   const head = normalizedRef(pullRequest.head)
@@ -372,15 +461,17 @@ function normalizePullRequestContext(value: unknown): PullRequestContextValue | 
   return {
     ...(actor ? { actor } : {}),
     ...(maybeString(pullRequest.apiUrl) ? { apiUrl: maybeString(pullRequest.apiUrl) } : {}),
+    ...(maybeString(pullRequest.url) ? { apiUrl: maybeString(pullRequest.url) } : {}),
     ...(base ? { base } : {}),
     ...(base?.ref ? { baseRef: base.ref } : {}),
     ...(maybeString(pullRequest.body) ? { body: maybeString(pullRequest.body) } : {}),
-    ...(comments?.length ? { comments } : {}),
+    ...(comments !== undefined ? { comments } : {}),
     ...(deliveryId ? { deliveryId } : {}),
-    ...(files?.length ? { files } : {}),
+    ...(files !== undefined ? { files } : {}),
     ...(head ? { head } : {}),
     ...(source?.ref || head?.ref ? { headRef: source?.ref || head?.ref } : {}),
     ...(maybeString(pullRequest.htmlUrl) ? { htmlUrl: maybeString(pullRequest.htmlUrl) } : {}),
+    ...(maybeString(pullRequest.html_url) ? { htmlUrl: maybeString(pullRequest.html_url) } : {}),
     ...(maybeContextValue(pullRequest.id) !== undefined ? { id: maybeContextValue(pullRequest.id) } : {}),
     ...(labels ? { labels } : {}),
     ...(metadata ? { metadata } : {}),
@@ -394,6 +485,79 @@ function normalizePullRequestContext(value: unknown): PullRequestContextValue | 
   }
 }
 
+function normalizeHostIssue(value: unknown, fallback: { number?: number | string, repository?: string } = {}): RepositoryHostIssueContext | undefined {
+  if (!isRecord(value)) return
+  const number = maybeContextValue(value.number) ?? fallback.number
+  if (number === undefined) return
+  const pullRequest = isRecord(value.pullRequest)
+    ? value.pullRequest
+    : isRecord(value.pull_request)
+      ? value.pull_request
+      : undefined
+  return {
+    ...(maybeString(value.apiUrl) ? { apiUrl: maybeString(value.apiUrl) } : {}),
+    ...(maybeString(value.url) ? { apiUrl: maybeString(value.url) } : {}),
+    ...(maybeString(value.body) ? { body: maybeString(value.body) } : {}),
+    ...(maybeString(value.htmlUrl) ? { htmlUrl: maybeString(value.htmlUrl) } : {}),
+    ...(maybeString(value.html_url) ? { htmlUrl: maybeString(value.html_url) } : {}),
+    ...(maybeContextValue(value.id) !== undefined ? { id: maybeContextValue(value.id) } : {}),
+    ...(normalizedLabelNames(value.labels) ? { labels: normalizedLabelNames(value.labels) } : {}),
+    ...(maybeString(value.nodeId) ? { nodeId: maybeString(value.nodeId) } : {}),
+    ...(maybeString(value.node_id) ? { nodeId: maybeString(value.node_id) } : {}),
+    number,
+    ...(pullRequest ? {
+      pullRequest: {
+        ...(maybeString(pullRequest.url) ? { apiUrl: maybeString(pullRequest.url) } : {}),
+        ...(maybeString(pullRequest.htmlUrl) ? { htmlUrl: maybeString(pullRequest.htmlUrl) } : {}),
+        ...(maybeString(pullRequest.html_url) ? { htmlUrl: maybeString(pullRequest.html_url) } : {}),
+      },
+    } : {}),
+    ...(fallback.repository ? { repository: fallback.repository } : {}),
+    ...(maybeString(value.state) ? { state: maybeString(value.state) } : {}),
+    ...(maybeString(value.title) ? { title: maybeString(value.title) } : {}),
+    ...(normalizedUser(value.user) ? { user: normalizedUser(value.user) } : {}),
+  }
+}
+
+function normalizeHostPullRequest(value: unknown, fallback: { issue?: RepositoryHostIssueContext, number?: number | string, repository?: string }): PullRequestContextValue | undefined {
+  const normalized = normalizePullRequestContext(value)
+  if (normalized) return normalized
+  if (!isRecord(value)) {
+    if (!fallback.issue?.pullRequest || fallback.number === undefined || !fallback.repository) return
+    return {
+      ...(fallback.issue.body ? { body: fallback.issue.body } : {}),
+      ...(fallback.issue.htmlUrl ? { htmlUrl: fallback.issue.pullRequest.htmlUrl || fallback.issue.htmlUrl } : {}),
+      ...(fallback.issue.labels ? { labels: fallback.issue.labels } : {}),
+      number: fallback.number,
+      provider: "github",
+      repository: fallback.repository,
+      ...(fallback.issue.title ? { title: fallback.issue.title } : {}),
+    }
+  }
+  const number = maybeContextValue(value.number) ?? fallback.number
+  const repository = normalizedRepositoryFullName(value.repository) || fallback.repository
+  if (number === undefined || !repository) return
+  const base = normalizedRef(value.base)
+  const head = normalizedRef(value.head)
+  const labels = normalizedLabelNames(value.labels) || fallback.issue?.labels
+  return {
+    ...(maybeString(value.url) ? { apiUrl: maybeString(value.url) } : {}),
+    ...(base ? { base } : {}),
+    ...(base?.ref ? { baseRef: base.ref } : {}),
+    ...(maybeString(value.body) || fallback.issue?.body ? { body: maybeString(value.body) || fallback.issue!.body! } : {}),
+    ...(head ? { head } : {}),
+    ...(head?.ref ? { headRef: head.ref } : {}),
+    ...(maybeString(value.htmlUrl) ? { htmlUrl: maybeString(value.htmlUrl) } : {}),
+    ...(maybeString(value.html_url) || fallback.issue?.pullRequest?.htmlUrl ? { htmlUrl: maybeString(value.html_url) || fallback.issue!.pullRequest!.htmlUrl! } : {}),
+    ...(maybeContextValue(value.id) !== undefined ? { id: maybeContextValue(value.id) } : {}),
+    ...(labels ? { labels } : {}),
+    number,
+    provider: "github",
+    repository,
+    ...(maybeString(value.title) || fallback.issue?.title ? { title: maybeString(value.title) || fallback.issue!.title! } : {}),
+  }
+}
+
 export function readPullRequestContext(context: unknown, contextKey = "pullRequest"): PullRequestContextValue | undefined {
   if (isRecord(context) && isRecord(context.context) && typeof context.context.get === "function") {
     return normalizePullRequestContext(context.context.get(contextKey))
@@ -402,200 +566,348 @@ export function readPullRequestContext(context: unknown, contextKey = "pullReque
   return normalizePullRequestContext(context)
 }
 
-function renderList(items: string[]): string {
-  return items.length ? items.map(item => `- ${item}`).join("\n") : "- None recorded."
+function isAsyncRecord(value: unknown): value is AsyncRecord<RepositoryHostContextValue> {
+  return isRecord(value)
+    && typeof value.keys === "function"
+    && typeof value.get === "function"
+    && typeof value.pick === "function"
+    && typeof value.entries === "function"
+    && typeof value.resolveAll === "function"
 }
 
-function renderPullRequestDetails(value: PullRequestContextValue | undefined): string {
-  if (!value) return ""
-  const lines: string[] = []
+function createAsyncRecord<T extends { [K in keyof T]: JsonValue | undefined }, K extends keyof T & string>(
+  label: string,
+  knownKeys: readonly K[],
+  resolveKeys: () => MaybePromise<readonly K[]>,
+  loaders: Record<K, () => MaybePromise<T[K] | undefined>>,
+): AsyncRecord<T> {
+  const known = new Set<string>(knownKeys)
+  const loads = new Map<K, Promise<T[K] | undefined>>()
+  let keysPromise: Promise<readonly K[]> | undefined
 
-  if (value.metadata?.unavailable) {
-    lines.push(`PR metadata unavailable: ${value.metadata.unavailable}`)
+  function assertKey(key: string): K {
+    if (!known.has(key)) {
+      throw new Error(`[vitehub] Unknown ${label} key "${key}". Known keys: ${knownKeys.join(", ")}.`)
+    }
+    return key as K
   }
 
-  const branchLines = [
-    ...(value.base?.ref || value.base?.sha ? [`Base: ${[value.base.ref, value.base.sha].filter(Boolean).join(" @ ")}`] : []),
-    ...(value.head?.ref || value.head?.sha || value.source?.ref ? [`Head: ${[value.source?.ref || value.head?.ref, value.head?.sha].filter(Boolean).join(" @ ")}`] : []),
-  ]
-  if (branchLines.length) {
-    lines.push("## Branches")
-    lines.push(renderList(branchLines))
+  async function load(key: K): Promise<T[K] | undefined> {
+    let promise = loads.get(key)
+    if (!promise) {
+      promise = Promise.resolve().then(() => loaders[key]()).catch((error) => {
+        loads.delete(key)
+        throw error
+      })
+      loads.set(key, promise)
+    }
+    return promise
   }
 
-  if (value.title) {
-    lines.push("## Title", value.title)
+  const record = {
+    async keys() {
+      keysPromise ??= Promise.resolve().then(resolveKeys).then(keys => keys.map(assertKey))
+      return keysPromise
+    },
+    async has(key: string) {
+      return await record.get(key) !== undefined
+    },
+    async get(key: string) {
+      return load(assertKey(key))
+    },
+    async pick(keys: readonly string[]) {
+      const result: Partial<T> = {}
+      for (const key of keys) {
+        const knownKey = assertKey(key)
+        const value = await load(knownKey)
+        if (value !== undefined) result[knownKey] = value
+      }
+      return result
+    },
+    async *entries(keys?: readonly string[]) {
+      const selected = keys || await record.keys()
+      for (const key of selected) {
+        const knownKey = assertKey(key)
+        const value = await load(knownKey)
+        if (value !== undefined) yield [knownKey, value] as const
+      }
+    },
+    async resolveAll() {
+      return record.pick(await record.keys())
+    },
+    toJSON(): never {
+      throw new Error("[vitehub] AsyncRecord values are async. Call resolveAll() before JSON.stringify().")
+    },
   }
-
-  if (value.body) {
-    lines.push("## Body", value.body)
-  }
-
-  if (value.files?.length || value.metadata?.omittedFiles) {
-    lines.push("## Changed Files")
-    if (value.files?.length) lines.push(renderList(value.files.map((file) => {
-      const filename = file.filename || "unknown"
-      const status = file.status
-      const additions = file.additions
-      const deletions = file.deletions
-      const counts = additions !== undefined || deletions !== undefined ? ` (+${additions ?? 0}/-${deletions ?? 0})` : ""
-      return `${filename}${status ? ` (${status})` : ""}${counts}`
-    })))
-    if (value.metadata?.omittedFiles) lines.push(`+${value.metadata.omittedFiles} more files not shown.`)
-  }
-
-  const comments = [
-    ...(value.comments || []),
-    ...(value.trigger?.comment ? [value.trigger.comment] : []),
-  ]
-  if (comments.length || value.metadata?.omittedComments) {
-    const commentLines = comments.map(comment => `${comment.user?.login || "unknown"}: ${comment.body || "(no body)"}`)
-    if (value.metadata?.omittedComments) commentLines.push(`+${value.metadata.omittedComments} more comments not shown.`)
-    lines.push("## Comments (untrusted user content)")
-    lines.push(renderList(commentLines))
-  }
-
-  return lines.length ? `\n\n${lines.join("\n\n")}` : ""
+  return record as AsyncRecord<T>
 }
 
-function renderPullRequestContextMarkdown(input: unknown): string {
-  const value = normalizePullRequestContext(input)
-  const frontmatter = ([
-    ["repository", value?.repository],
-    ["number", value?.number],
-    ["id", value?.id],
-    ["provider", value?.provider],
-    ["source", value?.source],
-    ["base", value?.base],
-    ["head", value?.head],
-    ["deliveryId", value?.trigger?.deliveryId],
-  ] as const)
-    .flatMap(([key, item]) => item === undefined ? [] : `${key}: ${frontmatterValue(item)}`)
-    .join("\n")
-  const body = value
-    ? `# Pull Request Context\n\nChange Request ${value.number} in ${value.repository}.${renderPullRequestDetails(value)}`
-    : "# Pull Request Context\n\nNo pull request context was recorded for this Agent Invocation."
-  return `---\n${frontmatter}\n---\n\n${body}\n`
+function contextReader(input: unknown): ContextReader | undefined {
+  if (isRecord(input) && isRecord(input.context) && typeof input.context.get === "function") return input.context as ContextReader
+  if (isRecord(input) && typeof input.get === "function") return input as ContextReader
 }
 
-function pullRequestContextSource(
-  context: AgentInvocationContextStore,
-  contextKey: string,
-  mount: string,
-): WorkspaceSource {
+function repositoryHostContextValues(input: unknown): Partial<RepositoryHostContextValue> {
+  const store = contextReader(input)
+  const record = isRecord(input) ? input : undefined
+  const rawIssue = record?.issue ?? store?.get("issue")
+  const rawPullRequest = record?.pullRequest ?? store?.get("pullRequest") ?? input
+  const pullRequest = readPullRequestContext(rawPullRequest) || normalizeHostPullRequest(rawPullRequest, {})
+  const issue = normalizeHostIssue(rawIssue, {
+    number: pullRequest?.number,
+    repository: pullRequest?.repository,
+  }) || (pullRequest ? normalizeHostIssue({
+    body: pullRequest.body,
+    htmlUrl: pullRequest.htmlUrl,
+    labels: pullRequest.labels,
+    number: pullRequest.number,
+    pullRequest: { htmlUrl: pullRequest.htmlUrl, url: pullRequest.apiUrl },
+    title: pullRequest.title,
+  }, { number: pullRequest.number, repository: pullRequest.repository }) : undefined)
+
   return {
-    materialize: "lazy",
-    mount,
-    probeKeys: [defaultMarkdownSourcePath, defaultJsonSourcePath],
-    async getKeys() {
-      return [defaultMarkdownSourcePath, defaultJsonSourcePath]
-    },
-    async getItem(key) {
-      if (key !== defaultMarkdownSourcePath && key !== defaultJsonSourcePath) {
-        throw new Error(`[vitehub] Workspace file does not exist: ${mount}/${key}.`)
-      }
-      const value = readPullRequestContext(context, contextKey)
-      if (key === defaultJsonSourcePath) {
-        return {
-          content: `${JSON.stringify(value || null, null, 2)}\n`,
-          key,
-          mediaType: "application/json",
-        }
-      }
-      return {
-        content: renderPullRequestContextMarkdown(value),
-        key,
-        mediaType: "text/markdown",
-      }
-    },
+    ...(issue ? { issue } : {}),
+    ...(pullRequest ? { pullRequest } : {}),
+    ...(record?.body !== undefined ? { body: maybeString(record.body) } : issue?.body || pullRequest?.body ? { body: issue?.body || pullRequest?.body } : {}),
+    ...(record?.labels !== undefined ? { labels: normalizedLabelNames(record.labels) || maybeStrings(record.labels) } : issue?.labels || pullRequest?.labels ? { labels: issue?.labels || pullRequest?.labels } : {}),
+    ...(record?.comments !== undefined ? { comments: normalizedComments(record.comments) } : pullRequest?.comments !== undefined ? { comments: pullRequest.comments } : {}),
+    ...(record?.files !== undefined ? { files: normalizedFiles(record.files) } : pullRequest?.files !== undefined ? { files: pullRequest.files } : {}),
   }
 }
 
-function grantSelectedWorkspaceScopePath(context: AgentInvocationContextStore, path: string): void {
-  if (!hasTrustedWorkspaceAccessScope(context)) return
-  const access = context.get<{ workspaceScope?: { all?: boolean, paths?: readonly string[], role?: string, scope?: string } }>("access")
-  const scope = access?.workspaceScope
-  if (!scope || scope.all) return
-  const paths = scope.paths || []
-  if (paths.includes(path)) return
-  context.set("access", {
-    ...access,
-    workspaceScope: {
-      ...scope,
-      paths: [...paths, path],
+function staticRepositoryHostRecord(input: unknown): AsyncRecord<RepositoryHostContextValue> {
+  const values = repositoryHostContextValues(input)
+  return createAsyncRecord<RepositoryHostContextValue, RepositoryHostContextKey>(
+    "repositoryHostContext()",
+    repositoryHostContextKeys,
+    () => repositoryHostContextKeys.filter(key => values[key] !== undefined),
+    {
+      body: () => values.body,
+      comments: () => values.comments,
+      files: () => values.files,
+      issue: () => values.issue,
+      labels: () => values.labels,
+      pullRequest: () => values.pullRequest,
     },
-  }, { overwrite: true })
+  )
 }
 
-function defaultSourceIdentity(capabilityId: string) {
-  return capabilityId === defaultCapabilityId
-    ? { key: defaultSourceKey, mount: defaultSourceMount }
-    : { key: `${capabilityId}-context`, mount: capabilityId }
+function repositoryParts(target: RepositoryHostContextTarget, nested?: Record<string, unknown>) {
+  const rawRepo = maybeString(nested?.repository) || maybeString(target.repository) || maybeString(target.repo)
+  const owner = maybeString(nested?.owner) || maybeString(target.owner)
+  if (!rawRepo) throw new TypeError("[vitehub] repositoryHostContext() target requires repo or repository.")
+  if (rawRepo.includes("/") && !owner) {
+    const [repoOwner, repoName] = rawRepo.split("/", 2)
+    return { owner: repoOwner, repository: repoName!, repositoryFullName: rawRepo }
+  }
+  return {
+    ...(owner ? { owner } : {}),
+    repository: rawRepo,
+    repositoryFullName: owner ? `${owner}/${rawRepo}` : rawRepo,
+  }
+}
+
+function targetValueRecord(value: RepositoryHostContextTargetValue | undefined): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined
+}
+
+function targetValueId(value: RepositoryHostContextTargetValue | undefined): number | string | undefined {
+  if (typeof value === "number" || typeof value === "string") return value
+  if (!isRecord(value)) return
+  return maybeContextValue(value.id) ?? maybeContextValue(value.number)
+}
+
+function normalizedTarget(input: RepositoryHostContextTarget) {
+  const raw = input.pullRequest ?? input.issue ?? input.number
+  const nested = targetValueRecord(raw)
+  const id = targetValueId(raw)
+  if (id === undefined) throw new TypeError("[vitehub] repositoryHostContext() target requires number, issue, or pullRequest.")
+  const repository = repositoryParts(input, nested)
+  const { repositoryFullName, ...repositoryTarget } = repository
+  const base = {
+    ...(maybeString(nested?.host) || input.host ? { host: maybeString(nested?.host) || input.host } : {}),
+    id,
+    ...repositoryTarget,
+  }
+  return {
+    explicitPullRequest: input.pullRequest !== undefined,
+    issue: { ...base, kind: "issue" as const },
+    number: id,
+    pullRequest: { ...base, kind: "changeRequest" as const },
+    repositoryFullName,
+  }
+}
+
+async function resolveRepositoryHostContextClient<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(options: RepositoryHostContextOptions<TRuntimeConfig, Name>, context: AgentCapabilityContext<TRuntimeConfig, Name>): Promise<RepositoryHostClient> {
+  const client = options.client
+    ? typeof options.client === "function" ? await options.client(context) : options.client
+    : requirePrimitive(context, "repository-host")
+  if (!client || typeof client !== "object" || typeof (client as RepositoryHostClient).read !== "function") {
+    throw new Error("[vitehub] repositoryHostContext() requires a Repository Host client with read().")
+  }
+  const provider = options.provider || (client as RepositoryHostClient).provider
+  if (provider && provider !== "github") {
+    throw new Error("[vitehub] repositoryHostContext() supports GitHub targets in V1.")
+  }
+  return client as RepositoryHostClient
+}
+
+function targetRepositoryHostRecord(client: RepositoryHostClient, target: RepositoryHostContextTarget): AsyncRecord<RepositoryHostContextValue> {
+  const normalized = normalizedTarget(target)
+  let issuePromise: Promise<RepositoryHostIssueContext | undefined> | undefined
+  let pullRequestPromise: Promise<PullRequestContextValue | undefined> | undefined
+
+  function loadIssue() {
+    issuePromise ??= Promise.resolve(client.read({
+      operation: "issue",
+      target: normalized.issue,
+    })).then(value => normalizeHostIssue(value, {
+      number: normalized.number,
+      repository: normalized.repositoryFullName,
+    })).catch((error) => {
+      issuePromise = undefined
+      throw error
+    })
+    return issuePromise
+  }
+
+  async function loadPullRequest() {
+    if (!pullRequestPromise) {
+      pullRequestPromise = (async () => {
+        const issue = await loadIssue()
+        if (!normalized.explicitPullRequest && !issue?.pullRequest) return
+        const value = await client.read({
+          operation: "changeRequest",
+          target: normalized.pullRequest,
+        })
+        return normalizeHostPullRequest(value, {
+          issue,
+          number: normalized.number,
+          repository: normalized.repositoryFullName,
+        })
+      })().catch((error) => {
+        pullRequestPromise = undefined
+        throw error
+      })
+    }
+    return pullRequestPromise
+  }
+
+  return createAsyncRecord<RepositoryHostContextValue, RepositoryHostContextKey>(
+    "repositoryHostContext()",
+    repositoryHostContextKeys,
+    async () => {
+      const issue = await loadIssue()
+      return [
+        "issue",
+        "body",
+        "labels",
+        "comments",
+        ...(normalized.explicitPullRequest || issue?.pullRequest ? ["pullRequest", "files"] as const : []),
+      ]
+    },
+    {
+      body: async () => (await loadIssue())?.body ?? (await loadPullRequest())?.body,
+      comments: async () => normalizedComments(await client.read({
+        operation: "comments",
+        target: normalized.issue,
+      })),
+      files: async () => {
+        if (!await loadPullRequest()) return
+        return normalizedFiles(await client.read({
+          operation: "changeRequestFiles",
+          target: normalized.pullRequest,
+        }))
+      },
+      issue: loadIssue,
+      labels: async () => (await loadIssue())?.labels ?? (await loadPullRequest())?.labels,
+      pullRequest: loadPullRequest,
+    },
+  )
+}
+
+export function readRepositoryHostContext(input: unknown, contextKey: string = defaultRepositoryHostContextKey): AsyncRecord<RepositoryHostContextValue> {
+  const store = contextReader(input)
+  const value = store?.get(contextKey) ?? (isRecord(input) ? input[contextKey] : undefined)
+  if (isAsyncRecord(value)) return value
+  return staticRepositoryHostRecord(value ?? input)
+}
+
+export interface RepositoryHostContextCapabilityFactory {
+  <
+    TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+    Name extends WorkspaceName = WorkspaceName,
+    const TContextKey extends string = "repositoryHost",
+  >(
+    options?: RepositoryHostContextOptions<TRuntimeConfig, Name> & { contextKey?: TContextKey },
+  ): AgentCapabilityDefinition<TRuntimeConfig, Name, RepositoryHostContextCapabilityTypeContract<TContextKey>>
+  read(input: unknown, contextKey?: string): AsyncRecord<RepositoryHostContextValue>
 }
 
 export interface PullRequestContextCapabilityFactory {
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     Name extends WorkspaceName = WorkspaceName,
-    const TSourceMap extends Record<string, WorkspaceSourceInput> | undefined = undefined,
-    const TContextKey extends string = "pullRequest",
+    const TContextKey extends string = "repositoryHost",
   >(
-    options?: PullRequestContextOptions<TRuntimeConfig, Name> & { contextKey?: TContextKey, sources?: TSourceMap | PullRequestContextSources<TRuntimeConfig, Name> },
-  ): AgentCapabilityDefinition<TRuntimeConfig, Name, PullRequestContextCapabilityTypeContract<TContextKey>>
+    options?: PullRequestContextOptions<TRuntimeConfig, Name> & { contextKey?: TContextKey },
+  ): AgentCapabilityDefinition<TRuntimeConfig, Name, RepositoryHostContextCapabilityTypeContract<TContextKey>>
   read(input: unknown, contextKey?: string): PullRequestContextValue | undefined
 }
 
-function createPullRequestContext<
+function createRepositoryHostContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-  const TSourceMap extends Record<string, WorkspaceSourceInput> | undefined = undefined,
-  const TContextKey extends string = "pullRequest",
+  const TContextKey extends string = "repositoryHost",
 >(
-  options: PullRequestContextOptions<TRuntimeConfig, Name> & { contextKey?: TContextKey, sources?: TSourceMap | PullRequestContextSources<TRuntimeConfig, Name> } = {},
-): AgentCapabilityDefinition<TRuntimeConfig, Name, PullRequestContextCapabilityTypeContract<TContextKey>> {
-  const capabilityId = options.id || defaultCapabilityId
-  const contextKey = options.contextKey || "pullRequest"
-  const source = defaultSourceIdentity(capabilityId)
-  const hasCustomWorkspaceContribution = options.sources !== undefined || options.rules !== undefined
+  options: RepositoryHostContextOptions<TRuntimeConfig, Name> & { contextKey?: TContextKey } = {},
+): AgentCapabilityDefinition<TRuntimeConfig, Name, RepositoryHostContextCapabilityTypeContract<TContextKey>> {
+  const capabilityId = options.id || defaultRepositoryHostContextId
+  const contextKey = options.contextKey || defaultRepositoryHostContextKey
   const recordedContexts = new WeakSet<AgentCapabilityContext<TRuntimeConfig, Name>["context"]>()
 
   async function recordContext(context: AgentCapabilityContext<TRuntimeConfig, Name>) {
     if (recordedContexts.has(context.context)) return
-    const value = await resolveMaybeFunction(options.context, context)
-    if (value !== undefined) {
-      context.context.set(contextKey, normalizePullRequestContext(value) || value)
-      recordedContexts.add(context.context)
-    }
+    const input = await resolveMaybeFunction(options.context, context)
+    const target = await resolveMaybeFunction(options.target, context)
+    const value = target
+      ? targetRepositoryHostRecord(await resolveRepositoryHostContextClient(options, context), target)
+      : staticRepositoryHostRecord(input ?? context)
+    context.context.set(contextKey, value)
+    recordedContexts.add(context.context)
   }
 
   return defineCapability({
     id: capabilityId,
     metadata: {
       contextKey,
-      kind: "pull-request-context",
-      [optionalWorkspaceCapabilitySymbol]: !hasCustomWorkspaceContribution,
+      kind: "repository-host-context",
     },
     prepare: recordContext,
+    requires: options.target && !options.client ? [{ primitive: "repository-host" }] : undefined,
     triggers: options.triggers,
-    workspace: async (context): Promise<AgentCapabilityWorkspaceContribution | undefined> => {
-      await recordContext(context)
-      const sources = await resolveMaybeFunction(options.sources, context)
-      const rules = await resolveMaybeFunction(options.rules, context)
-      if (sources && Object.hasOwn(sources, source.key)) {
-        throw new Error(`[vitehub] ${capabilityId}() sources cannot use reserved Workspace Source key "${source.key}".`)
-      }
-      grantSelectedWorkspaceScopePath(context.context, `${source.mount}/${defaultMarkdownSourcePath}`)
-      grantSelectedWorkspaceScopePath(context.context, `${source.mount}/${defaultJsonSourcePath}`)
-      return {
-        ...(rules ? { rules } : {}),
-        sources: {
-          [source.key]: pullRequestContextSource(context.context, contextKey, source.mount),
-          ...(sources || {}),
-        },
-      }
-    },
   })
 }
+
+function createPullRequestContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  const TContextKey extends string = "repositoryHost",
+>(
+  options: PullRequestContextOptions<TRuntimeConfig, Name> & { contextKey?: TContextKey } = {},
+): AgentCapabilityDefinition<TRuntimeConfig, Name, RepositoryHostContextCapabilityTypeContract<TContextKey>> {
+  return createRepositoryHostContext({
+    ...options,
+    id: options.id || "pull-request-context",
+  })
+}
+
+export const repositoryHostContext = Object.assign(createRepositoryHostContext, {
+  read: readRepositoryHostContext,
+}) as RepositoryHostContextCapabilityFactory
 
 export const pullRequestContext = Object.assign(createPullRequestContext, {
   read: readPullRequestContext,
