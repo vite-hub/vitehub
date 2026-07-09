@@ -403,6 +403,53 @@ function normalizedTrigger(value: unknown): PullRequestContextValue["trigger"] |
 function normalizePullRequestContext(value: unknown): PullRequestContextValue | undefined {
   if (!isRecord(value)) return
 
+  const pullRequest = isRecord(value.pullRequest)
+    ? value.pullRequest
+    : isRecord(value.pull_request)
+      ? value.pull_request
+      : undefined
+  const repository = isRecord(value.repository) ? value.repository : undefined
+  const number = maybeContextValue(pullRequest?.number)
+  const repositoryName = normalizedRepositoryFullName(repository)
+  if (pullRequest && number !== undefined && repositoryName) {
+    const comments = normalizedComments(pullRequest.comments)
+    const files = normalizedFiles(pullRequest.files)
+    const labels = normalizedLabelNames(pullRequest.labels) || maybeStrings(pullRequest.labels)
+    const metadata = normalizedMetadata(pullRequest.metadata)
+    const base = normalizedRef(pullRequest.base)
+    const head = normalizedRef(pullRequest.head)
+    const source = normalizedSource(pullRequest.source)
+    const trigger = normalizedTrigger(value.trigger)
+    const actor = trigger?.actor?.login
+    const deliveryId = trigger?.deliveryId
+
+    return {
+      ...(actor ? { actor } : {}),
+      ...(maybeString(pullRequest.apiUrl) ? { apiUrl: maybeString(pullRequest.apiUrl) } : {}),
+      ...(maybeString(pullRequest.url) ? { apiUrl: maybeString(pullRequest.url) } : {}),
+      ...(base ? { base } : {}),
+      ...(base?.ref ? { baseRef: base.ref } : {}),
+      ...(maybeString(pullRequest.body) ? { body: maybeString(pullRequest.body) } : {}),
+      ...(comments !== undefined ? { comments } : {}),
+      ...(deliveryId ? { deliveryId } : {}),
+      ...(files !== undefined ? { files } : {}),
+      ...(head ? { head } : {}),
+      ...(source?.ref || head?.ref ? { headRef: source?.ref || head?.ref } : {}),
+      ...(maybeString(pullRequest.htmlUrl) ? { htmlUrl: maybeString(pullRequest.htmlUrl) } : {}),
+      ...(maybeString(pullRequest.html_url) ? { htmlUrl: maybeString(pullRequest.html_url) } : {}),
+      ...(maybeContextValue(pullRequest.id) !== undefined ? { id: maybeContextValue(pullRequest.id) } : {}),
+      ...(labels ? { labels } : {}),
+      ...(metadata ? { metadata } : {}),
+      number,
+      provider: maybeString(value.provider) || "github",
+      repository: repositoryName,
+      ...(normalizedRun(value.run) ? { run: normalizedRun(value.run) } : {}),
+      ...(source ? { source } : {}),
+      ...(maybeString(pullRequest.title) ? { title: maybeString(pullRequest.title) } : {}),
+      ...(trigger ? { trigger } : {}),
+    }
+  }
+
   const flatNumber = maybeContextValue(value.number)
   const flatRepository = normalizedRepositoryFullName(value.repository)
   if (flatNumber !== undefined && flatRepository) {
@@ -448,47 +495,6 @@ function normalizePullRequestContext(value: unknown): PullRequestContextValue | 
     }
   }
 
-  const pullRequest = isRecord(value.pullRequest) ? value.pullRequest : undefined
-  const repository = isRecord(value.repository) ? value.repository : undefined
-  const number = maybeContextValue(pullRequest?.number)
-  const repositoryName = maybeString(repository?.fullName)
-  if (!pullRequest || number === undefined || !repositoryName) return
-  const comments = normalizedComments(pullRequest.comments)
-  const files = normalizedFiles(pullRequest.files)
-  const labels = normalizedLabelNames(pullRequest.labels) || maybeStrings(pullRequest.labels)
-  const metadata = normalizedMetadata(pullRequest.metadata)
-  const base = normalizedRef(pullRequest.base)
-  const head = normalizedRef(pullRequest.head)
-  const source = normalizedSource(pullRequest.source)
-  const trigger = normalizedTrigger(value.trigger)
-  const actor = trigger?.actor?.login
-  const deliveryId = trigger?.deliveryId
-
-  return {
-    ...(actor ? { actor } : {}),
-    ...(maybeString(pullRequest.apiUrl) ? { apiUrl: maybeString(pullRequest.apiUrl) } : {}),
-    ...(maybeString(pullRequest.url) ? { apiUrl: maybeString(pullRequest.url) } : {}),
-    ...(base ? { base } : {}),
-    ...(base?.ref ? { baseRef: base.ref } : {}),
-    ...(maybeString(pullRequest.body) ? { body: maybeString(pullRequest.body) } : {}),
-    ...(comments !== undefined ? { comments } : {}),
-    ...(deliveryId ? { deliveryId } : {}),
-    ...(files !== undefined ? { files } : {}),
-    ...(head ? { head } : {}),
-    ...(source?.ref || head?.ref ? { headRef: source?.ref || head?.ref } : {}),
-    ...(maybeString(pullRequest.htmlUrl) ? { htmlUrl: maybeString(pullRequest.htmlUrl) } : {}),
-    ...(maybeString(pullRequest.html_url) ? { htmlUrl: maybeString(pullRequest.html_url) } : {}),
-    ...(maybeContextValue(pullRequest.id) !== undefined ? { id: maybeContextValue(pullRequest.id) } : {}),
-    ...(labels ? { labels } : {}),
-    ...(metadata ? { metadata } : {}),
-    number,
-    provider: maybeString(value.provider) || "github",
-    repository: repositoryName,
-    ...(normalizedRun(value.run) ? { run: normalizedRun(value.run) } : {}),
-    ...(source ? { source } : {}),
-    ...(maybeString(pullRequest.title) ? { title: maybeString(pullRequest.title) } : {}),
-    ...(trigger ? { trigger } : {}),
-  }
 }
 
 function normalizeHostIssue(value: unknown, fallback: { number?: number | string, repository?: string } = {}): RepositoryHostIssueContext | undefined {
@@ -665,7 +671,7 @@ function repositoryHostContextValues(input: unknown): Partial<RepositoryHostCont
   const store = contextReader(input)
   const record = isRecord(input) ? input : undefined
   const rawIssue = record?.issue ?? store?.get("issue")
-  const rawPullRequest = record?.pullRequest ?? store?.get("pullRequest") ?? input
+  const rawPullRequest = record?.pullRequest ?? record?.pull_request ?? store?.get("pullRequest") ?? (record?.issue ? undefined : input)
   const directPullRequest = readPullRequestContext(rawPullRequest)
   const issue = normalizeHostIssue(rawIssue, {
     number: directPullRequest?.number,
@@ -896,6 +902,9 @@ function createRepositoryHostContext<
     const target = await resolveMaybeFunction(options.target, context)
     const existing = context.context.get(contextKey)
     if (existing !== undefined) {
+      if (!isAsyncRecord(existing)) {
+        context.context.set(contextKey, staticRepositoryHostRecord(existing), { overwrite: true })
+      }
       recordedContexts.add(context.context)
       return
     }
@@ -937,16 +946,25 @@ function createPullRequestContext<
   async function recordContext(context: AgentCapabilityContext<TRuntimeConfig, Name>) {
     if (recordedContexts.has(context.context)) return
     const hasContextOption = "context" in options
+    const hasTargetOption = "target" in options
     const input = await resolveMaybeFunction(options.context, context)
+    const target = await resolveMaybeFunction(options.target, context)
     const existing = context.context.get(contextKey)
     if (existing !== undefined) {
       recordedContexts.add(context.context)
       return
     }
-    if (hasContextOption && (input === false || input === null || input === undefined)) {
+    if (target === false || target === null || target === undefined) {
+      if (hasTargetOption && (input === false || input === null || input === undefined)) {
+        return
+      }
+    }
+    if (!target && hasContextOption && (input === false || input === null || input === undefined)) {
       return
     }
-    const value = repositoryHostContextValues(input ?? context).pullRequest
+    const value = target
+      ? await targetRepositoryHostRecord(await resolveRepositoryHostContextClient(options, context), target).get("pullRequest")
+      : repositoryHostContextValues(input ?? context).pullRequest
     if (value) context.context.set(contextKey, value)
     recordedContexts.add(context.context)
   }

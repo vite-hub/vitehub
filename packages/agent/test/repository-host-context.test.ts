@@ -262,7 +262,8 @@ describe("repositoryHostContext", () => {
   it("keeps the old synchronous pull request reader for source and git consumers", async () => {
     const { pullRequestContext, repositoryHostContext } = await import("../src/capabilities.ts")
     const rawPullRequestContext = {
-      pullRequest: {
+      number: 999,
+      pull_request: {
         base: { ref: "main" },
         number: 42,
         source: {
@@ -273,7 +274,7 @@ describe("repositoryHostContext", () => {
         title: "Review me",
       },
       repository: {
-        fullName: "acme/app",
+        full_name: "acme/app",
         name: "app",
         owner: "acme",
       },
@@ -298,6 +299,54 @@ describe("repositoryHostContext", () => {
       pullRequest: {},
       repository: "acme/app",
       title: "Review me",
+    })
+  })
+
+  it("honors pullRequestContext targets", async () => {
+    const { pullRequestContext } = await import("../src/capabilities.ts")
+    const read = vi.fn<RepositoryHostClient["read"]>(async request => {
+      if (request.operation === "issue") {
+        return {
+          number: 42,
+          pull_request: { url: "https://api.github.test/repos/acme/app/pulls/42" },
+          title: "Review me",
+        }
+      }
+      if (request.operation === "changeRequest") {
+        return {
+          base: { ref: "main" },
+          head: { ref: "feature" },
+          number: 42,
+          title: "Review me",
+        }
+      }
+      throw new Error(`Unexpected operation: ${request.operation}`)
+    })
+    const context = createAgentInvocationContextStore()
+
+    await resolveAgentCapabilities({
+      capabilities: [
+        pullRequestContext({
+          client: { provider: "github", read },
+          target: { pullRequest: 42, repo: "acme/app" },
+        }),
+      ],
+    }, runtime(), {}, undefined, "read", { context })
+
+    expect(context.get("pullRequest")).toMatchObject({
+      baseRef: "main",
+      headRef: "feature",
+      number: 42,
+      repository: "acme/app",
+      title: "Review me",
+    })
+    expect(read).toHaveBeenCalledWith({
+      operation: "issue",
+      target: { id: 42, kind: "issue", owner: "acme", repository: "app" },
+    })
+    expect(read).toHaveBeenCalledWith({
+      operation: "changeRequest",
+      target: { id: 42, kind: "changeRequest", owner: "acme", repository: "app" },
     })
   })
 
@@ -372,7 +421,8 @@ describe("repositoryHostContext", () => {
       },
     })
 
-    expect(context.get("repositoryHost")).toBe(existing)
+    expect(context.get("repositoryHost")).not.toBe(existing)
+    await expect(repositoryHostContext.read({ context }).get("issue")).resolves.toEqual(existing.issue)
 
     await resolveAgentCapabilities({
       capabilities: [
@@ -388,7 +438,7 @@ describe("repositoryHostContext", () => {
       },
     })
 
-    expect(context.get("repositoryHost")).toBe(existing)
+    await expect(repositoryHostContext.read({ context }).get("issue")).resolves.toEqual(existing.issue)
 
     const skippedContext = createAgentInvocationContextStore()
     await resolveAgentCapabilities({
@@ -406,5 +456,37 @@ describe("repositoryHostContext", () => {
     })
 
     expect(skippedContext.get("repositoryHost")).toBeUndefined()
+  })
+
+  it("wraps preseeded repository host context", async () => {
+    const { repositoryHostContext } = await import("../src/capabilities.ts")
+    const context = createAgentInvocationContextStore()
+    context.set("repositoryHost", {
+      pullRequest: {
+        number: 42,
+        repository: "acme/app",
+        title: "Review me",
+      },
+    })
+
+    await resolveAgentCapabilities({
+      capabilities: [
+        repositoryHostContext(),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      context,
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    const host = context.get("repositoryHost")
+    expect(host).toHaveProperty("get")
+    await expect(repositoryHostContext.read({ context }).get("pullRequest")).resolves.toMatchObject({
+      number: 42,
+      repository: "acme/app",
+      title: "Review me",
+    })
   })
 })
