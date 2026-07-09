@@ -1,4 +1,5 @@
-import { defineCapability, normalizeMode } from "../../capability-runtime.ts"
+import { defineCapability, normalizeMode, workspaceMaterializationPathsSymbol } from "../../capability-runtime.ts"
+import { readActiveHarnessWorkspaceFile } from "../../harness-runtime.ts"
 import {
   assertString,
   createTool,
@@ -17,11 +18,16 @@ import type {
 } from "../../types.ts"
 import type { PrimitiveStorageCapabilityOptions } from "./shared.ts"
 
-export interface BlobCapabilityOptions extends PrimitiveStorageCapabilityOptions {}
+export interface BlobCapabilityOptions extends PrimitiveStorageCapabilityOptions {
+  assetPaths?: boolean | string | readonly string[]
+}
 
 export function blob(options: BlobCapabilityOptions = {}): AgentCapabilityDefinition {
   const mode = normalizeMode(options.mode, "Blob")
-  return defineCapability({ id: "blob", mode, requires: [{ primitive: "blob" }], tools: blobTools(mode, options) })
+  const assetPaths = normalizeAssetPaths(mode, options.assetPaths)
+  return Object.assign(defineCapability({ id: "blob", mode, requires: [{ primitive: "blob" }], tools: blobTools(mode, options) }), assetPaths.length
+    ? { [workspaceMaterializationPathsSymbol]: assetPaths }
+    : {})
 }
 
 interface BlobReadInput {
@@ -65,6 +71,25 @@ const blobEditInputSchema = jsonObjectSchema({
   },
 }, ["operation", "pathname"])
 
+function normalizeAssetPath(path: string): string {
+  const normalized = path.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "").replace(/\/+/g, "/")
+  const parts = normalized.split("/").filter(Boolean)
+  if (!normalized || parts.some(part => part === "." || part === "..")) {
+    throw new TypeError(`[vitehub] Blob asset path must be a workspace-relative path: "${path}".`)
+  }
+  return parts.join("/")
+}
+
+function normalizeAssetPaths(mode: AgentCapabilityMode, value: BlobCapabilityOptions["assetPaths"]): string[] {
+  if (mode !== "write" || value === undefined || value === false) return []
+  const paths = value === true
+    ? ["screenshots"]
+    : Array.isArray(value)
+      ? value
+      : [value]
+  return [...new Set(paths.map(path => normalizeAssetPath(path)))]
+}
+
 function normalizeListLimit(limit: unknown): number {
   if (limit === undefined) return defaultListLimit
   if (typeof limit !== "number" || !Number.isFinite(limit) || limit < 1) {
@@ -85,6 +110,16 @@ async function resolveBlobPrimitive(context: AgentCapabilityContext) {
 
 async function resolveBlobStore(context: AgentCapabilityContext, options: BlobCapabilityOptions) {
   return selectStore(await resolveBlobPrimitive(context), "Blob", options.store)
+}
+
+async function readWorkspaceBlobBody(context: AgentCapabilityContext, path: string) {
+  const activeRead = await readActiveHarnessWorkspaceFile(context.context, path)
+  if (activeRead) {
+    if (activeRead.body !== undefined) return activeRead.body
+    throw new Error(`[vitehub] blob_edit workspacePath was not found in the active Harness Workspace Session: "${path}".`)
+  }
+  if (!context.fs?.readFile) throw new Error("[vitehub] blob_edit workspacePath requires a Workspace file system.")
+  return await context.fs.readFile(path as never, { encoding: "binary" })
 }
 
 function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): AgentCapabilityDefinition["tools"] {
@@ -116,8 +151,7 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
             const sourcePath = typeof workspacePath === "string" && workspacePath.trim() ? workspacePath : undefined
             if (sourcePath && body !== undefined) throw new Error("[vitehub] blob_edit put accepts body or workspacePath, not both.")
             if (sourcePath) {
-              if (!context.fs?.readFile) throw new Error("[vitehub] blob_edit workspacePath requires a Workspace file system.")
-              return method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(path, await context.fs.readFile(sourcePath as never, { encoding: "binary" }), putOptions)
+              return method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(path, await readWorkspaceBlobBody(context, sourcePath), putOptions)
             }
             if (body === undefined) throw new Error("[vitehub] blob_edit put requires body or workspacePath.")
             return method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(path, body, putOptions)

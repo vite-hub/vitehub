@@ -14,7 +14,7 @@ const defaultBrowserSkillContent = `# Browser
 Use the \`agent-browser\` CLI through the bash tool for headless browser work.
 
 - Run \`agent-browser --help\` before non-trivial browser work.
-- Save screenshots inside the workspace, usually under \`screenshots/\`.
+- Create \`screenshots/\` before screenshots, then save screenshots inside that workspace directory.
 `
 
 function normalizeSkillPath(path: string): string {

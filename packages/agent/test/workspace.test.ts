@@ -338,9 +338,59 @@ describe("defineAgent workspace option", () => {
     expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
   })
 
+  it("lets Blob tools upload files from the active Harness workspace", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { blob } = await import("../src/capabilities.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    const screenshot = new Uint8Array([7, 8, 9])
+    const store = {
+      del: vi.fn(),
+      get: vi.fn(),
+      head: vi.fn(),
+      list: vi.fn(async () => ({ blobs: [], hasMore: false })),
+      put: vi.fn(async () => ({ pathname: "screenshots/result.png" })),
+    }
+    harnessFileSession.readBinaryFile.mockResolvedValueOnce(screenshot)
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+    harnessGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> } }) {
+      const tools = this.settings.tools
+      await tools.blob_edit.execute({
+        operation: "put",
+        pathname: "screenshots/result.png",
+        workspacePath: "/workspace/codex-session/screenshots/result.png",
+      })
+      return { finishReason: "stop", text: "ok" }
+    })
+
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [blob({ mode: "write", policy: "allow" })],
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {
+        mode: "write",
+      },
+    }), { workspace: "review" })
+
+    const runtimeContext = context() as Record<string, unknown>
+    await expect(runAgent(agent, { ...runtimeContext, capabilities: { blob: store } } as never, { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
+      paths: undefined,
+    }))
+    expect(harnessFileSession.readBinaryFile).toHaveBeenCalledWith({
+      abortSignal: undefined,
+      path: "/workspace/codex-session/screenshots/result.png",
+    })
+    expect(store.put).toHaveBeenCalledWith("screenshots/result.png", screenshot, undefined)
+  })
+
   it("scopes write-mode harness Workspace Sessions through access()", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const { access } = await import("../src/capabilities.ts")
+    const { access, blob } = await import("../src/capabilities.ts")
     const harnessWorkspaceSession = { close: vi.fn() }
     const startSession = vi.fn(async () => ({ close: vi.fn() }))
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
@@ -370,6 +420,7 @@ describe("defineAgent workspace option", () => {
             },
           },
         }),
+        blob({ mode: "write" }),
       ],
       driver: {
         harness: { provider: "codex" },
