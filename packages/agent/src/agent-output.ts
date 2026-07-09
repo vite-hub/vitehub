@@ -1,8 +1,9 @@
 import { ApprovalRequiredError } from "@vite-hub/runtime"
+import { readAgentUsageMetadata } from "./internal/agent-usage-metadata.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 
 import type { StreamEvent } from "./messages.ts"
-import type { AgentRunResult, AgentUsage, AgentUsageRecord } from "./types.ts"
+import type { AgentRunMetadata, AgentRunResult, AgentUsage, AgentUsageRecord } from "./types.ts"
 
 export { isAsyncIterable } from "./internal/stream-result.ts"
 
@@ -59,18 +60,22 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
   }
 
   const result = value as Record<string, unknown>
+  const usageRecord = isUsageRecord(ownValue(result, "usageRecord"))
+    ? withFallbackUsageMetadata(ownValue(result, "usageRecord") as AgentUsageRecord, result)
+    : usageRecordFromUsage(ownValue(result, "usage") ?? ownValue(result, "totalUsage"), result)
   return {
     finishReason: ownValue(result, "finishReason"),
     raw: value,
     text: textFromResult(result),
-    usage: ownValue(result, "usage"),
-    usageRecord: ownValue(result, "usageRecord") as AgentUsageRecord | undefined,
+    usage: ownValue(result, "usage") ?? usageRecord?.usage,
+    usageRecord,
     warnings: ownValue(result, "warnings"),
   }
 }
 
 function isUsageRecord(value: unknown): value is AgentUsageRecord {
-  return typeof value === "object" && value !== null
+  if (!isRecord(value)) return false
+  return ["cost", "credentialSource", "latency", "model", "raw", "response", "run", "usage"].some(key => key in value)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -99,6 +104,19 @@ function readDetails(value: unknown): Record<string, number> | undefined {
     if (typeof item === "number" && Number.isFinite(item)) details[key] = item
   }
   return Object.keys(details).length ? details : undefined
+}
+
+function credentialSourceFromMetadata(metadata: unknown): AgentUsageRecord["credentialSource"] | undefined {
+  if (!isRecord(metadata) || !isRecord(metadata.credentialSource)) return
+  const source = metadata.credentialSource.source
+  const label = metadata.credentialSource.label
+  if (source !== undefined && typeof source !== "string") return
+  if (label !== undefined && typeof label !== "string") return
+  if (source === undefined && label === undefined) return
+  return {
+    ...(label ? { label } : {}),
+    ...(source ? { source: source as NonNullable<AgentUsageRecord["credentialSource"]>["source"] } : {}),
+  }
 }
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
@@ -135,7 +153,26 @@ function responseFromResult(result: unknown): AgentUsageRecord["response"] | und
   }
 }
 
-function usageRecordFromUsage(rawUsage: unknown, metadataSource?: unknown, fallbackMetadataSource?: unknown): AgentUsageRecord | undefined {
+function latencyFromResult(result: unknown): AgentUsageRecord["latency"] | undefined {
+  if (!isRecord(result)) return
+  const source = isRecord(result.latency) ? result.latency : result
+  const durationMs = readNumber(source, "durationMs", "duration_ms")
+  const timeToFirstTokenMs = readNumber(source, "timeToFirstTokenMs", "ttftMs", "time_to_first_token_ms")
+  const tokensPerSecond = readNumber(source, "tokensPerSecond", "tokens_per_second")
+  if (durationMs === undefined && timeToFirstTokenMs === undefined && tokensPerSecond === undefined) return
+  return {
+    ...(durationMs !== undefined ? { durationMs } : {}),
+    ...(timeToFirstTokenMs !== undefined ? { timeToFirstTokenMs } : {}),
+    ...(tokensPerSecond !== undefined ? { tokensPerSecond } : {}),
+  }
+}
+
+function usageRecordFromUsage(
+  rawUsage: unknown,
+  metadataSource?: unknown,
+  fallbackMetadataSource?: unknown,
+  run?: Partial<AgentRunMetadata>,
+): AgentUsageRecord | undefined {
   if (!isRecord(rawUsage)) return
   const inputTokens = readNumber(rawUsage, "inputTokens", "promptTokens", "input_tokens", "prompt_tokens")
   const outputTokens = readNumber(rawUsage, "outputTokens", "completionTokens", "output_tokens", "completion_tokens")
@@ -156,38 +193,60 @@ function usageRecordFromUsage(rawUsage: unknown, metadataSource?: unknown, fallb
   }
   const model = modelFromResult(metadataSource) ?? modelFromResult(fallbackMetadataSource)
   const response = responseFromResult(metadataSource) ?? responseFromResult(fallbackMetadataSource)
+  const latency = latencyFromResult(metadataSource) ?? latencyFromResult(fallbackMetadataSource)
+  const credentialSource = credentialSourceFromMetadata(readAgentUsageMetadata(metadataSource, fallbackMetadataSource))
   return {
+    ...(credentialSource ? { credentialSource } : {}),
+    ...(latency ? { latency } : {}),
     ...(model ? { model } : {}),
     ...(response ? { response } : {}),
+    ...(run ? { run } : {}),
     usage,
   }
 }
 
-function withFallbackUsageMetadata(record: AgentUsageRecord, fallbackMetadataSource: unknown): AgentUsageRecord {
+function withFallbackUsageMetadata(
+  record: AgentUsageRecord,
+  fallbackMetadataSource: unknown,
+  run?: Partial<AgentRunMetadata>,
+): AgentUsageRecord {
   const model = record.model ?? modelFromResult(fallbackMetadataSource)
   const response = record.response ?? responseFromResult(fallbackMetadataSource)
-  return model || response
+  const latency = record.latency ?? latencyFromResult(fallbackMetadataSource)
+  const credentialSource = record.credentialSource ?? credentialSourceFromMetadata(readAgentUsageMetadata(record, fallbackMetadataSource))
+  const runMetadata = record.run ?? run
+  return model || response || latency || credentialSource || runMetadata
     ? {
         ...record,
+        ...(credentialSource ? { credentialSource } : {}),
+        ...(latency ? { latency } : {}),
         ...(model ? { model } : {}),
         ...(response ? { response } : {}),
+        ...(runMetadata ? { run: runMetadata } : {}),
       }
     : record
 }
 
-function usageFromStreamChunk(chunk: unknown, fallbackMetadataSource?: unknown): AgentUsageRecord | undefined {
+function usageFromStreamChunk(chunk: unknown, fallbackMetadataSource?: unknown, run?: Partial<AgentRunMetadata>): AgentUsageRecord | undefined {
   if (!isRecord(chunk)) return
   const type = String(chunk.type || "")
   return usageRecordFromUsage(type === "finish-step"
     ? chunk.usage
     : type === "finish"
       ? chunk.usage ?? chunk.totalUsage
-      : undefined, chunk, fallbackMetadataSource)
+      : undefined, chunk, fallbackMetadataSource, run)
 }
 
-async function usageFromResult(result: unknown): Promise<AgentUsageRecord | undefined> {
+async function usageFromResult(result: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {
   if (!isRecord(result)) return
-  return usageRecordFromUsage(await resolveUsageValue(result.usage ?? result.totalUsage), result)
+  return usageRecordFromUsage(await resolveUsageValue(result.usage ?? result.totalUsage), result, undefined, run)
+}
+
+export async function resolveAgentUsageRecord(value: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {
+  if (!isRecord(value)) return
+  const usageRecord = ownValue(value, "usageRecord")
+  if (isUsageRecord(usageRecord)) return withFallbackUsageMetadata(usageRecord, value, run)
+  return await usageFromResult(value, run) ?? await usageFromResult(value.raw, run)
 }
 
 function optionalMessageId(messageId: string | undefined): { messageId?: string } {
@@ -363,10 +422,7 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
         yield { text, type: "text-delta" }
       }
     }
-    let usageRecord = isUsageRecord((value as { usageRecord?: unknown }).usageRecord)
-      ? (value as { usageRecord: AgentUsageRecord }).usageRecord
-      : await usageFromResult(value)
-    if (!usageRecord && isRecord(value)) usageRecord = await usageFromResult(value.raw)
+    const usageRecord = await resolveAgentUsageRecord(value)
     if (usageRecord) yield { type: "usage", usageRecord }
     yield { type: "finish" }
     return
@@ -380,20 +436,13 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     : undefined
   if (typeof text === "string") {
     if (text) yield { text, type: "text-delta" }
-    let usageRecord = isUsageRecord((value as { usageRecord?: unknown }).usageRecord)
-      ? (value as { usageRecord: AgentUsageRecord }).usageRecord
-      : await usageFromResult(value)
-    if (!usageRecord && isRecord(value)) {
-      usageRecord = await usageFromResult((value as { raw?: unknown }).raw)
-    }
+    const usageRecord = await resolveAgentUsageRecord(value)
     if (usageRecord) {
       yield { type: "usage", usageRecord }
     }
-    yield {
-      reason: typeof (value as { finishReason?: unknown }).finishReason === "string"
-        ? (value as { finishReason: string }).finishReason
-        : undefined,
-      type: "finish",
-    }
+    const reason = typeof (value as { finishReason?: unknown }).finishReason === "string"
+      ? (value as { finishReason: string }).finishReason
+      : undefined
+    yield { ...(reason ? { reason } : {}), type: "finish" }
   }
 }

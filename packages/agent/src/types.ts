@@ -269,6 +269,7 @@ export interface AgentChannelDeliveryFinishEffectContext<
   request?: Request
   status: (input: AgentChannelDeliveryStatusInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"status">
   text?: string
+  usage?: AgentUsageRecord
   workspace?: ReadonlyWorkspaceFacade
 }
 
@@ -450,6 +451,7 @@ export interface AgentFinishEvent<
   result?: unknown
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>
   text?: string
+  usage?: AgentUsageRecord
 }
 
 export type AgentFinishHook<
@@ -1439,7 +1441,6 @@ export interface AgentUsageRecord {
     timestamp?: Date | string
   }
   run?: Partial<AgentRunMetadata>
-  summary?: string
   usage?: AgentUsage
 }
 

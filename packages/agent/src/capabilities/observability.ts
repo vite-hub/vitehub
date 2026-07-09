@@ -1,5 +1,4 @@
 import { defineCapability } from "../capability-runtime.ts"
-import { usageTelemetry } from "./usage-telemetry.ts"
 
 import type {
   AgentActor,
@@ -15,7 +14,6 @@ import type {
   MaybePromise,
   ResolvedAgentRuntimeContext,
 } from "../types.ts"
-import type { UsageTelemetryOptions } from "./usage-telemetry.ts"
 
 export type AgentObservabilityStatus = "completed" | "failed"
 
@@ -59,7 +57,6 @@ export interface AgentObservabilityOptions<
 > {
   instrumentation?: AgentModelExecutionInstrumentation<TRuntimeConfig, CALL_OPTIONS>
   onEvent?: AgentObservabilityEventHandler<TRuntimeConfig>
-  usageTelemetry?: boolean | UsageTelemetryOptions
 }
 
 export interface AgentObservabilityFinishExtension {
@@ -86,10 +83,6 @@ function resultKind(result: unknown): string {
   if (isAsyncIterable(result)) return "stream"
   if (Array.isArray(result)) return "array"
   return typeof result
-}
-
-function usageRecordFromFinishEvent(event: AgentFinishEvent): AgentUsageRecord | undefined {
-  return usageTelemetry.from(event)
 }
 
 function capabilityEventBase<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -132,13 +125,7 @@ export function observability<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 >(options: AgentObservabilityOptions<TRuntimeConfig, CALL_OPTIONS> = {}): AgentCapabilityDefinition<TRuntimeConfig> {
-  const usage = options.usageTelemetry === undefined || options.usageTelemetry === true
-    ? usageTelemetry() as AgentCapabilityDefinition<TRuntimeConfig>
-    : typeof options.usageTelemetry === "object" && options.usageTelemetry !== null
-      ? usageTelemetry(options.usageTelemetry) as AgentCapabilityDefinition<TRuntimeConfig>
-      : undefined
   return defineCapability<TRuntimeConfig>({
-    ...(usage ? { capabilities: [usage] } : {}),
     id: "observability",
     metadata: {
       kind: "observability",
@@ -173,7 +160,7 @@ export function observability<
       }
     },
     async finish(event: AgentFinishEvent<TRuntimeConfig>) {
-      const usage = options.usageTelemetry === false ? undefined : usageRecordFromFinishEvent(event)
+      const usage = event.usage
       if (event.errorMessage !== undefined) {
         return {
           durationMs: event.invocation.durationMs,

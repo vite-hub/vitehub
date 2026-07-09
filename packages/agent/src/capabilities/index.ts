@@ -95,13 +95,6 @@ export {
   mcp,
 } from "./mcp.ts"
 export {
-  getUsageTelemetry,
-  normalizeAgentUsage,
-  staticModelPricing,
-  usageTelemetry,
-  vercelAiGatewayPricing,
-} from "./usage-telemetry.ts"
-export {
   webSearch,
 } from "./web-search/index.ts"
 
@@ -326,21 +319,6 @@ export type {
   McpClientConfig,
   McpServerConfig,
 } from "../mcp/types.ts"
-export type {
-  AgentUsagePricing,
-  AgentUsagePricingContext,
-  StaticModelPrice,
-  UsageTelemetryCallback,
-  UsageTelemetryCapabilityFactory,
-  UsageTelemetryContext,
-  UsageTelemetryFinishEvent,
-  UsageTelemetryOptions,
-  UsageTelemetryOutputExtension,
-  UsageTelemetrySummaryFormatContext,
-  UsageTelemetrySummaryFormatter,
-  UsageTelemetrySummaryOptions,
-  VercelAiGatewayPricingOptions,
-} from "./usage-telemetry.ts"
 export type {
   WebReadToolDefinition,
   WebReadToolInput,
