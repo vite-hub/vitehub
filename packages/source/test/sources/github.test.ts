@@ -130,6 +130,27 @@ describe("@vite-hub/source GitHub source", () => {
     expect(contentsCalls).toHaveLength(1)
   })
 
+  it("caches GitHub metadata reads when provider cache is configured", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+      "docs/guide.md": "# Guide\n",
+    })
+
+    const docs = github({ cache: { maxAge: 3600 }, repo: "acme/app", root: "docs" })
+
+    await expect(docs.getMeta?.("README.md", { rootDir: process.cwd() })).resolves.toEqual({
+      ref: "latest-commit-sha",
+      sha: "sha-docs/README.md",
+    })
+    await expect(docs.getMeta?.("README.md", { rootDir: process.cwd() })).resolves.toEqual({
+      ref: "latest-commit-sha",
+      sha: "sha-docs/README.md",
+    })
+
+    const contentsCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/contents/docs/README.md"))
+    expect(contentsCalls).toHaveLength(1)
+  })
+
   it("falls back to GitHub archive metadata when the contents API is rate limited", async () => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
@@ -144,6 +165,21 @@ describe("@vite-hub/source GitHub source", () => {
 
     const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
     expect(archiveCalls).toHaveLength(1)
+  })
+
+  it("does not hide invalid GitHub refs as missing metadata", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      const requestUrl = String(url)
+      if (requestUrl.includes("/contents/") || requestUrl.startsWith("https://codeload.github.com/")) {
+        return jsonResponse({ message: "not found" }, 404)
+      }
+      throw new Error(`Unexpected GitHub request: ${requestUrl}`)
+    }))
+
+    const docs = github({ ref: "missing-ref", repo: "acme/app", root: "docs" })
+
+    await expect(docs.getMeta?.("README.md", { rootDir: process.cwd() }))
+      .rejects.toThrow("could not access the repository or ref")
   })
 
   it("reads non-ASCII paths from GitHub archive PAX headers", async () => {

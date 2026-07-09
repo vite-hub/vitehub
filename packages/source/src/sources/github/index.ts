@@ -177,7 +177,10 @@ export function github<const TKey extends string = string>(options: GitHubSource
       })
     }
     catch (error) {
-      if (error instanceof SourceError && error.message.includes(" could not access the repository or ref ")) return undefined
+      if (isGitHubAccessError(error)) {
+        const files = signal ? await loadArchiveFiles(token, signal) : await getFiles(token)
+        return files.find(file => file.key === normalizedKey)
+      }
       if (shouldResolveMainFallback(error)) {
         const files = signal ? await loadArchiveFiles(token, signal) : await getFiles(token)
         return files.find(file => file.key === normalizedKey)
@@ -191,6 +194,26 @@ export function github<const TKey extends string = string>(options: GitHubSource
       path: normalizedKey,
       sha: file.sha || ref,
     }
+  }
+
+  const loadedFileMetadata = new Map<string, Promise<GitHubFile<TKey> | undefined>>()
+  const cachedLoadFileMetadata = providerCache
+    ? defineCachedFunction(
+        async (key: TKey, token: string | undefined) => await loadFileMetadata(key, token),
+        {
+          ...providerCache,
+          getKey: (key, token) => cacheKey("metadata", token || "", key),
+          name: "github-source-metadata",
+        },
+      )
+    : (key: TKey, token: string | undefined) => dedupeProviderPromise(
+        loadedFileMetadata,
+        cacheKey("metadata", token || "", key),
+        () => loadFileMetadata(key, token),
+      )
+
+  function isGitHubAccessError(error: unknown) {
+    return error instanceof SourceError && error.message.includes(" could not access the repository or ref ")
   }
 
   async function loadFile(key: TKey, token = auth, signal?: AbortSignal): Promise<GitHubFile<TKey>> {
@@ -276,7 +299,9 @@ export function github<const TKey extends string = string>(options: GitHubSource
     },
     async getMeta(key, ctx) {
       const token = refreshAuth()
-      const file = await loadFileMetadata(key, token, ctx?.abortSignal)
+      const file = ctx?.abortSignal
+        ? await loadFileMetadata(key, token, ctx.abortSignal)
+        : await cachedLoadFileMetadata(key, token)
       if (!file) return
       return {
         ref: await getRef(token, ctx?.abortSignal),
