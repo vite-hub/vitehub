@@ -73,6 +73,12 @@ export {
   transcribe,
 } from "./transcribe.ts"
 export {
+  usageTelemetry,
+} from "./usage-telemetry.ts"
+export type {
+  UsageTelemetryRecord,
+} from "./usage-telemetry.ts"
+export {
   workspaceShell,
 } from "./workspace-shell.ts"
 export type {

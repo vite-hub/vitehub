@@ -9,7 +9,7 @@ import {
 } from "./delivery-effects.ts"
 import { getMessageText } from "./messages.ts"
 import { resolveRuntimeContext } from "@vite-hub/runtime"
-import { isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
+import { isAsyncIterable, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import { resolveAgentChannelChatOptions } from "./internal/channels.ts"
 import {
@@ -1853,7 +1853,6 @@ function createFinishDeliveryEffectContext<
     run: context.run,
     status: createStatusDeliveryEffectIntent,
     ...(event.text !== undefined ? { text: event.text } : {}),
-    ...(event.usage !== undefined ? { usage: event.usage } : {}),
     workspace: context.workspace,
   }
 }
@@ -1927,7 +1926,6 @@ async function finishAgentInvocation<
   try {
     await context.close()
     if (hasFinishWork(context)) {
-      const usage = result === undefined ? undefined : await resolveAgentUsageRecord(result, context.run)
       const details = failed ? agentErrorDetails(error) : undefined
       const eventBase = {
         ...(failed ? { error } : {}),
@@ -1942,7 +1940,6 @@ async function finishAgentInvocation<
         ...(result !== undefined ? { result } : {}),
         runtime: context.runtimeContext,
         ...(text !== undefined ? { text } : {}),
-        ...(usage !== undefined ? { usage } : {}),
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       context.context.set("agent.finishHook", Boolean(context.finishHook), { overwrite: true })
       const provisionalActiveDeliveryProviders = await prepareProvisionalTitleDeliverySupport(context, eventBase)

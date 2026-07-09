@@ -96,7 +96,7 @@ Use `--watch` while editing prompts or scenarios. Use `--threshold` and `--outpu
 
 Good evals score source-grounded answers, refusal behavior, expected tool use, no source leakage, and regressions in usage or latency when Agent usage exists.
 When the behavior belongs to a Capability, assert its finish extension instead of duplicating host-specific hooks.
-Use `observability.usage` or finish-hook `event.usage` for structured Agent Usage Records.
+Use `observability.usage` for the raw Agent Usage Record, or `usage-telemetry` for primitive usage JSON.
 
 ```ts [server/agents/support.eval.ts]
 import { defineEval, hasCapabilityExtension } from '@vite-hub/agent/eval'

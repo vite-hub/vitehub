@@ -3,6 +3,7 @@ import {
   runAgent,
   withAgentDefaults,
 } from "./index.ts"
+import { resolveAgentUsageRecord } from "./agent-output.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
 import { registerWorkspace } from "@vite-hub/workspace/test"
 
@@ -303,11 +304,12 @@ async function normalizeAgentTestResult(
   getFinishEvent: () => AgentFinishEvent | undefined,
 ): Promise<AgentTestRunResult> {
   const finishEvent = getFinishEvent()
+  const usage = (await resolveAgentUsageRecord(value, finishEvent?.invocation.run))?.usage
   if (value instanceof Response) {
     const text = await value.clone().text()
     return {
       ...(finishEvent?.extensions ? { extensions: finishEvent.extensions } : {}),
-      ...(finishEvent?.usage ? { usage: finishEvent.usage.usage } : {}),
+      ...(usage ? { usage } : {}),
       raw: value,
       text,
       toolSteps,
@@ -324,7 +326,7 @@ async function normalizeAgentTestResult(
     raw: value,
     text: textFromRaw(value),
     toolSteps: [...toolSteps, ...toolStepsFromRaw(value)],
-    usage: finishEvent?.usage?.usage ?? result?.usage,
+    usage: usage ?? result?.usage,
     warnings: result?.warnings,
   }
 }

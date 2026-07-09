@@ -126,21 +126,26 @@ export default defineAgent({
 ## Finish lifecycle
 
 Use an Agent Finish Hook to observe the completed invocation. Finish hooks are appropriate for usage export, trace collection, cleanup, or product-side notifications.
-Finish events include `event.usage` when the Agent Driver reports usage. Treat this value as structured JSON, then store it directly or pass it to application-owned formatting code.
+Enable `usageTelemetry()` when the Agent needs primitive usage JSON at finish time. Treat the extension value as data, then store it directly or pass it to application-owned formatting code.
 
 ```ts [server/agents/support.ts]
 import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
+import { usageTelemetry } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: {
     model: gateway('openai/gpt-5.1-mini'),
     instructions: 'Answer support requests.',
   },
+  capabilities: [
+    usageTelemetry(),
+  ],
   hooks: {
     'agent:finish'(event) {
-      if (!event.usage) return
-      event.runtime.waitUntil(recordUsage(event.usage))
+      const usage = event.extensions.get('usage-telemetry')
+      if (!usage) return
+      event.runtime.waitUntil(recordUsage(usage))
     },
   },
 })

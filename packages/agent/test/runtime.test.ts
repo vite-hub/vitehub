@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
 import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/runtime"
-import { chat, chatTitle, observability, schedule, subagents } from "../src/capabilities.ts"
+import { chat, chatTitle, observability, schedule, subagents, usageTelemetry } from "../src/capabilities.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 
 import type { AgentChannelDeliveryFinishEffectCallback } from "../src/index.ts"
@@ -189,11 +189,6 @@ describe("agent message protocol", () => {
       text: "ok",
     })
     const extensions = finish.mock.calls[0]![0].extensions
-    expect(finish.mock.calls[0]![0].usage).toMatchObject({
-      usage: {
-        totalTokens: 10,
-      },
-    })
     expect(extensions.get("observability", "usage")).toMatchObject({
       usage: {
         totalTokens: 10,
@@ -237,7 +232,7 @@ describe("agent message protocol", () => {
         outputTokens: 6,
       },
     })
-    expect(finish.mock.calls[0]![0].usage).toMatchObject({
+    expect(finish.mock.calls[0]![0].extensions.get("observability", "usage")).toMatchObject({
       usage: {
         totalTokens: 10,
       },
@@ -1481,11 +1476,13 @@ describe("agent message protocol", () => {
     harnessGenerate.mockResolvedValueOnce({
       text: "ok",
       usage: {
-        actions: 2,
+        inputTokens: 1,
+        outputTokens: 1,
       },
     })
 
     const agent = defineAgent({
+      capabilities: [usageTelemetry()],
       driver: {
         harness: { provider: "codex" },
       },
@@ -1498,18 +1495,16 @@ describe("agent message protocol", () => {
       text: "ok",
       usageRecord: {
         usage: {
-          details: {
-            actions: 2,
-          },
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
         },
       },
     })
-    expect(finish.mock.calls[0]![0].usage).toMatchObject({
-      usage: {
-        details: {
-          actions: 2,
-        },
-      },
+    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
+      inputTokens: 1,
+      outputTokens: 1,
+      totalTokens: 2,
     })
   })
 
@@ -1559,10 +1554,12 @@ describe("agent message protocol", () => {
       },
       { type: "finish" },
     ])
-    expect(finish.mock.calls[0]![0].usage).toMatchObject({
-      usage: {
-        details: {
-          actions: 3,
+    expect(finish.mock.calls[0]![0].result).toMatchObject({
+      usageRecord: {
+        usage: {
+          details: {
+            actions: 3,
+          },
         },
       },
     })
@@ -4445,6 +4442,7 @@ describe("agent message protocol", () => {
               }))
             },
           }),
+          usageTelemetry(),
         ],
         hooks: {
           "agent:finish": finish,
@@ -4469,10 +4467,10 @@ describe("agent message protocol", () => {
       expect(finish.mock.calls[0]![0].result).toMatchObject({
         text: "ok:final",
       })
-      expect(finish.mock.calls[0]![0].usage).toMatchObject({
-        usage: {
-          totalTokens: 6,
-        },
+      expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
+        inputTokens: 4,
+        outputTokens: 2,
+        totalTokens: 6,
       })
     }
     finally {
@@ -4939,6 +4937,7 @@ describe("agent message protocol", () => {
             context.delivery.finishEffect(context => context.reply(context.result!.text!))
           },
         }),
+        usageTelemetry(),
       ],
       channels: {
         review: defineChannel("review", {
@@ -4989,10 +4988,10 @@ describe("agent message protocol", () => {
     }
 
     expect(delivered).toHaveBeenCalledWith("ui usage:10")
-    expect(finish.mock.calls[0]![0].usage).toMatchObject({
-      usage: {
-        totalTokens: 10,
-      },
+    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
+      inputTokens: 4,
+      outputTokens: 6,
+      totalTokens: 10,
     })
   })
 

@@ -37,6 +37,7 @@ import {
   skills,
   subagents,
   transcribe,
+  usageTelemetry,
   webSearch,
   workspaceShell,
 } from '@vite-hub/agent/capabilities'
@@ -73,6 +74,7 @@ import {
 | Chat title | [`chatTitle()`](/docs/capabilities/chat-title) | Chat streams and finish extensions should include a generated conversation title. |
 | Chat summary | [`chatSummary()`](/docs/capabilities/chat-summary) | A summary command should replace explicit input with a conversation summary. |
 | Observability | [`observability()`](/docs/capabilities/observability) | Lifecycle events, model instrumentation, and finish metadata should be attached to Agent Invocations. |
+| Usage telemetry | [`usageTelemetry()`](/docs/capabilities/usage-telemetry) | Finish hooks or Channel Delivery finish effects should receive primitive usage JSON. |
 
 ## Read capability pages first
 

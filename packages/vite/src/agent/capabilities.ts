@@ -32,6 +32,7 @@ export {
   skills,
   subagents,
   transcribe,
+  usageTelemetry,
   webSearch,
   workspaceJsonlMemoryStore,
   workspaceShell,

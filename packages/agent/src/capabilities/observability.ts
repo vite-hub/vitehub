@@ -1,3 +1,4 @@
+import { resolveAgentUsageRecord } from "../agent-output.ts"
 import { defineCapability } from "../capability-runtime.ts"
 
 import type {
@@ -160,7 +161,7 @@ export function observability<
       }
     },
     async finish(event: AgentFinishEvent<TRuntimeConfig>) {
-      const usage = event.usage
+      const usage = await resolveAgentUsageRecord(event.result, event.invocation.run)
       if (event.errorMessage !== undefined) {
         return {
           durationMs: event.invocation.durationMs,
