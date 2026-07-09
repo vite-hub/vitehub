@@ -111,6 +111,43 @@ describe("@vite-hub/source GitHub source", () => {
     expect(contentsCalls).toHaveLength(1)
   })
 
+  it("returns missing GitHub metadata from the abort-signal contents path after validating the ref", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      const requestUrl = String(url)
+      if (requestUrl.endsWith("/commits/main")) return jsonResponse({ sha: "latest-commit-sha" })
+      if (requestUrl.includes("/contents/docs/missing.md")) return new Response("not found", { status: 404 })
+      throw new Error(`Unexpected GitHub request: ${requestUrl}`)
+    }))
+
+    const docs = github({ ref: "main", repo: "acme/app", root: "docs" })
+
+    await expect(docs.getMeta?.("missing.md", {
+      abortSignal: new AbortController().signal,
+      rootDir: process.cwd(),
+    })).resolves.toBeUndefined()
+
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => String(url))).toEqual([
+      "https://api.github.com/repos/acme/app/contents/docs/missing.md?ref=main",
+      "https://api.github.com/repos/acme/app/commits/main",
+    ])
+  })
+
+  it("rejects invalid GitHub refs from the abort-signal metadata path", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      const requestUrl = String(url)
+      if (requestUrl.includes("/contents/docs/README.md")) return new Response("not found", { status: 404 })
+      if (requestUrl.endsWith("/commits/missing-ref")) return new Response("not found", { status: 404 })
+      throw new Error(`Unexpected GitHub request: ${requestUrl}`)
+    }))
+
+    const docs = github({ ref: "missing-ref", repo: "acme/app", root: "docs" })
+
+    await expect(docs.getMeta?.("README.md", {
+      abortSignal: new AbortController().signal,
+      rootDir: process.cwd(),
+    })).rejects.toThrow("could not access the repository or ref")
+  })
+
   it("reads non-ASCII paths from GitHub archive PAX headers", async () => {
     stubGitHubSource({
       "docs/café.md": "# Café\n",

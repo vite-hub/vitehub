@@ -116,6 +116,17 @@ export function github<const TKey extends string = string>(options: GitHubSource
     return signal ? await resolveRef(token, signal) : await cachedResolveRef(token)
   }
 
+  async function validateConfiguredRef(token = auth, signal?: AbortSignal): Promise<void> {
+    if (!configuredRef) return
+    await requestGitHubJson<GitHubCommitResponse>({
+      ref: configuredRef,
+      repo: options.repo,
+      signal,
+      token,
+      url: `https://api.github.com/repos/${options.repo}/commits/${encodeURIComponent(configuredRef)}`,
+    })
+  }
+
   async function loadArchiveFiles(token = auth, signal?: AbortSignal) {
     const ref = await getRef(token, signal)
     const archive = await fetchGitHubArchive({ ref, repo: options.repo, signal, token })
@@ -240,9 +251,20 @@ export function github<const TKey extends string = string>(options: GitHubSource
     },
     async getMeta(key, ctx) {
       const token = refreshAuth()
-      const file = ctx?.abortSignal
-        ? await loadFile(key, token, ctx.abortSignal).catch(() => undefined)
-        : (await getFiles(token)).find(file => file.key === key)
+      let file: GitHubFile<TKey> | undefined
+      if (ctx?.abortSignal) {
+        try {
+          file = await loadFile(key, token, ctx.abortSignal)
+        }
+        catch (error) {
+          if (!(error instanceof SourceError)) throw error
+          await getRef(token, ctx.abortSignal)
+          await validateConfiguredRef(token, ctx.abortSignal)
+        }
+      }
+      else {
+        file = (await getFiles(token)).find(file => file.key === key)
+      }
       if (!file) return
       return {
         ref: await getRef(token, ctx?.abortSignal),
