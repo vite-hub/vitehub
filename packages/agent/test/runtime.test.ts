@@ -2083,6 +2083,20 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("preserves prefixed data parts during model conversion", async () => {
+    const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
+
+    expect(toAiSdkModelMessages([
+      createMessage({
+        id: "m1",
+        parts: [{ data: { city: "Seattle" }, type: "data-weather" }],
+        role: "user",
+      }),
+    ])).toEqual([
+      { content: "{\"city\":\"Seattle\"}", role: "user" },
+    ])
+  })
+
   it("drops empty ViteHub messages before model conversion", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 
