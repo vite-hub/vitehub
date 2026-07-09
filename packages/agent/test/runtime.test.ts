@@ -5297,9 +5297,13 @@ describe("agent message protocol", () => {
       expect(generateText).toHaveBeenCalledWith({
         model: "agent-title-model",
         prompt: [
-          "Generate a short chat title from the user's first message.",
+          "Summarize the user's request as a short chat title.",
           "Return only the title.",
-          "Use 2-5 words when possible.",
+          "Use 4-8 words when possible.",
+          "Keep it under 80 characters.",
+          "Do not answer the request.",
+          "Use the user's language.",
+          "Do not use emoji.",
           "Ignore chat platform mention/channel markup, bot names, and user IDs.",
           `Use "New Conversation" when the message is too vague.`,
           "",
@@ -5308,6 +5312,41 @@ describe("agent message protocol", () => {
         ].join("\n"),
       })
       expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toEqual({ title: "Generated invoice title" })
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
+  it("cleans generated chat titles without cutting words", async () => {
+    const generateText = vi.fn(async () => ({ text: "Compare Quiet Rainy Morning Cafe Museum Plans" }))
+    vi.doMock("ai", () => ({
+      generateText,
+      isStepCount: vi.fn(count => ({ count })),
+      jsonSchema: vi.fn(schema => schema),
+      ToolLoopAgent: class {
+        async generate() {
+          return { finishReason: "stop", text: "ok" }
+        }
+      },
+    }))
+
+    try {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const finish = vi.fn()
+      const agent = defineAgent({
+        capabilities: [chatTitle({ maxLength: 35 })],
+        driver: { model: "agent-title-model" as never },
+        hooks: {
+          "agent:finish": finish,
+        },
+      })
+
+      await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+        messages: [createMessage({ role: "user", text: "Compare a cafe morning and museum morning" })],
+      })
+
+      expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toEqual({ title: "Compare Quiet Rainy Morning Cafe" })
     }
     finally {
       vi.doUnmock("ai")
