@@ -627,9 +627,26 @@ describe("agent capability runtime", () => {
     expect(source).not.toBeNull()
     if (!source || typeof source !== "object") throw new Error("Expected browser skill source object.")
     const content = (source as { content?: unknown }).content
-    expect(content).toContain("Save screenshots inside the workspace")
+    expect(content).toContain("save screenshots inside that workspace directory")
     expect(content).not.toContain("blob_edit")
     expect(content).not.toContain("Blob")
+  })
+
+  it("adds default Blob asset paths for Harness workspace materialization", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { blob } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [blob({ mode: "write" })],
+    }, runtime(), {}, emptyWorkspace() as never, "write", {
+      driverKind: "harness",
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    expect(resolved.workspaceMaterializationPaths).toEqual(["screenshots"])
   })
 
   it("requires Access when capability workspace contributions add scoped sources", async () => {

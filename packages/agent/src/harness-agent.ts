@@ -4,6 +4,7 @@ import {
 } from "./internal/agent-usage-metadata.ts"
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
 import { streamAgentOutputToEvents } from "./agent-output.ts"
+import { setActiveHarnessWorkspaceFiles } from "./harness-runtime.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import {
   colocatedAgentInstructionsSourceKey,
@@ -53,6 +54,10 @@ type HarnessWorkspaceMaterializationContext = AgentAdapterRunContext & {
 
 type HarnessInstructionSandbox = {
   writeBinaryFile(options: { abortSignal?: AbortSignal, content: Uint8Array, path: string }): MaybePromise<void>
+}
+
+type HarnessFileSandbox = {
+  readBinaryFile?(options: { abortSignal?: AbortSignal, path: string }): MaybePromise<Uint8Array | null>
 }
 
 type HarnessAgentConstructor = new (settings: Record<string, unknown>) => HarnessAgentLike
@@ -191,6 +196,33 @@ function hasLazyWorkspaceSources(context: AgentAdapterRunContext): boolean {
 
 function pathContains(container: string, path: string): boolean {
   return !container || path === container || path.startsWith(`${container}/`)
+}
+
+function normalizeActiveHarnessWorkspacePath(path: string): string {
+  const stripped = path.replace(/\\/g, "/").replace(/^\/workspace(?:\/|$)/, "").replace(/^\/+|\/+$/g, "").replace(/\/+/g, "/")
+  const parts = stripped.split("/").filter(Boolean)
+  if (parts.some(part => part === "." || part === "..")) {
+    throw new Error(`[vitehub] Workspace path must stay inside the workspace: "${path}".`)
+  }
+  return parts.join("/")
+}
+
+function joinHarnessSessionPath(sessionWorkDir: string, workspacePath: string): string {
+  return [sessionWorkDir.replace(/\/+$/, ""), workspacePath].filter(Boolean).join("/")
+}
+
+function activeHarnessWorkspaceFiles(session: HarnessFileSandbox, sessionWorkDir: string, abortSignal: AbortSignal | undefined) {
+  if (!session.readBinaryFile) return
+  return {
+    async readFile(path: string) {
+      const workspacePath = normalizeActiveHarnessWorkspacePath(path)
+      if (!workspacePath) return
+      return await session.readBinaryFile?.({
+        abortSignal,
+        path: joinHarnessSessionPath(sessionWorkDir, workspacePath),
+      }) ?? undefined
+    },
+  }
 }
 
 function compactWorkspacePaths(paths: readonly string[]): string[] {
@@ -441,6 +473,7 @@ async function createHarnessAgent<
     harness,
     sandboxConfig: {
       onSession: async ({ abortSignal, session, sessionWorkDir }: { abortSignal?: AbortSignal, session: unknown, sessionWorkDir: string }) => {
+        setActiveHarnessWorkspaceFiles(context.context, activeHarnessWorkspaceFiles(session as HarnessFileSandbox, sessionWorkDir, abortSignal))
         await prepareWorkspaceSession(session, sessionWorkDir, abortSignal)
       },
     },
@@ -665,6 +698,9 @@ export function createHarnessAgentAdapter<
       }
       catch (nextError) {
         closeError = nextError
+      }
+      finally {
+        setActiveHarnessWorkspaceFiles(context.context, undefined)
       }
       if (!sessionId || closeError) {
         if (sessionId) resumeStates.delete(sessionId)

@@ -236,6 +236,44 @@ describe("storage capabilities", () => {
     expect(store.del).toHaveBeenCalledWith("images/a.png")
   })
 
+  it("uploads workspacePath from the active Harness workspace when available", async () => {
+    const { blob } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
+    const { setActiveHarnessWorkspaceFiles } = await import("../src/harness-runtime.ts")
+    const harnessBytes = new Uint8Array([4, 5, 6])
+    const workspaceBytes = new Uint8Array([1, 2, 3])
+    const context = createAgentInvocationContextStore()
+    const readFile = vi.fn(async () => harnessBytes)
+    setActiveHarnessWorkspaceFiles(context, { readFile })
+    const workspace = {
+      fs: {
+        readFile: vi.fn(async () => workspaceBytes),
+      },
+    } as unknown as ReadonlyWorkspaceFacade
+    const store = {
+      del: vi.fn(),
+      get: vi.fn(),
+      head: vi.fn(),
+      list: vi.fn(async () => ({ blobs: [], hasMore: false })),
+      put: vi.fn(async () => ({ pathname: "images/from-harness.png" })),
+    }
+
+    const resolved = await resolveAgentCapabilities(
+      { capabilities: [blob({ mode: "write" })] },
+      runtime({ blob: store }),
+      {},
+      workspace as never,
+      "write",
+      { context },
+    )
+
+    await resolved.tools!.blob_edit!.execute?.({ operation: "put", pathname: "images/from-harness.png", workspacePath: "screenshots/result.png" })
+    expect(readFile).toHaveBeenCalledWith("screenshots/result.png")
+    expect(workspace.fs.readFile).not.toHaveBeenCalled()
+    expect(store.put).toHaveBeenCalledWith("images/from-harness.png", harnessBytes, undefined)
+  })
+
   it("falls back to the installed Blob primitive at tool execution time", async () => {
     const store = {
       list: vi.fn(async () => ({ blobs: [], hasMore: false })),
