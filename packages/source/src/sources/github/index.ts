@@ -59,6 +59,10 @@ export function github<const TKey extends string = string>(options: GitHubSource
     return root ? `${root}/${normalized}` : normalized
   }
 
+  function contentsUrl(repoPath: string, ref: string) {
+    return `https://api.github.com/repos/${options.repo}/contents/${encodeURIComponent(repoPath).replace(/%2F/g, "/")}?ref=${encodeURIComponent(ref)}`
+  }
+
   function shouldInclude(key: string) {
     if (options.include && !matchesAny(key, options.include)) return false
     if (options.exclude && matchesAny(key, options.exclude)) return false
@@ -157,6 +161,38 @@ export function github<const TKey extends string = string>(options: GitHubSource
     return cachedLoadFiles(token)
   }
 
+  async function loadFileMetadata(key: TKey, token = auth, signal?: AbortSignal): Promise<GitHubFile<TKey> | undefined> {
+    const normalizedKey = normalizeSourcePath(key) as TKey
+    if (!normalizedKey || !shouldInclude(normalizedKey)) return
+    const ref = await getRef(token, signal)
+    const repoPath = repoPathForKey(normalizedKey)
+    let file: GitHubContentResponse | GitHubContentResponse[] | undefined
+    try {
+      file = await requestGitHubJson<GitHubContentResponse | GitHubContentResponse[]>({
+        ref,
+        repo: options.repo,
+        signal,
+        token,
+        url: contentsUrl(repoPath, ref),
+      })
+    }
+    catch (error) {
+      if (error instanceof SourceError && error.message.includes(" could not access the repository or ref ")) return undefined
+      if (shouldResolveMainFallback(error)) {
+        const files = signal ? await loadArchiveFiles(token, signal) : await getFiles(token)
+        return files.find(file => file.key === normalizedKey)
+      }
+      throw error
+    }
+    if (!file || Array.isArray(file)) return
+    if (file.type === "dir") return
+    return {
+      key: normalizedKey,
+      path: normalizedKey,
+      sha: file.sha || ref,
+    }
+  }
+
   async function loadFile(key: TKey, token = auth, signal?: AbortSignal): Promise<GitHubFile<TKey>> {
     const normalizedKey = normalizeSourcePath(key) as TKey
     if (!normalizedKey || !shouldInclude(normalizedKey)) {
@@ -169,7 +205,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
       repo: options.repo,
       signal,
       token,
-      url: `https://api.github.com/repos/${options.repo}/contents/${encodeURIComponent(repoPath).replace(/%2F/g, "/")}?ref=${encodeURIComponent(ref)}`,
+      url: contentsUrl(repoPath, ref),
     })
     if (Array.isArray(file) || file.type === "dir") {
       throw new SourceError(`[vitehub] github(${JSON.stringify(options.repo)}) expected ${JSON.stringify(key)} to be a file, but it is a directory.`)
@@ -240,9 +276,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
     },
     async getMeta(key, ctx) {
       const token = refreshAuth()
-      const file = ctx?.abortSignal
-        ? await loadFile(key, token, ctx.abortSignal).catch(() => undefined)
-        : (await getFiles(token)).find(file => file.key === key)
+      const file = await loadFileMetadata(key, token, ctx?.abortSignal)
       if (!file) return
       return {
         ref: await getRef(token, ctx?.abortSignal),

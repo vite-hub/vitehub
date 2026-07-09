@@ -111,6 +111,41 @@ describe("@vite-hub/source GitHub source", () => {
     expect(contentsCalls).toHaveLength(1)
   })
 
+  it("reads GitHub file metadata through the contents API without downloading the archive", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+      "docs/guide.md": "# Guide\n",
+    })
+
+    const docs = github({ repo: "acme/app", root: "docs" })
+
+    await expect(docs.getMeta?.("README.md", { rootDir: process.cwd() })).resolves.toEqual({
+      ref: "latest-commit-sha",
+      sha: "sha-docs/README.md",
+    })
+
+    const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
+    const contentsCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/contents/docs/README.md"))
+    expect(archiveCalls).toHaveLength(0)
+    expect(contentsCalls).toHaveLength(1)
+  })
+
+  it("falls back to GitHub archive metadata when the contents API is rate limited", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    }, { apiStatus: 403 })
+
+    const docs = github({ repo: "acme/app", root: "docs" })
+
+    await expect(docs.getMeta?.("README.md", { rootDir: process.cwd() })).resolves.toEqual({
+      ref: "main",
+      sha: "main",
+    })
+
+    const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
+    expect(archiveCalls).toHaveLength(1)
+  })
+
   it("reads non-ASCII paths from GitHub archive PAX headers", async () => {
     stubGitHubSource({
       "docs/café.md": "# Café\n",
