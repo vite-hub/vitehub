@@ -112,6 +112,40 @@ describe("repositoryHostContext", () => {
     })
   })
 
+  it("preserves nested pull request URLs from static issue payloads without issue URLs", async () => {
+    const { repositoryHostContext } = await import("../src/capabilities.ts")
+    const context = createAgentInvocationContextStore()
+
+    await resolveAgentCapabilities({
+      capabilities: [
+        repositoryHostContext({
+          context: {
+            issue: {
+              number: 42,
+              pullRequest: {
+                htmlUrl: "https://github.test/acme/app/pull/42",
+              },
+              repository: "acme/app",
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      context,
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    const host = repositoryHostContext.read({ context })
+    await expect(host.get("pullRequest")).resolves.toMatchObject({
+      htmlUrl: "https://github.test/acme/app/pull/42",
+      number: 42,
+      repository: "acme/app",
+    })
+  })
+
   it("preserves pull request context from static GitHub issue comment payloads", async () => {
     const { repositoryHostContext } = await import("../src/capabilities.ts")
     const host = repositoryHostContext.read({

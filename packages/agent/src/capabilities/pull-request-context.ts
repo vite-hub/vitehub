@@ -548,7 +548,7 @@ function normalizeHostPullRequest(value: unknown, fallback: { issue?: Repository
     if (!fallback.issue?.pullRequest || fallback.number === undefined || !fallback.repository) return
     return {
       ...(fallback.issue.body ? { body: fallback.issue.body } : {}),
-      ...(fallback.issue.htmlUrl ? { htmlUrl: fallback.issue.pullRequest.htmlUrl || fallback.issue.htmlUrl } : {}),
+      ...(fallback.issue.pullRequest.htmlUrl || fallback.issue.htmlUrl ? { htmlUrl: fallback.issue.pullRequest.htmlUrl || fallback.issue.htmlUrl } : {}),
       ...(fallback.issue.labels ? { labels: fallback.issue.labels } : {}),
       number: fallback.number,
       provider: "github",
