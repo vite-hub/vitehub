@@ -194,6 +194,12 @@ type RepositoryHostContextCapabilityTypeContract<
   invocationContext: Record<TContextKey, AsyncRecord<RepositoryHostContextValue>>
 }
 
+type PullRequestContextCapabilityTypeContract<
+  TContextKey extends string = "pullRequest",
+> = AgentCapabilityTypeContract & {
+  invocationContext: Record<TContextKey, PullRequestContextValue>
+}
+
 const defaultRepositoryHostContextId = "repository-host-context"
 const defaultRepositoryHostContextKey = "repositoryHost"
 const repositoryHostContextKeys = ["issue", "pullRequest", "body", "labels", "comments", "files"] as const
@@ -858,7 +864,7 @@ export interface PullRequestContextCapabilityFactory {
     const TContextKey extends string = "pullRequest",
   >(
     options?: PullRequestContextOptions<TRuntimeConfig, Name> & { contextKey?: TContextKey },
-  ): AgentCapabilityDefinition<TRuntimeConfig, Name, RepositoryHostContextCapabilityTypeContract<TContextKey>>
+  ): AgentCapabilityDefinition<TRuntimeConfig, Name, PullRequestContextCapabilityTypeContract<TContextKey>>
   read(input: unknown, contextKey?: string): PullRequestContextValue | undefined
 }
 
@@ -914,11 +920,36 @@ function createPullRequestContext<
   const TContextKey extends string = "pullRequest",
 >(
   options: PullRequestContextOptions<TRuntimeConfig, Name> & { contextKey?: TContextKey } = {},
-): AgentCapabilityDefinition<TRuntimeConfig, Name, RepositoryHostContextCapabilityTypeContract<TContextKey>> {
-  return createRepositoryHostContext({
-    ...options,
-    id: options.id || "pull-request-context",
-    contextKey: options.contextKey ?? "pullRequest",
+): AgentCapabilityDefinition<TRuntimeConfig, Name, PullRequestContextCapabilityTypeContract<TContextKey>> {
+  const capabilityId = options.id || "pull-request-context"
+  const contextKey = options.contextKey || "pullRequest"
+  const recordedContexts = new WeakSet<AgentCapabilityContext<TRuntimeConfig, Name>["context"]>()
+
+  async function recordContext(context: AgentCapabilityContext<TRuntimeConfig, Name>) {
+    if (recordedContexts.has(context.context)) return
+    const hasContextOption = "context" in options
+    const input = await resolveMaybeFunction(options.context, context)
+    const existing = context.context.get(contextKey)
+    if (existing !== undefined) {
+      recordedContexts.add(context.context)
+      return
+    }
+    if (hasContextOption && (input === false || input === null || input === undefined)) {
+      return
+    }
+    const value = repositoryHostContextValues(input ?? context).pullRequest
+    if (value) context.context.set(contextKey, value)
+    recordedContexts.add(context.context)
+  }
+
+  return defineCapability({
+    id: capabilityId,
+    metadata: {
+      contextKey,
+      kind: "pull-request-context",
+    },
+    prepare: recordContext,
+    triggers: options.triggers,
   })
 }
 

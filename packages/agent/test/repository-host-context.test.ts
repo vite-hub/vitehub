@@ -243,6 +243,12 @@ describe("repositoryHostContext", () => {
       repository: "acme/app",
       title: "Review me",
     })
+    expect(context.get("pullRequest")).toMatchObject({
+      number: 42,
+      repository: "acme/app",
+      title: "Review me",
+    })
+    expect(context.get<{ get?: unknown }>("pullRequest")?.get).toBeUndefined()
     expect(context.get("repositoryHost")).toBeUndefined()
   })
 
