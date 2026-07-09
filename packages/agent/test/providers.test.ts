@@ -2011,7 +2011,7 @@ describe("server helpers", () => {
 
   it("handles Chat SDK webhooks through the chat capability", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { access, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const { access } = await import("../src/capabilities.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
@@ -2056,14 +2056,6 @@ describe("server helpers", () => {
           webhooks: {
             telegram: {},
           },
-        }),
-        usageTelemetry({
-          pricing: staticModelPricing({
-            "openai/gpt-test": {
-              input: "0.00000010",
-              output: "0.00000020",
-            },
-          }),
         }),
       ],
       invoker: {
@@ -2147,6 +2139,128 @@ describe("server helpers", () => {
         runId: "telegram:7",
       }),
     }))
+  })
+
+  it("splits long Discord chat output after stream finalization", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter() as ReturnType<typeof createTestChatAdapter> & {
+      formatConverter: { renderPostable: (message: unknown) => string }
+      name: string
+    }
+    adapter.formatConverter = {
+      renderPostable(message: unknown) {
+        if (typeof message === "string") return message
+        if (typeof message === "object" && message && "raw" in message && typeof message.raw === "string") return message.raw
+        if (typeof message === "object" && message && "markdown" in message && typeof message.markdown === "string") return message.markdown
+        return ""
+      },
+    }
+    adapter.name = "discord"
+    Object.defineProperty(adapter, Symbol.for("vitehub.discord.longContent.mode"), { value: "split" })
+    let replyText = "short reply"
+    const agent = defineAgent({
+      channels: {
+        discord: discord({ adapter: () => adapter as never }),
+      },
+      driver: {
+        run: () => ({ text: replyText }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = (messageId: number) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { id: 123, username: "maxi" },
+          message_id: messageId,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    })
+
+    const shortResponse = await handler(request(7), "discord")
+
+    expect(shortResponse.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "...")
+    expect(adapter.postMessage).toHaveBeenCalledTimes(1)
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "short reply" })
+
+    adapter.postMessage.mockClear()
+    adapter.editMessage.mockClear()
+    replyText = `${"word ".repeat(430)}done`
+
+    const longResponse = await handler(request(8), "discord")
+
+    expect(longResponse.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "...")
+    expect(adapter.editMessage).toHaveBeenNthCalledWith(1, "telegram:456", "sent-2", { markdown: replyText })
+    expect(adapter.editMessage).toHaveBeenNthCalledWith(2, "telegram:456", "sent-2", {
+      attachments: [],
+      raw: expect.stringMatching(/ \(1\/2\)$/),
+    })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
+      raw: expect.stringMatching(/ \(2\/2\)$/),
+    })
+  })
+
+  it("splits long non-streaming Discord chat output", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter() as ReturnType<typeof createTestChatAdapter> & {
+      formatConverter: { renderPostable: (message: unknown) => string }
+      name: string
+    }
+    adapter.formatConverter = {
+      renderPostable(message: unknown) {
+        if (typeof message === "string") return message
+        if (typeof message === "object" && message && "raw" in message && typeof message.raw === "string") return message.raw
+        if (typeof message === "object" && message && "markdown" in message && typeof message.markdown === "string") return message.markdown
+        return ""
+      },
+    }
+    adapter.name = "discord"
+    Object.defineProperty(adapter, Symbol.for("vitehub.discord.longContent.mode"), { value: "split" })
+    const replyText = `${"word ".repeat(430)}done`
+    const agent = defineAgent({
+      channels: {
+        discord: discord({
+          adapter: () => adapter as never,
+          messages: { stream: false },
+        }),
+      },
+      driver: {
+        run: () => ({ text: replyText }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { id: 123, username: "maxi" },
+          message_id: 9,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "discord")
+
+    expect(response.status).toBe(200)
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", {
+      raw: expect.stringMatching(/ \(1\/2\)$/),
+    })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
+      raw: expect.stringMatching(/ \(2\/2\)$/),
+    })
+    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
   })
 
   it("does not map audio mime file attachments without transcribe()", async () => {
@@ -4477,17 +4591,17 @@ describe("server helpers", () => {
     }
   })
 
-  it("lets agent finish hooks post usage telemetry for non-streaming model chat webhooks", async () => {
-    const { staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+  it("lets agent finish hooks post usage for non-streaming model chat webhooks", async () => {
+    const { usageTelemetry } = await import("../src/capabilities.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const finish = vi.fn(async (event) => {
       const chat = event.extensions.get("chat") as { provider?: string, sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
-      const usage = event.extensions.get("usage-telemetry") as { usage?: { totalTokens?: number } } | undefined
+      const usage = event.extensions.get("usage-telemetry")
       if (chat && usage) {
         await chat.sendMessage?.({
-          markdown: `Custom usage: \`${usage.usage?.totalTokens}\` tokens via ${chat.provider}`,
+          markdown: `Custom usage: \`${usage.totalTokens}\` tokens via ${chat.provider}`,
         })
       }
     })
@@ -4512,6 +4626,7 @@ describe("server helpers", () => {
     }
     const agent = {
       capabilities: [
+        usageTelemetry(),
         defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
@@ -4520,14 +4635,6 @@ describe("server helpers", () => {
           webhooks: {
             telegram: {},
           },
-        }),
-        usageTelemetry({
-          pricing: staticModelPricing({
-            "openai/gpt-test": {
-              input: "0.00000010",
-              output: "0.00000020",
-            },
-          }),
         }),
       ],
       hooks: {
@@ -4559,21 +4666,11 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Custom usage: `15` tokens via telegram" })
     expect(finish).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(expect.objectContaining({
-      cost: expect.objectContaining({
-        amount: "0.0000018",
-        currency: "USD",
-      }),
-      latency: expect.objectContaining({
-        durationMs: 900,
-      }),
-      model: {
-        id: "openai/gpt-test",
-      },
-      usage: {
-        inputTokens: 12,
-        outputTokens: 3,
-        totalTokens: 15,
-      },
+      durationMs: 900,
+      inputTokens: 12,
+      modelId: "openai/gpt-test",
+      outputTokens: 3,
+      totalTokens: 15,
     }))
     expect(finish.mock.calls[0]![0].extensions.get("chat")).toEqual(expect.objectContaining({
       provider: "telegram",
@@ -5080,6 +5177,7 @@ describe("server helpers", () => {
     })
     const agent = defineAgent({
       capabilities: [
+        usageTelemetry(),
         defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
@@ -5089,7 +5187,6 @@ describe("server helpers", () => {
             telegram: {},
           },
         }),
-        usageTelemetry(),
       ],
       hooks: {
         "agent:finish": finish,
@@ -5132,18 +5229,18 @@ describe("server helpers", () => {
     expect(finish).toHaveBeenCalledOnce()
   })
 
-  it("lets agent finish hooks compose usage telemetry and chat follow-up messages", async () => {
+  it("lets agent finish hooks compose usage and chat follow-up messages", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { access, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const { access, usageTelemetry } = await import("../src/capabilities.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const finish = vi.fn(async (event) => {
       const chat = event.extensions.get("chat") as { provider?: string, sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
-      const usage = event.extensions.get("usage-telemetry") as { usage?: { totalTokens?: number } } | undefined
+      const usage = event.extensions.get("usage-telemetry")
       if (chat && usage) {
         await chat.sendMessage?.({
-          markdown: `Custom usage: \`${usage.usage?.totalTokens}\` tokens via ${chat.provider}`,
+          markdown: `Custom usage: \`${usage.totalTokens}\` tokens via ${chat.provider}`,
         })
       }
     })
@@ -5154,6 +5251,7 @@ describe("server helpers", () => {
             resolve: () => true,
           },
         }),
+        usageTelemetry(),
         defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
@@ -5161,14 +5259,6 @@ describe("server helpers", () => {
           webhooks: {
             telegram: {},
           },
-        }),
-        usageTelemetry({
-          pricing: staticModelPricing({
-            "openai/gpt-test": {
-              input: "0.00000010",
-              output: "0.00000020",
-            },
-          }),
         }),
       ],
       hooks: {
@@ -5208,11 +5298,10 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:789", { markdown: "Custom usage: `15` tokens via telegram" })
     expect(finish).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(expect.objectContaining({
-      usage: {
-        inputTokens: 10,
-        outputTokens: 5,
-        totalTokens: 15,
-      },
+      inputTokens: 10,
+      modelId: "openai/gpt-test",
+      outputTokens: 5,
+      totalTokens: 15,
     }))
     expect(finish.mock.calls[0]![0].extensions.get("chat")).toEqual(expect.objectContaining({
       provider: "telegram",

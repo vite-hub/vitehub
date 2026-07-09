@@ -1,6 +1,7 @@
 import { isAsyncIterable } from "./internal/stream-result.ts"
+import { usageRecordFromStreamChunk } from "./agent-output.ts"
 
-import type { MaybePromise } from "./types.ts"
+import type { AgentUsageRecord, MaybePromise } from "./types.ts"
 
 interface FinalizedStreamOutput<T> {
   deferFinish: boolean
@@ -197,12 +198,18 @@ function uiDataType(data: unknown): `data-${string}` {
   return `data-${type || "event"}`
 }
 
-async function writeEventsToUiMessageStream(writer: AgentUIMessageStreamWriter, events: AsyncIterable<unknown>) {
+async function writeEventsToUiMessageStream(
+  writer: AgentUIMessageStreamWriter,
+  events: AsyncIterable<unknown>,
+  options: { onUsageRecord?: (usageRecord: AgentUsageRecord) => void } = {},
+) {
   const messageId = crypto.randomUUID()
   let textStarted = false
   let finished = false
   writer.write({ type: "start", messageId })
   for await (const event of events) {
+    const usageRecord = usageRecordFromStreamChunk(event, events)
+    if (usageRecord) options.onUsageRecord?.(usageRecord)
     const type = streamEventType(event)
     if (type === "text-delta") {
       const text = (event as { delta?: unknown, text?: unknown }).text ?? (event as { delta?: unknown }).delta
@@ -249,7 +256,7 @@ async function writeEventsToUiMessageStream(writer: AgentUIMessageStreamWriter, 
 export async function finalizeUiMessageStreamOutput(
   rendered: unknown,
   shouldWrapOutput: boolean,
-  finish: (outcome: StreamCleanupOutcome, streamedText?: string) => MaybePromise<void>,
+  finish: (outcome: StreamCleanupOutcome, streamedText?: string, streamedUsageRecord?: AgentUsageRecord) => MaybePromise<void>,
 ): Promise<FinalizedStreamOutput<unknown>> {
   const hasUiMessageStream = isUIMessageStreamResult(rendered)
   const hasAsyncIterable = isAsyncIterable(rendered)
@@ -257,11 +264,14 @@ export async function finalizeUiMessageStreamOutput(
   if (!hasUiMessageStream && !hasAsyncIterable && text === undefined) {
     throw new Error("[vitehub] Agent stream output \"ui-message-stream\" requires a result with toUIMessageStream().")
   }
+  let streamedUsageRecord: AgentUsageRecord | undefined
   const stream = normalizeUiMessageStream(hasUiMessageStream
     ? rendered.toUIMessageStream()
     : hasAsyncIterable
       ? createAgentUIMessageStream({
-          execute: async ({ writer }) => await writeEventsToUiMessageStream(writer, rendered),
+          execute: async ({ writer }) => await writeEventsToUiMessageStream(writer, rendered, {
+            onUsageRecord: usageRecord => { streamedUsageRecord = usageRecord },
+          }),
         })
       : createAgentUIMessageStream({
         execute({ writer }) {
@@ -272,15 +282,16 @@ export async function finalizeUiMessageStreamOutput(
           writer.write({ type: "text-end", id: messageId })
           writer.write({ type: "finish", finishReason: "stop" })
         },
-      }))
+  }))
   let streamedText = ""
   return {
     deferFinish: shouldWrapOutput,
     finishResult: rendered,
     value: shouldWrapOutput
-      ? withReadableStreamCleanup(stream, outcome => Promise.resolve(finish(outcome, streamedText)), {
+      ? withReadableStreamCleanup(stream, outcome => Promise.resolve(finish(outcome, streamedText, streamedUsageRecord)), {
           onChunk(chunk) {
             streamedText += uiMessageTextDelta(chunk) || ""
+            streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord
           },
         })
       : stream,

@@ -157,5 +157,5 @@ export function normalizeAgentDriver<
     return normalizeExplicitAgentDriver<TRuntimeConfig, CALL_OPTIONS>(record.driver)
   }
 
-  throw new Error("[vitehub] Agent Driver is required. Expected defineAgent({ driver: { model } }) or defineAgent({ driver: { run } }).")
+  throw new Error("[vitehub] Agent Driver is required. Expected defineAgent({ driver: { model } }), defineAgent({ driver: { harness } }), or defineAgent({ driver: { run } }).")
 }

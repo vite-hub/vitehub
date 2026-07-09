@@ -332,6 +332,9 @@ export interface DiscordAdapterOptions {
   apiUrl?: string
   applicationId?: string
   botToken?: string | { unseal: () => string }
+  longContent?: {
+    mode: "split" | "truncate"
+  }
   mentionRoleIds?: string[]
   publicKey?: string | { unseal: () => string }
   userName?: string
@@ -1431,21 +1434,11 @@ async function githubBodyWithArtifacts<TRuntimeConfig extends AgentRuntimeConfig
   return rewrittenBody ? `${rewrittenBody}\n\n${explicitArtifacts.join("\n")}` : explicitArtifacts.join("\n")
 }
 
-function finishUsageSummary(context: AgentChannelDeliveryFinishEffectContext): string | undefined {
-  const usage = context.extensions.get("usage-telemetry")
-  return maybeString(usage?.summary)
-}
-
-function githubNote(body: string): string {
-  return `> [!NOTE]\n${body.split("\n").map(line => `> ${line}`).join("\n")}`
-}
-
 function githubPullRequestCommentReplyEffect(context: AgentChannelDeliveryFinishEffectContext): AgentChannelDeliveryEffectIntent | undefined {
   const text = context.result?.text ?? context.text
   if (!text) return
   const body = text.trim() || "_No reply generated._"
-  const summary = finishUsageSummary(context)
-  return context.reply(summary ? `${body}\n\n${githubNote(summary)}` : body)
+  return context.reply(body)
 }
 
 function githubPullRequestCommentFinishEffects(
@@ -1633,6 +1626,7 @@ function discordAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
     return input as AgentChannelOptions<TRuntimeConfig>["adapter"]
   }
   const options: DiscordAdapterOptions = input === true ? {} : input
+  const { longContent, ...adapterOptions } = options
   return async () => {
     let createDiscordAdapter: (options?: Record<string, unknown>) => Adapter
     try {
@@ -1641,11 +1635,18 @@ function discordAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
     catch (error) {
       throw new Error("[vitehub] discord({ adapter: true }) requires @chat-adapter/discord to be installed.", { cause: error })
     }
-    return createDiscordAdapter({
-      ...options,
-      ...(options.botToken ? { botToken: cleanSecret(options.botToken) } : {}),
-      ...(options.publicKey ? { publicKey: cleanSecret(options.publicKey) } : {}),
+    const adapter = createDiscordAdapter({
+      ...adapterOptions,
+      ...(adapterOptions.botToken ? { botToken: cleanSecret(adapterOptions.botToken) } : {}),
+      ...(adapterOptions.publicKey ? { publicKey: cleanSecret(adapterOptions.publicKey) } : {}),
     })
+    if (longContent?.mode === "split") {
+      Object.defineProperty(adapter, Symbol.for("vitehub.discord.longContent.mode"), {
+        configurable: true,
+        value: "split",
+      })
+    }
+    return adapter
   }
 }
 

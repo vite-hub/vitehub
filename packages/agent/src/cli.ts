@@ -4,7 +4,7 @@ import { resolve } from "node:path"
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 
 import { formatAgentError } from "./agent-error.ts"
-import { vercelAiGatewayPricing, type AgentUsagePricing } from "./capabilities/usage-telemetry.ts"
+import { vercelAiGatewayPricing, type AgentUsagePricing } from "./internal/usage-pricing.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
 
@@ -322,8 +322,7 @@ function formatUsageRecord(record: AgentUsageRecord, fallbackDurationMs?: number
   if (reasoning !== undefined) parts.push(`${formatUsageNumber(reasoning)} reasoning tokens`)
   if (duration) parts.push(`time ${duration}`)
   if (speed) parts.push(`speed ${speed}`)
-  if (!parts.length) return record.summary
-  return parts.join("; ")
+  return parts.length ? parts.join("; ") : undefined
 }
 
 function formatUsageNote(summary: string): string {

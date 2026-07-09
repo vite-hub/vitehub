@@ -1238,7 +1238,7 @@ export async function applyOutputRenderers(
     }
     current = await renderer(current, extensions)
   }
-  return withOutputExtensionProperties(current, values)
+  return current
 }
 
 function createAgentExtensionReader<TValues extends object = Record<string, unknown>>(values: Map<string, unknown>): AgentInvocationExtensions<TValues> {
@@ -1256,24 +1256,6 @@ function createAgentExtensionReader<TValues extends object = Record<string, unkn
       return Object.fromEntries(values.entries())
     },
   }
-}
-
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
-}
-
-function withOutputExtensionProperties(result: unknown, values: Map<string, unknown>): unknown {
-  if (!isObjectRecord(result)) return result
-
-  const usageTelemetry = values.get("usage-telemetry")
-  if (!isObjectRecord(usageTelemetry)) return result
-
-  const usageRecord = usageTelemetry.usageRecord
-  if (!isObjectRecord(usageRecord)) return result
-
-  if (result.usageRecord === undefined) result.usageRecord = usageRecord
-  if (result.usage === undefined) result.usage = usageRecord.usage
-  return result
 }
 
 export async function createAgentInvocationExtensions(

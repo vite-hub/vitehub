@@ -123,7 +123,8 @@ Use it to verify the selected driver, tools, Workspace files and Sources, instru
 - `mcp()` connects tools from [Model Context Protocol](https://modelcontextprotocol.io/) servers through `@ai-sdk/mcp`.
 - `kv()`, `blob()`, and `db()` expose [`@vite-hub/kv`](../kv/README.md), [`@vite-hub/blob`](../blob/README.md), and [`@vite-hub/database`](../database/README.md).
 - `sandbox()` and `schedule()` expose [`@vite-hub/sandbox`](../sandbox/README.md) and [`@vite-hub/schedule`](../schedule/README.md).
-- `skills()`, `access()`, `memory()`, `fetch()`, `llmRoute()`, `llmGate()`, and `usageTelemetry()` cover prompt skills, workspace scope, durable notes, HTTP reads, pre-run decisions, and usage reporting.
+- `skills()`, `access()`, `memory()`, `fetch()`, `llmRoute()`, and `llmGate()` cover prompt skills, workspace scope, durable notes, HTTP reads, and pre-run decisions.
+- `usageTelemetry()` exposes primitive usage JSON to finish hooks and Channel Delivery finish effects through `extensions.get("usage-telemetry")`.
 
 ```ts
 import { openapi } from "@vite-hub/agent/capabilities"

@@ -1,733 +1,92 @@
-import { readAgentUsageMetadata } from "../internal/agent-usage-metadata.ts"
-import { streamAgentOutputToEvents } from "../agent-output.ts"
+import { resolveAgentUsageRecord } from "../agent-output.ts"
 import { defineCapability } from "../capability-runtime.ts"
-import {
-  cloneWithPropertyDescriptors,
-  isAsyncIterable,
-  teeingAsyncIterableStreamDescriptor,
-} from "../internal/stream-result.ts"
 
 import type {
   AgentCapabilityDefinition,
   AgentFinishEvent,
-  AgentOutputExtensionEvent,
-  AgentRunMetadata,
-  AgentUsage,
-  AgentUsageCost,
+  AgentRuntimeConfig,
   AgentUsageRecord,
-  MaybePromise,
 } from "../types.ts"
 
-export interface AgentUsagePricingContext {
-  model?: AgentUsageRecord["model"]
-  response?: AgentUsageRecord["response"]
-  run?: Partial<AgentRunMetadata>
-  usage: AgentUsage
-}
-
-export type AgentUsagePricing = (context: AgentUsagePricingContext) => MaybePromise<AgentUsageCost | undefined>
-
-export interface UsageTelemetryContext {
-  run?: Partial<AgentRunMetadata>
-}
-
-export type UsageTelemetryCallback = (
-  record: AgentUsageRecord,
-  context: UsageTelemetryContext,
-) => MaybePromise<void>
-
-export interface UsageTelemetryOptions {
-  includeRaw?: boolean
-  onUsage?: UsageTelemetryCallback
-  pricing?: AgentUsagePricing
-  summary?: boolean | UsageTelemetrySummaryOptions
-}
-
-export interface UsageTelemetrySummaryOptions {
-  format?: UsageTelemetrySummaryFormatter
-  subject?: string
-}
-
-export interface UsageTelemetryOutputExtension {
-  summary?: string
-  usageRecord: AgentUsageRecord
+export interface UsageTelemetryRecord {
+  costAmount?: string
+  costCurrency?: string
+  costEstimated?: boolean
+  costSource?: string
+  details?: Record<string, unknown>
+  durationMs?: number
+  inputTokens?: number
+  messageId?: string
+  modelId?: string
+  modelProvider?: string
+  outputTokens?: number
+  responseFinishReason?: string | number | boolean
+  responseId?: string
+  responseTimestamp?: string
+  runId?: string
+  threadId?: string
+  timeToFirstTokenMs?: number
+  tokensPerSecond?: number
+  totalTokens?: number
 }
 
 declare global {
   interface ViteHubAgentFinishExtensions {
-    "usage-telemetry": AgentUsageRecord
-  }
-
-  interface ViteHubAgentOutputExtensions {
-    "usage-telemetry": UsageTelemetryOutputExtension
+    "usage-telemetry": UsageTelemetryRecord
   }
 }
-
-export interface UsageTelemetrySummaryFormatContext {
-  subject: string
-}
-
-export type UsageTelemetrySummaryFormatter = (
-  record: AgentUsageRecord,
-  context: UsageTelemetrySummaryFormatContext,
-) => MaybePromise<string | null | undefined>
-
-export interface StaticModelPrice {
-  currency?: string
-  input?: string
-  inputCacheRead?: string
-  inputCacheWrite?: string
-  output?: string
-  source?: AgentUsageCost["source"]
-}
-
-export interface VercelAiGatewayPricingOptions {
-  fetch?: typeof fetch
-  modelsUrl?: string
-}
-
-type UnknownRecord = Record<string, unknown>
 
 interface UsageTelemetryCapabilityMetadata {
   kind: "usage-telemetry"
-  usageTelemetry: UsageTelemetryOptions
 }
 
-const usageTelemetryWrapped = Symbol("vitehub.usageTelemetryWrapped")
-
-const vercelAiGatewayModelsUrl = "https://ai-gateway.vercel.sh/v1/models"
-
-function isRecord(value: unknown): value is UnknownRecord {
-  return typeof value === "object" && value !== null
+function primitive(value: unknown): string | number | boolean | undefined {
+  if (typeof value === "string" || typeof value === "boolean") return value
+  if (typeof value === "number" && Number.isFinite(value)) return value
 }
 
-function readNumber(record: UnknownRecord, ...keys: string[]): number | undefined {
-  for (const key of keys) {
-    const value = record[key]
-    if (typeof value === "number" && Number.isFinite(value)) return value
-  }
+function responseTimestamp(value: unknown): string | undefined {
+  if (value instanceof Date) return value.toISOString()
+  return typeof value === "string" ? value : undefined
 }
 
-function readString(record: UnknownRecord | undefined, ...keys: string[]): string | undefined {
+function usageTelemetryRecord(record: AgentUsageRecord | undefined): UsageTelemetryRecord | undefined {
   if (!record) return
-  for (const key of keys) {
-    const value = record[key]
-    if (typeof value === "string" && value) return value
+  const { cost, latency, model, response, run, usage } = record
+  const finishReason = primitive(response?.finishReason)
+  const timestamp = responseTimestamp(response?.timestamp)
+  const telemetry: UsageTelemetryRecord = {
+    ...(cost?.amount !== undefined ? { costAmount: cost.amount } : {}),
+    ...(cost?.currency !== undefined ? { costCurrency: cost.currency } : {}),
+    ...(cost?.estimated !== undefined ? { costEstimated: cost.estimated } : {}),
+    ...(cost?.source !== undefined ? { costSource: cost.source } : {}),
+    ...(latency?.durationMs !== undefined ? { durationMs: latency.durationMs } : {}),
+    ...(latency?.timeToFirstTokenMs !== undefined ? { timeToFirstTokenMs: latency.timeToFirstTokenMs } : {}),
+    ...(latency?.tokensPerSecond !== undefined ? { tokensPerSecond: latency.tokensPerSecond } : {}),
+    ...(model?.id !== undefined ? { modelId: model.id } : {}),
+    ...(model?.provider !== undefined ? { modelProvider: model.provider } : {}),
+    ...(response?.id !== undefined ? { responseId: response.id } : {}),
+    ...(timestamp !== undefined ? { responseTimestamp: timestamp } : {}),
+    ...(finishReason !== undefined ? { responseFinishReason: finishReason } : {}),
+    ...(run?.messageId !== undefined ? { messageId: run.messageId } : {}),
+    ...(run?.runId !== undefined ? { runId: run.runId } : {}),
+    ...(run?.threadId !== undefined ? { threadId: run.threadId } : {}),
+    ...(usage?.details !== undefined ? { details: usage.details } : {}),
+    ...(usage?.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
+    ...(usage?.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
+    ...(usage?.totalTokens !== undefined ? { totalTokens: usage.totalTokens } : {}),
   }
+  return Object.keys(telemetry).length ? telemetry : undefined
 }
 
-function readDetails(value: unknown): Record<string, number> | undefined {
-  if (!isRecord(value)) return
-  const details: Record<string, number> = {}
-  for (const [key, item] of Object.entries(value)) {
-    if (typeof item === "number" && Number.isFinite(item)) details[key] = item
-  }
-  return Object.keys(details).length ? details : undefined
-}
-
-function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
-  return isRecord(value) && typeof value.then === "function"
-}
-
-async function resolveUsageValue(value: unknown): Promise<unknown> {
-  return isPromiseLike(value) ? await value : value
-}
-
-function hasTokenUsage(usage: AgentUsage): boolean {
-  return usage.inputTokens !== undefined
-    || usage.outputTokens !== undefined
-    || usage.totalTokens !== undefined
-    || usage.inputTokenDetails !== undefined
-    || usage.outputTokenDetails !== undefined
-}
-
-export function normalizeAgentUsage(value: unknown): AgentUsage | undefined {
-  if (!isRecord(value)) return
-
-  const inputTokens = readNumber(value, "inputTokens", "promptTokens", "input_tokens", "prompt_tokens")
-  const outputTokens = readNumber(value, "outputTokens", "completionTokens", "output_tokens", "completion_tokens")
-  const totalTokens = readNumber(value, "totalTokens", "tokens", "total_tokens")
-    ?? (inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined)
-  const inputTokenDetails = readDetails(value.inputTokenDetails || value.input_token_details || value.promptTokenDetails || value.prompt_token_details)
-  const outputTokenDetails = readDetails(value.outputTokenDetails || value.output_token_details || value.completionTokenDetails || value.completion_token_details)
-  const usage: AgentUsage = {
-    ...(inputTokens !== undefined ? { inputTokens } : {}),
-    ...(outputTokens !== undefined ? { outputTokens } : {}),
-    ...(totalTokens !== undefined ? { totalTokens } : {}),
-    ...(inputTokenDetails ? { inputTokenDetails } : {}),
-    ...(outputTokenDetails ? { outputTokenDetails } : {}),
-    raw: value,
-  }
-
-  if (hasTokenUsage(usage)) return usage
-
-  return Object.keys(value).length
-    ? { details: value, raw: value }
-    : undefined
-}
-
-async function usageFromResult(result: UnknownRecord, fallback?: unknown): Promise<AgentUsage | undefined> {
-  const usage = normalizeAgentUsage(await resolveUsageValue(result.usage ?? result.totalUsage))
-  if (usage) return usage
-  if (!isRecord(fallback)) return
-  return normalizeAgentUsage(await resolveUsageValue(fallback.usage ?? fallback.totalUsage))
-}
-
-function credentialSourceFromMetadata(metadata: unknown): AgentUsageRecord["credentialSource"] | undefined {
-  if (!isRecord(metadata) || !isRecord(metadata.credentialSource)) return
-  const source = metadata.credentialSource.source
-  const label = metadata.credentialSource.label
-  if (source !== undefined && typeof source !== "string") return
-  if (label !== undefined && typeof label !== "string") return
-  if (source === undefined && label === undefined) return
-  return {
-    ...(label ? { label } : {}),
-    ...(source ? { source: source as NonNullable<AgentUsageRecord["credentialSource"]>["source"] } : {}),
-  }
-}
-
-function responseFromResult(result: UnknownRecord): AgentUsageRecord["response"] | undefined {
-  const response = isRecord(result.response) ? result.response : undefined
-  const id = response ? readString(response, "id") : undefined
-  const timestamp = response?.timestamp
-  const finishReason = result.finishReason
-  if (id === undefined && timestamp === undefined && finishReason === undefined) return
-  return {
-    ...(finishReason !== undefined ? { finishReason } : {}),
-    ...(id !== undefined ? { id } : {}),
-    ...((timestamp instanceof Date || typeof timestamp === "string") ? { timestamp } : {}),
-  }
-}
-
-function modelFromResult(result: UnknownRecord): AgentUsageRecord["model"] | undefined {
-  const response = isRecord(result.response) ? result.response : undefined
-  const id = readString(response, "modelId", "model") ?? readString(result, "modelId", "model")
-  const provider = readString(result, "provider")
-  if (id === undefined && provider === undefined) return
-  return {
-    ...(id !== undefined ? { id } : {}),
-    ...(provider !== undefined ? { provider } : {}),
-  }
-}
-
-function latencyFromResult(result: UnknownRecord, usage: AgentUsage): AgentUsageRecord["latency"] | undefined {
-  const durationMs = readNumber(result, "durationMs")
-  const timeToFirstTokenMs = readNumber(result, "timeToFirstTokenMs", "ttftMs")
-  const tokensPerSecond = readNumber(result, "tokensPerSecond")
-    ?? (durationMs && usage.outputTokens !== undefined ? usage.outputTokens / (durationMs / 1000) : undefined)
-  if (durationMs === undefined && timeToFirstTokenMs === undefined && tokensPerSecond === undefined) return
-  return {
-    ...(durationMs !== undefined ? { durationMs } : {}),
-    ...(timeToFirstTokenMs !== undefined ? { timeToFirstTokenMs } : {}),
-    ...(tokensPerSecond !== undefined ? { tokensPerSecond } : {}),
-  }
-}
-
-export async function createAgentUsageRecord(
-  result: unknown,
-  options: UsageTelemetryOptions = {},
-  run?: Partial<AgentRunMetadata>,
-  metadataSource?: unknown,
-): Promise<AgentUsageRecord | undefined> {
-  if (!isRecord(result)) return
-  const usage = await usageFromResult(result, metadataSource)
-  if (!usage) return
-  const model = modelFromResult(result)
-  const response = responseFromResult(result)
-  const credentialSource = credentialSourceFromMetadata(readAgentUsageMetadata(result, metadataSource))
-
-  const record: AgentUsageRecord = {
-    ...(credentialSource ? { credentialSource } : {}),
-    ...(model ? { model } : {}),
-    ...(response ? { response } : {}),
-    ...(run ? { run } : {}),
-    usage: options.includeRaw ? usage : removeRawUsage(usage),
-    ...(options.includeRaw ? { raw: result } : {}),
-  }
-  const latency = latencyFromResult(result, usage)
-  if (latency) record.latency = latency
-
-  try {
-    const cost = await options.pricing?.({
-      model: record.model,
-      response: record.response,
-      run,
-      usage,
-    })
-    if (cost) record.cost = cost
-  }
-  catch {
-    // Pricing enriches telemetry; it must not fail the agent invocation.
-  }
-
-  return record
-}
-
-function removeRawUsage(usage: AgentUsage): AgentUsage {
-  const { raw: _raw, ...rest } = usage
-  return rest
-}
-
-function finiteUsageNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : undefined
-}
-
-function formatUsageNumber(value: number): string {
-  return new Intl.NumberFormat("en-US").format(value)
-}
-
-function formatUsageTokens(usage: AgentUsageRecord["usage"]): string | undefined {
-  const input = finiteUsageNumber(usage?.inputTokens)
-  const output = finiteUsageNumber(usage?.outputTokens)
-  const total = finiteUsageNumber(usage?.totalTokens) ?? (input !== undefined && output !== undefined ? input + output : undefined)
-  if (total === undefined) {
-    if (input !== undefined) return `${formatUsageNumber(input)} input tokens`
-    if (output !== undefined) return `${formatUsageNumber(output)} output tokens`
-    return
-  }
-  const totalText = `${formatUsageNumber(total)} tokens`
-  if (input === undefined && output === undefined) return totalText
-  const splitInput = input ?? (output !== undefined && total >= output ? total - output : undefined)
-  const splitOutput = output ?? (input !== undefined && total >= input ? total - input : undefined)
-  if (splitInput === undefined || splitOutput === undefined) return totalText
-  return `${totalText}: ${formatUsageNumber(splitInput)} in / ${formatUsageNumber(splitOutput)} out`
-}
-
-function formatUsageCost(cost: AgentUsageRecord["cost"]): string | undefined {
-  if (!cost?.amount) return
-  const amount = cost.amount.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "")
-  return cost.currency === "USD" ? `$${amount}` : `${amount} ${cost.currency}`
-}
-
-function formatUsageDetails(details: AgentUsage["details"]): string | undefined {
-  const entries = Object.entries(details || {})
-    .filter((entry): entry is [string, number | string] =>
-      typeof entry[1] === "string" && entry[1].trim().length > 0
-      || typeof entry[1] === "number" && Number.isFinite(entry[1]))
-    .slice(0, 4)
-  if (!entries.length) return details && Object.keys(details).length ? "reported usage" : undefined
-  return `reported ${entries.map(([key, value]) => `${key}: ${typeof value === "number" ? formatUsageNumber(value) : value}`).join(", ")}`
-}
-
-function formatUsageDuration(durationMs: unknown): string | undefined {
-  const finite = finiteUsageNumber(durationMs)
-  if (finite === undefined) return
-  return `${(finite / 1000).toFixed(1)}s`
-}
-
-function formatUsageSpeed(record: AgentUsageRecord): string | undefined {
-  const explicit = finiteUsageNumber(record.latency?.tokensPerSecond)
-  const durationMs = finiteUsageNumber(record.latency?.durationMs)
-  const input = finiteUsageNumber(record.usage?.inputTokens)
-  const output = finiteUsageNumber(record.usage?.outputTokens)
-  const total = finiteUsageNumber(record.usage?.totalTokens)
-  const outputOrTotal = output ?? (input !== undefined && total !== undefined ? total - input : total)
-  const derived = explicit ?? (durationMs && durationMs > 0 ? (outputOrTotal ?? 0) / (durationMs / 1000) : undefined)
-  return derived && Number.isFinite(derived) ? `${derived.toFixed(1)} tok/s` : undefined
-}
-
-function normalizeUsageSummaryOptions(summary: UsageTelemetryOptions["summary"]): UsageTelemetrySummaryOptions | undefined {
-  if (!summary) return
-  return typeof summary === "object" && summary !== null ? summary : {}
-}
-
-function formatDefaultUsageSummary(record: AgentUsageRecord, subject: string): string | undefined {
-  const cost = formatUsageCost(record.cost)
-  const tokens = formatUsageTokens(record.usage)
-  const details = formatUsageDetails(record.usage?.details)
-  const model = record.model?.id
-  const duration = formatUsageDuration(record.latency?.durationMs)
-  const speed = formatUsageSpeed(record)
-  const run = [model ? `using ${model}` : undefined, duration ? `in ${duration}` : undefined, speed ? `at ${speed}` : undefined].filter(Boolean).join(" ")
-  if (cost) return `${subject} cost ${record.cost?.estimated ? "about " : ""}${cost}${run ? ` ${run}` : ""}${tokens ? ` (${tokens})` : ""}.`
-  if (tokens) return `${subject} used ${tokens}${run ? ` ${run}` : ""}.`
-  if (details) return `${subject} ${details}${run ? ` ${run}` : ""}.`
-  if (run) return `${subject} ran ${run}.`
-}
-
-async function formatUsageSummary(record: AgentUsageRecord, options: UsageTelemetrySummaryOptions = {}): Promise<string | undefined> {
-  const subject = typeof options.subject === "string" && options.subject.trim() ? options.subject.trim() : "This invocation"
-  if (options.format) {
-    const summary = await options.format(record, { subject })
-    return summary || undefined
-  }
-  return formatDefaultUsageSummary(record, subject)
-}
-
-async function usageRecordForFinish(
-  record: unknown,
-  event: AgentFinishEvent,
-  options: UsageTelemetryOptions,
-): Promise<AgentUsageRecord | undefined> {
-  if (!isRecord(record)) return
-  const usageRecord = record as AgentUsageRecord
-  const summaryOptions = normalizeUsageSummaryOptions(options.summary)
-  if (!summaryOptions) return usageRecord
-  const durationMs = finiteUsageNumber(usageRecord.latency?.durationMs) ?? finiteUsageNumber(event.invocation.durationMs)
-  const withDuration = durationMs === undefined
-    ? usageRecord
-    : {
-        ...usageRecord,
-        latency: {
-          ...(isRecord(usageRecord.latency) ? usageRecord.latency : {}),
-          durationMs,
-        },
-      }
-  const summary = await formatUsageSummary(withDuration, summaryOptions)
-  return summary ? { ...withDuration, summary } : withDuration
-}
-
-async function usageRecordForOutput(
-  record: AgentUsageRecord,
-  options: UsageTelemetryOptions,
-): Promise<UsageTelemetryOutputExtension> {
-  const summaryOptions = normalizeUsageSummaryOptions(options.summary)
-  if (!summaryOptions) return { usageRecord: record }
-  const summary = await formatUsageSummary(record, summaryOptions)
-  return {
-    ...(summary ? { summary } : {}),
-    usageRecord: record,
-  }
-}
-
-async function recordUsage(
-  result: UnknownRecord,
-  options: UsageTelemetryOptions,
-  run?: Partial<AgentRunMetadata>,
-  metadataSource?: unknown,
-): Promise<AgentUsageRecord | undefined> {
-  const usageRecord = await createAgentUsageRecord(result, options, run, metadataSource)
-  if (usageRecord) await options.onUsage?.(usageRecord, run ? { run } : {})
-  return usageRecord
-}
-
-async function* withUsageTelemetryStream(
-  stream: AsyncIterable<unknown>,
-  options: UsageTelemetryOptions,
-  run?: Partial<AgentRunMetadata>,
-  onRecord?: (record: AgentUsageRecord) => void,
-  metadataSource?: unknown,
-): AsyncIterable<unknown> {
-  let fallbackResult: UnknownRecord | undefined
-  let recorded = false
-  for await (const chunk of stream) {
-    if (isRecord(chunk) && chunk.type === "usage" && isRecord(chunk.usageRecord)) {
-      await options.onUsage?.(chunk.usageRecord as AgentUsageRecord, run ? { run } : {})
-      recorded = true
-      onRecord?.(chunk.usageRecord as AgentUsageRecord)
-    }
-    if (!recorded && isRecord(chunk) && chunk.type === "finish") {
-      const usageRecord = await recordUsage(chunk, options, run, chunk.usage !== undefined || chunk.totalUsage !== undefined ? metadataSource : undefined)
-      if (usageRecord) {
-        recorded = true
-        onRecord?.(usageRecord)
-        yield { type: "usage", usageRecord }
-      }
-      else if (isRecord(metadataSource)) {
-        fallbackResult = chunk
-      }
-    }
-    yield chunk
-  }
-  if (!recorded && isRecord(metadataSource)) {
-    const usageRecord = await recordUsage(fallbackResult ? { ...metadataSource, ...fallbackResult } : metadataSource, options, run, metadataSource)
-    if (usageRecord) {
-      onRecord?.(usageRecord)
-      yield { type: "usage", usageRecord }
-    }
-  }
-}
-
-function defineUsageTelemetryOutput(output: UnknownRecord, usageRecord: AgentUsageRecord) {
-  Object.defineProperties(output, {
-    usage: {
-      configurable: true,
-      enumerable: true,
-      value: usageRecord.usage,
-      writable: true,
-    },
-    usageRecord: {
-      configurable: true,
-      enumerable: true,
-      value: usageRecord,
-      writable: true,
-    },
-  })
-}
-
-function hasUsageTelemetryStream(result: UnknownRecord): boolean {
-  return isAsyncIterable(result.fullStream) || isAsyncIterable(result.stream)
-}
-
-function withUsageTelemetryUiMessageStream(
-  stream: ReadableStream<unknown>,
-  options: UsageTelemetryOptions,
-  run: Partial<AgentRunMetadata> | undefined,
-  onRecord: (record: AgentUsageRecord) => void,
-  metadataSource: unknown,
-): ReadableStream<unknown> {
-  let fallbackResult: UnknownRecord | undefined
-  let recorded = false
-  return stream.pipeThrough(new TransformStream({
-    async transform(chunk, controller) {
-      if (isRecord(chunk) && chunk.type === "usage" && isRecord(chunk.usageRecord)) {
-        recorded = true
-        await options.onUsage?.(chunk.usageRecord as AgentUsageRecord, run ? { run } : {})
-        onRecord(chunk.usageRecord as AgentUsageRecord)
-      }
-      if (!recorded && isRecord(chunk) && chunk.type === "finish") {
-        const usageRecord = await recordUsage(chunk, options, run, chunk.usage !== undefined || chunk.totalUsage !== undefined ? metadataSource : undefined)
-        if (usageRecord) {
-          recorded = true
-          onRecord(usageRecord)
-        }
-        else if (isRecord(metadataSource)) {
-          fallbackResult = chunk
-        }
-      }
-      controller.enqueue(chunk)
-    },
-    async flush() {
-      if (recorded || !isRecord(metadataSource)) return
-      const usageRecord = await recordUsage(fallbackResult ? { ...metadataSource, ...fallbackResult } : metadataSource, options, run, metadataSource)
-      if (usageRecord) onRecord(usageRecord)
-    },
-  }))
-}
-
-function cloneWithUsageTelemetryStream<T extends UnknownRecord>(
-  result: T,
-  options: UsageTelemetryOptions,
-  run?: Partial<AgentRunMetadata>,
-): T {
-  if ((result as UnknownRecord & { [usageTelemetryWrapped]?: boolean })[usageTelemetryWrapped]) return result
-  if (!hasUsageTelemetryStream(result)) return result
-
-  let clone = undefined as unknown as T
-  const withTelemetry = (stream: AsyncIterable<unknown>) =>
-    teeingAsyncIterableStreamDescriptor(withUsageTelemetryStream(stream, options, run, (usageRecord) => {
-      defineUsageTelemetryOutput(clone as UnknownRecord, usageRecord)
-    }, result))
-  const fullStreamDescriptor = isAsyncIterable(result.fullStream) ? withTelemetry(result.fullStream) : undefined
-  const descriptors: PropertyDescriptorMap = {
-    ...(fullStreamDescriptor ? { fullStream: fullStreamDescriptor } : {}),
-    ...(isAsyncIterable(result.stream)
-      ? { stream: result.stream === result.fullStream && fullStreamDescriptor ? fullStreamDescriptor : withTelemetry(result.stream) }
-      : {}),
-    ...(typeof result.toUIMessageStream === "function"
-      ? {
-          toUIMessageStream: {
-            configurable: true,
-            enumerable: false,
-            value: (...args: unknown[]) => withUsageTelemetryUiMessageStream(
-              (result.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>).apply(result, args),
-              options,
-              run,
-              usageRecord => defineUsageTelemetryOutput(clone as UnknownRecord, usageRecord),
-              result,
-            ),
-          },
-        }
-      : {
-          toUIMessageStream: {
-            configurable: true,
-            enumerable: false,
-            value: undefined,
-          },
-        }),
-  }
-  clone = cloneWithPropertyDescriptors(result, descriptors)
-  Object.defineProperty(clone, Symbol.asyncIterator, {
-    configurable: true,
-    value: () => streamAgentOutputToEvents(clone)[Symbol.asyncIterator](),
-  })
-  Object.defineProperty(clone, usageTelemetryWrapped, {
-    value: true,
-  })
-  return clone
-}
-
-export type UsageTelemetryFinishEvent = Pick<AgentFinishEvent, "extensions">
-
-function getUsageTelemetryRecord(event: UsageTelemetryFinishEvent | undefined): AgentUsageRecord | undefined {
-  return event?.extensions.get("usage-telemetry")
-}
-
-export function getUsageTelemetry(event: UsageTelemetryFinishEvent | undefined): string | undefined {
-  const record = getUsageTelemetryRecord(event)
-  if (!record) return
-  return record.summary || formatDefaultUsageSummary(record, "This invocation")
-}
-
-export interface UsageTelemetryCapabilityFactory {
-  (options?: UsageTelemetryOptions): AgentCapabilityDefinition
-  from: typeof getUsageTelemetryRecord
-}
-
-export const usageTelemetry: UsageTelemetryCapabilityFactory = Object.assign((options: UsageTelemetryOptions = {}): AgentCapabilityDefinition => {
-  return defineCapability({
+export function usageTelemetry<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(): AgentCapabilityDefinition<TRuntimeConfig> {
+  return defineCapability<TRuntimeConfig>({
     id: "usage-telemetry",
     metadata: {
       kind: "usage-telemetry",
-      usageTelemetry: options,
     } satisfies UsageTelemetryCapabilityMetadata,
-    output(context) {
-      context.finish.provide((event: AgentFinishEvent) => usageRecordForFinish(isRecord(event.result)
-        ? event.result.usageRecord
-        : undefined, event, options))
-      context.output.provide(async (event: AgentOutputExtensionEvent) => {
-        if (!isRecord(event.result)) return
-        if (hasUsageTelemetryStream(event.result) && !isRecord(event.result.usageRecord)) return
-        const usageRecord = isRecord(event.result.usageRecord)
-          ? event.result.usageRecord as AgentUsageRecord
-          : await recordUsage(event.result, options, context.run)
-        return usageRecord ? await usageRecordForOutput(usageRecord, options) : undefined
-      })
-      context.output.render(async (result, renderContext) => {
-        if (isRecord(result) && hasUsageTelemetryStream(result)) return cloneWithUsageTelemetryStream(result, options, context.run)
-        if (isAsyncIterable(result)) return withUsageTelemetryStream(result, options, context.run)
-        if (!isRecord(result)) return result
-        const usageRecord = renderContext.output.extensions.get("usage-telemetry")?.usageRecord
-        if (!usageRecord) return result
-        return {
-          ...result,
-          usage: usageRecord.usage,
-          usageRecord,
-        }
-      })
+    async finish(event: AgentFinishEvent<TRuntimeConfig>) {
+      return usageTelemetryRecord(await resolveAgentUsageRecord(event.result, event.invocation.run))
     },
   })
-}, { from: getUsageTelemetryRecord })
-
-function decimalToParts(value: string): { scale: bigint, units: bigint } {
-  const trimmed = value.trim()
-  if (!/^\d+(?:\.\d+)?$/.test(trimmed)) {
-    throw new TypeError(`[vitehub] Invalid decimal price "${value}".`)
-  }
-  const [whole, fraction = ""] = trimmed.split(".")
-  return {
-    scale: 10n ** BigInt(fraction.length),
-    units: BigInt(`${whole}${fraction}`),
-  }
-}
-
-function addDecimalParts(items: Array<{ scale: bigint, units: bigint }>): string {
-  if (!items.length) return "0"
-  const scale = items.reduce((max, item) => item.scale > max ? item.scale : max, 1n)
-  const units = items.reduce((total, item) => total + item.units * (scale / item.scale), 0n)
-  const whole = units / scale
-  const fraction = (units % scale).toString().padStart(scale.toString().length - 1, "0").replace(/0+$/, "")
-  return fraction ? `${whole}.${fraction}` : whole.toString()
-}
-
-function multiplyDecimal(value: string | undefined, count: number | undefined): { scale: bigint, units: bigint } | undefined {
-  if (value === undefined || count === undefined || count <= 0) return
-  const parts = decimalToParts(value)
-  return {
-    scale: parts.scale,
-    units: parts.units * BigInt(Math.trunc(count)),
-  }
-}
-
-function pricedTokens(usage: AgentUsage, price: StaticModelPrice): string {
-  const inputDetails = usage.inputTokenDetails || {}
-  const cacheReadTokens = inputDetails.cacheReadTokens || inputDetails.cachedTokens || 0
-  const cacheWriteTokens = inputDetails.cacheWriteTokens || 0
-  const regularInputTokens = Math.max(0, (usage.inputTokens || 0) - cacheReadTokens - cacheWriteTokens)
-  return addDecimalParts([
-    multiplyDecimal(price.input, regularInputTokens),
-    multiplyDecimal(price.inputCacheRead || price.input, cacheReadTokens),
-    multiplyDecimal(price.inputCacheWrite || price.input, cacheWriteTokens),
-    multiplyDecimal(price.output, usage.outputTokens),
-  ].filter((item): item is { scale: bigint, units: bigint } => Boolean(item)))
-}
-
-export function staticModelPricing(prices: Record<string, StaticModelPrice>): AgentUsagePricing {
-  return ({ model, usage }) => {
-    if (!hasTokenUsage(usage)) return
-    const modelId = model?.id
-    if (!modelId) return
-    const price = prices[modelId]
-    if (!price) return
-    return {
-      amount: pricedTokens(usage, price),
-      currency: price.currency || "USD",
-      estimated: price.source !== "provider",
-      source: price.source || "custom",
-    }
-  }
-}
-
-function normalizeVercelPrice(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : undefined
-}
-
-function addModelIdCandidate(candidates: string[], value: string | undefined) {
-  if (value && !candidates.includes(value)) candidates.push(value)
-}
-
-function normalizeAnthropicGatewayModelId(id: string): string {
-  return id
-    .replace(/^anthropic\//, "")
-    .replace(/^claude-(\d+)-(\d+)-/, "claude-$1.$2-")
-    .replace(/(.+-\d+)-(\d+)$/, "$1.$2")
-}
-
-function vercelGatewayModelIdCandidates(model: AgentUsageRecord["model"] | undefined): string[] {
-  const modelId = typeof model?.id === "string" ? model.id.trim() : ""
-  if (!modelId) return []
-  const candidates: string[] = []
-  addModelIdCandidate(candidates, modelId)
-
-  const unscoped = modelId.includes("/") ? modelId.slice(modelId.lastIndexOf("/") + 1) : modelId
-  const provider = typeof model?.provider === "string" ? model.provider.toLowerCase() : ""
-  const isAnthropic = modelId.startsWith("anthropic/") || unscoped.startsWith("claude-") || provider.includes("anthropic")
-  if (isAnthropic) {
-    addModelIdCandidate(candidates, `anthropic/${unscoped}`)
-    addModelIdCandidate(candidates, `anthropic/${normalizeAnthropicGatewayModelId(unscoped)}`)
-  }
-
-  return candidates
-}
-
-export function vercelAiGatewayPricing(options: VercelAiGatewayPricingOptions = {}): AgentUsagePricing {
-  const fetcher = options.fetch || globalThis.fetch
-  const modelsUrl = options.modelsUrl || vercelAiGatewayModelsUrl
-  let prices: Promise<Record<string, StaticModelPrice>> | undefined
-
-  async function loadPrices() {
-    prices ??= (async () => {
-      const response = await fetcher(modelsUrl)
-      if (!response.ok) throw new Error(`[vitehub] Vercel AI Gateway pricing request failed with ${response.status}.`)
-      const body = await response.json() as { data?: Array<{ id?: unknown, pricing?: UnknownRecord }> }
-      const result: Record<string, StaticModelPrice> = {}
-      for (const model of body.data || []) {
-        if (typeof model.id !== "string" || !model.pricing) continue
-        result[model.id] = {
-          input: normalizeVercelPrice(model.pricing.input),
-          inputCacheRead: normalizeVercelPrice(model.pricing.input_cache_read),
-          inputCacheWrite: normalizeVercelPrice(model.pricing.input_cache_write),
-          output: normalizeVercelPrice(model.pricing.output),
-          source: "vercel-ai-gateway",
-        }
-      }
-      return result
-    })()
-    return await prices
-  }
-
-  return async ({ model, usage }) => {
-    if (!hasTokenUsage(usage)) return
-    const catalog = await loadPrices()
-    const price = vercelGatewayModelIdCandidates(model)
-      .map(modelId => catalog[modelId])
-      .find((item): item is StaticModelPrice => Boolean(item))
-    if (!price) return
-    return {
-      amount: pricedTokens(usage, price),
-      currency: price.currency || "USD",
-      estimated: true,
-      source: "vercel-ai-gateway",
-    }
-  }
 }
