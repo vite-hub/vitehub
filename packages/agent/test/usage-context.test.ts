@@ -105,4 +105,98 @@ describe("usage context", () => {
       totalTokens: 3,
     })
   })
+
+  it("preserves driver usage when output rendering replaces the result", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const finish = vi.fn()
+
+    const agent = defineAgent({
+      capabilities: [
+        usageTelemetry(),
+        defineCapability({
+          id: "replace-output",
+          output(context) {
+            context.output.render(() => "rendered")
+          },
+        }),
+      ],
+      hooks: {
+        "agent:finish": finish,
+      },
+      driver: { run: () => ({
+        text: "driver",
+        usage: {
+          inputTokens: 7,
+          outputTokens: 2,
+        },
+      }), },
+    })
+
+    await expect(runAgent(agent, runtime(), {})).resolves.toBe("rendered")
+
+    expect(finish).toHaveBeenCalledTimes(1)
+    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
+      inputTokens: 7,
+      outputTokens: 2,
+      totalTokens: 9,
+    })
+  })
+
+  it("preserves async event usage before UI message stream conversion", async () => {
+    const { readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const finish = vi.fn()
+
+    const agent = defineAgent({
+      capabilities: [usageTelemetry()],
+      hooks: {
+        "agent:finish": finish,
+      },
+      driver: { run: () => (async function* () {
+        yield { text: "ok", type: "text-delta" }
+        yield { type: "usage", usageRecord: { usage: { totalTokens: 4 } } }
+        yield { type: "finish" }
+      })(), },
+    })
+
+    const stream = await streamAgent(agent, runtime(), {}, { output: "ui-message-stream" }) as ReadableStream<never>
+    for await (const _message of readUIMessageStream({ stream })) {}
+
+    expect(finish).toHaveBeenCalledTimes(1)
+    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
+      totalTokens: 4,
+    })
+  })
+
+  it("exposes non-token usage details in telemetry", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const finish = vi.fn()
+
+    const agent = defineAgent({
+      capabilities: [usageTelemetry()],
+      hooks: {
+        "agent:finish": finish,
+      },
+      driver: { run: () => ({
+        text: "ok",
+        usage: {
+          actions: 3,
+          sessions: 1,
+        },
+      }), },
+    })
+
+    await runAgent(agent, runtime(), {})
+
+    expect(finish).toHaveBeenCalledTimes(1)
+    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
+      details: {
+        actions: 3,
+        sessions: 1,
+      },
+    })
+  })
 })

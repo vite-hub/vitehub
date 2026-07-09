@@ -13,6 +13,7 @@ export interface UsageTelemetryRecord {
   costCurrency?: string
   costEstimated?: boolean
   costSource?: string
+  details?: Record<string, unknown>
   durationMs?: number
   inputTokens?: number
   messageId?: string
@@ -70,6 +71,7 @@ function usageTelemetryRecord(record: AgentUsageRecord | undefined): UsageTeleme
     ...(run?.messageId !== undefined ? { messageId: run.messageId } : {}),
     ...(run?.runId !== undefined ? { runId: run.runId } : {}),
     ...(run?.threadId !== undefined ? { threadId: run.threadId } : {}),
+    ...(usage?.details !== undefined ? { details: usage.details } : {}),
     ...(usage?.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
     ...(usage?.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
     ...(usage?.totalTokens !== undefined ? { totalTokens: usage.totalTokens } : {}),
