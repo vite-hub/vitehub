@@ -46,7 +46,7 @@ describe("inputCommands", () => {
     expect(resolved.input.prompt).toBe("/summary")
   })
 
-  it("removes matched command text when a command has no handler", async () => {
+  it("removes accepted command text when no handler is configured", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 
@@ -62,7 +62,7 @@ describe("inputCommands", () => {
     expect(resolved.input.prompt).toBe("")
   })
 
-  it("removes command-only text for handlerless commands with descriptions", async () => {
+  it("removes command-only text when no handler is configured", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 
@@ -79,7 +79,7 @@ describe("inputCommands", () => {
     expect(resolved.input.prompt).toBe("")
   })
 
-  it("removes command-only text for handlerless commands without descriptions", async () => {
+  it("removes command-only text without using command names", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 
@@ -94,7 +94,7 @@ describe("inputCommands", () => {
     expect(resolved.input.prompt).toBe("")
   })
 
-  it("accepts hook-only commands and removes bare commands", async () => {
+  it("accepts hook-only commands and removes bare command text", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const hook = vi.fn()

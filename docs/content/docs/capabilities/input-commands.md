@@ -19,6 +19,7 @@ Use the configuration example below as the starting point, then tighten modes, p
 
 The Capability scans the latest prompt or user message for configured Input Commands.
 Each command can replace text, update the Agent Run Input, or add invocation context before model execution.
+Commands that should produce model-facing text must return it explicitly; accepting without handler text removes the matched command text.
 
 ## Configuration
 
@@ -86,7 +87,7 @@ Check DevTools metadata for the `inputCommands` Capability and its command descr
 | `id` | `string` | `"inputCommands"` | Capability id. |
 | `trigger` | `string` | `"/"` | Non-whitespace command prefix. |
 | `commands.*.description` | `string` | required | Command description for metadata and inspection. |
-| `commands.*.call` | `(input) => AgentRunInput \| Response \| string \| void` | accept and remove | Handler that accepts, rejects, transforms, or enriches invocation input. |
+| `commands.*.call` | `(input) => AgentRunInput \| Response \| string \| void` | remove command text | Handler that accepts, rejects, transforms, or enriches invocation input. |
 | `commands.*.channels` | `string[]` | all channels | Optional configured Channel ID allowlist. |
 | `commands.*.hooks` | `{ 'agent:input'?, 'agent:finish'? }` | none | Command-scoped lifecycle hooks with `ctx.message.reply/update/react` delivery primitives. |
 
