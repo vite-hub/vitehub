@@ -500,6 +500,7 @@ function normalizeHostIssue(value: unknown, fallback: { number?: number | string
     : isRecord(value.pull_request)
       ? value.pull_request
       : undefined
+  const repository = normalizedRepositoryFullName(value.repository) || fallback.repository
   return {
     ...(maybeString(value.apiUrl) ? { apiUrl: maybeString(value.apiUrl) } : {}),
     ...(maybeString(value.url) ? { apiUrl: maybeString(value.url) } : {}),
@@ -518,7 +519,7 @@ function normalizeHostIssue(value: unknown, fallback: { number?: number | string
         ...(maybeString(pullRequest.html_url) ? { htmlUrl: maybeString(pullRequest.html_url) } : {}),
       },
     } : {}),
-    ...(fallback.repository ? { repository: fallback.repository } : {}),
+    ...(repository ? { repository } : {}),
     ...(maybeString(value.state) ? { state: maybeString(value.state) } : {}),
     ...(maybeString(value.title) ? { title: maybeString(value.title) } : {}),
     ...(normalizedUser(value.user) ? { user: normalizedUser(value.user) } : {}),
@@ -616,7 +617,10 @@ function createAsyncRecord<T extends { [K in keyof T]: JsonValue | undefined }, 
 
   const record = {
     async keys() {
-      keysPromise ??= Promise.resolve().then(resolveKeys).then(keys => keys.map(assertKey))
+      keysPromise ??= Promise.resolve().then(resolveKeys).then(keys => keys.map(assertKey)).catch((error) => {
+        keysPromise = undefined
+        throw error
+      })
       return keysPromise
     },
     async has(key: string) {

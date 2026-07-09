@@ -171,6 +171,51 @@ describe("repositoryHostContext", () => {
     expect(() => JSON.stringify(host)).toThrow("Call resolveAll() before JSON.stringify()")
   })
 
+  it("retries target key resolution after a transient issue read failure", async () => {
+    const { repositoryHostContext } = await import("../src/capabilities.ts")
+    const read = vi.fn<RepositoryHostClient["read"]>(async request => {
+      if (request.operation !== "issue") throw new Error(`Unexpected operation: ${request.operation}`)
+      if (read.mock.calls.length === 1) throw new Error("temporarily unavailable")
+      return {
+        body: "Issue body",
+        labels: [],
+        number: 7,
+        title: "Plain issue",
+      }
+    })
+    const context = createAgentInvocationContextStore()
+
+    await resolveAgentCapabilities({
+      capabilities: [
+        repositoryHostContext({
+          client: { provider: "github", read },
+          target: { issue: 7, repo: "acme/app" },
+        }),
+      ],
+    }, runtime(), {}, undefined, "read", { context })
+
+    const host = repositoryHostContext.read({ context })
+    await expect(host.keys()).rejects.toThrow("temporarily unavailable")
+    await expect(host.keys()).resolves.toEqual(["issue", "body", "labels", "comments"])
+    expect(read).toHaveBeenCalledTimes(2)
+  })
+
+  it("preserves repository from static issue-only context", async () => {
+    const { repositoryHostContext } = await import("../src/capabilities.ts")
+
+    await expect(repositoryHostContext.read({
+      issue: {
+        number: 7,
+        repository: { fullName: "acme/app" },
+        title: "Plain issue",
+      },
+    }).get("issue")).resolves.toMatchObject({
+      number: 7,
+      repository: "acme/app",
+      title: "Plain issue",
+    })
+  })
+
   it("keeps the old synchronous pull request reader for source and git consumers", async () => {
     const { pullRequestContext, repositoryHostContext } = await import("../src/capabilities.ts")
     const rawPullRequestContext = {
@@ -225,6 +270,11 @@ describe("repositoryHostContext", () => {
               base: { ref: "main" },
               number: 42,
               repository: "acme/app",
+              source: {
+                mount: "vitehub",
+                ref: "refs/pull/42/head",
+                repo: "acme/app",
+              },
               title: "Review me",
             },
           },
@@ -244,8 +294,14 @@ describe("repositoryHostContext", () => {
       title: "Review me",
     })
     expect(context.get("pullRequest")).toMatchObject({
+      headRef: "refs/pull/42/head",
       number: 42,
       repository: "acme/app",
+      source: {
+        mount: "vitehub",
+        ref: "refs/pull/42/head",
+        repo: "acme/app",
+      },
       title: "Review me",
     })
     expect(context.get<{ get?: unknown }>("pullRequest")?.get).toBeUndefined()
