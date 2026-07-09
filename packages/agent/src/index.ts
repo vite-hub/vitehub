@@ -1591,19 +1591,29 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
   return { raw: result, text }
 }
 
+function resultWithUsageRecord(result: unknown, usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined): unknown {
+  if (!usageRecord || !result || typeof result !== "object" || result instanceof Response) return result
+  const record = result as { usage?: unknown, usageRecord?: unknown }
+  record.usageRecord ??= usageRecord
+  record.usage ??= usageRecord.usage
+  return result
+}
+
+function resultWithStreamedTextAndUsage(
+  result: unknown,
+  text: string,
+  usageRecord?: Extract<StreamEvent, { type: "usage" }>["usageRecord"],
+): unknown {
+  return resultWithUsageRecord(resultWithStreamedText(result, text), usageRecord)
+}
+
 function withStreamedResult(stream: AsyncIterable<unknown>, result: unknown) {
   const toolNames = new Map<string, string>()
   let streamedText = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
   return {
     finishResult() {
-      const output = resultWithStreamedText(result, streamedText)
-      if (usageRecord && output && typeof output === "object" && !(output instanceof Response)) {
-        const record = output as { usage?: unknown, usageRecord?: unknown }
-        record.usageRecord ??= usageRecord
-        record.usage ??= usageRecord.usage
-      }
-      return output
+      return resultWithStreamedTextAndUsage(result, streamedText, usageRecord)
     },
     stream: (async function* () {
       for await (const chunk of stream) {
@@ -1914,10 +1924,10 @@ async function finishAgentInvocation<
   const result = outcome.status === "success" ? outcome.result : undefined
   const runResult = failed || result === undefined ? undefined : toAgentRunResult(result)
   const text = runResult?.text
-  const usage = result === undefined ? undefined : await resolveAgentUsageRecord(result, context.run)
   try {
     await context.close()
     if (hasFinishWork(context)) {
+      const usage = result === undefined ? undefined : await resolveAgentUsageRecord(result, context.run)
       const details = failed ? agentErrorDetails(error) : undefined
       const eventBase = {
         ...(failed ? { error } : {}),
@@ -2180,8 +2190,8 @@ export async function streamAgentInline<
     return await finalizeAgentInvocationResult(runContext, result, async (result) => {
       const rendered = renderedResult ? result : await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
       if (output === "ui-message-stream") {
-        return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, runContext), shouldWrapInvocationOutput(runContext), async (outcome, streamedText) => {
-          await finishStreamAgentInvocation(runContext, resultWithStreamedText(rendered, streamedText || ""), finishOutcomeFromCleanup(outcome), "[vitehub] Agent stream failed and finish lifecycle also failed.", outputExtensions)
+        return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, runContext), shouldWrapInvocationOutput(runContext), async (outcome, streamedText, streamedUsageRecord) => {
+          await finishStreamAgentInvocation(runContext, resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord), finishOutcomeFromCleanup(outcome), "[vitehub] Agent stream failed and finish lifecycle also failed.", outputExtensions)
         })
       }
       const isStreamResult = hasTraceableStreamResult(rendered)
@@ -2244,8 +2254,8 @@ export async function streamAgentInline<
   return await finalizeAgentInvocationResult(adapterContext, result, async (result) => {
     const rendered = renderedResult ? result : await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions)
     if (output === "ui-message-stream") {
-      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, adapterContext), shouldWrapInvocationOutput(adapterContext), async (outcome, streamedText) => {
-        await finishStreamAgentInvocation(adapterContext, resultWithStreamedText(rendered, streamedText || ""), finishOutcomeFromCleanup(outcome), "[vitehub] Agent stream failed and finish lifecycle also failed.", outputExtensions)
+      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, adapterContext), shouldWrapInvocationOutput(adapterContext), async (outcome, streamedText, streamedUsageRecord) => {
+        await finishStreamAgentInvocation(adapterContext, resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord), finishOutcomeFromCleanup(outcome), "[vitehub] Agent stream failed and finish lifecycle also failed.", outputExtensions)
       })
     }
     const events = streamAgentOutputToEvents(rendered)

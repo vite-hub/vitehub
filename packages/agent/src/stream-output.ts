@@ -1,6 +1,7 @@
 import { isAsyncIterable } from "./internal/stream-result.ts"
+import { usageRecordFromStreamChunk } from "./agent-output.ts"
 
-import type { MaybePromise } from "./types.ts"
+import type { AgentUsageRecord, MaybePromise } from "./types.ts"
 
 interface FinalizedStreamOutput<T> {
   deferFinish: boolean
@@ -249,7 +250,7 @@ async function writeEventsToUiMessageStream(writer: AgentUIMessageStreamWriter, 
 export async function finalizeUiMessageStreamOutput(
   rendered: unknown,
   shouldWrapOutput: boolean,
-  finish: (outcome: StreamCleanupOutcome, streamedText?: string) => MaybePromise<void>,
+  finish: (outcome: StreamCleanupOutcome, streamedText?: string, streamedUsageRecord?: AgentUsageRecord) => MaybePromise<void>,
 ): Promise<FinalizedStreamOutput<unknown>> {
   const hasUiMessageStream = isUIMessageStreamResult(rendered)
   const hasAsyncIterable = isAsyncIterable(rendered)
@@ -272,15 +273,17 @@ export async function finalizeUiMessageStreamOutput(
           writer.write({ type: "text-end", id: messageId })
           writer.write({ type: "finish", finishReason: "stop" })
         },
-      }))
+  }))
   let streamedText = ""
+  let streamedUsageRecord: AgentUsageRecord | undefined
   return {
     deferFinish: shouldWrapOutput,
     finishResult: rendered,
     value: shouldWrapOutput
-      ? withReadableStreamCleanup(stream, outcome => Promise.resolve(finish(outcome, streamedText)), {
+      ? withReadableStreamCleanup(stream, outcome => Promise.resolve(finish(outcome, streamedText, streamedUsageRecord)), {
           onChunk(chunk) {
             streamedText += uiMessageTextDelta(chunk) || ""
+            streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord
           },
         })
       : stream,

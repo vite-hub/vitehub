@@ -227,9 +227,12 @@ function withFallbackUsageMetadata(
     : record
 }
 
-function usageFromStreamChunk(chunk: unknown, fallbackMetadataSource?: unknown, run?: Partial<AgentRunMetadata>): AgentUsageRecord | undefined {
+export function usageRecordFromStreamChunk(chunk: unknown, fallbackMetadataSource?: unknown, run?: Partial<AgentRunMetadata>): AgentUsageRecord | undefined {
   if (!isRecord(chunk)) return
   const type = String(chunk.type || "")
+  if (type === "usage" && isUsageRecord(chunk.usageRecord)) {
+    return withFallbackUsageMetadata(chunk.usageRecord, fallbackMetadataSource, run)
+  }
   return usageRecordFromUsage(type === "finish-step"
     ? chunk.usage
     : type === "finish"
@@ -328,7 +331,7 @@ async function* streamChunksToEvents(chunks: AsyncIterable<unknown>, usageSource
   let explicitUsageEvent = false
   let finishEvent: StreamEvent | undefined
   for await (const chunk of chunks) {
-    if (!explicitUsageEvent) usageRecord = usageFromStreamChunk(chunk, usageSource) ?? usageRecord
+    if (!explicitUsageEvent) usageRecord = usageRecordFromStreamChunk(chunk, usageSource) ?? usageRecord
     const event = toAgentStreamEvent(chunk, toolNames)
     if (!event) continue
     if (event.type === "usage") {

@@ -4480,6 +4480,24 @@ describe("agent message protocol", () => {
     }
   })
 
+  it("does not resolve unused usage for invocations without finish work", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const usage = {
+      then() {
+        throw new Error("usage should be unused")
+      },
+    }
+    const agent = defineAgent({
+      driver: { run: () => ({ text: "ok", usage }), },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).resolves.toMatchObject({ text: "ok" })
+  })
+
   it("runs final output renderers before finish delivery effects", async () => {
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
@@ -4898,6 +4916,84 @@ describe("agent message protocol", () => {
     }
 
     expect(delivered).toHaveBeenCalledWith("ui review:3")
+  })
+
+  it("preserves streamed usage for ui-message-stream finish work", async () => {
+    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const delivered = vi.fn()
+    const finish = vi.fn()
+
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "delivery-ui-streamed-usage",
+          output(context) {
+            context.output.final((result) => {
+              const usage = (result as { usageRecord?: { usage?: { totalTokens?: number } } }).usageRecord?.usage
+              return {
+                ...result as Record<string, unknown>,
+                text: `${(result as { text?: string }).text}:${usage?.totalTokens}`,
+              }
+            })
+            context.delivery.finishEffect(context => context.reply(context.result!.text!))
+          },
+        }),
+      ],
+      channels: {
+        review: defineChannel("review", {
+          effects: {
+            reply({ effect }) {
+              delivered(effect.payload)
+            },
+          },
+          messages: false,
+        }),
+      },
+      hooks: {
+        "agent:finish": finish,
+      },
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              start(controller) {
+                controller.enqueue({ delta: "ui ", type: "text-delta" })
+                controller.enqueue({ delta: "usage", type: "text-delta" })
+                controller.enqueue({
+                  totalUsage: {
+                    inputTokens: 4,
+                    outputTokens: 6,
+                  },
+                  type: "finish",
+                })
+                controller.close()
+              },
+            })
+          },
+        }) },
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: {
+        channelId: "review",
+        runId: "run-1",
+      },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+    while (true) {
+      const { done } = await reader.read()
+      if (done) break
+    }
+
+    expect(delivered).toHaveBeenCalledWith("ui usage:10")
+    expect(finish.mock.calls[0]![0].usage).toMatchObject({
+      usage: {
+        totalTokens: 10,
+      },
+    })
   })
 
   it("runs agent finish hooks after generated streams are consumed", async () => {

@@ -122,7 +122,7 @@ function createDefaultRun(name: string | undefined): AgentRunMetadata {
 
 function withTestFinishCapture<TRuntimeConfig extends AgentRuntimeConfig>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-  capture: (extensions: AgentFinishExtensions) => void,
+  capture: (event: AgentFinishEvent<TRuntimeConfig>) => void,
 ): AgentInput<AgentRuntimeContext<TRuntimeConfig>> {
   if (!isAgentDefinition(agent)) return agent
 
@@ -133,7 +133,7 @@ function withTestFinishCapture<TRuntimeConfig extends AgentRuntimeConfig>(
   clone.hooks = {
     ...hooks,
     async "agent:finish"(event: AgentFinishEvent<TRuntimeConfig>) {
-      capture(event.extensions)
+      capture(event)
       await finishHook?.(event)
     },
   }
@@ -300,13 +300,14 @@ function textFromRaw(value: unknown): string {
 async function normalizeAgentTestResult(
   value: unknown,
   toolSteps: AgentToolStep[],
-  getExtensions: () => AgentFinishExtensions | undefined,
+  getFinishEvent: () => AgentFinishEvent | undefined,
 ): Promise<AgentTestRunResult> {
+  const finishEvent = getFinishEvent()
   if (value instanceof Response) {
     const text = await value.clone().text()
-    const extensions = getExtensions()
     return {
-      ...(extensions ? { extensions } : {}),
+      ...(finishEvent?.extensions ? { extensions: finishEvent.extensions } : {}),
+      ...(finishEvent?.usage ? { usage: finishEvent.usage.usage } : {}),
       raw: value,
       text,
       toolSteps,
@@ -316,15 +317,14 @@ async function normalizeAgentTestResult(
   const result = typeof value === "object" && value !== null
     ? value as AgentRunResult
     : undefined
-  const extensions = getExtensions()
 
   return {
-    ...(extensions ? { extensions } : {}),
+    ...(finishEvent?.extensions ? { extensions: finishEvent.extensions } : {}),
     finishReason: result?.finishReason,
     raw: value,
     text: textFromRaw(value),
     toolSteps: [...toolSteps, ...toolStepsFromRaw(value)],
-    usage: result?.usage,
+    usage: finishEvent?.usage?.usage ?? result?.usage,
     warnings: result?.warnings,
   }
 }
@@ -352,7 +352,7 @@ export function createAgentTestRunner<
     async run(input) {
       const toolSteps: AgentToolStep[] = []
       let workspaceInspectionGuardrails = 0
-      let extensions: AgentFinishExtensions | undefined
+      let finishEvent: AgentFinishEvent | undefined
       const context = createAgentRuntimeContext({
         devtools: {
           reportToolStep(step) {
@@ -377,12 +377,12 @@ export function createAgentTestRunner<
 
       const raw = await runAgent<TRuntimeConfig, CALL_OPTIONS>(
         withTestFinishCapture(preparedAgent, value => {
-          extensions = value
+          finishEvent = value as AgentFinishEvent
         }),
         context,
         input,
       )
-      return await normalizeAgentTestResult(raw, toolSteps, () => extensions)
+      return await normalizeAgentTestResult(raw, toolSteps, () => finishEvent)
     },
   }
 }
