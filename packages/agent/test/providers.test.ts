@@ -2141,6 +2141,128 @@ describe("server helpers", () => {
     }))
   })
 
+  it("splits long Discord chat output after stream finalization", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter() as ReturnType<typeof createTestChatAdapter> & {
+      formatConverter: { renderPostable: (message: unknown) => string }
+      name: string
+    }
+    adapter.formatConverter = {
+      renderPostable(message: unknown) {
+        if (typeof message === "string") return message
+        if (typeof message === "object" && message && "raw" in message && typeof message.raw === "string") return message.raw
+        if (typeof message === "object" && message && "markdown" in message && typeof message.markdown === "string") return message.markdown
+        return ""
+      },
+    }
+    adapter.name = "discord"
+    Object.defineProperty(adapter, Symbol.for("vitehub.discord.longContent.mode"), { value: "split" })
+    let replyText = "short reply"
+    const agent = defineAgent({
+      channels: {
+        discord: discord({ adapter: () => adapter as never }),
+      },
+      driver: {
+        run: () => ({ text: replyText }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = (messageId: number) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { id: 123, username: "maxi" },
+          message_id: messageId,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    })
+
+    const shortResponse = await handler(request(7), "discord")
+
+    expect(shortResponse.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "...")
+    expect(adapter.postMessage).toHaveBeenCalledTimes(1)
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "short reply" })
+
+    adapter.postMessage.mockClear()
+    adapter.editMessage.mockClear()
+    replyText = `${"word ".repeat(430)}done`
+
+    const longResponse = await handler(request(8), "discord")
+
+    expect(longResponse.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "...")
+    expect(adapter.editMessage).toHaveBeenNthCalledWith(1, "telegram:456", "sent-2", { markdown: replyText })
+    expect(adapter.editMessage).toHaveBeenNthCalledWith(2, "telegram:456", "sent-2", {
+      attachments: [],
+      raw: expect.stringMatching(/ \(1\/2\)$/),
+    })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
+      raw: expect.stringMatching(/ \(2\/2\)$/),
+    })
+  })
+
+  it("splits long non-streaming Discord chat output", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter() as ReturnType<typeof createTestChatAdapter> & {
+      formatConverter: { renderPostable: (message: unknown) => string }
+      name: string
+    }
+    adapter.formatConverter = {
+      renderPostable(message: unknown) {
+        if (typeof message === "string") return message
+        if (typeof message === "object" && message && "raw" in message && typeof message.raw === "string") return message.raw
+        if (typeof message === "object" && message && "markdown" in message && typeof message.markdown === "string") return message.markdown
+        return ""
+      },
+    }
+    adapter.name = "discord"
+    Object.defineProperty(adapter, Symbol.for("vitehub.discord.longContent.mode"), { value: "split" })
+    const replyText = `${"word ".repeat(430)}done`
+    const agent = defineAgent({
+      channels: {
+        discord: discord({
+          adapter: () => adapter as never,
+          messages: { stream: false },
+        }),
+      },
+      driver: {
+        run: () => ({ text: replyText }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { id: 123, username: "maxi" },
+          message_id: 9,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "discord")
+
+    expect(response.status).toBe(200)
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", {
+      raw: expect.stringMatching(/ \(1\/2\)$/),
+    })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
+      raw: expect.stringMatching(/ \(2\/2\)$/),
+    })
+    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+  })
+
   it("does not map audio mime file attachments without transcribe()", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
