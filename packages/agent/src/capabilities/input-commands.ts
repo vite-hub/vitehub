@@ -299,7 +299,7 @@ function mergeInputCommandResult(input: AgentRunInput, result: Partial<AgentRunI
 }
 
 function inputCommandCall(command: InputCommand): InputCommandCall {
-  return command.call || command.run || (({ args }) => args)
+  return command.call || command.run || (() => undefined)
 }
 
 function activeChannelId(context: AgentCapabilityRuntimeContext): string | undefined {
