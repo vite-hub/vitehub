@@ -255,6 +255,47 @@ describe("repositoryHostContext", () => {
     expect(read).toHaveBeenCalledTimes(4)
   })
 
+  it("preserves target pull request API URLs from issue fallback metadata", async () => {
+    const { repositoryHostContext } = await import("../src/capabilities.ts")
+    const read = vi.fn<RepositoryHostClient["read"]>(async request => {
+      if (request.operation === "issue") {
+        return {
+          body: "PR body",
+          number: 42,
+          pull_request: {
+            url: "https://api.github.test/repos/acme/app/pulls/42",
+          },
+          title: "Fix UI",
+        }
+      }
+      if (request.operation === "changeRequest") {
+        return {
+          body: "PR body from change request",
+          number: 42,
+          title: "Fix UI",
+        }
+      }
+      throw new Error(`Unexpected operation: ${request.operation}`)
+    })
+    const context = createAgentInvocationContextStore()
+
+    await resolveAgentCapabilities({
+      capabilities: [
+        repositoryHostContext({
+          client: { provider: "github", read },
+          target: { pullRequest: 42, repo: "acme/app" },
+        }),
+      ],
+    }, runtime(), {}, undefined, "read", { context })
+
+    await expect(repositoryHostContext.read({ context }).get("pullRequest")).resolves.toMatchObject({
+      apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
+      body: "PR body from change request",
+      number: 42,
+      repository: "acme/app",
+    })
+  })
+
   it("returns undefined for known absent PR keys and rejects unknown keys", async () => {
     const { repositoryHostContext } = await import("../src/capabilities.ts")
     const read = vi.fn<RepositoryHostClient["read"]>(async request => {
