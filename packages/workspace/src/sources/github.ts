@@ -138,10 +138,7 @@ function pullRequestSource(value: unknown): { ref?: string, repo?: string } | un
     const repo = (directSource as { repo?: unknown }).repo
     if (typeof repo === "string" && repo) {
       const resolvedRef = typeof ref === "string" && ref ? ref : typeof flatRef === "string" && flatRef ? flatRef : undefined
-      return {
-        ...(resolvedRef ? { ref: resolvedRef } : {}),
-        repo,
-      }
+      return { ...(resolvedRef ? { ref: resolvedRef } : {}), repo }
     }
   }
   const flatRepo = (value as { repository?: unknown }).repository
