@@ -11,7 +11,6 @@ describe("workspace inventory", () => {
       "agent",
       "auth",
       "blob",
-      "ci",
       "cli",
       "database",
       "devtools",
