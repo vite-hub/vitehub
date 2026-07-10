@@ -558,6 +558,7 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
       context.delivery.finishEffect(titleDeliveryEffect)
       context.output.render((result) => {
         if (hasChatTitleApplied(result)) return result
+        if (!firstUserMessage(context.input.messages())) return result
         if (isStreamTextResult(result)) {
           const toUIMessageStream = result.toUIMessageStream?.bind(result)
           if (result.stream || result.fullStream) {

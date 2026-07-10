@@ -5815,6 +5815,39 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].result).toBe(result)
   })
 
+  it("does not wrap stream results when input transforms remove user messages", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => "Unused title")
+    class TextStreamResult {
+      metadata = { usage: "kept" }
+      textStream = (async function* () {
+        yield "hello"
+      })()
+    }
+    const nativeResult = new TextStreamResult()
+    const agent = defineAgent({
+      capabilities: [
+        chatTitle({ execute }),
+        defineCapability({
+          id: "remove-user-message",
+          input(context) {
+            context.input.setMessages([createMessage({ role: "system", text: "system context" })])
+          },
+        }),
+      ],
+      driver: { run: () => nativeResult },
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "First user request" })],
+    }) as TextStreamResult & { stream?: AsyncIterable<unknown> }
+
+    expect(result).toBe(nativeResult)
+    expect(result.metadata).toBe(nativeResult.metadata)
+    expect(result.stream).toBeUndefined()
+    expect(execute).not.toHaveBeenCalled()
+  })
+
   it("emits chat title data for UI message streams", async () => {
     const { createUIMessageStream, readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
