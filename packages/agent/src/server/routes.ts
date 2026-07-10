@@ -960,19 +960,23 @@ function chatSdkOption<T>(options: AgentChatOptions | undefined, key: string): T
 }
 
 function createChatSdkConfig(
-  adapters: Record<string, Adapter>,
+  adapterName: string,
+  adapter: Adapter,
   state: StateAdapter,
   options: AgentChatOptions | undefined,
 ): ChatConfig {
   const fallbackStreamingPlaceholderText = typeof options?.fallbackStreamingPlaceholderText === "string"
     ? options.fallbackStreamingPlaceholderText
     : options?.fallbackStreamingPlaceholderText === null ? null : undefined
+  const identity: ChatConfig["identity"] = options?.identity ?? (options?.transcripts
+    ? ({ author }) => author.isBot === true ? null : `${adapterName}:${author.userId}`
+    : undefined)
   return objectWithoutUndefined({
-    adapters,
+    adapters: { [adapterName]: adapter },
     concurrency: chatSdkOption<ChatConfig["concurrency"]>(options, "concurrency"),
     dedupeTtlMs: chatSdkOption<number>(options, "dedupeTtlMs"),
     fallbackStreamingPlaceholderText,
-    identity: options?.identity,
+    identity,
     lockScope: chatSdkOption<ChatConfig["lockScope"]>(options, "lockScope"),
     logger: chatSdkOption<ChatConfig["logger"]>(options, "logger"),
     messageHistory: chatSdkOption<ChatConfig["messageHistory"]>(options, "messageHistory"),
@@ -1608,9 +1612,12 @@ async function createChatWebhookHandler(
   options: AgentChatOptions | undefined,
   handlerOptions: AgentChannelWebhookRouteOptions,
 ): Promise<(request: Request, webhookOptions: WebhookOptions) => Promise<Response>> {
-  const chat = new Chat(createChatSdkConfig({
-    [adapterName]: adapter,
-  }, await resolveChatState(options, context, registration, handlerOptions), options))
+  const chat = new Chat(createChatSdkConfig(
+    adapterName,
+    adapter,
+    await resolveChatState(options, context, registration, handlerOptions),
+    options,
+  ))
 
   chat.onDirectMessage((thread, message, _channel, messageContext) =>
     handleChatSdkMessage(agent, context, registration, thread, message, options, messageContext))
@@ -2671,7 +2678,7 @@ export function createDiscordGatewayRouteHandler(
           id: adapterName,
           provider: "discord",
         }, handlerOptions)
-        const chat = new Chat(createChatSdkConfig({ [adapterName]: adapter }, state, chatOptions))
+        const chat = new Chat(createChatSdkConfig(adapterName, adapter, state, chatOptions))
         await (chat as { initialize?: () => Promise<void> }).initialize?.()
         const registration = await resolveDiscordWebhookRegistration(agent, context, adapters, adapterName)
         const webhookId = registration?.id || adapterName
