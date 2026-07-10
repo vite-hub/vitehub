@@ -31,6 +31,69 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it("indexes custom file lists without resolving other content", async () => {
+    const guideContent = vi.fn(async (context: { workspace: string }) => {
+      expect(context.workspace).toBe("custom-files")
+      return "# Guide\n"
+    })
+    const referenceContent = vi.fn(async () => "# Reference\n")
+    const source = custom({
+      cache: { maxAge: 3600 },
+      files: [
+        { content: guideContent, path: "guides/start.md" },
+        { content: referenceContent, path: "reference/api.md" },
+      ],
+      materialize: "lazy",
+      mount: "docs",
+      scopes: ["support"],
+      sync: { stale: "remove" },
+      validate: "request",
+    })
+
+    await expect(source.getKeys({} as never)).resolves.toEqual(["guides/start.md", "reference/api.md"])
+    expect(guideContent).not.toHaveBeenCalled()
+    expect(referenceContent).not.toHaveBeenCalled()
+    expect(source).toMatchObject({
+      cache: { maxAge: 3600 },
+      materialize: "lazy",
+      mount: "docs",
+      scopes: ["support"],
+      sync: { stale: "remove" },
+      validate: "request",
+    })
+    expect(custom({
+      files: [],
+      probeKeys: ["guides/start.md"],
+    })).toMatchObject({ probeKeys: ["guides/start.md"] })
+
+    const view = createWorkspaceSourceView({ name: "custom-files", sources: { docs: source } }, createMemoryWorkspaceStore())
+    await expect(view.materializeSources({
+      path: "docs/guides/start.md",
+      sources: ["docs"],
+    })).resolves.toMatchObject({
+      files: 1,
+      sources: [expect.objectContaining({ source: "docs", status: "ready" })],
+    })
+    await expect(view.readFile("docs/guides/start.md")).resolves.toBe("# Guide\n")
+    await expect(view.stat("docs/guides/start.md")).resolves.toMatchObject({ mediaType: "text/markdown" })
+    expect(guideContent).toHaveBeenCalledOnce()
+    expect(referenceContent).not.toHaveBeenCalled()
+    await expect(source.getItem("missing.md", {} as never)).rejects.toThrow("Custom Workspace Source file does not exist")
+
+    await expect(view.list("docs", { recursive: true })).resolves.toEqual([
+      expect.objectContaining({ path: "docs/guides", type: "directory" }),
+      expect.objectContaining({ path: "docs/guides/start.md", type: "file" }),
+      expect.objectContaining({ path: "docs/reference", type: "directory" }),
+      expect.objectContaining({ path: "docs/reference/api.md", type: "file" }),
+    ])
+  })
+
+  it("rejects unsafe custom file-list paths", () => {
+    expect(() => custom({
+      files: [{ content: "private", path: "../private.md" }],
+    })).toThrow("Workspace path escapes the workspace root")
+  })
+
   it("exposes source-backed behavior through the source view seam", async () => {
     const definition = {
       name: "source-view",

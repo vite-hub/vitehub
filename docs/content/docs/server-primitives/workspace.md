@@ -195,6 +195,34 @@ export default defineEventHandler(async (event) => {
 
 ## Custom Sources and source resolution
 
+Use `custom({ files })` when a Custom Source knows its Workspace paths before it loads their content. The shorthand enumerates those paths without resolving content, and path-scoped materialization resolves only the requested file's content callback.
+
+```ts [server/workspaces/support.ts]
+import { custom, defineWorkspace } from '@vite-hub/workspace'
+
+const guideSlugs = ['getting-started', 'inventory-planning']
+
+export default defineWorkspace({
+  sources: {
+    guides: custom({
+      cache: { maxAge: 3600 },
+      materialize: 'lazy',
+      files: guideSlugs.map(slug => ({
+        path: `${slug}.md`,
+        async content() {
+          const response = await fetch(`https://docs.example.com/${slug}.md`)
+          if (!response.ok)
+            throw new Error(`Failed to load ${slug}: ${response.status}`)
+          return await response.text()
+        },
+      })),
+    }),
+  },
+})
+```
+
+ViteHub infers each file's media type from its path unless the descriptor provides `mediaType`. Use a full Custom Source with `getKeys()` and `getItem()` when retrieval needs behavior beyond a fixed file list.
+
 Custom Sources can read existing materialized Workspace files through `ctx.workspaceFiles`. Use this when a Source needs previous generated output, such as a sync report or cached asset metadata, while producing the next materialized files. The view is read-only and does not expose Workspace Stores, provider adapters, snapshots, diffs, or Source materialization.
 
 Sources can resolve their concrete origin and Mount for one invocation from trusted runtime context. Use this when the same Source key should point at a narrowed origin after Access has selected a Workspace Scope.
