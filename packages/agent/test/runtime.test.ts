@@ -2300,9 +2300,9 @@ describe("agent message protocol", () => {
     await expect(runAgentTrigger(agent, runtime, "portal.message", { text: "hello" })).resolves.toBe("channel:portal:hello")
   })
 
-  it("adds only the active Channel Capabilities", async () => {
+  it("adds only the active Channel Capabilities with access first", async () => {
     const { defineAgent, defineCapability, runAgent, runAgentTrigger } = await import("../src/index.ts")
-    const { openapi } = await import("../src/capabilities.ts")
+    const { access, openapi } = await import("../src/capabilities.ts")
     const { defineChannel } = await import("../src/channels.ts")
     const triggerCapabilities: string[][] = []
     const resolvedTools: string[][] = []
@@ -2328,11 +2328,12 @@ describe("agent message protocol", () => {
         servers: [{ url: "https://portal.example.com" }],
       },
     })
+    const portalAccess = access({ chat: { resolve: () => true } })
     const agent = defineAgent({
       capabilities: [shared],
       channels: {
         portal: defineChannel("portal", {
-          capabilities: [portalApi],
+          capabilities: [portalAccess, portalApi],
           messages: false,
           triggers: {
             message: {
@@ -2367,7 +2368,7 @@ describe("agent message protocol", () => {
     await expect(runAgentTrigger(agent, runtime, "teams.message", {})).resolves.toBe("ok")
     await expect(runAgent(agent, runtime, {})).resolves.toBe("ok")
     await expect(runAgentTrigger(agent, runtime, "portal.message", {})).resolves.toBe("ok")
-    expect(triggerCapabilities).toEqual([["shared"], ["shared", "openapi"]])
+    expect(triggerCapabilities).toEqual([["shared"], ["access", "shared", "openapi"]])
     expect(resolvedTools).toEqual([["shared"], ["shared"], ["portal-api", "shared"]])
   })
 

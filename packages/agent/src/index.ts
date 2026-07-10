@@ -29,6 +29,7 @@ import {
   applyOutputRenderers,
   createAgentInvocationExtensions,
   defineCapability,
+  mergeAgentCapabilities,
   normalizeCapabilities,
   normalizeMode,
   optionalWorkspaceCapabilitySymbol,
@@ -1409,7 +1410,7 @@ async function createAgentInvocationContext<
     const channelCapabilities = activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel.capabilities
     const capabilityOptions = channelCapabilities?.length
       ? {
-          capabilities: [...(baseCapabilityOptions?.capabilities || []), ...channelCapabilities],
+          capabilities: mergeAgentCapabilities(baseCapabilityOptions?.capabilities, channelCapabilities),
           hooks: baseCapabilityOptions?.hooks || definition?.hooks,
         }
       : baseCapabilityOptions

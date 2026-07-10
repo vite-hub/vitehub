@@ -1,6 +1,7 @@
 import {
   channelDeliveryEffectsContextKey,
   channelDeliveryFinishEffectsContextKey,
+  mergeAgentCapabilities,
   normalizeCapabilities,
 } from "./capability-runtime.ts"
 
@@ -147,7 +148,7 @@ export async function resolveAgentTriggers<
     }
   }
   for (const [channelId, channel] of Object.entries(agentChannelOptions(agent))) {
-    const channelCapabilities = normalizeCapabilities([...capabilities, ...(channel.capabilities || [])]) as AgentCapabilityDefinition<TRuntimeConfig>[]
+    const channelCapabilities = mergeAgentCapabilities(capabilities, channel.capabilities) as AgentCapabilityDefinition<TRuntimeConfig>[]
     const channelWebhooks = normalizeChannelWebhookRegistrations(channelId, channel.kind, channel.webhooks)
     const capabilityWebhookTrigger = capabilityWebhookTriggerForChannel(triggers, channelId, channel.kind)
     if (capabilityWebhookTrigger && channelWebhooks?.length) {

@@ -261,6 +261,22 @@ export function normalizeCapabilities(
   return normalized
 }
 
+export function mergeAgentCapabilities(
+  capabilities: readonly AgentCapabilityDefinition[] | undefined,
+  scopedCapabilities: readonly AgentCapabilityDefinition[] | undefined,
+): AgentCapabilityDefinition[] {
+  const scoped = normalizeCapabilities(scopedCapabilities ? [...scopedCapabilities] : undefined)
+  const merged = normalizeCapabilities([
+    ...(capabilities || []),
+    ...(scopedCapabilities || []),
+  ])
+  if (!scoped.some(capability => capability.id === "access")) return merged
+
+  const accessIndex = merged.findIndex(capability => capability.id === "access")
+  if (accessIndex <= 0) return merged
+  return [merged[accessIndex]!, ...merged.slice(0, accessIndex), ...merged.slice(accessIndex + 1)]
+}
+
 export function capabilityWorkspaceSources(
   capabilities: AgentCapabilityDefinition[] | undefined,
 ): WorkspaceDefinition["sources"] | undefined {
