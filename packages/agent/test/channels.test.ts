@@ -131,6 +131,7 @@ describe("agent channels", () => {
       const { discord } = await import("../src/channels.ts")
       const channel = discord({
         adapter: {
+          applicationId: "app-id",
           botToken: { unseal: () => "bot-token" },
           mentionRoleIds: ["role-1"],
           publicKey: { unseal: () => "public-key" },
@@ -141,6 +142,7 @@ describe("agent channels", () => {
       if (typeof channel.adapter !== "function") throw new Error("Expected Discord adapter resolver.")
       await expect(channel.adapter({} as never)).resolves.toEqual({ name: "discord" })
       expect(createDiscordAdapter).toHaveBeenCalledWith({
+        applicationId: "app-id",
         botToken: "bot-token",
         mentionRoleIds: ["role-1"],
         publicKey: "public-key",
@@ -174,6 +176,47 @@ describe("agent channels", () => {
       expect((resolved as unknown as { [key: symbol]: unknown })[Symbol.for("vitehub.discord.longContent.mode")]).toBe("split")
     }
     finally {
+      vi.doUnmock("@chat-adapter/discord")
+      vi.resetModules()
+    }
+  })
+
+  it("adds Discord thread title support when a bot token is available", async () => {
+    vi.resetModules()
+    const adapter = { name: "discord" }
+    const createDiscordAdapter = vi.fn(() => adapter)
+    const fetch = vi.fn(async () => new Response("{}", { status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+    vi.doMock("@chat-adapter/discord", () => ({ createDiscordAdapter }))
+    try {
+      const { discord } = await import("../src/channels.ts")
+      const channel = discord({
+        adapter: {
+          apiUrl: "https://discord.test/api",
+          applicationId: "app-id",
+          botToken: { unseal: () => "bot-token" },
+          publicKey: "public-key",
+        },
+      })
+
+      if (typeof channel.adapter !== "function") throw new Error("Expected Discord adapter resolver.")
+      const resolved = await channel.adapter({} as never) as { setThreadTitle?: (threadId: string, title: string) => Promise<void> }
+      expect(resolved).toBe(adapter)
+      expect(typeof resolved.setThreadTitle).toBe("function")
+
+      await resolved.setThreadTitle?.("discord:guild:channel:thread-1", "  New   Thread   Title  ")
+
+      expect(fetch).toHaveBeenCalledWith("https://discord.test/api/channels/thread-1", {
+        body: JSON.stringify({ name: "New Thread Title" }),
+        headers: {
+          Authorization: "Bot bot-token",
+          "Content-Type": "application/json",
+        },
+        method: "PATCH",
+      })
+    }
+    finally {
+      vi.unstubAllGlobals()
       vi.doUnmock("@chat-adapter/discord")
       vi.resetModules()
     }

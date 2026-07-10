@@ -1635,11 +1635,13 @@ function discordAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
     catch (error) {
       throw new Error("[vitehub] discord({ adapter: true }) requires @chat-adapter/discord to be installed.", { cause: error })
     }
+    const botToken = cleanSecret(adapterOptions.botToken)
     const adapter = createDiscordAdapter({
       ...adapterOptions,
-      ...(adapterOptions.botToken ? { botToken: cleanSecret(adapterOptions.botToken) } : {}),
+      ...(botToken ? { botToken } : {}),
       ...(adapterOptions.publicKey ? { publicKey: cleanSecret(adapterOptions.publicKey) } : {}),
     })
+    addDiscordThreadTitleSupport(adapter, adapterOptions, botToken)
     if (longContent?.mode === "split") {
       Object.defineProperty(adapter, Symbol.for("vitehub.discord.longContent.mode"), {
         configurable: true,
@@ -1648,6 +1650,37 @@ function discordAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
     }
     return adapter
   }
+}
+
+const discordApiBaseUrl = "https://discord.com/api/v10"
+
+function discordThreadIdFromAgentThreadId(threadId: string): string | undefined {
+  const parts = threadId.split(":")
+  return parts[0] === "discord" ? maybeString(parts[3]) : undefined
+}
+
+function addDiscordThreadTitleSupport(adapter: Adapter, options: DiscordAdapterOptions, botToken: string | undefined): void {
+  if (!botToken || adapterSetThreadTitle(adapter)) return
+  Object.defineProperty(adapter, "setThreadTitle", {
+    configurable: true,
+    value: async (threadId: string, title: string) => {
+      const discordThreadId = discordThreadIdFromAgentThreadId(threadId)
+      const name = title.replace(/\s+/g, " ").trim().slice(0, 100).trim()
+      if (!discordThreadId || !name) return
+      const response = await fetch(`${(options.apiUrl || discordApiBaseUrl).replace(/\/+$/, "")}/channels/${discordThreadId}`, {
+        body: JSON.stringify({ name }),
+        headers: {
+          Authorization: `Bot ${botToken}`,
+          "Content-Type": "application/json",
+        },
+        method: "PATCH",
+      })
+      if (!response.ok) {
+        const error = await response.text().catch(() => response.statusText)
+        throw new Error(`[vitehub] Discord thread title update failed: ${response.status}${error ? ` ${error}` : ""}`)
+      }
+    },
+  })
 }
 
 function isAdapter(value: unknown): value is Adapter {
