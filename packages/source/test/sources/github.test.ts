@@ -4,16 +4,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { clearSources, github, registerSources, useSource } from "../../src/index.ts"
 import { createTarGz, jsonResponse, stubGitHubSource } from "./fixtures/github.ts"
 
-const loadGitCheckoutFiles = vi.hoisted(() => vi.fn())
+const loadGitArchiveFiles = vi.hoisted(() => vi.fn())
 
 vi.mock("../../src/sources/github/git.ts", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../src/sources/github/git.ts")>(),
-  loadGitCheckoutFiles,
+  loadGitArchiveFiles,
 }))
 
 beforeEach(() => {
-  loadGitCheckoutFiles.mockReset()
-  loadGitCheckoutFiles.mockRejectedValue(new Error("git unavailable"))
+  loadGitArchiveFiles.mockReset()
+  loadGitArchiveFiles.mockRejectedValue(new Error("git unavailable"))
 })
 
 afterEach(() => {
@@ -25,7 +25,7 @@ afterEach(() => {
 describe("@vite-hub/source GitHub source", () => {
   it("materializes simple GitHub source paths with git", async () => {
     vi.stubGlobal("fetch", vi.fn())
-    loadGitCheckoutFiles.mockResolvedValueOnce([
+    loadGitArchiveFiles.mockResolvedValueOnce([
       {
         content: new TextEncoder().encode("# Docs\n"),
         key: "docs/README.md",
@@ -50,7 +50,7 @@ describe("@vite-hub/source GitHub source", () => {
         path: "docs/README.md",
       },
     ])
-    expect(loadGitCheckoutFiles).toHaveBeenCalledWith(expect.objectContaining({
+    expect(loadGitArchiveFiles).toHaveBeenCalledWith(expect.objectContaining({
       ref: "main",
       repo: "acme/app",
       sparsePatterns: ["docs/**"],
@@ -62,7 +62,7 @@ describe("@vite-hub/source GitHub source", () => {
   it("passes bulk Source abort signals to git materialization", async () => {
     vi.stubGlobal("fetch", vi.fn())
     const controller = new AbortController()
-    loadGitCheckoutFiles.mockResolvedValue([{
+    loadGitArchiveFiles.mockResolvedValue([{
       content: new TextEncoder().encode("# Docs\n"),
       key: "docs/README.md",
       path: "docs/README.md",
@@ -75,8 +75,8 @@ describe("@vite-hub/source GitHub source", () => {
     await expect(docs.getKeys(ctx)).resolves.toEqual(["docs/README.md"])
     await expect(docs.getItems?.(ctx)).resolves.toHaveLength(1)
 
-    expect(loadGitCheckoutFiles).toHaveBeenCalledTimes(2)
-    expect(loadGitCheckoutFiles.mock.calls.every(([input]) => input.signal === controller.signal)).toBe(true)
+    expect(loadGitArchiveFiles).toHaveBeenCalledTimes(2)
+    expect(loadGitArchiveFiles.mock.calls.every(([input]) => input.signal === controller.signal)).toBe(true)
   })
 
   it("pins cached default-ref git materialization to the resolved commit", async () => {
@@ -90,7 +90,7 @@ describe("@vite-hub/source GitHub source", () => {
       }
       throw new Error(`Unexpected GitHub request: ${requestUrl}`)
     }))
-    loadGitCheckoutFiles.mockImplementationOnce(async input => [{
+    loadGitArchiveFiles.mockImplementationOnce(async input => [{
       content: new TextEncoder().encode("first\n"),
       key: "README.md",
       path: "README.md",
@@ -111,8 +111,8 @@ describe("@vite-hub/source GitHub source", () => {
       metadata: { ref: "first-commit", sha: "first-commit" },
       path: "README.md",
     }])
-    expect(loadGitCheckoutFiles).toHaveBeenCalledOnce()
-    expect(loadGitCheckoutFiles).toHaveBeenCalledWith(expect.objectContaining({ ref: "first-commit" }))
+    expect(loadGitArchiveFiles).toHaveBeenCalledOnce()
+    expect(loadGitArchiveFiles).toHaveBeenCalledWith(expect.objectContaining({ ref: "first-commit" }))
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith("/commits/main"))).toHaveLength(1)
   })
 
@@ -124,7 +124,7 @@ describe("@vite-hub/source GitHub source", () => {
     const docs = github({ ref: "main", repo: "acme/app", root: "docs" })
 
     await expect(docs.getKeys({ rootDir: process.cwd() })).resolves.toEqual(["README.md"])
-    expect(loadGitCheckoutFiles).toHaveBeenCalledOnce()
+    expect(loadGitArchiveFiles).toHaveBeenCalledOnce()
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))).toHaveLength(1)
   })
 
@@ -136,7 +136,7 @@ describe("@vite-hub/source GitHub source", () => {
     const docs = github({ include: "docs/**/*.md", ref: "main", repo: "acme/app" })
 
     await expect(docs.getKeys({ rootDir: process.cwd() })).resolves.toEqual(["docs/guides/setup.md"])
-    expect(loadGitCheckoutFiles).not.toHaveBeenCalled()
+    expect(loadGitArchiveFiles).not.toHaveBeenCalled()
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))).toHaveLength(1)
   })
 

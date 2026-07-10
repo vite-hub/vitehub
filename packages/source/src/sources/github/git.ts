@@ -2,18 +2,18 @@ import { Buffer } from "node:buffer"
 import { devNull } from "node:os"
 
 import { normalizeSourcePath } from "../../core/path.ts"
+import { parseGitHubArchive } from "./archive.ts"
 
 import type { GitHubFile } from "./types.ts"
 
 interface GitOptions {
   env?: NodeJS.ProcessEnv
-  input?: string
   signal?: AbortSignal
 }
 
 type GitRunner = (args: string[], options?: GitOptions) => Promise<string | Uint8Array>
 
-interface GitCheckoutInput<TKey extends string> {
+interface GitArchiveInput<TKey extends string> {
   env?: NodeJS.ProcessEnv
   keyForRepoPath: (path: string) => TKey | undefined
   ref: string
@@ -82,7 +82,7 @@ async function runGit(args: string[], options: GitOptions = {}): Promise<Uint8Ar
     child.stdout.on("data", chunk => stdout.push(chunk))
     child.stderr.resume()
     child.stdin.on("error", () => {})
-    child.stdin.end(options.input)
+    child.stdin.end()
     child.on("error", reject)
     child.on("close", (code) => {
       if (code === 0) {
@@ -93,55 +93,6 @@ async function runGit(args: string[], options: GitOptions = {}): Promise<Uint8Ar
       reject(new Error(`git ${command || "command"} exited with ${code ?? "an unknown status"}.`))
     })
   })
-}
-
-interface GitTreeEntry<TKey extends string> {
-  key: TKey
-  oid: string
-}
-
-function parseGitTree<TKey extends string>(
-  output: Uint8Array,
-  input: GitCheckoutInput<TKey>,
-): GitTreeEntry<TKey>[] {
-  return Buffer.from(output).toString("utf8").split("\0")
-    .filter(Boolean)
-    .map((record): GitTreeEntry<TKey> | undefined => {
-      const tab = record.indexOf("\t")
-      if (tab === -1) return
-      const [mode, type, oid] = record.slice(0, tab).split(" ")
-      if (!mode?.startsWith("100") || type !== "blob" || !oid) return
-      const repoPath = record.slice(tab + 1)
-      const key = input.keyForRepoPath(repoPath)
-      if (!key || !input.shouldInclude(key)) return
-      return { key, oid }
-    })
-    .filter(entry => entry !== undefined)
-}
-
-function parseGitBlobs(output: Uint8Array, oids: string[]) {
-  const bytes = Buffer.from(output)
-  const blobs = new Map<string, Buffer>()
-  let offset = 0
-
-  for (const expectedOid of oids) {
-    const newline = bytes.indexOf(10, offset)
-    if (newline === -1) throw new Error("git cat-file returned a truncated header.")
-    const [oid, type, rawSize] = bytes.subarray(offset, newline).toString("ascii").split(" ")
-    const size = Number(rawSize)
-    if (oid !== expectedOid || type !== "blob" || !Number.isSafeInteger(size) || size < 0) {
-      throw new Error("git cat-file returned an unexpected object.")
-    }
-    const contentStart = newline + 1
-    const contentEnd = contentStart + size
-    if (contentEnd >= bytes.length || bytes[contentEnd] !== 10) {
-      throw new Error("git cat-file returned truncated object content.")
-    }
-    blobs.set(oid, Buffer.from(bytes.subarray(contentStart, contentEnd)))
-    offset = contentEnd + 1
-  }
-
-  return blobs
 }
 
 function isGitSparsePattern(pattern: string) {
@@ -162,19 +113,27 @@ export function getGitSparsePatterns(root: string, include?: string | string[]):
   return root && isGitSparsePattern(root) ? [`${root}/**`] : undefined
 }
 
-async function readGitFiles<TKey extends string>(
+function isGitLfsPointer(content: Uint8Array) {
+  if (content.byteLength > 64 * 1024) return false
+  const lines = Buffer.from(content).toString("utf8").split(/\r?\n/)
+  return lines[0] === "version https://git-lfs.github.com/spec/v1"
+    && lines.some(line => /^oid sha256:[0-9a-f]{64}$/.test(line))
+    && lines.some(line => /^size \d+$/.test(line))
+}
+
+async function readGitArchiveFiles<TKey extends string>(
   dir: string,
-  input: GitCheckoutInput<TKey> & { sha: string },
+  input: GitArchiveInput<TKey> & { sha: string },
   executeGit: GitRunner,
   options: GitOptions,
 ): Promise<GitHubFile<TKey>[]> {
   input.signal?.throwIfAborted()
-  const treeOutput = await executeGit([
+  const archive = await executeGit([
     "-C",
     dir,
-    "ls-tree",
-    "-r",
-    "-z",
+    "archive",
+    "--format=tar.gz",
+    "--prefix=archive/",
     input.sha,
     "--",
     ...input.sparsePatterns.map((pattern) => {
@@ -182,27 +141,26 @@ async function readGitFiles<TKey extends string>(
       return `:(literal)${path}`
     }),
   ], options)
-  const entries = parseGitTree(Buffer.from(treeOutput), input)
-  const oids = [...new Set(entries.map(entry => entry.oid))]
-  if (!oids.length) return []
-
-  input.signal?.throwIfAborted()
-  const blobOutput = await executeGit(["-C", dir, "cat-file", "--batch"], {
-    ...options,
-    input: `${oids.join("\n")}\n`,
-  })
-  const blobs = parseGitBlobs(Buffer.from(blobOutput), oids)
-  return entries.map(entry => ({
-    content: blobs.get(entry.oid),
-    key: entry.key,
-    path: entry.key,
-    ref: input.ref,
-    sha: input.sha,
-  }))
+  return parseGitHubArchive(Buffer.from(archive))
+    .map((entry): GitHubFile<TKey> | undefined => {
+      const key = input.keyForRepoPath(entry.path)
+      if (!key || !input.shouldInclude(key)) return
+      if (isGitLfsPointer(entry.content)) {
+        throw new Error("git archive contained a Git LFS pointer; use the GitHub archive instead.")
+      }
+      return {
+        content: entry.content,
+        key,
+        path: key,
+        ref: input.ref,
+        sha: input.sha,
+      }
+    })
+    .filter((file): file is GitHubFile<TKey> => Boolean(file))
 }
 
-export async function loadGitCheckoutFiles<TKey extends string>(
-  input: GitCheckoutInput<TKey>,
+export async function loadGitArchiveFiles<TKey extends string>(
+  input: GitArchiveInput<TKey>,
   executeGit: GitRunner = runGit,
 ): Promise<GitHubFile<TKey>[]> {
   const [{ mkdtemp, rm }, { tmpdir }, { join }] = await Promise.all([
@@ -237,7 +195,7 @@ export async function loadGitCheckoutFiles<TKey extends string>(
       `+${input.ref}`,
     ], options)
     const sha = Buffer.from(await executeGit(["-C", dir, "rev-parse", "FETCH_HEAD"], options)).toString("utf8").trim()
-    return await readGitFiles(dir, { ...input, sha }, executeGit, options)
+    return await readGitArchiveFiles(dir, { ...input, sha }, executeGit, options)
   }
   finally {
     await rm(dir, { force: true, recursive: true })

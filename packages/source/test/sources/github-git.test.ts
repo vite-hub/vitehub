@@ -7,35 +7,30 @@ import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
 
-import { getGitSparsePatterns, loadGitCheckoutFiles } from "../../src/sources/github/git.ts"
+import { getGitSparsePatterns, loadGitArchiveFiles } from "../../src/sources/github/git.ts"
+import { createTarGz } from "./fixtures/github.ts"
 
 describe("@vite-hub/source GitHub git materialization", () => {
-  it("reads simple sparse source paths from Git objects without putting auth in git arguments", async () => {
+  it("archives simple sparse source paths without putting auth in git arguments", async () => {
     const calls: Array<{
       args: string[]
-      options: { env?: NodeJS.ProcessEnv, input?: string, signal?: AbortSignal }
+      options: { env?: NodeJS.ProcessEnv, signal?: AbortSignal }
     }> = []
     const signal = new AbortController().signal
-    const runGit: NonNullable<Parameters<typeof loadGitCheckoutFiles>[1]> = async (args, options = {}) => {
+    const runGit: NonNullable<Parameters<typeof loadGitArchiveFiles>[1]> = async (args, options = {}) => {
       calls.push({ args, options })
       if (args[2] === "rev-parse") return "checkout-sha\n"
-      if (args[2] === "ls-tree") {
-        return createGitTree([
-          ["a".repeat(40), "server/workspaces/mirror/data/tasks.jsonl"],
-          ["b".repeat(40), "server/workspaces/mirror/docs/guide.md"],
-          ["c".repeat(40), "server/workspaces/mirror/docs/private.md"],
-        ])
-      }
-      if (args[2] === "cat-file") {
-        return createGitBatch([
-          ["a".repeat(40), Buffer.from("{\"id\":1}\n")],
-          ["b".repeat(40), Buffer.from("# Guide\n")],
-        ])
+      if (args[2] === "archive") {
+        return createTarGz({
+          "server/workspaces/mirror/data/tasks.jsonl": "{\"id\":1}\n",
+          "server/workspaces/mirror/docs/guide.md": "# Guide\n",
+          "server/workspaces/mirror/docs/private.md": "private\n",
+        })
       }
       return ""
     }
 
-    const files = await loadGitCheckoutFiles({
+    const files = await loadGitArchiveFiles({
       env: {
         ...process.env,
         GIT_COMMON_DIR: "/outside/common",
@@ -60,14 +55,14 @@ describe("@vite-hub/source GitHub git materialization", () => {
 
     expect(files).toEqual([
       {
-        content: Buffer.from("{\"id\":1}\n"),
+        content: new Uint8Array(Buffer.from("{\"id\":1}\n")),
         key: "data/tasks.jsonl",
         path: "data/tasks.jsonl",
         ref: "main",
         sha: "checkout-sha",
       },
       {
-        content: Buffer.from("# Guide\n"),
+        content: new Uint8Array(Buffer.from("# Guide\n")),
         key: "docs/guide.md",
         path: "docs/guide.md",
         ref: "main",
@@ -110,17 +105,14 @@ describe("@vite-hub/source GitHub git materialization", () => {
     expect(calls.map(call => call.args)).toContainEqual([
       "-C",
       expect.any(String),
-      "ls-tree",
-      "-r",
-      "-z",
+      "archive",
+      "--format=tar.gz",
+      "--prefix=archive/",
       "checkout-sha",
       "--",
       ":(literal)server/workspaces/mirror/data/tasks.jsonl",
       ":(literal)server/workspaces/mirror/docs",
     ])
-    expect(calls.find(call => call.args[2] === "cat-file")?.options.input).toBe(
-      `${"a".repeat(40)}\n${"b".repeat(40)}\n`,
-    )
     expect(calls.some(call => call.args.includes("checkout"))).toBe(false)
   })
 
@@ -137,13 +129,13 @@ describe("@vite-hub/source GitHub git materialization", () => {
   it("propagates aborts and removes the temporary checkout", async () => {
     const controller = new AbortController()
     let checkoutDir: string | undefined
-    const runGit: NonNullable<Parameters<typeof loadGitCheckoutFiles>[1]> = async (args) => {
+    const runGit: NonNullable<Parameters<typeof loadGitArchiveFiles>[1]> = async (args) => {
       checkoutDir = args.at(-1)
       controller.abort()
       throw controller.signal.reason
     }
 
-    await expect(loadGitCheckoutFiles({
+    await expect(loadGitArchiveFiles({
       keyForRepoPath: path => path,
       ref: "main",
       repo: "acme/app",
@@ -156,11 +148,11 @@ describe("@vite-hub/source GitHub git materialization", () => {
     await expect(access(checkoutDir)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("uses committed bytes without checkout conversions or ambient smudge filters", async () => {
+  it("honors Git archive attributes without running ambient smudge filters", async () => {
     const fixture = await createGitRemote()
     const marker = join(fixture.root, "smudge-ran")
     try {
-      const files = await loadGitCheckoutFiles({
+      const files = await loadGitArchiveFiles({
         env: {
           ...process.env,
           GIT_CONFIG_COUNT: "2",
@@ -179,7 +171,8 @@ describe("@vite-hub/source GitHub git materialization", () => {
 
       expect(files.map(file => [file.path, Buffer.from(file.content || [])])).toEqual([
         ["docs/filter.dat", Buffer.from("original\n")],
-        ["docs/lines.txt", Buffer.from("line one\nline two\n")],
+        ["docs/lines.txt", Buffer.from("line one\r\nline two\r\n")],
+        ["docs/template.txt", Buffer.from(`${fixture.sha}\r\n`)],
       ])
       await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" })
     }
@@ -191,7 +184,7 @@ describe("@vite-hub/source GitHub git materialization", () => {
   it("treats selected Source paths beginning with a colon as literal Git paths", async () => {
     const fixture = await createGitRemote()
     try {
-      const files = await loadGitCheckoutFiles({
+      const files = await loadGitArchiveFiles({
         keyForRepoPath: path => path,
         ref: "main",
         repo: "local/fixture",
@@ -204,6 +197,23 @@ describe("@vite-hub/source GitHub git materialization", () => {
         [":/README.md", "nested colon\n"],
         [":README.md", "colon\n"],
       ])
+    }
+    finally {
+      await rm(fixture.root, { force: true, recursive: true })
+    }
+  })
+
+  it("falls back instead of returning a Git LFS pointer", async () => {
+    const fixture = await createGitRemote()
+    try {
+      await expect(loadGitArchiveFiles({
+        keyForRepoPath: path => path,
+        ref: "main",
+        repo: "local/fixture",
+        repositoryUrl: fixture.remote,
+        shouldInclude: () => true,
+        sparsePatterns: ["assets/**"],
+      })).rejects.toThrow("Git LFS pointer")
     }
     finally {
       await rm(fixture.root, { force: true, recursive: true })
@@ -227,7 +237,7 @@ describe("@vite-hub/source GitHub git materialization", () => {
     if (!address || typeof address === "string") throw new Error("Expected an HTTP fixture port.")
 
     try {
-      await expect(loadGitCheckoutFiles({
+      await expect(loadGitArchiveFiles({
         env: {
           ...process.env,
           GIT_CONFIG_COUNT: "2",
@@ -256,36 +266,42 @@ describe("@vite-hub/source GitHub git materialization", () => {
   })
 })
 
-function createGitTree(entries: Array<[oid: string, path: string]>) {
-  return Buffer.from(entries.map(([oid, path]) => `100644 blob ${oid}\t${path}\0`).join(""))
-}
-
-function createGitBatch(entries: Array<[oid: string, content: Uint8Array]>) {
-  return Buffer.concat(entries.flatMap(([oid, content]) => [
-    Buffer.from(`${oid} blob ${content.byteLength}\n`),
-    Buffer.from(content),
-    Buffer.from("\n"),
-  ]))
-}
-
 async function createGitRemote() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-git-bytes-test-"))
   const source = join(root, "source")
   const remote = join(root, "remote.git")
   const execute = promisify(execFile)
   await mkdir(join(source, "docs"), { recursive: true })
+  await mkdir(join(source, "assets"), { recursive: true })
   await mkdir(join(source, ":"), { recursive: true })
   await execute("git", ["init", "--quiet", "--initial-branch=main", source])
   await execute("git", ["-C", source, "config", "user.email", "fixture@example.com"])
   await execute("git", ["-C", source, "config", "user.name", "Fixture"])
-  await writeFile(join(source, ".gitattributes"), "*.txt text eol=crlf\n*.dat filter=danger\n")
+  await writeFile(join(source, ".gitattributes"), [
+    "*.txt text eol=crlf",
+    "*.dat filter=danger",
+    "docs/private.md export-ignore",
+    "docs/template.txt export-subst",
+    "assets/*.bin filter=lfs diff=lfs merge=lfs -text",
+    "",
+  ].join("\n"))
+  await writeFile(join(source, "assets", "large.bin"), [
+    "version https://git-lfs.github.com/spec/v1",
+    `oid sha256:${"a".repeat(64)}`,
+    "size 1234",
+    "",
+  ].join("\n"))
   await writeFile(join(source, "docs", "filter.dat"), "original\n")
   await writeFile(join(source, "docs", "lines.txt"), "line one\nline two\n")
+  await writeFile(join(source, "docs", "private.md"), "private\n")
+  await writeFile(join(source, "docs", "template.txt"), "$Format:%H$\n")
   await writeFile(join(source, ":README.md"), "colon\n")
   await writeFile(join(source, ":", "README.md"), "nested colon\n")
   await execute("git", ["-C", source, "add", "."])
   await execute("git", ["-C", source, "commit", "--quiet", "-m", "fixture"])
+  const { stdout } = await execute("git", ["-C", source, "rev-parse", "HEAD"])
+  const sha = stdout.trim()
   await execute("git", ["clone", "--quiet", "--bare", source, remote])
   await execute("git", ["--git-dir", remote, "config", "uploadpack.allowFilter", "true"])
-  return { remote, root }
+  return { remote, root, sha }
 }

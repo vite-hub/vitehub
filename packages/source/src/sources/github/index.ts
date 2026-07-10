@@ -6,7 +6,7 @@ import { matchesAny, normalizeSourcePath } from "../../core/path.ts"
 import { parseGitHubArchive } from "./archive.ts"
 import { createGitHubCacheKey, normalizeGitHubCache } from "./cache.ts"
 import { fetchGitHubArchive, requestGitHubJson } from "./client.ts"
-import { getGitSparsePatterns, loadGitCheckoutFiles } from "./git.ts"
+import { getGitSparsePatterns, loadGitArchiveFiles } from "./git.ts"
 
 import type { Source, SourceContext } from "../../core/types.ts"
 import type { GitHubCommitResponse, GitHubContentResponse, GitHubFile, GitHubRepositoryResponse, GitHubSourceOptions } from "./types.ts"
@@ -155,7 +155,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
     const ref = await getRef(token, signal)
     if (sparsePatterns) {
       try {
-        return await loadGitCheckoutFiles({
+        return await loadGitArchiveFiles({
           keyForRepoPath,
           ref,
           repo: options.repo,
