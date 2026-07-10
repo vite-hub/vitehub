@@ -436,7 +436,7 @@ describe("repositoryHostContext", () => {
       if (request.operation === "changeRequest") {
         return {
           base: { ref: "main" },
-          head: { ref: "feature" },
+          head: { ref: "feature", repo: { full_name: "contributor/app" } },
           number: 42,
           title: "Review me",
         }
@@ -460,6 +460,10 @@ describe("repositoryHostContext", () => {
       headRef: "feature",
       number: 42,
       repository: "acme/app",
+      source: {
+        ref: "feature",
+        repo: "contributor/app",
+      },
       title: "Review me",
     })
     expect(read).toHaveBeenCalledWith({

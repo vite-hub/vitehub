@@ -563,6 +563,12 @@ function normalizeHostPullRequest(value: unknown, fallback: { issue?: Repository
   if (number === undefined || !repository) return
   const base = normalizedRef(value.base)
   const head = normalizedRef(value.head)
+  const source = normalizedSource(value.source) || (head?.repo
+    ? {
+        ...(head.ref ? { ref: head.ref } : {}),
+        repo: head.repo,
+      }
+    : undefined)
   const labels = normalizedLabelNames(value.labels) || fallback.issue?.labels
   return {
     ...(maybeString(value.apiUrl) ? { apiUrl: maybeString(value.apiUrl) } : {}),
@@ -572,7 +578,7 @@ function normalizeHostPullRequest(value: unknown, fallback: { issue?: Repository
     ...(base?.ref ? { baseRef: base.ref } : {}),
     ...(maybeString(value.body) || fallback.issue?.body ? { body: maybeString(value.body) || fallback.issue!.body! } : {}),
     ...(head ? { head } : {}),
-    ...(head?.ref ? { headRef: head.ref } : {}),
+    ...(source?.ref || head?.ref ? { headRef: source?.ref || head?.ref } : {}),
     ...(maybeString(value.htmlUrl) ? { htmlUrl: maybeString(value.htmlUrl) } : {}),
     ...(maybeString(value.html_url) || fallback.issue?.pullRequest?.htmlUrl ? { htmlUrl: maybeString(value.html_url) || fallback.issue!.pullRequest!.htmlUrl! } : {}),
     ...(maybeContextValue(value.id) !== undefined ? { id: maybeContextValue(value.id) } : {}),
@@ -580,6 +586,7 @@ function normalizeHostPullRequest(value: unknown, fallback: { issue?: Repository
     number,
     provider: "github",
     repository,
+    ...(source ? { source } : {}),
     ...(maybeString(value.title) || fallback.issue?.title ? { title: maybeString(value.title) || fallback.issue!.title! } : {}),
   }
 }
