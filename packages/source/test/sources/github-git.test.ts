@@ -36,6 +36,13 @@ describe("@vite-hub/source GitHub git materialization", () => {
     }
 
     const files = await loadGitCheckoutFiles({
+      env: {
+        ...process.env,
+        GIT_COMMON_DIR: "/outside/common",
+        GIT_DIR: "/outside/repository",
+        GIT_INDEX_FILE: "/outside/index",
+        GIT_WORK_TREE: "/outside/worktree",
+      },
       keyForRepoPath(path) {
         const root = "server/workspaces/mirror/"
         return path.startsWith(root) ? path.slice(root.length) : undefined
@@ -82,6 +89,10 @@ describe("@vite-hub/source GitHub git materialization", () => {
     expect(env?.GIT_CONFIG_GLOBAL).toBe(devNull)
     expect(env?.GIT_CONFIG_NOSYSTEM).toBe("1")
     expect(env?.GIT_TERMINAL_PROMPT).toBe("0")
+    expect(env?.GIT_COMMON_DIR).toBeUndefined()
+    expect(env?.GIT_DIR).toBeUndefined()
+    expect(env?.GIT_INDEX_FILE).toBeUndefined()
+    expect(env?.GIT_WORK_TREE).toBeUndefined()
     expect(env?.GIT_CONFIG_VALUE_0).toBe(
       `AUTHORIZATION: basic ${Buffer.from("x-access-token:github-token").toString("base64")}`,
     )
@@ -104,8 +115,8 @@ describe("@vite-hub/source GitHub git materialization", () => {
       "-z",
       "checkout-sha",
       "--",
-      "server/workspaces/mirror/data/tasks.jsonl",
-      "server/workspaces/mirror/docs",
+      ":(literal)server/workspaces/mirror/data/tasks.jsonl",
+      ":(literal)server/workspaces/mirror/docs",
     ])
     expect(calls.find(call => call.args[2] === "cat-file")?.options.input).toBe(
       `${"a".repeat(40)}\n${"b".repeat(40)}\n`,
@@ -177,6 +188,28 @@ describe("@vite-hub/source GitHub git materialization", () => {
     }
   })
 
+  it("treats selected Source paths beginning with a colon as literal Git paths", async () => {
+    const fixture = await createGitRemote()
+    try {
+      const files = await loadGitCheckoutFiles({
+        keyForRepoPath: path => path,
+        ref: "main",
+        repo: "local/fixture",
+        repositoryUrl: fixture.remote,
+        shouldInclude: () => true,
+        sparsePatterns: [":README.md", ":/README.md"],
+      })
+
+      expect(files.map(file => [file.path, Buffer.from(file.content || []).toString("utf8")])).toEqual([
+        [":/README.md", "nested colon\n"],
+        [":README.md", "colon\n"],
+      ])
+    }
+    finally {
+      await rm(fixture.root, { force: true, recursive: true })
+    }
+  })
+
   it("does not send ambient Git credentials when no Source token is configured", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-git-auth-test-"))
     const helperMarker = join(root, "credential-helper-ran")
@@ -241,12 +274,15 @@ async function createGitRemote() {
   const remote = join(root, "remote.git")
   const execute = promisify(execFile)
   await mkdir(join(source, "docs"), { recursive: true })
+  await mkdir(join(source, ":"), { recursive: true })
   await execute("git", ["init", "--quiet", "--initial-branch=main", source])
   await execute("git", ["-C", source, "config", "user.email", "fixture@example.com"])
   await execute("git", ["-C", source, "config", "user.name", "Fixture"])
   await writeFile(join(source, ".gitattributes"), "*.txt text eol=crlf\n*.dat filter=danger\n")
   await writeFile(join(source, "docs", "filter.dat"), "original\n")
   await writeFile(join(source, "docs", "lines.txt"), "line one\nline two\n")
+  await writeFile(join(source, ":README.md"), "colon\n")
+  await writeFile(join(source, ":", "README.md"), "nested colon\n")
   await execute("git", ["-C", source, "add", "."])
   await execute("git", ["-C", source, "commit", "--quiet", "-m", "fixture"])
   await execute("git", ["clone", "--quiet", "--bare", source, remote])

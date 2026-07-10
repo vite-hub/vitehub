@@ -59,6 +59,26 @@ describe("@vite-hub/source GitHub source", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it("passes bulk Source abort signals to git materialization", async () => {
+    vi.stubGlobal("fetch", vi.fn())
+    const controller = new AbortController()
+    loadGitCheckoutFiles.mockResolvedValue([{
+      content: new TextEncoder().encode("# Docs\n"),
+      key: "docs/README.md",
+      path: "docs/README.md",
+      ref: "main",
+      sha: "checkout-sha",
+    }])
+    const docs = github({ include: ["docs/**"], ref: "main", repo: "acme/app" })
+    const ctx = { abortSignal: controller.signal, rootDir: process.cwd() }
+
+    await expect(docs.getKeys(ctx)).resolves.toEqual(["docs/README.md"])
+    await expect(docs.getItems?.(ctx)).resolves.toHaveLength(1)
+
+    expect(loadGitCheckoutFiles).toHaveBeenCalledTimes(2)
+    expect(loadGitCheckoutFiles.mock.calls.every(([input]) => input.signal === controller.signal)).toBe(true)
+  })
+
   it("pins cached default-ref git materialization to the resolved commit", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
       const requestUrl = String(url)

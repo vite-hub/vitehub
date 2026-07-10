@@ -188,8 +188,8 @@ export function github<const TKey extends string = string>(options: GitHubSource
         () => loadFiles(token),
       )
 
-  function getFiles(token = refreshAuth()) {
-    return cachedLoadFiles(token)
+  function getFiles(token = refreshAuth(), signal?: AbortSignal) {
+    return signal ? loadFiles(token, signal) : cachedLoadFiles(token)
   }
 
   async function loadFileMetadata(key: TKey, token = auth, signal?: AbortSignal): Promise<GitHubFile<TKey> | undefined> {
@@ -314,12 +314,12 @@ export function github<const TKey extends string = string>(options: GitHubSource
       root,
     },
     name: "github",
-    async getKeys() {
-      return (await getFiles()).map(file => file.key)
+    async getKeys(ctx) {
+      return (await getFiles(refreshAuth(), ctx.abortSignal)).map(file => file.key)
     },
-    async getItems() {
+    async getItems(ctx) {
       const token = refreshAuth()
-      return await Promise.all((await getFiles(token)).map(async file => ({
+      return await Promise.all((await getFiles(token, ctx.abortSignal)).map(async file => ({
         key: file.key,
         path: file.path,
         content: await fetchContent(file.key, file),

@@ -27,10 +27,28 @@ interface GitCheckoutInput<TKey extends string> {
 
 function createGitEnv(home: string, token?: string, baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env = { ...baseEnv }
+  for (const key of [
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_CONFIG",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_DIR",
+    "GIT_GRAFT_FILE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_PREFIX",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_SHALLOW_FILE",
+    "GIT_WORK_TREE",
+  ]) {
+    delete env[key]
+  }
   for (const key of Object.keys(env)) {
     if (/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(key)) delete env[key]
   }
-  delete env.GIT_CONFIG_PARAMETERS
 
   Object.assign(env, {
     GCM_INTERACTIVE: "Never",
@@ -159,7 +177,10 @@ async function readGitFiles<TKey extends string>(
     "-z",
     input.sha,
     "--",
-    ...input.sparsePatterns.map(pattern => pattern.endsWith("/**") ? pattern.slice(0, -3) : pattern),
+    ...input.sparsePatterns.map((pattern) => {
+      const path = pattern.endsWith("/**") ? pattern.slice(0, -3) : pattern
+      return `:(literal)${path}`
+    }),
   ], options)
   const entries = parseGitTree(Buffer.from(treeOutput), input)
   const oids = [...new Set(entries.map(entry => entry.oid))]
