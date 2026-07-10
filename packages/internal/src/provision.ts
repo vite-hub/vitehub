@@ -94,7 +94,7 @@ function createJsonClient(baseURL: string, headers: Record<string, string>, fetc
 
 export type CloudflareProvisionRequest = <T>(path: string, options?: ProvisionRequestOptions) => Promise<CloudflareEnvelope<T>>
 
-// Minimal Cloudflare REST client for provisioning. Mirrors packages/ci provider style.
+// Keep provisioning HTTP local so the CLI does not grow a public CI abstraction.
 export function createCloudflareProvisionClient(config: CloudflareProvisionConfig, fetchImpl: typeof globalThis.fetch = globalThis.fetch): CloudflareProvisionRequest {
   const client = createJsonClient(
     `https://api.cloudflare.com/client/v4/accounts/${config.accountId}`,
