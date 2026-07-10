@@ -780,12 +780,13 @@ describe("Workspace Source Resolution", () => {
       },
     }
 
-    const { workspace } = await createWorkspaceSourceResolutionFacade(
+    const { definition: resolvedDefinition, workspace } = await createWorkspaceSourceResolutionFacade(
       facade(createWorkspace({ name: "support", store: { provider: "memory" } })),
       definition,
       scope("status", ["status/summary.json"]),
     )
 
+    expect(resolvedDefinition.sources).not.toHaveProperty("inventory")
     expect(getWorkspaceSourceRequestExecution(workspace.fs)).toBeUndefined()
     await expect(workspace.fs.list(".vitehub/sources")).resolves.toEqual([])
   })
