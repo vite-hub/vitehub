@@ -335,10 +335,10 @@ export interface WorkspaceSourceResolutionInvocation<TContextMap extends object 
   }
 }
 
-export interface WorkspaceSourceResolutionContext<
+export type WorkspaceSourceResolutionContext<
   TContextMap extends object = WorkspaceSourceResolutionContextMap,
   TScopeName extends string = WorkspaceScopeName,
-> {
+> = Partial<TContextMap> & {
   invocation: WorkspaceSourceResolutionInvocation<TContextMap>
   selectedWorkspaceScope?: WorkspaceSelectedScope<TScopeName>
   source: {

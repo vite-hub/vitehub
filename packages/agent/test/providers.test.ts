@@ -1296,12 +1296,19 @@ describe("server helpers", () => {
   })
 
   it("threads hosted Chat DevTools runtime overrides through metadata resolution", async () => {
-    const { defineAgent, defineAgentInvoker } = await import("../src/index.ts")
+    const { defineAgent, defineAgentInvoker, defineCapability } = await import("../src/index.ts")
     const { createChannelDevtoolsRouteHandler } = await import("../src/server/internal.ts")
     const { registerWorkspaceAgent } = await import("../src/server/workspace.ts")
     const { custom, defineWorkspace } = await import("@vite-hub/workspace")
     const runtimeEvents: string[] = []
+    const observedMetadataChannel = vi.fn()
     const agent = registerWorkspaceAgent(defineAgent({
+      capabilities: [defineCapability({
+        id: "observe-channel",
+        prepare({ channel }) {
+          observedMetadataChannel(channel)
+        },
+      })],
       driver: { run: () => "unused" },
       invoker: defineAgentInvoker({
         resolve({ defaultInvoker, runtime }) {
@@ -1333,6 +1340,7 @@ describe("server helpers", () => {
     const response = await handler(new Request("https://example.com/__vitehub/agent/chat/devtools", {
       body: JSON.stringify({
         action: "materialize-source",
+        meta: { email: "user@example.com" },
         path: "docs",
         source: "docs",
       }),
@@ -1342,6 +1350,14 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     expect(runtimeEvents).toContain("metadata:vite")
+    expect(observedMetadataChannel).toHaveBeenCalledWith(expect.objectContaining({
+      meta: { email: "user@example.com" },
+      run: expect.objectContaining({
+        origin: "devtools",
+        runId: "devtools:support:metadata",
+      }),
+      user: expect.objectContaining({ email: "user@example.com" }),
+    }))
   })
 
   it("serves AI SDK UI message chat requests through the chat trigger", async () => {

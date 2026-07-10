@@ -126,6 +126,7 @@ export type {
 } from "./access.ts"
 export type {
   AgentChatCapabilityOrigin,
+  AgentChannelContext,
   AgentChatContext,
   AgentChatMessageTriggerInput,
   AgentChatOptionsOrigin,
