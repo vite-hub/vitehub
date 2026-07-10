@@ -821,7 +821,7 @@ describe("Workspace Source Resolution", () => {
     expect(resolved.sources).toHaveProperty("ingestion")
   })
 
-  it("keeps unscoped sources available while overlays enforce selected paths", async () => {
+  it("keeps unscoped sources available while scoped sources require matching names", async () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
@@ -849,7 +849,7 @@ describe("Workspace Source Resolution", () => {
         restrictedDocs: {
           source: custom({
             materialize: "lazy",
-            mount: "restricted",
+            mount: "public/restricted",
             async getKeys() {
               return ["secret.md"]
             },
@@ -873,7 +873,7 @@ describe("Workspace Source Resolution", () => {
     expect(resolvedDefinition.sources).not.toHaveProperty("restrictedDocs")
     await expect(workspace.fs.readFile("public/README.md")).resolves.toBe("public\n")
     await expect(workspace.fs.exists("private/secret.md")).resolves.toBe(false)
-    await expect(workspace.fs.exists("restricted/secret.md")).resolves.toBe(false)
+    await expect(workspace.fs.exists("public/restricted/secret.md")).resolves.toBe(false)
   })
 
   it("keeps scoped-out source subpaths hidden in overlays", async () => {
