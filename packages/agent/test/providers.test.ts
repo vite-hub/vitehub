@@ -1749,7 +1749,7 @@ describe("server helpers", () => {
     })
   })
 
-  it("rejects client-provided identity on generated AI SDK chat routes", async () => {
+  it("rejects client-provided protected input on generated AI SDK chat routes", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
@@ -1764,6 +1764,7 @@ describe("server helpers", () => {
       meta: { customer: "acme" },
       run: { origin: "portal" },
       session: { id: "portal-session" },
+      timeout: 120_000,
       user: { id: "spoofed" },
     }
 
@@ -1792,16 +1793,16 @@ describe("server helpers", () => {
     const { webChat } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const authenticate = vi.fn(({ request }) => request.headers.get("x-quiver-chat-token") === "trusted" ? true : false)
-    const run = vi.fn(({ context, invoker, run }) => {
+    const run = vi.fn(({ context, input, invoker, run }) => {
       const chatContext = context.get("chat") as { meta?: { audience?: string }, session?: { id?: string }, user?: { email?: string } } | undefined
-      return `trusted ${run.channelId} ${run.origin} ${run.threadId} ${invoker.id} ${chatContext?.user?.email} ${chatContext?.meta?.audience} ${chatContext?.session?.id}`
+      return `trusted ${run.channelId} ${run.origin} ${run.threadId} ${invoker.id} ${chatContext?.user?.email} ${chatContext?.meta?.audience} ${chatContext?.session?.id} ${input.timeout ?? "no-timeout"}`
     })
     const handler = createChannelChatRouteHandler(defineAgent({
       channels: {
         portal: webChat({
           route: {
             admission: { authenticate },
-            input: { trust: ["meta", "user", "session"] },
+            input: { trust: ["meta", "user", "session", "timeout"] },
           },
         }),
       },
@@ -1819,6 +1820,7 @@ describe("server helpers", () => {
         meta: { audience: "technical", customer: "acme" },
         run: { origin: "spoofed" },
         session: { id: "portal-session" },
+        timeout: 120_000,
         user: { email: "user@example.com" },
       }),
       headers: {
@@ -1829,18 +1831,34 @@ describe("server helpers", () => {
     }), { agentName: "support" })
 
     expect(response.status).toBe(200)
-    await expect(response.text()).resolves.toContain("trusted portal web-chat portal:portal-thread web-chat:user@example.com user@example.com technical portal-session")
+    await expect(response.text()).resolves.toContain("trusted portal web-chat portal:portal-thread web-chat:user@example.com user@example.com technical portal-session 120000")
     expect(authenticate).toHaveBeenCalled()
     expect(run).toHaveBeenCalled()
+
+    for (const body of [
+      JSON.stringify({ messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }], timeout: 0 }),
+      JSON.stringify({ messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }], timeout: -1 }),
+      JSON.stringify({ messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }], timeout: "120000" }),
+      "{\"messages\":[{\"parts\":[{\"text\":\"hello\",\"type\":\"text\"}],\"role\":\"user\"}],\"timeout\":1e400}",
+    ]) {
+      const invalidResponse = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        body,
+        headers: { "x-quiver-chat-token": "trusted" },
+        method: "POST",
+      }), { agentName: "support" })
+
+      expect(invalidResponse.status).toBe(200)
+      await expect(invalidResponse.text()).resolves.toContain("no-timeout")
+    }
   })
 
-  it("does not copy untrusted session input after admission", async () => {
+  it("does not copy untrusted webChat route input after admission", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
-    const run = vi.fn(({ context }) => {
+    const run = vi.fn(({ context, input }) => {
       const chatContext = context.get("chat") as { meta?: { audience?: string }, session?: { id?: string }, user?: { email?: string } } | undefined
-      return `trusted ${chatContext?.user?.email} ${chatContext?.meta?.audience} ${chatContext?.session?.id ?? "no-session"}`
+      return `trusted ${chatContext?.user?.email} ${chatContext?.meta?.audience} ${chatContext?.session?.id ?? "no-session"} ${input.timeout ?? "no-timeout"}`
     })
     const handler = createChannelChatRouteHandler(defineAgent({
       channels: {
@@ -1863,13 +1881,14 @@ describe("server helpers", () => {
         }],
         meta: { audience: "technical" },
         session: { id: "portal-session" },
+        timeout: 120_000,
         user: { email: "user@example.com" },
       }),
       method: "POST",
     }), { agentName: "support" })
 
     expect(response.status).toBe(200)
-    await expect(response.text()).resolves.toContain("trusted user@example.com technical no-session")
+    await expect(response.text()).resolves.toContain("trusted user@example.com technical no-session no-timeout")
   })
 
   it("keeps admission context authoritative over trusted route input", async () => {
