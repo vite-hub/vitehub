@@ -966,12 +966,15 @@ function createChatSdkConfig(
   const fallbackStreamingPlaceholderText = typeof options?.fallbackStreamingPlaceholderText === "string"
     ? options.fallbackStreamingPlaceholderText
     : options?.fallbackStreamingPlaceholderText === null ? null : undefined
+  const identity: ChatConfig["identity"] = options?.identity ?? (options?.transcripts
+    ? ({ adapter, author }) => author.isBot === true ? null : `${adapter}:${author.userId}`
+    : undefined)
   return objectWithoutUndefined({
     adapters,
     concurrency: chatSdkOption<ChatConfig["concurrency"]>(options, "concurrency"),
     dedupeTtlMs: chatSdkOption<number>(options, "dedupeTtlMs"),
     fallbackStreamingPlaceholderText,
-    identity: options?.identity,
+    identity,
     lockScope: chatSdkOption<ChatConfig["lockScope"]>(options, "lockScope"),
     logger: chatSdkOption<ChatConfig["logger"]>(options, "logger"),
     messageHistory: chatSdkOption<ChatConfig["messageHistory"]>(options, "messageHistory"),

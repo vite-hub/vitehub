@@ -48,7 +48,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
         return Response.json({ ignored: true, ok: true })
       }
       const chat = rawMessage.chat as { id?: number | string } | undefined
-      const from = rawMessage.from as { email?: string, id?: number | string, mail?: string, userPrincipalName?: string, username?: string } | undefined
+      const from = rawMessage.from as { email?: string, id?: number | string, is_bot?: boolean, mail?: string, userPrincipalName?: string, username?: string } | undefined
       const document = rawMessage.document as { content?: string, file_id?: string, file_name?: string, file_size?: number, mime_type?: string, url?: string } | undefined
       const photos = rawMessage.photo as Array<{ file_id?: string, file_size?: number, height?: number, width?: number }> | undefined
       const photo = photos?.at(-1)
@@ -99,7 +99,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
           ...(from?.email ? { email: from.email } : {}),
           ...(from?.mail ? { mail: from.mail } : {}),
           ...(from?.userPrincipalName ? { userPrincipalName: from.userPrincipalName } : {}),
-          isBot: false,
+          isBot: from?.is_bot === true,
           isMe: false,
           userId: String(from?.id ?? "123"),
           userName: String(from?.username ?? "maxi"),
@@ -2007,6 +2007,69 @@ describe("server helpers", () => {
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
     await expect(response.text()).resolves.toContain("portal portal customer:acme acme user@example.com technical")
     expect(run).toHaveBeenCalled()
+  })
+
+  async function chatTranscriptUserKey(options: {
+    identity?: () => string | null
+    isBot?: boolean
+    messageId: number
+    transcripts?: boolean
+  }): Promise<string | undefined> {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({ adapter: () => adapter as never }),
+      },
+      driver: { run },
+      messages: {
+        ...(options.identity ? { identity: options.identity } : {}),
+        ...(options.transcripts ? { transcripts: { maxPerUser: 50, retention: "30d" as const } } : {}),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 42,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, is_bot: options.isBot, username: "maxi" },
+          message_id: options.messageId,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram", { agentName: "transcript-identity" })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(run).toHaveBeenCalledOnce()
+    const history = await adapter.fetchMessages("telegram:456")
+    return history.messages[0]?.userKey
+  }
+
+  it("defaults transcript identity for human authors", async () => {
+    await expect(chatTranscriptUserKey({ messageId: 7, transcripts: true })).resolves.toBe("telegram:123")
+  })
+
+  it("omits default transcript identity for bot authors", async () => {
+    await expect(chatTranscriptUserKey({ isBot: true, messageId: 8, transcripts: true })).resolves.toBeUndefined()
+  })
+
+  it("prefers explicit transcript identity", async () => {
+    await expect(chatTranscriptUserKey({
+      identity: () => "account:verified",
+      messageId: 9,
+      transcripts: true,
+    })).resolves.toBe("account:verified")
+  })
+
+  it("does not default identity when transcripts are disabled", async () => {
+    await expect(chatTranscriptUserKey({ messageId: 10 })).resolves.toBeUndefined()
   })
 
   it("handles Chat SDK webhooks through the chat capability", async () => {
