@@ -111,7 +111,7 @@ export default defineAgent({
           },
         },
         input: {
-          trust: ['meta', 'user', 'session'],
+          trust: ['meta', 'user', 'session', 'timeout'],
         },
       },
     }),
@@ -120,7 +120,7 @@ export default defineAgent({
 })
 ```
 
-ViteHub reads the raw request body once, parses the JSON object, runs `authenticate` with `rawBody`, then validates `admission.body` when a Standard Schema is provided. `input.trust` lists request body fields that may be copied after authentication. Use `admission.context` only when the route needs to derive or validate different `chat.message` input.
+ViteHub reads the raw request body once, parses the JSON object, runs `authenticate` with `rawBody`, then validates `admission.body` when a Standard Schema is provided. `input.trust` lists request body fields that may be copied after authentication. Add `timeout` only when authenticated callers may control Agent Invocation duration; ViteHub forwards positive, finite numeric values and ignores invalid timeouts. Use `admission.context` only when the route needs to derive or validate different `chat.message` input.
 
 ## Add identity separately
 

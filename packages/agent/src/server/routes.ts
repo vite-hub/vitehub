@@ -124,6 +124,7 @@ type AgentChannelChatRouteInputPatch = Omit<Partial<AgentChatMessageTriggerInput
 export type AgentChannelChatRouteTrustedInputField =
   | "meta"
   | "session"
+  | "timeout"
   | "user"
 
 export interface AgentChannelChatRouteContext<TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown>
@@ -1639,6 +1640,7 @@ export type AgentChannelChatRouteBody = {
   messages?: unknown
   run?: unknown
   session?: unknown
+  timeout?: unknown
   trigger?: string
   triggerHistory?: AgentChatMessageTriggerInput["triggerHistory"]
   user?: unknown
@@ -2025,7 +2027,7 @@ function agentChannelChatRouteInput(
   if (!Array.isArray(body.messages)) {
     throw createRouteBodyError("Agent chat payload requires a messages array.")
   }
-  if (!allowTrustedInput && ("invoker" in body || "invokerProfileId" in body || "meta" in body || "run" in body || "session" in body || "user" in body)) {
+  if (!allowTrustedInput && ("invoker" in body || "invokerProfileId" in body || "meta" in body || "run" in body || "session" in body || "timeout" in body || "user" in body)) {
     throw createRouteBodyError("Agent chat route identity must be derived server-side with defineAgent({ invoker }).")
   }
   const messages = body.messages as UIMessage[]
@@ -2088,6 +2090,7 @@ function trustAgentChannelChatRouteInput(
   for (const field of options.trust) {
     if (field === "meta" && body.meta !== undefined) patch.meta = optionalBodyRecord(body.meta, "meta")
     else if (field === "session" && body.session !== undefined) patch.session = optionalBodyRecord(body.session, "session") as AgentChatMessageTriggerInput["session"]
+    else if (field === "timeout" && typeof body.timeout === "number" && Number.isFinite(body.timeout) && body.timeout > 0) patch.timeout = body.timeout
     else if (field === "user" && body.user !== undefined) patch.user = optionalBodyRecord(body.user, "user")
   }
   return Object.keys(patch).length ? patch : undefined

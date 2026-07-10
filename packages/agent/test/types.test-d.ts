@@ -829,7 +829,7 @@ describe("agent public types", () => {
               },
             },
             input: {
-              trust: ["meta", "user", "session"],
+              trust: ["meta", "user", "session", "timeout"],
             },
           },
         }),
