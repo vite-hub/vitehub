@@ -254,8 +254,8 @@ describe("Vite plugin", () => {
 
     const plugin = hubEnv({
       runtimeImports: {
-        secret: "@vite-hub/vite/env/secret",
-        server: "@vite-hub/vite/env/server",
+        secret: "#app/env/secret",
+        server: "#app/env/server",
       },
     })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
@@ -274,9 +274,9 @@ describe("Vite plugin", () => {
       root,
     } as never)
 
-    await expect(readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")).resolves.toContain("from \"@vite-hub/vite/env/server\"")
-    await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("from \"@vite-hub/vite/env/secret\"")
-    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("from \"@vite-hub/vite/env/secret\"")
+    await expect(readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")).resolves.toContain("from \"#app/env/server\"")
+    await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("from \"#app/env/secret\"")
+    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("from \"#app/env/secret\"")
   })
 
   it("applies prefixes to inferred Vite env names", async () => {

@@ -18,8 +18,8 @@ export function getFrameworkConfigPath(framework: Framework) {
 }
 
 export function generateFrameworkConfig(configOverride?: string | null, serverEntry?: string) {
-  const importNames = configOverride?.includes("env(") ? "env, vitehub" : "vitehub";
-  const imports = `${serverEntry ? "import { resolve } from 'node:path'\n" : ""}import { defineConfig } from 'vite'\nimport { ${importNames} } from '@vite-hub/vite'`;
+  const envImport = configOverride?.includes("env(") ? "import { env } from '@vite-hub/env/vite'\n" : "";
+  const imports = `${serverEntry ? "import { resolve } from 'node:path'\n" : ""}${envImport}import { vitehub } from '@vite-hub/vite'\nimport { defineConfig } from 'vite'`;
   const serverConfig = serverEntry
     ? `  appType: 'custom',\n  build: {\n    rollupOptions: {\n      input: resolve(import.meta.dirname, '${serverEntry}'),\n    },\n  },`
     : "";

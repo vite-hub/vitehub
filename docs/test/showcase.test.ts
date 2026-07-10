@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { docsManifest } from "../modules/vitehub-docs/runtime/utils/docs";
 import { getShowcaseExamples, getShowcaseFiles, getShowcasePhasePaths } from "../modules/vitehub-docs/runtime/utils/showcase";
+import { generateFrameworkConfig } from "../modules/vitehub-docs/shared/showcase";
 
 describe("showcase examples", () => {
   it("loads generated examples for the landing page", () => {
@@ -36,9 +37,10 @@ describe("showcase examples", () => {
 
       expect(config?.code).toContain("import { vitehub } from '@vite-hub/vite'");
       expect(config?.code).toContain("plugins: [vitehub()]");
-      expect(config?.code).not.toMatch(/@vite-hub\/[^/]+\/vite/);
       expect(config?.code).not.toMatch(/\bhub[A-Z]\w+\(/);
     }
+
+    expect(generateFrameworkConfig("env({})")).toContain("import { env } from '@vite-hub/env/vite'");
   });
 
   it("applies provider overrides without changing showcase ordering", () => {

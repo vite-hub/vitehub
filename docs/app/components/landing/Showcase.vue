@@ -287,7 +287,7 @@ const capabilityDiffs: { label: string; lines: CapabilityDiffLine[] }[] = [
   {
     label: "Agent Definition",
     lines: [
-      { kind: "add", newLine: "1", text: "import { defineAgent } from '@vite-hub/vite/agent'" },
+      { kind: "add", newLine: "1", text: "import { defineAgent } from '@vite-hub/agent'" },
       { kind: "context", newLine: "2", text: "" },
       { kind: "add", newLine: "3", text: "export default defineAgent({" },
       { kind: "add", newLine: "4", text: "  driver: {" },
@@ -301,7 +301,7 @@ const capabilityDiffs: { label: string; lines: CapabilityDiffLine[] }[] = [
   {
     label: "Workspace and Sources",
     lines: [
-      { kind: "context", oldLine: "1", newLine: "1", text: "import { defineAgent } from '@vite-hub/vite/agent'" },
+      { kind: "context", oldLine: "1", newLine: "1", text: "import { defineAgent } from '@vite-hub/agent'" },
       { kind: "context", oldLine: "2", newLine: "2", text: "" },
       { kind: "context", oldLine: "3", newLine: "3", text: "export default defineAgent({" },
       { kind: "context", oldLine: "4", newLine: "4", text: "  driver: {" },
@@ -322,12 +322,12 @@ const capabilityDiffs: { label: string; lines: CapabilityDiffLine[] }[] = [
   {
     label: "Channels and Invocation",
     lines: [
-      { kind: "context", oldLine: "1", newLine: "1", text: "import { defineAgent } from '@vite-hub/vite/agent'" },
+      { kind: "context", oldLine: "1", newLine: "1", text: "import { defineAgent } from '@vite-hub/agent'" },
       { kind: "add", newLine: "2", text: "import {" },
       { kind: "add", newLine: "3", text: "  github," },
       { kind: "add", newLine: "4", text: "  stream," },
       { kind: "add", newLine: "5", text: "  webChat," },
-      { kind: "add", newLine: "6", text: "} from '@vite-hub/vite/agent/channels'" },
+      { kind: "add", newLine: "6", text: "} from '@vite-hub/agent/channels'" },
       { kind: "context", oldLine: "2", newLine: "7", text: "" },
       { kind: "context", oldLine: "3", newLine: "8", text: "export default defineAgent({" },
       { kind: "context", oldLine: "4", newLine: "9", text: "  driver: {" },
@@ -346,10 +346,10 @@ const capabilityDiffs: { label: string; lines: CapabilityDiffLine[] }[] = [
   {
     label: "Capabilities",
     lines: [
-      { kind: "context", oldLine: "1", newLine: "1", text: "import { defineAgent } from '@vite-hub/vite/agent'" },
+      { kind: "context", oldLine: "1", newLine: "1", text: "import { defineAgent } from '@vite-hub/agent'" },
       { kind: "add", newLine: "2", text: "import {" },
       { kind: "add", newLine: "3", text: "  workspaceShell," },
-      { kind: "add", newLine: "4", text: "} from '@vite-hub/vite/agent/capabilities'" },
+      { kind: "add", newLine: "4", text: "} from '@vite-hub/agent/capabilities'" },
       { kind: "context", oldLine: "2", newLine: "5", text: "" },
       { kind: "context", oldLine: "3", newLine: "6", text: "export default defineAgent({" },
       { kind: "context", oldLine: "4", newLine: "7", text: "  driver: {" },
@@ -366,12 +366,12 @@ const capabilityDiffs: { label: string; lines: CapabilityDiffLine[] }[] = [
   {
     label: "Sandbox",
     lines: [
-      { kind: "context", oldLine: "1", newLine: "1", text: "import { defineAgent } from '@vite-hub/vite/agent'" },
-      { kind: "remove", oldLine: "2", text: "import { workspaceShell } from '@vite-hub/vite/agent/capabilities'" },
+      { kind: "context", oldLine: "1", newLine: "1", text: "import { defineAgent } from '@vite-hub/agent'" },
+      { kind: "remove", oldLine: "2", text: "import { workspaceShell } from '@vite-hub/agent/capabilities'" },
       { kind: "add", newLine: "2", text: "import {" },
       { kind: "add", newLine: "3", text: "  sandbox," },
       { kind: "add", newLine: "4", text: "  workspaceShell," },
-      { kind: "add", newLine: "5", text: "} from '@vite-hub/vite/agent/capabilities'" },
+      { kind: "add", newLine: "5", text: "} from '@vite-hub/agent/capabilities'" },
       { kind: "context", oldLine: "3", newLine: "6", text: "" },
       { kind: "context", oldLine: "4", newLine: "7", text: "export default defineAgent({" },
       { kind: "context", oldLine: "5", newLine: "8", text: "  driver: {" },
