@@ -769,7 +769,28 @@ describe("Workspace Source Resolution", () => {
     expect(request).toHaveBeenCalledOnce()
   })
 
-  it("requires descriptor visibility for scoped controlled curl", async () => {
+  it("requires descriptor visibility for request-only sources", async () => {
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        inventory: fetch({
+          url: "https://portal.example.com/runtime/inventory-health",
+        }),
+      },
+    }
+
+    const { definition: resolvedDefinition, workspace } = await createWorkspaceSourceResolutionFacade(
+      facade(createWorkspace({ name: "support", store: { provider: "memory" } })),
+      definition,
+      scope("status", ["status/summary.json"]),
+    )
+
+    expect(resolvedDefinition.sources).not.toHaveProperty("inventory")
+    expect(getWorkspaceSourceRequestExecution(workspace.fs)).toBeUndefined()
+    await expect(workspace.fs.list(".vitehub/sources")).resolves.toEqual([])
+  })
+
+  it("keeps finite request sources while hiding unselected request descriptors", async () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
@@ -786,7 +807,8 @@ describe("Workspace Source Resolution", () => {
       scope("status", ["status/summary.json"]),
     )
 
-    expect(resolvedDefinition.sources).not.toHaveProperty("inventory")
+    expect(resolvedDefinition.sources).toHaveProperty("inventory")
+    await expect(workspace.fs.exists("status/summary.json")).resolves.toBe(true)
     expect(getWorkspaceSourceRequestExecution(workspace.fs)).toBeUndefined()
     await expect(workspace.fs.list(".vitehub/sources")).resolves.toEqual([])
   })

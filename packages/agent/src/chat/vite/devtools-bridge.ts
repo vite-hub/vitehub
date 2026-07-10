@@ -50,7 +50,7 @@ const chatDevtoolsInvoker = {
   kind: "devtools" as const,
   label: "DevTools User",
 }
-const chatDevtoolsUser = {
+const chatDevtoolsUser: Record<string, unknown> = {
   id: "devtools",
   name: "DevTools User",
 }
@@ -223,8 +223,12 @@ function createDevtoolsMetadataRunMetadata(name: string): AgentRunMetadata<"devt
   }
 }
 
-function createDevtoolsMetadataInput(selection: ChatDevtoolsInvokerSelection = {}): AgentRunInput {
+function createDevtoolsMetadataInput(
+  selection: ChatDevtoolsInvokerSelection = {},
+  run: AgentRunMetadata,
+): AgentRunInput {
   const meta = optionalRecord(selection.meta)
+  const message = { metadata: {}, text: "" }
   return {
     context: {
       invoker: {
@@ -232,8 +236,14 @@ function createDevtoolsMetadataInput(selection: ChatDevtoolsInvokerSelection = {
         ...(meta ? { meta } : {}),
       },
       ...(!selection.invokerFallback && selection.invokerProfileId ? { invokerProfileId: selection.invokerProfileId } : {}),
+      channel: {
+        message,
+        ...(meta ? { meta } : {}),
+        run,
+        user: chatDevtoolsUser,
+      },
       chat: {
-        message: { metadata: {} },
+        message,
         ...(meta ? { meta } : {}),
         user: chatDevtoolsUser,
       },
@@ -356,10 +366,11 @@ async function startMetadataResolution(
   entry.metadataSelectionKey = selectionKey
   entry.metadataStatus = "loading"
 
+  const run = createDevtoolsMetadataRunMetadata(entry.name)
   const task = resolveAgentDevtoolsMetadata(entry.agent as never, {
     ...entry.defaults,
-    input: createDevtoolsMetadataInput(metadataSelection),
-    runtime: { run: createDevtoolsMetadataRunMetadata(entry.name) },
+    input: createDevtoolsMetadataInput(metadataSelection, run),
+    runtime: { run },
   } as never)
     .then((metadata) => {
       if (entry.metadataTask !== task || entry.metadataSelectionKey !== selectionKey) return
@@ -888,12 +899,13 @@ async function materializeDevtoolsSource(
   entry.metadataError = undefined
 
   try {
+    const run = createDevtoolsMetadataRunMetadata(entry.name)
     const metadata = await materializeAgentDevtoolsSourceMetadata(entry.agent as never, {
       ...entry.defaults,
-      input: createDevtoolsMetadataInput(metadataSelection),
+      input: createDevtoolsMetadataInput(metadataSelection, run),
       ...(input.path ? { path: input.path } : {}),
       ...(input.source ? { source: input.source } : {}),
-      runtime: { run: createDevtoolsMetadataRunMetadata(entry.name) },
+      runtime: { run },
       sources: materializedSourceKeys(entry.metadata),
     } as never)
     entry.metadata = metadataWithAgentName(metadata, entry.name)

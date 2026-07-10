@@ -721,7 +721,9 @@ function scopedWorkspaceSource(
         }
       : {}),
   }
-  copyWorkspaceSourceMetadata(source.source, scoped)
+  if (!source.requestDescriptor || selectedScopeCanRead(scope, workspaceSourceRequestDescriptorPath(source.key))) {
+    copyWorkspaceSourceMetadata(source.source, scoped)
+  }
   if (scopedLivePaths) markLiveWorkspaceSource(scoped, scopedLivePaths)
   return scoped
 }
@@ -798,7 +800,7 @@ function selectedScopeIntersectsSource(
 ): boolean {
   if (!scope || scope.all) return true
   if (source.scopes?.length) return Boolean(scope.name && source.scopes.includes(scope.name))
-  if (source.requestDescriptor) {
+  if (source.requestOnly) {
     return Boolean(scope.paths?.some(path => pathIntersects(path, workspaceSourceRequestDescriptorPath(source.key))))
   }
   return true
