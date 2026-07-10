@@ -225,7 +225,9 @@ export async function resolveAgentInvoker<
     ? {
         ...selectedProfile,
         ...(selectedEmail ? { email: selectedEmail } : {}),
-        ...(defaultInvoker.meta ? { meta: { ...defaultInvoker.meta, ...selectedProfile.meta } } : {}),
+        ...(defaultInvoker.meta || selectedProfile.meta
+          ? { meta: { ...defaultInvoker.meta, ...selectedProfile.meta } }
+          : {}),
       }
     : undefined
   const resolved = await normalizedOptions?.resolve?.({

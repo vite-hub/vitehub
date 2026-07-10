@@ -197,6 +197,26 @@ describe("rateLimit capability", () => {
     })
   })
 
+  it("keeps profile metadata when selecting without a request invoker", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      invoker: {
+        profiles: [
+          { id: "support:acme", kind: "customer", meta: { customer: "acme" } },
+        ],
+      },
+      driver: { run: context => context.invoker },
+    })
+
+    await expect(runAgent(agent, runtime(), {
+      context: { invokerProfileId: "support:acme" },
+    })).resolves.toEqual({
+      id: "support:acme",
+      kind: "customer",
+      meta: { customer: "acme" },
+    })
+  })
+
   it("selects configured invoker profiles for rate limit identity", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
