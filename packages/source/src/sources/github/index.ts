@@ -6,6 +6,7 @@ import { matchesAny, normalizeSourcePath } from "../../core/path.ts"
 import { parseGitHubArchive } from "./archive.ts"
 import { createGitHubCacheKey, normalizeGitHubCache } from "./cache.ts"
 import { fetchGitHubArchive, requestGitHubJson } from "./client.ts"
+import { getGitSparsePatterns, loadGitCheckoutFiles } from "./git.ts"
 
 import type { Source, SourceContext } from "../../core/types.ts"
 import type { GitHubCommitResponse, GitHubContentResponse, GitHubFile, GitHubRepositoryResponse, GitHubSourceOptions } from "./types.ts"
@@ -31,6 +32,7 @@ function dedupeProviderPromise<TResult>(
 export function github<const TKey extends string = string>(options: GitHubSourceOptions): Source<TKey> {
   const configuredRef = options.ref
   const root = normalizeGitHubRoot(options.root || "")
+  const sparsePatterns = getGitSparsePatterns(root, options.include)
   let auth: string | undefined
   const providerCache = normalizeGitHubCache(options)
 
@@ -149,6 +151,22 @@ export function github<const TKey extends string = string>(options: GitHubSource
   }
 
   async function loadFiles(token = auth, signal?: AbortSignal) {
+    if (sparsePatterns) {
+      try {
+        return await loadGitCheckoutFiles({
+          keyForRepoPath,
+          ref: configuredRef,
+          repo: options.repo,
+          shouldInclude,
+          signal,
+          sparsePatterns,
+          token,
+        })
+      }
+      catch (error) {
+        if (signal?.aborted) throw error
+      }
+    }
     return await loadArchiveFiles(token, signal)
   }
 
