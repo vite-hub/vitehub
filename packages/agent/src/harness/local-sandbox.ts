@@ -151,7 +151,7 @@ async function createSession(options: LocalHarnessSandboxOptions, sessionId: str
     description: "Workspace shell.",
     env,
     id: sessionId || randomUUID(),
-    ports: options.ports || [4000],
+    ports: options.ports || [0],
     processes: new Set<ChildProcessWithoutNullStreams>(),
     rootDir,
     async destroy() {
@@ -216,7 +216,7 @@ async function createSession(options: LocalHarnessSandboxOptions, sessionId: str
 
 export function createLocalHarnessSandbox(options: LocalHarnessSandboxOptions = {}): HarnessV1SandboxProvider {
   return {
-    bridgePorts: options.ports || [4000],
+    ...(options.ports ? { bridgePorts: options.ports } : {}),
     providerId: "local",
     specificationVersion: "harness-sandbox-v1",
     async createSession(createOptions) {
