@@ -121,6 +121,10 @@
       "types": "./dist/test.d.ts",
       "import": "./dist/test.js"
     },
+    "./valibot": {
+      "types": "./dist/valibot.d.ts",
+      "import": "./dist/valibot.js"
+    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js"
@@ -147,6 +151,7 @@
     "esbuild": "catalog:esbuild-v27",
     "evalite": "catalog:ai",
     "hookable": "catalog:unjs",
+    "valibot": "catalog:runtime",
     "vitest": "catalog:tooling"
   },
   "devDependencies": {
