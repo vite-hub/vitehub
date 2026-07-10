@@ -1,8 +1,20 @@
 import { createMemoryStorage, setStorage } from "ocache"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { clearSources, github, registerSources, useSource } from "../../src/index.ts"
 import { createTarGz, jsonResponse, stubGitHubSource } from "./fixtures/github.ts"
+
+const loadGitArchiveFiles = vi.hoisted(() => vi.fn())
+
+vi.mock("../../src/sources/github/git.ts", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../src/sources/github/git.ts")>(),
+  loadGitArchiveFiles,
+}))
+
+beforeEach(() => {
+  loadGitArchiveFiles.mockReset()
+  loadGitArchiveFiles.mockRejectedValue(new Error("git unavailable"))
+})
 
 afterEach(() => {
   clearSources()
@@ -11,6 +23,123 @@ afterEach(() => {
 })
 
 describe("@vite-hub/source GitHub source", () => {
+  it("materializes simple GitHub source paths with git", async () => {
+    vi.stubGlobal("fetch", vi.fn())
+    loadGitArchiveFiles.mockResolvedValueOnce([
+      {
+        content: new TextEncoder().encode("# Docs\n"),
+        key: "docs/README.md",
+        path: "docs/README.md",
+        ref: "main",
+        sha: "checkout-sha",
+      },
+    ])
+
+    const docs = github({
+      auth: () => "github-token",
+      include: ["docs/**"],
+      ref: "main",
+      repo: "acme/app",
+    })
+
+    await expect(docs.getItems?.({ rootDir: process.cwd() })).resolves.toEqual([
+      {
+        content: new TextEncoder().encode("# Docs\n"),
+        key: "docs/README.md",
+        metadata: { ref: "main", sha: "checkout-sha" },
+        path: "docs/README.md",
+      },
+    ])
+    expect(loadGitArchiveFiles).toHaveBeenCalledWith(expect.objectContaining({
+      ref: "main",
+      repo: "acme/app",
+      sparsePatterns: ["docs/**"],
+      token: "github-token",
+    }))
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("passes bulk Source abort signals to git materialization", async () => {
+    vi.stubGlobal("fetch", vi.fn())
+    const controller = new AbortController()
+    loadGitArchiveFiles.mockResolvedValue([{
+      content: new TextEncoder().encode("# Docs\n"),
+      key: "docs/README.md",
+      path: "docs/README.md",
+      ref: "main",
+      sha: "checkout-sha",
+    }])
+    const docs = github({ include: ["docs/**"], ref: "main", repo: "acme/app" })
+    const ctx = { abortSignal: controller.signal, rootDir: process.cwd() }
+
+    await expect(docs.getKeys(ctx)).resolves.toEqual(["docs/README.md"])
+    await expect(docs.getItems?.(ctx)).resolves.toHaveLength(1)
+
+    expect(loadGitArchiveFiles).toHaveBeenCalledTimes(2)
+    expect(loadGitArchiveFiles.mock.calls.every(([input]) => input.signal === controller.signal)).toBe(true)
+  })
+
+  it("pins cached default-ref git materialization to the resolved commit", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      const requestUrl = String(url)
+      if (requestUrl === "https://api.github.com/repos/acme/app") {
+        return jsonResponse({ default_branch: "main" })
+      }
+      if (requestUrl.endsWith("/commits/main")) {
+        return jsonResponse({ sha: "first-commit" })
+      }
+      throw new Error(`Unexpected GitHub request: ${requestUrl}`)
+    }))
+    loadGitArchiveFiles.mockImplementationOnce(async input => [{
+      content: new TextEncoder().encode("first\n"),
+      key: "README.md",
+      path: "README.md",
+      ref: input.ref,
+      sha: "first-commit",
+    }])
+
+    const source = github({
+      cache: { maxAge: 3600 },
+      include: "README.md",
+      repo: "acme/app",
+    })
+
+    await expect(source.getKeys({ rootDir: process.cwd() })).resolves.toEqual(["README.md"])
+    await expect(source.getItems?.({ rootDir: process.cwd() })).resolves.toEqual([{
+      content: new TextEncoder().encode("first\n"),
+      key: "README.md",
+      metadata: { ref: "first-commit", sha: "first-commit" },
+      path: "README.md",
+    }])
+    expect(loadGitArchiveFiles).toHaveBeenCalledOnce()
+    expect(loadGitArchiveFiles).toHaveBeenCalledWith(expect.objectContaining({ ref: "first-commit" }))
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith("/commits/main"))).toHaveLength(1)
+  })
+
+  it("falls back to the GitHub archive when git materialization fails", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    })
+
+    const docs = github({ ref: "main", repo: "acme/app", root: "docs" })
+
+    await expect(docs.getKeys({ rootDir: process.cwd() })).resolves.toEqual(["README.md"])
+    expect(loadGitArchiveFiles).toHaveBeenCalledOnce()
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))).toHaveLength(1)
+  })
+
+  it("uses the GitHub archive directly for unsupported sparse patterns", async () => {
+    stubGitHubSource({
+      "docs/guides/setup.md": "# Setup\n",
+    })
+
+    const docs = github({ include: "docs/**/*.md", ref: "main", repo: "acme/app" })
+
+    await expect(docs.getKeys({ rootDir: process.cwd() })).resolves.toEqual(["docs/guides/setup.md"])
+    expect(loadGitArchiveFiles).not.toHaveBeenCalled()
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))).toHaveLength(1)
+  })
+
   it("lists GitHub files under the configured root with relative keys", async () => {
     stubGitHubSource({
       "dbt/dbt_project.yml": "name: app\n",

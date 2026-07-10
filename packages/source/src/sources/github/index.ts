@@ -6,6 +6,7 @@ import { matchesAny, normalizeSourcePath } from "../../core/path.ts"
 import { parseGitHubArchive } from "./archive.ts"
 import { createGitHubCacheKey, normalizeGitHubCache } from "./cache.ts"
 import { fetchGitHubArchive, requestGitHubJson } from "./client.ts"
+import { getGitSparsePatterns, loadGitArchiveFiles } from "./git.ts"
 
 import type { Source, SourceContext } from "../../core/types.ts"
 import type { GitHubCommitResponse, GitHubContentResponse, GitHubFile, GitHubRepositoryResponse, GitHubSourceOptions } from "./types.ts"
@@ -31,6 +32,7 @@ function dedupeProviderPromise<TResult>(
 export function github<const TKey extends string = string>(options: GitHubSourceOptions): Source<TKey> {
   const configuredRef = options.ref
   const root = normalizeGitHubRoot(options.root || "")
+  const sparsePatterns = getGitSparsePatterns(root, options.include)
   let auth: string | undefined
   const providerCache = normalizeGitHubCache(options)
 
@@ -131,8 +133,8 @@ export function github<const TKey extends string = string>(options: GitHubSource
     })
   }
 
-  async function loadArchiveFiles(token = auth, signal?: AbortSignal) {
-    const ref = await getRef(token, signal)
+  async function loadArchiveFiles(token = auth, signal?: AbortSignal, resolvedRef?: string) {
+    const ref = resolvedRef ?? await getRef(token, signal)
     const archive = await fetchGitHubArchive({ ref, repo: options.repo, signal, token })
     return parseGitHubArchive(archive)
       .map((entry): GitHubFile<TKey> | undefined => {
@@ -142,6 +144,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
           content: entry.content,
           key,
           path: key,
+          ref,
           sha: ref,
         }
       })
@@ -149,7 +152,24 @@ export function github<const TKey extends string = string>(options: GitHubSource
   }
 
   async function loadFiles(token = auth, signal?: AbortSignal) {
-    return await loadArchiveFiles(token, signal)
+    const ref = await getRef(token, signal)
+    if (sparsePatterns) {
+      try {
+        return await loadGitArchiveFiles({
+          keyForRepoPath,
+          ref,
+          repo: options.repo,
+          shouldInclude,
+          signal,
+          sparsePatterns,
+          token,
+        })
+      }
+      catch (error) {
+        if (signal?.aborted) throw error
+      }
+    }
+    return await loadArchiveFiles(token, signal, ref)
   }
 
   const loadedFiles = new Map<string, Promise<GitHubFile<TKey>[]>>()
@@ -168,8 +188,8 @@ export function github<const TKey extends string = string>(options: GitHubSource
         () => loadFiles(token),
       )
 
-  function getFiles(token = refreshAuth()) {
-    return cachedLoadFiles(token)
+  function getFiles(token = refreshAuth(), signal?: AbortSignal) {
+    return signal ? loadFiles(token, signal) : cachedLoadFiles(token)
   }
 
   async function loadFileMetadata(key: TKey, token = auth, signal?: AbortSignal): Promise<GitHubFile<TKey> | undefined> {
@@ -193,7 +213,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
         return
       }
       if (shouldResolveMainFallback(error)) {
-        const files = signal ? await loadArchiveFiles(token, signal) : await getFiles(token)
+        const files = signal ? await loadArchiveFiles(token, signal, ref) : await getFiles(token)
         return files.find(file => file.key === normalizedKey)
       }
       throw error
@@ -203,6 +223,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
     return {
       key: normalizedKey,
       path: normalizedKey,
+      ref,
       sha: file.sha || ref,
     }
   }
@@ -251,6 +272,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
       content: new Uint8Array(Buffer.from(file.content.replace(/\s/g, ""), "base64")),
       key: normalizedKey,
       path: normalizedKey,
+      ref,
       sha: file.sha || ref,
     }
   }
@@ -292,18 +314,17 @@ export function github<const TKey extends string = string>(options: GitHubSource
       root,
     },
     name: "github",
-    async getKeys() {
-      return (await getFiles()).map(file => file.key)
+    async getKeys(ctx) {
+      return (await getFiles(refreshAuth(), ctx.abortSignal)).map(file => file.key)
     },
-    async getItems() {
+    async getItems(ctx) {
       const token = refreshAuth()
-      const ref = await getRef(token)
-      return await Promise.all((await getFiles(token)).map(async file => ({
+      return await Promise.all((await getFiles(token, ctx.abortSignal)).map(async file => ({
         key: file.key,
         path: file.path,
         content: await fetchContent(file.key, file),
         metadata: {
-          ref,
+          ref: file.ref,
           sha: file.sha,
         },
       })))
@@ -315,7 +336,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
         : await cachedLoadFileMetadata(key, token)
       if (!file) return
       return {
-        ref: await getRef(token, ctx?.abortSignal),
+        ref: file.ref,
         sha: file.sha,
       }
     },
@@ -327,7 +348,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
         path: file.path,
         content: await fetchContent(key, file),
         metadata: {
-          ref: await getRef(token, ctx?.abortSignal),
+          ref: file.ref,
           sha: file.sha,
         },
       }
