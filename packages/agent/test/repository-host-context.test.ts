@@ -605,6 +605,7 @@ describe("repositoryHostContext", () => {
     })
 
     await expect(repositoryHostContext.read({ context }, "customRepositoryHost").keys()).resolves.toEqual([])
+    await expect(repositoryHostContext.read({ pullRequest: context.get("pullRequest") }, "customRepositoryHost").keys()).resolves.toEqual([])
   })
 
   it("wraps preseeded repository host context", async () => {

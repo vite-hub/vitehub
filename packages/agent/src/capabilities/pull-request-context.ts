@@ -885,7 +885,7 @@ export function readRepositoryHostContext(input: unknown, contextKey: string = d
   }
   const value = isRecord(input) ? input[contextKey] : undefined
   if (isAsyncRecord(value)) return value
-  return staticRepositoryHostRecord(value ?? input)
+  return staticRepositoryHostRecord(value ?? (contextKey === defaultRepositoryHostContextKey ? input : undefined))
 }
 
 export interface RepositoryHostContextCapabilityFactory {
