@@ -2571,7 +2571,7 @@ describe("agent message protocol", () => {
     expect(setAssistantTitle).toHaveBeenCalledWith("thread-1", "thread-1", "Prepared title")
   })
 
-  it("starts and delivers chat titles while the main driver is pending", async () => {
+  it("starts and replaces provisional chat titles while the main driver is pending", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
     let releaseDriver: () => void = () => {}
@@ -2617,6 +2617,7 @@ describe("agent message protocol", () => {
           triggers: {
             message: {
               invoke: context => ({
+                delivery: { effects: [{ kind: "title", payload: { title: "Provisional title" } }] },
                 input: { messages: [createMessage({ role: "user", text: "Audio attachment" })] },
                 run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
               }),
@@ -2643,8 +2644,13 @@ describe("agent message protocol", () => {
     })
 
     await vi.waitFor(() => {
+      expect(titleEffect).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        effect: { kind: "title", payload: { title: "Provisional title" } },
+      }))
+    })
+    await vi.waitFor(() => {
       expect(driverStarted).toBe(true)
-      expect(titleEffect).toHaveBeenCalledWith(expect.objectContaining({
+      expect(titleEffect).toHaveBeenNthCalledWith(2, expect.objectContaining({
         effect: { kind: "title", payload: { title: "Title: Transcribed request" } },
       }))
     })
@@ -2655,7 +2661,7 @@ describe("agent message protocol", () => {
     await expect(invocation).resolves.toBe("ok")
     await Promise.all(waitUntilTasks)
     expect(execute).toHaveBeenCalledOnce()
-    expect(titleEffect).toHaveBeenCalledOnce()
+    expect(titleEffect).toHaveBeenCalledTimes(2)
   })
 
   it("retries chat title delivery at finish when any early delivery handler fails", async () => {

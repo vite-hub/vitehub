@@ -1,4 +1,5 @@
 import type {
+  AgentChannelDeliveryEffectIntent,
   AgentChannels,
   AgentChatOptions,
   AgentChatPlatformResolver,
@@ -8,6 +9,17 @@ import type {
 } from "../types.ts"
 
 export const messageChannelTitleDeliveredContextKey = "channel.delivery.titleDelivered"
+const messageChannelChatTitleEffectIntents = new WeakSet<AgentChannelDeliveryEffectIntent>()
+
+export function createMessageChannelChatTitleEffectIntent(title: string): AgentChannelDeliveryEffectIntent {
+  const intent = { kind: "title", payload: { title } }
+  messageChannelChatTitleEffectIntents.add(intent)
+  return intent
+}
+
+export function isMessageChannelChatTitleEffectIntent(intent: AgentChannelDeliveryEffectIntent): boolean {
+  return messageChannelChatTitleEffectIntents.has(intent)
+}
 
 function withChannelWebhookProvider<TRuntimeConfig extends AgentRuntimeConfig>(
   channelId: string,

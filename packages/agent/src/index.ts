@@ -11,7 +11,7 @@ import { getMessageText } from "./messages.ts"
 import { resolveRuntimeContext } from "@vite-hub/runtime"
 import { isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
-import { messageChannelTitleDeliveredContextKey, resolveAgentChannelChatOptions } from "./internal/channels.ts"
+import { isMessageChannelChatTitleEffectIntent, messageChannelTitleDeliveredContextKey, resolveAgentChannelChatOptions } from "./internal/channels.ts"
 import {
   channelHasCustomTitleEffect,
   messageChannelSupportsTitleEffect,
@@ -793,7 +793,7 @@ async function applyChannelDeliveryEffectIntents<
         })
       }
     }
-    if (intent.kind === "title" && delivered) {
+    if (isMessageChannelChatTitleEffectIntent(intent) && delivered) {
       context.context.set(messageChannelTitleDeliveredContextKey, true, { overwrite: true })
     }
   }

@@ -1,7 +1,7 @@
 import { capabilityInvocationStartSymbol, defineCapability } from "../capability-runtime.ts"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../agent-output.ts"
 import { messageChannelTitleSupportContextKey } from "../channels.ts"
-import { messageChannelTitleDeliveredContextKey } from "../internal/channels.ts"
+import { createMessageChannelChatTitleEffectIntent, messageChannelTitleDeliveredContextKey } from "../internal/channels.ts"
 import { getMessageText } from "../messages.ts"
 import { normalizeAgentDriver } from "../internal/agent-driver.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
@@ -537,7 +537,7 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
         const resolvedTitle = await getTitle()
         if (!resolvedTitle || !supportsChatTitleDelivery(context)) return
         if (context.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) return
-        context.delivery.effect({ kind: "title", payload: { title: resolvedTitle.trim() } })
+        context.delivery.effect(createMessageChannelChatTitleEffectIntent(resolvedTitle.trim()))
       })
       context.finish.provide(async () => {
         if (!shouldProvideChatTitleFinishExtension(context)) return
