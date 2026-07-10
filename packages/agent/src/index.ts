@@ -11,7 +11,7 @@ import { getMessageText } from "./messages.ts"
 import { resolveRuntimeContext } from "@vite-hub/runtime"
 import { isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
-import { resolveAgentChannelChatOptions } from "./internal/channels.ts"
+import { isMessageChannelChatTitleEffectIntent, messageChannelTitleDeliveredContextKey, resolveAgentChannelChatOptions } from "./internal/channels.ts"
 import {
   channelHasCustomTitleEffect,
   messageChannelSupportsTitleEffect,
@@ -756,6 +756,7 @@ async function applyChannelDeliveryEffectIntents<
       continue
     }
 
+    let delivered = true
     for (const handler of handlers) {
       try {
         await runObservedAgentHook(context.hooks, {
@@ -785,11 +786,15 @@ async function applyChannelDeliveryEffectIntents<
         })
       }
       catch (error) {
+        delivered = false
         await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, {
           ...metadata,
           "error.message": agentErrorMessage(error),
         })
       }
+    }
+    if (isMessageChannelChatTitleEffectIntent(intent) && delivered) {
+      context.context.set(messageChannelTitleDeliveredContextKey, true, { overwrite: true })
     }
   }
 }
@@ -1262,6 +1267,7 @@ type AgentInvocationContext<
   outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
   outputRenderers: AgentCapabilityRegistries["outputRenderers"]
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
+  startTask?: Promise<void>
   instructions?: string
   startedAt: number
   actor: AgentInvoker
@@ -1490,6 +1496,7 @@ async function createAgentInvocationContext<
       providerTools: capabilities.registries.providerTools,
       run: context.run,
       runtimeContext,
+      startTask: undefined as Promise<void> | undefined,
       startedAt,
       tools,
       workspace: activeWorkspace,
@@ -1499,8 +1506,24 @@ async function createAgentInvocationContext<
       workspaceMaterializationPaths: capabilities.workspaceMaterializationPaths,
       workspaceMode,
     }
+    invocationContext.set("agent.finishHook", Boolean(invocation.finishHook), { overwrite: true })
     await traceAgentInvocationStart(toTraceContext(invocation))
     await applyChannelDeliveryEffectIntents(invocation, invocation.deliveryEffectIntents)
+    const startCapabilities = capabilities.start
+    if (!invocation.handledResponse && startCapabilities) {
+      try {
+        if (invocation.messages.some(message => message.role === "user") && hasTitleDeliveryEffectProvider(invocation.finishDeliveryEffectProviders)) {
+          await setChannelDeliverySupportContext(invocation.channels, invocation.context, invocation.runtimeContext, invocation.input, invocation.run)
+        }
+        invocation.startTask = (async () => {
+          await applyChannelDeliveryEffectIntents(invocation, await startCapabilities())
+        })().catch(error => traceAgentInvocationError(toTraceContext(invocation), error))
+        runtimeContext.waitUntil?.(invocation.startTask)
+      }
+      catch (error) {
+        await traceAgentInvocationError(toTraceContext(invocation), error)
+      }
+    }
     return invocation
   }
   catch (error) {
@@ -1530,6 +1553,7 @@ type InvocationRunContext<
   hooks?: AgentHookObserverHooks
   input: AgentRunInput<CALL_OPTIONS>
   outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
+  startTask?: Promise<void>
   actor: AgentInvoker
   invoker: AgentInvoker
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
@@ -1951,6 +1975,7 @@ async function finishAgentInvocation<
   const runResult = failed || result === undefined ? undefined : toAgentRunResult(result)
   const text = runResult?.text
   try {
+    await context.startTask
     await context.close()
     if (hasFinishWork(context)) {
       const details = failed ? agentErrorDetails(error) : undefined
@@ -1968,7 +1993,6 @@ async function finishAgentInvocation<
         runtime: context.runtimeContext,
         ...(text !== undefined ? { text } : {}),
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
-      context.context.set("agent.finishHook", Boolean(context.finishHook), { overwrite: true })
       const provisionalActiveDeliveryProviders = await prepareProvisionalTitleDeliverySupport(context, eventBase)
       if (context.finishHook || provisionalActiveDeliveryProviders.length || hasDeferredFinishDeliveryEffectProvider(context.finishDeliveryEffectProviders)) {
         const extensions = await createAgentInvocationExtensions(eventBase as never, context.finishExtensionProviders)

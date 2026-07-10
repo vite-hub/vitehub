@@ -1,6 +1,7 @@
-import { defineCapability } from "../capability-runtime.ts"
+import { capabilityInvocationStartSymbol, defineCapability } from "../capability-runtime.ts"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../agent-output.ts"
 import { messageChannelTitleSupportContextKey } from "../channels.ts"
+import { createMessageChannelChatTitleEffectIntent, messageChannelTitleDeliveredContextKey } from "../internal/channels.ts"
 import { getMessageText } from "../messages.ts"
 import { normalizeAgentDriver } from "../internal/agent-driver.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
@@ -508,25 +509,35 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
   options: ChatTitleOptions<TRuntimeConfig> = {},
 ): AgentCapabilityDefinition<TRuntimeConfig> {
   const capabilityId = options.id || "chat-title"
-  return defineCapability({
+  const invocationStarts = new WeakMap<object, () => Promise<void>>()
+  return Object.assign(defineCapability({
     id: capabilityId,
     output(context) {
-      const messages = context.input.messages()
-      const message = firstUserMessage(messages)
-      if (!message) return
-
-      const text = getMessageText(message)
       let title: Promise<string | undefined> | undefined
       const getTitle = () => {
-        title ??= generateChatTitle(context, options as ChatTitleOptions, {
-          input: context.input.get(),
-          message,
-          messages,
-          text,
-        }).catch(() => undefined)
+        title ??= (async () => {
+          const messages = context.input.messages()
+          const message = firstUserMessage(messages)
+          if (!message) return
+          return await generateChatTitle(context, options as ChatTitleOptions, {
+            input: context.input.get(),
+            message,
+            messages,
+            text: getMessageText(message),
+          })
+        })().catch(() => undefined)
         return title
       }
 
+      invocationStarts.set(context.context, async () => {
+        if (!firstUserMessage(context.input.messages())) return
+        if (!shouldProvideChatTitleFinishExtension(context)) return
+        if (context.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) return
+        const resolvedTitle = await getTitle()
+        if (!resolvedTitle || !supportsChatTitleDelivery(context)) return
+        if (context.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) return
+        context.delivery.effect(createMessageChannelChatTitleEffectIntent(resolvedTitle.trim()))
+      })
       context.finish.provide(async () => {
         if (!shouldProvideChatTitleFinishExtension(context)) return
         const resolvedTitle = await getTitle()
@@ -539,11 +550,15 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
           : undefined
       }
       titleDeliveryEffect.active = finish =>
-        Boolean(finish.channel) && finish.context.get<boolean>(messageChannelTitleSupportContextKey) !== false
+        Boolean(finish.channel)
+        && Boolean(firstUserMessage(context.input.messages()))
+        && finish.context.get<boolean>(messageChannelTitleSupportContextKey) !== false
+        && finish.context.get<boolean>(messageChannelTitleDeliveredContextKey) !== true
       titleDeliveryEffect.kind = "title"
       context.delivery.finishEffect(titleDeliveryEffect)
       context.output.render((result) => {
         if (hasChatTitleApplied(result)) return result
+        if (!firstUserMessage(context.input.messages())) return result
         if (isStreamTextResult(result)) {
           const toUIMessageStream = result.toUIMessageStream?.bind(result)
           if (result.stream || result.fullStream) {
@@ -575,6 +590,10 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
         if (!isAsyncIterable(result)) return result
         return withChatTitleEvent(result, getTitle())
       })
+    },
+  }), {
+    [capabilityInvocationStartSymbol](context: AgentCapabilityRuntimeContext<TRuntimeConfig>) {
+      return invocationStarts.get(context.context)?.()
     },
   })
 }

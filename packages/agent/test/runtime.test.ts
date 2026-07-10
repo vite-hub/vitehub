@@ -13,6 +13,7 @@ const harnessAgentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const harnessCreateSession = vi.hoisted(() => vi.fn())
 const harnessGenerate = vi.hoisted(() => vi.fn())
 const harnessStream = vi.hoisted(() => vi.fn())
+const loadAiSdk = vi.hoisted(() => vi.fn())
 const vercelSandboxSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 
 vi.mock("@ai-sdk/harness/agent", () => ({
@@ -42,6 +43,11 @@ vi.mock("@ai-sdk/sandbox-vercel", () => ({
   },
 }))
 
+vi.mock("../src/internal/ai-sdk-runtime.ts", () => ({
+  loadAiSdk,
+}))
+loadAiSdk.mockImplementation(async () => await import("ai"))
+
 const { withAgentDefaults } = await import("../src/index.ts")
 
 afterEach(() => {
@@ -49,6 +55,8 @@ afterEach(() => {
   harnessCreateSession.mockReset()
   harnessGenerate.mockReset()
   harnessStream.mockReset()
+  loadAiSdk.mockReset()
+  loadAiSdk.mockImplementation(async () => await import("ai"))
   vercelSandboxSettings.length = 0
 })
 
@@ -2563,6 +2571,156 @@ describe("agent message protocol", () => {
     expect(setAssistantTitle).toHaveBeenCalledWith("thread-1", "thread-1", "Prepared title")
   })
 
+  it("starts and replaces provisional chat titles while the main driver is pending", async () => {
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    let releaseDriver: () => void = () => {}
+    let driverStarted = false
+    let invocationSettled = false
+    const driverPending = new Promise<void>((resolve) => {
+      releaseDriver = resolve
+    })
+    const order: string[] = []
+    const resultDependentEffect: AgentChannelDeliveryFinishEffectCallback = context => context.reply(context.result!.text!)
+    resultDependentEffect.active = context => {
+      if (!context.result) throw new Error("finish effect evaluated before the driver result")
+      return false
+    }
+    const execute = vi.fn(({ text }) => {
+      order.push("title")
+      return `Title: ${text}`
+    })
+    const titleEffect = vi.fn()
+    const waitUntilTasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      capabilities: [
+        chatTitle({ execute }),
+        defineCapability({
+          id: "transcribed-input",
+          input(context) {
+            context.input.setMessages([createMessage({ role: "user", text: "Transcribed request" })])
+          },
+        }),
+        defineCapability({
+          id: "result-dependent-delivery",
+          prepare(context) {
+            context.delivery.finishEffect(resultDependentEffect)
+          },
+        }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          effects: {
+            title: titleEffect,
+          },
+          messages: false,
+          triggers: {
+            message: {
+              invoke: context => ({
+                delivery: { effects: [{ kind: "title", payload: { title: "Provisional title" } }] },
+                input: { messages: [createMessage({ role: "system", text: "Audio attachment" })] },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: {
+        async run() {
+          order.push("driver")
+          driverStarted = true
+          await driverPending
+          return "ok"
+        },
+      },
+    })
+
+    const invocation = runAgentTrigger(agent, {
+      memo: vi.fn(),
+      runtime: "unknown" as const,
+      waitUntil: task => waitUntilTasks.push(task),
+    }, "portal.message", {}).finally(() => {
+      invocationSettled = true
+    })
+
+    await vi.waitFor(() => {
+      expect(titleEffect).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        effect: { kind: "title", payload: { title: "Provisional title" } },
+      }))
+    })
+    await vi.waitFor(() => {
+      expect(driverStarted).toBe(true)
+      expect(titleEffect).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        effect: { kind: "title", payload: { title: "Title: Transcribed request" } },
+      }))
+    })
+    expect(invocationSettled).toBe(false)
+    expect(order.slice(0, 2)).toEqual(["title", "driver"])
+
+    releaseDriver()
+    await expect(invocation).resolves.toBe("ok")
+    await Promise.all(waitUntilTasks)
+    expect(execute).toHaveBeenCalledOnce()
+    expect(titleEffect).toHaveBeenCalledTimes(2)
+  })
+
+  it("retries chat title delivery at finish when any early delivery handler fails", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    let releaseDriver: () => void = () => {}
+    const driverPending = new Promise<void>((resolve) => {
+      releaseDriver = resolve
+    })
+    const titleEffect = vi.fn()
+    const retryingTitleEffect = vi.fn()
+      .mockRejectedValueOnce(new Error("temporary title failure"))
+      .mockResolvedValue(undefined)
+    const execute = vi.fn(() => "Prepared title")
+    const waitUntilTasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute })],
+      channels: {
+        portal: defineChannel("portal", {
+          effects: {
+            title: [titleEffect, retryingTitleEffect],
+          },
+          messages: false,
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: {
+        async run() {
+          await driverPending
+          return "ok"
+        },
+      },
+    })
+
+    const invocation = runAgentTrigger(agent, {
+      memo: vi.fn(),
+      runtime: "unknown" as const,
+      waitUntil: task => waitUntilTasks.push(task),
+    }, "portal.message", {})
+
+    await vi.waitFor(() => {
+      expect(titleEffect).toHaveBeenCalledOnce()
+      expect(retryingTitleEffect).toHaveBeenCalledOnce()
+    })
+    releaseDriver()
+    await expect(invocation).resolves.toBe("ok")
+    await Promise.all(waitUntilTasks)
+    expect(execute).toHaveBeenCalledOnce()
+    expect(titleEffect).toHaveBeenCalledTimes(2)
+    expect(retryingTitleEffect).toHaveBeenCalledTimes(2)
+  })
+
   it("delivers chat titles through Slack Assistant message Channels", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
@@ -2618,6 +2776,44 @@ describe("agent message protocol", () => {
 
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
     expect(adapter).not.toHaveBeenCalled()
+  })
+
+  it("does not resolve message Channel title adapters when input transforms remove user messages", async () => {
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const adapter = vi.fn(() => {
+      throw new Error("adapter should not resolve")
+    })
+    const execute = vi.fn(() => "Unused title")
+    const agent = defineAgent({
+      capabilities: [
+        chatTitle({ execute }),
+        defineCapability({
+          id: "remove-user-message",
+          input(context) {
+            context.input.setMessages([createMessage({ role: "system", text: "system context" })])
+          },
+        }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          adapter,
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
+    expect(adapter).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
   })
 
   it("does not resolve message Channel title adapters for inactive title finish effects", async () => {
@@ -5282,7 +5478,7 @@ describe("agent message protocol", () => {
 
   it("generates chat titles with the default template and agent model", async () => {
     const generateText = vi.fn(async () => ({ text: '"Generated invoice title"' }))
-    vi.doMock("ai", () => ({
+    const aiSdk = {
       generateText,
       isStepCount: vi.fn(count => ({ count })),
       jsonSchema: vi.fn(schema => schema),
@@ -5291,8 +5487,9 @@ describe("agent message protocol", () => {
           return { finishReason: "stop", text: "ok" }
         }
       },
-    }))
-
+    }
+    vi.doMock("ai", () => aiSdk)
+    loadAiSdk.mockResolvedValue(aiSdk)
     try {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const finish = vi.fn()
@@ -5334,7 +5531,7 @@ describe("agent message protocol", () => {
 
   it("cleans generated chat titles without cutting words", async () => {
     const generateText = vi.fn(async () => ({ text: "Compare Quiet Rainy Morning Cafe Museum Plans" }))
-    vi.doMock("ai", () => ({
+    const aiSdk = {
       generateText,
       isStepCount: vi.fn(count => ({ count })),
       jsonSchema: vi.fn(schema => schema),
@@ -5343,7 +5540,9 @@ describe("agent message protocol", () => {
           return { finishReason: "stop", text: "ok" }
         }
       },
-    }))
+    }
+    vi.doMock("ai", () => aiSdk)
+    loadAiSdk.mockResolvedValue(aiSdk)
 
     try {
       const { defineAgent, runAgent } = await import("../src/index.ts")
@@ -5614,6 +5813,39 @@ describe("agent message protocol", () => {
     expect(result.stream).toBeDefined()
     await expect(result.toTextStreamResponse().text()).resolves.toBe("native text")
     expect(finish.mock.calls[0]![0].result).toBe(result)
+  })
+
+  it("does not wrap stream results when input transforms remove user messages", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => "Unused title")
+    class TextStreamResult {
+      metadata = { usage: "kept" }
+      textStream = (async function* () {
+        yield "hello"
+      })()
+    }
+    const nativeResult = new TextStreamResult()
+    const agent = defineAgent({
+      capabilities: [
+        chatTitle({ execute }),
+        defineCapability({
+          id: "remove-user-message",
+          input(context) {
+            context.input.setMessages([createMessage({ role: "system", text: "system context" })])
+          },
+        }),
+      ],
+      driver: { run: () => nativeResult },
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "First user request" })],
+    }) as TextStreamResult & { stream?: AsyncIterable<unknown> }
+
+    expect(result).toBe(nativeResult)
+    expect(result.metadata).toBe(nativeResult.metadata)
+    expect(result.stream).toBeUndefined()
+    expect(execute).not.toHaveBeenCalled()
   })
 
   it("emits chat title data for UI message streams", async () => {
