@@ -2618,7 +2618,7 @@ describe("agent message protocol", () => {
             message: {
               invoke: context => ({
                 delivery: { effects: [{ kind: "title", payload: { title: "Provisional title" } }] },
-                input: { messages: [createMessage({ role: "user", text: "Audio attachment" })] },
+                input: { messages: [createMessage({ role: "system", text: "Audio attachment" })] },
                 run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
               }),
             },
@@ -2778,22 +2778,30 @@ describe("agent message protocol", () => {
     expect(adapter).not.toHaveBeenCalled()
   })
 
-  it("does not resolve message Channel title adapters without user messages", async () => {
-    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+  it("does not resolve message Channel title adapters when input transforms remove user messages", async () => {
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
     const adapter = vi.fn(() => {
       throw new Error("adapter should not resolve")
     })
     const execute = vi.fn(() => "Unused title")
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute })],
+      capabilities: [
+        chatTitle({ execute }),
+        defineCapability({
+          id: "remove-user-message",
+          input(context) {
+            context.input.setMessages([createMessage({ role: "system", text: "system context" })])
+          },
+        }),
+      ],
       channels: {
         portal: defineChannel("portal", {
           adapter,
           triggers: {
             message: {
               invoke: context => ({
-                input: { messages: [createMessage({ role: "system", text: "system context" })] },
+                input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
                 run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
               }),
             },

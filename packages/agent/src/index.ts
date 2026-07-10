@@ -1512,7 +1512,7 @@ async function createAgentInvocationContext<
     const startCapabilities = capabilities.start
     if (!invocation.handledResponse && startCapabilities) {
       try {
-        if (hasTitleDeliveryEffectProvider(invocation.finishDeliveryEffectProviders)) {
+        if (invocation.messages.some(message => message.role === "user") && hasTitleDeliveryEffectProvider(invocation.finishDeliveryEffectProviders)) {
           await setChannelDeliverySupportContext(invocation.channels, invocation.context, invocation.runtimeContext, invocation.input, invocation.run)
         }
         invocation.startTask = (async () => {

@@ -513,8 +513,6 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
   return Object.assign(defineCapability({
     id: capabilityId,
     output(context) {
-      if (!firstUserMessage(context.input.messages())) return
-
       let title: Promise<string | undefined> | undefined
       const getTitle = () => {
         title ??= (async () => {
@@ -532,6 +530,7 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
       }
 
       invocationStarts.set(context.context, async () => {
+        if (!firstUserMessage(context.input.messages())) return
         if (!shouldProvideChatTitleFinishExtension(context)) return
         if (context.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) return
         const resolvedTitle = await getTitle()
@@ -552,6 +551,7 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
       }
       titleDeliveryEffect.active = finish =>
         Boolean(finish.channel)
+        && Boolean(firstUserMessage(context.input.messages()))
         && finish.context.get<boolean>(messageChannelTitleSupportContextKey) !== false
         && finish.context.get<boolean>(messageChannelTitleDeliveredContextKey) !== true
       titleDeliveryEffect.kind = "title"
