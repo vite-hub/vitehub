@@ -8,6 +8,7 @@ import { loadAiSdk } from "./internal/ai-sdk-runtime.ts"
 import {
   applyCapabilityToolTransforms,
 } from "./capability-runtime.ts"
+import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import {
   applyAgentToolPolicies,
@@ -820,6 +821,7 @@ async function createAgent(
   const execution = options.execution ?? options.modelExecution
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   const metadataContext = {
+    ...agentInvocationCallbackContextValues(context.context),
     ...runtime,
     actor: context.actor,
     context: context.context,

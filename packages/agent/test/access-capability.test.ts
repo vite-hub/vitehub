@@ -803,6 +803,7 @@ describe("access capability", () => {
           private: custom({
             materialize: "lazy",
             mount: "ingestion/acme/private",
+            scopes: ["private"],
             async getKeys() {
               return []
             },
@@ -862,6 +863,7 @@ describe("access capability", () => {
       name: "support",
       sources: {
         ingestion: custom({
+          scopes: ["globex"],
           async resolve() {
             return custom({
               mount: "ingestion/globex",
@@ -1131,7 +1133,13 @@ describe("access capability", () => {
           },
         }),
       ],
-    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace(), "read", {
+    }, { ...runtime(), runtimeConfig: {} }, {
+      context: {
+        channel: { meta: { customer: "acme" } },
+        chat: { user: { id: "legacy-user" } },
+      },
+      prompt: "check",
+    }, createWorkspace(), "read", {
       workspaceDefinition: {
         name: "support",
         sources: {
@@ -1154,8 +1162,11 @@ describe("access capability", () => {
     })
 
     expect(resolveSource).toHaveBeenCalledWith(expect.objectContaining({
+      channel: { meta: { customer: "acme" } },
       selectedWorkspaceScope: expect.objectContaining({ name: "acme" }),
     }))
+    expect(resolveSource.mock.calls[0]?.[0]).not.toHaveProperty("chat")
+    expect(resolveSource.mock.calls[0]?.[0].invocation.context.get("chat")).toEqual({ user: { id: "legacy-user" } })
     await expect(resolved.workspace!.fs.readFile("customers/acme/resolved.md")).resolves.toBe("resolved for acme")
     await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(false)
   })
@@ -1189,18 +1200,15 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(false)
   })
 
-  it("fails closed when Workspace Source scopes are not declared in Access", async () => {
+  it("keeps sources outside resolver-selected scopes without matching names or paths", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
 
-    await expect(resolveAgentCapabilities({
+    const resolved = await resolveAgentCapabilities({
       capabilities: [
         access({
           workspace: {
-            defaultScope: "support",
-            scopes: {
-              support: { paths: ["public"] },
-            },
+            resolve: () => "support",
           },
         }),
       ],
@@ -1208,23 +1216,53 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
-          customerDocs: { mount: "customers/acme", scopes: ["missing"] } as never,
+          customerDocs: { mount: "customers/acme", scopes: ["technical"] } as never,
+          publicDocs: { mount: "public" } as never,
         },
       },
-    })).rejects.toThrow("Workspace Source scope \"missing\"")
+    })
+
+    await expect(resolved.workspace!.fs.exists("public/readme.md")).resolves.toBe(false)
+    await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(false)
   })
 
-  it("fails closed when Workspace Source scopes use inline Access definitions", async () => {
+  it("keeps unscoped sources available on selected paths and grants matching sources", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
 
-    await expect(resolveAgentCapabilities({
+    const resolved = await resolveAgentCapabilities({
       capabilities: [
         access({
           workspace: {
-            resolve: {
-              scope: "support",
-              paths: ["customers/acme"],
+            resolve: () => ({ paths: ["public"], scope: "technical" }),
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace(), "read", {
+      workspaceDefinition: {
+        name: "support",
+        sources: {
+          customerDocs: { mount: "customers/acme", scopes: ["technical"] } as never,
+          publicDocs: { mount: "public" } as never,
+        },
+      },
+    })
+
+    await expect(resolved.workspace!.fs.exists("public/readme.md")).resolves.toBe(true)
+    await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
+  })
+
+  it("does not convert unscoped root-mounted sources into source grants", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "customer",
+            scopes: {
+              customer: { paths: ["public"] },
             },
           },
         }),
@@ -1233,10 +1271,13 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
-          customerDocs: { mount: "customers/acme", scopes: ["support"] } as never,
+          rootDocs: { mount: "" } as never,
         },
       },
-    })).rejects.toThrow("Workspace Source scopes require access({ workspace }).scopes")
+    })
+
+    await expect(resolved.workspace!.fs.exists("public/readme.md")).resolves.toBe(true)
+    await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(false)
   })
 
   it("fails closed when Workspace Source scopes are configured without Access", async () => {

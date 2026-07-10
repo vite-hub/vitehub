@@ -22,6 +22,11 @@ describe("chat message trigger input", () => {
       session: { id: "b" },
       user: { id: "user_1" },
     })
+    expect(result.input.context?.channel).toMatchObject({
+      meta: { email: "support@example.com" },
+      session: { id: "b" },
+      user: { id: "user_1" },
+    })
     expect(result.input.context).not.toHaveProperty("chat.identity")
     expect(result.input.context?.invoker).toMatchObject({
       email: {
@@ -139,6 +144,11 @@ describe("chat message trigger input", () => {
       user: { email: "support@example.com" },
     })
     expect(result.input.context?.chat).not.toHaveProperty("run")
+    expect(result.input.context?.channel).toMatchObject({
+      meta: { portal: { activePage: "/orders" } },
+      run: { origin: "portal", runId: "portal-run" },
+      user: { email: "support@example.com" },
+    })
     expect(result.input.context?.invoker).toEqual({
       email: {
         address: "support@example.com",
@@ -184,6 +194,9 @@ describe("chat message trigger input", () => {
       meta: { email: "maximo@quiver.dk" },
     })
     expect(result.input.context?.chat).not.toHaveProperty("run")
+    expect(result.input.context?.channel).toMatchObject({
+      run: { origin: "devtools", runId: "devtools-run" },
+    })
   })
 
   it("preserves completed UI tool calls", () => {

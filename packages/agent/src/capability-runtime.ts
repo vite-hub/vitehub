@@ -5,10 +5,9 @@ import {
   assertCapabilityCliContribution,
   createCapabilityCliTool,
 } from "./capability-cli.ts"
-import { getAccessCapabilityOptions } from "./capabilities/access-metadata.ts"
 import { normalizeWorkspaceCommandEntries, workspaceCommandTools } from "./capabilities/workspace-command.ts"
 import { createMessage } from "./messages.ts"
-import { createAgentInvocationContextStore } from "./invocation-context.ts"
+import { agentInvocationCallbackContextValues, agentInvocationSourceContext, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { normalizeAgentWorkspaceSource, workspaceSourceScopeNames, workspaceSourceScopePaths } from "./workspace-source-metadata.ts"
 import {
   createFallbackAgentInvoker,
@@ -657,17 +656,6 @@ function assertWorkspaceSourceScopesRequireAccess(
   if (!capabilities.some(capabilityUsesWorkspaceAccess)) {
     throw new Error("[vitehub] Workspace Source scopes require access({ workspace }).")
   }
-  const accessScopeNames = new Set(getAccessCapabilityOptions<AgentRuntimeConfig>(capabilities).flatMap(options =>
-    options.workspace?.scopes ? Object.keys(options.workspace.scopes) : [],
-  ))
-  if (!accessScopeNames.size) {
-    throw new Error("[vitehub] Workspace Source scopes require access({ workspace }).scopes.")
-  }
-  for (const scope of sourceScopes) {
-    if (!accessScopeNames.has(scope)) {
-      throw new Error(`[vitehub] Workspace Source scope "${scope}" is not defined in access({ workspace }).scopes.`)
-    }
-  }
 }
 
 async function applyCapabilityWorkspaceContributions<
@@ -719,7 +707,7 @@ async function applyCapabilityWorkspaceContributions<
   assertStaticWorkspaceContributionSourcesInScope(registries, definition, selectedWorkspaceScope, workspaceRuntime)
   const resolvedDefinition = await workspaceRuntime.resolveWorkspaceSources(definition, {
     invocation: {
-      context: context.context,
+      context: agentInvocationSourceContext(context.context),
       run: context.run,
     },
     selectedWorkspaceScope,
@@ -728,7 +716,7 @@ async function applyCapabilityWorkspaceContributions<
   setSelectedWorkspaceScopeContext(context.context, selectedWorkspaceScope)
   const sourceResolution = await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace as never, resolvedDefinition, {
     invocation: {
-      context: context.context,
+      context: agentInvocationSourceContext(context.context),
       run: context.run,
     },
     overlay: true,
@@ -856,6 +844,7 @@ export async function resolveAgentCapabilities<
     if (sourceResolvedDefinition) currentWorkspaceDefinition = sourceResolvedDefinition
     assertWorkspaceSourceScopesRequireAccess(currentWorkspaceDefinition, capabilities)
     const workspaceContribution = await applyCapabilityWorkspaceContributions(capabilities, {
+      ...agentInvocationCallbackContextValues(invocationContext),
       ...runtimeContext,
       actor: invoker,
       context: invocationContext,
@@ -881,6 +870,7 @@ export async function resolveAgentCapabilities<
       await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, currentWorkspace, workspaceMode)
       const phases = invocationOptions.phases || defaultCapabilityRuntimePhases
       const metadataContext = {
+        ...agentInvocationCallbackContextValues(invocationContext),
         ...runtimeContext,
         actor: invoker,
         context: invocationContext,
@@ -1156,6 +1146,7 @@ export async function resolveStaticCapabilityTools<
     await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, workspace, workspaceMode)
     if (!capability.tools) continue
     const capabilityContext = {
+      ...agentInvocationCallbackContextValues(invocationContext),
       ...runtimeContext,
       actor: invoker,
       context: invocationContext,

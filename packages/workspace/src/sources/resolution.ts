@@ -528,6 +528,7 @@ async function resolveWorkspaceSource(
   if (!source.resolve) return selectedScopeIntersectsSource(options.selectedWorkspaceScope, declared) ? input : undefined
 
   const context: WorkspaceSourceResolutionContext<object, string> = {
+    ...Object.fromEntries(options.invocation.context.entries()),
     invocation: options.invocation,
     selectedWorkspaceScope: options.selectedWorkspaceScope,
     source: {
@@ -720,7 +721,9 @@ function scopedWorkspaceSource(
         }
       : {}),
   }
-  copyWorkspaceSourceMetadata(source.source, scoped)
+  if (!source.requestDescriptor || selectedScopeCanRead(scope, workspaceSourceRequestDescriptorPath(source.key))) {
+    copyWorkspaceSourceMetadata(source.source, scoped)
+  }
   if (scopedLivePaths) markLiveWorkspaceSource(scoped, scopedLivePaths)
   return scoped
 }
@@ -796,11 +799,11 @@ function selectedScopeIntersectsSource(
   source: ReturnType<typeof normalizeWorkspaceSources>[number],
 ): boolean {
   if (!scope || scope.all) return true
-  if (scope.name && source.scopes?.includes(scope.name)) return true
-  return Boolean(scope.paths?.some((path) => {
-    if (source.requestDescriptor && pathIntersects(path, workspaceSourceRequestDescriptorPath(source.key))) return true
-    return !source.requestOnly && pathIntersects(path, source.mountPath)
-  }))
+  if (source.scopes?.length) return Boolean(scope.name && source.scopes.includes(scope.name))
+  if (source.requestOnly) {
+    return Boolean(scope.paths?.some(path => pathIntersects(path, workspaceSourceRequestDescriptorPath(source.key))))
+  }
+  return true
 }
 
 function pathContains(container: string, path: string): boolean {

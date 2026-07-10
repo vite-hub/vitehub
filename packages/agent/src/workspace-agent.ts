@@ -4,7 +4,7 @@ import {
   normalizeMode,
   resolveAgentCapabilities,
 } from "./capability-runtime.ts"
-import { createAgentInvocationContextStore } from "./invocation-context.ts"
+import { agentInvocationCallbackContextValues, agentInvocationSourceContext, createAgentInvocationContextStore } from "./invocation-context.ts"
 import {
   normalizeAgentInvokerProfiles,
   resolveAgentInvoker,
@@ -1109,19 +1109,7 @@ function skillCoverageWarnings(
 }
 
 function createDevtoolsSourceResolutionContext(input: AgentRunInput | undefined): WorkspaceSourceResolutionContextValueReader<object> {
-  const values = new Map<string, unknown>()
-  if (input?.context && typeof input.context === "object") {
-    for (const [key, value] of Object.entries(input.context as Record<string, unknown>)) {
-      values.set(key, value)
-    }
-  }
-
-  return {
-    entries: () => values.entries(),
-    get: (key: string) => values.get(key) as never,
-    has: key => values.has(key),
-    toJSON: () => Object.fromEntries(values),
-  }
+  return agentInvocationSourceContext(createAgentInvocationContextStore(input?.context))
 }
 
 function workspaceOptionsFromDefinition<
@@ -1254,6 +1242,7 @@ async function resolveWorkspaceMetadataCapabilityContext<
   return {
     definition: capabilities.workspaceDefinition || sourceResolvedDefinition || workspaceDefinition,
     metadataContext: {
+      ...agentInvocationCallbackContextValues(invocationContext),
       ...agentCallbackContext(runtime),
       actor: invoker,
       context: invocationContext,

@@ -11,6 +11,7 @@ import type {
   AgentChatPlatformResolver,
   AgentChannelWebhookRegistrationDefinition,
   AgentInvocationContextStore,
+  AgentRunMetadata,
   AgentRuntimeConfig,
   AgentTriggerDefinition,
   AgentWebhookRegistrationDefinition,
@@ -89,6 +90,23 @@ export type AgentChatContext<
   TUser extends object = Record<string, unknown>,
   TMessageMetadata extends object = Record<string, unknown>,
 > = NonNullable<AgentChatRunContext<TMessageMetadata, TUser, TMeta>["chat"]>
+
+export type AgentChannelContext<
+  TMeta extends object = Record<string, unknown>,
+  TUser extends object = Record<string, unknown>,
+  TMessageMetadata extends object = Record<string, unknown>,
+> = AgentChatContext<TMeta, TUser, TMessageMetadata> & { run?: AgentRunMetadata }
+
+declare global {
+  interface ViteHubAgentChannelMeta {}
+  interface ViteHubAgentChannelUser {}
+  interface ViteHubAgentInvocationContextValues {
+    channel: AgentChannelContext<ViteHubAgentChannelMeta, ViteHubAgentChannelUser>
+  }
+  interface ViteHubWorkspaceSourceResolutionContextMap {
+    channel: AgentChannelContext<ViteHubAgentChannelMeta, ViteHubAgentChannelUser>
+  }
+}
 
 export function getAgentChatContext<
   TMeta extends object = Record<string, unknown>,

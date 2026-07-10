@@ -52,6 +52,8 @@ export default defineAgent({
 The Capability records the selected Workspace Scope in invocation context and replaces the active Workspace facade with a scoped facade.
 Put model-facing guidance for each Access scope in Agent Driver Instructions or an imported instruction file, and cover the Access Capability with an explicit `::capability{key="access"}` block when that guidance depends on Access.
 
+A Workspace Source without `scopes` is available in every selected Workspace Scope. Adding `scopes` restricts that Source to matching names. `resolve` and `defaultScope` may select those names without duplicating empty entries in `workspace.scopes`; declare a named scope only when it needs explicit paths, Source grants, `all`, or a role.
+
 ## Requirements
 
 `access({ workspace })` requires an explicit Workspace and currently applies read-only Workspace Scope.
@@ -74,7 +76,7 @@ Run an Agent Invocation that includes `access()` and inspect DevTools for the `a
 Verify that `access.workspaceScope` appears in invocation context and that later Workspace tools cannot read outside the selected paths.
 
 Trigger a scope failure during development.
-Unknown scopes, root-mounted Source grants, missing Workspace definitions, and invalid path escapes should fail before model execution.
+Missing scope selection, root-mounted Source grants, missing Workspace definitions, and invalid path escapes should fail before model execution.
 
 ## Options
 
@@ -83,7 +85,7 @@ Unknown scopes, root-mounted Source grants, missing Workspace definitions, and i
 | `chat.resolve` | `(context) => boolean \| void` | none | Allow or reject trusted Chat Platform traffic before the Agent Invocation runs. |
 | `workspace.defaultScope` | `string` | none | Fallback Workspace Scope name when `resolve` does not choose one. |
 | `workspace.resolve` | `string \| selection \| function` | none | Select a Workspace Scope from trusted invocation context. |
-| `workspace.scopes` | `Record<string, scope>` | none | Named Workspace Scope definitions. |
+| `workspace.scopes` | `Record<string, scope>` | none | Optional named Workspace Scope definitions for explicit grants, roles, or full access. |
 | `scope.all` | `boolean` | `false` | Grant the full Workspace for that scope. |
 | `scope.path` / `scope.paths` | `string \| string[]` | none | Grant Workspace paths. |
 | `scope.source` / `scope.sources` | `string \| string[]` | none | Grant Workspace Sources. |

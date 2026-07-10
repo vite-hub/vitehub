@@ -381,6 +381,7 @@ export {
 } from "./chat-trigger.ts"
 
 export type {
+  AgentChannelContext,
   AgentChatContext,
   AgentChatRunContext,
 } from "./chat-trigger.ts"

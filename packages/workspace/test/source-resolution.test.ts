@@ -13,6 +13,7 @@ import {
   type ReadonlyWorkspaceFacade,
   type WritableWorkspaceFacade,
   type WorkspaceDefinition,
+  type WorkspaceSourceResolutionContext,
 } from "../src/index.ts"
 import {
   createWorkspaceSourceResolutionFacade,
@@ -158,6 +159,49 @@ afterEach(() => {
 })
 
 describe("Workspace Source Resolution", () => {
+  it("exposes invocation context values directly to source resolvers", async () => {
+    const values = new Map<string, unknown>([
+      ["channel", { meta: { customer: "acme" } }],
+    ])
+    let resolvedContext: WorkspaceSourceResolutionContext | undefined
+    const resolve = vi.fn((context: WorkspaceSourceResolutionContext) => {
+      resolvedContext = context
+      return false as const
+    })
+
+    await resolveWorkspaceSources({
+      name: "support",
+      sources: {
+        ingestion: custom({
+          resolve,
+          async getKeys() {
+            return []
+          },
+          async getItem(key: string) {
+            throw new Error(`unresolved source read: ${key}`)
+          },
+        }),
+      },
+    }, {
+      invocation: {
+        context: {
+          entries: () => values.entries(),
+          get: (id: string) => values.get(id) as never,
+          has: id => values.has(id),
+          toJSON: () => Object.fromEntries(values),
+        },
+      },
+    })
+
+    expect(resolve).toHaveBeenCalledWith(expect.objectContaining({
+      channel: { meta: { customer: "acme" } },
+      invocation: expect.objectContaining({ context: expect.any(Object) }),
+      source: expect.objectContaining({ key: "ingestion" }),
+      workspace: expect.objectContaining({ name: "support" }),
+    }))
+    expect(resolvedContext?.invocation.context.get("channel")).toEqual({ meta: { customer: "acme" } })
+  })
+
   it("resolves source origin, mount, and scope-aware fingerprint", async () => {
     const definition: WorkspaceDefinition = {
       name: "support",
@@ -725,7 +769,28 @@ describe("Workspace Source Resolution", () => {
     expect(request).toHaveBeenCalledOnce()
   })
 
-  it("requires descriptor visibility for scoped controlled curl", async () => {
+  it("requires descriptor visibility for request-only sources", async () => {
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        inventory: fetch({
+          url: "https://portal.example.com/runtime/inventory-health",
+        }),
+      },
+    }
+
+    const { definition: resolvedDefinition, workspace } = await createWorkspaceSourceResolutionFacade(
+      facade(createWorkspace({ name: "support", store: { provider: "memory" } })),
+      definition,
+      scope("status", ["status/summary.json"]),
+    )
+
+    expect(resolvedDefinition.sources).not.toHaveProperty("inventory")
+    expect(getWorkspaceSourceRequestExecution(workspace.fs)).toBeUndefined()
+    await expect(workspace.fs.list(".vitehub/sources")).resolves.toEqual([])
+  })
+
+  it("keeps finite request sources while hiding unselected request descriptors", async () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
@@ -736,17 +801,19 @@ describe("Workspace Source Resolution", () => {
       },
     }
 
-    const { workspace } = await createWorkspaceSourceResolutionFacade(
+    const { definition: resolvedDefinition, workspace } = await createWorkspaceSourceResolutionFacade(
       facade(createWorkspace({ name: "support", store: { provider: "memory" } })),
       definition,
       scope("status", ["status/summary.json"]),
     )
 
+    expect(resolvedDefinition.sources).toHaveProperty("inventory")
+    await expect(workspace.fs.exists("status/summary.json")).resolves.toBe(true)
     expect(getWorkspaceSourceRequestExecution(workspace.fs)).toBeUndefined()
     await expect(workspace.fs.list(".vitehub/sources")).resolves.toEqual([])
   })
 
-  it("fails closed when a resolved source mount is outside the Selected Workspace Scope", async () => {
+  it("keeps universal resolved sources outside the selected path set", async () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
@@ -774,10 +841,10 @@ describe("Workspace Source Resolution", () => {
 
     const resolved = await resolveWorkspaceSources(definition, scope("acme", ["ingestion/acme"]))
 
-    expect(resolved.sources).toEqual({})
+    expect(resolved.sources).toHaveProperty("ingestion")
   })
 
-  it("keeps scoped-out static sources hidden in overlays", async () => {
+  it("keeps unscoped sources available while scoped sources require matching names", async () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
@@ -802,6 +869,19 @@ describe("Workspace Source Resolution", () => {
             return { key, path: key, content: "public\n" }
           },
         }),
+        restrictedDocs: {
+          source: custom({
+            materialize: "lazy",
+            mount: "public/restricted",
+            async getKeys() {
+              return ["secret.md"]
+            },
+            async getItem(key) {
+              return { key, path: key, content: "restricted\n" }
+            },
+          }),
+          scopes: ["private"],
+        },
       },
     }
 
@@ -812,9 +892,11 @@ describe("Workspace Source Resolution", () => {
     )
 
     expect(resolvedDefinition.sources).toHaveProperty("publicDocs")
-    expect(resolvedDefinition.sources).not.toHaveProperty("privateDocs")
+    expect(resolvedDefinition.sources).toHaveProperty("privateDocs")
+    expect(resolvedDefinition.sources).not.toHaveProperty("restrictedDocs")
     await expect(workspace.fs.readFile("public/README.md")).resolves.toBe("public\n")
     await expect(workspace.fs.exists("private/secret.md")).resolves.toBe(false)
+    await expect(workspace.fs.exists("public/restricted/secret.md")).resolves.toBe(false)
   })
 
   it("keeps scoped-out source subpaths hidden in overlays", async () => {

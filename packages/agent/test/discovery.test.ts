@@ -136,7 +136,7 @@ async function waitForMetadataState(
   for (let attempt = 0; attempt < 50; attempt++) {
     latest = await invokeState(handler, body)
     if (latest.metadataStatus === status) return latest
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await new Promise(resolve => setTimeout(resolve, 10))
   }
   throw new Error(`Expected chat devtools metadata status ${status}, received ${String(latest?.metadataStatus)}`)
 }
@@ -396,6 +396,7 @@ describe("agent chat capability discovery", () => {
     const { defineAgent } = await import("../src/index.ts")
     const devtoolsMeta = { email: "maximo@quiver.dk" }
     const technicalEmails = new Set(["maximo@quiver.dk"])
+    const observedMetadataChannel = vi.fn()
     const agent = withAgentDefaults(defineAgent({
       invoker: {
         profiles: [
@@ -406,7 +407,8 @@ describe("agent chat capability discovery", () => {
       capabilities: [
         access({
           workspace: {
-            resolve({ invoker, run }) {
+            resolve({ channel, invoker, run }) {
+              if (run?.runId.endsWith(":metadata")) observedMetadataChannel(channel)
               const email = typeof invoker.meta?.email === "string" ? invoker.meta.email.toLowerCase() : undefined
               return run?.origin === "devtools" && (invoker.meta?.scope === "support" || (email && technicalEmails.has(email)))
                 ? { role: "admin", scope: "support" }
@@ -506,6 +508,13 @@ describe("agent chat capability discovery", () => {
       metadataStatus: "ready",
       selected: "support",
     })
+    expect(observedMetadataChannel).toHaveBeenCalledWith(expect.objectContaining({
+      meta: devtoolsMeta,
+      run: expect.objectContaining({
+        origin: "devtools",
+        runId: "devtools:support:metadata",
+      }),
+    }))
     expect(resolvedFallbackState.invokerProfileId).toBeUndefined()
 
     const fallbackSendResponse = await invokeMiddleware(handlers[0]!, {

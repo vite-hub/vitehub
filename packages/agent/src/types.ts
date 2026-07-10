@@ -101,6 +101,18 @@ export interface AgentInvocationContextValues extends ViteHubAgentInvocationCont
   invoker: AgentInvoker
 }
 
+type AgentInvocationCallbackContextKey = {
+  [Key in keyof ViteHubAgentInvocationContextValues]: Key extends string
+    ? Key extends "actor" | "chat" | "invoker" | `agent.${string}` | `channel.delivery.${string}` | `chat.${string}` | `workspace.${string}`
+      ? never
+      : Key
+    : never
+}[keyof ViteHubAgentInvocationContextValues]
+
+interface AgentInvocationCallbackContextValues extends Partial<Pick<ViteHubAgentInvocationContextValues, AgentInvocationCallbackContextKey>> {
+  access?: AgentAccessInvocationContextValue
+}
+
 export type AgentRunInputContextValues = Partial<AgentInvocationContextValues> & Record<string, unknown>
 
 export interface AgentInvocationContextStore<TValues extends object = AgentInvocationContextValues> {
@@ -1456,7 +1468,7 @@ export interface AgentUsageRecord {
 export interface AgentAdapterMetadataContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> extends AgentCallbackContext<TRuntimeConfig> {
+> extends AgentCallbackContext<TRuntimeConfig>, AgentInvocationCallbackContextValues {
   actor: AgentActor
   context: AgentInvocationContextStore
   driver?: {
