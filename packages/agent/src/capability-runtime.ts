@@ -63,10 +63,12 @@ type ResolvedAgentOutputRenderer = ((result: unknown, extensions?: AgentOutputEx
   providerCount: number
 }
 export const workspaceMaterializationPathsSymbol: unique symbol = Symbol("vitehub.agent.workspaceMaterializationPaths")
+export const capabilityInvocationStartSymbol: unique symbol = Symbol("vitehub.agent.capabilityInvocationStart")
 type InternalAgentCapabilityDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > = AgentCapabilityDefinition<TRuntimeConfig, Name> & {
+  [capabilityInvocationStartSymbol]?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   [workspaceMaterializationPathsSymbol]?: readonly string[]
 }
 type AgentCapabilityBashEntry = Extract<AgentCapabilityBashCommand, { command: string }>
@@ -136,6 +138,7 @@ export interface ResolvedAgentCapabilities {
   messages: Message[]
   response?: Response
   registries: AgentCapabilityRegistries
+  start?: () => Promise<AgentChannelDeliveryEffectIntent[]>
   toolTransforms: AgentToolTransform[]
   tools?: AgentToolSet
   workspaceMaterializationPaths: readonly string[]
@@ -825,6 +828,20 @@ export async function resolveAgentCapabilities<
     if (errors.length > 1) throw new AggregateError(errors, "[vitehub] Multiple capability close callbacks failed.")
   }
 
+  let invocationStarted = false
+  async function startInvocationCallbacks() {
+    if (invocationStarted) return []
+    invocationStarted = true
+    const deliveryEffectCount = registries.deliveryEffectIntents.length
+    for (const { capability, context } of capabilityContexts) {
+      await (capability as InternalAgentCapabilityDefinition<TRuntimeConfig, Name>)[capabilityInvocationStartSymbol]?.(context)
+    }
+    return registries.deliveryEffectIntents.slice(deliveryEffectCount)
+  }
+  const start = capabilities.some(capability => capabilityInvocationStartSymbol in capability)
+    ? startInvocationCallbacks
+    : undefined
+
   function syncCapabilityWorkspaceContext(context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) {
     if (currentWorkspace) {
       context.fs = currentWorkspace.fs
@@ -1055,6 +1072,7 @@ export async function resolveAgentCapabilities<
             messages,
             response: result,
             registries,
+            start,
             toolTransforms,
             tools,
             workspaceMaterializationPaths,
@@ -1118,6 +1136,7 @@ export async function resolveAgentCapabilities<
     input: currentInput,
     messages,
     registries,
+    start,
     toolTransforms,
     tools,
     workspaceMaterializationPaths,

@@ -7,6 +7,8 @@ import type {
   AgentRuntimeConfig,
 } from "../types.ts"
 
+export const messageChannelTitleDeliveredContextKey = "channel.delivery.titleDelivered"
+
 function withChannelWebhookProvider<TRuntimeConfig extends AgentRuntimeConfig>(
   channelId: string,
   kind: string,
