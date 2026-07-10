@@ -1,5 +1,0 @@
-# Explicit Instruction Coverage Replaces Ambient Primitive Prose
-
-ViteHub no longer treats Source, Capability, or Skill configuration as ambient system-instruction contribution. Sources, Capabilities, and Skills stay as runtime primitives, and structured tool descriptions and schemas stay as tool contracts, but free-form model-facing guidance belongs in Agent Driver Instructions or deterministic imported instruction Markdown with explicit bindings.
-
-This revises the default prompt-composition direction from ADR 0072: Instruction Composition renders the authored prose inside explicit Source, Capability, and Skill coverage blocks, strips the wrapper directives, and records coverage metadata. Configured primitives without explicit coverage produce DevTools metadata warnings instead of silently appending prose. The trade-off is less automatic demo convenience in exchange for one authored owner of model behavior and warnings that make missing coverage obvious.

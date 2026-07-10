@@ -1,12 +1,8 @@
 # ViteHub
 
-Start with `.agents/domain.md`, then use `.agents/CONTEXT-MAP.md` to find the context glossaries relevant to the work.
-
 ## Current Status
 
 ViteHub is still in active development. Optimize changes for the final design, even when that means introducing breaking changes, removing legacy code, or dropping backwards compatibility.
-
-Development-only agent guidance belongs under `.agents/`. Do not add new development-context files under `docs/agents/` or `docs/contexts/`; use `.agents/` instead.
 
 ## Project Direction
 
@@ -56,14 +52,9 @@ Agents need familiar affordances. It is acceptable to simulate filesystems, tool
 - Treat app-level workarounds found in downstream projects as possible upstream ViteHub gaps unless they are clearly app-specific.
 - If a rule should be ignored, say why explicitly before doing it.
 
-## Language Layers
+## Language
 
-Use the repo's domain vocabulary when discussing architecture or behavior:
-
-1. **ViteHub framework language**: use this for `@vitehub/*`, Agent Definitions, Capabilities, Workspaces, Sources, Agent Invocations, framework integrations, runtime behavior, and upstream design.
-2. **Package language**: use this for ownership boundaries inside specific packages. Read the relevant package context under `.agents/contexts/packages/`.
-
-If a needed concept is missing from the glossary, flag that the language needs to be resolved instead of inventing near-synonyms.
+Use ViteHub framework language for `@vitehub/*`, Agent Definitions, Capabilities, Workspaces, Sources, Agent Invocations, framework integrations, runtime behavior, and upstream design. Use package names when discussing implementation ownership inside a specific package.
 
 ## Parallel Work
 
