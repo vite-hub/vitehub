@@ -461,6 +461,9 @@ importers:
       hookable:
         specifier: catalog:unjs
         version: 6.1.1
+      valibot:
+        specifier: catalog:runtime
+        version: 1.4.0(typescript@6.0.2)
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.2)(@vitejs/devtools@0.1.19)(esbuild@0.27.7)(jiti@2.7.0)(publint@0.3.21)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(unrun@0.2.36)(yaml@2.9.0)'

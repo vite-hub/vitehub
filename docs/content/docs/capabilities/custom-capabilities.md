@@ -20,6 +20,11 @@ Use `defineCapability()` so ViteHub validates the id and composes the Capability
 
 ```ts [server/agents/capabilities/tickets.ts]
 import { defineCapability } from '@vite-hub/agent'
+import * as v from '@vite-hub/agent/valibot'
+
+const searchTicketsInput = v.object({
+  query: v.string(),
+})
 
 export function tickets() {
   return defineCapability({
@@ -28,12 +33,16 @@ export function tickets() {
       searchTickets: {
         name: 'searchTickets',
         description: 'Search support tickets by query.',
-        execute: async (input: { query: string }) => searchTickets(input.query),
+        inputSchema: searchTicketsInput,
+        execute: async (input: v.InferOutput<typeof searchTicketsInput>) => searchTickets(input.query),
       },
     },
   })
 }
 ```
+
+Agent tools accept any Standard Schema validator.
+ViteHub ships Valibot at `@vite-hub/agent/valibot` as the zero-install default; use Zod, ArkType, or another validator when the app already has one.
 
 Attach the custom Capability like any official Capability.
 Keep instructions explicit in the Agent Driver so Capability config does not become a hidden prompt bag.
@@ -149,14 +158,14 @@ The public API accepts a static command tree or an invocation resolver on the Ca
 
 ```ts [server/agents/capabilities/inventory-runtime.ts]
 import { defineCapability } from '@vite-hub/agent'
-import { z } from 'zod'
+import * as v from '@vite-hub/agent/valibot'
 
-const inventoryItemsInput = z.object({
-  limit: z.number().int().positive().optional(),
+const inventoryItemsInput = v.object({
+  limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1))),
 })
 
-const inventoryItemsOutput = z.object({
-  items: z.array(z.object({ id: z.string() })),
+const inventoryItemsOutput = v.object({
+  items: v.array(v.object({ id: v.string() })),
 })
 
 export const inventoryRuntime = defineCapability({
@@ -184,7 +193,7 @@ export const inventoryRuntime = defineCapability({
 })
 ```
 
-The `input` and `output.schema` values accept any Standard Schema-compatible validation library. Use Zod, Valibot, ArkType, or the validator your app already uses.
+The `input` and `output.schema` values accept any Standard Schema-compatible validation library.
 
 ViteHub exposes command metadata through the generated CLI-named tool. Keep `instructions.md` focused on policy and use `::capability{key="inventoryRuntime"}` when authored guidance should cover that Capability.
 
