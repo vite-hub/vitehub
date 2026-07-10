@@ -22,6 +22,7 @@ export interface GitHubFile<TKey extends string = string> {
   content?: Uint8Array
   key: TKey
   path: string
+  ref: string
   sha: string | undefined
 }
 

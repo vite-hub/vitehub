@@ -13,7 +13,7 @@ type GitRunner = (args: string[], options?: GitOptions) => Promise<string>
 
 interface GitCheckoutInput<TKey extends string> {
   keyForRepoPath: (path: string) => TKey | undefined
-  ref?: string
+  ref: string
   repo: string
   shouldInclude: (key: TKey) => boolean
   signal?: AbortSignal
@@ -69,7 +69,7 @@ function isGitSparsePattern(pattern: string) {
 
 export function getGitSparsePatterns(root: string, include?: string | string[]): string[] | undefined {
   const patterns = (include ? (Array.isArray(include) ? include : [include]) : [])
-    .map(pattern => normalizeSourcePath(root ? `${root}/${pattern}` : pattern))
+    .map(pattern => [root, normalizeSourcePath(pattern)].filter(Boolean).join("/"))
     .filter(Boolean)
   if (patterns.some(pattern => !isGitSparsePattern(pattern))) return
   if (patterns.length) return [...new Set(patterns)]
@@ -106,6 +106,7 @@ async function readCheckoutFiles<TKey extends string>(
         content: await readFile(path),
         key,
         path: key,
+        ref: input.ref,
         sha: input.sha,
       })
     }
@@ -145,7 +146,7 @@ export async function loadGitCheckoutFiles<TKey extends string>(
       "--filter=blob:none",
       "--no-tags",
       "origin",
-      input.ref ? `+${input.ref}` : "HEAD",
+      `+${input.ref}`,
     ], options)
     await executeGit(["-C", dir, "checkout", "--quiet", "--detach", "FETCH_HEAD"], options)
     const sha = (await executeGit(["-C", dir, "rev-parse", "HEAD"], options)).trim()

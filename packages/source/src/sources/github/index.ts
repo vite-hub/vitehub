@@ -133,8 +133,8 @@ export function github<const TKey extends string = string>(options: GitHubSource
     })
   }
 
-  async function loadArchiveFiles(token = auth, signal?: AbortSignal) {
-    const ref = await getRef(token, signal)
+  async function loadArchiveFiles(token = auth, signal?: AbortSignal, resolvedRef?: string) {
+    const ref = resolvedRef ?? await getRef(token, signal)
     const archive = await fetchGitHubArchive({ ref, repo: options.repo, signal, token })
     return parseGitHubArchive(archive)
       .map((entry): GitHubFile<TKey> | undefined => {
@@ -144,6 +144,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
           content: entry.content,
           key,
           path: key,
+          ref,
           sha: ref,
         }
       })
@@ -151,11 +152,12 @@ export function github<const TKey extends string = string>(options: GitHubSource
   }
 
   async function loadFiles(token = auth, signal?: AbortSignal) {
+    const ref = await getRef(token, signal)
     if (sparsePatterns) {
       try {
         return await loadGitCheckoutFiles({
           keyForRepoPath,
-          ref: configuredRef,
+          ref,
           repo: options.repo,
           shouldInclude,
           signal,
@@ -167,7 +169,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
         if (signal?.aborted) throw error
       }
     }
-    return await loadArchiveFiles(token, signal)
+    return await loadArchiveFiles(token, signal, ref)
   }
 
   const loadedFiles = new Map<string, Promise<GitHubFile<TKey>[]>>()
@@ -211,7 +213,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
         return
       }
       if (shouldResolveMainFallback(error)) {
-        const files = signal ? await loadArchiveFiles(token, signal) : await getFiles(token)
+        const files = signal ? await loadArchiveFiles(token, signal, ref) : await getFiles(token)
         return files.find(file => file.key === normalizedKey)
       }
       throw error
@@ -221,6 +223,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
     return {
       key: normalizedKey,
       path: normalizedKey,
+      ref,
       sha: file.sha || ref,
     }
   }
@@ -269,6 +272,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
       content: new Uint8Array(Buffer.from(file.content.replace(/\s/g, ""), "base64")),
       key: normalizedKey,
       path: normalizedKey,
+      ref,
       sha: file.sha || ref,
     }
   }
@@ -315,13 +319,12 @@ export function github<const TKey extends string = string>(options: GitHubSource
     },
     async getItems() {
       const token = refreshAuth()
-      const ref = await getRef(token)
       return await Promise.all((await getFiles(token)).map(async file => ({
         key: file.key,
         path: file.path,
         content: await fetchContent(file.key, file),
         metadata: {
-          ref,
+          ref: file.ref,
           sha: file.sha,
         },
       })))
@@ -333,7 +336,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
         : await cachedLoadFileMetadata(key, token)
       if (!file) return
       return {
-        ref: await getRef(token, ctx?.abortSignal),
+        ref: file.ref,
         sha: file.sha,
       }
     },
@@ -345,7 +348,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
         path: file.path,
         content: await fetchContent(key, file),
         metadata: {
-          ref: await getRef(token, ctx?.abortSignal),
+          ref: file.ref,
           sha: file.sha,
         },
       }

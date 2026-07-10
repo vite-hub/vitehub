@@ -46,12 +46,14 @@ describe("@vite-hub/source GitHub git materialization", () => {
         content: Buffer.from("{\"id\":1}\n"),
         key: "data/tasks.jsonl",
         path: "data/tasks.jsonl",
+        ref: "main",
         sha: "checkout-sha",
       },
       {
         content: Buffer.from("# Guide\n"),
         key: "docs/guide.md",
         path: "docs/guide.md",
+        ref: "main",
         sha: "checkout-sha",
       },
     ])
@@ -89,6 +91,7 @@ describe("@vite-hub/source GitHub git materialization", () => {
 
   it("only accepts sparse patterns that preserve Source include semantics", () => {
     expect(getGitSparsePatterns("docs", undefined)).toEqual(["docs/**"])
+    expect(getGitSparsePatterns("docs", "/README.md")).toEqual(["docs/README.md"])
     expect(getGitSparsePatterns("", ["README.md", "docs/**", "docs/**"])).toEqual(["README.md", "docs/**"])
     expect(getGitSparsePatterns("dbt", ["models/**/*.sql"])).toBeUndefined()
     expect(getGitSparsePatterns("", ["src/*.{ts,tsx}"])).toBeUndefined()
@@ -107,6 +110,7 @@ describe("@vite-hub/source GitHub git materialization", () => {
 
     await expect(loadGitCheckoutFiles({
       keyForRepoPath: path => path,
+      ref: "main",
       repo: "acme/app",
       shouldInclude: () => true,
       signal: controller.signal,

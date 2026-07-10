@@ -30,6 +30,7 @@ describe("@vite-hub/source GitHub source", () => {
         content: new TextEncoder().encode("# Docs\n"),
         key: "docs/README.md",
         path: "docs/README.md",
+        ref: "main",
         sha: "checkout-sha",
       },
     ])
@@ -56,6 +57,43 @@ describe("@vite-hub/source GitHub source", () => {
       token: "github-token",
     }))
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("pins cached default-ref git materialization to the resolved commit", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      const requestUrl = String(url)
+      if (requestUrl === "https://api.github.com/repos/acme/app") {
+        return jsonResponse({ default_branch: "main" })
+      }
+      if (requestUrl.endsWith("/commits/main")) {
+        return jsonResponse({ sha: "first-commit" })
+      }
+      throw new Error(`Unexpected GitHub request: ${requestUrl}`)
+    }))
+    loadGitCheckoutFiles.mockImplementationOnce(async input => [{
+      content: new TextEncoder().encode("first\n"),
+      key: "README.md",
+      path: "README.md",
+      ref: input.ref,
+      sha: "first-commit",
+    }])
+
+    const source = github({
+      cache: { maxAge: 3600 },
+      include: "README.md",
+      repo: "acme/app",
+    })
+
+    await expect(source.getKeys({ rootDir: process.cwd() })).resolves.toEqual(["README.md"])
+    await expect(source.getItems?.({ rootDir: process.cwd() })).resolves.toEqual([{
+      content: new TextEncoder().encode("first\n"),
+      key: "README.md",
+      metadata: { ref: "first-commit", sha: "first-commit" },
+      path: "README.md",
+    }])
+    expect(loadGitCheckoutFiles).toHaveBeenCalledOnce()
+    expect(loadGitCheckoutFiles).toHaveBeenCalledWith(expect.objectContaining({ ref: "first-commit" }))
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith("/commits/main"))).toHaveLength(1)
   })
 
   it("falls back to the GitHub archive when git materialization fails", async () => {
