@@ -89,8 +89,8 @@ async function writeFixtureFiles(overrides) {
   await mkdir(join(appDir, "server", "agents"), { recursive: true })
   await writeFile(join(appDir, "src", "lib", "reply.ts"), "export const replyMarker = \"netlify-alias-ok\"\n", "utf8")
   await writeFile(join(appDir, "server", "agents", "support.ts"), [
-    "import { defineAgent } from \"@vite-hub/vite/agent\"",
-    "import { chat } from \"@vite-hub/vite/agent/capabilities\"",
+    "import { defineAgent } from \"@vite-hub/agent\"",
+    "import { chat } from \"@vite-hub/agent/capabilities\"",
     "import { replyMarker } from \"@/lib/reply\"",
     "",
     "export default defineAgent({",
@@ -180,8 +180,8 @@ async function createProject({ packageSource, preview }) {
   await writeFixtureFiles(overrides)
 
   const packageSpecs = packageSource === "local"
-    ? [overrides["@vite-hub/vite"]]
-    : [previewSpec("@vite-hub/vite", preview)]
+    ? [overrides["@vite-hub/agent"], overrides["@vite-hub/vite"]]
+    : [previewSpec("@vite-hub/agent", preview), previewSpec("@vite-hub/vite", preview)]
 
   run("pnpm", [
     "add",

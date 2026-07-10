@@ -35,7 +35,6 @@ Each package owns the public APIs, Vite Integration, Provider Output, errors, an
 | Package | Status | Purpose |
 | --- | --- | --- |
 | `@vite-hub/cli` | Public CLI package | Loads Vite config and runs package-owned CLI namespaces. |
-| `@vite-hub/ci` | Support package | Provides CI provider adapters and log extraction utilities. |
 | `@vite-hub/internal` | Internal package | Shared discovery, Provider Output, provisioning, runtime, and build helpers. |
 
 ## Package rules

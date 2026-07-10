@@ -6,7 +6,7 @@ useHead({ titleTemplate: () => "ViteHub" });
 useSeoMeta({
   title: "ViteHub — Agents for any host",
   ogTitle: "ViteHub — Agents for any host · ViteHub",
-  description: "Define any agent, compose it from capabilities, and ship it to any host — built on server primitives, wired with one Vite plugin.",
+  description: "Build portable Agents, or use the same Server Primitives directly in any Vite application.",
 });
 </script>
 

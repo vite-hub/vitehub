@@ -211,6 +211,7 @@ async function writeEventsToUiMessageStream(
     const usageRecord = usageRecordFromStreamChunk(event, events)
     if (usageRecord) options.onUsageRecord?.(usageRecord)
     const type = streamEventType(event)
+    if (!type) continue
     if (type === "text-delta") {
       const text = (event as { delta?: unknown, text?: unknown }).text ?? (event as { delta?: unknown }).delta
       if (typeof text !== "string" || !text) continue
@@ -235,9 +236,9 @@ async function writeEventsToUiMessageStream(
       writer.write({ type: "tool-output-available", toolCallId: tool.id, toolName: tool.name, output: tool.output })
       continue
     }
-    if (type === "data") {
-      const data = (event as { data?: unknown }).data
-      writer.write({ type: uiDataType(data), data })
+    if (type === "data" || type.startsWith("data-")) {
+      const dataEvent = event as { data?: unknown, id?: unknown, transient?: unknown }
+      writer.write({ type: type === "data" ? uiDataType(dataEvent.data) : type, data: dataEvent.data, id: dataEvent.id, ...(typeof dataEvent.transient === "boolean" ? { transient: dataEvent.transient } : {}) })
       continue
     }
     if (type === "finish") {

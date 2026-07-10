@@ -1,11 +1,11 @@
 ---
 title: ViteHub
-description: Agents for any host, composed with server primitives through one Vite plugin.
+description: Portable Agents and Server Primitives for any Vite host.
 ---
 
 # ViteHub
 
-ViteHub provides Agent Definitions and server primitives for Vite applications that need host-independent runtime behavior.
+ViteHub is one platform with two product lanes. Build portable Agents, or use Server Primitives directly from routes, handlers, jobs, and workers.
 
 - [Browse docs](/docs)
 - [Create agents](/docs/agents)

@@ -2083,6 +2083,20 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("preserves prefixed data parts during model conversion", async () => {
+    const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
+
+    expect(toAiSdkModelMessages([
+      createMessage({
+        id: "m1",
+        parts: [{ data: { city: "Seattle" }, type: "data-weather" }],
+        role: "user",
+      }),
+    ])).toEqual([
+      { content: "{\"city\":\"Seattle\"}", role: "user" },
+    ])
+  })
+
   it("drops empty ViteHub messages before model conversion", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 
@@ -5297,9 +5311,13 @@ describe("agent message protocol", () => {
       expect(generateText).toHaveBeenCalledWith({
         model: "agent-title-model",
         prompt: [
-          "Generate a short chat title from the user's first message.",
+          "Summarize the user's request as a short chat title.",
           "Return only the title.",
-          "Use 2-5 words when possible.",
+          "Use 4-8 words when possible.",
+          "Keep it under 80 characters.",
+          "Do not answer the request.",
+          "Use the user's language.",
+          "Do not use emoji.",
           "Ignore chat platform mention/channel markup, bot names, and user IDs.",
           `Use "New Conversation" when the message is too vague.`,
           "",
@@ -5308,6 +5326,41 @@ describe("agent message protocol", () => {
         ].join("\n"),
       })
       expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toEqual({ title: "Generated invoice title" })
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
+  it("cleans generated chat titles without cutting words", async () => {
+    const generateText = vi.fn(async () => ({ text: "Compare Quiet Rainy Morning Cafe Museum Plans" }))
+    vi.doMock("ai", () => ({
+      generateText,
+      isStepCount: vi.fn(count => ({ count })),
+      jsonSchema: vi.fn(schema => schema),
+      ToolLoopAgent: class {
+        async generate() {
+          return { finishReason: "stop", text: "ok" }
+        }
+      },
+    }))
+
+    try {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const finish = vi.fn()
+      const agent = defineAgent({
+        capabilities: [chatTitle({ maxLength: 35 })],
+        driver: { model: "agent-title-model" as never },
+        hooks: {
+          "agent:finish": finish,
+        },
+      })
+
+      await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+        messages: [createMessage({ role: "user", text: "Compare a cafe morning and museum morning" })],
+      })
+
+      expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toEqual({ title: "Compare Quiet Rainy Morning Cafe" })
     }
     finally {
       vi.doUnmock("ai")
@@ -5994,6 +6047,53 @@ describe("agent message protocol", () => {
     expect(messages.at(-1)?.parts.map(part => part.type).sort()).toEqual(["data-chat-title", "text"])
   })
 
+  it("preserves data part ids when async event streams become UI message streams", async () => {
+    const { readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: { run: () => (async function* () {
+          yield { data: { city: "Seattle" }, id: "weather-1", type: "data-weather" }
+          yield { text: "answer", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Weather?" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    expect(messages.at(-1)?.parts.filter(part => part.type === "data-weather")).toEqual([
+      { data: { city: "Seattle" }, id: "weather-1", type: "data-weather" },
+    ])
+  })
+
+  it("keeps transient async data events out of UI message history", async () => {
+    const { readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: { run: () => (async function* () {
+          yield { data: { progress: 50 }, transient: true, type: "data-progress" }
+          yield { text: "answer", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Status?" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    expect(messages.at(-1)?.parts.filter(part => part.type === "data-progress")).toEqual([])
+    expect(messages.at(-1)?.parts).toContainEqual(expect.objectContaining({ text: "answer", type: "text" }))
+  })
+
   it("renders custom async event streams returned from runAgent", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
@@ -6536,7 +6636,7 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       driver: { run: () => (async function* () {
-          yield { data: { title: "Async title", type: "chat-title" }, type: "data" }
+          yield { data: { title: "Async title" }, type: "data-chat-title" }
           yield { text: "hello", type: "text-delta" }
           yield { id: "tool-1", input: { query: "users" }, name: "search", type: "tool-call" }
           yield { id: "tool-1", name: "search", output: "42", type: "tool-result" }
@@ -6554,7 +6654,7 @@ describe("agent message protocol", () => {
 
     expect(messages.at(-1)?.parts.map(part => part.type)).toEqual(["data-chat-title", "text", "tool-search"])
     expect(messages.at(-1)?.parts[0]).toEqual({
-      data: { title: "Async title", type: "chat-title" },
+      data: { title: "Async title" },
       type: "data-chat-title",
     })
   })

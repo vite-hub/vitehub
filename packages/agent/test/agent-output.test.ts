@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 
+import { applyStreamEvent } from "../src/messages.ts"
 import {
   streamAgentOutputToEvents,
   toAgentRunResult,
@@ -196,6 +197,46 @@ describe("agent output helpers", () => {
       { id: undefined, text: "ok", type: "text-delta" },
       { type: "finish" },
     ])
+  })
+
+  it("preserves data-prefixed stream events before text and finish", async () => {
+    const output = (async function* () {
+      yield { data: { title: "Chat title", type: "chat-title" }, transient: true, type: "data-chat-title" }
+      yield { text: "ok", type: "text-delta" }
+      yield { finishReason: "stop", type: "finish" }
+    })()
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { data: { title: "Chat title", type: "chat-title" }, id: undefined, transient: true, type: "data-chat-title" },
+      { text: "ok", type: "text-delta" },
+      { reason: "stop", type: "finish" },
+    ])
+  })
+
+  it("folds data-prefixed stream events into messages", () => {
+    const messages = applyStreamEvent([], {
+      data: { title: "Chat title", type: "chat-title" },
+      type: "data-chat-title",
+    })
+
+    expect(messages).toEqual([{
+      id: expect.any(String),
+      parts: [{ data: { title: "Chat title", type: "chat-title" }, type: "data-chat-title" }],
+      role: "assistant",
+    }])
+  })
+
+  it("does not fold transient data events into messages", () => {
+    expect(applyStreamEvent([], {
+      data: { progress: 50 },
+      transient: true,
+      type: "data-progress",
+    })).toEqual([])
   })
 
   it("does not duplicate an existing raw async iterable finish event", async () => {

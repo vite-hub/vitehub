@@ -274,8 +274,8 @@ export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, strin
   if (type === "text-delta" || type === "text") {
     return { id: value.id as string | undefined, ...optionalMessageId(messageId), ...(typeof value.role === "string" ? { role: value.role as never } : {}), text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
   }
-  if (type === "data") {
-    return { data: value.data, id: value.id as string | undefined, ...optionalMessageId(messageId), type: "data" }
+  if (type === "data" || type.startsWith("data-")) {
+    return { data: value.data, id: value.id as string | undefined, ...optionalMessageId(messageId), ...(typeof value.transient === "boolean" ? { transient: value.transient } : {}), type: type as "data" | `data-${string}` }
   }
   if (type === "tool-input-start") {
     const id = String(value.id || value.toolCallId)

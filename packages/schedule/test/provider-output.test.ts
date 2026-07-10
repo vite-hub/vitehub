@@ -131,13 +131,13 @@ describe("schedule provider output", () => {
     await generateProviderOutputs({
       clientOutDir: "dist/client",
       rootDir,
-      runtimeImport: "@vite-hub/vite/schedule/runtime/static",
+      runtimeImport: "#app/schedule/runtime",
     })
 
     const denoCron = join(rootDir, ".vitehub", "schedule", "deno-cron.mjs")
     const source = await readFile(denoCron, "utf8")
 
-    expect(source).toContain('from "@vite-hub/vite/schedule/runtime/static"')
+    expect(source).toContain('from "#app/schedule/runtime"')
     expect(source).toContain('"cleanup": "0 0 * * *"')
     expect(source).toContain("executeStaticSchedule")
   })

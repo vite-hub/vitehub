@@ -83,11 +83,15 @@ export interface AiSdkWorkspaceFallbackOptions {
   maxToolResults?: number
 }
 
+function isDataMessagePart(part: MessagePart): part is Extract<MessagePart, { type: "data" | `data-${string}` }> {
+  return part.type === "data" || part.type.startsWith("data-")
+}
+
 function toTextModelMessageContent(parts: MessagePart[]): string {
   return parts.map((part) => {
     if (part.type === "text") return part.text
     if (part.type === "error") return part.error
-    if (part.type === "data") return JSON.stringify(part.data)
+    if (isDataMessagePart(part)) return JSON.stringify(part.data)
     if (part.type === "tool-call") return JSON.stringify({ input: part.input, toolCallId: part.id, toolName: part.name, type: "tool-call" })
     if (part.type === "tool-result") return JSON.stringify({ error: part.error, output: part.output, toolCallId: part.id, toolName: part.name, type: "tool-result" })
     if (part.type === "approval-request") return JSON.stringify({ input: part.input, reason: part.reason, toolCallId: part.id, toolName: part.name, type: "approval-request" })

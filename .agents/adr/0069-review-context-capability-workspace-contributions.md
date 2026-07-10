@@ -1,5 +1,5 @@
 ---
-status: superseded by ADR-0076
+status: superseded by ADR-0077
 ---
 
 # Review Context Capability Workspace Contributions
