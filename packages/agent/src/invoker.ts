@@ -47,6 +47,16 @@ function profileIdFromSelector(value: unknown): string | undefined {
   if (isRecord(value)) return stringValue(value.id)
 }
 
+function normalizeAgentEmail(value: unknown): AgentInvoker["email"] {
+  const address = stringValue(isRecord(value) ? value.address : value)?.toLowerCase()
+  if (!address || !/^[^@\s]+@[^@\s]+$/.test(address)) return
+
+  return {
+    address,
+    domain: address.slice(address.indexOf("@") + 1),
+  }
+}
+
 export function normalizeAgentInvoker(value: unknown, label = "Agent Invoker"): AgentInvoker {
   if (!isRecord(value)) {
     throw new TypeError(`[vitehub] ${label} must be an object with a non-empty string id.`)
@@ -63,8 +73,10 @@ export function normalizeAgentInvoker(value: unknown, label = "Agent Invoker"): 
   if (meta !== undefined && !isRecord(meta)) {
     throw new TypeError(`[vitehub] ${label}.meta must be an object when provided.`)
   }
+  const email = normalizeAgentEmail(value.email) || normalizeAgentEmail(meta?.email)
 
   return {
+    ...(email ? { email } : {}),
     id,
     ...(kind ? { kind } : {}),
     ...(displayLabel ? { label: displayLabel } : {}),
@@ -208,12 +220,16 @@ export async function resolveAgentInvoker<
   }
   const defaultInvoker = requestedInvoker || createFallbackAgentInvoker(run)
   const selectedProfile = selectAgentInvokerProfile(profiles, input.context)
-  const selectedInvoker = selectedProfile && defaultInvoker.meta
+  const selectedEmail = selectedProfile?.email || defaultInvoker.email
+  const selectedInvoker = selectedProfile
     ? {
         ...selectedProfile,
-        meta: { ...defaultInvoker.meta, ...selectedProfile.meta },
+        ...(selectedEmail ? { email: selectedEmail } : {}),
+        ...(defaultInvoker.meta || selectedProfile.meta
+          ? { meta: { ...defaultInvoker.meta, ...selectedProfile.meta } }
+          : {}),
       }
-    : selectedProfile
+    : undefined
   const resolved = await normalizedOptions?.resolve?.({
     ...callbackContext,
     context: invocationContext,

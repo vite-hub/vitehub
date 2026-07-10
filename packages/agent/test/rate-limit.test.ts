@@ -178,18 +178,42 @@ describe("rateLimit capability", () => {
         invoker: {
           id: "chat:user_1",
           kind: "chat",
-          meta: { email: "user@example.com", scope: "customer" },
+          meta: { email: "User@Example.COM", scope: "customer" },
         },
         invokerProfileId: "support:acme",
       },
     })).resolves.toEqual({
+      email: {
+        address: "user@example.com",
+        domain: "example.com",
+      },
       id: "support:acme",
       kind: "customer",
       meta: {
         customer: "acme",
-        email: "user@example.com",
+        email: "User@Example.COM",
         scope: "support",
       },
+    })
+  })
+
+  it("keeps profile metadata when selecting without a request invoker", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      invoker: {
+        profiles: [
+          { id: "support:acme", kind: "customer", meta: { customer: "acme" } },
+        ],
+      },
+      driver: { run: context => context.invoker },
+    })
+
+    await expect(runAgent(agent, runtime(), {
+      context: { invokerProfileId: "support:acme" },
+    })).resolves.toEqual({
+      id: "support:acme",
+      kind: "customer",
+      meta: { customer: "acme" },
     })
   })
 

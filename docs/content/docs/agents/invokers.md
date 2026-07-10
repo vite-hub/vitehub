@@ -5,7 +5,7 @@ navigation.order: 27
 icon: i-lucide-user-check
 ---
 
-An Agent Invoker is the trusted caller identity for one Agent Invocation. ViteHub exposes it as `context.invoker` with a stable `id`, optional `kind`, optional display `label`, and application-owned `meta`.
+An Agent Invoker is the trusted caller identity for one Agent Invocation. ViteHub exposes the resolved identity as both the Agent Actor and `context.invoker`, with a stable `id`, optional `kind`, optional display `label`, optional normalized `email`, and application-owned `meta`.
 
 Agent Invokers are not Auth Users, Channels, or Access roles. Auth and Channels may help produce an Agent Invoker, and Access may consume it, but the concepts stay separate.
 
@@ -92,6 +92,12 @@ export const supportInvoker = defineAgentInvoker({
 
 When a selected profile and a request-provided invoker both contain `meta`, ViteHub keeps request metadata and lets profile metadata override matching keys.
 
+## Read normalized email
+
+ViteHub exposes a valid identity email as `actor.email.address` and `actor.email.domain`. It lowercases the address, derives the domain, and omits the field when the address is malformed. This normalization does not verify that the address belongs to the actor.
+
+A valid top-level email takes precedence over `meta.email`. ViteHub falls back to `meta.email` when the top-level value is missing or malformed, and it preserves the original metadata.
+
 ## Use invokers for access
 
 Access decisions should use the Agent Invoker rather than channel identity. A shared channel can contain multiple users with different permissions.
@@ -117,6 +123,8 @@ export const supportAccess = access({
 ```
 
 Keep Access roles inside the Access Capability. Keep the caller identity on the Agent Invoker.
+
+Capability callbacks receive the same resolved identity as `actor` and `invoker`. Access resolvers can use `actor.email?.address` or `actor.email?.domain` without parsing application metadata.
 
 ## Next steps
 

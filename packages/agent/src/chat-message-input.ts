@@ -318,11 +318,11 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   const invoker = triggerInput?.invoker
     ? normalizeAgentInvoker(triggerInput.invoker, "chat.message input.invoker")
     : invokerId
-      ? {
+      ? normalizeAgentInvoker({
           id: invokerId,
           kind: triggerInput?.run?.origin === "devtools" ? "devtools" as const : "chat" as const,
           ...(meta ? { meta } : {}),
-        } satisfies AgentInvoker
+        }, "chat.message input.user")
       : undefined
   return {
     hookArgs,
