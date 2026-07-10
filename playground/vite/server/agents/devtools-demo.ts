@@ -82,12 +82,12 @@ const adapter = createPlaygroundMockAgentAdapter({
       },
     },
     {
-      id: "read-context",
-      input: { path: ".agents/contexts/devtools/CONTEXT.md" },
+      id: "read-guidance",
+      input: { path: "AGENTS.md" },
       name: "read_file",
       output: {
-        bytes: 428,
-        summary: "DevTools Feature metadata is discovered by the hosted shell and Chat owns its DevTools Bridge behavior.",
+        bytes: 512,
+        summary: "ViteHub favors agent-first server primitives, obvious APIs, and code or CLI control.",
       },
     },
   ],

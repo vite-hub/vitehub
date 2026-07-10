@@ -74,7 +74,7 @@ async function runCloudflare() {
     run.pkg("workspace")
     run.blob()
     run.database()
-    log("EXCEPTION (documented): sandbox is live-only - it needs real containers. See .agents/contexts/verification/CONTEXT.md")
+    log("EXCEPTION (runtime): sandbox is live-only - it needs real containers.")
   }
   finally {
     dev.kill("SIGTERM")
@@ -128,8 +128,8 @@ async function runVercel() {
     else {
       log("EXCEPTION (env): database on vercel-local needs a remote-shaped libSQL URL (TURSO_DATABASE_URL, e.g. a local sqld container). Suite NOT run - CI provides an sqld service.")
     }
-    log("EXCEPTION (documented): blob, queue, and workspace are live-only on vercel - @vercel/blob and Vercel Queue have no offline endpoint. Covered locally via cloudflare. See .agents/contexts/verification/CONTEXT.md")
-    log("EXCEPTION (documented): sandbox is live-only - it needs real containers.")
+    log("EXCEPTION (runtime): blob, queue, and workspace are live-only on vercel - @vercel/blob and Vercel Queue have no offline endpoint. Covered locally via cloudflare.")
+    log("EXCEPTION (runtime): sandbox is live-only - it needs real containers.")
   }
   finally {
     bridge.kill("SIGTERM")
