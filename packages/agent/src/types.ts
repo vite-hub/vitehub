@@ -373,6 +373,7 @@ export interface AgentChannelTriggerContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 > extends AgentCallbackContext<TRuntimeConfig> {
   actor?: AgentActor
+  agentCapabilities: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
   channel: AgentChannelDefinition<TRuntimeConfig>
   trigger: {
     channelId: string
@@ -1296,6 +1297,7 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
 
 export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapter?: AgentChatPlatformResolver<TRuntimeConfig>
+  capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
   effects?: AgentChannelDeliveryEffects<TRuntimeConfig>
   identity?: IdentityResolver
   kind: string

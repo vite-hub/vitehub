@@ -726,7 +726,7 @@ function channelDeliveryEffectHandlers<TRuntimeConfig extends AgentRuntimeConfig
   return typeof handlers === "function" ? [handlers] : [...handlers]
 }
 
-function activeDeliveryChannel<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+function activeAgentChannel<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   channels: AgentChannels<TRuntimeConfig> | undefined,
   context: AgentInvocationContextStore,
   run?: AgentRunMetadata,
@@ -744,7 +744,7 @@ async function setChannelDeliverySupportContext<TRuntimeConfig extends AgentRunt
   input: AgentRunInput<CALL_OPTIONS>,
   run?: AgentRunMetadata,
 ): Promise<void> {
-  const active = activeDeliveryChannel(channels, invocationContext, run)
+  const active = activeAgentChannel(channels, invocationContext, run)
   if (!active) return
   if (!channelDeliveryEffectHandlers(active.channel, { kind: "title" }).length) {
     invocationContext.set(messageChannelTitleSupportContextKey, false, { overwrite: true })
@@ -781,7 +781,7 @@ async function applyChannelDeliveryEffectIntents<
   finish?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<void> {
   if (!intents.length) return
-  const active = activeDeliveryChannel(context.channels, context.context, context.run)
+  const active = activeAgentChannel(context.channels, context.context, context.run)
 
   for (const intent of intents) {
     const handlers = active ? channelDeliveryEffectHandlers(active.channel, intent) : []
@@ -1469,11 +1469,18 @@ async function createAgentInvocationContext<
         ? workspaceModule.useWorkspace(workspaceName, workspaceUseOptions ? { ...workspaceUseOptions, mode: "write" } : { mode: "write" })
         : workspaceUseOptions ? workspaceModule.useWorkspace(workspaceName, { ...workspaceUseOptions, mode: "read" }) : workspaceModule.useWorkspace(workspaceName)
       : undefined
-    const capabilityOptions = definition?.capabilities?.length
+    const baseCapabilityOptions = definition?.capabilities?.length
       ? { capabilities: definition.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: definition.hooks as never }
       : workspaceOptions && workspace
         ? { capabilities: workspaceOptions.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: workspaceOptions.hooks as never }
         : undefined
+    const channelCapabilities = activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel.capabilities
+    const capabilityOptions = channelCapabilities?.length
+      ? {
+          capabilities: [...(baseCapabilityOptions?.capabilities || []), ...channelCapabilities],
+          hooks: baseCapabilityOptions?.hooks || definition?.hooks,
+        }
+      : baseCapabilityOptions
     const agentModel = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
     const driverKind = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentDriverKind]
     const resolveCapabilityCli = resolveCapabilityCliRunSurface(definition)
@@ -1954,7 +1961,7 @@ function createFinishDeliveryEffectContext<
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
 ): AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS> {
   const result = event.result === undefined ? undefined : toAgentRunResult(event.result)
-  const active = activeDeliveryChannel(context.channels, context.context, context.run)
+  const active = activeAgentChannel(context.channels, context.context, context.run)
   const reply: AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS>["reply"] = (input, options = {}) => {
     const inputArtifacts = typeof input === "object" && input !== null ? input.artifacts : undefined
     return createReplyDeliveryEffectIntent(input, {

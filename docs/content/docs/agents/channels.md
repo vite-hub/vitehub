@@ -27,6 +27,32 @@ export default defineAgent({
 
 Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`, `telegram()`, `stream()`, and `webChat()`. A synchronous Channel factory that needs no options can be registered directly, so `channels: { stream }` is equivalent to `channels: { stream: stream() }` and resolves once when `defineAgent()` runs. Call the helper when passing options, such as `stream({ messages: { sessions: false } })`. Use `defineChannel(kind, options)` for an app-owned Channel Kind.
 
+## Scope capabilities to a Channel
+
+Put a Capability on a Channel when only invocations from that Channel should receive the ability. Agent-level Capabilities remain active for every invocation; ViteHub appends the active Channel's Capabilities when `run.channelId` or the Agent Trigger identifies that Channel.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
+import { openapi } from '@vite-hub/agent/capabilities'
+import { teams, webChat } from '@vite-hub/agent/channels'
+
+const portalApi = openapi({
+  cli: { name: 'portal-api' },
+  operations: ['purchaseOrders'],
+  spec: 'https://portal.example.com/_openapi.json',
+})
+
+export default defineAgent({
+  channels: {
+    portal: webChat({ capabilities: [portalApi] }),
+    teams: teams(),
+  },
+  run: () => 'ok',
+})
+```
+
+Direct invocations without an active Channel receive only the Agent-level Capabilities. Channel Trigger callbacks can inspect their effective list through `context.agentCapabilities`. Keep authentication and Agent Actor resolution at the route, trigger, or `access()` boundary; Channel-scoped Capabilities select abilities, not trusted identity.
+
 ## Discord
 
 Use `discord({ adapter })` when a Discord bot should receive message events through Chat SDK's Discord adapter. Install `@chat-adapter/discord` in the app when using the built-in adapter options. ViteHub keeps Discord conversation state thread-scoped by default, so separate Discord threads can run independent Agent conversations.
@@ -55,7 +81,7 @@ Set `routes.discordGateway: true` on `hubAgent()` when the deployment needs a ge
 
 | Boundary | Owns | Does not own |
 | --- | --- | --- |
-| Channel | Origin, event, delivery, thread, and message metadata. | Trusted identity, access decisions, command rewriting. |
+| Channel | Origin, event, delivery, thread, message metadata, and origin-scoped abilities. | Trusted identity, access decisions, command rewriting. |
 | Agent Actor | Trusted caller identity for one Agent Invocation. | Transport delivery, webhook shape, UI session state. |
 | Input Command | User-authored command parsing and input rewriting before the Agent Driver runs. | Channel verification, delivery, caller identity. |
 

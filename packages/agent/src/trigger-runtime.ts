@@ -147,6 +147,7 @@ export async function resolveAgentTriggers<
     }
   }
   for (const [channelId, channel] of Object.entries(agentChannelOptions(agent))) {
+    const channelCapabilities = normalizeCapabilities([...capabilities, ...(channel.capabilities || [])]) as AgentCapabilityDefinition<TRuntimeConfig>[]
     const channelWebhooks = normalizeChannelWebhookRegistrations(channelId, channel.kind, channel.webhooks)
     const capabilityWebhookTrigger = capabilityWebhookTriggerForChannel(triggers, channelId, channel.kind)
     if (capabilityWebhookTrigger && channelWebhooks?.length) {
@@ -169,8 +170,8 @@ export async function resolveAgentTriggers<
         input: trigger.input,
         invoke: input => trigger.invoke({
           ...runtimeContext,
+          agentCapabilities: channelCapabilities,
           channel,
-          capabilities: capabilities as never,
           trigger: {
             channelId,
             id,

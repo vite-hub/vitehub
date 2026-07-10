@@ -2836,6 +2836,77 @@ describe("agent message protocol", () => {
     await expect(runAgentTrigger(agent, runtime, "portal.message", { text: "hello" })).resolves.toBe("channel:portal:hello")
   })
 
+  it("adds only the active Channel Capabilities", async () => {
+    const { defineAgent, defineCapability, runAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const triggerCapabilities: string[][] = []
+    const resolvedTools: string[][] = []
+    const shared = defineCapability({
+      cli: {
+        commands: { ping: { run: () => "ok" } },
+        name: "shared",
+      },
+      id: "shared",
+    })
+    const portalApi = openapi({
+      cli: { name: "portal-api" },
+      operations: ["ping"],
+      spec: {
+        paths: {
+          "/ping": {
+            get: {
+              operationId: "ping",
+              responses: { 200: { description: "OK" } },
+            },
+          },
+        },
+        servers: [{ url: "https://portal.example.com" }],
+      },
+    })
+    const agent = defineAgent({
+      capabilities: [shared],
+      channels: {
+        portal: defineChannel("portal", {
+          capabilities: [portalApi],
+          messages: false,
+          triggers: {
+            message: {
+              invoke(context) {
+                triggerCapabilities.push(context.agentCapabilities.map(capability => capability.id))
+                return { input: {}, run: { channelId: context.trigger.channelId, runId: "portal-run" } }
+              },
+            },
+          },
+        }),
+        teams: defineChannel("teams", {
+          messages: false,
+          triggers: {
+            message: {
+              invoke(context) {
+                triggerCapabilities.push(context.agentCapabilities.map(capability => capability.id))
+                return { input: {}, run: { channelId: context.trigger.channelId, runId: "teams-run" } }
+              },
+            },
+          },
+        }),
+      },
+      driver: {
+        run({ tools }) {
+          resolvedTools.push(Object.keys(tools || {}).sort())
+          return "ok"
+        },
+      },
+    })
+    const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+
+    await expect(runAgentTrigger(agent, runtime, "teams.message", {})).resolves.toBe("ok")
+    await expect(runAgent(agent, runtime, {})).resolves.toBe("ok")
+    await expect(runAgentTrigger(agent, runtime, "portal.message", {})).resolves.toBe("ok")
+    expect(triggerCapabilities).toEqual([["shared"], ["shared", "openapi"]])
+    expect(resolvedTools).toEqual([["shared"], ["shared"], ["portal-api", "shared"]])
+  })
+
   it("lets Channels execute Capability-contributed delivery effect intents", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")

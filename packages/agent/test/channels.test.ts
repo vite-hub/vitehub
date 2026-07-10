@@ -490,7 +490,7 @@ describe("agent channels", () => {
 
     const blocked = await trigger.invoke({
       ...context,
-      capabilities: [{ metadata: { commands: { review: { channels: ["other"] } }, trigger: "/" } }],
+      agentCapabilities: [{ metadata: { commands: { review: { channels: ["other"] } }, trigger: "/" } }],
     } as never, { pullRequest })
     if (!(blocked instanceof Response)) throw new Error("Expected blocked GitHub context response.")
     await expect(blocked.json()).resolves.toMatchObject({ reason: "not_command" })
