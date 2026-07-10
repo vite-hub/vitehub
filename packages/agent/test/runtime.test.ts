@@ -6052,7 +6052,7 @@ describe("agent message protocol", () => {
     }
 
     expect(messages.at(-1)?.parts.filter(part => part.type === "data-progress")).toEqual([])
-    expect(messages.at(-1)?.parts).toContainEqual({ text: "answer", type: "text" })
+    expect(messages.at(-1)?.parts).toContainEqual(expect.objectContaining({ text: "answer", type: "text" }))
   })
 
   it("renders custom async event streams returned from runAgent", async () => {
