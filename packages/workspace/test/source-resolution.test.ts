@@ -410,7 +410,6 @@ describe("Workspace Source Resolution", () => {
                 headRef: "feature",
                 repository: "quiver/portal",
                 source: {
-                  ref: "feature",
                   repo: "contributor/portal",
                 },
               }

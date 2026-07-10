@@ -596,6 +596,17 @@ describe("repositoryHostContext", () => {
     expect(skippedContext.get("repositoryHost")).toBeUndefined()
   })
 
+  it("does not synthesize an absent custom context from pull request data", async () => {
+    const { repositoryHostContext } = await import("../src/capabilities.ts")
+    const context = createAgentInvocationContextStore()
+    context.set("pullRequest", {
+      number: 42,
+      repository: "acme/app",
+    })
+
+    await expect(repositoryHostContext.read({ context }, "customRepositoryHost").keys()).resolves.toEqual([])
+  })
+
   it("wraps preseeded repository host context", async () => {
     const { repositoryHostContext } = await import("../src/capabilities.ts")
     const context = createAgentInvocationContextStore()
