@@ -112,7 +112,7 @@ export interface Message {
 
 export type StreamEvent =
   | { id?: string, messageId?: string, role?: MessageRole, text: string, type: "text-delta" }
-  | { data: unknown, id?: string, messageId?: string, type: "data" | `data-${string}` }
+  | { data: unknown, id?: string, messageId?: string, transient?: boolean, type: "data" | `data-${string}` }
   | { id: string, input?: unknown, messageId?: string, name: string, type: "tool-call" | "tool-input-start" }
   | { durationMs?: number, error?: string, id: string, messageId?: string, name: string, output?: unknown, type: "tool-result" }
   | { id: string, input?: unknown, messageId?: string, name: string, reason?: string, type: "approval-request" }
@@ -359,6 +359,9 @@ function findOrCreateMessage(messages: Message[], event: StreamEvent): Message {
 export function applyStreamEvent(messages: Message[], event: StreamEvent): Message[] {
   const next = messages.map(message => ({ ...message, parts: [...message.parts] }))
   if (event.type === "finish" || event.type === "usage") {
+    return next
+  }
+  if ((event.type === "data" || event.type.startsWith("data-")) && event.transient) {
     return next
   }
 

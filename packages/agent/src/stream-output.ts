@@ -237,8 +237,8 @@ async function writeEventsToUiMessageStream(
       continue
     }
     if (type === "data" || type.startsWith("data-")) {
-      const dataEvent = event as { data?: unknown, id?: unknown }
-      writer.write({ type: type === "data" ? uiDataType(dataEvent.data) : type, data: dataEvent.data, id: dataEvent.id })
+      const dataEvent = event as { data?: unknown, id?: unknown, transient?: unknown }
+      writer.write({ type: type === "data" ? uiDataType(dataEvent.data) : type, data: dataEvent.data, id: dataEvent.id, ...(typeof dataEvent.transient === "boolean" ? { transient: dataEvent.transient } : {}) })
       continue
     }
     if (type === "finish") {

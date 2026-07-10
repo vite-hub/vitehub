@@ -201,7 +201,7 @@ describe("agent output helpers", () => {
 
   it("preserves data-prefixed stream events before text and finish", async () => {
     const output = (async function* () {
-      yield { data: { title: "Chat title", type: "chat-title" }, type: "data-chat-title" }
+      yield { data: { title: "Chat title", type: "chat-title" }, transient: true, type: "data-chat-title" }
       yield { text: "ok", type: "text-delta" }
       yield { finishReason: "stop", type: "finish" }
     })()
@@ -212,7 +212,7 @@ describe("agent output helpers", () => {
     }
 
     expect(events).toEqual([
-      { data: { title: "Chat title", type: "chat-title" }, id: undefined, type: "data-chat-title" },
+      { data: { title: "Chat title", type: "chat-title" }, id: undefined, transient: true, type: "data-chat-title" },
       { text: "ok", type: "text-delta" },
       { reason: "stop", type: "finish" },
     ])
@@ -229,6 +229,14 @@ describe("agent output helpers", () => {
       parts: [{ data: { title: "Chat title", type: "chat-title" }, type: "data-chat-title" }],
       role: "assistant",
     }])
+  })
+
+  it("does not fold transient data events into messages", () => {
+    expect(applyStreamEvent([], {
+      data: { progress: 50 },
+      transient: true,
+      type: "data-progress",
+    })).toEqual([])
   })
 
   it("does not duplicate an existing raw async iterable finish event", async () => {

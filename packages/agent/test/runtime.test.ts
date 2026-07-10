@@ -6032,6 +6032,29 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("keeps transient async data events out of UI message history", async () => {
+    const { readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: { run: () => (async function* () {
+          yield { data: { progress: 50 }, transient: true, type: "data-progress" }
+          yield { text: "answer", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Status?" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    expect(messages.at(-1)?.parts.filter(part => part.type === "data-progress")).toEqual([])
+    expect(messages.at(-1)?.parts).toContainEqual({ text: "answer", type: "text" })
+  })
+
   it("renders custom async event streams returned from runAgent", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
