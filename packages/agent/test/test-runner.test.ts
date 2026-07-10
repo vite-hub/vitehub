@@ -5,6 +5,19 @@ const list = vi.fn()
 const inspectTools = vi.fn(() => ({}))
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, text: string, usage?: unknown }>>(async () => ({ finishReason: "stop", text: "ok" })))
+const workflowMock = vi.hoisted(() => {
+  const run = vi.fn(() => "workflow")
+  return { create: vi.fn(() => ({ run })), run }
+})
+
+vi.mock("@vite-hub/workflow", () => ({
+  createWorkflow: workflowMock.create,
+}))
+
+vi.mock("@vite-hub/workflow/runtime/state", () => ({
+  getInlineWorkflowDefinitions: vi.fn(() => new Map()),
+  runWithWorkflowRuntimeEvent: vi.fn((_event, callback) => callback()),
+}))
 
 vi.mock("ai", () => ({
   jsonSchema: vi.fn(schema => schema),
@@ -45,6 +58,8 @@ describe("agent test runner", () => {
     list.mockReset()
     list.mockResolvedValue([])
     readFile.mockReset()
+    workflowMock.create.mockClear()
+    workflowMock.run.mockClear()
   })
 
   it("creates reusable runtime contexts with a default memo cache", async () => {
@@ -212,6 +227,29 @@ describe("agent test runner", () => {
     })
 
     await expect(runner.run({ prompt: "hello" })).resolves.toMatchObject({ text: "vite" })
+  })
+
+  it("runs workflow-backed Agent Definitions inline only in tests", async () => {
+    const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+    const { createAgentRuntimeContext, createAgentTestRunner } = await import("../src/test.ts")
+    const agent = defineAgent({
+      driver: { run: () => "inline" },
+      runtime: workflow("support"),
+    })
+
+    await expect(createAgentTestRunner(agent, {
+      runtimeConfig: {},
+    }).run({ prompt: "hello" })).resolves.toMatchObject({ text: "inline" })
+    expect(workflowMock.create).not.toHaveBeenCalled()
+    expect(workflowMock.run).not.toHaveBeenCalled()
+
+    await expect(runAgent(agent, createAgentRuntimeContext({
+      runtime: "unknown",
+      runtimeConfig: {},
+      waitUntil: vi.fn(),
+    }), { prompt: "hello" })).resolves.toBe("workflow")
+    expect(workflowMock.create).toHaveBeenCalledOnce()
+    expect(workflowMock.run).toHaveBeenCalledOnce()
   })
 
   it("stops test runs after repeated workspace inspection guardrails", async () => {
