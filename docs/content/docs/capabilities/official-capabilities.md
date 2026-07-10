@@ -29,9 +29,9 @@ import {
   memory,
   observability,
   openapi,
-  pullRequestContext,
   rateLimit,
   repositoryHost,
+  repositoryHostContext,
   sandbox,
   schedule,
   skills,
@@ -54,8 +54,8 @@ import {
 | Browser automation | [`browser()`](/docs/capabilities/browser) | The Agent needs headless browser evidence through the global `bash` tool and an included browser skill file. |
 | Workspace files | [`workspaceShell()`](/docs/capabilities/workspace-shell) | The Agent should inspect or edit Workspace files, or run allowlisted Workspace-session commands, through constrained Workspace tools. |
 | Git source history | [`git()`](/docs/capabilities/git) | The Agent needs bounded Git source-history inspection or local Workspace Session git state selection. |
-| Pull Request context | [`pullRequestContext()`](/docs/capabilities/pull-request-context) | A trigger or host already knows the current Change Request and the Agent should inspect that normalized context in the Workspace. |
 | Repository host | [`repositoryHost()`](/docs/capabilities/repository-host) | The Agent needs provider-hosted repository, Change Request, issue, comment, check, or status data through a configured Repository Host client. |
+| Repository host context | [`repositoryHostContext()`](/docs/capabilities/repository-host-context) | A trigger or host knows the current issue or Change Request and runtime code should read related context lazily. |
 | Skills file | [`skills()`](/docs/capabilities/skills) | The Agent requires a Workspace skill file at invocation time. |
 | KV storage | [`kv()`](/docs/capabilities/kv) | The Agent needs scoped key-value read or edit tools. |
 | Blob storage | [`blob()`](/docs/capabilities/blob) | The Agent needs scoped object read or edit tools. |

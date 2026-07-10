@@ -132,6 +132,15 @@ function githubResolutionDefaults(options: GitHubResolvedSourceOptions, ctx: Wor
 function pullRequestSource(value: unknown): { ref?: string, repo?: string } | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return
   const flatRef = (value as { headRef?: unknown }).headRef
+  const directSource = (value as { source?: unknown }).source
+  if (directSource && typeof directSource === "object" && !Array.isArray(directSource)) {
+    const ref = (directSource as { ref?: unknown }).ref
+    const repo = (directSource as { repo?: unknown }).repo
+    if (typeof repo === "string" && repo) {
+      const resolvedRef = typeof ref === "string" && ref ? ref : typeof flatRef === "string" && flatRef ? flatRef : undefined
+      return { ...(resolvedRef ? { ref: resolvedRef } : {}), repo }
+    }
+  }
   const flatRepo = (value as { repository?: unknown }).repository
   if (typeof flatRepo === "string" && flatRepo) {
     return {

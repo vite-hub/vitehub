@@ -392,6 +392,47 @@ describe("Workspace Source Resolution", () => {
     })
   })
 
+  it("prefers explicit source metadata from flat pull request context", async () => {
+    const definition: WorkspaceDefinition = {
+      name: "review",
+      sources: {
+        portal: github(() => ({
+          root: "portal",
+        })),
+      },
+    }
+    const resolved = await resolveWorkspaceSources(definition, {
+      invocation: {
+        context: {
+          entries: () => new Map<string, unknown>().entries(),
+          get: (id: string) => id === "pullRequest"
+            ? {
+                headRef: "feature",
+                repository: "quiver/portal",
+                source: {
+                  repo: "contributor/portal",
+                },
+              }
+            : undefined,
+          has: (id: string) => id === "pullRequest",
+          toJSON: () => ({}),
+        },
+      },
+    })
+    const [portal] = normalizeWorkspaceSources(resolved.sources)
+
+    expect(portal).toMatchObject({
+      source: {
+        fingerprint: {
+          source: {
+            ref: "feature",
+            repo: "contributor/portal",
+          },
+        },
+      },
+    })
+  })
+
   it("resolves fetch sources from fetch resolvers", async () => {
     const resolveFetch = vi.fn(({ selectedWorkspaceScope }) => ({
       body: { customer: selectedWorkspaceScope?.name },

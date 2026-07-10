@@ -2037,82 +2037,6 @@ describe("defineAgent workspace option", () => {
     }))
   })
 
-  it("keeps generated capability source files selected for Harness Workspace Sessions", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const { access, pullRequestContext } = await import("../src/capabilities.ts")
-    const harnessWorkspaceSession = { close: vi.fn() }
-    const startSession = vi.fn(async () => ({ close: vi.fn() }))
-    useWorkspace.mockReturnValueOnce({
-      diff,
-      fs: { exists, list, readFile, stat, writeFile },
-      snapshot,
-      startSession,
-      sync: vi.fn(),
-      tools: Object.assign(tools, {
-        inspect: inspectTools,
-        none: vi.fn(() => ({})),
-        readonly: inspectTools,
-        write: writeTools,
-      }),
-    } as unknown as WritableWorkspaceFacade)
-    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
-    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
-    exists.mockImplementation(async (path: string) => path === "pull-request-context/context.md")
-
-    const agent = withAgentDefaults(defineAgent({
-      capabilities: [
-        access({
-          workspace: {
-            defaultScope: "public",
-            scopes: {
-              public: { paths: ["public"] },
-            },
-          },
-        }),
-        pullRequestContext({
-          context: {
-            number: 441,
-            repository: "vite-hub/vitehub",
-          },
-        }),
-      ],
-      driver: {
-        harness: { provider: "codex" },
-      },
-      workspace: { mode: "write" },
-    }), { workspace: "docs" })
-
-    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
-      finishReason: "stop",
-      text: "ok",
-    })
-
-    const scopedWorkspace = prepareHarnessWorkspaceSession.mock.calls[0]?.[0] as Record<string, unknown>
-    expect(scopedWorkspace.startSession).toBeTypeOf("function")
-    const forgedReceiver = {
-      fs: {
-        exists: vi.fn(async () => true),
-      },
-    }
-    await expect((scopedWorkspace.startSession as (this: typeof forgedReceiver, options?: { paths?: string[] }) => Promise<unknown>).call(forgedReceiver, {
-      paths: ["private/secret.md"],
-    })).rejects.toThrow("Workspace path does not exist")
-    expect(forgedReceiver.fs.exists).not.toHaveBeenCalled()
-    exists.mockImplementation(async (path: string) => path === "pull-request-context" || path === "pull-request-context/context.md")
-    const callsBeforeParentRequest = startSession.mock.calls.length
-    await expect((scopedWorkspace.startSession as (options?: { paths?: string[] }) => Promise<unknown>)({
-      paths: ["pull-request-context"],
-    })).rejects.toThrow("Workspace path does not exist")
-    expect(startSession).toHaveBeenCalledTimes(callsBeforeParentRequest)
-    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
-      abortSignal: undefined,
-      ignoreWriteBackPaths: [],
-      paths: ["public", "AGENTS.md", "CLAUDE.md", "pull-request-context/context.md", "pull-request-context/context.json"],
-      session: harnessFileSession,
-      sessionWorkDir: "/workspace/codex-session",
-    })
-  })
-
   it("auto-commits write-mode workspace changes when rules request it", async () => {
     diff.mockResolvedValueOnce({
       entries: [{ after: { type: "file" }, path: "inbox/audio.md", type: "added" }],
@@ -2233,15 +2157,17 @@ describe("defineAgent workspace option", () => {
       message: "chore: archive review",
       paths: ["review/summary.md"],
     })
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const { pullRequestContext } = await import("../src/capabilities.ts")
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
 
     const agent = withAgentDefaults(defineAgent({
       capabilities: [
-        pullRequestContext({
-          rules: {
-            "review/**": { write: true },
-          },
+        defineCapability({
+          id: "review-rules",
+          workspace: () => ({
+            rules: {
+              "review/**": { write: true },
+            },
+          }),
         }),
       ],
       workspace: {
@@ -4338,8 +4264,8 @@ describe("defineAgent workspace option", () => {
   })
 
   it("clears Capability Workspace Contribution source coverage in resolved DevTools metadata", async () => {
-    const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
-    const { access, pullRequestContext } = await import("../src/capabilities.ts")
+    const { resolveAgentDevtoolsMetadata, defineAgent, defineCapability } = await import("../src/index.ts")
+    const { access } = await import("../src/capabilities.ts")
     exists.mockResolvedValue(false)
     list.mockResolvedValue([])
     useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
@@ -4364,18 +4290,21 @@ describe("defineAgent workspace option", () => {
             },
           },
         }),
-        pullRequestContext({
-          sources: {
-            pullRequest: {
-              mount: "pull-request",
-              async getKeys() {
-                return []
-              },
-              async getItem(key: string) {
-                return { content: "", key }
+        defineCapability({
+          id: "review-context",
+          workspace: () => ({
+            sources: {
+              pullRequest: {
+                mount: "pull-request",
+                async getKeys() {
+                  return []
+                },
+                async getItem(key: string) {
+                  return { content: "", key }
+                },
               },
             },
-          },
+          }),
         }),
       ],
       driver: {
@@ -4386,14 +4315,12 @@ describe("defineAgent workspace option", () => {
           "Use Access for review scope.",
           "::",
           "",
-          "::capability{key=\"pullRequestContext\"}",
+          "::capability{key=\"reviewContext\"}",
           "Use pull request context for review metadata.",
           "::",
           "",
-          "::source{key=\"pullRequestContext\"}",
           "::source{key=\"pullRequest\"}",
           "Use this source for pull-request review material.",
-          "::",
           "::",
         ].join("\n"),
         model: {} as never,
