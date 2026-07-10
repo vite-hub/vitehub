@@ -1,6 +1,6 @@
 import {
   defineAgent,
-  runAgent,
+  runAgentInline,
   withAgentDefaults,
 } from "./index.ts"
 import { resolveAgentUsageRecord } from "./agent-output.ts"
@@ -377,7 +377,7 @@ export function createAgentTestRunner<
         waitUntil: options.waitUntil || createWaitUntil(),
       })
 
-      const raw = await runAgent<TRuntimeConfig, CALL_OPTIONS>(
+      const raw = await runAgentInline<TRuntimeConfig, CALL_OPTIONS>(
         withTestFinishCapture(preparedAgent, value => {
           finishEvent = value as AgentFinishEvent
         }),
