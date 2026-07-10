@@ -74,7 +74,7 @@ const highlightedSnippets = [snippetA, snippetB, snippetC];
       </ul>
 
       <div class="mt-10 grid gap-4 lg:grid-cols-3">
-        <article v-for="(snippet, index) in snippets" :key="snippet.path" class="flex flex-col">
+        <article v-for="(snippet, index) in snippets" :key="snippet.path" class="flex min-w-0 flex-col">
           <div class="flex items-baseline justify-between gap-2">
             <h3 class="text-base font-medium text-highlighted">{{ snippet.label }}</h3>
             <span v-if="snippet.poweredBy" class="shrink-0 font-mono text-xs text-dimmed">Powered by {{ snippet.poweredBy }}</span>

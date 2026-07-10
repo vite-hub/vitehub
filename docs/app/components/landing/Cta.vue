@@ -1,8 +1,8 @@
 <script setup lang="ts">
 const pillars = [
-  { icon: "i-lucide-blocks", label: "Composable" },
+  { icon: "i-lucide-bot", label: "Agents" },
+  { icon: "i-lucide-server-cog", label: "Server Primitives" },
   { icon: "i-lucide-globe", label: "Provider-agnostic" },
-  { icon: "i-simple-icons-vite", label: "Just a Vite plugin" },
 ] as const;
 </script>
 
@@ -10,25 +10,25 @@ const pillars = [
   <section class="border-t border-default bg-muted/30">
     <div class="mx-auto max-w-7xl px-4 py-20 text-center sm:px-8 lg:px-12 lg:py-28">
       <h2 class="mx-auto max-w-[24ch] text-4xl font-semibold tracking-tight text-highlighted text-balance sm:text-5xl">
-        One plugin. Any agent. Any host.
+        Build Agents. Keep the server portable.
       </h2>
       <p class="mx-auto mt-5 max-w-[46ch] text-lg text-muted text-pretty">
-        Install ViteHub, define an agent, and ship the same code anywhere.
+        Start with one product lane. Compose the other only when your application needs it.
       </p>
 
       <div class="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
         <NuxtLink
-          to="/docs/getting-started/installation"
+          to="/docs/getting-started/first-agent"
           class="inline-flex items-center justify-center gap-2 rounded-sm bg-inverted px-4 py-2.5 text-sm font-medium text-inverted transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
         >
           <UIcon name="i-lucide-rocket" class="size-4 shrink-0" aria-hidden="true" />
-          Start building
+          Build an Agent
         </NuxtLink>
         <NuxtLink
-          to="/docs"
+          to="/docs/getting-started/first-server-primitive"
           class="inline-flex items-center justify-center gap-2 rounded-sm border border-default px-4 py-2.5 text-sm font-medium text-highlighted transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
         >
-          Read the docs
+          Use Server Primitives
         </NuxtLink>
       </div>
 

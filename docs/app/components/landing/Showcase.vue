@@ -27,7 +27,7 @@ export default defineConfig({
 
 const installAudiences = [
   { label: "For humans", value: "humans", icon: "i-lucide-user" },
-  { label: "For agents", value: "agents", icon: "i-lucide-bot" },
+  { label: "For coding agents", value: "agents", icon: "i-lucide-bot" },
 ] as const;
 
 const packageManagers = [

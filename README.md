@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  Server primitives for any host.
+  Portable Agents. Server Primitives for any host.
 </p>
 
 <p align="center">
@@ -20,17 +20,23 @@
   <a href="https://vitehub.dev/docs/server-primitives">Server primitives</a>
 </p>
 
-ViteHub gives Vite apps portable server primitives and Agent Definitions. Use primitives directly from routes, handlers, jobs, and workers; expose them to agents only through explicit Capabilities when model behavior needs controlled access.
+ViteHub is one platform with two product lanes. ViteHub Agents defines, invokes, and deploys server-side Agents. ViteHub Server Primitives provide ordinary Vite applications with portable state and work across hosts.
 
-## Server Primitives and Agents
+## Choose a product lane
 
-Server primitives give app code stable Runtime Helpers for auth, environment values, storage, queues, workflows, schedules, sandboxes, workspace files, and provider output.
+### Agents
 
-Agents are named server-side actors. Each Agent Definition picks an Agent Driver, receives Agent Invocations, can read explicit Workspace context, and gains abilities through Capabilities.
+Agents are named server-side actors. Each Agent Definition picks an Agent Driver, receives Agent Invocations, can read explicit Workspace context, and gains abilities through Capabilities. Start with [your first Agent](https://vitehub.dev/docs/getting-started/first-agent).
+
+### Server Primitives
+
+Server Primitives give app code stable Runtime Helpers for auth, environment values, storage, queues, workflows, schedules, sandboxes, workspace files, and Provider Output. They work without an Agent Definition. Start with [your first Server Primitive](https://vitehub.dev/docs/getting-started/first-server-primitive).
+
+Agents may compose Server Primitives. Server Primitives never require Agents.
 
 ## Installation
 
-ViteHub starts with the Vite preset. Add direct primitive, Agent Package, or provider packages only when your app imports them.
+The current full-platform setup starts with the Vite preset. Focused guides use the package that owns the Agent or Server Primitive surface.
 
 ```bash
 pnpm add @vite-hub/vite
