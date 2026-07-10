@@ -880,7 +880,8 @@ export function readRepositoryHostContext(input: unknown, contextKey: string = d
   const store = contextReader(input)
   if (store) {
     const value = store.get(contextKey)
-    return isAsyncRecord(value) ? value : staticRepositoryHostRecord(value)
+    if (isAsyncRecord(value)) return value
+    return staticRepositoryHostRecord(value ?? (contextKey === defaultRepositoryHostContextKey ? input : undefined))
   }
   const value = isRecord(input) ? input[contextKey] : undefined
   if (isAsyncRecord(value)) return value
