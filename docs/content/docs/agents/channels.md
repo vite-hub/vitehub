@@ -90,7 +90,11 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-The `run` fields are first-class Agent Run metadata, not Chat context. They help DevTools, traces, and finish hooks explain where the invocation came from.
+The `run` fields are first-class Agent Run metadata, not legacy Chat context. They help DevTools, traces, and finish hooks explain where the invocation came from.
+
+Message-shaped Channels also record a canonical `channel` Agent Invocation Context Value. Capability callbacks, dynamic model metadata callbacks, and Source resolvers receive it directly as `context.channel`; instruction composition can read it as `context.channel`. It contains the current `message`, `meta`, `run`, `session`, and `user` values when available.
+
+The legacy `chat` context value remains available through `context.get('chat')` for compatibility, but it does not receive Agent Run metadata. Augment `ViteHubAgentChannelMeta` and `ViteHubAgentChannelUser` in application code to type app-owned metadata and user fields.
 
 ## Admit web chat requests
 

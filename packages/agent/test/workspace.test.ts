@@ -1627,7 +1627,7 @@ describe("defineAgent workspace option", () => {
       },
       workspace: {
         sources: {
-          private: { mount: "private", name: "private" } as never,
+          private: { mount: "private", name: "private", scopes: ["private"] } as never,
           public: { mount: "public", name: "public" } as never,
         },
       },
@@ -3201,6 +3201,30 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("passes direct channel context to dynamic AI SDK model callbacks", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const resolveModel = vi.fn((metadata: { channel?: { meta?: { customer?: string } } }) => ({
+      id: `model-${metadata.channel?.meta?.customer}`,
+    }))
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      driver: { model: resolveModel as never },
+    }), { workspace: "docs" })
+
+    await agent.run!({
+      ...(context() as Record<string, unknown>),
+      input: {
+        context: { channel: { meta: { customer: "acme" } } },
+        messages: [],
+      },
+    } as never)
+
+    expect(resolveModel).toHaveBeenCalledWith(expect.objectContaining({
+      channel: { meta: { customer: "acme" } },
+    }))
+    expect(agentSettings.at(-1)?.model).toEqual({ id: "model-acme" })
+  })
+
   it("passes provider-defined capability tools to AI SDK agents", async () => {
     const { webSearch } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
@@ -3899,8 +3923,8 @@ describe("defineAgent workspace option", () => {
 
   it("resolves dynamic model metadata for DevTools", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
-    const resolveModel = vi.fn((context: { invoker: { kind?: string } }) => ({
-      modelId: `test/${context.invoker.kind || "unknown"}`,
+    const resolveModel = vi.fn((context: { channel?: { meta?: { customer?: string } }, invoker: { kind?: string } }) => ({
+      modelId: `test/${context.invoker.kind || "unknown"}/${context.channel?.meta?.customer || "unknown"}`,
       provider: "test",
     }))
     const agent = withAgentDefaults(defineAgent({
@@ -3911,6 +3935,7 @@ describe("defineAgent workspace option", () => {
     expect(await resolveAgentDevtoolsMetadata(agent, {
       input: {
         context: {
+          channel: { meta: { customer: "acme" } },
           invoker: {
             id: "devtools",
             kind: "devtools",
@@ -3923,13 +3948,15 @@ describe("defineAgent workspace option", () => {
           kind: "model",
           model: {
             dynamic: true,
-            id: "test/devtools",
+            id: "test/devtools/acme",
             provider: "test",
           },
         },
       },
     })
-    expect(resolveModel).toHaveBeenCalledOnce()
+    expect(resolveModel).toHaveBeenCalledWith(expect.objectContaining({
+      channel: { meta: { customer: "acme" } },
+    }))
   })
 
   it("marks dynamic DevTools instruction metadata without resolving it", async () => {
@@ -4180,8 +4207,8 @@ describe("defineAgent workspace option", () => {
       },
       workspace: {
         sources: {
-          customers: { mount: "customers", name: "customers" } as never,
-          portal: { mount: "portal", name: "portal" } as never,
+          customers: { mount: "customers", name: "customers", scopes: ["support"] } as never,
+          portal: { mount: "portal", name: "portal", scopes: ["support"] } as never,
         },
       },
       capabilities: [

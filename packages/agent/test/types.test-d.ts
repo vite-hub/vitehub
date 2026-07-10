@@ -12,6 +12,18 @@ import type { MCPClient } from "@ai-sdk/mcp"
 import { fetch as fetchSource, file, github as githubSource, type ReadonlyWorkspaceFacade } from "@vite-hub/workspace"
 import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, PullRequestContextValue, RepositoryHostClient, RepositoryHostContextValue, TranscriptionResult } from "../src/capabilities.ts"
 
+declare global {
+  interface ViteHubAgentInvocationContextValues {
+    "chat.secret": string
+  }
+  interface ViteHubAgentChannelMeta {
+    customer?: string
+  }
+  interface ViteHubAgentChannelUser {
+    email?: string
+  }
+}
+
 describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
     const openAPISpec = {
@@ -1194,6 +1206,25 @@ describe("agent public types", () => {
       driver: { model: {} as never },
     })
 
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: file("README.md"),
+          ingestion: githubSource({ repo: "acme/ingestion", scopes: ["technical"] as const }),
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            resolve() {
+              return "technical" as const
+            },
+          },
+        }),
+      ],
+      driver: { model: {} as never },
+    })
+
     // @ts-expect-error source-local scopes are checked against access workspace scope keys
     defineAgent({
       workspace: {
@@ -1461,11 +1492,21 @@ describe("agent public types", () => {
         }),
         {
           id: "support-audience",
-          prepare({ actor, invoker }) {
+          prepare({ actor, channel, invoker }) {
+            expectTypeOf(channel?.meta?.customer).toEqualTypeOf<string | undefined>()
+            expectTypeOf(channel?.run?.origin).toEqualTypeOf<string | undefined>()
+            expectTypeOf(channel?.user?.email).toEqualTypeOf<string | undefined>()
             expectTypeOf(actor.id).toEqualTypeOf<string>()
             expectTypeOf(invoker.id).toEqualTypeOf<string>()
           },
         },
+        defineCapability({
+          id: "internal-context-filter",
+          prepare(context) {
+            // @ts-expect-error legacy namespaced values stay on context.context
+            expectTypeOf(context["chat.secret"]).toBeString()
+          },
+        }),
       ],
       hooks: {
         "agent:finish"({ actor, invoker }) {
