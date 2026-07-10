@@ -20,6 +20,7 @@ import type {
   AgentChatFinishExtension,
   AgentChatMessage,
   AgentChannelDefinition,
+  AgentChannelTriggerContext,
   AgentChannelDeliveryEffectContext,
   AgentChannelDeliveryEffectIntent,
   AgentChannelDeliveryEffects,
@@ -84,6 +85,7 @@ export type {
 } from "./types.ts"
 export interface AgentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapter?: AgentChannelDefinition<TRuntimeConfig>["adapter"]
+  capabilities?: AgentChannelDefinition<TRuntimeConfig>["capabilities"]
   effects?: AgentChannelDefinition<TRuntimeConfig>["effects"]
   identity?: AgentChannelDefinition<TRuntimeConfig>["identity"]
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
@@ -499,12 +501,6 @@ function parseSlashCommand(body: string): { args: string, command: `/${string}` 
   }
 }
 
-type AgentChannelTriggerContextWithCapabilities<TRuntimeConfig extends AgentRuntimeConfig> =
-  AgentCallbackContext<TRuntimeConfig> & {
-    capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
-    trigger?: { channelId?: string }
-  }
-
 type InputCommandsMetadata = {
   commands: Record<string, { channels?: readonly string[] } | unknown>
   trigger: string
@@ -516,12 +512,12 @@ function inputCommandsMetadata(value: unknown): InputCommandsMetadata | undefine
 }
 
 function declaredInputCommand<TRuntimeConfig extends AgentRuntimeConfig>(
-  context: AgentCallbackContext<TRuntimeConfig>,
+  context: AgentChannelTriggerContext<TRuntimeConfig>,
   command: string,
 ): boolean | undefined {
   let sawMatchingTrigger = false
-  const channelId = (context as AgentChannelTriggerContextWithCapabilities<TRuntimeConfig>).trigger?.channelId
-  for (const capability of (context as AgentChannelTriggerContextWithCapabilities<TRuntimeConfig>).capabilities || []) {
+  const channelId = context.trigger.channelId
+  for (const capability of context.agentCapabilities || []) {
     const metadata = inputCommandsMetadata(capability.metadata)
     if (!metadata || !command.startsWith(metadata.trigger)) continue
     const name = command.slice(metadata.trigger.length)
