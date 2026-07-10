@@ -184,8 +184,12 @@ _Avoid_: Provider SDK passthrough, raw API client, gh wrapper
 A provider-hosted proposed repository change, called a pull request by GitHub and Bitbucket and a merge request by GitLab.
 _Avoid_: PR as canonical term, MR as canonical term, change
 
+**Repository Host Context Capability**:
+A data-only Capability that records lazy issue and Change Request facts in Agent Invocation Context.
+_Avoid_: Repository Host Capability, Pull Request Context Capability, Workspace Source, rendered context
+
 **Pull Request Context Capability**:
-A Capability for pull-request and review product events that contributes Agent Triggers, typed Agent Invocation Context Values, and lazy Workspace Sources for review material.
+A Capability for pull-request and review product events that contributes Agent Triggers and normalized pull-request facts in Agent Invocation Context.
 _Avoid_: prSummary, Repository Host Capability, markdown renderer, GitHub publication sink
 
 **Transcription**:
@@ -373,10 +377,10 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - **Change Request** file-list reads are Repository Host reads; repository source diffs and git history still belong to Source, Workspace Source, or Git-aware capabilities.
 - **Change Request** is the cross-provider term for pull-request and merge-request shaped objects; provider-native names stay in provider metadata.
 - Repository Host Capability write mode starts with narrow comment and reaction effects; approval, merge, branch update, status/check write, issue edit, repository settings, content, secrets, workflow, and raw API mutations need separate future design.
-- A **Pull Request Context Capability** owns trusted review intake, not model-facing repository collaboration tools or publication sinks.
-- A **Pull Request Context Capability** can contribute Sources such as `pullRequest`, `pullRequestFiles`, `pullRequestReviews`, and `pullRequestChecks`, but those Sources remain Workspace inputs governed by Workspace Scope and Workspace Rules.
-- A **Pull Request Context Capability** should keep full review material in lazy Live Sources or Request-Only Sources and keep only small trusted pull-request metadata in Agent Invocation Context Values.
-- A **Pull Request Context Capability** can require explicit Workspace Rules for artifact writes such as `artifacts/review/**`, but it cannot grant new Capabilities or broaden Access-selected Workspace Scope.
+- A **Pull Request Context Capability** owns trusted pull-request event intake and normalized pull-request facts, not model-facing repository collaboration tools, Workspace Sources, or publication sinks.
+- A **Repository Host Context Capability** exposes issue and Change Request facts to trusted runtime code without choosing a model-facing presentation or Workspace materialization.
+- A **Repository Host Context Capability** is data-only; callers explicitly render selected values or materialize the Workspace files they need.
+- A **Repository Host Capability** remains the model-facing collaboration surface; a **Repository Host Context Capability** does not grant its tools or write effects.
 - Chat History is not a standalone **Capability** in the current stack.
 - Agent Memory is separate from Chat History and Chat Sessions.
 - User-defined Capabilities use the same **Capability Definition** shape as official helpers.

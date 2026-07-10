@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0076
+---
+
 # Review Context Capability Workspace Contributions
 
 Superseded note: ADR 0075 retracts Source Instructions as a driver-facing build surface. Capability Workspace Contributions remain current for adding invocation-scoped Sources and rules before Workspace runtime surfaces are prepared.
