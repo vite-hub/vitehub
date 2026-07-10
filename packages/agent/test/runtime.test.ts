@@ -2647,7 +2647,7 @@ describe("agent message protocol", () => {
     expect(titleEffect).toHaveBeenCalledOnce()
   })
 
-  it("retries chat title delivery at finish when early delivery fails", async () => {
+  it("retries chat title delivery at finish when any early delivery handler fails", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
     let releaseDriver: () => void = () => {}
@@ -2655,6 +2655,7 @@ describe("agent message protocol", () => {
       releaseDriver = resolve
     })
     const titleEffect = vi.fn()
+    const retryingTitleEffect = vi.fn()
       .mockRejectedValueOnce(new Error("temporary title failure"))
       .mockResolvedValue(undefined)
     const execute = vi.fn(() => "Prepared title")
@@ -2664,7 +2665,7 @@ describe("agent message protocol", () => {
       channels: {
         portal: defineChannel("portal", {
           effects: {
-            title: titleEffect,
+            title: [titleEffect, retryingTitleEffect],
           },
           messages: false,
           triggers: {
@@ -2691,12 +2692,16 @@ describe("agent message protocol", () => {
       waitUntil: task => waitUntilTasks.push(task),
     }, "portal.message", {})
 
-    await vi.waitFor(() => expect(titleEffect).toHaveBeenCalledOnce())
+    await vi.waitFor(() => {
+      expect(titleEffect).toHaveBeenCalledOnce()
+      expect(retryingTitleEffect).toHaveBeenCalledOnce()
+    })
     releaseDriver()
     await expect(invocation).resolves.toBe("ok")
     await Promise.all(waitUntilTasks)
     expect(execute).toHaveBeenCalledOnce()
     expect(titleEffect).toHaveBeenCalledTimes(2)
+    expect(retryingTitleEffect).toHaveBeenCalledTimes(2)
   })
 
   it("delivers chat titles through Slack Assistant message Channels", async () => {

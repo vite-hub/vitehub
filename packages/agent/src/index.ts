@@ -756,6 +756,7 @@ async function applyChannelDeliveryEffectIntents<
       continue
     }
 
+    let delivered = true
     for (const handler of handlers) {
       try {
         await runObservedAgentHook(context.hooks, {
@@ -781,18 +782,19 @@ async function applyChannelDeliveryEffectIntents<
             },
             workspace: context.workspace,
           })
-          if (intent.kind === "title") {
-            context.context.set(messageChannelTitleDeliveredContextKey, true, { overwrite: true })
-          }
           await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, metadata)
         })
       }
       catch (error) {
+        delivered = false
         await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, {
           ...metadata,
           "error.message": agentErrorMessage(error),
         })
       }
+    }
+    if (intent.kind === "title" && delivered) {
+      context.context.set(messageChannelTitleDeliveredContextKey, true, { overwrite: true })
     }
   }
 }
