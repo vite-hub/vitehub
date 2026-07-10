@@ -286,6 +286,34 @@ describe("agent capability runtime", () => {
     })
   })
 
+  it("resolves Capability CLI contributions from invocation context", async () => {
+    const {
+      defineCapability,
+      resolveAgentCapabilities,
+    } = await import("../src/capability-runtime.ts")
+
+    const capability = defineCapability({
+      cli: context => context.run?.channelId === "portal"
+        ? {
+            commands: {
+              ping: { run: () => "pong" },
+            },
+            name: "portal",
+          }
+        : undefined,
+      id: "portal-runtime",
+    })
+    const portal = await resolveAgentCapabilities({
+      capabilities: [capability],
+    }, { ...runtime(), run: { channelId: "portal", runId: "portal-run" } }, {})
+    const teams = await resolveAgentCapabilities({
+      capabilities: [capability],
+    }, { ...runtime(), run: { channelId: "teams", runId: "teams-run" } }, {})
+
+    expect(Object.keys(portal.tools || {})).toEqual(["portal"])
+    expect(teams.tools).toBeUndefined()
+  })
+
   it("omits --json from generated text Capability CLI examples", async () => {
     const {
       defineCapability,

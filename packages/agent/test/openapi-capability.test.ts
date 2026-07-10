@@ -293,6 +293,29 @@ describe("openapi capability", () => {
     expect(request.mock.calls[0]?.[0]).toBe("https://cli.example.com/runtime/customers?region=eu")
   })
 
+  it("resolves generated Capability CLI options per invocation", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+    const spec = vi.fn(() => portalSpec())
+    const capability = openapi({
+      cli: context => context.run?.channelId === "portal" ? { name: "portal" } : false,
+      operations: ["listCustomers"],
+      spec,
+    })
+
+    const teams = await resolveAgentCapabilities({
+      capabilities: [capability],
+    }, { ...runtime(), run: { channelId: "teams", runId: "teams-run" } }, {})
+    expect(teams.tools).toBeUndefined()
+    expect(spec).not.toHaveBeenCalled()
+
+    const portal = await resolveAgentCapabilities({
+      capabilities: [capability],
+    }, { ...runtime(), run: { channelId: "portal", runId: "portal-run" } }, {})
+    expect(Object.keys(portal.tools || {})).toEqual(["portal"])
+    expect(spec).toHaveBeenCalledOnce()
+  })
+
   it("prepares requests with runtime hook values before HTTP execution", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")

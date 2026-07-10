@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, type AgentActor, type AgentCapabilityCliCommand, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentDeliveryArtifact, type AgentDriver, type AgentFinishEvent, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, type AgentActor, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentDeliveryArtifact, type AgentDriver, type AgentFinishEvent, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
 import { access, blob, browser, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, observability, openapi, pullRequestContext, repositoryHost, repositoryHostContext, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type SubagentToolInput, type UsageTelemetryRecord } from "../src/capabilities.ts"
 import { defineChannel, github, http, pullRequest, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
@@ -97,6 +97,16 @@ describe("agent public types", () => {
               },
             },
           },
+          spec: openAPISpec,
+        }),
+        openapi({
+          cli: context => context.run?.channelId === "portal"
+            ? {
+                description: "Inspect live Portal data.",
+                name: "portal-api",
+              }
+            : undefined,
+          operations: ["listCustomers"],
           spec: openAPISpec,
         }),
         git(),
@@ -627,7 +637,7 @@ describe("agent public types", () => {
       },
     })
 
-    expectTypeOf(inventoryRuntime.cli?.commands).toMatchTypeOf<Record<string, AgentCapabilityCliCommand> | undefined>()
+    expectTypeOf(inventoryRuntime.cli).toMatchTypeOf<AgentCapabilityCliResolver | undefined>()
     const audioRuntime = defineCapability({
       chatAttachments: { audio: true },
       id: "audio-runtime",
@@ -639,18 +649,20 @@ describe("agent public types", () => {
       // @ts-expect-error Capability instructions were removed from Capability definitions.
       instructions: "Use inventory only for runtime data.",
     })
-    defineCapability({
+    const dynamicInventoryRuntime = defineCapability({
       id: "dynamic-inventory-runtime",
-      // @ts-expect-error Capability CLI contributions are flat objects, not resolver functions
-      cli: () => ({
-        commands: {
-          list: {
-            run: () => ({ items: [] }),
-          },
-        },
-        name: "inventory",
-      }),
+      cli: context => context.run?.channelId === "portal"
+        ? {
+            commands: {
+              list: {
+                run: () => ({ items: [] }),
+              },
+            },
+            name: "inventory",
+          }
+        : undefined,
     })
+    expectTypeOf(dynamicInventoryRuntime.cli).toMatchTypeOf<AgentCapabilityCliResolver | undefined>()
     type RootAgentExports = typeof import("../src/index.ts")
     // @ts-expect-error Capability CLI builders are not root Agent Package exports
     type _RootCliBuilder = RootAgentExports["cli"]
