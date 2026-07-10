@@ -1511,18 +1511,10 @@ async function createAgentInvocationContext<
     await applyChannelDeliveryEffectIntents(invocation, invocation.deliveryEffectIntents)
     const startCapabilities = capabilities.start
     if (!invocation.handledResponse && startCapabilities) {
-      const eventBase = {
-        actor: invocation.actor,
-        input: invocation.input,
-        invoker: invocation.invoker,
-        invocation: {
-          durationMs: Date.now() - invocation.startedAt,
-          ...(invocation.run ? { run: invocation.run } : {}),
-        },
-        runtime: invocation.runtimeContext,
-      } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       try {
-        await prepareProvisionalTitleDeliverySupport(invocation, eventBase)
+        if (hasTitleDeliveryEffectProvider(invocation.finishDeliveryEffectProviders)) {
+          await setChannelDeliverySupportContext(invocation.channels, invocation.context, invocation.runtimeContext, invocation.input, invocation.run)
+        }
         invocation.startTask = (async () => {
           await applyChannelDeliveryEffectIntents(invocation, await startCapabilities())
         })().catch(error => traceAgentInvocationError(toTraceContext(invocation), error))

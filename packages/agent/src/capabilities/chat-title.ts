@@ -513,6 +513,8 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
   return Object.assign(defineCapability({
     id: capabilityId,
     output(context) {
+      if (!firstUserMessage(context.input.messages())) return
+
       let title: Promise<string | undefined> | undefined
       const getTitle = () => {
         title ??= (async () => {

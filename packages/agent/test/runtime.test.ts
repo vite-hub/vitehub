@@ -2581,6 +2581,11 @@ describe("agent message protocol", () => {
       releaseDriver = resolve
     })
     const order: string[] = []
+    const resultDependentEffect: AgentChannelDeliveryFinishEffectCallback = context => context.reply(context.result!.text!)
+    resultDependentEffect.active = context => {
+      if (!context.result) throw new Error("finish effect evaluated before the driver result")
+      return false
+    }
     const execute = vi.fn(({ text }) => {
       order.push("title")
       return `Title: ${text}`
@@ -2594,6 +2599,12 @@ describe("agent message protocol", () => {
           id: "transcribed-input",
           input(context) {
             context.input.setMessages([createMessage({ role: "user", text: "Transcribed request" })])
+          },
+        }),
+        defineCapability({
+          id: "result-dependent-delivery",
+          prepare(context) {
+            context.delivery.finishEffect(resultDependentEffect)
           },
         }),
       ],
@@ -2759,6 +2770,36 @@ describe("agent message protocol", () => {
 
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
     expect(adapter).not.toHaveBeenCalled()
+  })
+
+  it("does not resolve message Channel title adapters without user messages", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const adapter = vi.fn(() => {
+      throw new Error("adapter should not resolve")
+    })
+    const execute = vi.fn(() => "Unused title")
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute })],
+      channels: {
+        portal: defineChannel("portal", {
+          adapter,
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { messages: [createMessage({ role: "system", text: "system context" })] },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
+    expect(adapter).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
   })
 
   it("does not resolve message Channel title adapters for inactive title finish effects", async () => {
