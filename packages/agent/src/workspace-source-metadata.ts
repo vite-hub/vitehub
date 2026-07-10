@@ -63,7 +63,7 @@ export function normalizeAgentWorkspaceSource(key: string, input: WorkspaceSourc
 
 export function workspaceSourceKeysForScope(sources: WorkspaceDefinition["sources"], scope: string): string[] {
   return normalizeAgentWorkspaceSources(sources)
-    .filter(source => source.scopes?.includes(scope))
+    .filter(source => !source.scopes?.length || source.scopes.includes(scope))
     .map(source => source.key)
 }
 

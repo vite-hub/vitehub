@@ -20,6 +20,7 @@ declare global {
   }
 
   interface ViteHubWorkspaceSourceResolutionContextMap {
+    channel: { meta?: { customer?: string } }
     "support.customerScope": { customers: Array<"acme" | "globex"> }
     pullRequest: { pullRequest: { source: { ref: string, repo: string } } }
   }
@@ -147,7 +148,8 @@ describe("workspace types", () => {
         mount: `ingestion/${customer}`,
       }
     })
-    github(({ invocation }) => {
+    github(({ channel, invocation }) => {
+      expectTypeOf(channel?.meta?.customer).toEqualTypeOf<string | undefined>()
       expectTypeOf(invocation.context.get("pullRequest")?.pullRequest.source.repo).toEqualTypeOf<string | undefined>()
       return { root: "portal" }
     })

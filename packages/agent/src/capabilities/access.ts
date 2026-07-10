@@ -1,6 +1,7 @@
 import { markTrustedWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
-import { workspaceSourceKeysForScope, workspaceSourceScopeNames, workspaceSourceScopePaths } from "../workspace-source-metadata.ts"
+import { agentInvocationSourceContext } from "../invocation-context.ts"
+import { workspaceSourceKeysForScope, workspaceSourceScopePaths } from "../workspace-source-metadata.ts"
 import type { AccessCapabilityMetadata } from "./access-metadata.ts"
 
 import type {
@@ -285,7 +286,7 @@ export function access<
   Name extends WorkspaceName = WorkspaceName,
   TInputContext extends object = Record<string, unknown>,
   const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext> = AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext>,
->(options: { chat?: AccessChatOptions<TRuntimeConfig>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, TInputContext, AccessWorkspaceScopeNameOrString<TWorkspace>, AccessWorkspaceStaticScopeName<TWorkspace>>>
+>(options: { chat?: AccessChatOptions<TRuntimeConfig>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, TInputContext, AccessWorkspaceScopeNameOrString<TWorkspace>, AccessWorkspaceScopeName<TWorkspace>>>
 export function access<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -322,7 +323,7 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       const sourceResolutionScope = withHarnessWorkspacePaths(scope, workspaceMaterializationPaths(context))
       const sourceResolutionOptions = {
         invocation: {
-          context: context.context,
+          context: agentInvocationSourceContext(context.context),
           run: context.run,
         },
         selectedWorkspaceScope: toWorkspaceSelectedScope(sourceResolutionScope),
@@ -390,11 +391,7 @@ async function resolveWorkspaceScope<
     throw new Error("[vitehub] access({ workspace }) could not resolve a Workspace Scope. defaultScope or resolve() must produce a Workspace Scope.")
   }
 
-  validateWorkspaceSourceScopeNames(options, context.workspaceDefinition)
-  const definition = selection.definition || options.scopes?.[selection.scope]
-  if (!definition) {
-    throw new Error(`[vitehub] access({ workspace }) resolved unknown Workspace Scope "${selection.scope}". scopes.${selection.scope} or an inline scope definition must define it.`)
-  }
+  const definition = selection.definition || options.scopes?.[selection.scope] || {}
   assertNoLegacyWorkspaceScopeInstructions(definition, `Workspace Scope "${selection.scope}"`)
   const scopedDefinition = withWorkspaceSourceScopeGrants(definition, selection.scope, context.workspaceDefinition)
 
@@ -411,23 +408,6 @@ async function resolveWorkspaceScope<
     paths: all ? [""] : scopePaths(scopedDefinition, context.workspaceDefinition, workspaceRuntime),
     role,
     scope: selection.scope,
-  }
-}
-
-function validateWorkspaceSourceScopeNames(
-  options: { scopes?: Record<string, unknown> },
-  workspaceDefinition: WorkspaceDefinition | undefined,
-): void {
-  const scopes = workspaceSourceScopeNames(workspaceDefinition?.sources)
-  if (!scopes.length) return
-  if (!options.scopes) {
-    throw new Error("[vitehub] Workspace Source scopes require access({ workspace }).scopes.")
-  }
-  const allowed = new Set(Object.keys(options.scopes))
-  for (const scope of scopes) {
-    if (!allowed.has(scope)) {
-      throw new Error(`[vitehub] Workspace Source scope "${scope}" is not defined in access({ workspace }).scopes.`)
-    }
   }
 }
 

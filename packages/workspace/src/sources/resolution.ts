@@ -528,6 +528,7 @@ async function resolveWorkspaceSource(
   if (!source.resolve) return selectedScopeIntersectsSource(options.selectedWorkspaceScope, declared) ? input : undefined
 
   const context: WorkspaceSourceResolutionContext<object, string> = {
+    ...Object.fromEntries(options.invocation.context.entries()),
     invocation: options.invocation,
     selectedWorkspaceScope: options.selectedWorkspaceScope,
     source: {
@@ -796,6 +797,7 @@ function selectedScopeIntersectsSource(
   source: ReturnType<typeof normalizeWorkspaceSources>[number],
 ): boolean {
   if (!scope || scope.all) return true
+  if (!source.scopes?.length) return true
   if (scope.name && source.scopes?.includes(scope.name)) return true
   return Boolean(scope.paths?.some((path) => {
     if (source.requestDescriptor && pathIntersects(path, workspaceSourceRequestDescriptorPath(source.key))) return true

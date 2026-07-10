@@ -150,6 +150,7 @@ Workspace Source Bindings can wrap Source Package loaders and add Workspace beha
 | `cache` | `false or WorkspaceCacheOptions` | Source cache policy. Use `false` to disable caching or `{ maxAge }` to set a TTL. |
 | `validate` | `WorkspaceValidateMode` | Request validation mode for API-backed Sources. Use `false` or `request`. |
 | `sync` | `WorkspaceSourceSyncConfig` | Enables explicit Workspace Source Sync. Accepts `true`, `false`, or a sync policy. |
+| `scopes` | `string[]` | Restricts the Source to matching selected Workspace Scope names. Omit it to make the Source available to every scope. |
 | `resolve` | `WorkspaceSourceResolver` | Invocation-aware source resolution. |
 
 ## Use it at runtime
@@ -228,9 +229,15 @@ Custom Sources can read existing materialized Workspace files through `ctx.works
 Sources can resolve their concrete origin and Mount for one invocation from trusted runtime context. Use this when the same Source key should point at a narrowed origin after Access has selected a Workspace Scope.
 
 ```ts
-github(({ invocation }) => {
+declare global {
+  interface ViteHubWorkspaceSourceResolutionContextMap {
+    channel: { meta?: { customer?: string } }
+  }
+}
+
+github(({ channel, invocation }) => {
   const scope = invocation.context.get<{ customers: string[] }>('support.customerScope')
-  const customer = scope?.customers[0]
+  const customer = channel?.meta?.customer ?? scope?.customers[0]
   if (!customer)
     return false
 
@@ -242,7 +249,7 @@ github(({ invocation }) => {
 })
 ```
 
-The resolver reads Agent Invocation Context Values and the Selected Workspace Scope, not model output. Access still enforces visibility, and scope-affecting resolved options are fingerprinted so source caches do not reuse data across scopes.
+The resolver receives registered invocation context values directly and can still read them through `invocation.context`. Register app-owned values through `ViteHubWorkspaceSourceResolutionContextMap`; the Agent package registers its canonical `channel` value automatically. Agent integrations omit legacy and internal aliases from the direct view. The resolver reads trusted Agent Invocation Context Values and the Selected Workspace Scope, not model output. Access still enforces visibility, and scope-affecting resolved options are fingerprinted so source caches do not reuse data across scopes.
 
 Resolved Sources are evaluated at invocation time and default to lazy materialization. A resolver can return a narrowed GitHub `repo`, `root`, and `mount` without also declaring build-time materialization or cache options; the resolved fingerprint includes the Selected Workspace Scope so one scope cannot reuse another scope's source data.
 

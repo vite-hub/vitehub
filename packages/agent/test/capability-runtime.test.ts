@@ -438,12 +438,29 @@ describe("agent capability runtime", () => {
 
   it("passes named invocation context values through capabilities and custom runs", async () => {
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const observedContext = vi.fn()
 
     const agent = defineAgent({
       capabilities: [
         defineCapability({
           id: "mode",
           configure(context) {
+            const values = context as typeof context & {
+              "agent.secret"?: unknown
+              channel?: unknown
+              "channel.delivery.supportsTitle"?: unknown
+              chat?: unknown
+              "chat.secret"?: unknown
+              "workspace.secret"?: unknown
+            }
+            observedContext({
+              agentSecret: values["agent.secret"],
+              channel: values.channel,
+              channelDelivery: values["channel.delivery.supportsTitle"],
+              chat: values.chat,
+              chatSecret: values["chat.secret"],
+              workspaceSecret: values["workspace.secret"],
+            })
             context.context.set("mode", { choice: "support" })
           },
         }),
@@ -457,10 +474,25 @@ describe("agent capability runtime", () => {
     })
 
     await expect(runAgent(agent, runtime(), {
-      context: { chat: { user: { id: "user_1" } } },
+      context: {
+        "agent.secret": "internal",
+        channel: { user: { email: "user@example.com" } },
+        "channel.delivery.supportsTitle": true,
+        chat: { user: { id: "legacy-user" } },
+        "chat.secret": "legacy",
+        "workspace.secret": "internal",
+      },
     })).resolves.toEqual({
-      chat: { user: { id: "user_1" } },
+      chat: { user: { id: "legacy-user" } },
       mode: { choice: "support" },
+    })
+    expect(observedContext).toHaveBeenCalledWith({
+      agentSecret: undefined,
+      channel: { user: { email: "user@example.com" } },
+      channelDelivery: undefined,
+      chat: undefined,
+      chatSecret: undefined,
+      workspaceSecret: undefined,
     })
   })
 
@@ -697,11 +729,11 @@ describe("agent capability runtime", () => {
     })).rejects.toThrow("Workspace Source scopes require access({ workspace })")
   })
 
-  it("requires contributed source scopes to be declared in Access", async () => {
+  it("accepts contributed source scopes without duplicate Access declarations", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
 
-    await expect(resolveAgentCapabilities({
+    const resolved = await resolveAgentCapabilities({
       capabilities: [
         access({
           workspace: {
@@ -734,7 +766,9 @@ describe("agent capability runtime", () => {
         name: "review",
         sources: {},
       },
-    })).rejects.toThrow('Workspace Source scope "missing"')
+    })
+
+    expect(resolved.workspaceDefinition?.sources).toHaveProperty("pullRequest")
   })
 
   it("derives grants for scoped capability workspace contribution sources", async () => {
