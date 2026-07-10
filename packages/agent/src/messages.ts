@@ -15,7 +15,7 @@ export interface TextPart {
 export interface DataPart {
   data: unknown
   id?: string
-  type: "data"
+  type: "data" | `data-${string}`
 }
 
 export type AudioData = ArrayBuffer | Blob | string | Uint8Array
@@ -112,7 +112,7 @@ export interface Message {
 
 export type StreamEvent =
   | { id?: string, messageId?: string, role?: MessageRole, text: string, type: "text-delta" }
-  | { data: unknown, id?: string, messageId?: string, type: "data" }
+  | { data: unknown, id?: string, messageId?: string, transient?: boolean, type: "data" | `data-${string}` }
   | { id: string, input?: unknown, messageId?: string, name: string, type: "tool-call" | "tool-input-start" }
   | { durationMs?: number, error?: string, id: string, messageId?: string, name: string, output?: unknown, type: "tool-result" }
   | { id: string, input?: unknown, messageId?: string, name: string, reason?: string, type: "approval-request" }
@@ -336,6 +336,10 @@ export function validateMessage(message: Message): void {
       case "error":
         break
       default:
+        if (typeof part.type === "string" && part.type.startsWith("data-")) {
+          if (!("data" in part)) throw new TypeError("[vitehub:messages] data part requires data.")
+          break
+        }
         throw new TypeError(`[vitehub:messages] Unsupported message part type: ${String((part as { type?: unknown }).type)}.`)
     }
   }
@@ -357,6 +361,9 @@ export function applyStreamEvent(messages: Message[], event: StreamEvent): Messa
   if (event.type === "finish" || event.type === "usage") {
     return next
   }
+  if ("data" in event && event.transient) {
+    return next
+  }
 
   const message = findOrCreateMessage(next, event)
   if ("role" in event && event.role) message.role = event.role
@@ -370,8 +377,8 @@ export function applyStreamEvent(messages: Message[], event: StreamEvent): Messa
       message.parts.push(omitUndefined({ id: event.id, text: event.text, type: "text" }) as TextPart)
     }
   }
-  else if (event.type === "data") {
-    message.parts.push({ ...omitUndefined({ id: event.id, type: "data" }), data: event.data } as DataPart)
+  else if ("data" in event && (event.type === "data" || event.type.startsWith("data-"))) {
+    message.parts.push({ ...omitUndefined({ id: event.id, type: event.type }), data: event.data } as DataPart)
   }
   else if (event.type === "tool-input-start") {
     message.parts.push(omitUndefined({ id: event.id, input: event.input, name: event.name, state: "running", type: "tool-call" }) as ToolCallPart)

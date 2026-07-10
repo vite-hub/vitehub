@@ -2083,6 +2083,20 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("preserves prefixed data parts during model conversion", async () => {
+    const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
+
+    expect(toAiSdkModelMessages([
+      createMessage({
+        id: "m1",
+        parts: [{ data: { city: "Seattle" }, type: "data-weather" }],
+        role: "user",
+      }),
+    ])).toEqual([
+      { content: "{\"city\":\"Seattle\"}", role: "user" },
+    ])
+  })
+
   it("drops empty ViteHub messages before model conversion", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 
@@ -6033,6 +6047,53 @@ describe("agent message protocol", () => {
     expect(messages.at(-1)?.parts.map(part => part.type).sort()).toEqual(["data-chat-title", "text"])
   })
 
+  it("preserves data part ids when async event streams become UI message streams", async () => {
+    const { readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: { run: () => (async function* () {
+          yield { data: { city: "Seattle" }, id: "weather-1", type: "data-weather" }
+          yield { text: "answer", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Weather?" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    expect(messages.at(-1)?.parts.filter(part => part.type === "data-weather")).toEqual([
+      { data: { city: "Seattle" }, id: "weather-1", type: "data-weather" },
+    ])
+  })
+
+  it("keeps transient async data events out of UI message history", async () => {
+    const { readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: { run: () => (async function* () {
+          yield { data: { progress: 50 }, transient: true, type: "data-progress" }
+          yield { text: "answer", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Status?" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    expect(messages.at(-1)?.parts.filter(part => part.type === "data-progress")).toEqual([])
+    expect(messages.at(-1)?.parts).toContainEqual(expect.objectContaining({ text: "answer", type: "text" }))
+  })
+
   it("renders custom async event streams returned from runAgent", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
@@ -6575,7 +6636,7 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       driver: { run: () => (async function* () {
-          yield { data: { title: "Async title", type: "chat-title" }, type: "data" }
+          yield { data: { title: "Async title" }, type: "data-chat-title" }
           yield { text: "hello", type: "text-delta" }
           yield { id: "tool-1", input: { query: "users" }, name: "search", type: "tool-call" }
           yield { id: "tool-1", name: "search", output: "42", type: "tool-result" }
@@ -6593,7 +6654,7 @@ describe("agent message protocol", () => {
 
     expect(messages.at(-1)?.parts.map(part => part.type)).toEqual(["data-chat-title", "text", "tool-search"])
     expect(messages.at(-1)?.parts[0]).toEqual({
-      data: { title: "Async title", type: "chat-title" },
+      data: { title: "Async title" },
       type: "data-chat-title",
     })
   })
