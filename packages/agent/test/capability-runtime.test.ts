@@ -496,6 +496,47 @@ describe("agent capability runtime", () => {
     })
   })
 
+  it("preserves prototype invocation context methods when filtering source context", async () => {
+    const { agentInvocationSourceContext } = await import("../src/invocation-context.ts")
+
+    class PrototypeContextStore {
+      private readonly values = new Map<string, unknown>([
+        ["channel", { user: { email: "user@example.com" } }],
+        ["chat", { user: { id: "legacy-user" } }],
+      ])
+
+      entries() {
+        return this.values.entries()
+      }
+
+      get<T = unknown>(id: string): T | undefined {
+        return this.values.get(id) as T | undefined
+      }
+
+      has(id: string): boolean {
+        return this.values.has(id)
+      }
+
+      set(id: string, value: unknown): void {
+        this.values.set(id, value)
+      }
+
+      toJSON(): Record<string, unknown> {
+        return Object.fromEntries(this.values)
+      }
+    }
+
+    const sourceContext = agentInvocationSourceContext(new PrototypeContextStore())
+
+    expect(Object.fromEntries(sourceContext.entries())).toEqual({
+      channel: { user: { email: "user@example.com" } },
+    })
+    expect(sourceContext.get("chat")).toEqual({ user: { id: "legacy-user" } })
+    expect(sourceContext.has("channel")).toBe(true)
+    sourceContext.set("customer", "acme")
+    expect(sourceContext.toJSON()).toMatchObject({ customer: "acme" })
+  })
+
   it("records Channel Delivery Effect Intents from capabilities", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 

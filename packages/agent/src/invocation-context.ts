@@ -22,8 +22,11 @@ export function agentInvocationCallbackContextValues(context: AgentInvocationCon
 
 export function agentInvocationSourceContext(context: AgentInvocationContextStore): AgentInvocationContextStore {
   return {
-    ...context,
     entries: () => callbackContextEntries(context),
+    get: context.get.bind(context),
+    has: context.has.bind(context),
+    set: context.set.bind(context),
+    toJSON: context.toJSON.bind(context),
   }
 }
 
