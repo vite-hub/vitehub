@@ -1,10 +1,24 @@
 import { mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises"
+import { createServer, type Server } from "node:net"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
 import { createLocalHarnessSandbox } from "../src/harness/local-sandbox.ts"
+
+function listen(port: number): Promise<Server> {
+  return new Promise((resolve, reject) => {
+    const server = createServer()
+    server.once("error", reject)
+    server.listen(port, "127.0.0.1", () => resolve(server))
+  })
+}
+
+function close(server: Server | undefined): Promise<void> {
+  if (!server) return Promise.resolve()
+  return new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+}
 
 describe("local harness sandbox", () => {
   it("runs commands and reads written files", async () => {
@@ -16,9 +30,44 @@ describe("local harness sandbox", () => {
 
       const result = await session.run({ command: "cat input.txt" })
 
+      expect(provider.bridgePorts).toBeUndefined()
       expect(session.description).toBe("Workspace shell.")
+      expect(session.ports).toEqual([0])
       expect(result).toMatchObject({ exitCode: 0, stdout: "hello" })
-      await expect(session.getPortUrl({ port: 4000, protocol: "ws" })).resolves.toBe("ws://127.0.0.1:4000")
+      await expect(session.getPortUrl({ port: 0, protocol: "ws" })).resolves.toBe("ws://127.0.0.1:0")
+    }
+    finally {
+      await session.destroy?.()
+    }
+  })
+
+  it("supports parallel bridge listeners across local providers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-local-sandbox-"))
+    const firstSession = await createLocalHarnessSandbox({ rootDir: root }).createSession()
+    const secondSession = await createLocalHarnessSandbox({ rootDir: root }).createSession()
+    let firstListener: Server | undefined
+    let secondListener: Server | undefined
+
+    try {
+      firstListener = await listen(firstSession.ports[0]!)
+      secondListener = await listen(secondSession.ports[0]!)
+
+      expect(firstListener.address()).not.toEqual(secondListener.address())
+    }
+    finally {
+      await Promise.all([close(firstListener), close(secondListener)])
+      await Promise.all([firstSession.destroy?.(), secondSession.destroy?.()])
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves explicit bridge port pools", async () => {
+    const provider = createLocalHarnessSandbox({ ports: [4100, 4101] })
+    const session = await provider.createSession()
+
+    try {
+      expect(provider.bridgePorts).toEqual([4100, 4101])
+      expect(session.ports).toEqual([4100, 4101])
     }
     finally {
       await session.destroy?.()
