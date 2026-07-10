@@ -106,9 +106,9 @@ export default defineEventHandler(async (event) => {
 
 DevTools can select configured Agent Invoker Profiles before a new Chat Session starts. It should not switch invokers in the middle of one conversation.
 
-## Partition transcripts by adapter
+## Partition transcripts by Channel
 
-When you enable `transcripts` without an explicit `identity` resolver, ViteHub uses `${adapter}:${author.userId}` as the transcript key for human authors. Qualifying the platform user ID with the adapter prevents identical IDs from colliding across adapters. The default does not link the same person across platforms and does not replace Agent Actor identity.
+When you enable `transcripts` without an explicit `identity` resolver, ViteHub uses `${channel}:${author.userId}` as the transcript key for human authors. The `channel` portion is the Channel key from your Agent Definition, not the underlying adapter's name. Qualifying the platform user ID with the Channel prevents identical IDs from colliding across Channels, including multiple Channels backed by the same kind of adapter. The default does not link the same person across platforms and does not replace Agent Actor identity.
 
 The default resolver returns `null` for bot authors, so Chat SDK does not associate their messages with a user transcript. Provide an explicit `identity` resolver when your application has a verified cross-platform or internal user ID. An explicit resolver always overrides the default.
 

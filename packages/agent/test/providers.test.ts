@@ -2022,7 +2022,7 @@ describe("server helpers", () => {
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
       channels: {
-        telegram: telegram({ adapter: () => adapter as never }),
+        support: telegram({ adapter: () => adapter as never }),
       },
       driver: { run },
       messages: {
@@ -2043,7 +2043,7 @@ describe("server helpers", () => {
         },
       }),
       method: "POST",
-    }), "telegram", { agentName: "transcript-identity" })
+    }), "support", { agentName: "transcript-identity" })
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
@@ -2053,7 +2053,7 @@ describe("server helpers", () => {
   }
 
   it("defaults transcript identity for human authors", async () => {
-    await expect(chatTranscriptUserKey({ messageId: 7, transcripts: true })).resolves.toBe("telegram:123")
+    await expect(chatTranscriptUserKey({ messageId: 7, transcripts: true })).resolves.toBe("support:123")
   })
 
   it("omits default transcript identity for bot authors", async () => {
