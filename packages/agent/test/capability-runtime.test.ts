@@ -737,10 +737,7 @@ describe("agent capability runtime", () => {
       capabilities: [
         access({
           workspace: {
-            defaultScope: "review",
-            scopes: {
-              review: { paths: ["pull-request"] },
-            },
+            defaultScope: "missing",
           },
         }),
         defineCapability({
