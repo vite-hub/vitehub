@@ -1,34 +1,26 @@
 ---
 title: ViteHub docs
-description: Build server primitives for any host, then compose them into agents with controlled capabilities.
+description: Choose ViteHub Agents or ViteHub Server Primitives, then follow one focused path.
 navigation: false
 icon: i-lucide-book-open
 ---
 
-ViteHub is a server layer for Vite apps that need host-independent primitives and inspectable agent infrastructure. It gives application code stable Runtime Helpers and gives Agent Definitions controlled Capabilities instead of raw access to every server resource.
+ViteHub is one platform with two product lanes. **ViteHub Agents** defines, invokes, and deploys server-side Agents. **ViteHub Server Primitives** provide ordinary Vite applications with portable state and work across hosts.
 
-Use Start for the first install, Concepts for the mental model, Server primitives for app-code APIs, and Agents when model-backed behavior becomes part of the product.
+Agents may compose Server Primitives through explicit Capabilities and Workspaces. Server Primitives work without an Agent Definition.
 
 ::u-page-grid{class="not-prose mt-8"}
   :::u-page-card
   ---
-  title: Start
-  description: Install one package, register its Vite Integration, and run the first primitive or Agent.
-  icon: i-lucide-rocket
-  to: /docs/getting-started
+  title: Agents
+  description: Define Agents, attach Capabilities and Workspaces, run Agent Invocations, and inspect behavior.
+  icon: i-lucide-bot
+  to: /docs/agents
   ---
   :::
   :::u-page-card
   ---
-  title: Concepts
-  description: Learn Definitions, discovery, Provider Output, Runtime Helpers, Workspaces, Sources, Capabilities, and Agent Invokers.
-  icon: i-lucide-map
-  to: /docs/concepts
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Server primitives
+  title: Server Primitives
   description: Use Auth, Env, KV, Database, Blob, Workspace, Queue, Workflow, Schedule, Sandbox, and Shell from server code.
   icon: i-lucide-server-cog
   to: /docs/server-primitives
@@ -36,10 +28,18 @@ Use Start for the first install, Concepts for the mental model, Server primitive
   :::
   :::u-page-card
   ---
-  title: Agents
-  description: Define Agents, attach Capabilities, run Agent Invocations, add Workspace context, and inspect behavior.
-  icon: i-lucide-bot
-  to: /docs/agents
+  title: Start
+  description: Install the packages for one lane and reach a visible first success.
+  icon: i-lucide-rocket
+  to: /docs/getting-started
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Shared concepts
+  description: Learn Definitions, discovery, Provider Output, Runtime Helpers, Workspaces, Sources, and Capabilities.
+  icon: i-lucide-map
+  to: /docs/concepts
   ---
   :::
 ::

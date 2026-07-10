@@ -3,6 +3,8 @@ const route = useRoute();
 const isDocsRoute = computed(() => route.path.startsWith("/docs"));
 
 const navLinks = [
+  { label: "Agents", to: "/docs/agents" },
+  { label: "Primitives", to: "/docs/server-primitives" },
   { label: "Docs", to: "/docs" },
   { label: "Blog", to: "/blog" },
 ];
