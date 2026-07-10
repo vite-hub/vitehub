@@ -134,6 +134,23 @@ openapi({
 })
 ```
 
+`cli` can also resolve from the current Agent Invocation. Return `false` or `undefined` to omit the generated CLI for that invocation without detaching the OpenAPI Capability or changing its lifecycle.
+
+```ts [server/agents/support.ts]
+openapi({
+  spec: 'https://portal.example.com/_openapi.json',
+  operations: ['portalProductSearch', 'portalPurchaseOrders'],
+  cli: ({ run }) => run?.channelId === 'portal'
+    ? {
+        name: 'portal-api',
+        description: 'Inspect live Portal data.',
+      }
+    : false,
+})
+```
+
+Treat Channel metadata as an availability hint, not authorization. Check trusted request, Agent Actor, or `access()` evidence before privileged API calls.
+
 Run the generated CLI through the Agent Dev Loop.
 Agents expose generated Capability CLI Contributions by default; use `defineAgent({ cli: { capabilities: false } })` to attach the OpenAPI Capability without exposing its CLI surface.
 
@@ -163,7 +180,7 @@ openapi({
 
 | Old option | New shape |
 | --- | --- |
-| `enabled` | Attach `openapi()` only to Agents that should have the ability. Use `access()`, Agent Trigger routing, or separate Agent Definitions for channel or customer gating. |
+| `enabled` | Attach `openapi()` only to Agents that should have the ability. For invocation-specific CLI availability, use a `cli` resolver; keep authority in `access()`, Agent Trigger routing, request checks, or separate Agent Definitions. |
 | `operations: { allow: [...] }` | `operations: [...]` |
 | `baseUrl` | Use the OpenAPI `servers` entry. Use `server` only when the spec has no usable server. |
 | `headers` | Set headers in `hooks.request`. |

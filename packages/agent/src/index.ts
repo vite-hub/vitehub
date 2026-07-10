@@ -187,6 +187,7 @@ export type {
   AgentCapabilityCliOutputDefinition,
   AgentCapabilityCliOutputFormat,
   AgentCapabilityCliRunContext,
+  AgentCapabilityCliResolver,
   AgentCapabilityCliStandardSchemaResultFailure,
   AgentCapabilityCliStandardSchemaResultSuccess,
   AgentCapabilityCliStandardSchemaV1,

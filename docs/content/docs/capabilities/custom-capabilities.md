@@ -145,7 +145,7 @@ Do not create a `bash()` Capability or use `workspaceShell()` as the public owne
 ## Add a Capability CLI
 
 Use `cli` when the Capability owns a real command tree that agents and developers should run instead of a generic shell command.
-The public API is a flat object on the Capability Definition.
+The public API accepts a static command tree or an invocation resolver on the Capability Definition.
 
 ```ts [server/agents/capabilities/inventory-runtime.ts]
 import { defineCapability } from '@vite-hub/agent'
@@ -188,8 +188,26 @@ The `input` and `output.schema` values accept any Standard Schema-compatible val
 
 ViteHub exposes command metadata through the generated CLI-named tool. Keep `instructions.md` focused on policy and use `::capability{key="inventoryRuntime"}` when authored guidance should cover that Capability.
 
+Return `undefined` from a resolver when the CLI should not be available for the current invocation. The Capability remains attached and inspectable.
+
+```ts [server/agents/capabilities/inventory-runtime.ts]
+export const inventoryRuntime = defineCapability({
+  id: 'inventory-runtime',
+  cli: ({ actor }) => actor.kind === 'support'
+    ? {
+        name: 'inventory',
+        commands: {
+          list: {
+            run: () => listInventoryItems(),
+          },
+        },
+      }
+    : undefined,
+})
+```
+
 First-party adapters can generate the same CLI shape from their own metadata. For example, `openapi({ cli: { name: 'billing' }, ... })` creates one subcommand per allowed OpenAPI operation and preserves each operation summary or description in the tool contract.
-Custom Capability authors still pass a flat `cli` object; dynamic command generation belongs behind adapter-owned options such as `openapi({ cli })`.
+Use a resolver for invocation-specific availability, not to mutate command ownership after a run starts.
 
 During development, run the Capability CLI through the Agent Dev Loop.
 Agents expose attached Capability CLI Contributions to compatible Agent Driver and Agent Dev Loop surfaces by default; use `defineAgent({ cli: { capabilities: false } })` when an Agent should attach the Capability but keep its CLI hidden.

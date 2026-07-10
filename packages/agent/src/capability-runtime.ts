@@ -64,16 +64,10 @@ type ResolvedAgentOutputRenderer = ((result: unknown, extensions?: AgentOutputEx
   providerCount: number
 }
 export const workspaceMaterializationPathsSymbol: unique symbol = Symbol("vitehub.agent.workspaceMaterializationPaths")
-type InternalAgentCapabilityCliResolver<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
-> = (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<AgentCapabilityCliContribution<TRuntimeConfig, Name> | undefined>
-
-type InternalAgentCapabilityWithGeneratedCli<
+type InternalAgentCapabilityDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > = AgentCapabilityDefinition<TRuntimeConfig, Name> & {
-  resolveCli?: InternalAgentCapabilityCliResolver<TRuntimeConfig, Name>
   [workspaceMaterializationPathsSymbol]?: readonly string[]
 }
 type AgentCapabilityBashEntry = Extract<AgentCapabilityBashCommand, { command: string }>
@@ -82,9 +76,7 @@ type AgentCapabilityDefinitionInput<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   TTypeContract extends AgentCapabilityTypeContract = AgentCapabilityTypeContract,
-> = AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract> & {
-  resolveCli?: InternalAgentCapabilityCliResolver<TRuntimeConfig, Name>
-}
+> = AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract>
 const defaultCapabilityRuntimePhases = ["configure", "prepare", "bind", "input", "resolve", "output"] as const
 export const channelDeliveryEffectsContextKey = "channel.delivery.effects"
 export const channelDeliveryFinishEffectsContextKey = "channel.delivery.finishEffects"
@@ -215,7 +207,7 @@ export function defineCapability<
   }
   assertCapabilityId((capability as { id?: unknown }).id)
   const cli = (capability as AgentCapabilityDefinition).cli
-  assertCapabilityCliContribution((capability as { id: string }).id, cli)
+  if (typeof cli !== "function") assertCapabilityCliContribution((capability as { id: string }).id, cli)
   if ((capability as AgentCapabilityDefinition).bash !== undefined) {
     normalizeWorkspaceCommandEntries((capability as AgentCapabilityDefinition).bash, `${(capability as { id: string }).id} bash`)
   }
@@ -779,7 +771,7 @@ export async function resolveAgentCapabilities<
   const workspaceMaterializationPaths = driverKind === "harness"
     ? compactWorkspacePaths(capabilities.flatMap(capability =>
         [
-          ...((capability as InternalAgentCapabilityWithGeneratedCli)[workspaceMaterializationPathsSymbol] || []),
+          ...((capability as InternalAgentCapabilityDefinition)[workspaceMaterializationPathsSymbol] || []),
           ...(capability.requires || []).flatMap(requirement => requirement.workspace?.paths || []),
         ],
       ))
@@ -1091,11 +1083,8 @@ export async function resolveAgentCapabilities<
     }
     for (const { capability, context } of capabilityContexts) {
       let cli: AgentCapabilityCliContribution<TRuntimeConfig, Name> | undefined
-      const resolveCli = (capability as InternalAgentCapabilityWithGeneratedCli<TRuntimeConfig, Name>).resolveCli
-      if ((capability.cli || resolveCli) && resolveCapabilityCli && invocationOptions.resolveTools !== false) {
-        cli = resolveCli
-          ? await resolveCli(context)
-          : capability.cli
+      if (capability.cli && resolveCapabilityCli && invocationOptions.resolveTools !== false) {
+        cli = await resolveRuntimeValue(capability.cli, context)
         assertCapabilityCliContribution(capability.id, cli)
       }
       if (invocationOptions.resolveTools !== false && cli && resolveCapabilityCli) {

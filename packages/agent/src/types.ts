@@ -598,6 +598,13 @@ export interface AgentCapabilityCliContribution<
   name: string
 }
 
+export type AgentCapabilityCliResolver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> =
+  | AgentCapabilityCliContribution<TRuntimeConfig, Name>
+  | ((context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<AgentCapabilityCliContribution<TRuntimeConfig, Name> | undefined>)
+
 export interface AgentCapabilityCliExecutionInput {
   argv?: readonly string[]
   input?: unknown
@@ -762,7 +769,7 @@ export interface AgentCapabilityDefinition<
   chatAttachments?: {
     audio?: boolean
   }
-  cli?: AgentCapabilityCliContribution<TRuntimeConfig, Name>
+  cli?: AgentCapabilityCliResolver<TRuntimeConfig, Name>
   close?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   configure?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   finish?: AgentFinishExtensionProvider<TRuntimeConfig>

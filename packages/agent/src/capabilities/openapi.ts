@@ -7,7 +7,6 @@ import type {
   AgentCapabilityCliContribution,
   AgentCapabilityCliStandardSchemaV1,
   AgentCapabilityDefinition,
-  AgentCapabilityRuntimeContext,
   AgentRuntimeConfig,
   AgentToolDefinition,
   AgentToolSet,
@@ -147,18 +146,11 @@ export interface OpenAPICliOptions {
   name: string
 }
 
-type OpenAPICapabilityDefinition<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
-> = AgentCapabilityDefinition<TRuntimeConfig, Name> & {
-  resolveCli?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<AgentCapabilityCliContribution<TRuntimeConfig, Name> | undefined>
-}
-
 export interface OpenAPICapabilityOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
-  cli?: false | OpenAPICliOptions
+  cli?: OpenAPIContextValue<false | OpenAPICliOptions | undefined, TRuntimeConfig, Name>
   description?: string
   hooks?: OpenAPIHooks<TRuntimeConfig, Name>
   operations: readonly string[]
@@ -189,12 +181,14 @@ export function openapi<
         ? "dynamic"
         : typeof options.spec === "object" && !(options.spec instanceof URL) ? "inline" : String(options.spec),
     },
-    resolveCli: options.cli
+    cli: options.cli
       ? async (context) => {
+          const cli = await resolveContextValue(options.cli, context)
+          if (!cli) return undefined
           const resolved = dynamicOperations
             ? await loadOpenAPIOperations(options, context)
             : await (operations ||= loadOpenAPIOperations(options, context))
-          return createOpenAPICli(options.cli as OpenAPICliOptions, resolved.tools, resolved.baseUrl, options, context)
+          return createOpenAPICli(cli, resolved.tools, resolved.baseUrl, options, context)
         }
       : undefined,
     async tools(context) {
@@ -207,7 +201,7 @@ export function openapi<
         createOpenAPITool(operation, resolved.baseUrl, options, context),
       ])) as AgentToolSet
     },
-  } as OpenAPICapabilityDefinition<TRuntimeConfig, Name>)
+  })
 }
 
 function assertOpenAPIOptions(options: OpenAPICapabilityOptions): void {

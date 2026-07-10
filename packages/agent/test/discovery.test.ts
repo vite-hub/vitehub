@@ -680,7 +680,7 @@ describe("agent chat capability discovery", () => {
     ])
   })
 
-  it("runs Capability CLI commands through the Vite endpoint", async () => {
+  it("runs invocation-resolved Capability CLI commands through the Vite endpoint", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-cli-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
@@ -690,21 +690,23 @@ describe("agent chat capability discovery", () => {
     const agent = defineAgent({
       capabilities: [
         defineCapability({
-          cli: {
-            commands: {
-              items: {
+          cli: ({ run }) => run?.origin === "dev"
+            ? {
                 commands: {
-                  list: {
-                    description: "List inventory items.",
-                    output: { format: "json" },
-                    run: ({ json }) => ({ items: [{ id: "item_1" }], json }),
+                  items: {
+                    commands: {
+                      list: {
+                        description: "List inventory items.",
+                        output: { format: "json" },
+                        run: ({ json }) => ({ items: [{ id: "item_1" }], json }),
+                      },
+                    },
+                    description: "Inventory item data.",
                   },
                 },
-                description: "Inventory item data.",
-              },
-            },
-            name: "inventory",
-          },
+                name: "inventory",
+              }
+            : undefined,
           id: "inventory-runtime",
         }),
       ],
