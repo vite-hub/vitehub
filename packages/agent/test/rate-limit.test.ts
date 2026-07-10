@@ -178,16 +178,20 @@ describe("rateLimit capability", () => {
         invoker: {
           id: "chat:user_1",
           kind: "chat",
-          meta: { email: "user@example.com", scope: "customer" },
+          meta: { email: "User@Example.COM", scope: "customer" },
         },
         invokerProfileId: "support:acme",
       },
     })).resolves.toEqual({
+      email: {
+        address: "user@example.com",
+        domain: "example.com",
+      },
       id: "support:acme",
       kind: "customer",
       meta: {
         customer: "acme",
-        email: "user@example.com",
+        email: "User@Example.COM",
         scope: "support",
       },
     })

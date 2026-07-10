@@ -61,6 +61,10 @@ export type AgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig = Age
 export type AgentInvokerMeta = Record<string, unknown>
 
 export interface AgentInvoker<TMeta extends AgentInvokerMeta = AgentInvokerMeta> {
+  email?: {
+    address: string
+    domain: string
+  }
   id: string
   kind?: "anonymous" | "chat" | "devtools" | (string & {})
   label?: string

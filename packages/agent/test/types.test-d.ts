@@ -1078,7 +1078,11 @@ describe("agent public types", () => {
         expectTypeOf(chat?.message?.metadata?.quiver?.customer).toEqualTypeOf<string | undefined>()
         expectTypeOf(run?.origin).toEqualTypeOf<string | undefined>()
         expectTypeOf(chat?.user?.email).toEqualTypeOf<string | undefined>()
+        expectTypeOf(actor.email?.address).toEqualTypeOf<string | undefined>()
+        expectTypeOf(actor.email?.domain).toEqualTypeOf<string | undefined>()
         expectTypeOf(actor.id).toEqualTypeOf<string>()
+        expectTypeOf(invoker.email?.address).toEqualTypeOf<string | undefined>()
+        expectTypeOf(invoker.email?.domain).toEqualTypeOf<string | undefined>()
         expectTypeOf(invoker.id).toEqualTypeOf<string>()
         expectTypeOf(invoker.meta?.customer).toEqualTypeOf<"acme" | undefined>()
         return actor.meta?.customer || "customer"

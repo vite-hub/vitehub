@@ -24,6 +24,10 @@ describe("chat message trigger input", () => {
     })
     expect(result.input.context).not.toHaveProperty("chat.identity")
     expect(result.input.context?.invoker).toMatchObject({
+      email: {
+        address: "support@example.com",
+        domain: "example.com",
+      },
       id: "user_1",
       kind: "chat",
       meta: {
@@ -101,6 +105,10 @@ describe("chat message trigger input", () => {
 
     expect(result.input.context).not.toHaveProperty("chat.identity")
     expect(result.input.context?.invoker).toEqual({
+      email: {
+        address: "support@example.com",
+        domain: "example.com",
+      },
       id: "support@example.com",
       kind: "chat",
       meta: {
@@ -132,6 +140,10 @@ describe("chat message trigger input", () => {
     })
     expect(result.input.context?.chat).not.toHaveProperty("run")
     expect(result.input.context?.invoker).toEqual({
+      email: {
+        address: "support@example.com",
+        domain: "example.com",
+      },
       id: "portal:acme:user_1",
       kind: "customerPortal",
       meta: {
@@ -163,6 +175,10 @@ describe("chat message trigger input", () => {
     })
 
     expect(result.input.context?.invoker).toMatchObject({
+      email: {
+        address: "maximo@quiver.dk",
+        domain: "quiver.dk",
+      },
       id: "devtools:maximo@quiver.dk",
       kind: "devtools",
       meta: { email: "maximo@quiver.dk" },
