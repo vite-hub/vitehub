@@ -361,7 +361,7 @@ export function applyStreamEvent(messages: Message[], event: StreamEvent): Messa
   if (event.type === "finish" || event.type === "usage") {
     return next
   }
-  if ((event.type === "data" || event.type.startsWith("data-")) && event.transient) {
+  if ("data" in event && event.transient) {
     return next
   }
 
