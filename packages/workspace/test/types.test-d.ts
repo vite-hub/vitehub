@@ -10,7 +10,7 @@ import { createWorkspaceTools, type WorkspaceMaterializeSourcesResult, type Work
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import * as loader from "../src/loader.ts"
 import * as publish from "../src/publish.ts"
-import { fetch, file, github, glob, markdown, mcpResources, source, type FetchSourceOptions, type GitHubSourceOptions, type GlobSourceOptions, type McpResourcesSourceOptions } from "../src/index.ts"
+import { custom, fetch, file, github, glob, markdown, mcpResources, source, type FetchSourceOptions, type GitHubSourceOptions, type GlobSourceOptions, type McpResourcesSourceOptions } from "../src/index.ts"
 import { hubWorkspace } from "../src/vite.ts"
 import type { GitHubWorkspaceStoreOptions, Workspace, WorkspaceModuleOptions, WorkspacePlugin, WorkspaceSourceSyncResult, WorkspaceWriteInput } from "../src/core/types.ts"
 
@@ -32,6 +32,29 @@ declare global {
 }
 
 describe("workspace types", () => {
+  it("types custom file-list sources", () => {
+    const docs = custom({
+      files: [{
+        content(context) {
+          expectTypeOf(context.workspace).toEqualTypeOf<string>()
+          return "# Guide\n"
+        },
+        path: "guides/start.md",
+      }, {
+        content: new Uint8Array([1, 2, 3]),
+        mediaType: "application/octet-stream",
+        metadata: { kind: "fixture" },
+        path: "assets/example.bin",
+      }],
+      materialize: "lazy",
+      scopes: ["support"] as const,
+    })
+
+    expectTypeOf(docs.scopes).toMatchTypeOf<readonly ["support"] | undefined>()
+    // @ts-expect-error custom file content must be Workspace content or a lazy content callback
+    custom({ files: [{ content: 42, path: "invalid.txt" }] })
+  })
+
   it("exports source helper option types from the root", () => {
     const fetchOptions = { url: "https://status.example.com/api/summary" } satisfies FetchSourceOptions
     const githubOptions = { auth: false, repo: "acme/docs" } satisfies GitHubSourceOptions
