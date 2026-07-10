@@ -699,6 +699,7 @@ describe("agent public types", () => {
     // @ts-expect-error Development samples belong in CLI payload files, not Channel Definitions.
     defineChannel("portal", { dev: { samples: {} } })
     const custom = defineChannel("portal", {
+      capabilities: [defineCapability({ id: "portal-api" })],
       effects: {
         reaction(context) {
           expectTypeOf(context.effect.kind).toEqualTypeOf<AgentChannelDeliveryEffectKind>()
@@ -713,6 +714,7 @@ describe("agent public types", () => {
       triggers: {
         event: {
           invoke(context, input: { text: string }) {
+            expectTypeOf(context.agentCapabilities).toEqualTypeOf<readonly AgentCapabilityDefinition[]>()
             expectTypeOf(context.channel.kind).toEqualTypeOf<string>()
             expectTypeOf(context.trigger.channelId).toEqualTypeOf<string>()
             expectTypeOf(input.text).toEqualTypeOf<string>()
@@ -735,6 +737,7 @@ describe("agent public types", () => {
         },
       },
     })
+    expectTypeOf(custom.capabilities?.[0]).toEqualTypeOf<AgentCapabilityDefinition | undefined>()
     expectTypeOf(custom.kind).toEqualTypeOf<string>()
     expectTypeOf<AgentDeliveryArtifact>().toMatchTypeOf<{ path: string }>()
 
