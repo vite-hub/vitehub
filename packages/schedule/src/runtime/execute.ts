@@ -3,7 +3,7 @@ import { randomId } from "@vite-hub/internal/runtime/random"
 import { ScheduleError } from "../errors.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 
-import type { RuntimeScheduleRecord, RuntimeScheduleStore, ScheduleDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore, ScheduleTargetName } from "../types.ts"
+import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore, ScheduleTargetName } from "../types.ts"
 
 interface ExecuteScheduleOptions {
   definition: ScheduleDefinition
@@ -26,6 +26,11 @@ interface ExecuteRuntimeScheduleOptions {
   runtimeScheduleStore?: RuntimeScheduleStore
   scheduledAt?: Date
   scheduleRunStore?: ScheduleRunStore
+}
+
+interface ExecuteRuntimeScheduleWakeOptions {
+  runtimeScheduleStore: RuntimeScheduleStore
+  scheduleRunStore: ScheduleRunStore
 }
 
 function assertRuntimeExecuteOptionsObject(options: unknown): asserts options is ExecuteRuntimeScheduleOptions {
@@ -266,5 +271,14 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
     source: "runtime",
     scheduledAt,
     target: schedule.target,
+  })
+}
+
+export async function executeRuntimeScheduleWake(input: RuntimeScheduleWake, options: ExecuteRuntimeScheduleWakeOptions): Promise<void> {
+  await executeRuntimeSchedule({
+    id: input.scheduleId,
+    runtimeScheduleStore: options.runtimeScheduleStore,
+    scheduledAt: input.scheduledAt,
+    scheduleRunStore: options.scheduleRunStore,
   })
 }

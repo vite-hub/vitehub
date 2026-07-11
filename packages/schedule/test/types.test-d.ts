@@ -1,9 +1,11 @@
 import { expectTypeOf, it } from "vitest"
 
 import { defineSchedule, schedules } from "../src/index.ts"
+import { installScheduleRuntime } from "../src/runtime/driver.ts"
 import "../src/runtime.ts"
 import registry from "#vitehub/schedule/registry"
-import type { ScheduleDefinitionRegistry } from "../src/types.ts"
+import type { InstallScheduleRuntimeOptions, RuntimeScheduleWake, RuntimeScheduleWakeDriver, RuntimeScheduleWakeDriverContext, RuntimeScheduleWakeDriverFactory, ScheduleRuntimeController } from "../src/runtime/driver.ts"
+import type { RuntimeScheduleRecord, RuntimeScheduleStore, ScheduleDefinitionRegistry, ScheduleRunStore } from "../src/types.ts"
 
 import type { ScheduleRunContext } from "../src/index.ts"
 
@@ -48,4 +50,29 @@ it("types Runtime Schedule helper inputs", async () => {
 
 it("types the generated schedule registry module", () => {
   expectTypeOf(registry).toEqualTypeOf({} as ScheduleDefinitionRegistry)
+})
+
+it("types the Runtime Schedule Wake Driver boundary", () => {
+  expectTypeOf<RuntimeScheduleWake>().toEqualTypeOf<{
+    scheduleId: string
+    scheduledAt: Date
+  }>()
+  expectTypeOf<RuntimeScheduleWakeDriverContext>().toEqualTypeOf<{
+    reportError: (error: unknown) => void
+    wake: (input: RuntimeScheduleWake) => Promise<void>
+  }>()
+  expectTypeOf<RuntimeScheduleWakeDriver>().toEqualTypeOf<{
+    close?: () => Promise<void> | void
+    reconcile: (schedules: readonly RuntimeScheduleRecord[]) => Promise<void>
+  }>()
+  expectTypeOf<RuntimeScheduleWakeDriverFactory>().returns.toEqualTypeOf<RuntimeScheduleWakeDriver | Promise<RuntimeScheduleWakeDriver>>()
+  expectTypeOf<InstallScheduleRuntimeOptions>().toEqualTypeOf<{
+    createDriver: RuntimeScheduleWakeDriverFactory
+    onError?: (error: unknown) => void
+    registry: ScheduleDefinitionRegistry
+    runtimeScheduleStore: RuntimeScheduleStore
+    scheduleRunStore: ScheduleRunStore
+  }>()
+  expectTypeOf(installScheduleRuntime).parameter(0).toEqualTypeOf<InstallScheduleRuntimeOptions>()
+  expectTypeOf(installScheduleRuntime).returns.toEqualTypeOf<Promise<ScheduleRuntimeController>>()
 })

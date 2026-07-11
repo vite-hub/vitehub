@@ -1,6 +1,6 @@
 import { parseCronExpression } from "cron-schedule"
 
-import { executeRuntimeSchedule } from "./execute.ts"
+import { executeRuntimeScheduleWake } from "./execute.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore } from "./state.ts"
 
 import type { RuntimeScheduleRecord, RuntimeScheduleStore, ScheduleRunStore } from "../types.ts"
@@ -102,12 +102,7 @@ export function startScheduleRunner(options: ScheduleRunnerOptions = {}): Schedu
 
   const dispatch = (schedule: RuntimeScheduleRecord, scheduledAt: Date) => {
     active++
-    void executeRuntimeSchedule({
-      id: schedule.id,
-      runtimeScheduleStore,
-      scheduledAt,
-      scheduleRunStore,
-    })
+    void executeRuntimeScheduleWake({ scheduleId: schedule.id, scheduledAt }, { runtimeScheduleStore, scheduleRunStore })
       .catch(error => {
         reportError(error, options.onError)
       })

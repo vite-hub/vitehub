@@ -43,6 +43,11 @@ export interface RuntimeScheduleRecord extends RuntimeScheduleMetadata {
   target: ScheduleTargetName
 }
 
+export interface RuntimeScheduleWake {
+  scheduleId: string
+  scheduledAt: Date
+}
+
 export interface RuntimeScheduleCreateInput<TTarget extends ScheduleTargetName = ScheduleTargetName> {
   cron: string
   enabled?: boolean

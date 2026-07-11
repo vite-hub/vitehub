@@ -74,4 +74,23 @@ export default {
 
 Cron parsing uses [`cron-schedule`](https://github.com/P4sca1/cron-schedule).
 
+## Runtime Wake Drivers
+
+Host integrations can connect dynamic Runtime Schedules to a native scheduler through `@vite-hub/schedule/runtime/driver`:
+
+```ts
+import { installScheduleRuntime } from "@vite-hub/schedule/runtime/driver"
+
+const controller = await installScheduleRuntime({
+  createDriver: context => hostScheduler.driver(context),
+  registry: scheduleRegistry,
+  runtimeScheduleStore,
+  scheduleRunStore,
+})
+```
+
+The driver receives the complete stored Runtime Schedule snapshot, including disabled records. Installation finishes only after the initial snapshot is reconciled. Later creates, updates, and deletes persist first, reconcile serially, and roll back the stored record if host reconciliation fails. A native wake calls `context.wake({ scheduleId, scheduledAt })`; `controller.close()` releases driver resources without deleting schedule state.
+
+`startScheduleRunner()` remains available as the polling compatibility runner for long-running hosts.
+
 Learn more at [vitehub.dev](https://vitehub.dev).
