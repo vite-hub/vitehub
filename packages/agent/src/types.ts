@@ -1,4 +1,6 @@
 import type { Message, StreamEvent } from "./messages.ts"
+import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
+import type { JSONSchema7 } from "json-schema"
 import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
 import type {
   MaybePromise,
@@ -1305,13 +1307,16 @@ export interface AgentToolPolicyContext {
   name: string
 }
 
+export type AgentToolStandardSchema<T = unknown> = StandardSchemaV1<unknown, T> & StandardJSONSchemaV1<unknown, T>
+export type AgentToolSchema<T = unknown> = AgentToolStandardSchema<T> | (JSONSchema7 & { "~standard"?: never })
+
 export interface AgentToolDefinition<TInput = unknown, TOutput = unknown> {
   description?: string
   execute?: (input: TInput) => MaybePromise<TOutput>
-  inputSchema?: unknown
+  inputSchema?: AgentToolSchema<TInput>
   metadata?: Record<string, unknown>
   name: string
-  outputSchema?: unknown
+  outputSchema?: AgentToolSchema<TOutput>
   policy?: AgentToolPolicyDecision | ((context: AgentToolPolicyContext) => MaybePromise<AgentToolPolicyDecision>)
 }
 

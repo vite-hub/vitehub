@@ -8,26 +8,15 @@ import { defineInternalTool } from "./internal.ts"
 import type {
   AgentCapabilityDefinition,
   AgentToolDefinition,
+  AgentToolStandardSchema,
   MaybePromise,
 } from "../types.ts"
+import type { StandardSchemaV1 } from "@standard-schema/spec"
 
 export type FetchCapabilityMethod = "GET" | "HEAD" | "POST"
 export type FetchCapabilityResponseType = "json" | "text"
 
-export interface FetchCapabilityStandardSchemaResultSuccess<T = unknown> {
-  issues?: undefined
-  value: T
-}
-
-export interface FetchCapabilityStandardSchemaResultFailure {
-  issues: readonly unknown[]
-}
-
-export interface FetchCapabilityStandardSchemaV1<T = unknown> {
-  "~standard": {
-    validate: (input: unknown) => FetchCapabilityStandardSchemaResultSuccess<T> | FetchCapabilityStandardSchemaResultFailure | Promise<FetchCapabilityStandardSchemaResultSuccess<T> | FetchCapabilityStandardSchemaResultFailure>
-  }
-}
+export type FetchCapabilityStandardSchemaV1<T = unknown> = StandardSchemaV1<unknown, T>
 
 export interface FetchCapabilityRequestOptions {
   body?: unknown
@@ -43,7 +32,7 @@ export interface FetchCapabilityRequestDefinition extends FetchCapabilityRequest
 
 export interface FetchCapabilityToolOptions<TInput = unknown, TResponse = unknown, TOutput = TResponse> {
   description?: string
-  inputSchema?: FetchCapabilityStandardSchemaV1<TInput>
+  inputSchema?: AgentToolStandardSchema<TInput>
   method?: FetchCapabilityMethod
   request?: FetchCapabilityToolRequest<TInput>
   responseType?: FetchCapabilityResponseType

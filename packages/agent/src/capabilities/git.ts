@@ -12,6 +12,7 @@ import type {
   MaybePromise,
 } from "../types.ts"
 import type { WorkspaceSession } from "@vite-hub/workspace"
+import type { JSONSchema7 } from "json-schema"
 
 export type GitCapabilityToolPolicy = AgentToolPolicyDecision | ((context: AgentToolPolicyContext) => MaybePromise<AgentToolPolicyDecision>)
 
@@ -540,7 +541,7 @@ function gitTools(
   }
 }
 
-function gitShellInputSchema(commandDescription: string) {
+function gitShellInputSchema(commandDescription: string): JSONSchema7 {
   return {
     additionalProperties: false,
     properties: {

@@ -172,8 +172,6 @@ export type {
   FetchCapabilityRequestDefinition,
   FetchCapabilityRequestOptions,
   FetchCapabilityResponseType,
-  FetchCapabilityStandardSchemaResultFailure,
-  FetchCapabilityStandardSchemaResultSuccess,
   FetchCapabilityStandardSchemaV1,
   FetchCapabilityToolOptions,
   FetchCapabilityToolRequest,

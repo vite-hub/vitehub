@@ -13,14 +13,7 @@ import type {
 } from "../types.ts"
 import type { Message } from "../messages.ts"
 import type { WorkspaceDefinition, WorkspaceName } from "@vite-hub/workspace"
-
-interface JsonSchema {
-  additionalProperties?: boolean | JsonSchema
-  description?: string
-  properties?: Record<string, JsonSchema>
-  required?: string[]
-  type?: string
-}
+import type { JSONSchema7 } from "json-schema"
 
 export interface SubagentToolInput<
   CALL_OPTIONS = unknown,
@@ -65,7 +58,7 @@ function toolNameFor(name: string, definition: SubagentDefinition): string {
   return toolName
 }
 
-function inputSchema(description: string): JsonSchema {
+function inputSchema(description: string): JSONSchema7 {
   return {
     additionalProperties: false,
     properties: {
