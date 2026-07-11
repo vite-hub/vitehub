@@ -22,7 +22,7 @@ import { landingLanes } from "./content"
           class="group flex min-w-0 flex-col focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
           :class="index === 1 ? 'border-t border-default lg:border-t-0 lg:border-l' : ''"
         >
-          <div class="aspect-[16/9] overflow-hidden border-b border-default bg-[#f4eddf]">
+          <div class="aspect-[16/9] overflow-hidden border-b border-default bg-default">
             <img
               :src="lane.image"
               alt=""
@@ -30,7 +30,7 @@ import { landingLanes } from "./content"
               height="941"
               loading="lazy"
               decoding="async"
-              class="size-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.015] motion-reduce:transform-none motion-reduce:transition-none"
+              class="size-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.015] dark:invert motion-reduce:transform-none motion-reduce:transition-none"
             >
           </div>
 
