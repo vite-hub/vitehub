@@ -373,7 +373,7 @@ function withChatTitleReadableStreamParallel<T>(
   let reader: ReadableStreamDefaultReader<T> | undefined
   let cancelled = false
   let closed = false
-  let streamNext: Promise<ReadableStreamReadResult<T>> | undefined
+  let streamNext: ReturnType<ReadableStreamDefaultReader<T>["read"]> | undefined
   let titlePending = true
   const titleNext = title
     .then(value => ({ title: value, type: "title" as const }))
