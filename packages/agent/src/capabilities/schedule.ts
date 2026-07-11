@@ -55,17 +55,18 @@ interface RuntimeScheduleRecordLike {
   enabled: boolean
   id: string
   target: string
+  timeZone?: string
   updatedAt?: Date | string
 }
 
 interface RuntimeScheduleClientLike {
-  create: (input: { cron: string, enabled?: boolean, id?: string, target: string }) => MaybePromise<RuntimeScheduleRecordLike>
+  create: (input: { cron: string, enabled?: boolean, id?: string, target: string, timeZone?: string }) => MaybePromise<RuntimeScheduleRecordLike>
   delete: (id: string) => MaybePromise<boolean>
   disable: (id: string) => MaybePromise<RuntimeScheduleRecordLike>
   enable: (id: string) => MaybePromise<RuntimeScheduleRecordLike>
   get: (id: string) => MaybePromise<RuntimeScheduleRecordLike | undefined>
   list: () => MaybePromise<RuntimeScheduleRecordLike[]>
-  update: (id: string, input: { cron?: string, enabled?: boolean, target?: string }) => MaybePromise<RuntimeScheduleRecordLike>
+  update: (id: string, input: { cron?: string, enabled?: boolean, target?: string, timeZone?: string }) => MaybePromise<RuntimeScheduleRecordLike>
 }
 
 interface RuntimeScheduleReadInput {
@@ -74,8 +75,8 @@ interface RuntimeScheduleReadInput {
 }
 
 type RuntimeScheduleEditInput =
-  | { cron: string, enabled?: boolean, id?: string, operation: "create", target: string }
-  | { cron?: string, enabled?: boolean, id: string, operation: "update", target?: string }
+  | { cron: string, enabled?: boolean, id?: string, operation: "create", target: string, timeZone?: string }
+  | { cron?: string, enabled?: boolean, id: string, operation: "update", target?: string, timeZone?: string }
   | { id: string, operation: "delete" | "disable" | "enable" }
 
 type NormalizedRuntimeScheduleCapabilityOptions = Omit<RuntimeScheduleCapabilityOptions<string>, "allowSelfTarget" | "targets"> & {
@@ -190,11 +191,11 @@ function assertOptionalRuntimeScheduleId(id: unknown, label: string): string | u
 
 function assertRuntimeScheduleCron(cron: unknown, label: string): string {
   if (typeof cron !== "string" || !cron.trim()) {
-    throw new TypeError(`[vitehub] ${label} cron must be a five-field UTC cron expression.`)
+    throw new TypeError(`[vitehub] ${label} cron must be a five-field cron expression.`)
   }
   const normalized = cron.trim().replace(/\s+/g, " ")
   if (normalized.split(" ").length !== 5) {
-    throw new TypeError(`[vitehub] ${label} cron must be a five-field UTC cron expression.`)
+    throw new TypeError(`[vitehub] ${label} cron must be a five-field cron expression.`)
   }
   return normalized
 }
@@ -205,6 +206,20 @@ function assertOptionalRuntimeScheduleEnabled(enabled: unknown, label: string): 
     throw new TypeError(`[vitehub] ${label} enabled must be a boolean.`)
   }
   return enabled
+}
+
+function assertOptionalRuntimeScheduleTimeZone(timeZone: unknown, label: string): string | undefined {
+  if (timeZone === undefined) return undefined
+  if (typeof timeZone !== "string" || timeZone.trim() !== timeZone || !timeZone) {
+    throw new TypeError(`[vitehub] ${label} timeZone must be a valid IANA time zone.`)
+  }
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format()
+  }
+  catch {
+    throw new TypeError(`[vitehub] ${label} timeZone must be a valid IANA time zone.`)
+  }
+  return timeZone
 }
 
 function assertRuntimeScheduleInputKeys(input: Record<string, unknown> | undefined, allowed: string[], label: string): void {
@@ -248,7 +263,8 @@ async function requireScopedRuntimeSchedule(client: RuntimeScheduleClientLike, i
 }
 
 const runtimeScheduleTargetSchema = { description: "Runtime Schedule target name.", type: "string" }
-const runtimeScheduleCronSchema = { description: "Five-field UTC cron expression.", type: "string" }
+const runtimeScheduleCronSchema = { description: "Five-field cron expression, evaluated in timeZone or UTC when omitted.", type: "string" }
+const runtimeScheduleTimeZoneSchema = { description: "IANA time zone used to evaluate cron. Defaults to UTC.", type: "string" }
 
 const runtimeScheduleReadInputSchema = jsonObjectSchema({
   id: { description: "Runtime Schedule id for get.", type: "string" },
@@ -263,6 +279,7 @@ const runtimeScheduleEditInputSchema = {
       id: { type: "string" },
       operation: { const: "create", type: "string" },
       target: runtimeScheduleTargetSchema,
+      timeZone: runtimeScheduleTimeZoneSchema,
     }, ["cron", "operation", "target"]),
     jsonObjectSchema({
       cron: runtimeScheduleCronSchema,
@@ -270,6 +287,7 @@ const runtimeScheduleEditInputSchema = {
       id: { type: "string" },
       operation: { const: "update", type: "string" },
       target: runtimeScheduleTargetSchema,
+      timeZone: runtimeScheduleTimeZoneSchema,
     }, ["id", "operation"]),
     jsonObjectSchema({
       id: { type: "string" },
@@ -306,7 +324,7 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
       tools.schedule_edit = createTool<RuntimeScheduleEditInput>({
         description: "Create, update, enable, disable, or delete scoped Runtime Schedules.",
         async execute(input) {
-          assertRuntimeScheduleInputKeys(input as Record<string, unknown> | undefined, ["cron", "enabled", "id", "operation", "target"], "schedule_edit")
+          assertRuntimeScheduleInputKeys(input as Record<string, unknown> | undefined, ["cron", "enabled", "id", "operation", "target", "timeZone"], "schedule_edit")
           const operation = input?.operation
           if (operation === "create") {
             return await client.create({
@@ -314,15 +332,17 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
               enabled: assertOptionalRuntimeScheduleEnabled(input.enabled, "schedule_edit create"),
               id: assertOptionalRuntimeScheduleId(input.id, "schedule_edit create"),
               target: assertAllowedRuntimeScheduleTarget(input.target, options, "schedule_edit create"),
+              ...(input.timeZone === undefined ? {} : { timeZone: assertOptionalRuntimeScheduleTimeZone(input.timeZone, "schedule_edit create") }),
             })
           }
           if (operation === "update") {
             const id = assertRuntimeScheduleId(input.id, "schedule_edit update")
             await requireScopedRuntimeSchedule(client, id, options)
-            const update: { cron?: string, enabled?: boolean, target?: string } = {}
+            const update: { cron?: string, enabled?: boolean, target?: string, timeZone?: string } = {}
             if (input.cron !== undefined) update.cron = assertRuntimeScheduleCron(input.cron, "schedule_edit update")
             if (input.enabled !== undefined) update.enabled = assertOptionalRuntimeScheduleEnabled(input.enabled, "schedule_edit update")
             if (input.target !== undefined) update.target = assertAllowedRuntimeScheduleTarget(input.target, options, "schedule_edit update")
+            if (input.timeZone !== undefined) update.timeZone = assertOptionalRuntimeScheduleTimeZone(input.timeZone, "schedule_edit update")
             return await client.update(id, update)
           }
           if (operation === "enable") {

@@ -41,6 +41,7 @@ export default defineEventHandler(() => {
   return schedules.create({
     cron: "30 3 * * 1",
     target: "daily-report",
+    timeZone: "Europe/Copenhagen",
   })
 })
 ```

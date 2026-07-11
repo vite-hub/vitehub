@@ -65,7 +65,7 @@ function validateCronPart(part: string, range: { min: number, max: number }): vo
 
 export function validateRuntimeScheduleCron(cron: unknown): void {
   if (typeof cron !== "string" || cron.trim() !== cron || cron.length === 0) {
-    throw new ScheduleError("Runtime Schedule cron must be a five-field UTC cron expression.", {
+    throw new ScheduleError("Runtime Schedule cron must be a five-field cron expression.", {
       code: "SCHEDULE_INVALID_CRON",
       details: { cron },
       httpStatus: 400,
@@ -74,7 +74,7 @@ export function validateRuntimeScheduleCron(cron: unknown): void {
 
   const fields = cron.split(/\s+/)
   if (fields.length !== 5) {
-    throw new ScheduleError("Runtime Schedule cron must be a five-field UTC cron expression.", {
+    throw new ScheduleError("Runtime Schedule cron must be a five-field cron expression.", {
       code: "SCHEDULE_INVALID_CRON",
       details: { cron },
       httpStatus: 400,
@@ -95,6 +95,27 @@ export function validateRuntimeScheduleCron(cron: unknown): void {
     throw new ScheduleError(`Invalid Runtime Schedule cron expression: ${cron}`, {
       code: "SCHEDULE_INVALID_CRON",
       details: { cron },
+      httpStatus: 400,
+    })
+  }
+}
+
+function validateRuntimeScheduleTimeZone(timeZone: unknown): void {
+  if (typeof timeZone !== "string" || timeZone.trim() !== timeZone || !timeZone) {
+    throw new ScheduleError("Runtime Schedule timeZone must be a valid IANA time zone.", {
+      code: "SCHEDULE_INVALID_TIME_ZONE",
+      details: { timeZone },
+      httpStatus: 400,
+    })
+  }
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format()
+  }
+  catch {
+    throw new ScheduleError("Runtime Schedule timeZone must be a valid IANA time zone.", {
+      code: "SCHEDULE_INVALID_TIME_ZONE",
+      details: { timeZone },
       httpStatus: 400,
     })
   }
@@ -155,6 +176,9 @@ async function validateCreateInput(input: RuntimeScheduleCreateInput): Promise<v
       httpStatus: 400,
     })
   }
+  if (input.timeZone !== undefined) {
+    validateRuntimeScheduleTimeZone(input.timeZone)
+  }
 }
 
 async function validateUpdateInput(input: RuntimeScheduleUpdateInput): Promise<void> {
@@ -171,6 +195,9 @@ async function validateUpdateInput(input: RuntimeScheduleUpdateInput): Promise<v
       details: { enabled: input.enabled },
       httpStatus: 400,
     })
+  }
+  if (input.timeZone !== undefined) {
+    validateRuntimeScheduleTimeZone(input.timeZone)
   }
 }
 
@@ -200,6 +227,7 @@ export const schedules = {
       enabled: input.enabled ?? true,
       id: input.id ?? randomId("sched"),
       target: input.target,
+      ...(input.timeZone ? { timeZone: input.timeZone } : {}),
       updatedAt: now,
     })
   },

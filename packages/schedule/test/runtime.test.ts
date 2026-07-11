@@ -79,6 +79,7 @@ describe("Runtime Schedule helper", () => {
       cron: "30 8 * * 1-5",
       id: "schedule-1",
       target: "daily-report",
+      timeZone: "Europe/Copenhagen",
     })
 
     expect(created).toMatchObject({
@@ -86,6 +87,7 @@ describe("Runtime Schedule helper", () => {
       enabled: true,
       id: "schedule-1",
       target: "daily-report",
+      timeZone: "Europe/Copenhagen",
     })
     expect(created.createdAt).toBeInstanceOf(Date)
     expect(created.updatedAt).toBeInstanceOf(Date)
@@ -108,8 +110,8 @@ describe("Runtime Schedule helper", () => {
     })
 
     const created = await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
-    const updated = await schedules.update("schedule-1", { cron: "15 10 * * *", target: "cleanup" })
-    expect(updated).toMatchObject({ cron: "15 10 * * *", enabled: true, id: "schedule-1", target: "cleanup" })
+    const updated = await schedules.update("schedule-1", { cron: "15 10 * * *", target: "cleanup", timeZone: "Europe/Copenhagen" })
+    expect(updated).toMatchObject({ cron: "15 10 * * *", enabled: true, id: "schedule-1", target: "cleanup", timeZone: "Europe/Copenhagen" })
     expect(updated.createdAt).toEqual(created.createdAt)
     expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(created.updatedAt.getTime())
 
@@ -145,6 +147,25 @@ describe("Runtime Schedule helper", () => {
 
     await expect(schedules.create({ cron: "99 9 * * *", target: "report" })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_CRON",
+    })
+  })
+
+  it("fails clearly for invalid Runtime Schedule time zones", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await expect(schedules.create({ cron: "0 9 * * *", target: "report", timeZone: "Not/A_Zone" })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_TIME_ZONE",
+    })
+
+    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await expect(schedules.update("schedule-1", { timeZone: "Not/A_Zone" })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_TIME_ZONE",
     })
   })
 
@@ -332,6 +353,7 @@ describe("KV Runtime Schedule Store", () => {
       enabled: true,
       id: "schedule/1",
       target: "daily/report",
+      timeZone: "Europe/Copenhagen",
       updatedAt,
     })
 
@@ -341,6 +363,7 @@ describe("KV Runtime Schedule Store", () => {
       enabled: true,
       id: "schedule/1",
       target: "daily/report",
+      timeZone: "Europe/Copenhagen",
       updatedAt,
     })
     expect((await store.get("schedule/1"))?.createdAt).toBeInstanceOf(Date)
@@ -351,10 +374,11 @@ describe("KV Runtime Schedule Store", () => {
 
     const changedAt = new Date("2026-05-23T10:00:00.000Z")
     await expect(store.update("missing", { enabled: false, updatedAt: changedAt })).resolves.toBeUndefined()
-    const updated = await store.update("schedule/1", { cron: "30 10 * * *", enabled: false, updatedAt: changedAt })
-    expect(updated).toMatchObject({ cron: "30 10 * * *", enabled: false, id: "schedule/1" })
+    const updated = await store.update("schedule/1", { cron: "30 10 * * *", enabled: false, timeZone: "Asia/Bangkok", updatedAt: changedAt })
+    expect(updated).toMatchObject({ cron: "30 10 * * *", enabled: false, id: "schedule/1", timeZone: "Asia/Bangkok" })
     expect(updated?.createdAt).toEqual(createdAt)
     expect(updated?.updatedAt).toEqual(changedAt)
+    expect((await store.get("schedule/1"))?.timeZone).toBe("Asia/Bangkok")
 
     const unchanged = await store.update("schedule/1", { cron: undefined, target: undefined, updatedAt: changedAt } as never)
     expect(unchanged).toMatchObject({ cron: "30 10 * * *", target: "daily/report" })
@@ -902,6 +926,46 @@ describe("Basic Self-Hosted Schedule Runner", () => {
     finally {
       process.env.TZ = previousTZ
     }
+  })
+
+  it.each([
+    ["winter", "2026-01-15T08:00:00.000Z"],
+    ["summer", "2026-07-15T07:00:00.000Z"],
+  ])("matches Europe/Copenhagen Runtime Schedules across %s time", async (_season, scheduledAt) => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(scheduledAt))
+
+    let calls = 0
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {
+          calls++
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-01-01T00:00:00.000Z")
+    await runtimeScheduleStore.create({
+      createdAt: now,
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "copenhagen-report",
+      target: "report",
+      timeZone: "Europe/Copenhagen",
+      updatedAt: now,
+    })
+
+    const runner = startScheduleRunner({ intervalMs: 10, runtimeScheduleStore, scheduleRunStore })
+    await flushAsyncWork()
+    await vi.advanceTimersByTimeAsync(0)
+    await flushAsyncWork()
+
+    expect(calls).toBe(1)
+    expect((await scheduleRunStore.listRuns())[0]?.id).toBe(`srun_runtime_copenhagen-report_${scheduledAt}`)
+    runner.stop()
   })
 
   it("matches runner cron months as one-based UTC values", async () => {

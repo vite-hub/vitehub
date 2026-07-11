@@ -42,7 +42,7 @@ export default defineAgent({
 ## Runtime behavior
 
 Static schedules add metadata that framework integrations and schedule-aware runtime behavior can inspect.
-Runtime Schedule mode reads visible Runtime Schedules and can create, update, enable, disable, or delete scoped schedules when write mode is enabled.
+Runtime Schedule mode reads visible Runtime Schedules and can create, update, enable, disable, or delete scoped schedules when write mode is enabled. The `schedule_edit` tool accepts an optional IANA `timeZone` on create and update, while schedules without one continue to use UTC.
 
 ## Requirements
 
