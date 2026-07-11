@@ -5,7 +5,6 @@ import { resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { describe, expect, it, vi } from "vitest"
-import { createMemo } from "../../../fixtures/tutorials/agents/src/memo.ts"
 
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../../..")
@@ -44,7 +43,10 @@ async function requestWhenReady(url: string) {
 }
 
 describe("Agents launch tutorial fixture", () => {
-  it("memoizes values by key for one invocation", () => {
+  it("memoizes values by key for one invocation", async () => {
+    const { createMemo } = await import(resolve(fixtureRoot, "src/memo.ts")) as {
+      createMemo: () => <T>(key: string, create: () => T) => T
+    }
     const create = vi.fn(() => ({ ready: true }))
     const memo = createMemo()
 
