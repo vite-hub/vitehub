@@ -816,6 +816,8 @@ describe("agent CLI", () => {
         return ndjson([
           { agent: "review", trigger: "github.webhook", type: "start" },
           { channelId: "github", effect: { kind: "reaction", payload: { content: "eyes" } }, type: "delivery-preview" },
+          { channelId: "discord", effect: { kind: "title", payload: { title: "Review agent summary" } }, type: "delivery-preview" },
+          { channelId: "custom", effect: { kind: "title", payload: { value: "Inspect title payload" } }, type: "delivery-preview" },
           { text: "verbose review prose", type: "text-delta" },
           { channelId: "github", effect: { artifacts: [{ path: "screenshots/login.png", url: "https://assets.example/login.png" }], kind: "reply", payload: { body: "**Summary:** Short review.\n\n<details>\n<summary>Usage telemetry</summary>\n\nlarge table\n</details>" } }, type: "delivery-preview" },
           { channelId: "github", effect: { kind: "reaction", payload: { action: "remove", content: "eyes" } }, type: "delivery-preview" },
@@ -849,12 +851,17 @@ describe("agent CLI", () => {
 
     expect(stdout.output()).toBe(`Loaded payload: ${join(rootDir, "payload.json")}\nverbose review prose\n`)
     expect(stderr.output()).toContain("[delivery] reaction eyes on github")
+    expect(stderr.output()).toContain("[delivery] title Review agent summary on discord")
+    expect(stderr.output()).toContain("[delivery] title on custom")
+    expect(stderr.output()).toContain('payload: {"value":"Inspect title payload"}')
     expect(stderr.output()).toContain("[delivery] asset screenshots/login.png on github")
     expect(stderr.output()).toContain("url: https://assets.example/login.png")
     expect(stderr.output()).toContain("[delivery preview] would reply on github")
     expect(stderr.output()).toContain("[delivery] remove reaction eyes on github")
     expect(stderr.output()).not.toContain("[tool] reaction")
+    expect(stderr.output()).not.toContain("[tool] title")
     expect(stderr.output()).not.toContain("[tool] reply")
+    expect(stderr.output()).not.toContain("[delivery preview] would title")
     expect(stderr.output()).toContain("body: **Summary:** Short review.")
     expect(stderr.output()).toContain("Usage telemetry")
     expect(stderr.output()).toContain("large table")

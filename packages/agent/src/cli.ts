@@ -205,12 +205,21 @@ function deliveryReactionAction(payload: unknown): string | undefined {
   return isRecord(payload) && typeof payload.action === "string" ? payload.action : undefined
 }
 
+function deliveryTitleContent(payload: unknown): string | undefined {
+  if (typeof payload === "string") return payload.trim()
+  return isRecord(payload) && typeof payload.title === "string" ? payload.title.trim() : undefined
+}
+
 function deliveryPreviewHeader(event: { channelId?: string, effect: { kind: string, payload?: unknown } }): string {
   const channel = event.channelId ? ` on ${event.channelId}` : ""
   if (event.effect.kind === "reaction") {
     const content = deliveryReactionContent(event.effect.payload)
     if (deliveryReactionAction(event.effect.payload) === "remove") return `[delivery] remove reaction${content ? ` ${content}` : ""}${channel}`
     return `[delivery] reaction${content ? ` ${content}` : ""}${channel}`
+  }
+  if (event.effect.kind === "title") {
+    const title = deliveryTitleContent(event.effect.payload)
+    return `[delivery] title${title ? ` ${title}` : ""}${channel}`
   }
   return `[delivery preview] would ${event.effect.kind}${channel}`
 }
@@ -999,7 +1008,9 @@ async function sendDevMessage(
         writeDeliveryPreviewArtifacts(context, event)
         context.stderr.write(`\n${deliveryPreviewHeader(event)}\n`)
         writeDevPayload(context, "intent", event.effect.intent)
-        if (event.effect.kind !== "reaction") writeDeliveryPreviewPayload(context, event.effect.payload)
+        if (event.effect.kind !== "reaction" && (event.effect.kind !== "title" || !deliveryTitleContent(event.effect.payload))) {
+          writeDeliveryPreviewPayload(context, event.effect.payload)
+        }
         writeDevPayload(context, "metadata", event.effect.metadata)
         continue
       }
