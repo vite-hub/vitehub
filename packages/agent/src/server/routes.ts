@@ -934,6 +934,39 @@ function getInMemoryChatState(key: string): StateAdapter {
   return state
 }
 
+function withChatStateScope(state: StateAdapter, prefix: string): StateAdapter {
+  const key = (value: string) => `${prefix}${value}`
+  const lock = (value: Lock) => ({ ...value, threadId: key(value.threadId) })
+  return {
+    async acquireLock(threadId, ttlMs) {
+      const acquired = await state.acquireLock(key(threadId), ttlMs)
+      return acquired ? { ...acquired, threadId } : null
+    },
+    appendToList: (listKey, value, options) => state.appendToList(key(listKey), value, options),
+    connect: () => state.connect(),
+    delete: cacheKey => state.delete(key(cacheKey)),
+    dequeue: threadId => state.dequeue(key(threadId)),
+    disconnect: () => state.disconnect(),
+    enqueue: (threadId, entry, maxSize) => state.enqueue(key(threadId), entry, maxSize),
+    extendLock: (value, ttlMs) => state.extendLock(lock(value), ttlMs),
+    forceReleaseLock: threadId => state.forceReleaseLock(key(threadId)),
+    get: cacheKey => state.get(key(cacheKey)),
+    getList: listKey => state.getList(key(listKey)),
+    isSubscribed: threadId => state.isSubscribed(key(threadId)),
+    queueDepth: threadId => state.queueDepth(key(threadId)),
+    releaseLock: value => state.releaseLock(lock(value)),
+    set: (cacheKey, value, ttlMs) => state.set(key(cacheKey), value, ttlMs),
+    setIfNotExists: (cacheKey, value, ttlMs) => state.setIfNotExists(key(cacheKey), value, ttlMs),
+    subscribe: threadId => state.subscribe(key(threadId)),
+    unsubscribe: threadId => state.unsubscribe(key(threadId)),
+  }
+}
+
+function chatStateOwnsScope(state: AgentChatStateResolver<ViteAgentRouteRuntimeConfig> | undefined): boolean {
+  return typeof state === "function"
+    || isRecord(state) && typeof state.resolve === "function"
+}
+
 async function resolveChatState(
   options: AgentChatOptions | undefined,
   context: ViteAgentRouteRuntimeContext,
@@ -942,17 +975,21 @@ async function resolveChatState(
 ): Promise<StateAdapter> {
   const agentName = handlerOptions.agentName || "agent"
   const origin = chatRegistrationOrigin(registration)
+  const stateKeyPrefix = `chat:${agentName}:${origin}:`
   const state = await resolveMaybe(
     (options?.state ?? handlerOptions.state) as AgentChatStateResolver<ViteAgentRouteRuntimeConfig> | undefined,
     {
       ...context,
       chat: {
         agentName,
-        stateKeyPrefix: `chat:${agentName}:${origin}:`,
+        stateKeyPrefix,
       },
     } as never,
   )
-  return state || getInMemoryChatState(`${agentName}:${origin}`)
+  if (!state) return getInMemoryChatState(`${agentName}:${origin}`)
+  return options?.state === undefined && !chatStateOwnsScope(handlerOptions.state)
+    ? withChatStateScope(state, stateKeyPrefix)
+    : state
 }
 
 function chatSdkOption<T>(options: AgentChatOptions | undefined, key: string): T | undefined {

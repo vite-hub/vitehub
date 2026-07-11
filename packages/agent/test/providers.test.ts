@@ -3648,6 +3648,76 @@ describe("server helpers", () => {
     expect(prefixes).toEqual(["chat:agent:support:", "chat:agent:sales:"])
   })
 
+  it("scopes framework chat state by agent and channel", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-state-scope-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const miniRun = vi.fn(() => "mini")
+    const brujulaRun = vi.fn(() => "brujula")
+    const handler = (run: () => string, explicitState?: typeof state) => createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        discord: http({ adapter: () => createTestChatAdapter() as never }),
+        slack: http({ adapter: () => createTestChatAdapter() as never }),
+      },
+      driver: { run },
+      messages: { ...(explicitState ? { state: explicitState } : {}), stream: false },
+    }) as never)
+    const request = () => new Request("https://example.com/api/_vitehub/agents/mini/webhooks/discord", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          from: { id: 123, username: "maxi" },
+          message_id: 7,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    })
+
+    try {
+      const mini = handler(miniRun)
+      const brujula = handler(brujulaRun)
+      await expect(mini(request(), "discord", { agentName: "mini", state })).resolves.toMatchObject({ status: 200 })
+      await expect(brujula(request(), "discord", { agentName: "work-coordinator", state })).resolves.toMatchObject({ status: 200 })
+      await expect(mini(request(), "discord", { agentName: "mini", state })).resolves.toMatchObject({ status: 200 })
+      await expect(mini(request(), "slack", { agentName: "mini", state })).resolves.toMatchObject({ status: 200 })
+
+      expect(miniRun).toHaveBeenCalledTimes(2)
+      expect(brujulaRun).toHaveBeenCalledOnce()
+      await expect(state.get("chat:mini:discord:dedupe:telegram:7")).resolves.toBe(true)
+      await expect(state.get("chat:mini:slack:dedupe:telegram:7")).resolves.toBe(true)
+      await expect(state.get("chat:work-coordinator:discord:dedupe:telegram:7")).resolves.toBe(true)
+      await expect(state.get("dedupe:telegram:7")).resolves.toBeNull()
+
+      const prefixes: string[] = []
+      const resolvedRun = vi.fn(() => "resolved")
+      await expect(handler(resolvedRun)(request(), "discord", {
+        agentName: "resolved",
+        state: (context) => {
+          prefixes.push(context.chat.stateKeyPrefix)
+          return state
+        },
+      })).resolves.toMatchObject({ status: 200 })
+      expect(prefixes).toEqual(["chat:resolved:discord:"])
+      expect(resolvedRun).toHaveBeenCalledOnce()
+      await expect(state.get("dedupe:telegram:7")).resolves.toBe(true)
+      await expect(state.get("chat:resolved:discord:dedupe:telegram:7")).resolves.toBeNull()
+      await state.delete("dedupe:telegram:7")
+
+      const explicitRun = vi.fn(() => "explicit")
+      await expect(handler(explicitRun, state)(request(), "discord", { agentName: "explicit", state })).resolves.toMatchObject({ status: 200 })
+      expect(explicitRun).toHaveBeenCalledOnce()
+      await expect(state.get("dedupe:telegram:7")).resolves.toBe(true)
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("does not block chat webhook handling on typing status", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
