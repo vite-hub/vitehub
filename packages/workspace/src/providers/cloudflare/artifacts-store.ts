@@ -66,10 +66,10 @@ function repoName(options: CloudflareArtifactsWorkspaceStoreOptions, workspaceNa
   return options.repo || `${options.repoPrefix || "vitehub-workspace-"}${workspaceName.replace(/[^a-zA-Z0-9_.-]/g, "-")}`
 }
 
-function errorCode(error: unknown) {
-  return typeof error === "object" && error && "code" in error
-    ? (error as { code?: number | string }).code
-    : undefined
+function hasArtifactsErrorCode(error: unknown, code: string, numericCode: number) {
+  if (typeof error !== "object" || !error) return false
+  const value = error as { code?: number | string, numericCode?: number }
+  return value.code === code || value.numericCode === numericCode || value.code === numericCode
 }
 
 function isNonFastForward(error: unknown) {
@@ -383,7 +383,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
       repo = await binding.get(name)
     }
     catch (error) {
-      if (errorCode(error) !== 10200) throw error
+      if (!hasArtifactsErrorCode(error, "NOT_FOUND", 10200)) throw error
       try {
         created = await binding.create(name, {
           description: `ViteHub workspace ${this.workspaceName}`,
@@ -392,7 +392,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
         })
       }
       catch (createError) {
-        if (errorCode(createError) !== 10201) throw createError
+        if (!hasArtifactsErrorCode(createError, "ALREADY_EXISTS", 10201)) throw createError
       }
       repo = await binding.get(name)
     }

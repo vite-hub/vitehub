@@ -47,7 +47,7 @@ The public provider literal and runtime adapter existed, but production-shaped W
 
 The prototype adapter also had correctness gaps:
 
-1. Every `binding.get()` failure entered repository creation instead of restricting creation to Cloudflare's not-found error (`10200`).
+1. Every `binding.get()` failure entered repository creation instead of restricting creation to Cloudflare's `NOT_FOUND` error (`numericCode: 10200`).
 2. It modeled `create()` as a repository handle even though Cloudflare returns a distinct creation result, and it discarded token expiry metadata.
 3. Every clone failure was treated as an empty repository, masking authentication, availability, and corruption failures. Cloudflare's `source` field also matters: imported and forked repositories can contain history while `lastPushAt` is still null.
 4. A failed push left a clean local commit, so retrying `snapshot()` could falsely report success without pushing.
@@ -55,7 +55,7 @@ The prototype adapter also had correctness gaps:
 6. `mediaType` and Workspace metadata were lost, which can break Source-backed write protection after a fresh Worker instance.
 7. Only mock-level adapter tests existed; the live Cloudflare Workspace smoke still used `memory`.
 
-Cloudflare distinguishes missing repositories (`10200`) from create races where a repository already exists (`10201`). Repository acquisition should create only after the former and recover the latter by loading the concurrent winner. ([Artifacts errors](https://developers.cloudflare.com/artifacts/api/errors/))
+Cloudflare distinguishes missing repositories (`code: 'NOT_FOUND'`, `numericCode: 10200`) from create races (`code: 'ALREADY_EXISTS'`, `numericCode: 10201`). Repository acquisition should create only after the former and recover the latter by loading the concurrent winner. The adapter also accepts the earlier numeric `code` shape while Artifacts remains in beta. ([Artifacts errors](https://developers.cloudflare.com/artifacts/api/errors/))
 
 ### Artifacts is not public attachment hosting
 

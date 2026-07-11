@@ -31,7 +31,11 @@ function expiresIn(milliseconds: number) {
   return new Date(Date.now() + milliseconds).toISOString()
 }
 
-function artifactsError(code: number, message: string) {
+function artifactsError(code: string, numericCode: number, message: string) {
+  return Object.assign(new Error(message), { code, numericCode })
+}
+
+function legacyArtifactsError(code: number, message: string) {
   return Object.assign(new Error(message), { code })
 }
 
@@ -91,7 +95,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const binding = {
       create: vi.fn(async () => createdRepo()),
       get: vi.fn()
-        .mockRejectedValueOnce(artifactsError(10200, "missing"))
+        .mockRejectedValueOnce(artifactsError("NOT_FOUND", 10200, "missing"))
         .mockResolvedValueOnce(repo),
     }
 
@@ -300,7 +304,7 @@ describe("Cloudflare Artifacts workspace store", () => {
   })
 
   it("propagates transient repository lookup failures without creating", async () => {
-    const error = artifactsError(10400, "Artifacts unavailable")
+    const error = artifactsError("INTERNAL_ERROR", 10400, "Artifacts unavailable")
     const binding = {
       create: vi.fn(),
       get: vi.fn(async () => {
@@ -317,10 +321,10 @@ describe("Cloudflare Artifacts workspace store", () => {
     const repo = artifactsRepo({ lastPushAt: "2026-07-11T00:00:00.000Z" })
     const binding = {
       create: vi.fn(async () => {
-        throw artifactsError(10201, "already exists")
+        throw artifactsError("ALREADY_EXISTS", 10201, "already exists")
       }),
       get: vi.fn()
-        .mockRejectedValueOnce(artifactsError(10200, "missing"))
+        .mockRejectedValueOnce(artifactsError("NOT_FOUND", 10200, "missing"))
         .mockResolvedValueOnce(repo),
     }
     gitMock.clone.mockResolvedValueOnce(undefined)
@@ -360,7 +364,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const binding = {
       create: vi.fn(async () => createdRepo(`art_v1_expiring?expires=${Math.floor((Date.now() + 30_000) / 1000)}`)),
       get: vi.fn()
-        .mockRejectedValueOnce(artifactsError(10200, "missing"))
+        .mockRejectedValueOnce(artifactsError("NOT_FOUND", 10200, "missing"))
         .mockResolvedValueOnce(repo),
     }
     const store = await createStore(binding)
@@ -437,7 +441,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const binding = {
       create: vi.fn(async () => createdRepo()),
       get: vi.fn()
-        .mockRejectedValueOnce(artifactsError(10200, "missing"))
+        .mockRejectedValueOnce(legacyArtifactsError(10200, "missing"))
         .mockResolvedValueOnce(emptyRepo)
         .mockResolvedValueOnce(nonEmptyRepo),
     }
