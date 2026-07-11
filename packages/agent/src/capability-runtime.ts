@@ -1230,18 +1230,25 @@ export async function applyOutputRenderers(
   let current = result
   let providerIndex = 0
   const extensions = createAgentExtensionReader<AgentOutputExtensionValues>(values)
-  const orderedRenderers = [
-    ...renderers.filter(renderer => renderer.order !== "last"),
-    ...renderers.filter(renderer => renderer.order === "last"),
-  ]
-  for (const renderer of orderedRenderers) {
+  const delayedRenderers: Array<{ extensions: AgentOutputExtensions, renderer: ResolvedAgentOutputRenderer }> = []
+  for (const renderer of renderers) {
     while (providerIndex < renderer.providerCount) {
       const provider = providers[providerIndex++]
       if (values.has(provider.id)) continue
       const value = await provider.resolve({ extensions, result: current })
       if (value !== undefined) values.set(provider.id, value)
     }
+    if (renderer.order === "last") {
+      delayedRenderers.push({
+        extensions: createAgentExtensionReader(new Map(values)),
+        renderer,
+      })
+      continue
+    }
     current = await renderer(current, extensions)
+  }
+  for (const delayed of delayedRenderers) {
+    current = await delayed.renderer(current, delayed.extensions)
   }
   return current
 }

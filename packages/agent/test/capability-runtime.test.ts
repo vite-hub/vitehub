@@ -217,6 +217,49 @@ describe("agent capability runtime", () => {
     await expect(applyOutputRenderers({ text: "base" }, resolved.registries.outputRenderers)).resolves.toEqual({ text: "base:rendered" })
   })
 
+  it("preserves output extension scope when final renderers run last", async () => {
+    const {
+      applyOutputRenderers,
+      defineCapability,
+      resolveAgentCapabilities,
+    } = await import("../src/capability-runtime.ts")
+    const order: string[] = []
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "delayed",
+          output(context) {
+            context.output.final((result, renderContext) => {
+              order.push(`delayed:${String(result)}`)
+              return `${String(result)}:${String(renderContext.output.extensions.get("later"))}`
+            }, { order: "last" })
+          },
+        }),
+        defineCapability({
+          id: "later",
+          output(context) {
+            context.output.provide(({ result }: { result: unknown }) => {
+              order.push(`provide:${String(result)}`)
+              return "visible-to-later-renderers"
+            })
+            context.output.final((result) => {
+              order.push(`normal:${String(result)}`)
+              return `${String(result)}:normal`
+            })
+          },
+        }),
+      ],
+    }, runtime(), {})
+
+    await expect(applyOutputRenderers(
+      "base",
+      resolved.registries.finalOutputRenderers,
+      resolved.registries.outputExtensionProviders,
+    )).resolves.toBe("base:normal:undefined")
+    expect(order).toEqual(["provide:base", "normal:base", "delayed:base:normal"])
+  })
+
   it("projects Capability CLI metadata into a CLI-named tool", async () => {
     const {
       defineCapability,
