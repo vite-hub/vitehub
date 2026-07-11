@@ -54,12 +54,48 @@ describe("hubBlob", () => {
     expect(code).toContain(".virtual/blob")
   })
 
+  it("registers Nitro runtime setup without Blob serving", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-runtime-"))
+    const plugin = hubBlob({ driver: "fs", base: ".runtime/blob" })
+    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+    const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
+    const userConfig = {
+      nitro: {
+        plugins: ["server/plugin.ts"],
+      },
+    }
+
+    expect(config(userConfig, { command: "build" })).toMatchObject({
+      nitro: {
+        plugins: ["server/plugin.ts", ".vitehub/nitro/blob/plugin.ts"],
+      },
+    })
+    expect(config({
+      nitro: {
+        plugins: [".vitehub/nitro/blob/plugin.ts"],
+      },
+    }, { command: "build" })).toMatchObject({
+      nitro: {
+        plugins: [".vitehub/nitro/blob/plugin.ts"],
+      },
+    })
+    await configResolved({
+      build: { outDir: "dist" },
+      root,
+    } as never)
+
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain("import { blob as blobConfig } from '#vitehub/blob/config'")
+    expect(nitroPlugin).toContain("setBlobRuntimeConfig(blobConfig)")
+  })
+
   it("registers an opt-in Nitro serving route", async () => {
     const plugin = hubBlob({ serve: true })
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
 
     expect(config({}, { command: "serve" })).toMatchObject({
       nitro: {
+        plugins: [".vitehub/nitro/blob/plugin.ts"],
         handlers: [{
           handler: ".vitehub/blob/serve-route.ts",
           route: "/api/_vitehub/blob/**",

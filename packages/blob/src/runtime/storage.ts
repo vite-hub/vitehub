@@ -73,8 +73,8 @@ function joinServedBlobUrl(...parts: string[]): string {
 async function withServedBlobUrl(name: string, object: BlobObject): Promise<BlobObject> {
   const config = await getBlobRuntimeConfig()
   const serve = config && typeof config === "object" ? config.serve : undefined
-  if (!serve?.publicBaseUrl || serve.store !== name) return object
-  return { ...object, url: joinServedBlobUrl(serve.publicBaseUrl, serve.route, object.pathname) }
+  if (!serve || serve.store !== name) return object
+  return { ...object, url: joinServedBlobUrl(serve.publicBaseUrl || "/", serve.route, object.pathname) }
 }
 
 async function resolveStorage(name = "default") {

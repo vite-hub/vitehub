@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { execFile } from "node:child_process"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -128,6 +128,55 @@ afterEach(() => {
 })
 
 describe("Vite provider outputs", () => {
+  it("hydrates configured Blob options in bundled server output", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-runtime-config-")
+    const entry = join(rootDir, "src", "server.ts")
+    const configuredBase = join(rootDir, "configured")
+    await mkdir(join(rootDir, "node_modules", "@vite-hub"), { recursive: true })
+    await symlink(resolve(import.meta.dirname, ".."), join(rootDir, "node_modules", "@vite-hub", "blob"), "dir")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await writeFile(join(rootDir, "package.json"), JSON.stringify({ type: "module" }))
+    await writeFile(entry, [
+      `import vitehubBlobPlugin from "../.vitehub/nitro/blob/plugin.ts"`,
+      `import { blob } from "@vite-hub/blob"`,
+      `vitehubBlobPlugin()`,
+      `console.log(JSON.stringify(await blob.put("proof.txt", "configured")))`,
+      ``,
+    ].join("\n"))
+    const [{ build }, { hubBlob }] = await Promise.all([
+      import("vite"),
+      import("../src/vite.ts"),
+    ])
+
+    await build({
+      appType: "custom",
+      blob: {
+        base: configuredBase,
+        driver: "fs",
+        serve: { publicBaseUrl: "https://assets.example" },
+      },
+      build: {
+        outDir: "dist",
+        rollupOptions: {
+          input: entry,
+          output: { entryFileNames: "server.mjs" },
+        },
+        ssr: entry,
+      },
+      configFile: false,
+      logLevel: "silent",
+      plugins: [hubBlob()],
+      root: rootDir,
+    })
+
+    const { stdout } = await execFileAsync(process.execPath, [join(rootDir, "dist", "server.mjs")], { cwd: rootDir })
+    expect(JSON.parse(stdout)).toMatchObject({
+      pathname: "proof.txt",
+      url: "https://assets.example/api/_vitehub/blob/proof.txt",
+    })
+    await expect(readFile(join(configuredBase, "proof.txt"), "utf8")).resolves.toBe("configured")
+  })
+
   it("builds the playground and emits Cloudflare and Vercel outputs", async () => {
     await execFileAsync("vp", ["build"], {
       cwd: playgroundDir,
@@ -379,6 +428,7 @@ describe("Vite provider outputs", () => {
 
     await generateProviderOutputs({
       blob: {
+        serve: { route: "assets", store: "assets" },
         stores: {
           assets: {
             access: "public",
@@ -405,7 +455,9 @@ describe("Vite provider outputs", () => {
       }
     }
 
-    await runtimeModule.blob.store("assets").put("notes/assets.txt", "hello")
+    await expect(runtimeModule.blob.store("assets").put("notes/assets.txt", "hello")).resolves.toMatchObject({
+      url: "/assets/notes/assets.txt",
+    })
 
     expect(vercelBlobMock.put).toHaveBeenCalledWith(
       "notes/assets.txt",

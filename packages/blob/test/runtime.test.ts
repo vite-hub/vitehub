@@ -430,6 +430,36 @@ describe("blob runtime", () => {
     expect(otherStore.url).toBe("https://blob.example/notes/private.txt")
   })
 
+  it("returns route-relative URLs when Blob serving has no public base URL", async () => {
+    setBlobRuntimeConfig({
+      serve: {
+        route: "assets",
+        store: "assets",
+      },
+      store: {
+        access: "public",
+        driver: "vercel-blob",
+        token: "default-token",
+      },
+      stores: {
+        assets: {
+          access: "public",
+          driver: "vercel-blob",
+          token: "assets-token",
+        },
+        default: {
+          access: "public",
+          driver: "vercel-blob",
+          token: "default-token",
+        },
+      },
+    })
+
+    const put = await blob.store("assets").put("notes/served.txt", "value")
+
+    expect(put.url).toBe("/assets/notes/served.txt")
+  })
+
   it("rejects missing named stores at runtime", async () => {
     setBlobRuntimeConfig({
       store: {

@@ -166,6 +166,8 @@ export default defineConfig({
 
 The generated Nitro route maps `${route}/**` to the selected Blob Store and delegates streaming to `blob.store(storeName).serve(event, pathname)`. The default route is a safe framework default. It is not a recommendation that every app expose public assets under `/api`.
 
+Objects from the served store include a URL. With `serve.publicBaseUrl`, the URL is absolute. Without it, the URL is route-relative so request-aware consumers can resolve it against their own origin.
+
 ## Runtime Helper
 
 `blob` implements `BlobStorage`.
