@@ -393,9 +393,11 @@ describe("defineAgent workspace option", () => {
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
     const { blob } = await import("../src/capabilities.ts")
     const preview = new Uint8Array([7, 8, 9])
+    const rootPreview = new Uint8Array([10, 11, 12])
     const writeBackDiff = {
       entries: [
         { after: { type: "file" as const }, path: "artifacts/preview.png", type: "added" as const },
+        { after: { type: "file" as const }, path: "artifacts/root-preview.png", type: "added" as const },
         { after: { type: "file" as const }, path: "artifacts/bare.png", type: "added" as const },
         { after: { type: "file" as const }, path: "artifacts/app-route.png", type: "added" as const },
         { after: { type: "directory" as const }, path: "artifacts/gallery", type: "added" as const },
@@ -417,8 +419,10 @@ describe("defineAgent workspace option", () => {
         }
       }),
     }
-    readFile.mockImplementation(async (path: string) => path === "artifacts/preview.png" ? preview : undefined)
-    stat.mockImplementation(async (path: string) => path === "artifacts/preview.png"
+    readFile.mockImplementation(async (path: string) => path === "artifacts/preview.png"
+      ? preview
+      : path === "artifacts/root-preview.png" ? rootPreview : undefined)
+    stat.mockImplementation(async (path: string) => path === "artifacts/preview.png" || path === "artifacts/root-preview.png"
       ? { mediaType: "image/png", path, type: "file" as const }
       : undefined)
     prepareHarnessWorkspaceSession.mockImplementationOnce(async (_workspace, options: { onWriteBack?: (diff: typeof writeBackDiff) => unknown }) => ({
@@ -429,6 +433,7 @@ describe("defineAgent workspace option", () => {
     const providerData = { sessionId: "provider-session" }
     const markdown = [
       "![Preview](/workspace/codex-session/artifacts/preview.png)",
+      "![Root preview](/workspace/artifacts/root-preview.png)",
       "![Nested](/workspace/codex-session/tmp/artifacts/preview.png)",
       "Bare path: artifacts/bare.png",
       "[App route](/docs/artifacts/app-route.png)",
@@ -484,13 +489,22 @@ describe("defineAgent workspace option", () => {
     }
     const result = await runAgent(agent, runtime as never, { prompt: "hello" })
     expect(result).toMatchObject({
-      artifacts: [{
-        alt: "Preview",
-        mediaType: "image/png",
-        path: "artifacts/preview.png",
-        placement: "inline",
-        url: expect.stringMatching(/^https:\/\/review\.example\/api\/_vitehub\/blob\/vitehub-agent-artifacts\/[a-f0-9]{64}\/artifacts\/preview\.png$/),
-      }],
+      artifacts: [
+        {
+          alt: "Preview",
+          mediaType: "image/png",
+          path: "artifacts/preview.png",
+          placement: "inline",
+          url: expect.stringMatching(/^https:\/\/review\.example\/api\/_vitehub\/blob\/vitehub-agent-artifacts\/[a-f0-9]{64}\/artifacts\/preview\.png$/),
+        },
+        {
+          alt: "Root preview",
+          mediaType: "image/png",
+          path: "artifacts/root-preview.png",
+          placement: "inline",
+          url: expect.stringMatching(/^https:\/\/review\.example\/api\/_vitehub\/blob\/vitehub-agent-artifacts\/[a-f0-9]{64}\/artifacts\/root-preview\.png$/),
+        },
+      ],
     })
     expect(laterRenderer).toHaveBeenCalledOnce()
     const rendered = laterRenderer.mock.calls[0]![0] as Record<string, unknown>
@@ -501,10 +515,15 @@ describe("defineAgent workspace option", () => {
       value: providerData,
       writable: false,
     })
-    expect(store.put).toHaveBeenCalledOnce()
+    expect(store.put).toHaveBeenCalledTimes(2)
     expect(store.put).toHaveBeenCalledWith(
       expect.stringMatching(/^vitehub-agent-artifacts\/[a-f0-9]{64}\/artifacts\/preview\.png$/),
       preview,
+      { contentType: "image/png" },
+    )
+    expect(store.put).toHaveBeenCalledWith(
+      expect.stringMatching(/^vitehub-agent-artifacts\/[a-f0-9]{64}\/artifacts\/root-preview\.png$/),
+      rootPreview,
       { contentType: "image/png" },
     )
   })
