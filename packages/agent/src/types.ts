@@ -420,6 +420,7 @@ export interface AgentRunCallbackContext<
 }
 
 export interface AgentRunResult {
+  artifacts?: readonly PublishedAgentDeliveryArtifact[]
   finishReason?: unknown
   raw?: unknown
   text?: string

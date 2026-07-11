@@ -553,17 +553,20 @@ describe("Harness Workspace Session", () => {
     const initial = bytes("old")
     const updated = bytes("new")
     const added = bytes("added")
+    const writeBackDiff = {
+      entries: [{ path: "README.md", type: "modified" as const }],
+      to: "next",
+    }
+    const order: string[] = []
     const workspaceSession = {
       close: vi.fn(async () => {}),
-      commit: vi.fn(async () => {}),
-      diff: vi.fn(async () => ({
-        entries: [{ path: "README.md", type: "modified" }],
-        to: "next",
-      })),
+      commit: vi.fn(async () => { order.push("commit") }),
+      diff: vi.fn(async () => writeBackDiff),
       mkdir: vi.fn(async () => {}),
       rm: vi.fn(async () => {}),
       writeFile: vi.fn(async () => {}),
     }
+    const onWriteBack = vi.fn(async () => { order.push("write-back") })
     const startSession = vi.fn(async () => workspaceSession)
     const run = sandboxRun(["README.md", "new.json"])
     const readBinaryFile = vi.fn(async ({ path }: { path: string }) => path.endsWith("README.md") ? updated : added)
@@ -587,6 +590,7 @@ describe("Harness Workspace Session", () => {
           "**": { commit: "chore: update docs" },
         },
       },
+      onWriteBack,
       sessionWorkDir: "/work/agent",
     })
 
@@ -605,6 +609,8 @@ describe("Harness Workspace Session", () => {
     })
     expect(workspaceSession.writeFile).toHaveBeenCalledWith("README.md", updated, { mediaType: "text/markdown" })
     expect(workspaceSession.writeFile).toHaveBeenCalledWith("new.json", added, { mediaType: "application/json" })
+    expect(onWriteBack).toHaveBeenCalledWith(writeBackDiff)
+    expect(order).toEqual(["write-back", "commit"])
     expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "chore: update docs" })
     expect(workspaceSession.close).toHaveBeenCalledOnce()
   })

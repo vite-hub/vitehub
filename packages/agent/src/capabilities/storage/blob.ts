@@ -1,5 +1,11 @@
 import { defineCapability, normalizeMode, workspaceMaterializationPathsSymbol } from "../../capability-runtime.ts"
-import { readActiveHarnessWorkspaceFile } from "../../harness-runtime.ts"
+import { publishWorkspaceArtifacts } from "../../delivery-artifacts.ts"
+import { toAgentRunResult } from "../../agent-output.ts"
+import {
+  clearHarnessWorkspaceDiff,
+  readActiveHarnessWorkspaceFile,
+  readHarnessWorkspaceDiff,
+} from "../../harness-runtime.ts"
 import {
   assertString,
   createTool,
@@ -25,7 +31,16 @@ export interface BlobCapabilityOptions extends PrimitiveStorageCapabilityOptions
 export function blob(options: BlobCapabilityOptions = {}): AgentCapabilityDefinition {
   const mode = normalizeMode(options.mode, "Blob")
   const assetPaths = normalizeAssetPaths(mode, options.assetPaths)
-  return Object.assign(defineCapability({ id: "blob", mode, requires: [{ primitive: "blob" }], tools: blobTools(mode, options) }), assetPaths.length
+  return Object.assign(defineCapability({
+    id: "blob",
+    mode,
+    output(context) {
+      if (context.driver?.kind !== "harness" || !assetPaths.length) return
+      context.output.final(async result => await publishReferencedHarnessArtifacts(result, context, assetPaths, options))
+    },
+    requires: [{ primitive: "blob" }],
+    tools: blobTools(mode, options),
+  }), assetPaths.length
     ? { [workspaceMaterializationPathsSymbol]: assetPaths }
     : {})
 }
@@ -88,6 +103,92 @@ function normalizeAssetPaths(mode: AgentCapabilityMode, value: BlobCapabilityOpt
       ? value
       : [value]
   return [...new Set(paths.map(path => normalizeAssetPath(path)))]
+}
+
+function assetReferencePath(value: string, roots: readonly string[]): string | undefined {
+  const reference = value.trim().replace(/\\/g, "/")
+  if (reference.startsWith("//")) return
+  const candidates = reference.startsWith("/")
+    ? roots.flatMap((root) => {
+        const marker = `/${root}`
+        const index = reference.lastIndexOf(marker)
+        return index < 0 ? [] : [reference.slice(index + 1)]
+      })
+    : [reference]
+  for (const candidate of candidates) {
+    let path: string
+    try {
+      path = normalizeAssetPath(candidate.replace(/^\.\/+/, ""))
+    }
+    catch {
+      continue
+    }
+    if (roots.some(root => path === root || path.startsWith(`${root}/`))) return path
+  }
+}
+
+function referencedHarnessArtifacts(text: string, roots: readonly string[], changedPaths: ReadonlySet<string>) {
+  const artifacts = new Map<string, { alt?: string, path: string, placement: "inline" | "link" }>()
+  for (const match of text.matchAll(/(!?)\[([^\]\r\n]*)\]\(\s*<?([^\s)<>]+)>?\s*\)/g)) {
+    const path = assetReferencePath(match[3], roots)
+    if (!path || !changedPaths.has(path)) continue
+    const artifact = {
+      ...(match[2].trim() ? { alt: match[2].trim() } : {}),
+      path,
+      placement: match[1] === "!" ? "inline" as const : "link" as const,
+    }
+    const existing = artifacts.get(path)
+    if (!existing || artifact.placement === "inline") artifacts.set(path, artifact)
+  }
+  return [...artifacts.values()]
+}
+
+function absoluteBlobArtifactUrl(value: unknown, request: Request | undefined): string {
+  const url = typeof value === "object" && value !== null && typeof (value as { url?: unknown }).url === "string"
+    ? (value as { url: string }).url
+    : undefined
+  if (!url) throw new Error("[vitehub] Blob asset publication requires Blob serving or a driver that returns a public URL.")
+  try {
+    return new URL(url).href
+  }
+  catch {
+    if (request) return new URL(url, request.url).href
+    throw new Error("[vitehub] Blob asset publication returned a relative URL without an Agent request URL.")
+  }
+}
+
+async function publishReferencedHarnessArtifacts(
+  result: unknown,
+  context: Parameters<NonNullable<AgentCapabilityDefinition["output"]>>[0],
+  assetPaths: readonly string[],
+  options: BlobCapabilityOptions,
+): Promise<unknown> {
+  const diff = readHarnessWorkspaceDiff(context.context)
+  clearHarnessWorkspaceDiff(context.context)
+  if (!diff) return result
+
+  const runResult = toAgentRunResult(result)
+  if (!runResult.text) return result
+  const changedPaths = new Set(diff.entries.flatMap(entry => entry.type === "added" || entry.type === "modified" ? [entry.path] : []))
+  const artifacts = referencedHarnessArtifacts(runResult.text, assetPaths, changedPaths)
+  if (!artifacts.length) return result
+
+  const store = await resolveBlobStore(context, options)
+  const prefix = `vitehub-agent-artifacts/${encodeURIComponent(context.run?.runId || globalThis.crypto.randomUUID())}`
+  const published = await publishWorkspaceArtifacts(context, artifacts, {
+    prefix,
+    publish: async input => ({
+      url: absoluteBlobArtifactUrl(await method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(
+        input.pathname,
+        input.content,
+        input.mediaType ? { contentType: input.mediaType } : undefined,
+      ), context.request),
+    }),
+  })
+  return {
+    ...runResult,
+    artifacts: [...(runResult.artifacts || []), ...published],
+  }
 }
 
 function normalizeListLimit(limit: unknown): number {

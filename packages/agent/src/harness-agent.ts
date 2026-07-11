@@ -4,7 +4,10 @@ import {
 } from "./internal/agent-usage-metadata.ts"
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
 import { streamAgentOutputToEvents } from "./agent-output.ts"
-import { setActiveHarnessWorkspaceFiles } from "./harness-runtime.ts"
+import {
+  setActiveHarnessWorkspaceFiles,
+  setHarnessWorkspaceDiff,
+} from "./harness-runtime.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import {
   colocatedAgentInstructionsSourceKey,
@@ -746,6 +749,7 @@ export function createHarnessAgentAdapter<
         abortSignal,
         ...(hasWorkspaceCommitRules(commitDefinition) ? { definition: commitDefinition } : {}),
         ignoreWriteBackPaths: harnessWriteBackIgnorePaths(context, harnessInstructions),
+        onWriteBack: diff => setHarnessWorkspaceDiff(context.context, diff),
         paths: selectedWorkspaceScopePaths(context, commitDefinition),
         session: session as never,
         sessionWorkDir,

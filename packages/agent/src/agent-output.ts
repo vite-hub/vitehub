@@ -1,4 +1,5 @@
 import { ApprovalRequiredError } from "@vite-hub/runtime"
+import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
 import { readAgentUsageMetadata } from "./internal/agent-usage-metadata.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 
@@ -63,7 +64,9 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
   const usageRecord = isUsageRecord(ownValue(result, "usageRecord"))
     ? withFallbackUsageMetadata(ownValue(result, "usageRecord") as AgentUsageRecord, result)
     : usageRecordFromUsage(ownValue(result, "usage") ?? ownValue(result, "totalUsage"), result)
+  const artifacts = publishedDeliveryArtifactsFromUnknown(ownValue(result, "artifacts"))
   return {
+    ...(artifacts.length ? { artifacts } : {}),
     finishReason: ownValue(result, "finishReason"),
     raw: value,
     text: textFromResult(result),

@@ -310,6 +310,30 @@ describe("agent channels", () => {
     }])
   })
 
+  it("rewrites only explicit Markdown references for published artifacts", async () => {
+    const { rewriteDeliveryArtifactMarkdown } = await import("../src/delivery-artifacts.ts")
+
+    expect(rewriteDeliveryArtifactMarkdown([
+      "![Preview](./artifacts/preview.png)",
+      "![Absolute](/workspace/codex-session/artifacts/preview.png)",
+      "[Report](artifacts/report.pdf)",
+      "Bare path: artifacts/preview.png",
+      "Outside: ![Other](other/preview.png)",
+    ].join("\n"), [{
+      path: "artifacts/preview.png",
+      url: "https://assets.example/preview.png",
+    }, {
+      path: "artifacts/report.pdf",
+      url: "https://assets.example/report.pdf",
+    }])).toBe([
+      "![Preview](<https://assets.example/preview.png>)",
+      "![Absolute](<https://assets.example/preview.png>)",
+      "[Report](<https://assets.example/report.pdf>)",
+      "Bare path: artifacts/preview.png",
+      "Outside: ![Other](other/preview.png)",
+    ].join("\n"))
+  })
+
   it("accepts GitHub issue_comment payloads without delivery facts", async () => {
     const { github } = await import("../src/channels.ts")
     const channel = github({ pullRequest: { reply: false } })
@@ -485,7 +509,7 @@ describe("agent channels", () => {
     })
   })
 
-  it("posts GitHub PR reviews with inline published image artifacts", async () => {
+  it("rewrites published image references in GitHub PR reviews", async () => {
     const { github } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
@@ -518,7 +542,7 @@ describe("agent channels", () => {
           url: "https://assets.example/review/screenshots/login.png",
         }],
         kind: "review",
-        payload: { body: "Review body" },
+        payload: { body: "Review body\n\n![Login badge](/workspace/codex-session/screenshots/login.png)" },
       },
       input: {
         context: {

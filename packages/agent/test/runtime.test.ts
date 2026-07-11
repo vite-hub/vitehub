@@ -2406,6 +2406,43 @@ describe("agent message protocol", () => {
     expect(order).toEqual(["run", "effect:result:ok:done:42"])
   })
 
+  it("carries result artifacts through custom finish replies", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const effect = vi.fn()
+    const artifact = {
+      path: "artifacts/preview.png",
+      placement: "inline" as const,
+      url: "https://assets.example/preview.png",
+    }
+    const agent = defineAgent({
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reply: effect },
+          messages: false,
+          triggers: {
+            message: {
+              invoke: context => ({
+                delivery: {
+                  finishEffects: context => context.reply("![Preview](artifacts/preview.png)"),
+                },
+                input: { prompt: "hello" },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => ({ artifacts: [artifact], text: "done" }) },
+    })
+
+    await runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})
+
+    expect(effect).toHaveBeenCalledWith(expect.objectContaining({
+      effect: expect.objectContaining({ artifacts: [artifact] }),
+    }))
+  })
+
   it("lets finish delivery effects publish Workspace artifacts", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel, publishWorkspaceArtifacts } = await import("../src/channels.ts")

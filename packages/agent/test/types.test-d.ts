@@ -1730,6 +1730,7 @@ describe("agent public types", () => {
 
   it("exposes output helpers from the output entry", () => {
     expectTypeOf(toAgentRunResult("ok").text).toEqualTypeOf<string | undefined>()
+    expectTypeOf(toAgentRunResult("ok").artifacts).toEqualTypeOf<readonly PublishedAgentDeliveryArtifact[] | undefined>()
     expectTypeOf(streamAgentOutputToEvents("ok")).toEqualTypeOf<AsyncIterable<StreamEvent>>()
   })
 })
