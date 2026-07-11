@@ -37,6 +37,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
     cachedMessages.set(message.threadId, [...(cachedMessages.get(message.threadId) ?? []), message])
   }
   const adapter = {
+    _chatInstance: () => chatInstance,
     channelIdFromThreadId: vi.fn((threadId: string) => threadId),
     handleWebhook: vi.fn(async (request: Request, webhookOptions?: WebhookOptions) => {
       if (options.secret && request.headers.get("x-test-secret") !== options.secret) {
@@ -157,6 +158,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
     userName: "vitehub",
   }
   return adapter as unknown as Adapter & {
+    _chatInstance: () => ChatInstance | undefined
     handleWebhook: ReturnType<typeof vi.fn>
     editMessage: ReturnType<typeof vi.fn>
     fetchMessages: ReturnType<typeof vi.fn>
@@ -3729,6 +3731,73 @@ describe("server helpers", () => {
       await expect(handler(explicitRun, state)(request(), "discord", { agentName: "explicit", state })).resolves.toMatchObject({ status: 200 })
       expect(explicitRun).toHaveBeenCalledOnce()
       await expect(state.get("dedupe:telegram:7")).resolves.toBe(true)
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("shares explicit-identity transcripts across channels while isolating agents", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-transcript-scope-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const createHandler = (discordAdapter: ReturnType<typeof createTestChatAdapter>, slackAdapter: ReturnType<typeof createTestChatAdapter>) => createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        discord: http({ adapter: () => discordAdapter as never }),
+        slack: http({ adapter: () => slackAdapter as never }),
+      },
+      driver: { run: () => "ok" },
+      messages: {
+        identity: () => "account:verified",
+        stream: false,
+        transcripts: { maxPerUser: 50, retention: "30d" },
+      },
+    }) as never)
+    const miniDiscord = createTestChatAdapter()
+    const miniSlack = createTestChatAdapter()
+    const mini = createHandler(miniDiscord, miniSlack)
+    const coordinatorDiscord = createTestChatAdapter()
+    const coordinator = createHandler(coordinatorDiscord, createTestChatAdapter())
+
+    try {
+      await expect(mini(chatWebhookRequest(71, 456, "discord"), "discord", { agentName: "mini", state })).resolves.toMatchObject({ status: 200 })
+      await expect(mini(chatWebhookRequest(72, 789, "slack"), "slack", { agentName: "mini", state })).resolves.toMatchObject({ status: 200 })
+      await expect(coordinator(chatWebhookRequest(73, 456, "other agent"), "discord", { agentName: "work-coordinator", state })).resolves.toMatchObject({ status: 200 })
+
+      const miniDiscordTranscripts = miniDiscord._chatInstance()!.transcripts
+      const miniSlackTranscripts = miniSlack._chatInstance()!.transcripts
+      const coordinatorTranscripts = coordinatorDiscord._chatInstance()!.transcripts
+      await miniDiscordTranscripts.append(
+        { adapter: { name: "discord" }, id: "discord:456" } as never,
+        { role: "user", text: "discord" },
+        { userKey: "account:verified" },
+      )
+      await miniSlackTranscripts.append(
+        { adapter: { name: "slack" }, id: "slack:789" } as never,
+        { role: "user", text: "slack" },
+        { userKey: "account:verified" },
+      )
+      await coordinatorTranscripts.append(
+        { adapter: { name: "discord" }, id: "discord:456" } as never,
+        { role: "user", text: "other agent" },
+        { userKey: "account:verified" },
+      )
+
+      await expect(miniSlackTranscripts.count({ userKey: "account:verified" })).resolves.toBe(2)
+      await expect(miniSlackTranscripts.list({ userKey: "account:verified" })).resolves.toMatchObject([
+        { platform: "discord", text: "discord" },
+        { platform: "slack", text: "slack" },
+      ])
+      await expect(state.getList("chat:mini:transcripts:user:account:verified")).resolves.toHaveLength(2)
+      await expect(state.getList("chat:work-coordinator:transcripts:user:account:verified")).resolves.toHaveLength(1)
+      await expect(state.getList("chat:mini:discord:transcripts:user:account:verified")).resolves.toEqual([])
+      await expect(state.getList("chat:mini:slack:transcripts:user:account:verified")).resolves.toEqual([])
+      await expect(miniSlackTranscripts.delete({ userKey: "account:verified" })).resolves.toEqual({ deleted: 2 })
+      await expect(miniDiscordTranscripts.list({ userKey: "account:verified" })).resolves.toEqual([])
     }
     finally {
       await state.disconnect()

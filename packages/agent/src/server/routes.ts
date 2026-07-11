@@ -935,8 +935,8 @@ function getInMemoryChatState(key: string): StateAdapter {
   return state
 }
 
-function withChatStateScope(state: StateAdapter, prefix: string): StateAdapter {
-  const key = (value: string) => `${prefix}${value}`
+function withChatStateScope(state: StateAdapter, channelPrefix: string, agentPrefix: string): StateAdapter {
+  const key = (value: string) => `${value.startsWith("transcripts:user:") ? agentPrefix : channelPrefix}${value}`
   const lock = (value: Lock) => ({ ...value, threadId: key(value.threadId) })
   return {
     async acquireLock(threadId, ttlMs) {
@@ -976,7 +976,8 @@ async function resolveChatState(
 ): Promise<{ state: StateAdapter, titleKeyPrefix: string }> {
   const agentName = handlerOptions.agentName || "agent"
   const origin = chatRegistrationOrigin(registration)
-  const stateKeyPrefix = `chat:${agentName}:${origin}:`
+  const agentKeyPrefix = `chat:${agentName}:`
+  const stateKeyPrefix = `${agentKeyPrefix}${origin}:`
   const state = await resolveMaybe(
     (options?.state ?? handlerOptions.state) as AgentChatStateResolver<ViteAgentRouteRuntimeConfig> | undefined,
     {
@@ -989,13 +990,13 @@ async function resolveChatState(
   )
   if (!state) {
     return {
-      state: getInMemoryChatState(`${agentName}:${origin}`),
-      titleKeyPrefix: stateKeyPrefix,
+      state: withChatStateScope(getInMemoryChatState(agentName), stateKeyPrefix, agentKeyPrefix),
+      titleKeyPrefix: "",
     }
   }
   if (options?.state === undefined && !chatStateOwnsScope(handlerOptions.state)) {
     return {
-      state: withChatStateScope(state, stateKeyPrefix),
+      state: withChatStateScope(state, stateKeyPrefix, agentKeyPrefix),
       titleKeyPrefix: "",
     }
   }
