@@ -30,12 +30,18 @@ describe("fetch capability", () => {
           description: "Check region status.",
           inputSchema: {
             "~standard": {
+              jsonSchema: {
+                input: () => ({ properties: { region: { type: "string" } }, required: ["region"], type: "object" }),
+                output: () => ({ properties: { region: { type: "string" } }, required: ["region"], type: "object" }),
+              },
               validate(input) {
                 if (!input || typeof input !== "object" || typeof (input as { region?: unknown }).region !== "string") {
-                  return { issues: ["region is required"] }
+                  return { issues: [{ message: "region is required" }] }
                 }
                 return { value: input as { region: string } }
               },
+              vendor: "test",
+              version: 1,
             },
           },
           request: input => ({
@@ -47,6 +53,8 @@ describe("fetch capability", () => {
               validate(input) {
                 return { value: input as { region: string, status: string } }
               },
+              vendor: "test",
+              version: 1,
             },
           },
           transform: data => ({ status: data.status }),

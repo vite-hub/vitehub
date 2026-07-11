@@ -42,7 +42,6 @@ export default defineConfig({
       "src/server/internal.ts",
       "src/server/workspace.ts",
       "src/test.ts",
-      "src/valibot.ts",
       "src/vite.ts",
     ],
     exports: {

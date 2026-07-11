@@ -321,6 +321,8 @@ export type {
   AgentSchedulerProviderOptions,
   AgentSettings,
   AgentToolDefinition,
+  AgentToolSchema,
+  AgentToolStandardSchema,
   AgentToolTransform,
   AgentToolPolicyContext,
   AgentToolPolicyDecision,

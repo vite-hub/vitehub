@@ -7,8 +7,9 @@ import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinit
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../src/output.ts"
-import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, StreamEvent } from "../src/index.ts"
+import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentToolDefinition, AgentToolSchema, StreamEvent } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
+import type { StandardSchemaV1 } from "@standard-schema/spec"
 import { fetch as fetchSource, file, github as githubSource, type ReadonlyWorkspaceFacade } from "@vite-hub/workspace"
 import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, PullRequestContextValue, RepositoryHostClient, RepositoryHostContextValue, TranscriptionResult } from "../src/capabilities.ts"
 
@@ -25,6 +26,57 @@ declare global {
 }
 
 describe("agent public types", () => {
+  it("accepts portable and raw JSON tool schemas", () => {
+    const portableSchema = {
+      "~standard": {
+        jsonSchema: {
+          input: () => ({ properties: { message: { type: "string" } }, type: "object" }),
+          output: () => ({ properties: { message: { type: "string" } }, type: "object" }),
+        },
+        validate: (input: unknown) => ({ value: input as { message: string } }),
+        vendor: "test",
+        version: 1 as const,
+      },
+    } satisfies AgentToolSchema<{ message: string }>
+
+    const portableTool = {
+      execute(input) {
+        expectTypeOf(input.message).toEqualTypeOf<string>()
+        return { saved: true }
+      },
+      inputSchema: portableSchema,
+      name: "report",
+    } satisfies AgentToolDefinition<{ message: string }, { saved: boolean }>
+
+    const jsonSchemaTool = {
+      inputSchema: {
+        additionalProperties: false,
+        properties: { message: { type: "string" } },
+        required: ["message"],
+        type: "object",
+      },
+      name: "report",
+    } satisfies AgentToolDefinition<{ message: string }>
+
+    const validationOnlySchema = {
+      "~standard": {
+        validate: (input: unknown) => ({ value: input as { message: string } }),
+        vendor: "test",
+        version: 1 as const,
+      },
+    } satisfies StandardSchemaV1<unknown, { message: string }>
+
+    const validationOnlyTool: AgentToolDefinition<{ message: string }> = {
+      // @ts-expect-error Tool schemas must also describe their JSON shape to the model.
+      inputSchema: validationOnlySchema,
+      name: "report",
+    }
+
+    expectTypeOf(portableTool.inputSchema).toEqualTypeOf<typeof portableSchema>()
+    expectTypeOf(jsonSchemaTool).toMatchTypeOf<AgentToolDefinition<{ message: string }>>()
+    expectTypeOf(validationOnlyTool).toEqualTypeOf<AgentToolDefinition<{ message: string }>>()
+  })
+
   it("accepts capabilities from the capabilities entry", () => {
     const openAPISpec = {
       paths: {
@@ -56,7 +108,13 @@ describe("agent public types", () => {
             status: {
               inputSchema: {
                 "~standard": {
+                  jsonSchema: {
+                    input: () => ({ properties: { region: { type: "string" } }, type: "object" }),
+                    output: () => ({ properties: { region: { type: "string" } }, type: "object" }),
+                  },
                   validate: (input: unknown) => ({ value: input as { region: string } }),
+                  vendor: "test",
+                  version: 1,
                 },
               },
               request(input) {
@@ -69,6 +127,8 @@ describe("agent public types", () => {
               schema: {
                 "~standard": {
                   validate: (input: unknown) => ({ value: input as { status: string } }),
+                  vendor: "test",
+                  version: 1,
                 },
               },
               transform(data) {

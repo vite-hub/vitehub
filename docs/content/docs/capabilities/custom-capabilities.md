@@ -20,10 +20,10 @@ Use `defineCapability()` so ViteHub validates the id and composes the Capability
 
 ```ts [server/agents/capabilities/tickets.ts]
 import { defineCapability } from '@vite-hub/agent'
-import * as v from '@vite-hub/agent/valibot'
+import { z } from 'zod'
 
-const searchTicketsInput = v.object({
-  query: v.string(),
+const searchTicketsInput = z.object({
+  query: z.string(),
 })
 
 export function tickets() {
@@ -34,15 +34,14 @@ export function tickets() {
         name: 'searchTickets',
         description: 'Search support tickets by query.',
         inputSchema: searchTicketsInput,
-        execute: async (input: v.InferOutput<typeof searchTicketsInput>) => searchTickets(input.query),
+        execute: async (input: z.output<typeof searchTicketsInput>) => searchTickets(input.query),
       },
     },
   })
 }
 ```
 
-Agent tools accept any Standard Schema validator.
-ViteHub ships Valibot at `@vite-hub/agent/valibot` as the zero-install default; use Zod, ArkType, or another validator when the app already has one.
+Agent tools accept raw JSON Schema or a validator that implements both Standard Schema and Standard JSON Schema. Zod 4 implements both directly. ViteHub does not bundle a validator; use the one your app owns.
 
 Attach the custom Capability like any official Capability.
 Keep instructions explicit in the Agent Driver so Capability config does not become a hidden prompt bag.
@@ -158,7 +157,7 @@ The public API accepts a static command tree or an invocation resolver on the Ca
 
 ```ts [server/agents/capabilities/inventory-runtime.ts]
 import { defineCapability } from '@vite-hub/agent'
-import * as v from '@vite-hub/agent/valibot'
+import * as v from 'valibot'
 
 const inventoryItemsInput = v.object({
   limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1))),
