@@ -83,6 +83,20 @@ Create one H3 route that passes host runtime context separately from invocation
 input. `memo`, `runtime`, and `waitUntil` are explicit because `runAgent()` does
 not depend on framework globals.
 
+Create the invocation-scoped memoizer first. It initializes each key once, and
+the route creates a fresh cache for every request.
+
+```ts [src/memo.ts]
+export function createMemo() {
+  const values = new Map<string, unknown>()
+
+  return <T>(key: string, create: () => T): T => {
+    if (!values.has(key)) values.set(key, create())
+    return values.get(key) as T
+  }
+}
+```
+
 ```ts [src/server.ts]
 import { createServer } from "node:http"
 
@@ -90,12 +104,13 @@ import { runAgent } from "@vite-hub/agent"
 import { H3, readBody } from "h3"
 import { toNodeHandler } from "h3/node"
 import greeting from "../server/agents/greeting"
+import { createMemo } from "./memo"
 
 const app = new H3().post("/greet", async (event) => {
   const body = await readBody<{ name?: string }>(event) || {}
 
   return await runAgent(greeting, {
-    memo: (_key, create) => create(),
+    memo: createMemo(),
     runtime: "vite",
     waitUntil: task => { void task.catch(error => console.error(error)) },
   }, {
