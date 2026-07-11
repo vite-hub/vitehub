@@ -1165,7 +1165,6 @@ describe("hubWorkspace", () => {
     ].join("\n"))
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({
-      assets: false,
       store: { binding: "WORKSPACE_FILES", namespace: "module", provider: "cloudflare-artifacts" },
     })
     const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
