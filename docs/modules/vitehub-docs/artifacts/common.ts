@@ -1,12 +1,6 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-export function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) {
-    throw new Error(message);
-  }
-}
-
 export function titleCase(input: string) {
   return input
     .split(/[-/]/g)
@@ -73,10 +67,4 @@ export function parseScalar(value: string) {
   }
 
   return trimmed;
-}
-
-export function listPackageNames(packagesRoot: string) {
-  return readdirSync(packagesRoot, { withFileTypes: true })
-    .filter(entry => entry.isDirectory())
-    .map(entry => entry.name);
 }

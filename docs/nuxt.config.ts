@@ -3,10 +3,7 @@ import { fileURLToPath } from "node:url";
 
 export default defineNuxtConfig({
   extends: ["docus"],
-  modules: ["motion-v/nuxt", "./modules/vitehub-docs"],
-  motionV: {
-    directives: true,
-  },
+  modules: ["./modules/vitehub-docs"],
   site: {
     name: "ViteHub",
     url: "https://vitehub.dev",

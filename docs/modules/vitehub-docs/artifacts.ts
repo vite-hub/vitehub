@@ -1,11 +1,9 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { listFiles, parseScalar, titleCase } from "./artifacts/common";
-import { parsePackageExamples } from "./artifacts/examples";
 
 type DocsArtifactOptions = {
   docsRoot: string;
-  repoRoot: string;
   outputDir: string;
 };
 
@@ -166,17 +164,14 @@ function collectSections(localDocsRoot: string) {
     });
 }
 
-export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifactOptions) {
+export function writeDocsArtifacts({ docsRoot, outputDir }: DocsArtifactOptions) {
   const localDocsRoot = resolve(docsRoot, "content", "docs");
-  const packagesRoot = resolve(repoRoot, "packages");
   const rootPage = collectRootPage(localDocsRoot);
   const sections = collectSections(localDocsRoot);
-  const examples = parsePackageExamples(packagesRoot);
 
   const manifest = {
     rootPage,
     sections,
-    examples,
   };
 
   mkdirSync(outputDir, { recursive: true });

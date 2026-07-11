@@ -1,6 +1,4 @@
 import docsManifestRaw from "#vitehub-docs-manifest";
-import type { Framework } from "./frameworks";
-import type { UsageMode } from "./showcase-modes";
 
 export type DocsPage = {
   id: string;
@@ -24,39 +22,9 @@ type DocsSection = {
   pages: DocsPage[];
 };
 
-type DocsExampleMode = {
-  phases: Partial<Record<"configure" | "define" | "run", string>>;
-  supplementalFiles?: string[];
-  excludedFiles?: string[];
-};
-
-type DocsExampleProvider = {
-  id: string;
-  label: string;
-  icon: string;
-  darkInvert?: boolean;
-  configOverride?: string;
-  configOverrides?: Partial<Record<Framework, string>>;
-  envOverride?: string;
-  hiddenFiles?: string[];
-};
-
-export type DocsExample = {
-  pkg: string;
-  label: string;
-  docsPath: string;
-  icon?: string | null;
-  defaultPhase?: "configure" | "define" | "run";
-  providers?: DocsExampleProvider[];
-  order: number;
-  frameworks: Partial<Record<Framework, { modes: Record<UsageMode, DocsExampleMode> }>>;
-  files: Partial<Record<Framework, Array<{ path: string; code: string }>>>;
-};
-
 type DocsManifest = {
   rootPage: DocsPage | null;
   sections: DocsSection[];
-  examples: DocsExample[];
 };
 
 export const docsManifest = docsManifestRaw as DocsManifest;

@@ -16,8 +16,6 @@ describe("writeDocsArtifacts", () => {
     const outputDir = resolve(rootDir, ".generated");
 
     try {
-      mkdirSync(resolve(rootDir, "packages"), { recursive: true });
-      writeText(resolve(rootDir, "pnpm-workspace.yaml"), "catalog: {}\n");
       writeText(resolve(docsRoot, "content/docs/index.md"), [
         "---",
         "title: ViteHub docs",
@@ -56,7 +54,7 @@ describe("writeDocsArtifacts", () => {
         "Hidden content.",
       ].join("\n"));
 
-      const manifest = writeDocsArtifacts({ docsRoot, repoRoot: rootDir, outputDir });
+      const manifest = writeDocsArtifacts({ docsRoot, outputDir });
 
       expect(manifest.rootPage?.path).toBe("/docs");
       expect(manifest.sections.map(section => section.id)).toEqual(["server-primitives"]);
