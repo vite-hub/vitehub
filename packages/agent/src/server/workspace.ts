@@ -1,16 +1,17 @@
 import { registerWorkspace } from "@vite-hub/workspace/runtime"
 
-import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition } from "../index.ts"
-import { workspaceDefinitionFromOptions, workspaceNameFromOptions } from "../workspace-agent.ts"
+import { workspaceAgentOwnsWorkspaceDefinition, workspaceAgentWithSourceRoot, workspaceNameFromOptions } from "../workspace-agent.ts"
 
 import type { AgentRuntimeConfig } from "../types.ts"
-import type { WorkspaceAgentDefaults, WorkspaceAgentDefinition } from "../workspace-agent.ts"
+import type { WorkspaceAgentDefinition } from "../workspace-agent.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 
 export { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
 
-export interface RegisterWorkspaceAgentOptions<Name extends WorkspaceName = WorkspaceName> extends WorkspaceAgentDefaults<Name> {
+export interface RegisterWorkspaceAgentOptions<Name extends WorkspaceName = WorkspaceName> {
+  name?: string
   sourceRootDir?: string
+  workspace?: Name
 }
 
 export function registerWorkspaceAgent<
@@ -21,33 +22,13 @@ export function registerWorkspaceAgent<
   agent: WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>,
   options: RegisterWorkspaceAgentOptions<Name> = {},
 ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS> {
-  const preparedAgent = withAgentDefaults(agent as never, {
-    inferredName: options.name,
-    workspace: options.workspace,
-  }) as WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>
-  const workspaceOptions = preparedAgent.__vitehubWorkspaceAgentOptions
-  if (!workspaceAgentOwnsWorkspaceDefinition(preparedAgent)) return preparedAgent
-  const sourceRootDir = preparedAgent.sourceRootDir ?? options.sourceRootDir
-  if (sourceRootDir !== undefined) {
-    const configuredWorkspace = workspaceOptions.workspace as Record<string, unknown> & { sourceRootDir?: string }
-    const workspace = {
-      ...configuredWorkspace,
-      sourceRootDir: configuredWorkspace.sourceRootDir ?? sourceRootDir,
-    }
-    Object.assign(preparedAgent, workspaceDefinitionFromOptions({
-      ...workspaceOptions,
-      workspace,
-    } as never), {
-      __vitehubWorkspaceAgentOptions: {
-        ...workspaceOptions,
-        workspace,
-      },
-    })
-  }
-  const workspaceName = workspaceNameFromOptions(preparedAgent.__vitehubWorkspaceAgentOptions as never, preparedAgent.__vitehubWorkspaceAgentDefaults)
+  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return agent
+  const sourceRootDir = agent.sourceRootDir ?? options.sourceRootDir
+  const registeredAgent = sourceRootDir === undefined ? agent : workspaceAgentWithSourceRoot(agent, sourceRootDir)
+  const workspaceName = workspaceNameFromOptions(agent.__vitehubWorkspaceAgentOptions as never, options)
   registerWorkspace(workspaceName, {
-    ...preparedAgent,
+    ...registeredAgent,
     sourceRootDir,
   } as never)
-  return preparedAgent
+  return agent
 }

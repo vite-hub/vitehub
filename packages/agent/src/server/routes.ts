@@ -48,7 +48,6 @@ import type {
   ResolvedAgentTriggerDefinition,
 } from "../types.ts"
 import type { AudioData, MessagePart } from "../messages.ts"
-import type { WorkspaceAgentDefaults } from "../workspace-agent.ts"
 import type {
   ChatDevtoolsConversation,
   ChatDevtoolsMetadata,
@@ -1697,7 +1696,6 @@ interface AgentChannelDevtoolsRouteState {
 }
 
 export interface AgentChannelDevtoolsRouteHandlerOptions extends AgentRouteRuntimeOptions {
-  defaults?: WorkspaceAgentDefaults
   emptyAssistantText?: string
   name?: string
 }
@@ -1871,7 +1869,6 @@ async function startAgentDevtoolsMetadataResolution(
   const { resolveAgentDevtoolsMetadata } = await import("../workspace-agent.ts")
   const run = createDevtoolsMetadataRunMetadata(name)
   const task = resolveAgentDevtoolsMetadata(agent as never, {
-    ...options.defaults,
     input: createDevtoolsMetadataInput(metadataSelection, run),
     runtime: { ...runtime, run },
   } as never)
@@ -2280,7 +2277,6 @@ async function materializeDevtoolsSource(
     const name = agentChannelDevtoolsName(agent, options)
     const run = createDevtoolsMetadataRunMetadata(name)
     const metadata = await materializeAgentDevtoolsSourceMetadata(agent as never, {
-      ...options.defaults,
       input: createDevtoolsMetadataInput(metadataSelection, run),
       ...(input.path ? { path: input.path } : {}),
       ...(input.source ? { source: input.source } : {}),

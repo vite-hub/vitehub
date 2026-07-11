@@ -130,7 +130,17 @@ vi.mock("@vite-hub/workspace/runtime", async (importOriginal) => {
   }
 })
 
-const { withAgentDefaults } = await import("../src/index.ts")
+const { defineAgent: defineNamedWorkspaceTestAgent } = await import("../src/index.ts")
+
+function withExplicitWorkspaceName<
+  TAgent extends { name?: string, __vitehubWorkspaceAgentOptions: Record<string, unknown> },
+>(agent: TAgent, options: { workspace?: string }): TAgent {
+  if (!options.workspace || agent.name) return agent
+  return defineNamedWorkspaceTestAgent({
+    ...agent.__vitehubWorkspaceAgentOptions,
+    name: options.workspace,
+  } as never) as unknown as TAgent
+}
 
 function context(runtimeConfig: Record<string, unknown> = {}) {
   return {
@@ -299,7 +309,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
     exists.mockResolvedValue(true)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       capabilities: [skills({ path: "skills/agent-browser", shellExecution: "write" })],
       driver: {
         harness: { provider: "codex" },
@@ -363,7 +373,7 @@ describe("defineAgent workspace option", () => {
       return { finishReason: "stop", text: "ok" }
     })
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       capabilities: [blob({ mode: "write", policy: "allow" })],
       driver: {
         harness: { provider: "codex" },
@@ -464,7 +474,7 @@ describe("defineAgent workspace option", () => {
       },
     ))
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       capabilities: [
         blob({ assetPaths: ["artifacts"], mode: "write", policy: "deny" }),
         defineCapability({
@@ -550,7 +560,7 @@ describe("defineAgent workspace option", () => {
       }),
     } as unknown as WritableWorkspaceFacade)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       capabilities: [
         access({
           workspace: {
@@ -607,7 +617,7 @@ describe("defineAgent workspace option", () => {
       })(),
     } as never)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
       },
@@ -634,7 +644,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
       },
@@ -666,7 +676,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
       },
@@ -1202,7 +1212,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
     exists.mockResolvedValue(true)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
       },
@@ -1251,7 +1261,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       capabilities: [{
         id: "support-tools",
         tools: {
@@ -1287,7 +1297,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce(harnessSession)
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
       },
@@ -1327,7 +1337,7 @@ describe("defineAgent workspace option", () => {
     })
     exists.mockResolvedValue(true)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
       },
@@ -1361,7 +1371,7 @@ describe("defineAgent workspace option", () => {
     exists.mockResolvedValueOnce(true)
     readFile.mockResolvedValueOnce(document)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
       },
@@ -1405,7 +1415,7 @@ describe("defineAgent workspace option", () => {
     readFile.mockResolvedValueOnce("# Support\n")
     harnessFileSession.writeBinaryFile.mockRejectedValueOnce(error)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
       },
@@ -1423,7 +1433,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
       },
@@ -1466,7 +1476,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
       },
@@ -1518,7 +1528,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
       },
@@ -1547,7 +1557,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
       },
@@ -1592,7 +1602,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
       },
@@ -1635,7 +1645,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
       },
@@ -1684,7 +1694,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
       },
@@ -1721,7 +1731,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
       },
@@ -1761,7 +1771,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       capabilities: [
         access({
           workspace: {
@@ -1809,7 +1819,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       capabilities: [
         access({
           workspace: {
@@ -1854,7 +1864,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       capabilities: [
         access({
           workspace: {
@@ -1901,7 +1911,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       capabilities: [
         access({
           workspace: {
@@ -1949,7 +1959,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       capabilities: [
         access({
           workspace: {
@@ -1999,7 +2009,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
     exists.mockImplementation(async path => path === "README.md")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       capabilities: [
         {
           id: "workspace-scope",
@@ -2049,7 +2059,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       capabilities: [
         access({
           workspace: {
@@ -2091,7 +2101,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
       },
@@ -2128,7 +2138,7 @@ describe("defineAgent workspace option", () => {
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
       },
@@ -2205,7 +2215,7 @@ describe("defineAgent workspace option", () => {
     })
     const { defineAgent, runAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {
         mode: "write",
         rules: {
@@ -2242,7 +2252,7 @@ describe("defineAgent workspace option", () => {
     })
     const { defineAgent, runAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {
         commit: "chore: archive notes",
         mode: "write",
@@ -2276,7 +2286,7 @@ describe("defineAgent workspace option", () => {
     })
     const { defineAgent, runAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {
         commit: "chore: archive notes",
         mode: "write",
@@ -2316,7 +2326,7 @@ describe("defineAgent workspace option", () => {
     })
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       capabilities: [
         defineCapability({
           id: "review-rules",
@@ -2363,7 +2373,7 @@ describe("defineAgent workspace option", () => {
     })
     const { defineAgent, streamAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {
         mode: "write",
         rules: {
@@ -2396,7 +2406,7 @@ describe("defineAgent workspace option", () => {
     })
     const { defineAgent, runAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {
         mode: "write",
         rules: {
@@ -2419,7 +2429,7 @@ describe("defineAgent workspace option", () => {
   it("uses string instructions", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: {
         instructions: "Use workspace sources.",
@@ -2439,7 +2449,7 @@ describe("defineAgent workspace option", () => {
     readFile.mockResolvedValueOnce("Use colocated workspace instructions.\n")
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: { sourceRootDir },
       driver: { model: {} as never },
     }), { workspace: "docs" })
@@ -2489,7 +2499,7 @@ describe("defineAgent workspace option", () => {
     readFile.mockResolvedValueOnce("Use colocated workspace instructions.\n")
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {
         sourceRootDir,
         sources: { docs: { name: "docs" } as never },
@@ -2530,7 +2540,7 @@ describe("defineAgent workspace option", () => {
     readFile.mockResolvedValueOnce(document)
     const { defineAgent, defineCapability } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       capabilities: [
         defineCapability({
           id: "support-context",
@@ -2569,7 +2579,7 @@ describe("defineAgent workspace option", () => {
 
     try {
       const { defineAgent } = await import("../src/index.ts")
-      const agent = withAgentDefaults(defineAgent({
+      const agent = withExplicitWorkspaceName(defineAgent({
         workspace: {
           sourceRootDir: "/runtime/server/agents/support",
           sources: {
@@ -2600,7 +2610,7 @@ describe("defineAgent workspace option", () => {
     await writeLocalFile(join(sourceRootDir, "instructions.md"), "Use colocated workspace instructions.\n")
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: { sourceRootDir },
       driver: {
         instructions: "Use explicit instructions.",
@@ -2620,7 +2630,7 @@ describe("defineAgent workspace option", () => {
     await writeLocalFile(join(sourceRootDir, "instructions.md"), "Use colocated workspace instructions.\n")
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: { sourceRootDir },
       driver: {
         instructions: "Use explicit driver instructions.",
@@ -2638,7 +2648,7 @@ describe("defineAgent workspace option", () => {
     readFile.mockResolvedValueOnce("Ordinary workspace instructions.\n")
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {
         sources: {
           guide: { path: "AGENTS.md" },
@@ -2661,7 +2671,7 @@ describe("defineAgent workspace option", () => {
     })
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {
         bindings: {
           policy: { path: "policy.md" },
@@ -2692,10 +2702,10 @@ describe("defineAgent workspace option", () => {
     ].join("\n\n"))
   })
 
-  it("rebinds synthetic workspace runs when applying discovered defaults", async () => {
+  it("rebinds synthetic workspace runs with an explicit workspace name", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
     }), { workspace: "docs" })
@@ -2719,7 +2729,7 @@ describe("defineAgent workspace option", () => {
   it("joins array instructions", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: {
         instructions: [" First ", "", "Second"],
@@ -2736,7 +2746,7 @@ describe("defineAgent workspace option", () => {
     readFile.mockResolvedValueOnce("Workspace instructions")
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: {
         instructions: [
@@ -2757,7 +2767,7 @@ describe("defineAgent workspace option", () => {
     readFile.mockResolvedValueOnce("Workspace instructions")
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: {
         instructions: async ({ fs }) => await fs.readFile("AGENTS.md"),
@@ -2821,7 +2831,7 @@ describe("defineAgent workspace option", () => {
       instructions: "Use support capability guidance." as never,
     } as never)).toThrow("Capability instructions were removed")
 
-    expect(() => withAgentDefaults(defineAgent({
+    expect(() => withExplicitWorkspaceName(defineAgent({
       workspace: {
         sources: {
           docs: { instructions: "Use docs for product behavior.", name: "docs" } as never,
@@ -2838,7 +2848,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent } = await import("../src/index.ts")
     const model = { id: "driver-model" }
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         execution: {
           callSettings: {
@@ -2870,7 +2880,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { workspaceShell } = await import("../src/capabilities.ts")
 
-    const sourceSlotAgent = withAgentDefaults(defineAgent({
+    const sourceSlotAgent = withExplicitWorkspaceName(defineAgent({
       workspace: { sources: { docs: { name: "docs" } as never } },
       driver: {
         instructions: "Answer from the workspace.\n\n{{ workspace.sources }}",
@@ -2879,7 +2889,7 @@ describe("defineAgent workspace option", () => {
     }), { workspace: "docs" })
     await expect(sourceSlotAgent.run!(context())).rejects.toThrow("{{ workspace.sources }}\" is no longer supported")
 
-    const capabilitySlotAgent = withAgentDefaults(defineAgent({
+    const capabilitySlotAgent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       capabilities: [workspaceShell()],
       driver: {
@@ -2904,7 +2914,7 @@ describe("defineAgent workspace option", () => {
       text: "",
     })
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
     }), { workspace: "docs" })
@@ -2927,7 +2937,7 @@ describe("defineAgent workspace option", () => {
       })(),
     })
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
     }), { workspace: "docs" })
@@ -2958,7 +2968,7 @@ describe("defineAgent workspace option", () => {
       })(),
     })
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
     }), { workspace: "docs" })
@@ -2989,7 +2999,7 @@ describe("defineAgent workspace option", () => {
       })(),
     })
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
     }), { workspace: "docs" })
@@ -3025,7 +3035,7 @@ describe("defineAgent workspace option", () => {
       })(),
     })
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
     }), { workspace: "docs" })
@@ -3064,7 +3074,7 @@ describe("defineAgent workspace option", () => {
       }
     })
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
     }), { workspace: "docs" })
@@ -3103,7 +3113,7 @@ describe("defineAgent workspace option", () => {
       }
     })
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
     }), { workspace: "docs" })
@@ -3133,7 +3143,7 @@ describe("defineAgent workspace option", () => {
       }
     })
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
       capabilities: [{
@@ -3170,7 +3180,7 @@ describe("defineAgent workspace option", () => {
       })(),
     })
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
     }), { workspace: "docs" })
@@ -3201,7 +3211,7 @@ describe("defineAgent workspace option", () => {
       })(),
     })
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
     }), { workspace: "docs" })
@@ -3232,7 +3242,7 @@ describe("defineAgent workspace option", () => {
       })(),
     } as never)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
     }), { workspace: "docs" })
@@ -3261,7 +3271,7 @@ describe("defineAgent workspace option", () => {
       yield { finishReason: "tool-calls", type: "finish" }
     })() as never)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
     }), { workspace: "docs" })
@@ -3306,7 +3316,7 @@ describe("defineAgent workspace option", () => {
     }
     agentStream.mockResolvedValueOnce(new StreamResult())
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
     }), { workspace: "docs" })
@@ -3329,7 +3339,7 @@ describe("defineAgent workspace option", () => {
     const onStepEnd = vi.fn()
     const telemetry = { integrations: [], isEnabled: true }
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: {
         execution: {
@@ -3363,7 +3373,7 @@ describe("defineAgent workspace option", () => {
     const resolveModel = vi.fn((metadata: { channel?: { meta?: { customer?: string } } }) => ({
       id: `model-${metadata.channel?.meta?.customer}`,
     }))
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: resolveModel as never },
     }), { workspace: "docs" })
@@ -3386,7 +3396,7 @@ describe("defineAgent workspace option", () => {
     const { webSearch } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       capabilities: [webSearch({ mode: "model" })],
       driver: { model: {} as never },
@@ -3410,7 +3420,7 @@ describe("defineAgent workspace option", () => {
       yield { text: "ok", type: "text-delta" }
     })()
     const run = vi.fn(async () => stream)
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         run
       },
@@ -3427,7 +3437,7 @@ describe("defineAgent workspace option", () => {
     const wrappedModel = { id: "wrapped" }
     const instrumentModel = vi.fn(() => wrappedModel as never)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: {
         execution: {
@@ -3478,7 +3488,7 @@ describe("defineAgent workspace option", () => {
       metadata: { topK: callSettings.topK },
     }))
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       capabilities: [
         observability({
@@ -3542,7 +3552,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent } = await import("../src/index.ts")
     const model = { id: "base" }
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: {
         execution: {
@@ -3594,7 +3604,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent } = await import("../src/index.ts")
     const settingsStart = agentSettings.length
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: {
         execution: {
@@ -3628,7 +3638,7 @@ describe("defineAgent workspace option", () => {
     const onRunToolCallStart = vi.fn()
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: {
         execution: {
@@ -3677,7 +3687,7 @@ describe("defineAgent workspace option", () => {
   it("passes workspace to callback instructions", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: {
         instructions: ({ fs, workspace }) => {
@@ -3697,7 +3707,7 @@ describe("defineAgent workspace option", () => {
     readFile.mockResolvedValueOnce("Workspace instructions")
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
     }), { workspace: "docs" })
@@ -3712,7 +3722,7 @@ describe("defineAgent workspace option", () => {
     readFile.mockRejectedValueOnce(new Error("missing"))
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: {
         instructions: ({ fs }) => fs.readFile("MISSING.md"),
@@ -3726,7 +3736,7 @@ describe("defineAgent workspace option", () => {
   it("does not attach workspace tools unless explicitly requested", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
     }), { workspace: "docs" })
@@ -3746,7 +3756,7 @@ describe("defineAgent workspace option", () => {
       return { shell }
     })
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
       capabilities: [{ id: "workspace-tools", tools: toolResolver as never }],
@@ -3765,7 +3775,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent } = await import("../src/index.ts")
     const search = { execute: vi.fn() }
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
       capabilities: [{ id: "workspace-tools", tools: () => ({ search }) }],
@@ -3799,7 +3809,7 @@ describe("defineAgent workspace option", () => {
     })
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
@@ -3835,7 +3845,7 @@ describe("defineAgent workspace option", () => {
     })
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
       driver: { model: {} as never },
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
@@ -3871,7 +3881,7 @@ describe("defineAgent workspace option", () => {
     })
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
       driver: { model: {} as never },
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
@@ -3892,7 +3902,7 @@ describe("defineAgent workspace option", () => {
     })
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
       driver: { model: {} as never },
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
@@ -3915,7 +3925,7 @@ describe("defineAgent workspace option", () => {
   it("derives DevTools metadata from workspace agents", async () => {
     const { createAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const model = { modelId: "openai/gpt-test", provider: "openai" }
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {
         sources: {
           docs: { name: "docs" } as never,
@@ -3963,7 +3973,7 @@ describe("defineAgent workspace option", () => {
 
   it("composes static DevTools instruction metadata", async () => {
     const { createAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: {
         instructions: [
@@ -3984,7 +3994,7 @@ describe("defineAgent workspace option", () => {
   it("includes skill sources in DevTools file metadata", async () => {
     const { createAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
       capabilities: [
@@ -4016,7 +4026,7 @@ describe("defineAgent workspace option", () => {
     const { skills } = await import("../src/capabilities.ts")
     exists.mockResolvedValue(true)
 
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       capabilities: [skills({ path: "skills/agent-browser", shellExecution: "write" })],
       driver: {
         harness: { provider: "codex" },
@@ -4040,7 +4050,7 @@ describe("defineAgent workspace option", () => {
 
   it("includes explicit driver.sandbox in harness DevTools metadata", async () => {
     const { defineAgent, resolveAgentDevtoolsMetadata } = await import("../src/index.ts")
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       driver: {
         harness: { provider: "codex" },
         sandbox: { providerId: "local-test", specificationVersion: "harness-sandbox-v1" },
@@ -4062,7 +4072,7 @@ describe("defineAgent workspace option", () => {
       : [])
     const { defineAgent, resolveAgentDevtoolsMetadata } = await import("../src/index.ts")
     const { workspaceShell } = await import("../src/capabilities.ts")
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: {} as never },
       capabilities: [workspaceShell()],
@@ -4084,7 +4094,7 @@ describe("defineAgent workspace option", () => {
       modelId: `test/${context.invoker.kind || "unknown"}/${context.channel?.meta?.customer || "unknown"}`,
       provider: "test",
     }))
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { model: resolveModel as never },
     }), { workspace: "support" })
@@ -4119,7 +4129,7 @@ describe("defineAgent workspace option", () => {
   it("marks dynamic DevTools instruction metadata without resolving it", async () => {
     const { createAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const readInstructions = vi.fn(async () => "Workspace instructions")
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: {
         instructions: readInstructions,
@@ -4138,7 +4148,7 @@ describe("defineAgent workspace option", () => {
     readFile.mockResolvedValue("# Workspace instructions\n")
     exists.mockResolvedValue(true)
     list.mockResolvedValue([{ path: "AGENTS.md", type: "file" }])
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: {
         instructions: readInstructions,
@@ -4163,7 +4173,7 @@ describe("defineAgent workspace option", () => {
     const { skills, workspaceShell } = await import("../src/capabilities.ts")
     exists.mockResolvedValue(true)
     list.mockResolvedValue([{ path: "AGENTS.md", type: "file" }])
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {
         sources: {
           docs: { name: "docs" } as never,
@@ -4206,7 +4216,7 @@ describe("defineAgent workspace option", () => {
     ].join("\n"))
     exists.mockResolvedValue(true)
     list.mockResolvedValue([{ path: "AGENTS.md", type: "file" }])
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {
         sources: {
           docs: { name: "docs" } as never,
@@ -4248,7 +4258,7 @@ describe("defineAgent workspace option", () => {
       "Use tracked capability metadata.",
       "::",
     ].join("\n"))
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       invoker: {
         profiles: [{ id: "support", kind: "support", label: "Support" }],
         resolve: invokerResolve,
@@ -4300,7 +4310,7 @@ describe("defineAgent workspace option", () => {
       { path: "docs/guides", type: "directory" },
       { path: "docs/guides/start.md", type: "file" },
     ])
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {
         sources: {
           docs: { cache: { maxAge: 60 }, mount: "docs", name: "docs" } as never,
@@ -4355,7 +4365,7 @@ describe("defineAgent workspace option", () => {
       { path: "customers/globex/orders.sql", type: "file" },
       { path: "portal", type: "directory" },
     ])
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       invoker: {
         profiles: [
           { id: "customer", kind: "customer", label: "Customer", meta: { scope: "customer" } },
@@ -4402,7 +4412,7 @@ describe("defineAgent workspace option", () => {
     const { access } = await import("../src/capabilities.ts")
     useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
     exists.mockImplementation(async path => path === "ingestion/acme")
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {
         sources: {
           ingestion: {
@@ -4463,7 +4473,7 @@ describe("defineAgent workspace option", () => {
       definition,
       workspace: metadataWorkspace,
     }))
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       capabilities: [
         access({
@@ -4530,7 +4540,7 @@ describe("defineAgent workspace option", () => {
       { path: "instructions/AGENTS.md", type: "file" },
       { path: "instructions/private.md", type: "file" },
     ])
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {
         sources: {
           "forecasting-engine": { name: "forecasting-engine" } as never,
@@ -4566,7 +4576,7 @@ describe("defineAgent workspace option", () => {
     list.mockResolvedValue([
       { mtime: 1710000000000, path: "docs/guides/start.md", size: 128, type: "file" },
     ])
-    const agent = withAgentDefaults(defineAgent({
+    const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {
         sources: {
           docs: { cache: { maxAge: 60 }, mount: "docs", name: "docs" } as never,

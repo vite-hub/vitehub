@@ -1076,12 +1076,12 @@ describe("server helpers", () => {
     await writeFile(join(sourceRoot, "AGENTS.md"), "# Support\n")
 
     try {
-      const { defineAgent } = await import("../src/index.ts")
+      const { defineAgent, runAgentInline } = await import("../src/index.ts")
       const { registerWorkspaceAgent } = await import("../src/server/workspace.ts")
       const { defineWorkspace, file, useWorkspace } = await import("@vite-hub/workspace")
       const agent = defineAgent({
-        driver: { async run() {
-            return "ok"
+        driver: { async run({ workspace }) {
+            return await (workspace as { fs: { readFile(path: string): Promise<string> } }).fs.readFile("AGENTS.md")
           } },
         workspace: defineWorkspace({
           store: { provider: "memory" },
@@ -1097,10 +1097,15 @@ describe("server helpers", () => {
       })
       const workspace = useWorkspace("support-runtime")
 
-      expect(preparedAgent.__vitehubWorkspaceAgentDefaults?.workspace).toBe("support-runtime")
-      expect(preparedAgent.sourceRootDir).toBe(sourceRoot)
-      expect((preparedAgent.__vitehubWorkspaceAgentOptions.workspace as { sourceRootDir?: string }).sourceRootDir).toBe(sourceRoot)
+      expect(preparedAgent).toBe(agent)
+      expect(preparedAgent).not.toHaveProperty("__vitehubWorkspaceAgentDefaults")
       expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Support\n")
+      await expect(runAgentInline(preparedAgent, {
+        agentIdentity: { name: "support", workspace: "support-runtime" },
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, {})).resolves.toBe("# Support\n")
     }
     finally {
       await rm(root, { force: true, recursive: true })

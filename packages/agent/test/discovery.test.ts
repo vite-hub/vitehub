@@ -13,8 +13,6 @@ import type { IncomingMessage, ServerResponse } from "node:http"
 import type { Connect } from "vite"
 import type { AgentRunInput } from "../src/index.ts"
 
-const { withAgentDefaults } = await import("../src/index.ts")
-
 async function createTempRoot(prefix: string) {
   return await mkdtemp(join(tmpdir(), prefix))
 }
@@ -397,7 +395,7 @@ describe("agent chat capability discovery", () => {
     const devtoolsMeta = { email: "maximo@quiver.dk" }
     const technicalEmails = new Set(["maximo@quiver.dk"])
     const observedMetadataChannel = vi.fn()
-    const agent = withAgentDefaults(defineAgent({
+    const agent = defineAgent({
       invoker: {
         profiles: [
           { id: "support-customer", kind: "customer", label: "Customer", meta: { audience: "customer", scope: "customer" } },
@@ -422,6 +420,7 @@ describe("agent chat capability discovery", () => {
         }),
         chat(),
       ],
+      name: "support",
       driver: {
         run: (context: { invoker: { kind?: string, meta?: Record<string, unknown> }, workspace?: unknown }) => {
           const email = typeof context.invoker.meta?.email === "string" ? `:${context.invoker.meta.email}` : ""
@@ -429,7 +428,7 @@ describe("agent chat capability discovery", () => {
         },
       },
       workspace: {},
-    }), { workspace: "support" })
+    })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent()
 
@@ -1908,18 +1907,19 @@ describe("agent chat capability discovery", () => {
       resolveInstructions = resolve
     })
     const readInstructions = vi.fn(async () => await instructionsReady)
-    const agent = withAgentDefaults(defineAgent({
+    const agent = defineAgent({
       capabilities: [chat()],
       driver: {
         instructions: readInstructions,
         model: {} as never,
       },
+      name: "support",
       workspace: {
         sources: {
           docs: { name: "docs" } as never,
         },
       },
-    }), { workspace: "support" })
+    })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent()
 
@@ -1954,7 +1954,7 @@ describe("agent chat capability discovery", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { custom } = await import("@vite-hub/workspace")
     const { registerWorkspace } = await import("@vite-hub/workspace/test")
-    const agent = withAgentDefaults(defineAgent({
+    const agent = defineAgent({
       capabilities: [chat()],
       driver: {
         async run({ workspace }) {
@@ -1963,6 +1963,7 @@ describe("agent chat capability discovery", () => {
           return "materialized ingestion"
         }
       },
+      name: "support",
       workspace: {
         store: { provider: "memory" },
         sources: {
@@ -1979,7 +1980,7 @@ describe("agent chat capability discovery", () => {
           }),
         },
       },
-    }), { workspace: "support" })
+    })
     registerWorkspace("support", agent as never)
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent()
@@ -2041,11 +2042,12 @@ describe("agent chat capability discovery", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { custom } = await import("@vite-hub/workspace")
     const { registerWorkspace } = await import("@vite-hub/workspace/test")
-    const agent = withAgentDefaults(defineAgent({
+    const agent = defineAgent({
       capabilities: [chat()],
       driver: {
         run: () => "ok"
       },
+      name: "support",
       workspace: {
         store: { provider: "memory" },
         sources: {
@@ -2087,7 +2089,7 @@ describe("agent chat capability discovery", () => {
           }),
         },
       },
-    }), { workspace: "support" })
+    })
     registerWorkspace("support", agent as never)
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent()

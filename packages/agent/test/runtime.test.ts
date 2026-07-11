@@ -48,8 +48,6 @@ vi.mock("../src/internal/ai-sdk-runtime.ts", () => ({
 }))
 loadAiSdk.mockImplementation(async () => await import("ai"))
 
-const { withAgentDefaults } = await import("../src/index.ts")
-
 afterEach(() => {
   harnessAgentSettings.length = 0
   harnessCreateSession.mockReset()
@@ -987,6 +985,7 @@ describe("agent message protocol", () => {
     }), { workspace: workspaceName })
 
     await expect(runAgent(reviewerAgent, {
+      agentIdentity: { name: "reviewer", workspace: workspaceName },
       memo: vi.fn(),
       runtime: "unknown",
       waitUntil: vi.fn(),
@@ -4089,11 +4088,11 @@ describe("agent message protocol", () => {
       capabilities: [{ id: "custom" }],
       channels: { web: webChat() },
       driver: { run: () => "ok" },
+      name: "docs",
       workspace: {},
     })
-    const registered = withAgentDefaults(agent as never, { workspace: "docs" })
 
-    await expect(resolveAgentTriggers(registered, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "chat.message": {
         capabilityId: "chat",
       },
@@ -7402,7 +7401,6 @@ describe("agent message protocol", () => {
         workspace: {},
       })
       const originalRuntime = agent.runtime
-      const originalDefaults = agent.__vitehubWorkspaceAgentDefaults
       const docsIdentity = { name: "identity-docs-agent", workspace: "identity-docs-workspace" }
       const supportIdentity = { name: "identity-support-agent", workspace: "identity-support-workspace" }
       const docsRun = await runAgent(agent, {
@@ -7430,12 +7428,10 @@ describe("agent message protocol", () => {
       await expect(resolveRegisteredWorkspaceDefinition(docsIdentity.workspace)).resolves.toMatchObject({ name: docsIdentity.workspace })
       await expect(resolveRegisteredWorkspaceDefinition(supportIdentity.workspace)).resolves.toMatchObject({ name: supportIdentity.workspace })
       expect(agent.runtime).toBe(originalRuntime)
-      expect(agent.__vitehubWorkspaceAgentDefaults).toBe(originalDefaults)
-      expect(agent.__vitehubWorkspaceAgentDefaults).toEqual({})
     })
 
     it("resolves workflow names from explicit binding, definition, then host identity", async () => {
-      const { defineAgent, runAgent, withAgentDefaults, workflow } = await import("../src/index.ts")
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
@@ -7455,10 +7451,6 @@ describe("agent message protocol", () => {
         runtime: workflow(),
         driver: { run: context => context.agentIdentity },
       })
-      const legacyAgent = withAgentDefaults(defineAgent({
-        runtime: workflow(),
-        driver: { run: context => context.agentIdentity },
-      }), { inferredName: "identity-legacy-fallback" })!
 
       const bindingRun = await runAgent(bindingAgent, {
         agentIdentity: hostIdentity,
@@ -7478,17 +7470,10 @@ describe("agent message protocol", () => {
         runtime: "vercel",
         waitUntil: promise => waitUntilTasks.push(promise),
       }, {}) as { id: string }
-      const legacyRun = await runAgent(legacyAgent, {
-        memo: vi.fn(),
-        runtime: "vercel",
-        waitUntil: promise => waitUntilTasks.push(promise),
-      }, {}) as { id: string }
-
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("identity-binding-wins", bindingRun.id)).resolves.toMatchObject({ result: hostIdentity })
       await expect(getWorkflowRun("identity-definition-wins", definitionRun.id)).resolves.toMatchObject({ result: hostIdentity })
       await expect(getWorkflowRun(hostIdentity.name, hostRun.id)).resolves.toMatchObject({ result: hostIdentity })
-      await expect(getWorkflowRun("identity-legacy-fallback", legacyRun.id)).resolves.toMatchObject({ status: "completed" })
     })
 
     it("resolves workspace names from explicit configuration before host identity", async () => {
@@ -7506,14 +7491,15 @@ describe("agent message protocol", () => {
       expect(workspaceNameFromOptions(stringWorkspace.__vitehubWorkspaceAgentOptions, {}, hostIdentity)).toBe("identity-explicit-string")
     })
 
-    it("preserves Agent Definition metadata when applying discovered defaults", async () => {
-      const { createAgentDevtoolsMetadata, defineAgent, withAgentDefaults, workflow } = await import("../src/index.ts")
-      const agent = withAgentDefaults(defineAgent({
+    it("preserves Agent Definition metadata for explicitly named definitions", async () => {
+      const { createAgentDevtoolsMetadata, defineAgent, workflow } = await import("../src/index.ts")
+      const agent = defineAgent({
         driver: { model: { id: "test-model" } as never },
+        name: "browser",
         runtime: workflow(),
-      }), { inferredName: "browser" })
+      })
 
-      expect(createAgentDevtoolsMetadata(agent!)).toMatchObject({
+      expect(createAgentDevtoolsMetadata(agent)).toMatchObject({
         config: {
           driver: {
             kind: "model",
@@ -7523,52 +7509,19 @@ describe("agent message protocol", () => {
       })
     })
 
-    it("keeps workspace defaults scoped to each prepared Agent Definition", async () => {
-      const { defineAgent } = await import("../src/index.ts")
-      const defaults = (agent: unknown) => (agent as { __vitehubWorkspaceAgentDefaults?: { name?: string, workspace?: string } }).__vitehubWorkspaceAgentDefaults
-      const agent = defineAgent({
-        driver: { run: () => "ok" },
-        workspace: {},
-      })
-
-      const docsAgent = withAgentDefaults(agent, { inferredName: "docs-agent", workspace: "docs" })
-      const supportAgent = withAgentDefaults(agent, { inferredName: "support-agent", workspace: "support" })
-
-      expect(docsAgent).not.toBe(agent)
-      expect(supportAgent).not.toBe(agent)
-      expect(docsAgent).not.toBe(supportAgent)
-      expect(defaults(agent)).toEqual({})
-      expect(defaults(docsAgent)).toEqual({ name: "docs-agent", workspace: "docs" })
-      expect(defaults(supportAgent)).toEqual({ name: "support-agent", workspace: "support" })
-    })
-
-    it("preserves existing workspace defaults when applying an inferred registry name", async () => {
-      const { defineAgent } = await import("../src/index.ts")
-      const defaults = (agent: unknown) => (agent as { __vitehubWorkspaceAgentDefaults?: { name?: string, workspace?: string } }).__vitehubWorkspaceAgentDefaults
-      const agent = defineAgent({
-        driver: { run: () => "ok" },
-        workspace: {},
-      })
-
-      const preparedAgent = withAgentDefaults(agent, { inferredName: "support-agent", workspace: "support" })
-      const registryAgent = withAgentDefaults(preparedAgent, { inferredName: "registry-support" })
-
-      expect(registryAgent).not.toBe(preparedAgent)
-      expect(defaults(registryAgent)).toEqual({ name: "registry-support", workspace: "support" })
-    })
-
-    it("uses workspace Agent defaults for unnamed workflow runtime bindings", async () => {
+    it("uses explicit Agent Definition names for unnamed workflow runtime bindings", async () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
-      const agent = withAgentDefaults(defineAgent({
+      const agent = defineAgent({
+        name: "reviewer",
         runtime: workflow(),
         driver: { run: context => `received ${context.prompt}` },
         workspace: {},
-      }), { inferredName: "reviewer", workspace: "reviewer" })
+      })
       const run = await runAgent(agent, {
         memo: vi.fn(),
         runtime: "vercel",
