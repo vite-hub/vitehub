@@ -24,6 +24,7 @@ const cronFieldRanges = [
 
 const runtimeScheduleCreateInputKeys = new Set(["cron", "enabled", "id", "target", "timeZone"])
 const runtimeScheduleUpdateInputKeys = new Set(["cron", "enabled", "target", "timeZone"])
+const ianaTimeZones = new Set(Intl.supportedValuesOf("timeZone"))
 
 function parseCronNumber(value: string, range: { min: number, max: number }): number {
   if (!/^\d+$/.test(value)) {
@@ -104,18 +105,7 @@ export function validateRuntimeScheduleCron(cron: unknown): void {
 }
 
 function validateRuntimeScheduleTimeZone(timeZone: unknown): void {
-  if (typeof timeZone !== "string" || timeZone.trim() !== timeZone || !timeZone || /^[+-]/.test(timeZone)) {
-    throw new ScheduleError("Runtime Schedule timeZone must be a valid IANA time zone.", {
-      code: "SCHEDULE_INVALID_TIME_ZONE",
-      details: { timeZone },
-      httpStatus: 400,
-    })
-  }
-
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone }).format()
-  }
-  catch {
+  if (typeof timeZone !== "string" || (timeZone !== "UTC" && !ianaTimeZones.has(timeZone))) {
     throw new ScheduleError("Runtime Schedule timeZone must be a valid IANA time zone.", {
       code: "SCHEDULE_INVALID_TIME_ZONE",
       details: { timeZone },

@@ -167,6 +167,9 @@ describe("Runtime Schedule helper", () => {
     await expect(schedules.create({ cron: "0 9 * * *", target: "report", timeZone: "+01:00" })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_TIME_ZONE",
     })
+    await expect(schedules.create({ cron: "0 9 * * *", target: "report", timeZone: "PST" })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_TIME_ZONE",
+    })
 
     await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
     await expect(schedules.update("schedule-1", { timeZone: "Not/A_Zone" })).rejects.toMatchObject({
