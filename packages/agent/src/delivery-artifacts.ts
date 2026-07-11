@@ -80,7 +80,7 @@ function replaceMarkdownArtifactDestinations(
   const pathsBySpecificity = [...byPath.keys()].sort((left, right) => right.length - left.length)
 
   return body.replace(/(!?\[[^\]\r\n]*\]\(\s*)<?([^\s)<>]+)>?(\s*\))/g, (match, start: string, destination: string, end: string) => {
-    let path = destination.startsWith("/") && !destination.startsWith("//")
+    let path = destination.startsWith("/workspace/")
       ? pathsBySpecificity.find(path => destination === `/${path}` || destination.endsWith(`/${path}`))
       : undefined
     if (!path) {

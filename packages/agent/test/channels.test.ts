@@ -317,6 +317,8 @@ describe("agent channels", () => {
       "![Preview](./artifacts/preview.png)",
       "![Absolute](/workspace/codex-session/artifacts/preview.png)",
       "[Report](artifacts/report.pdf)",
+      "[App docs](/docs/artifacts/report.pdf)",
+      "[Root artifact](/artifacts/report.pdf)",
       "Bare path: artifacts/preview.png",
       "Outside: ![Other](other/preview.png)",
     ].join("\n"), [{
@@ -329,6 +331,8 @@ describe("agent channels", () => {
       "![Preview](<https://assets.example/preview.png>)",
       "![Absolute](<https://assets.example/preview.png>)",
       "[Report](<https://assets.example/report.pdf>)",
+      "[App docs](/docs/artifacts/report.pdf)",
+      "[Root artifact](/artifacts/report.pdf)",
       "Bare path: artifacts/preview.png",
       "Outside: ![Other](other/preview.png)",
     ].join("\n"))
