@@ -79,4 +79,10 @@ describe("launch tutorials", () => {
 
     await expectPageToUseFixture("content/docs/getting-started/first-agent.md", "agents", labels)
   })
+
+  it("loads the model upgrade credential when restarting the Agents tutorial", async () => {
+    const source = await readFile(resolve(docsRoot, "content/blog/2.agents.md"), "utf8")
+
+    expect(source).toContain("node --env-file=.env dist/server.js")
+  })
 })
