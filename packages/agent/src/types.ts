@@ -464,7 +464,9 @@ export interface AgentFinishEvent<
   invoker: AgentInvoker
   invocation: {
     durationMs: number
+    resultKind?: string
     run?: AgentRunMetadata
+    usage?: AgentUsageRecord
   }
   result?: unknown
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>

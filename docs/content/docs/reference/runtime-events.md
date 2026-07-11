@@ -73,8 +73,8 @@ Agent Usage Records normalize usage across model-backed, harness-backed, and cus
 Token fields appear only when the provider reports them or ViteHub can derive them safely.
 
 Streams can carry the full Agent Usage Record through `{ type: "usage", usageRecord }`.
-At finish time, enable `usageTelemetry()` and read primitive JSON from `event.extensions.get("usage-telemetry")` or `context.extensions.get("usage-telemetry")`.
-Applications format that JSON when a product surface needs text, UI, notes, billing records, or comments.
+At finish time, read the normalized Agent Usage Record from `event.invocation.usage` in an Agent Finish Hook or `context.invocation.usage` in a Channel Delivery finish effect.
+Applications format that data when a product surface needs text, UI, notes, billing records, or comments.
 
 ## Related
 

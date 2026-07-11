@@ -6,7 +6,7 @@ import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/
 import { chat, chatTitle, observability, schedule, subagents, usageTelemetry } from "../src/capabilities.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 
-import type { AgentChannelDeliveryFinishEffectCallback } from "../src/index.ts"
+import type { AgentChannelDeliveryFinishEffectCallback, AgentFinishEvent } from "../src/index.ts"
 import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
 
 const harnessAgentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
@@ -287,9 +287,11 @@ describe("agent message protocol", () => {
       },
     })
 
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+    const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       prompt: "review",
-    })).resolves.toBe(handled)
+    }) as Response
+    expect(response).not.toBe(handled)
+    await expect(response.text()).resolves.toBe("handled")
     expect(inputHook).not.toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
   })
@@ -415,6 +417,130 @@ describe("agent message protocol", () => {
       "runtime.name": "unknown",
     })
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret prompt")
+  })
+
+  it("captures metadata-only invocation data without an observability capability", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finishEvents: AgentFinishEvent[] = []
+    const agent = defineAgent({
+      hooks: {
+        "agent:finish": (event) => {
+          finishEvents.push(event)
+        },
+      },
+      driver: { run: () => ({
+          text: "ok",
+          usageRecord: {
+            raw: { prompt: "provider secret" },
+            usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
+          },
+        }) },
+    })
+    const host = {
+      memo: vi.fn(),
+      run: { runId: "run-default-trace" },
+      runtime: "unknown" as const,
+      waitUntil: vi.fn(),
+    }
+
+    await runAgent(agent, host, { prompt: "first secret prompt" })
+    await runAgent(agent, host, { prompt: "second secret prompt" })
+
+    expect(finishEvents).toHaveLength(2)
+    expect(finishEvents[0]!.runtime.trace).toEqual({ id: "run-default-trace" })
+    expect(finishEvents[0]!.runtime.traceLog).not.toBe(finishEvents[1]!.runtime.traceLog)
+    expect(finishEvents[0]!.invocation).toMatchObject({
+      resultKind: "object",
+      usage: {
+        run: { runId: "run-default-trace" },
+        usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
+      },
+    })
+    for (const event of finishEvents) {
+      const traceLog = event.runtime.traceLog!
+      expect(traceLog.entries().map(entry => entry.name)).toEqual([
+        "agent.invocation.start",
+        "agent.invocation.finish",
+      ])
+      expect(deriveTraceRuns(traceLog.entries())).toMatchObject([
+        { id: "run-default-trace", status: "completed" },
+      ])
+      expect(traceLog.entries().at(-1)?.attributes).toMatchObject({
+        "result.kind": "object",
+        "usage.record": {
+          run: { runId: "run-default-trace" },
+          usage: { totalTokens: 10 },
+        },
+      })
+      expect(JSON.stringify(traceLog.entries())).not.toContain("secret prompt")
+      expect(JSON.stringify(traceLog.entries())).not.toContain("provider secret")
+    }
+  })
+
+  it("preserves caller-supplied Trace Event logs, trace context, and entry sinks", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const onEntry = vi.fn()
+    const trace = { id: "request-trace", parentId: "request-parent" }
+    const traceLog = createTraceEventLog({ onEntry })
+    const finish = vi.fn()
+    const agent = defineAgent({
+      hooks: { "agent:finish": finish },
+      driver: { run: () => "ok" },
+    })
+
+    await runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-supplied-trace" },
+      runtime: "unknown",
+      trace,
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})
+
+    expect(finish.mock.calls[0]![0].runtime.trace).toBe(trace)
+    expect(finish.mock.calls[0]![0].runtime.traceLog).toBe(traceLog)
+    expect(onEntry).toHaveBeenCalledTimes(2)
+    expect(new Set(traceLog.entries().map(entry => entry.trace))).toEqual(new Set([trace]))
+  })
+
+  it("records driver and finish-hook failures in default invocation traces", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    let driverTraceLog: ReturnType<typeof createTraceEventLog> | undefined
+    const driverFailure = defineAgent({
+      driver: { run(context) {
+          driverTraceLog = context.traceLog
+          throw new Error("driver failed")
+        } },
+    })
+
+    await expect(runAgent(driverFailure, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow("driver failed")
+    expect(deriveTraceRuns(driverTraceLog!.entries())).toMatchObject([{ status: "failed" }])
+
+    let finishTraceLog: ReturnType<typeof createTraceEventLog> | undefined
+    const finishFailure = defineAgent({
+      hooks: {
+        "agent:finish"(event) {
+          finishTraceLog = event.runtime.traceLog
+          throw new Error("finish failed")
+        },
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(finishFailure, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow("finish failed")
+    expect(finishTraceLog!.entries().map(entry => entry.name)).toEqual([
+      "agent.invocation.start",
+      "agent.invocation.error",
+    ])
+    expect(deriveTraceRuns(finishTraceLog!.entries())).toMatchObject([{ status: "failed" }])
   })
 
   it("records a failed invocation when Agent Finish Hooks fail", async () => {
@@ -6241,8 +6367,11 @@ describe("agent message protocol", () => {
     let pulls = 0
     let cancelReason: unknown
     let releaseBlockedPull: (() => void) | undefined
+    let traceLog: ReturnType<typeof createTraceEventLog> | undefined
     const agent = defineAgent({
-      driver: { run: () => ({
+      driver: { run: (context) => {
+        traceLog = context.traceLog
+        return {
           fullStream: (async function* () {
             yield { type: "finish" }
           })(),
@@ -6264,15 +6393,14 @@ describe("agent message protocol", () => {
               },
             })
           },
-        }) },
+        }
+      } },
     })
 
     const stream = await streamAgent(agent, {
       memo: vi.fn(),
       run: { runId: "run-1" },
       runtime: "unknown",
-      trace: { id: "request-1" },
-      traceLog: createTraceEventLog(),
       waitUntil: vi.fn(),
     }, {
       messages: [createMessage({ role: "user", text: "Explain availability" })],
@@ -6289,6 +6417,12 @@ describe("agent message protocol", () => {
 
     expect(cancelResult).toBe("cancelled")
     expect(cancelReason).toBe("client disconnected")
+    expect(traceLog!.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.stream.finish",
+      "agent.invocation.error",
+    ])
+    expect(deriveTraceRuns(traceLog!.entries())).toMatchObject([{ status: "failed" }])
   })
 
   it("emits one chat title data part when async event streams become UI message streams", async () => {
@@ -6365,12 +6499,18 @@ describe("agent message protocol", () => {
 
   it("renders custom async event streams returned from runAgent", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
+    let traceLog: ReturnType<typeof createTraceEventLog> | undefined
+    const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [chatTitle({ execute: () => "Run title" })],
-      driver: { run: () => (async function* () {
+      hooks: { "agent:finish": finish },
+      driver: { run: (context) => {
+        traceLog = context.traceLog
+        return (async function* () {
           yield { text: "answer", type: "text-delta" }
           yield { type: "finish" }
-        })() },
+        })()
+      } },
     })
 
     const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -6383,6 +6523,8 @@ describe("agent message protocol", () => {
 
     expect(events).toContainEqual({ data: { title: "Run title", type: "chat-title" }, type: "data" })
     expect(events).toContainEqual({ text: "answer", type: "text-delta" })
+    expect(finish.mock.calls[0]![0].invocation.resultKind).toBe("stream")
+    expect(deriveTraceRuns(traceLog!.entries())).toMatchObject([{ status: "completed" }])
   })
 
   it("exposes chat title finish extension without registering command metadata", async () => {
@@ -6442,6 +6584,7 @@ describe("agent message protocol", () => {
       error,
     }))
     expect(finish.mock.calls[0]![0]).not.toHaveProperty("result")
+    expect(deriveTraceRuns(finish.mock.calls[0]![0].runtime.traceLog.entries())).toMatchObject([{ status: "failed" }])
   })
 
   it("runs agent finish hooks when Response bodies are canceled", async () => {
@@ -6461,6 +6604,7 @@ describe("agent message protocol", () => {
     const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}) as Response
     await response.body?.cancel()
     expect(finish).toHaveBeenCalledTimes(1)
+    expect(deriveTraceRuns(finish.mock.calls[0]![0].runtime.traceLog.entries())).toMatchObject([{ status: "completed" }])
   })
 
   it("runs agent finish hooks when Response wrapping fails", async () => {
@@ -6482,31 +6626,53 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0]).not.toHaveProperty("result")
   })
 
-  it("returns generated Response results unchanged", async () => {
+  it("preserves generated Response payload and metadata while tracing completion", async () => {
     const { runAgent } = await import("../src/index.ts")
-    const response = Response.json({ ok: true })
+    const response = Response.json({ ok: true }, {
+      headers: { "x-agent": "generated" },
+      status: 202,
+      statusText: "Accepted",
+    })
     const agent = {
       generate: vi.fn(async () => response),
       name: "response-agent",
     }
 
-    await expect(runAgent(agent as never, {} as never, {
+    const result = await runAgent(agent as never, {} as never, {
       messages: [createMessage({ role: "user", text: "hello" })],
-    })).resolves.toBe(response)
+    }) as Response
+
+    expect(result).not.toBe(response)
+    expect(result.status).toBe(response.status)
+    expect(result.statusText).toBe(response.statusText)
+    expect(result.headers.get("content-type")).toBe(response.headers.get("content-type"))
+    expect(result.headers.get("x-agent")).toBe("generated")
+    await expect(result.json()).resolves.toEqual({ ok: true })
   })
 
-  it("returns streamed Response results unchanged", async () => {
+  it("preserves streamed Response payload and metadata while tracing completion", async () => {
     const { streamAgent } = await import("../src/index.ts")
-    const response = new Response("ok")
+    const response = new Response("ok", {
+      headers: { "x-agent": "streamed" },
+      status: 206,
+      statusText: "Partial Content",
+    })
     const agent = {
       generate: vi.fn(),
       name: "response-agent",
       stream: vi.fn(async () => response),
     }
 
-    await expect(streamAgent(agent as never, {} as never, {
+    const result = await streamAgent(agent as never, {} as never, {
       messages: [createMessage({ role: "user", text: "hello" })],
-    })).resolves.toBe(response)
+    }) as Response
+
+    expect(result).not.toBe(response)
+    expect(result.status).toBe(response.status)
+    expect(result.statusText).toBe(response.statusText)
+    expect(result.headers.get("content-type")).toBe(response.headers.get("content-type"))
+    expect(result.headers.get("x-agent")).toBe("streamed")
+    await expect(result.text()).resolves.toBe("ok")
   })
 
   it("converts text streams into ViteHub stream events", async () => {

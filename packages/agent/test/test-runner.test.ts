@@ -92,8 +92,33 @@ describe("agent test runner", () => {
       finishReason: "stop",
       text: "done",
       toolSteps: [],
+      trace: {
+        status: "completed",
+      },
       usage: { outputTokens: 2 },
     })
+  })
+
+  it("captures a terminal trace after reading Response output", async () => {
+    const { runAgentForTest } = await import("../src/test.ts")
+    const agent = {
+      generate: vi.fn(async () => new Response("done", { status: 202 })),
+      stream: vi.fn(),
+      tools: {},
+      version: "agent-v1",
+    }
+
+    const result = await runAgentForTest(agent as never, {
+      runtimeConfig: {},
+    }, {
+      prompt: "hello",
+    })
+
+    expect(result.text).toBe("done")
+    expect(result.trace).toMatchObject({
+      status: "completed",
+    })
+    expect(result.trace?.events.at(-1)?.name).toBe("agent.invocation.finish")
   })
 
   it("collects harness-native raw tool steps for eval scorers", async () => {

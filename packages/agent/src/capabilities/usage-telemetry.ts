@@ -79,6 +79,9 @@ function usageTelemetryRecord(record: AgentUsageRecord | undefined): UsageTeleme
   return Object.keys(telemetry).length ? telemetry : undefined
 }
 
+/**
+ * @deprecated Normalized usage is now available as event.invocation.usage in Agent Finish Hooks and Channel Delivery finish effects.
+ */
 export function usageTelemetry<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(): AgentCapabilityDefinition<TRuntimeConfig> {
   return defineCapability<TRuntimeConfig>({
     id: "usage-telemetry",
@@ -86,7 +89,7 @@ export function usageTelemetry<TRuntimeConfig extends AgentRuntimeConfig = Agent
       kind: "usage-telemetry",
     } satisfies UsageTelemetryCapabilityMetadata,
     async finish(event: AgentFinishEvent<TRuntimeConfig>) {
-      return usageTelemetryRecord(await resolveAgentUsageRecord(event.result, event.invocation.run))
+      return usageTelemetryRecord(event.invocation.usage ?? await resolveAgentUsageRecord(event.result, event.invocation.run))
     },
   })
 }

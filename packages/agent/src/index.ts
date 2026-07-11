@@ -8,8 +8,8 @@ import {
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
 import { getMessageText } from "./messages.ts"
-import { resolveRuntimeContext } from "@vite-hub/runtime"
-import { isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
+import { createTraceEventLog, resolveRuntimeContext } from "@vite-hub/runtime"
+import { agentResultKind, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import { isMessageChannelChatTitleEffectIntent, messageChannelTitleDeliveredContextKey, resolveAgentChannelChatOptions } from "./internal/channels.ts"
 import {
@@ -136,6 +136,7 @@ import type {
   AgentRuntimeContext,
   AgentSettings,
   AgentUsageCost,
+  AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
   AgentToolDefinition,
   MaybePromise,
@@ -1368,7 +1369,13 @@ async function createAgentInvocationContext<
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const resolvedContext = createResolvedRuntimeContext(context)
-  const runtimeContext = resolvedContext.trace || !resolvedContext.traceLog ? resolvedContext : { ...resolvedContext, trace: { id: createTraceId(context.run) } }
+  const runtimeContext = resolvedContext.trace && resolvedContext.traceLog
+    ? resolvedContext
+    : {
+        ...resolvedContext,
+        trace: resolvedContext.trace || { id: createTraceId(context.run) },
+        traceLog: resolvedContext.traceLog || createTraceEventLog(),
+      }
   const callbackContext = createAgentCallbackContext(runtimeContext)
   const invocationContext = createAgentInvocationContextStore(input.context)
   let invoker = createFallbackAgentInvoker(context.run)
@@ -1986,6 +1993,17 @@ async function finishAgentInvocation<
   try {
     await context.startTask
     await context.close()
+    let resultKind: string | undefined
+    let usage: AgentUsageRecord | undefined
+    if (!failed) {
+      try {
+        resultKind = agentResultKind(result)
+        usage = await resolveAgentUsageRecord(result, context.run)
+      }
+      catch {
+        // Invocation data must not change Agent output or mask the original failure.
+      }
+    }
     if (hasFinishWork(context)) {
       const details = failed ? agentErrorDetails(error) : undefined
       const eventBase = {
@@ -1996,7 +2014,9 @@ async function finishAgentInvocation<
         invoker: context.invoker,
         invocation: {
           durationMs,
+          ...(resultKind !== undefined ? { resultKind } : {}),
           ...(context.run ? { run: context.run } : {}),
+          ...(usage ? { usage } : {}),
         },
         ...(result !== undefined ? { result } : {}),
         runtime: context.runtimeContext,
@@ -2023,6 +2043,8 @@ async function finishAgentInvocation<
       await traceAgentInvocationFinish(toTraceContext(context), {
         "invocation.durationMs": durationMs,
         "result.hasValue": result !== undefined,
+        ...(resultKind !== undefined ? { "result.kind": resultKind } : {}),
+        ...(usage ? { "usage.record": usage } : {}),
       })
     }
     else {

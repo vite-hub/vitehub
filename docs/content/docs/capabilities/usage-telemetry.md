@@ -10,7 +10,11 @@ icon: i-lucide-gauge
 `usageTelemetry()` exposes usage as data at the end of an Agent Invocation.
 It does not format messages, comments, markdown, web UI, billing notes, or summaries.
 
-## Installation
+::warning
+`usageTelemetry()` is deprecated. Read the normalized Agent Usage Record from `event.invocation.usage` in Agent Finish Hooks or `context.invocation.usage` in Channel Delivery finish effects. Keep this Capability only while migrating consumers that require its legacy flat primitive extension.
+::
+
+## Legacy installation
 
 Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
 
@@ -33,7 +37,7 @@ export default defineAgent({
 })
 ```
 
-## What it adds
+## Legacy behavior
 
 The Capability provides a `usage-telemetry` finish extension when the Agent result contains usage.
 Read the same extension in Channel Delivery finish effects with `context.extensions.get("usage-telemetry")`.
