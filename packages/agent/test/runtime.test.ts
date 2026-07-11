@@ -5781,6 +5781,71 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].result).toBe(result)
   })
 
+  it("preserves readable stream results when adding chat title data", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    class StreamResult {
+      stream = new ReadableStream<unknown>({
+        start(controller) {
+          controller.enqueue({ text: "hello", type: "text-delta" })
+          controller.close()
+        },
+      })
+
+      get textStream() {
+        return this.stream.pipeThrough(new TransformStream<unknown, unknown>())
+      }
+    }
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => "Readable title" })],
+      driver: { run: () => new StreamResult() },
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "First user request" })],
+    }) as StreamResult
+    const stream = result.textStream
+    const events = []
+    for await (const event of stream) {
+      events.push(event)
+    }
+
+    expect(result).toBeInstanceOf(StreamResult)
+    expect(result.stream).toBeInstanceOf(ReadableStream)
+    expect(stream).toBeInstanceOf(ReadableStream)
+    expect(events).toContainEqual({ data: { title: "Readable title", type: "chat-title" }, type: "data" })
+    expect(events).toContainEqual({ text: "hello", type: "text-delta" })
+  })
+
+  it("cancels readable stream results while a source read is pending", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    let sourcePullStarted!: () => void
+    const sourcePull = new Promise<void>((resolve) => {
+      sourcePullStarted = resolve
+    })
+    const cancel = vi.fn()
+    class StreamResult {
+      stream = new ReadableStream<unknown>({
+        cancel,
+        pull() {
+          sourcePullStarted()
+          return new Promise<void>(() => {})
+        },
+      })
+    }
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => new Promise<string>(() => {}) })],
+      driver: { run: () => new StreamResult() },
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "First user request" })],
+    }) as StreamResult
+    await sourcePull
+
+    await expect(result.stream.cancel("client disconnected")).resolves.toBeUndefined()
+    expect(cancel).toHaveBeenCalledWith("client disconnected")
+  })
+
   it("preserves text stream result metadata when adding chat title data", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
