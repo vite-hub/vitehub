@@ -75,6 +75,37 @@ describe("Runtime Schedule Wake Driver", () => {
     await installing
   })
 
+  it("queues mutations until the initial snapshot is reconciled", async () => {
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const snapshots: unknown[] = []
+    let releaseReconcile: (() => void) | undefined
+    const installing = installScheduleRuntime({
+      createDriver: () => ({
+        async reconcile(records) {
+          snapshots.push(snapshot(records))
+          if (snapshots.length === 1) {
+            await new Promise<void>(resolve => { releaseReconcile = resolve })
+          }
+        },
+      }),
+      registry,
+      runtimeScheduleStore,
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+    await flushAsyncWork()
+
+    const creating = schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
+    await flushAsyncWork()
+    expect(await runtimeScheduleStore.list()).toEqual([])
+
+    releaseReconcile?.()
+    await Promise.all([installing, creating])
+    expect(snapshots).toEqual([
+      [],
+      [{ cron: "0 9 * * *", enabled: true, id: "daily", target: "report" }],
+    ])
+  })
+
   it("delivers exact wake identity and time through Runtime Schedule execution", async () => {
     const scheduledAt = new Date("2026-07-11T09:30:00.000Z")
     const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
@@ -111,6 +142,49 @@ describe("Runtime Schedule Wake Driver", () => {
       scheduledAt,
       status: "succeeded",
     })
+  })
+
+  it("rejects a stale native wake after the stored cron changes", async () => {
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-07-11T08:00:00.000Z")
+    const handler = vi.fn()
+    let context: RuntimeScheduleWakeDriverContext | undefined
+    let releaseReconcile: (() => void) | undefined
+    let markReconcileStarted: (() => void) | undefined
+    const reconcileStarted = new Promise<void>(resolve => { markReconcileStarted = resolve })
+    let reconcileCount = 0
+    await runtimeScheduleStore.create({ createdAt: now, cron: "0 9 * * *", enabled: true, id: "daily", target: "report", updatedAt: now })
+    await installScheduleRuntime({
+      createDriver(driverContext) {
+        context = driverContext
+        return {
+          async reconcile() {
+            reconcileCount++
+            if (reconcileCount === 2) {
+              markReconcileStarted?.()
+              await new Promise<void>(resolve => { releaseReconcile = resolve })
+            }
+          },
+        }
+      },
+      registry: {
+        report: async () => ({ cron: "0 9 * * *", handler, options: { allowRuntimeSchedules: true } }),
+      },
+      runtimeScheduleStore,
+      scheduleRunStore,
+    })
+
+    const updating = schedules.update("daily", { cron: "0 10 * * *" })
+    await reconcileStarted
+    await expect(context!.wake({
+      scheduleId: "daily",
+      scheduledAt: new Date("2026-07-11T09:00:00.000Z"),
+    })).rejects.toMatchObject({ code: "SCHEDULE_NOT_DUE" })
+    expect(handler).not.toHaveBeenCalled()
+
+    releaseReconcile?.()
+    await updating
   })
 
   it("reconciles serialized full snapshots after create, update, and delete", async () => {

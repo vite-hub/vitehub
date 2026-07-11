@@ -1,4 +1,5 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
+import { parseCronExpression } from "cron-schedule"
 
 import { ScheduleError } from "../errors.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
@@ -23,6 +24,7 @@ interface ExecuteStaticScheduleOptions {
 
 interface ExecuteRuntimeScheduleOptions {
   id: string
+  requireDue?: boolean
   runtimeScheduleStore?: RuntimeScheduleStore
   scheduledAt?: Date
   scheduleRunStore?: ScheduleRunStore
@@ -60,6 +62,26 @@ function validateScheduledAt(scheduledAt: Date): Date {
     })
   }
   return scheduledAt
+}
+
+export function isRuntimeScheduleDue(schedule: RuntimeScheduleRecord, scheduledAt: Date): boolean {
+  if (schedule.cron.trim().split(/\s+/).length !== 5) {
+    throw new TypeError(`Runtime Schedule "${schedule.id}" must use a five-field cron expression.`)
+  }
+  const cron = parseCronExpression(schedule.cron)
+  const minute = scheduledAt.getUTCMinutes()
+  const hour = scheduledAt.getUTCHours()
+  const day = scheduledAt.getUTCDate()
+  const month = scheduledAt.getUTCMonth()
+  const weekday = scheduledAt.getUTCDay()
+
+  if (!cron.minutes.includes(minute) || !cron.hours.includes(hour) || !cron.months.includes(month)) {
+    return false
+  }
+  if (cron.days.length !== 31 && cron.weekdays.length !== 7) {
+    return cron.days.includes(day) || cron.weekdays.includes(weekday)
+  }
+  return cron.days.includes(day) && cron.weekdays.includes(weekday)
 }
 
 function toRunError(error: unknown): ScheduleRunError {
@@ -248,6 +270,13 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
       httpStatus: 409,
     })
   }
+  if (runtimeOptions.requireDue && !isRuntimeScheduleDue(schedule, scheduledAt)) {
+    throw new ScheduleError(`Runtime Schedule is not due: ${id}`, {
+      code: "SCHEDULE_NOT_DUE",
+      details: { id, scheduledAt },
+      httpStatus: 409,
+    })
+  }
   const definition = await loadScheduleDefinition(schedule.target)
   if (!definition) {
     throw new ScheduleError(`Unknown Runtime Schedule target: ${schedule.target}`, {
@@ -277,6 +306,7 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
 export async function executeRuntimeScheduleWake(input: RuntimeScheduleWake, options: ExecuteRuntimeScheduleWakeOptions): Promise<void> {
   await executeRuntimeSchedule({
     id: input.scheduleId,
+    requireDue: true,
     runtimeScheduleStore: options.runtimeScheduleStore,
     scheduledAt: input.scheduledAt,
     scheduleRunStore: options.scheduleRunStore,

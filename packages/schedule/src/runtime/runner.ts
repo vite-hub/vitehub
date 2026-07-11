@@ -1,6 +1,4 @@
-import { parseCronExpression } from "cron-schedule"
-
-import { executeRuntimeScheduleWake } from "./execute.ts"
+import { executeRuntimeScheduleWake, isRuntimeScheduleDue } from "./execute.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore } from "./state.ts"
 
 import type { RuntimeScheduleRecord, RuntimeScheduleStore, ScheduleRunStore } from "../types.ts"
@@ -30,26 +28,6 @@ function floorUTCMinute(date: Date): Date {
     date.getUTCHours(),
     date.getUTCMinutes(),
   ))
-}
-
-function isDue(schedule: RuntimeScheduleRecord, scheduledAt: Date): boolean {
-  if (schedule.cron.trim().split(/\s+/).length !== 5) {
-    throw new TypeError(`Runtime Schedule "${schedule.id}" must use a five-field cron expression.`)
-  }
-  const cron = parseCronExpression(schedule.cron)
-  const minute = scheduledAt.getUTCMinutes()
-  const hour = scheduledAt.getUTCHours()
-  const day = scheduledAt.getUTCDate()
-  const month = scheduledAt.getUTCMonth()
-  const weekday = scheduledAt.getUTCDay()
-
-  if (!cron.minutes.includes(minute) || !cron.hours.includes(hour) || !cron.months.includes(month)) {
-    return false
-  }
-  if (cron.days.length !== 31 && cron.weekdays.length !== 7) {
-    return cron.days.includes(day) || cron.weekdays.includes(weekday)
-  }
-  return cron.days.includes(day) && cron.weekdays.includes(weekday)
 }
 
 function toRunId(scheduleId: string, scheduledAt: Date): string {
@@ -134,7 +112,7 @@ export function startScheduleRunner(options: ScheduleRunnerOptions = {}): Schedu
           }
           let due = false
           try {
-            due = isDue(schedule, scheduledAt)
+            due = isRuntimeScheduleDue(schedule, scheduledAt)
           }
           catch (error) {
             reportError(error, options.onError)
