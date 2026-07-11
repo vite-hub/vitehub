@@ -15,9 +15,9 @@ Identify whether the failure comes from discovery, generated files, provider res
 | Definition is missing | File path and default export shape | [File conventions](/docs/reference/file-conventions) and `.vitehub/**` |
 | Stable import fails | Vite Integration and generated TypeScript includes | [Generated files](/docs/development/generated-files) |
 | Provider build fails | Provider Selection and required resource ids | [Provider output](/docs/reference/provider-output) |
-| DevTools feature is absent | `hubDevtools()` and package DevTools opt-out | [DevTools](/docs/development/devtools) |
-| Agent changed behavior | Agent Eval result and Agent Usage Record | [Agent Evals](/docs/development/agent-evals) |
-| Agent proof times out | Dev-loop `--timeout`, `agent.eval.testTimeout`, or stalled harness/session setup | [CLI](/docs/development/cli) and [Agent Evals](/docs/development/agent-evals) |
+| DevTools feature is absent | `hubDevtools()` and package DevTools opt-out | [Agent DevTools](/docs/agents/devtools) |
+| Agent changed behaviour | Agent Eval result and Agent Usage Record | [Agent Evals](/docs/agents/evals) |
+| Agent proof times out | Dev-loop `--timeout`, `agent.eval.testTimeout`, or stalled harness/session setup | [CLI](/docs/development/cli) and [Agent Evals](/docs/agents/evals) |
 | Runtime error lacks context | Package error family and diagnostics output | [Errors and diagnostics](/docs/reference/errors-diagnostics) |
 
 ## Discovery failures
@@ -63,8 +63,7 @@ When the Agent Dev Loop reports `Agent Invocation Stream timed out after <ms>`, 
 
 ## When to escalate
 
-Escalate to a package-level fix when the same failure appears in the owning package's proof path.
-A Downstream Escape should become a Primitive Suite case, an Agent Eval, or a playground reproduction together with the fix.
+Escalate to the owning ViteHub package when the same failure reproduces outside application code. Include the smallest reproduction, the generated artifact that failed, and the narrow command that demonstrates the problem.
 
 ## Next steps
 

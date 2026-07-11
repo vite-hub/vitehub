@@ -1,15 +1,28 @@
 ---
-title: Vite
-description: Use Vite Integrations to discover ViteHub Definitions and generate host output without making app code host-specific.
-navigation.title: Vite
+title: Frameworks and hosts
+description: Separate Vite integration, application runtime imports, and package-specific host output.
+navigation.title: Overview
 navigation.order: 40
-icon: i-simple-icons-vite
+icon: i-lucide-network
 ---
 
-Vite is the public framework integration layer for ViteHub.
-Vite Integrations discover Definitions, generate Runtime Registries, expose Stable ViteHub Import Paths, and write Provider Output when a package needs host artifacts.
+ViteHub separates build integration from runtime hosting. Vite Integrations discover Definitions and prepare package-owned output, while application code uses stable Runtime Helpers that do not expose generated file paths.
 
-## What Vite owns
+Host support remains package-specific. A host can support one primitive without supporting every ViteHub package, and a Runtime Helper can work without a ViteHub-generated deployment bundle.
+
+## Follow the right boundary
+
+| Need | Open |
+| --- | --- |
+| Compare current host coverage and proof maturity | [Runtime and host support](/docs/frameworks-hosts/support-matrix) |
+| Generate Cloudflare Worker output and bindings | [Cloudflare](/docs/frameworks-hosts/cloudflare) |
+| Generate Vercel Build Output | [Vercel](/docs/frameworks-hosts/vercel) |
+| Use package-specific Netlify functions and Blob runtime | [Netlify](/docs/frameworks-hosts/netlify) |
+| Run Agent routes, schedules, or KV on Deno | [Deno](/docs/frameworks-hosts/deno) |
+| Understand package-owned Nitro bridges | [Nitro and UnJS](/docs/frameworks-hosts/nitro-unjs) |
+| Mount supported helpers in a Node-shaped server | [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) |
+
+## Vite integration responsibilities
 
 | Vite Integration responsibility | Boundary |
 | --- | --- |
@@ -17,48 +30,39 @@ Vite Integrations discover Definitions, generate Runtime Registries, expose Stab
 | Generate Runtime Registries | App code uses Stable ViteHub Import Paths instead of generated files. |
 | Resolve Integration Options | Provider Selection and build-time options become Runtime Config or Provider Output. |
 | Register DevTools Features | Package integrations register DevTools Features and DevTools Bridges. |
-| Write Provider Output | Packages generate host artifacts during production-shaped builds. |
+| Write Provider Output | A package generates host artifacts only for the providers it supports. |
 
-## Add package integrations
+## Compose integrations
 
-Install only the packages your app uses.
-Each package integration owns its primitive, Capability, or Agent surface.
+Use `@vite-hub/vite` when the application wants one composition preset. Queue remains opt-in, and every package keeps ownership of its public application imports.
 
 ```ts [vite.config.ts]
-import { hubAgent } from '@vite-hub/agent/vite'
-import { hubDevtools } from '@vite-hub/devtools'
-import { hubEnv } from '@vite-hub/env/vite'
-import { hubKv } from '@vite-hub/kv/vite'
+import { vitehub } from '@vite-hub/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [
-    hubDevtools(),
-    hubEnv(),
-    hubKv(),
-    hubAgent(),
-  ],
+  plugins: [vitehub()],
 })
 ```
+
+Register individual `hubX()` integrations instead when the application needs a smaller dependency or configuration surface.
 
 ## Keep runtime imports stable
 
 Application code should import Runtime Helpers and generated surfaces through ViteHub-owned import paths.
 Do not import framework virtual modules or generated files unless a package reference marks that path public.
 
-```ts [server/api/settings.put.ts]
+```ts [server/settings.ts]
 import { kv } from '@vite-hub/kv'
 
-export default defineEventHandler(async (event) => {
-  await kv.set('settings', await readBody(event))
-  return { ok: true }
-})
+export async function saveSettings(settings: Record<string, unknown>) {
+  await kv.set('settings', settings)
+}
 ```
 
-## Inspect Vite output
+## Vite output boundary
 
-Vite dev proves discovery and generated local files.
-Production-shaped builds prove Provider Output.
+Vite dev proves discovery and generated local files. Provider-shaped builds prove deployable output, while Netlify local development can also materialise functions for Netlify CLI.
 
 ```bash [Terminal]
 pnpm dev
@@ -68,7 +72,7 @@ pnpm build
 
 ## Next steps
 
+- Use [Runtime and host support](/docs/frameworks-hosts/support-matrix) before making a portability claim.
 - Use [File conventions](/docs/reference/file-conventions) for discovery paths.
 - Use [Provider output](/docs/reference/provider-output) for generated host artifacts.
-- Use [Deno](/docs/frameworks-hosts/deno) for generated Agent server output and Deno cron wake output.
 - Use [Local development](/docs/development) for proof paths.

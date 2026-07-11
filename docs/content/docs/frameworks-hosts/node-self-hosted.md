@@ -1,7 +1,7 @@
 ---
 title: Node and self-hosted
 description: Use ViteHub Runtime Helpers in Node-shaped hosts without pretending every primitive has unified self-hosted output.
-navigation.order: 45
+navigation.order: 47
 icon: i-lucide-server-cog
 ---
 
@@ -15,20 +15,18 @@ Unified self-hosted Provider Output is not the default contract for every packag
 | Runtime Helpers in server code | Available per package | Use the package root or runtime subpath imports. |
 | Local filesystem and memory providers | Available where a primitive supports them | Useful for development and simple self-hosted setups. |
 | Stable server handlers | Available per package | Mount the handler the package marks stable, such as Auth server behavior. |
-| Unified self-hosted Provider Output | Planned | ViteHub does not yet emit one general Node deployment bundle for all primitives. |
+| Unified self-hosted Provider Output | Not provided | ViteHub does not emit one general Node deployment bundle for all primitives. |
 
-## Use Runtime Helpers
+## Runtime Helper boundary
 
-Server code should call Runtime Helpers the same way it does in hosted apps.
-The provider or store choice belongs in package configuration.
+Server code calls the same Runtime Helpers used in hosted applications. The provider or store choice remains in package configuration.
 
-```ts [server/api/settings.put.ts]
+```ts [server/settings.ts]
 import { kv } from '@vite-hub/kv'
 
-export default defineEventHandler(async (event) => {
-  await kv.set('settings', await readBody(event))
-  return { ok: true }
-})
+export async function saveSettings(settings: Record<string, unknown>) {
+  await kv.set('settings', settings)
+}
 ```
 
 ```ts [vite.config.ts]
@@ -46,19 +44,23 @@ export default defineConfig({
 })
 ```
 
-## Mount stable handlers manually
+## Auth handler boundary
 
-When a package exposes a stable server handler, mount that handler in the host instead of copying generated provider code.
-Generated host files remain implementation details unless the package reference marks them public.
+The Auth Package exposes a stable server handler that a Node framework can mount through its request API. The handler comes from the application Definition; generated host files remain implementation details unless the package reference marks them public.
 
-```ts [server/auth.ts]
+```ts [server/manual-auth-handler.ts]
 import { defineAuth } from '@vite-hub/auth'
+import { createAuthHandler } from '@vite-hub/auth/server'
 
-export default defineAuth({
+const definition = defineAuth({
   appName: 'Acme',
   route: false,
 })
+
+export const handleAuth = createAuthHandler(definition)
 ```
+
+`handleAuth` accepts a Web `Request` and returns a `Promise<Response>`. Adapt that handler at the Node framework boundary instead of importing a generated Nitro route.
 
 ## Production notes
 
@@ -69,6 +71,7 @@ Use Server Env for runtime secrets, configure durable stores for stateful primit
 
 ## Next steps
 
+- Use [Runtime and host support](/docs/frameworks-hosts/support-matrix) for the qualified self-hosted boundary.
 - Use [Import paths](/docs/reference/import-paths) for stable runtime imports.
 - Use [Config options](/docs/reference/config-options) for local and hosted providers.
 - Use [Verification](/docs/development/verification) to choose a self-hosted proof path.

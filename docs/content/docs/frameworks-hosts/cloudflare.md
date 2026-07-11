@@ -1,7 +1,7 @@
 ---
 title: Cloudflare
 description: Configure Cloudflare Provider Output while keeping ViteHub Definitions and Runtime Helpers host-neutral.
-navigation.order: 42
+navigation.order: 43
 icon: i-simple-icons-cloudflare
 ---
 
@@ -18,10 +18,9 @@ The Definition and Runtime Helper should stay host-neutral; Cloudflare details b
 | Runtime context | Runtime Host Context passed by the host integration, not app-owned global state. |
 | Agent state | Agent Package state provider configuration when Cloudflare-backed state is selected. |
 
-## Configure provider-owned primitives
+## Provider-owned configuration
 
-Use the primitive package options to select Cloudflare.
-The exact option belongs to the package that owns the primitive.
+The primitive package options select Cloudflare. Each provider field stays with the package that owns the primitive.
 
 ```ts [vite.config.ts]
 import { hubDb } from '@vite-hub/database/vite'
@@ -45,20 +44,18 @@ export default defineConfig({
 })
 ```
 
-## Provision missing resources
+## Provision boundary
 
-Preview before applying.
-Provision writes non-secret ids into `.vitehub/provision.json`; secrets remain in environment variables or provider env stores.
+Provision exposes a dry-run plan before it applies changes. A successful apply writes non-secret ids into `.vitehub/provision.json`; secrets remain in environment variables or provider env stores.
 
 ```bash [Terminal]
-pnpm vitehub provision run --provider cloudflare --dry-run
+CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --provider cloudflare --dry-run
 CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --provider cloudflare
 ```
 
-## Inspect output
+## Generated output
 
-Cloudflare output can include worker bundles, `wrangler.json`, D1 bindings, queue consumers, cron triggers, and package-specific runtime imports.
-Inspect output after a production-shaped build.
+Cloudflare output can include worker bundles, `wrangler.json`, D1 bindings, queue consumers, cron triggers, and package-specific runtime imports. A production-shaped build materialises the selected output under `dist`.
 
 ```bash [Terminal]
 pnpm build
@@ -80,6 +77,7 @@ Agent Definitions run on Cloudflare through generated host output where the Agen
 
 ## Next steps
 
+- Use [Runtime and host support](/docs/frameworks-hosts/support-matrix) for exact package and proof coverage.
 - Use [Provisioning](/docs/development/provisioning) for resource creation.
 - Use [Provider output](/docs/reference/provider-output) for generated artifact families.
 - Use [Verification](/docs/development/verification) for Cloudflare proof tiers.

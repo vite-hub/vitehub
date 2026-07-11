@@ -1,7 +1,7 @@
 ---
 title: Nitro and UnJS
 description: Understand the narrow boundary between ViteHub, Nitro, and UnJS server runtimes.
-navigation.order: 41
+navigation.order: 42
 icon: i-lucide-server
 ---
 
@@ -26,21 +26,20 @@ ViteHub uses Vite Integrations as the public integration layer, while package-ow
 | Database Nuxt D1 host wiring | Available for Nuxt D1 host resources | Database Package | Keeps one D1 Database Host Resource in sync with Nuxt Content and Cloudflare output. |
 | General Nitro-first integration | Not the public direction | Not applicable | ViteHub keeps the public contract on Vite Integrations. |
 
-## Current generated route output
+## Generated route output
 
 ::warning
-Auth and Agent generated Nitro handlers exist in current package output, but the accepted public direction remains Vite-first. Treat them as generated Provider Output under domain review, not as a general Nitro Framework Integration or public `@vite-hub/*/nitro` authoring surface.
+Auth and Agent integrations generate Nitro handlers for their owned routes. Treat those files as Provider Output, not as a general Nitro Framework Integration or a public `@vite-hub/*/nitro` authoring surface.
 ::
 
 | Output | Current owner | Boundary |
 | --- | --- | --- |
-| Auth route handler | Auth Package | Exposes generated `/api/auth/**` behavior while the Auth/Nitro boundary remains unresolved. |
+| Auth route handler | Auth Package | Exposes the configured Auth route through a generated Nitro handler. |
 | Agent chat and webhook routes | Agent Package | Dispatches generated Agent route output without making Nitro discovery or route files the app API. |
 
-## Use stable handlers
+## Package-owned handlers
 
-Manual hosts should mount stable ViteHub handlers when a package exposes one.
-Generated Nitro files stay package-owned Provider Output.
+The package Vite Integration reads the application Auth Definition and generates Nitro route output when `route` is enabled.
 
 ```ts [server/auth.ts]
 import { defineAuth } from '@vite-hub/auth'
@@ -69,6 +68,7 @@ If a package generates Nitro output, inspect it as Provider Output and keep appl
 
 ## Next steps
 
-- Use [Vite](/docs/frameworks-hosts) for the public integration model.
+- Use [Frameworks and hosts](/docs/frameworks-hosts) for the public integration model.
+- Use [Runtime and host support](/docs/frameworks-hosts/support-matrix) for the complete qualified matrix.
 - Use [Provider output](/docs/reference/provider-output) for generated Nitro and host artifacts.
 - Use [Import paths](/docs/reference/import-paths) for public imports.

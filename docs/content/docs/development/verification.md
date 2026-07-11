@@ -14,24 +14,17 @@ Use the narrowest tier that covers the risk introduced by the change.
 | --- | --- | --- |
 | Unit or package test | Package test suite | Pure runtime behavior, config normalization, and error branches. |
 | Provider Output Contract | Pull request check | Generated Provider Output shape without cloud execution. |
-| Local Provider Run | Pull request check | Built Provider Output can execute the Primitive Suite locally. |
-| Live Smoke | Scheduled provider deployment | Thin real-provider coverage for the same Primitive Suite. |
+| Local Provider Run | Pull request check | Built Provider Output can execute the application proof fixture locally. |
+| Live Smoke | Scheduled provider deployment | Thin real-provider coverage for the same application behaviour. |
 | Agent Eval | Local or CI behavior check | Agent Definition behavior and scored Agent Invocations. |
 
-## Run package checks
+## Run application checks
 
-Run checks from the owning package first.
-The package owns its primitive contracts and test fixtures.
-
-```bash [Terminal]
-pnpm --filter @vite-hub/workspace test
-pnpm --filter @vite-hub/workspace typecheck
-```
-
-When a change affects shared generated Provider Output, run the package build too.
+Run the application's tests before inspecting generated host output. A successful test suite proves application behaviour, while a production-shaped build proves that the selected integrations can generate their current artifacts.
 
 ```bash [Terminal]
-pnpm --filter @vite-hub/workspace build
+pnpm test
+pnpm build
 ```
 
 ## Verify Provider Output
@@ -39,15 +32,11 @@ pnpm --filter @vite-hub/workspace build
 Provider Output Contracts inspect generated files rather than cloud state.
 Use them when the change affects bindings, worker bundles, Vercel Build Output, generated functions, cron entries, or runtime imports.
 
-```bash [Terminal]
-pnpm --filter @vite-hub/database test
-pnpm --filter @vite-hub/workflow test
-```
+Inspect the selected host directory after the build. The [Provider output reference](/docs/reference/provider-output) lists the expected artifact families.
 
 ## Keep Live Smoke thin
 
-Live Smoke should execute the same Primitive Suite against a real provider deployment.
-Do not put deep assertions only in scheduled provider workflows; add them to the Primitive Suite so local and pull request tiers gain the same coverage.
+A deployment smoke should exercise the same application behaviour that local checks cover. Keep the deployed check narrow, but verify every provider binding or hosted service that local adapters cannot reproduce.
 
 ## Next steps
 

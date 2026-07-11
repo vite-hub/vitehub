@@ -78,6 +78,6 @@ Applications format that JSON when a product surface needs text, UI, notes, bill
 
 ## Related
 
-- [Agent Evals](/docs/development/agent-evals)
-- [DevTools](/docs/development/devtools)
+- [Agent Evals](/docs/agents/evals)
+- [Agent DevTools](/docs/agents/devtools)
 - [Errors and diagnostics](/docs/reference/errors-diagnostics)

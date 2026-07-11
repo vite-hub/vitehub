@@ -20,6 +20,7 @@ They may resolve to Runtime Registries, generated files, virtual modules, or pac
 | `@vite-hub/agent/harness/local-sandbox` | Agent Package | Trusted local harness sandbox helper for development and Agent Evals. |
 | `@vite-hub/agent/cloudflare` | Agent Package | Cloudflare Agent state helpers. |
 | `@vite-hub/auth` | Auth Package | Auth Definition helpers. |
+| `@vite-hub/auth/server` | Auth Package | Better Auth runtime creation, request handlers, and session access for manual host integration. |
 | `@vite-hub/blob` | Blob Package | Blob Runtime Helpers and Blob Store access. |
 | `@vite-hub/database/drizzle` | Database Package | Generated Drizzle `db` and `schema` access. |
 | `@vite-hub/env` | Env Package | Env Declaration helpers. |
@@ -62,10 +63,11 @@ They may resolve to Runtime Registries, generated files, virtual modules, or pac
 | Vite virtual module ids with `\0` prefixes | Internal | Never import directly. |
 | `@vite-hub/internal/*` | Internal | Package implementation only. |
 
-The 0.0.2 preview does not expose a stable `@vite-hub/agent/netlify` app import. Netlify Agent output is generated Provider Output under `.netlify/v1` plus the `.vitehub/agent/netlify-function.mjs` source wrapper.
+The Agent Package does not expose an `@vite-hub/agent/netlify` application import. Netlify Agent output is generated Provider Output under `.netlify/v1` plus the `.vitehub/agent/netlify-function.mjs` source wrapper.
 
 ## Related
 
 - [Generated files](/docs/development/generated-files)
 - [File conventions](/docs/reference/file-conventions)
 - [Package reference](/docs/reference)
+- [Runtime and host support](/docs/frameworks-hosts/support-matrix)

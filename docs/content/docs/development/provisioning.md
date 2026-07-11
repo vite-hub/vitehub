@@ -14,12 +14,11 @@ Run a dry run first.
 The CLI loads the Vite config, collects Provision Steps from active package integrations, and prints the actions for one provider.
 
 ```bash [Terminal]
-pnpm vitehub provision run --provider cloudflare --dry-run
-pnpm vitehub provision run --provider vercel --dry-run
+CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --provider cloudflare --dry-run
+VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider vercel --dry-run
 ```
 
-The output labels each action as `exists` or `create`.
-A dry run does not call `apply()` and does not write Provision State.
+Provider steps use read credentials during planning to distinguish existing resources from resources to create. A dry run does not call `apply()` or write Provision State, but a useful plan still needs the provider credentials required to inspect current state.
 
 ```txt [Output]
 create  d1-database  app-content
@@ -28,13 +27,14 @@ exists  r2-bucket    uploads
 
 ## Apply the plan
 
-Set provider credentials only when you want the CLI to apply actions.
-Cloudflare and Vercel use different credential sets.
+The apply command uses the same provider credentials as the plan. Cloudflare and Vercel use different credential sets.
 
 ```bash [Terminal]
 CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --provider cloudflare
-VERCEL_TOKEN=... VERCEL_TEAM_ID=... pnpm vitehub provision run --provider vercel
+VERCEL_TOKEN=... VERCEL_PROJECT_ID=... VERCEL_TEAM_ID=... pnpm vitehub provision run --provider vercel
 ```
+
+Vercel Blob provisioning requires `VERCEL_PROJECT_ID` so the provision step can attach `BLOB_READ_WRITE_TOKEN` to the target project. `VERCEL_TEAM_ID` or `VERCEL_ORG_ID` supplies an optional team scope.
 
 After a successful apply, the CLI writes non-secret ids to `.vitehub/provision.json`.
 Vite Integrations may read that file as a binding-id source during dev or build.

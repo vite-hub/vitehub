@@ -1,7 +1,7 @@
 ---
 title: Deno
 description: Generate Deno server output for Agent routes and Schedule wake output without making app code Deno-specific.
-navigation.order: 44
+navigation.order: 46
 icon: i-simple-icons-deno
 ---
 
@@ -17,10 +17,9 @@ ViteHub keeps Agent Definitions, Schedule Definitions, KV Stores, and Runtime He
 | Lightweight state | KV Package can use `driver: 'deno-kv'` and native `Deno.openKv()`. |
 | Deployment | Deno Deploy owns app entrypoint configuration, environment variables, permissions, logs, and production rollout. |
 
-## Configure Deno output
+## Deno output boundary
 
-Select Deno on the Agent integration when generated Agent routes should run through `Deno.serve`.
-Use package-owned options for the primitives that need Deno runtime behavior.
+The Agent integration selects Deno when generated Agent routes run through `Deno.serve`. Other primitives retain their package-owned runtime options.
 
 ```ts [vite.config.ts]
 import { hubAgent } from '@vite-hub/agent/vite'
@@ -49,9 +48,9 @@ export default defineConfig({
 The generated Agent server imports discovered Agent Definitions and mounts the default chat and webhook route patterns.
 If Schedule output exists, the generated server loads `.vitehub/schedule/deno-cron.mjs` before serving requests.
 
-## Inspect output
+## Generated output
 
-Run a production-shaped build, then inspect the generated Deno files.
+A production-shaped build writes the Deno files under `.vitehub`.
 
 ```bash [Terminal]
 pnpm build
@@ -59,20 +58,19 @@ test -f .vitehub/agent/deno-server.ts
 find .vitehub -maxdepth 4 -type f | sort
 ```
 
-Run the generated server locally with the Deno permission it needs for the port you choose.
+The generated server runs locally with Deno network permission for the selected port.
 
 ```bash [Terminal]
 deno run --allow-net=127.0.0.1:8787 .vitehub/agent/deno-server.ts --host 127.0.0.1 --port 8787
 ```
 
-If the route uses `driver: 'deno-kv'`, include Deno KV support in the local run.
+A route using `driver: 'deno-kv'` also requires Deno KV support.
 
 ```bash [Terminal]
 deno run --unstable-kv --allow-net=127.0.0.1:8787 .vitehub/agent/deno-server.ts --host 127.0.0.1 --port 8787
 ```
 
-For a single discovered `support` Agent with the default chat route enabled, send a chat request to the generated route.
-The target Agent must expose the `chat.message` trigger, usually by attaching `chat()` from `@vite-hub/agent/capabilities`; a custom `driver.run` Agent without that Capability can mount the route but will reject chat requests.
+For a single discovered `support` Agent with the default chat route enabled, the generated route accepts the following request. The target Agent must expose the `chat.message` trigger, usually by attaching `chat()` from `@vite-hub/agent/capabilities`; a custom `driver.run` Agent without that Capability can mount the route but rejects chat requests.
 
 ```bash [Terminal]
 curl -X POST http://127.0.0.1:8787/api/_vitehub/agents/support/chat \
@@ -90,6 +88,7 @@ If you use Deno KV, verify the deployed runtime can call `Deno.openKv()` and cho
 
 ## Next steps
 
+- Use [Runtime and host support](/docs/frameworks-hosts/support-matrix) for the qualified host boundary.
 - Use [Provider output](/docs/reference/provider-output) for generated artifact boundaries.
 - Use [Generated files](/docs/development/generated-files) to inspect `.vitehub/**`.
 - Use [Config options](/docs/reference/config-options) for Agent `runtime` and KV `driver` placement.
