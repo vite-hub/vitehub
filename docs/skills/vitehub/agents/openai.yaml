@@ -1,4 +1,4 @@
 interface:
   display_name: "ViteHub"
-  short_description: "Build ViteHub primitives and agents"
-  default_prompt: "Use $vitehub to build a ViteHub server primitive or Agent Definition with the right docs."
+  short_description: "Build ViteHub primitives and Agents"
+  default_prompt: "Use $vitehub to choose one ViteHub lane, follow the live docs and installed contract, and prove the result."

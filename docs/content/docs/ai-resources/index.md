@@ -1,55 +1,56 @@
 ---
-title: llms.txt
-description: Expose a compact ViteHub docs index for AI tools and coding agents.
-navigation.title: llms.txt
+title: AI-readable documentation
+description: Give coding agents the smallest reliable ViteHub context for the task.
+navigation.title: AI-readable docs
 navigation.order: 60
 icon: i-lucide-file-text
 ---
 
-`llms.txt` is the AI-facing index for ViteHub documentation.
-It gives AI tools and coding agents a compact way to discover canonical docs pages before reading full Markdown pages.
+ViteHub publishes a coding-agent skill, a compact documentation index, and raw Markdown pages.
+Use the smallest resource that gives your agent enough context to complete the task.
 
 ## Public resources
 
 | Resource | Use |
 | --- | --- |
-| `/llms.txt` | Start here when you need the public docs map. |
-| `/llms-full.txt` | Use when you need the complete public docs set in one file. |
-| `/raw/docs/**/*.md` | Read one page as copyable Markdown. |
-| `/docs/**` | Read the rendered page when visual structure or navigation matters. |
+| [ViteHub coding-agent skill](/docs/ai-resources/agent-instructions-skills) | Give Cursor, Claude Code, Codex, and other coding agents a repeatable ViteHub process. |
+| [`/llms.txt`](https://vitehub.dev/llms.txt) | Discover the current documentation map. |
+| [Raw Markdown pages](/docs/ai-resources/markdown-pages) | Load one canonical page without the rendered site shell. |
+| [`/llms-full.txt`](https://vitehub.dev/llms-full.txt) | Load the complete documentation set when a broad audit genuinely needs it. |
 
-## Configure the domain
+## Install the skill
 
-The docs app configures the public domain used in generated AI resource URLs.
-Keep the domain stable because agents may cache links from `llms.txt`.
+The public skill is the recommended entry point for a coding agent that edits a ViteHub application.
+Install it through the skills CLI:
 
-```ts [docs/nuxt.config.ts]
-export default defineNuxtConfig({
-  llms: {
-    domain: 'https://vitehub.dev',
-  },
-})
+```bash [Terminal]
+npx skills add https://vitehub.dev
 ```
 
-## What agents should do
+Ask the agent for the application outcome rather than a package recipe.
+The skill chooses the Server Primitives or Agents lane, checks the installed package contract, and proves the result.
 
-AI tools and coding agents should read `llms.txt` first when they need the public docs map.
-Then they should fetch the relevant raw Markdown page and keep the URL with any copied context.
+```txt [Prompt]
+Add durable rate limiting to this server route with ViteHub and prove it locally.
+```
+
+## Work without the skill
+
+An AI tool that cannot install skills can use the same public sources directly.
+Keep the context narrow so current task details remain prominent.
 
 ```txt [Agent flow]
-1. Read /llms.txt.
-2. Pick the smallest relevant raw Markdown URL.
-3. Read that page before adding local source context.
-4. Cite the raw URL or local file path when using the content.
+1. Read https://vitehub.dev/llms.txt.
+2. Choose the single smallest raw Markdown page for the task.
+3. Inspect the application's installed ViteHub exports and types.
+4. Keep the source URL with any copied context.
 ```
 
-## Copy and paste docs context
+::tip
+Use `llms-full.txt` for broad analysis, not routine implementation. One raw page usually gives a coding agent better signal.
+::
 
-Use raw Markdown when pasting docs into another AI tool.
-Copy the page content together with its source URL so the receiving tool can preserve provenance.
+## Choose the rendered site
 
-```txt [Prompt context]
-Source: https://vitehub.dev/raw/docs/agents/instructions.md
-
-<paste the relevant Markdown section>
-```
+Use rendered pages when navigation, diagrams, or visual examples matter.
+Use raw Markdown when an agent needs source context or when you copy documentation into another tool.

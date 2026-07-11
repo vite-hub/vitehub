@@ -1,69 +1,74 @@
 ---
 name: vitehub
-description: Build ViteHub server primitives and agents with the public docs. Use when working with ViteHub Runtime Helpers, server primitives, Vite integrations, Provider Output, Workspaces, Sources, Agent Definitions, Agent Drivers, Capabilities, or host deployment on Nuxt, Nitro/UnJS, Vercel, Cloudflare, or Node.
+description: Build and debug ViteHub apps from the live docs and installed contract. Use for server primitives and Runtime Helpers; Agent Definitions, Drivers, Capabilities, Workspaces, and Sources; or Vite Integrations, Provider Output, and host deployment.
 ---
 
 # ViteHub
 
-Use this skill to build with ViteHub server primitives and Agents from the public docs without loading the whole site upfront.
+Use one proof loop: orient, choose one lane, inspect the installed contract, act, recover, and prove.
 
-## Start
+## 1. Orient
 
-Read [references/docs.md](references/docs.md), then load only the smallest relevant docs page.
+- Inspect the package manifest, lockfile, Vite config, and server entry before proposing code.
+- Identify the installed ViteHub packages and versions, framework, host target, and requested outcome.
+- Open `https://vitehub.dev/llms.txt`, then read the single smallest raw Markdown page that covers the task. Add a second page only when the first one explicitly requires it.
 
-Use this order:
+Orientation is complete when you can state the current setup, target outcome, and chosen docs URL.
 
-1. Start from `https://vitehub.dev/llms.txt` for the docs map.
-2. Read the matching raw Markdown page from `https://vitehub.dev/raw/docs/...`.
-3. Check local project files after the docs page, not before.
-4. Cite the docs URL or local file path when copying guidance into code or explanations.
+## 2. Choose One Lane
 
-## Choose The Track
+- **Server primitives** serve direct application and server behavior through Vite Integrations, Definitions when discovery is needed, and Runtime Helpers.
+- **Agents** serve model-backed, harness-backed, or custom-run-backed behavior through Agent Definitions. Agents may compose server primitives; server primitives remain useful without an Agent.
 
-Use the ViteHub vocabulary:
+Choose one primary lane. Treat framework and host work as a boundary around that lane, not as a third product model.
 
-- **Server primitive** is a ViteHub-owned server capability for app/server code.
-- **Runtime Helper** is the stable server-code import for a primitive.
-- **Provider Output** is host-specific generated output.
-- **Agent Definition** declares one server-side Agent.
-- **Agent Driver** selects model-backed, harness-backed, or custom-run-backed execution.
-- **Capability** adds one named Agent ability.
-- **Workspace** owns persistent file-tree state.
-- **Source** provides read-only context.
-- **Instruction coverage** is explicit Agent Driver instruction guidance for configured Sources, Capabilities, and Skills.
+Lane selection is complete when every requested behavior belongs to the chosen lane and any host boundary is named.
 
-For ordinary server behavior, start with the server primitive:
+## 3. Inspect The Installed Contract
 
-1. Install only the packages the app uses.
-2. Register each package's Vite Integration.
-3. Define named work only when the primitive needs discovery.
-4. Call the primitive from app/server code through Runtime Helpers.
-5. Inspect generated Provider Output when host behavior matters.
+- Read each installed package's `package.json`, exports, and relevant types before writing imports or options.
+- For a fresh installation, follow the installation page, install the selected packages, then inspect the resulting contract.
+- When live docs, installed types, and exports disagree, implement the installed contract and report the mismatch with both versions or sources. Do not invent a missing API.
 
-For model, harness, or custom Agent behavior, add the Agent track after the primitive track is clear:
+Contract inspection is complete when every planned import, option, and runtime entry exists in the installed version.
 
-1. Add an Agent Definition.
-2. Select one Agent Driver.
-3. Add Workspace and Sources for context.
-4. Attach Capabilities only when the Agent should receive that specific ability.
-5. Put model-facing guidance for configured Sources, Capabilities, and Skills in Agent Driver Instructions or deterministic imported instruction Markdown.
-6. Keep host-specific behavior behind ViteHub package docs unless the host boundary is the task.
+## 4. Act
 
-## Guardrails
+### Server primitive lane
 
-- Do not expose a primitive to a model just because the app uses it.
-- Do not add an Agent Definition when direct server code and a Runtime Helper solve the task.
-- Do not add root `tools`, `skills`, or `sandbox` Agent Definition fields; use Capabilities and Agent Driver boundaries.
-- Do not treat Source, Capability, or Skill config as a hidden prompt bag; DevTools metadata warns when configured primitives lack explicit instruction coverage.
-- Do not remove tool descriptions or schemas when tightening instructions; they are structured tool contracts.
-- Do not copy docs into prompts when a raw docs URL is enough.
-- Prefer current docs over memory for package names, import paths, and option shapes.
-- Treat Nuxt, Nitro/UnJS, Vercel, Cloudflare, and Node as host/framework targets, not separate ViteHub product models.
+1. Install only the primitive packages the application uses.
+2. Register each package's Vite Integration in the existing Vite config.
+3. Add a named Definition only when the primitive relies on discovery.
+4. Call the primitive from application or server code through its Runtime Helper.
+5. Keep primitive authority in application code unless the task explicitly grants it to an Agent through a Capability.
 
-## Verify
+### Agent lane
 
-For code changes, run the smallest check that proves the touched behavior:
+1. Add one Agent Definition and select one model-backed, harness-backed, or custom Agent Driver.
+2. Satisfy the selected driver's credentials, executable, or callback prerequisites.
+3. Attach only the Workspace, Sources, and Capabilities required by the task.
+4. Put model-facing guidance for configured Sources, Capabilities, and Skills in Agent Driver Instructions or deterministic imported instruction Markdown.
+5. Invoke the Agent through the documented Runtime Helper and keep granted authority visible in the Definition and inspection output.
 
-- docs-only changes: `pnpm --dir docs build`
-- package changes: the package test or typecheck command nearest the edit
-- integration changes: inspect generated `.vitehub` output and run the relevant build/dev proof
+### Host boundary
+
+When the task includes deployment, read the target host page, build for that target, and inspect generated Provider Output. State unsupported or partially supported behavior as an explicit limitation.
+
+Acting is complete when the smallest coherent implementation exists in the chosen lane.
+
+## 5. Recover
+
+- For missing imports or type errors, return to installed exports and types.
+- For discovery or runtime failures, inspect generated `.vitehub` state and the diagnostics page selected from `llms.txt`.
+- For docs drift, keep the installed contract in code and report the exact disagreement.
+- For unavailable host behavior, preserve the supported ViteHub boundary and state what remains host-owned.
+
+Recovery is complete when the failure has a source-backed cause, a verified correction, or a precise unsupported boundary.
+
+## 6. Prove
+
+- **Server primitive:** its Vite Integration is registered, its Runtime Helper executes, and the observed output matches the expected output.
+- **Agent:** its Agent Invocation returns or streams the expected result, the Agent Driver prerequisites are satisfied, and granted authority is inspectable.
+- **Host boundary:** the build emits the documented Provider Output and every target limitation is explicit.
+
+Run the narrow package test or typecheck nearest the change, then the relevant application build or invocation proof. Report the commands and observed result, the raw docs URL, installed ViteHub versions, and any contract mismatch or host limitation.
