@@ -21,6 +21,7 @@ Create an empty project and install ViteHub Agents with Vite and H3.
 mkdir vitehub-agent-start
 cd vitehub-agent-start
 pnpm init
+pnpm pkg set type=module
 pnpm add @vite-hub/agent h3 vite
 ```
 

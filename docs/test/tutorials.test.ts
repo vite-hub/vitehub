@@ -85,4 +85,20 @@ describe("launch tutorials", () => {
 
     expect(source).toContain("node --env-file=.env dist/server.js")
   })
+
+  it("initializes every standalone tutorial as an ESM package", async () => {
+    const pages = [
+      "content/blog/1.server-primitives.md",
+      "content/blog/2.agents.md",
+      "content/docs/getting-started/first-server-primitive.md",
+      "content/docs/getting-started/first-agent.md",
+    ]
+
+    for (const page of pages) {
+      const source = await readFile(resolve(docsRoot, page), "utf8")
+      expect(source, `${page} should configure Node.js to load the built server as ESM`).toContain(
+        "pnpm pkg set type=module",
+      )
+    }
+  })
 })

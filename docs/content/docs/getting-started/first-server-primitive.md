@@ -22,6 +22,7 @@ Create an empty project and install KV with Vite and H3.
 mkdir vitehub-kv-start
 cd vitehub-kv-start
 pnpm init
+pnpm pkg set type=module
 pnpm add @vite-hub/kv h3 vite
 ```
 
