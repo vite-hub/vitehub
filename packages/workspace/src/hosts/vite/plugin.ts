@@ -1,5 +1,5 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { dirname, relative, resolve } from "node:path"
+import { dirname, extname, relative, resolve } from "node:path"
 
 import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "@vite-hub/internal/build/cloudflare"
 import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
@@ -47,8 +47,36 @@ function hasVercelBlobWorkspaceDefinition(definitions: DiscoveredWorkspaceDefini
   })
 }
 
-function hasCloudflareArtifactsWorkspaceDefinition(definition: DiscoveredWorkspaceDefinition): boolean {
-  return !!definition.source && /\bprovider\s*:\s*["']cloudflare-artifacts["']/.test(definition.source)
+const sourceModuleExtensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs", ".tsx", ".jsx"]
+
+async function readSourceModule(file: string): Promise<{ file: string, source: string } | undefined> {
+  const candidates = extname(file)
+    ? [file]
+    : [
+        ...sourceModuleExtensions.map(extension => `${file}${extension}`),
+        ...sourceModuleExtensions.map(extension => resolve(file, `index${extension}`)),
+      ]
+  for (const candidate of candidates) {
+    try {
+      return { file: candidate, source: await readFile(candidate, "utf8") }
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+  }
+}
+
+async function sourceModuleUsesCloudflareArtifacts(file: string, visited = new Set<string>()): Promise<boolean> {
+  const loaded = await readSourceModule(file)
+  if (!loaded || visited.has(loaded.file)) return false
+  visited.add(loaded.file)
+  if (/\bprovider\s*:\s*["']cloudflare-artifacts["']/.test(loaded.source)) return true
+
+  const staticModuleSpecifier = /\b(?:import|export)\s+(?:[^"']*?\s+from\s+)?["'](\.[^"']*)["']/g
+  for (const match of loaded.source.matchAll(staticModuleSpecifier)) {
+    if (await sourceModuleUsesCloudflareArtifacts(resolve(dirname(loaded.file), match[1]!), visited)) return true
+  }
+  return false
 }
 
 function vercelFunctionRuntimePackages(options: false | ResolvedWorkspaceModuleOptions, definitions: DiscoveredWorkspaceDefinition[] = []) {
@@ -142,7 +170,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   const loader = createWorkspaceDefinitionLoader(rootDir)
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
-    if (!shouldBundleWorkspaceAssets(options.assets, definition.name) && !hasCloudflareArtifactsWorkspaceDefinition(definition)) continue
+    if (!shouldBundleWorkspaceAssets(options.assets, definition.name) && !await sourceModuleUsesCloudflareArtifacts(definition.path)) continue
     const workspace = normalizeWorkspaceDefinition(
       definition.name,
       await loadDiscoveredWorkspaceDefinition(loader, definition),
