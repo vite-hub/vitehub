@@ -57,6 +57,7 @@ export default defineSchedule({
 | `createMemoryScheduleRunStore`, `createKVScheduleRunStore` from `@vite-hub/schedule` | Configure Schedule Run storage. |
 | `setRuntimeScheduleStore`, `setScheduleRunStore`, `setScheduleRuntimeRegistry` from `@vite-hub/schedule` | Wire custom runtime state. |
 | `installScheduleRuntime` from `@vite-hub/schedule/runtime/driver` | Connect stored Runtime Schedules to a host-owned wake driver. |
+| `createProcessScheduleWakeDriver` from `@vite-hub/schedule/runtime/process` | Scan and wake due Runtime Schedules inside a long-running process. |
 | `hubSchedule`, `createScheduleNitroConfig` from `@vite-hub/schedule/vite` | Register discovery and generated provider output. |
 
 Schedule Definition, Runtime Schedule, Schedule Run, Schedule Store, and runner types are exported from `@vite-hub/schedule`.
@@ -68,7 +69,14 @@ import { hubSchedule } from '@vite-hub/schedule/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubSchedule()],
+  plugins: [
+    hubSchedule({
+      runtime: {
+        driver: 'process',
+        prefix: 'my-app:schedule',
+      },
+    }),
+  ],
 })
 ```
 
@@ -76,8 +84,15 @@ export default defineConfig({
 | --- | --- | --- | --- |
 | `providerOutput` | `ScheduleVitePluginOptions['providerOutput']` | `auto` | Controls generated provider cron output. Values: `auto`, `standalone`, `nitro`, `false`. |
 | `projectRoot` | `string` | ViteHub project root | Resolves discovered schedule files and generated registry output from a custom project root. |
+| `runtime` | `ScheduleProcessRuntimeOptions` | No runtime driver | Explicitly installs the generated Nitro Process Runtime. Accepts `driver: 'process'`, plus optional `prefix`, `intervalMs`, and `concurrency`. |
 
 Use `createScheduleNitroConfig()` when a Nitro integration owns config merging and needs Schedule to return Nitro-ready provider output.
+
+The Process Runtime imports the discovered registry, creates the Runtime Schedule and Schedule Run stores through the default KV store configured by `hubKv()`, applies the same explicit prefix to both, installs the process wake driver, reports errors through Nitro, and closes it during Nitro shutdown. This setting is orthogonal to `providerOutput`; selecting one does not infer the other.
+
+::warning
+The Process Runtime requires exactly one long-lived process or replica. The KV run store records occurrences but does not provide distributed leader election or locking. Do not use this driver on request-scoped or serverless hosts that may stop between requests. It scans inside the Node.js process and does not create cron, systemd, or another operating-system schedule.
+::
 
 ## Provider output
 
@@ -204,6 +219,8 @@ const controller = await installScheduleRuntime({
 Runtime Schedule creates, updates, and deletes are serialized through the installed runtime. Each mutation persists to the canonical store before reconciliation. If reconciliation fails, ViteHub restores the previous stored record and rejects the mutation. Manual `schedules.run()` calls execute immediately and do not reconcile the driver.
 
 When the host fires a native wake, call `context.wake({ scheduleId, scheduledAt })` with the exact stored Runtime Schedule id and occurrence time. Call `controller.close()` during host shutdown to release process resources; closing does not delete definitions, schedules, or run history.
+
+Use `createProcessScheduleWakeDriver()` from `@vite-hub/schedule/runtime/process` when a custom long-running host wants the same in-process wake behavior without generated Nitro wiring.
 
 `startScheduleRunner()` remains the polling compatibility path for long-running hosts. Static provider output remains build-time configuration and does not use this runtime driver boundary.
 

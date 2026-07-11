@@ -29,6 +29,7 @@
     "./nuxt": "./dist/nuxt.js",
     "./runtime": "./dist/runtime.js",
     "./runtime/driver": "./dist/runtime/driver.js",
+    "./runtime/process": "./dist/runtime/process.js",
     "./runtime/state": "./dist/runtime/state.js",
     "./runtime/static": "./dist/runtime/static.js",
     "./vite": "./dist/vite.js",
