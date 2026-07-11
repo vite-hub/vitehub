@@ -397,6 +397,7 @@ describe("defineAgent workspace option", () => {
       entries: [
         { path: "artifacts/preview.png", type: "added" as const },
         { path: "artifacts/bare.png", type: "added" as const },
+        { path: "artifacts/app-route.png", type: "added" as const },
         { path: "artifacts/old.png", type: "removed" as const },
         { path: "other/outside.png", type: "modified" as const },
       ],
@@ -425,6 +426,7 @@ describe("defineAgent workspace option", () => {
     const markdown = [
       "![Preview](/workspace/codex-session/artifacts/preview.png)",
       "Bare path: artifacts/bare.png",
+      "[App route](/docs/artifacts/app-route.png)",
       "![Old](artifacts/old.png)",
       "![Outside](other/outside.png)",
     ].join("\n")

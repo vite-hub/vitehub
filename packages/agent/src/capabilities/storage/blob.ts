@@ -112,13 +112,13 @@ function normalizeAssetPaths(mode: AgentCapabilityMode, value: BlobCapabilityOpt
 function assetReferencePath(value: string, roots: readonly string[]): string | undefined {
   const reference = value.trim().replace(/\\/g, "/")
   if (reference.startsWith("//")) return
-  const candidates = reference.startsWith("/")
+  const candidates = reference.startsWith("/workspace/")
     ? roots.flatMap((root) => {
         const marker = `/${root}`
         const index = reference.lastIndexOf(marker)
         return index < 0 ? [] : [reference.slice(index + 1)]
       })
-    : [reference]
+    : reference.startsWith("/") ? [] : [reference]
   for (const candidate of candidates) {
     let path: string
     try {
