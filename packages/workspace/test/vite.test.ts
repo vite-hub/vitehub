@@ -1075,7 +1075,7 @@ describe("hubWorkspace", () => {
     ].join("\n"))
     const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
     const { hubWorkspace } = await import("../src/vite.ts")
-    const plugin = hubWorkspace({ assets: false })
+    const plugin = hubWorkspace()
     const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
     const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
 
@@ -1086,6 +1086,23 @@ describe("hubWorkspace", () => {
     expect(wrangler.artifacts).toEqual([
       { binding: "DEFINITION_FILES", namespace: "definition-workspaces" },
     ])
+  })
+
+  it("does not import Workspace Definitions when build-time assets are disabled", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `import store from "#generated-workspace-store"`,
+      `export default { store }`,
+      ``,
+    ].join("\n"))
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ assets: false, store: { provider: "memory" } })
+    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+
+    await configResolved({ command: "build", root })
+
+    await expect(closeBundle.handler()).resolves.toBeUndefined()
   })
 
   it("reuses an exact app-owned Cloudflare Artifacts binding without claiming it", async () => {

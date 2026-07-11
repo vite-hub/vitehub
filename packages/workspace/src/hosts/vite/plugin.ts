@@ -7,7 +7,7 @@ import { getViteMode } from "@vite-hub/internal/build/mode"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 
-import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition } from "../../build/assets.ts"
+import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, shouldBundleWorkspaceAssets } from "../../build/assets.ts"
 import { createWorkspaceRegistryContents, discoverViteWorkspaceDefinitions } from "../../build/discovery.ts"
 import { initializeWorkspaceAssetRegistry, refreshWorkspaceBuildState, syncWorkspaceBuildAssets } from "../../build/integration.ts"
 import { workspaceSuffixPattern } from "../../build/workspace-config.ts"
@@ -137,6 +137,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   const loader = createWorkspaceDefinitionLoader(rootDir)
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
+    if (!shouldBundleWorkspaceAssets(config.assets, definition.name)) continue
     const workspace = normalizeWorkspaceDefinition(
       definition.name,
       await loadDiscoveredWorkspaceDefinition(loader, definition),
