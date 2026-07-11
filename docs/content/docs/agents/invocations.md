@@ -70,6 +70,8 @@ Use `output: 'events'` when an internal caller wants ViteHub stream events. Use 
 
 Every Agent Invocation receives a trace context and a metadata-only in-memory Trace Event Log. Agent runtime callbacks can inspect `runtime.trace` and `runtime.traceLog`. A host can supply its own trace context or Trace Event Log when it needs request-trace continuity, a shared log, a different content policy, or an `onEntry` sink. ViteHub preserves the supplied objects; it does not persist the default log.
 
+That preservation applies to inline Agent Invocations. A workflow-backed invocation crosses a durable serialization boundary, so process-local Trace Event Logs and `onEntry` sinks are not carried into the Workflow Run. The workflow execution creates its own invocation trace instead.
+
 Agent Finish Hooks receive core completion facts without an observability Capability:
 
 ```ts [server/agents/support.ts]

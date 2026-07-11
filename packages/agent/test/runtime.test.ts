@@ -477,6 +477,42 @@ describe("agent message protocol", () => {
     }
   })
 
+  it("preserves driver usage for traces before rendering output", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    let traceLog: ReturnType<typeof createTraceEventLog> | undefined
+    const agent = defineAgent({
+      capabilities: [{
+        id: "plain-output",
+        output(context) {
+          context.output.render(() => "rendered")
+        },
+      }],
+      driver: { run(context) {
+          traceLog = context.traceLog
+          return {
+            text: "provider output",
+            usageRecord: {
+              usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
+            },
+          }
+        } },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-rendered-usage" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).resolves.toBe("rendered")
+
+    expect(traceLog!.entries().at(-1)?.attributes).toMatchObject({
+      "usage.record": {
+        run: { runId: "run-rendered-usage" },
+        usage: { totalTokens: 5 },
+      },
+    })
+  })
+
   it("preserves caller-supplied Trace Event logs, trace context, and entry sinks", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const onEntry = vi.fn()

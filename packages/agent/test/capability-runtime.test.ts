@@ -1783,6 +1783,34 @@ describe("agent capability runtime", () => {
     expect(order).toEqual(["close"])
   })
 
+  it("returns the source iterator when streamed output consumption stops early", async () => {
+    const { withCapabilityCleanup } = await import("../src/capability-runtime.ts")
+    const close = vi.fn(async () => {})
+    const iterator = {
+      next: vi.fn(async () => ({ done: false as const, value: "hello" })),
+      return: vi.fn(async () => ({ done: true as const, value: undefined })),
+    }
+    const stream = {
+      [Symbol.asyncIterator]: () => iterator,
+    }
+
+    for await (const _chunk of withCapabilityCleanup(stream, close)) break
+
+    expect(iterator.return).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledWith({ failed: false })
+  })
+
+  it("preserves read-only Response metadata while wrapping body cleanup", async () => {
+    const { withResponseCleanup } = await import("../src/capability-runtime.ts")
+    const source = await fetch("data:text/plain,ok")
+    const response = await withResponseCleanup(source, async () => {}) as Response
+
+    expect(response.url).toBe(source.url)
+    expect(response.redirected).toBe(source.redirected)
+    expect(response.type).toBe(source.type)
+    await expect(response.text()).resolves.toBe("ok")
+  })
+
   it("closes Response outputs when the body is canceled", async () => {
     const { withResponseCleanup } = await import("../src/capability-runtime.ts")
     const order: string[] = []

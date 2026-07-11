@@ -1297,12 +1297,16 @@ export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
 ): AsyncIterable<unknown> {
   return (async function* () {
     const iterator = stream[Symbol.asyncIterator]()
+    let completed = false
     let error: unknown
     let failed = false
     try {
       for (;;) {
         const result = await nextWithAbort(iterator.next(), options.abortSignal, "[vitehub] Agent Invocation stream aborted.")
-        if (result.done) break
+        if (result.done) {
+          completed = true
+          break
+        }
         yield result.value
       }
     }
@@ -1312,7 +1316,11 @@ export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
       throw caught
     }
     finally {
-      if (failed) void iterator.return?.().catch(() => {})
+      if (!completed) {
+        const returnTask = iterator.return?.()
+        if (failed) void returnTask?.catch(() => {})
+        else await returnTask
+      }
       await close(failed ? { error, failed: true } : { failed: false })
     }
   })()
@@ -1329,7 +1337,7 @@ export function withResponseCleanup(response: Response, close: (outcome: Capabil
     closed = true
     await close(outcome)
   }
-  return new Response(new ReadableStream({
+  const wrapped = new Response(new ReadableStream({
     async cancel(reason) {
       let cancelOutcome: CapabilityCleanupOutcome = reason === undefined ? { failed: false } : { error: reason, failed: true }
       try {
@@ -1359,4 +1367,10 @@ export function withResponseCleanup(response: Response, close: (outcome: Capabil
       }
     },
   }), response)
+  Object.defineProperties(wrapped, {
+    redirected: { configurable: true, enumerable: true, value: response.redirected },
+    type: { configurable: true, enumerable: true, value: response.type },
+    url: { configurable: true, enumerable: true, value: response.url },
+  })
+  return wrapped
 }

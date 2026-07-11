@@ -1787,7 +1787,15 @@ async function resolveFinishUsageRecord<
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
   result: unknown,
 ): Promise<Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined> {
-  return hasFinishWork(context) ? await resolveAgentUsageRecord(result, context.run) : undefined
+  if (hasFinishWork(context)) return await resolveAgentUsageRecord(result, context.run)
+  if (!context.runtimeContext.traceLog) return undefined
+  try {
+    return await resolveAgentUsageRecord(result, context.run)
+  }
+  catch {
+    // Core tracing is best-effort and must not change Agent output.
+    return undefined
+  }
 }
 
 type AgentInvocationFinishOutcome =
