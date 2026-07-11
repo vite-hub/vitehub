@@ -316,6 +316,7 @@ describe("agent channels", () => {
     expect(rewriteDeliveryArtifactMarkdown([
       "![Preview](./artifacts/preview.png)",
       "![Absolute](/workspace/codex-session/artifacts/preview.png)",
+      "![Nested absolute](/workspace/codex-session/tmp/artifacts/preview.png)",
       "[Report](artifacts/report.pdf)",
       "[App docs](/docs/artifacts/report.pdf)",
       "[Root artifact](/artifacts/report.pdf)",
@@ -330,6 +331,7 @@ describe("agent channels", () => {
     }])).toBe([
       "![Preview](<https://assets.example/preview.png>)",
       "![Absolute](<https://assets.example/preview.png>)",
+      "![Nested absolute](/workspace/codex-session/tmp/artifacts/preview.png)",
       "[Report](<https://assets.example/report.pdf>)",
       "[App docs](/docs/artifacts/report.pdf)",
       "[Root artifact](/artifacts/report.pdf)",

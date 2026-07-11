@@ -77,12 +77,19 @@ function replaceMarkdownArtifactDestinations(
     }
   }).filter((entry): entry is readonly [string, PublishedAgentDeliveryArtifact] => Boolean(entry)))
   if (!byPath.size) return body
-  const pathsBySpecificity = [...byPath.keys()].sort((left, right) => right.length - left.length)
-
   return body.replace(/(!?\[[^\]\r\n]*\]\(\s*)<?([^\s)<>]+)>?(\s*\))/g, (match, start: string, destination: string, end: string) => {
-    let path = destination.startsWith("/workspace/")
-      ? pathsBySpecificity.find(path => destination === `/${path}` || destination.endsWith(`/${path}`))
+    const workspaceRelative = destination.startsWith("/workspace/")
+      ? destination.slice("/workspace/".length)
       : undefined
+    const sessionSeparator = workspaceRelative?.indexOf("/") ?? -1
+    const sessionRelative = workspaceRelative && sessionSeparator >= 0
+      ? workspaceRelative.slice(sessionSeparator + 1)
+      : undefined
+    let path = workspaceRelative && byPath.has(workspaceRelative)
+      ? workspaceRelative
+      : sessionRelative && byPath.has(sessionRelative)
+        ? sessionRelative
+        : undefined
     if (!path) {
       try {
         path = normalizeDeliveryArtifactPath(destination)
