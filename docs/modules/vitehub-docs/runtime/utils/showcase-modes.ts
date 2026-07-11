@@ -6,4 +6,3 @@ const usageModeDefs = [
 export type UsageMode = (typeof usageModeDefs)[number]["id"];
 
 export const usageModes = usageModeDefs.map(entry => entry.id) as UsageMode[];
-export const defaultUsageMode: UsageMode = "dev";

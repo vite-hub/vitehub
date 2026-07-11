@@ -41,7 +41,7 @@ type DocsExampleProvider = {
   hiddenFiles?: string[];
 };
 
-export type DocsExample = {
+type DocsExample = {
   pkg: string;
   label: string;
   docsPath: string;

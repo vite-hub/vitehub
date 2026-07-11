@@ -391,9 +391,6 @@ importers:
       nuxt:
         specifier: catalog:nuxt
         version: 4.4.6(b4c61b027feba81b91144b342001e71c)
-      shiki:
-        specifier: catalog:ui
-        version: 4.0.2
     devDependencies:
       '@iconify-json/lucide':
         specifier: catalog:ui

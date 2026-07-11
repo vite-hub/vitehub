@@ -13,18 +13,8 @@ function getPhasePriority(modeConfig: ShowcaseModeConfigLike, path: string) {
   return index === -1 ? Number.POSITIVE_INFINITY : index;
 }
 
-export function getFrameworkConfigPath(framework: Framework) {
+export function getFrameworkConfigPath(_framework: Framework) {
   return "vite.config.ts";
-}
-
-export function generateFrameworkConfig(configOverride?: string | null, serverEntry?: string) {
-  const envImport = configOverride?.includes("env(") ? "import { env } from '@vite-hub/env/vite'\n" : "";
-  const imports = `${serverEntry ? "import { resolve } from 'node:path'\n" : ""}${envImport}import { vitehub } from '@vite-hub/vite'\nimport { defineConfig } from 'vite'`;
-  const serverConfig = serverEntry
-    ? `  appType: 'custom',\n  build: {\n    rollupOptions: {\n      input: resolve(import.meta.dirname, '${serverEntry}'),\n    },\n  },`
-    : "";
-  const lines = [serverConfig, "  plugins: [vitehub()],", configOverride?.trimEnd()].filter(Boolean).join("\n");
-  return `${imports}\n\nexport default defineConfig({\n${lines}\n})`;
 }
 
 export function sortShowcaseFiles<T extends { path: string }>(
