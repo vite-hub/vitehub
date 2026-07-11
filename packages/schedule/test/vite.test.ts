@@ -135,14 +135,16 @@ describe("Vite schedule integration", () => {
     expect(pluginSource).toContain("\"intervalMs\": 5000")
     expect(pluginSource).toContain("nitroApp.captureError")
     expect(pluginSource).toContain("nitroApp.hooks.hook('close'")
-    expect(pluginSource).toContain("nitroApp.hooks.hook('request', async () => {")
+    expect(pluginSource).toContain("nitroApp.h3App.stack.unshift({")
+    expect(pluginSource).toContain("route: '/'")
     expect(pluginSource).toContain("const result = await runtimeInstallation")
     expect(pluginSource).toContain("if ('error' in result) throw result.error")
     expect(pluginSource).toContain("if ('controller' in result) await result.controller.close()")
     expect(pluginSource).toContain("export default definePlugin((nitroApp) => {")
     expect(pluginSource).not.toContain("definePlugin(async")
-    expect(pluginSource).toContain("from '#vitehub/schedule/registry'")
+    expect(pluginSource).toContain("from \"./runtime-registry.js\"")
     expect(pluginSource).not.toContain("cloudflare:scheduled")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "runtime-registry.js"), "utf8")).resolves.toContain("server/schedules/report.ts")
     resolvePluginConfig(plugin, root)
     await expect(loadScheduleRegistry(plugin)).resolves.toContain("server/schedules/report.ts")
   })
@@ -173,10 +175,13 @@ describe("Vite schedule integration", () => {
     expect(pluginSource).toContain("cloudflare:scheduled")
     expect(pluginSource).toContain("installScheduleRuntime")
     const providerRegistry = await readFile(join(root, ".vitehub", "schedule", "registry.js"), "utf8")
+    const processRegistry = await readFile(join(root, ".vitehub", "nitro", "schedule", "runtime-registry.js"), "utf8")
     resolvePluginConfig(plugin, root)
     const runtimeRegistry = await loadScheduleRegistry(plugin)
     expect(providerRegistry).toContain("server/schedules/report.ts")
     expect(providerRegistry).not.toContain("src/cleanup.schedule.ts")
+    expect(processRegistry).toContain("server/schedules/report.ts")
+    expect(processRegistry).toContain("src/cleanup.schedule.ts")
     expect(runtimeRegistry).toContain("server/schedules/report.ts")
     expect(runtimeRegistry).toContain("src/cleanup.schedule.ts")
   })
@@ -204,6 +209,7 @@ describe("Vite schedule integration", () => {
 
     for (const runtime of [
       { driver: "process", intervalMs: 0 },
+      { driver: "process", intervalMs: 60_001 },
       { concurrency: 0, driver: "process" },
       { driver: "process", prefix: 1 },
     ]) {

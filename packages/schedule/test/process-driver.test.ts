@@ -175,6 +175,34 @@ describe("Process Schedule Wake Driver", () => {
     await driver.close?.()
   })
 
+  it("preserves a current-minute dispatch when pruning an older queued occurrence", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-11T09:01:20.000Z"))
+    let releaseFirst!: () => void
+    const wake = vi.fn<RuntimeScheduleWakeDriverContext["wake"]>(async () => {
+      if (wake.mock.calls.length === 1) {
+        await new Promise<void>(resolve => { releaseFirst = resolve })
+      }
+    })
+    const driver = await createDriver({
+      reportError: vi.fn(),
+      wake,
+    }, { concurrency: 1, intervalMs: 1_000 })
+
+    await driver.reconcile([record("blocker"), record("daily")])
+    await vi.advanceTimersByTimeAsync(60_000)
+    await driver.reconcile([record("blocker"), record("daily", { cron: "*/2 * * * *" })])
+    releaseFirst()
+    await flushAsyncWork()
+    await flushAsyncWork()
+
+    const currentDailyWakes = wake.mock.calls.filter(([input]) => (
+      input.scheduleId === "daily" && input.scheduledAt.getTime() === new Date("2026-07-11T09:02:00.000Z").getTime()
+    ))
+    expect(currentDailyWakes).toHaveLength(1)
+    await driver.close?.()
+  })
+
   it("reports wake errors and continues scanning later minutes", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T09:00:20.000Z"))
@@ -202,6 +230,7 @@ describe("Process Schedule Wake Driver", () => {
     }
 
     expect(() => createProcessScheduleWakeDriver({ intervalMs: 0 })(context)).toThrow("intervalMs must be a positive number")
+    expect(() => createProcessScheduleWakeDriver({ intervalMs: 60_001 })(context)).toThrow("no greater than 60000")
     expect(() => createProcessScheduleWakeDriver({ concurrency: 0 })(context)).toThrow("concurrency must be a positive integer")
 
     const driver = await createDriver(context)
@@ -225,5 +254,25 @@ describe("Process Schedule Wake Driver", () => {
 
     expect(wake).toHaveBeenCalledTimes(1)
     await expect(driver.reconcile([record("later")])).rejects.toThrow("is closed")
+  })
+
+  it("waits for active wakes to settle before closing", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-11T09:00:20.000Z"))
+    let releaseWake!: () => void
+    const wake = vi.fn<RuntimeScheduleWakeDriverContext["wake"]>(async () => {
+      await new Promise<void>(resolve => { releaseWake = resolve })
+    })
+    const driver = await createDriver({ reportError: vi.fn(), wake }, { intervalMs: 1_000 })
+    await driver.reconcile([record("daily")])
+
+    let closed = false
+    const closePromise = Promise.resolve(driver.close?.()).then(() => { closed = true })
+    await flushAsyncWork()
+    expect(closed).toBe(false)
+
+    releaseWake()
+    await closePromise
+    expect(closed).toBe(true)
   })
 })

@@ -15,8 +15,8 @@ const DEFAULT_CONCURRENCY = 1
 function validateOptions(options: ProcessScheduleWakeDriverOptions): { concurrency: number, intervalMs: number } {
   const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY
-  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
-    throw new TypeError("Process Schedule Wake Driver intervalMs must be a positive number.")
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0 || intervalMs > DEFAULT_INTERVAL_MS) {
+    throw new TypeError("Process Schedule Wake Driver intervalMs must be a positive number no greater than 60000.")
   }
   if (!Number.isInteger(concurrency) || concurrency < 1) {
     throw new TypeError("Process Schedule Wake Driver concurrency must be a positive integer.")
@@ -31,10 +31,15 @@ export function createProcessScheduleWakeDriver(options: ProcessScheduleWakeDriv
     let schedules: RuntimeScheduleRecord[] = []
     let timer: ReturnType<typeof setInterval> | undefined
     let closed = false
-    let active = 0
     let occurrenceMinute: number | undefined
     const dispatched = new Set<string>()
     const queue: Array<{ scheduleId: string, scheduledAt: Date }> = []
+    const activeOccurrences = new Set<string>()
+    const activeWakes = new Set<Promise<void>>()
+
+    function occurrenceKey(input: { scheduleId: string, scheduledAt: Date }): string {
+      return `${input.scheduleId}:${input.scheduledAt.getTime()}`
+    }
 
     function reportError(error: unknown): void {
       try {
@@ -44,16 +49,20 @@ export function createProcessScheduleWakeDriver(options: ProcessScheduleWakeDriv
     }
 
     function pump(): void {
-      while (!closed && active < concurrency) {
+      while (!closed && activeWakes.size < concurrency) {
         const input = queue.shift()
         if (!input) return
-        active += 1
-        void context.wake(input)
+        const key = occurrenceKey(input)
+        activeOccurrences.add(key)
+        let wakePromise: Promise<void>
+        wakePromise = context.wake(input)
           .catch(reportError)
           .finally(() => {
-            active -= 1
+            activeOccurrences.delete(key)
+            activeWakes.delete(wakePromise)
             pump()
           })
+        activeWakes.add(wakePromise)
       }
     }
 
@@ -84,13 +93,14 @@ export function createProcessScheduleWakeDriver(options: ProcessScheduleWakeDriv
     }
 
     return {
-      close() {
+      async close() {
         closed = true
         queue.length = 0
         if (timer) {
           clearInterval(timer)
           timer = undefined
         }
+        await Promise.allSettled(activeWakes)
       },
       async reconcile(records) {
         if (closed) {
@@ -107,7 +117,13 @@ export function createProcessScheduleWakeDriver(options: ProcessScheduleWakeDriv
           const schedule = schedulesById.get(input.scheduleId)
           if (schedule?.enabled && isRuntimeScheduleDue(schedule, input.scheduledAt)) continue
           queue.splice(index, 1)
-          dispatched.delete(input.scheduleId)
+          if (
+            input.scheduledAt.getTime() === occurrenceMinute
+            && !queue.some(queued => queued.scheduleId === input.scheduleId && queued.scheduledAt.getTime() === occurrenceMinute)
+            && !activeOccurrences.has(occurrenceKey(input))
+          ) {
+            dispatched.delete(input.scheduleId)
+          }
         }
         schedules = nextSchedules
         timer ??= setInterval(scan, intervalMs)

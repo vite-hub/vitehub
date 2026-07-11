@@ -62,7 +62,7 @@ export default defineConfig({
 })
 ```
 
-The explicit `process` runtime generates Nitro wiring for a long-running process. It installs the discovered registry, creates both stores through the default KV store configured by `hubKv()`, applies the Schedule prefix, scans due schedules, and closes the driver with Nitro. `providerOutput` remains independent, so static provider wake output can be enabled or disabled separately.
+The explicit `process` runtime generates Nitro wiring for a long-running process. It installs the discovered registry, creates both stores through the default KV store configured by `hubKv()`, applies the Schedule prefix, scans due schedules, and closes the driver with Nitro. `intervalMs` must be no greater than the one-minute cron resolution. `providerOutput` remains independent, so static provider wake output can be enabled or disabled separately.
 
 Run exactly one long-lived process or replica with this driver. The KV run store records occurrences but does not provide distributed leader election or locking. Do not select the process driver for request-scoped or serverless hosts that may stop between requests. Those hosts need a provider or host wake integration through `@vite-hub/schedule/runtime/driver`.
 

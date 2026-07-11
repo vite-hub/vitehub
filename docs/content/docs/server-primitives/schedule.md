@@ -88,7 +88,7 @@ export default defineConfig({
 
 Use `createScheduleNitroConfig()` when a Nitro integration owns config merging and needs Schedule to return Nitro-ready provider output.
 
-The Process Runtime imports the discovered registry, creates the Runtime Schedule and Schedule Run stores through the default KV store configured by `hubKv()`, applies the same explicit prefix to both, installs the process wake driver, reports errors through Nitro, and closes it during Nitro shutdown. This setting is orthogonal to `providerOutput`; selecting one does not infer the other.
+The Process Runtime imports the discovered registry, creates the Runtime Schedule and Schedule Run stores through the default KV store configured by `hubKv()`, applies the same explicit prefix to both, installs the process wake driver, reports errors through Nitro, and closes it during Nitro shutdown. `intervalMs` must be no greater than the one-minute cron resolution. This setting is orthogonal to `providerOutput`; selecting one does not infer the other.
 
 ::warning
 The Process Runtime requires exactly one long-lived process or replica. The KV run store records occurrences but does not provide distributed leader election or locking. Do not use this driver on request-scoped or serverless hosts that may stop between requests. It scans inside the Node.js process and does not create cron, systemd, or another operating-system schedule.
