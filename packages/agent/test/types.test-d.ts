@@ -277,6 +277,7 @@ describe("agent public types", () => {
           },
         }),
         chatTitle({
+          channelDelivery: "once-per-thread",
           model: () => ({}),
           template({ fallback, maxLength, text, trigger }) {
             expectTypeOf(fallback).toEqualTypeOf<string>()
