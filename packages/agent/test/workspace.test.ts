@@ -390,7 +390,7 @@ describe("defineAgent workspace option", () => {
   })
 
   it("publishes current-run Harness artifacts referenced in the final Markdown", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
     const { blob } = await import("../src/capabilities.ts")
     const preview = new Uint8Array([7, 8, 9])
     const writeBackDiff = {
@@ -421,7 +421,8 @@ describe("defineAgent workspace option", () => {
         await options.onWriteBack?.(writeBackDiff)
       },
     }))
-    harnessGenerate.mockResolvedValueOnce({
+    const providerData = { sessionId: "provider-session" }
+    const harnessResult = {
       finishReason: "stop",
       text: [
         "![Preview](/workspace/codex-session/artifacts/preview.png)",
@@ -429,10 +430,25 @@ describe("defineAgent workspace option", () => {
         "![Old](artifacts/old.png)",
         "![Outside](other/outside.png)",
       ].join("\n"),
+    }
+    Object.defineProperty(harnessResult, "providerData", {
+      configurable: true,
+      enumerable: false,
+      value: providerData,
     })
+    harnessGenerate.mockResolvedValueOnce(harnessResult)
+    const laterRenderer = vi.fn((result: unknown) => result)
 
     const agent = withAgentDefaults(defineAgent({
-      capabilities: [blob({ assetPaths: ["artifacts"], mode: "write", policy: "deny" })],
+      capabilities: [
+        blob({ assetPaths: ["artifacts"], mode: "write", policy: "deny" }),
+        defineCapability({
+          id: "provider-result",
+          output(context) {
+            context.output.final(laterRenderer)
+          },
+        }),
+      ],
       driver: {
         harness: { provider: "codex" },
       },
@@ -446,7 +462,8 @@ describe("defineAgent workspace option", () => {
       request: new Request("https://review.example/api/github"),
       run: { runId: "review-run" },
     }
-    await expect(runAgent(agent, runtime as never, { prompt: "hello" })).resolves.toMatchObject({
+    const result = await runAgent(agent, runtime as never, { prompt: "hello" })
+    expect(result).toMatchObject({
       artifacts: [{
         alt: "Preview",
         mediaType: "image/png",
@@ -454,6 +471,15 @@ describe("defineAgent workspace option", () => {
         placement: "inline",
         url: "https://review.example/api/_vitehub/blob/vitehub-agent-artifacts/review-run/artifacts/preview.png",
       }],
+    })
+    expect(laterRenderer).toHaveBeenCalledOnce()
+    const rendered = laterRenderer.mock.calls[0]![0] as Record<string, unknown>
+    expect(Object.getPrototypeOf(rendered)).toBe(Object.getPrototypeOf(harnessResult))
+    expect(Object.getOwnPropertyDescriptor(rendered, "providerData")).toEqual({
+      configurable: true,
+      enumerable: false,
+      value: providerData,
+      writable: false,
     })
     expect(store.put).toHaveBeenCalledOnce()
     expect(store.put).toHaveBeenCalledWith(

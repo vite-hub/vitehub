@@ -6,6 +6,7 @@ import {
   readActiveHarnessWorkspaceFile,
   readHarnessWorkspaceDiff,
 } from "../../harness-runtime.ts"
+import { cloneWithPropertyDescriptors } from "../../internal/stream-result.ts"
 import {
   assertString,
   createTool,
@@ -185,9 +186,20 @@ async function publishReferencedHarnessArtifacts(
       ), context.request),
     }),
   })
+  const nextArtifacts = [...(runResult.artifacts || []), ...published]
+  if (typeof result === "object" && result !== null) {
+    return cloneWithPropertyDescriptors(result, {
+      artifacts: {
+        configurable: true,
+        enumerable: true,
+        value: nextArtifacts,
+        writable: true,
+      },
+    })
+  }
   return {
     ...runResult,
-    artifacts: [...(runResult.artifacts || []), ...published],
+    artifacts: nextArtifacts,
   }
 }
 
