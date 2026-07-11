@@ -31,7 +31,6 @@ interface ArtifactsCreateRepoResult {
   name: string
   remote: string
   token: string
-  tokenExpiresAt: string
 }
 
 interface ArtifactsRepo {
@@ -56,6 +55,11 @@ type FileMetadata = Pick<WorkspaceFile, "mediaType" | "metadata">
 
 function tokenSecret(token: string) {
   return token.split("?expires=")[0] || token
+}
+
+function tokenExpiresAt(token: string) {
+  const expires = token.match(/[?&]expires=(\d+)(?:&|$)/)?.[1]
+  return expires ? Number(expires) * 1000 : 0
 }
 
 function repoName(options: CloudflareArtifactsWorkspaceStoreOptions, workspaceName: string) {
@@ -329,9 +333,9 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     await this.#fs!.promises.writeFile(path, JSON.stringify(files))
   }
 
-  #rememberToken(value: string, expiresAt: string) {
+  #rememberToken(value: string, expiresAt?: string) {
     this.#token = {
-      expiresAt: Date.parse(expiresAt) || 0,
+      expiresAt: (expiresAt ? Date.parse(expiresAt) : 0) || tokenExpiresAt(value),
       value: tokenSecret(value),
     }
   }
@@ -393,7 +397,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     }
 
     this.#repo = repo
-    if (created) this.#rememberToken(created.token, created.tokenExpiresAt)
+    if (created) this.#rememberToken(created.token)
     this.#fs = new MemoryFS()
     await this.#fs.promises.mkdir(dir, { recursive: true })
     if (created || (repo.lastPushAt === null && repo.source === null)) {

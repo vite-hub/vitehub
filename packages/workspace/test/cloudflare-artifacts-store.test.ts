@@ -49,13 +49,12 @@ function artifactsRepo(options: { lastPushAt?: string | null, source?: string | 
   }
 }
 
-function createdRepo(token = "art_v1_created?expires=999", tokenExpiresAt = expiresIn(3_600_000)) {
+function createdRepo(token = `art_v1_created?expires=${Math.floor((Date.now() + 3_600_000) / 1000)}`) {
   return {
     defaultBranch: "main",
     name: "vitehub-workspace-docs",
     remote,
     token,
-    tokenExpiresAt,
   }
 }
 
@@ -114,6 +113,9 @@ describe("Cloudflare Artifacts workspace store", () => {
       ref: "main",
       url: repo.remote,
     }))
+    expect(repo.createToken).not.toHaveBeenCalled()
+    const pushOptions = gitMock.push.mock.calls[0]?.[0] as { onAuth(): { password: string } }
+    expect(pushOptions.onAuth().password).toBe("art_v1_created")
     expect((await store.diff({ from: snapshot })).entries).toEqual([
       expect.objectContaining({ path: "README.md", type: "modified" }),
     ])
@@ -356,7 +358,7 @@ describe("Cloudflare Artifacts workspace store", () => {
   it("renews a short-lived creation token through the repository handle before Git auth", async () => {
     const repo = artifactsRepo({ token: "art_v1_renewed?expires=999" })
     const binding = {
-      create: vi.fn(async () => createdRepo("art_v1_expiring?expires=999", expiresIn(30_000))),
+      create: vi.fn(async () => createdRepo(`art_v1_expiring?expires=${Math.floor((Date.now() + 30_000) / 1000)}`)),
       get: vi.fn()
         .mockRejectedValueOnce(artifactsError(10200, "missing"))
         .mockResolvedValueOnce(repo),
