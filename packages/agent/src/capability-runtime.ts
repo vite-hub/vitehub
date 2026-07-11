@@ -60,6 +60,7 @@ import type { Message } from "./messages.ts"
 import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName, WorkspaceSelectedScope, WorkspaceSource, WorkspaceSourceInput } from "@vite-hub/workspace"
 
 type ResolvedAgentOutputRenderer = ((result: unknown, extensions?: AgentOutputExtensions) => MaybePromise<unknown>) & {
+  order?: "last"
   providerCount: number
 }
 export const workspaceMaterializationPathsSymbol: unique symbol = Symbol("vitehub.agent.workspaceMaterializationPaths")
@@ -960,7 +961,7 @@ export async function resolveAgentCapabilities<
         },
         output: {
           extensions: createAgentExtensionReader(new Map()),
-          final(renderer: AgentOutputRenderer) {
+          final(renderer: AgentOutputRenderer, options?: { order?: "last" }) {
             const resolved = ((result: unknown, extensions = createAgentExtensionReader(new Map())) => renderer(result, {
               ...capabilityContext,
               output: {
@@ -968,6 +969,7 @@ export async function resolveAgentCapabilities<
                 extensions,
               },
             })) as ResolvedAgentOutputRenderer
+            resolved.order = options?.order
             resolved.providerCount = registries.outputExtensionProviders.length
             registries.finalOutputRenderers.push(resolved)
           },
@@ -1228,7 +1230,11 @@ export async function applyOutputRenderers(
   let current = result
   let providerIndex = 0
   const extensions = createAgentExtensionReader<AgentOutputExtensionValues>(values)
-  for (const renderer of renderers) {
+  const orderedRenderers = [
+    ...renderers.filter(renderer => renderer.order !== "last"),
+    ...renderers.filter(renderer => renderer.order === "last"),
+  ]
+  for (const renderer of orderedRenderers) {
     while (providerIndex < renderer.providerCount) {
       const provider = providers[providerIndex++]
       if (values.has(provider.id)) continue

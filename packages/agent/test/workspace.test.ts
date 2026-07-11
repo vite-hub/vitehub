@@ -422,22 +422,34 @@ describe("defineAgent workspace option", () => {
       },
     }))
     const providerData = { sessionId: "provider-session" }
+    const markdown = [
+      "![Preview](/workspace/codex-session/artifacts/preview.png)",
+      "Bare path: artifacts/bare.png",
+      "![Old](artifacts/old.png)",
+      "![Outside](other/outside.png)",
+    ].join("\n")
     const harnessResult = {
       finishReason: "stop",
-      text: [
-        "![Preview](/workspace/codex-session/artifacts/preview.png)",
-        "Bare path: artifacts/bare.png",
-        "![Old](artifacts/old.png)",
-        "![Outside](other/outside.png)",
-      ].join("\n"),
+      structured: { markdown },
     }
     Object.defineProperty(harnessResult, "providerData", {
       configurable: true,
       enumerable: false,
       value: providerData,
     })
-    harnessGenerate.mockResolvedValueOnce(harnessResult)
-    const laterRenderer = vi.fn((result: unknown) => result)
+    harnessGenerate.mockResolvedValueOnce(harnessResult as never)
+    const laterRenderer = vi.fn((result: unknown) => Object.create(
+      Object.getPrototypeOf(result),
+      {
+        ...Object.getOwnPropertyDescriptors(result),
+        text: {
+          configurable: true,
+          enumerable: true,
+          value: (result as { structured: { markdown: string } }).structured.markdown,
+          writable: true,
+        },
+      },
+    ))
 
     const agent = withAgentDefaults(defineAgent({
       capabilities: [

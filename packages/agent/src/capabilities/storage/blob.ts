@@ -37,7 +37,10 @@ export function blob(options: BlobCapabilityOptions = {}): AgentCapabilityDefini
     mode,
     output(context) {
       if (context.driver?.kind !== "harness" || !assetPaths.length) return
-      context.output.final(async result => await publishReferencedHarnessArtifacts(result, context, assetPaths, options))
+      context.output.final(
+        async result => await publishReferencedHarnessArtifacts(result, context, assetPaths, options),
+        { order: "last" },
+      )
     },
     requires: [{ primitive: "blob" }],
     tools: blobTools(mode, options),
