@@ -5,7 +5,7 @@ navigation: false
 icon: i-lucide-book-open
 ---
 
-ViteHub is one platform with two product lanes. **ViteHub Agents** defines, invokes, and deploys server-side Agents. **ViteHub Server Primitives** provide ordinary Vite applications with portable state and work across hosts.
+ViteHub is one platform with two product lanes. **ViteHub Agents** define, invoke, and deploy server-side Agents. **ViteHub Server Primitives** give Vite applications stable server APIs with package-specific runtime and host integrations.
 
 Agents may compose Server Primitives through explicit Capabilities and Workspaces. Server Primitives work without an Agent Definition.
 
@@ -53,6 +53,7 @@ Agents may compose Server Primitives through explicit Capabilities and Workspace
 | Application user identity, storage, background work, schedules, sandboxes, or environment handling | [Server primitives](/docs/server-primitives) |
 | Model-backed server actors, Agent Invocations, triggers, Chat History, evals, or DevTools inspection | [Agents](/docs/agents) |
 | Model-facing storage, Workspace, MCP, web search, transcription, rate limits, or product abilities | [Capabilities](/docs/capabilities) |
+| Current host support, generated output, provisioning, or live-proof maturity | [Runtime and host support](/docs/frameworks-hosts/support-matrix) |
 
 ## The repeated shape
 
@@ -62,14 +63,14 @@ Most ViteHub features follow the same shape:
 2. Install the package that owns the primitive or Agent surface.
 3. Register the package's Vite Integration in `vite.config.ts`.
 4. Define named work when the primitive needs a Definition.
-5. Let the integration generate Provider Output when the host needs it.
+5. Let the integration generate Provider Output when the package supports the selected host.
 6. Call a stable Runtime Helper from server code.
 7. Attach a Capability only when an Agent should receive a model-facing ability.
 
 Agents use the same primitives through stricter boundaries. An Agent does not receive every server primitive by default, and a Capability does not mutate primitive configuration dynamically.
 
-## Current docs shape
+## Choose a runtime boundary
 
-The documentation is organized by public model, not package directories. Package ownership still matters in code, but the sidebar should teach the concepts an agent or developer needs before exposing package internals.
+Stable imports do not mean that every primitive runs on every host. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) for app-facing helpers, local providers, generated Provider Output, Provision coverage, and current proof maturity.
 
-The next useful read is [Concepts](/docs/concepts) if you want the vocabulary, or [Installation](/docs/getting-started/installation) if you want a runnable path.
+Read [Concepts](/docs/concepts) for the shared vocabulary, or open [Installation](/docs/getting-started/installation) for a runnable path.

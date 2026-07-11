@@ -37,7 +37,6 @@ Available namespaces:
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
 | `vitehub workspace dev` | Available | Workspace Package | Run commands through a Workspace Session exposed by a Compatible Vite Development Server. |
 | `vitehub provision run` | Available | ViteHub CLI plus package Provision Steps | Create missing provider resources idempotently. |
-| Package-specific namespaces | Planned per package | Owning package | Add workflows only when the package has a durable development task. |
 
 ## Run Agent Evals
 
@@ -46,7 +45,7 @@ The optional path narrows the Agent Eval Target.
 
 ```bash [Terminal]
 pnpm vitehub agent eval
-pnpm vitehub agent eval server/agents/support.eval.ts --threshold 0.9
+pnpm vitehub agent eval server/agents/support.eval.ts --threshold 90
 pnpm vitehub agent eval --output .vitehub/evals/support.json --hide-table
 ```
 
@@ -157,8 +156,8 @@ Use `--dry-run` before writing Provider resources.
 Provision never deletes or mutates existing resources, and non-secret ids are written only when a real run applies actions.
 
 ```bash [Terminal]
-pnpm vitehub provision run --provider cloudflare --dry-run
-pnpm vitehub provision run --provider vercel --dry-run
+CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --provider cloudflare --dry-run
+VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider vercel --dry-run
 ```
 
 ## Troubleshooting
@@ -168,6 +167,8 @@ pnpm vitehub provision run --provider vercel --dry-run
 | `Unknown ViteHub CLI namespace` | The package Vite Integration is not installed or is disabled. | Add the package's `hubX()` plugin to `vite.config.ts`. |
 | `Provision requires --provider cloudflare\|vercel` | The provider flag is missing or misspelled. | Pass a supported provider explicitly. |
 | Provision fails before applying actions | Required provider credentials are missing. | Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, or set `VERCEL_TOKEN`. |
+| Provision dry-run reports no actions | A package plan skipped provider lookup because its read credentials are missing. | Supply the provider credentials to inspect existing resources; `--dry-run` still prevents `apply()`. |
+| Vercel Provision reports no resources for Blob | `VERCEL_PROJECT_ID` is missing, or the active Blob store is not `vercel-blob`. | Set the project id and select the Vercel Blob driver before rerunning the plan. |
 | Agent eval CLI is disabled | `agent.eval` or `agent.cli` disables the Agent Eval Runner. | Re-enable the Agent integration option for local development. |
 | Agent eval times out | The eval case, model call, or harness run exceeds `agent.eval.testTimeout`. | Increase `agent.eval.testTimeout` in `vite.config.ts` or narrow the eval case. |
 | Vite config fails while loading a ViteHub plugin import | A fresh npm project is loading `vite.config.ts` as CommonJS, but ViteHub packages are ESM-only. | Set `"type": "module"` in `package.json` or rename the config to `vite.config.mts`. |
@@ -179,7 +180,7 @@ pnpm vitehub provision run --provider vercel --dry-run
 
 ## Next steps
 
-- Use [Agent Evals](/docs/development/agent-evals) for behavior checks.
+- Use [Agent Evals](/docs/agents/evals) for behaviour checks.
 - Use [Workspace](/docs/server-primitives/workspace) for Workspace Sessions and write access.
 - Use [Provisioning](/docs/development/provisioning) for provider resource ids.
 - Use [Config options](/docs/reference/config-options) for package integration switches.

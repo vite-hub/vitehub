@@ -24,8 +24,7 @@ It belongs to the package that owns the primitive and should not become applicat
 
 ## Generation timing
 
-Provider Output is written during production-shaped builds.
-Vite dev usually proves discovery and local generated files; builds prove deployable host artifacts.
+Provider Output is normally written during production-shaped builds. Vite dev proves discovery and local generated files; Netlify local development also materialises package functions for Netlify CLI.
 
 ```bash [Terminal]
 pnpm build
@@ -61,5 +60,7 @@ Netlify Agent output is Provider Output, not an app import: there is no stable `
 
 - [Cloudflare](/docs/frameworks-hosts/cloudflare)
 - [Vercel](/docs/frameworks-hosts/vercel)
+- [Netlify](/docs/frameworks-hosts/netlify)
 - [Deno](/docs/frameworks-hosts/deno)
+- [Runtime and host support](/docs/frameworks-hosts/support-matrix)
 - [Verification](/docs/development/verification)

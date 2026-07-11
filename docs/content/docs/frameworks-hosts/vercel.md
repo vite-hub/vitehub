@@ -1,7 +1,7 @@
 ---
 title: Vercel
 description: Generate Vercel Provider Output while preserving ViteHub package boundaries.
-navigation.order: 43
+navigation.order: 44
 icon: i-simple-icons-vercel
 ---
 
@@ -17,12 +17,11 @@ ViteHub keeps Definitions portable and moves Vercel-specific behavior into packa
 | Vercel Queues | Queue provider configuration and generated callback output. |
 | Vercel Workflow | Workflow provider configuration and generated runtime output. |
 | Vercel Sandbox | Sandbox Provider configuration, with Sandbox Identity passed only when the run needs reuse. |
-| Credentials | `VERCEL_TOKEN` and optional team id for Provision; Server Env for app runtime secrets. |
+| Credentials | `VERCEL_TOKEN` and `VERCEL_PROJECT_ID` for Blob Provision, with an optional team id; Server Env for app runtime secrets. |
 
-## Configure package options
+## Provider-owned configuration
 
-Select Vercel in the package that owns the primitive.
-Do not move provider fields into runtime invocation input when they affect generated output.
+The package that owns a primitive also owns its Vercel selection. Provider fields remain in Integration Options when they affect generated output rather than one runtime invocation.
 
 ```ts [vite.config.ts]
 import { hubBlob } from '@vite-hub/blob/vite'
@@ -48,20 +47,18 @@ export default defineConfig({
 Vercel-hosted state needs hosted stores. Use `driver: 'vercel-blob'` with `BLOB_READ_WRITE_TOKEN` for Blob, and use Upstash-backed KV with `KV_REST_API_URL` and `KV_REST_API_TOKEN` when KV runs on Vercel. Local filesystem stores are development-only in Vercel deployments.
 ::
 
-## Provision resources
+## Provision boundary
 
-Run a dry run before applying actions.
-Use `VERCEL_TEAM_ID` or `VERCEL_ORG_ID` when the token needs a team scope.
+Provision exposes a dry-run plan before applying actions. `VERCEL_TEAM_ID` or `VERCEL_ORG_ID` supplies team scope when the token requires it.
 
 ```bash [Terminal]
-pnpm vitehub provision run --provider vercel --dry-run
-VERCEL_TOKEN=... VERCEL_TEAM_ID=... pnpm vitehub provision run --provider vercel
+VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider vercel --dry-run
+VERCEL_TOKEN=... VERCEL_PROJECT_ID=... VERCEL_TEAM_ID=... pnpm vitehub provision run --provider vercel
 ```
 
-## Inspect output
+## Generated output
 
-Vercel output appears under `.vercel/output`.
-Server functions include their own `.vc-config.json`, while the root output config describes routing and build metadata.
+Vercel output appears under `.vercel/output`. Server functions include their own `.vc-config.json`, while the root output config describes routing and build metadata.
 
 ```bash [Terminal]
 pnpm build
@@ -77,6 +74,7 @@ Agent Definitions run on Vercel through generated host output where the Agent in
 
 ## Next steps
 
+- Use [Runtime and host support](/docs/frameworks-hosts/support-matrix) for exact package and proof coverage.
 - Use [Provisioning](/docs/development/provisioning) for provider resource ids.
 - Use [Config options](/docs/reference/config-options) for Provider Selection placement.
 - Use [Provider output](/docs/reference/provider-output) for generated Vercel output.
