@@ -210,6 +210,11 @@ function deliveryTitleContent(payload: unknown): string | undefined {
   return isRecord(payload) && typeof payload.title === "string" ? payload.title.trim() : undefined
 }
 
+function isRedundantDeliveryTitlePayload(payload: unknown): boolean {
+  if (!deliveryTitleContent(payload)) return false
+  return typeof payload === "string" || (isRecord(payload) && Object.keys(payload).length === 1)
+}
+
 function deliveryPreviewHeader(event: { channelId?: string, effect: { kind: string, payload?: unknown } }): string {
   const channel = event.channelId ? ` on ${event.channelId}` : ""
   if (event.effect.kind === "reaction") {
@@ -1008,7 +1013,7 @@ async function sendDevMessage(
         writeDeliveryPreviewArtifacts(context, event)
         context.stderr.write(`\n${deliveryPreviewHeader(event)}\n`)
         writeDevPayload(context, "intent", event.effect.intent)
-        if (event.effect.kind !== "reaction" && (event.effect.kind !== "title" || !deliveryTitleContent(event.effect.payload))) {
+        if (event.effect.kind !== "reaction" && (event.effect.kind !== "title" || !isRedundantDeliveryTitlePayload(event.effect.payload))) {
           writeDeliveryPreviewPayload(context, event.effect.payload)
         }
         writeDevPayload(context, "metadata", event.effect.metadata)
