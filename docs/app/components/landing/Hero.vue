@@ -25,7 +25,7 @@
           height="1024"
           fetchpriority="high"
           decoding="async"
-          class="w-full border border-default bg-[#f4eddf] object-cover"
+          class="w-full border border-default bg-default object-cover dark:invert"
         >
       </div>
     </div>
