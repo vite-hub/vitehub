@@ -1,7 +1,18 @@
 import { createHash, createSign } from "node:crypto"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { readPullRequestContext } from "./capabilities/pull-request-context.ts"
-import { deliveryArtifactAttachments } from "./delivery-artifacts.ts"
+import {
+  deliveryArtifactAttachments,
+  deliveryArtifactMarkdownReferencePaths,
+  normalizeDeliveryArtifactPath,
+  publishedDeliveryArtifactsFromUnknown,
+  publishWorkspaceArtifacts,
+  rewriteDeliveryArtifactMarkdown,
+} from "./delivery-artifacts.ts"
+import type {
+  AgentDeliveryArtifactPublishInput,
+  AgentDeliveryArtifactPublishResult,
+} from "./delivery-artifacts.ts"
 
 import type {
   AgentCallbackContext,
@@ -14,7 +25,6 @@ import type {
   AgentChannelDeliveryEffects,
   AgentChannelDeliveryFinishEffect,
   AgentChannelDeliveryFinishEffectContext,
-  AgentDeliveryArtifact,
   AgentChannelWebhookRegistrationDefinition,
   AgentFinishEvent,
   AgentRunInput,
@@ -34,7 +44,17 @@ import type { Adapter, FileUpload } from "chat"
 export const messageChannelTitleSupportContextKey = "channel.delivery.supportsTitle"
 const customTitleEffectChannels = new WeakSet<object>()
 
-export { deliveryArtifactAttachments } from "./delivery-artifacts.ts"
+export {
+  deliveryArtifactAttachments,
+  publishWorkspaceArtifacts,
+  rewriteDeliveryArtifactMarkdown,
+} from "./delivery-artifacts.ts"
+export type {
+  AgentDeliveryArtifactPublisher,
+  AgentDeliveryArtifactPublishInput,
+  AgentDeliveryArtifactPublishResult,
+  PublishWorkspaceArtifactsOptions,
+} from "./delivery-artifacts.ts"
 export { defineFinishEffect } from "./delivery-effects.ts"
 export type {
   AgentChannelDeliveryEffectContext,
@@ -89,26 +109,6 @@ export interface AgentWebChatChannelOptions<
   TAuth = unknown,
 >
   extends AgentStreamChannelOptions<TRuntimeConfig, TBody, TAuth> {}
-
-export interface AgentDeliveryArtifactPublishInput {
-  artifact: AgentDeliveryArtifact
-  content: Uint8Array
-  mediaType?: string
-  pathname: string
-}
-
-export interface AgentDeliveryArtifactPublishResult {
-  channelAttachmentId?: string
-  url?: string
-}
-
-export type AgentDeliveryArtifactPublisher =
-  (input: AgentDeliveryArtifactPublishInput) => MaybePromise<AgentDeliveryArtifactPublishResult>
-
-export interface PublishWorkspaceArtifactsOptions {
-  prefix?: string
-  publish: AgentDeliveryArtifactPublisher
-}
 
 type GitHubAppValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
   MaybeResolvable<T, AgentCallbackContext<TRuntimeConfig> | AgentChannelDeliveryEffectContext<TRuntimeConfig>>
@@ -470,50 +470,6 @@ function chatFinishExtensionFromUnknown(value: unknown): AgentChatFinishExtensio
   return isRecord(value) && typeof value.sendMessage === "function"
     ? value as unknown as AgentChatFinishExtension
     : undefined
-}
-
-function normalizeDeliveryArtifactPath(path: string, label: string): string {
-  const normalized = path.trim().replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/+/g, "/")
-  if (!normalized || normalized === "." || normalized.startsWith("/") || normalized.split("/").includes("..")) {
-    throw new Error(`[vitehub] ${label} must stay inside the workspace: "${path}".`)
-  }
-  return normalized
-}
-
-function joinDeliveryArtifactPath(prefix: string | undefined, path: string): string {
-  const cleanPrefix = prefix ? normalizeDeliveryArtifactPath(prefix, "Delivery artifact prefix") : undefined
-  return cleanPrefix ? `${cleanPrefix}/${path}` : path
-}
-
-export async function publishWorkspaceArtifacts<TRuntimeConfig extends AgentRuntimeConfig>(
-  context: Pick<AgentChannelDeliveryEffectContext<TRuntimeConfig>, "workspace">,
-  artifacts: readonly AgentDeliveryArtifact[],
-  options: PublishWorkspaceArtifactsOptions,
-): Promise<PublishedAgentDeliveryArtifact[]> {
-  if (!context.workspace) throw new Error("[vitehub] publishWorkspaceArtifacts() requires an Agent delivery context with a Workspace.")
-
-  const published: PublishedAgentDeliveryArtifact[] = []
-  for (const artifact of artifacts) {
-    const path = normalizeDeliveryArtifactPath(artifact.path, "Delivery artifact path")
-    const stat = await context.workspace.fs.stat(path).catch(() => undefined)
-    const mediaType = artifact.mediaType || (stat?.type === "file" ? stat.mediaType : undefined)
-    const content = await context.workspace.fs.readFile(path, { encoding: "binary" })
-    const normalized = {
-      ...artifact,
-      path,
-      ...(mediaType ? { mediaType } : {}),
-    }
-    published.push({
-      ...normalized,
-      ...await options.publish({
-        artifact: normalized,
-        content,
-        ...(mediaType ? { mediaType } : {}),
-        pathname: joinDeliveryArtifactPath(options.prefix, path),
-      }),
-    })
-  }
-  return published
 }
 
 function inputPayload(input: unknown): GitHubIssueCommentPayload | undefined {
@@ -1096,27 +1052,26 @@ function replyBody<TRuntimeConfig extends AgentRuntimeConfig>(
   if (typeof context.effect.metadata?.markdown === "string") return context.effect.metadata.markdown
 }
 
+function normalizedDeliveryArtifactPath(path: string): string | undefined {
+  try {
+    return normalizeDeliveryArtifactPath(path)
+  }
+  catch {
+    return
+  }
+}
+
 function replyBodyWithLinkArtifacts(body: string | undefined, artifacts: readonly PublishedAgentDeliveryArtifact[]): string | undefined {
+  const referencedPaths = new Set(deliveryArtifactMarkdownReferencePaths(body, artifacts))
   const links = artifacts.flatMap((artifact) => {
-    if (artifact.placement !== "link" || !artifact.url) return []
+    const path = normalizedDeliveryArtifactPath(artifact.path)
+    if (artifact.placement !== "link" || !artifact.url || (path && referencedPaths.has(path))) return []
     const label = (artifact.alt || artifact.path.split("/").pop() || artifact.path).replace(/[\r\n\[\]]+/g, " ").trim() || "Artifact"
     const url = artifact.url.replace(/[\r\n<>]+/g, "")
     return url ? [`[${label}](<${url}>)`] : []
   })
   if (!links.length) return body
   return body ? `${body}\n\n${links.join("\n")}` : links.join("\n")
-}
-
-function deliveryArtifactFromUnknown(value: unknown): PublishedAgentDeliveryArtifact | undefined {
-  if (!isRecord(value) || typeof value.path !== "string") return
-  return {
-    path: value.path,
-    ...(typeof value.alt === "string" ? { alt: value.alt } : {}),
-    ...(typeof value.channelAttachmentId === "string" ? { channelAttachmentId: value.channelAttachmentId } : {}),
-    ...(typeof value.mediaType === "string" ? { mediaType: value.mediaType } : {}),
-    ...(value.placement === "inline" || value.placement === "attachment" || value.placement === "link" ? { placement: value.placement } : {}),
-    ...(typeof value.url === "string" ? { url: value.url } : {}),
-  }
 }
 
 function deliveryArtifacts<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -1126,7 +1081,7 @@ function deliveryArtifacts<TRuntimeConfig extends AgentRuntimeConfig>(
     ...(Array.isArray(context.effect.artifacts) ? context.effect.artifacts : []),
     ...(isRecord(context.effect.payload) && Array.isArray(context.effect.payload.artifacts) ? context.effect.payload.artifacts : []),
   ]
-  return artifacts.map(deliveryArtifactFromUnknown).filter((artifact): artifact is PublishedAgentDeliveryArtifact => Boolean(artifact))
+  return publishedDeliveryArtifactsFromUnknown(artifacts)
 }
 
 function deliveryArtifactFilename(artifact: PublishedAgentDeliveryArtifact): string {
@@ -1167,7 +1122,7 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
   context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
 ): Promise<void> {
   const artifacts = deliveryArtifacts(context)
-  const body = replyBodyWithLinkArtifacts(replyBody(context), artifacts)
+  const body = rewriteDeliveryArtifactMarkdown(replyBodyWithLinkArtifacts(replyBody(context), artifacts), artifacts)
   const attachments = deliveryArtifactAttachments(artifacts)
   const files = await deliveryArtifactFiles(context, artifacts)
   if (!body && !attachments.length && !files.length) return
@@ -1414,11 +1369,10 @@ async function githubBodyWithArtifacts<TRuntimeConfig extends AgentRuntimeConfig
   command: GitHubPullRequestCommand,
   headers: Record<string, string>,
 ): Promise<string | undefined> {
-  const bodyArtifacts = await githubBodyImageArtifacts(context, body, options, command, headers)
-  const artifacts = [
-    ...deliveryArtifacts(context),
-    ...bodyArtifacts,
-  ].map(githubArtifactMarkdown).filter((line): line is string => Boolean(line))
+  const structuredArtifacts = deliveryArtifacts(context)
+  const referencedStructuredPaths = new Set(deliveryArtifactMarkdownReferencePaths(body, structuredArtifacts))
+  const structuredBody = rewriteDeliveryArtifactMarkdown(body || "", structuredArtifacts) || ""
+  const bodyArtifacts = await githubBodyImageArtifacts(context, structuredBody, options, command, headers)
   const rewrittenBody = bodyArtifacts.reduce((text, artifact) => {
     const markdown = githubArtifactMarkdown(artifact)
     if (!markdown || !artifact.url) return text
@@ -1428,8 +1382,13 @@ async function githubBodyWithArtifacts<TRuntimeConfig extends AgentRuntimeConfig
       .replace(new RegExp(`!\\[([^\\]\\r\\n]*)\\]\\(\\s*<?(?:\\./)?${path}>?\\s*\\)`, "g"), (_match, alt) => `![${githubMarkdownText(alt || artifact.alt || artifact.path)}](<${url}>)`)
       .replace(new RegExp(`(?<!!)\\[([^\\]\\r\\n]*)\\]\\(\\s*<?(?:\\./)?${path}>?\\s*\\)`, "g"), (_match, label) => `[${githubMarkdownText(label || artifact.alt || artifact.path)}](<${url}>)`)
       .replace(new RegExp(`(^|\\s)(?:\\./)?${path}(?![\\w.-])`, "g"), (_match, prefix) => `${prefix}${markdown}`)
-  }, body || "")
-  const explicitArtifacts = artifacts.filter(line => !bodyArtifacts.some(artifact => githubArtifactMarkdown(artifact) === line))
+  }, structuredBody)
+  const explicitArtifacts = structuredArtifacts.flatMap((artifact) => {
+    const path = normalizedDeliveryArtifactPath(artifact.path)
+    if (path && referencedStructuredPaths.has(path)) return []
+    const markdown = githubArtifactMarkdown(artifact)
+    return markdown ? [markdown] : []
+  })
   if (!explicitArtifacts.length) return rewrittenBody || body
   return rewrittenBody ? `${rewrittenBody}\n\n${explicitArtifacts.join("\n")}` : explicitArtifacts.join("\n")
 }

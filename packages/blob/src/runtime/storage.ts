@@ -64,17 +64,19 @@ async function createConfiguredBlobStorage(config: ResolvedBlobModuleOptions): P
 }
 
 function joinServedBlobUrl(...parts: string[]): string {
-  return parts
-    .filter(Boolean)
-    .map((part, index) => index === 0 ? part.replace(/\/+$/, "") : part.replace(/^\/+|\/+$/g, ""))
-    .join("/")
+  const [first, ...rest] = parts.filter(Boolean)
+  if (!first) return ""
+  const base = first.replace(/\/+$/, "")
+  const path = rest.map(part => part.replace(/^\/+|\/+$/g, "")).filter(Boolean).join("/")
+  if (!base) return path ? `/${path}` : "/"
+  return path ? `${base}/${path}` : base
 }
 
 async function withServedBlobUrl(name: string, object: BlobObject): Promise<BlobObject> {
   const config = await getBlobRuntimeConfig()
   const serve = config && typeof config === "object" ? config.serve : undefined
-  if (!serve?.publicBaseUrl || serve.store !== name) return object
-  return { ...object, url: joinServedBlobUrl(serve.publicBaseUrl, serve.route, object.pathname) }
+  if (!serve || serve.store !== name) return object
+  return { ...object, url: joinServedBlobUrl(serve.publicBaseUrl || "/", serve.route, object.pathname) }
 }
 
 async function resolveStorage(name = "default") {

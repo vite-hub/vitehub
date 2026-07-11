@@ -420,6 +420,7 @@ export interface AgentRunCallbackContext<
 }
 
 export interface AgentRunResult {
+  artifacts?: readonly PublishedAgentDeliveryArtifact[]
   finishReason?: unknown
   raw?: unknown
   text?: string
@@ -745,7 +746,7 @@ export interface AgentCapabilityRuntimeContext<
   }
   output: {
     extensions: AgentOutputExtensions
-    final: (renderer: AgentOutputRenderer) => void
+    final: (renderer: AgentOutputRenderer, options?: { order?: "last" }) => void
     provide: (value: unknown | AgentOutputExtensionProvider) => void
     render: (renderer: AgentOutputRenderer) => void
   }

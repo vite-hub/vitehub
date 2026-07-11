@@ -1886,6 +1886,13 @@ function createFinishDeliveryEffectContext<
 ): AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS> {
   const result = event.result === undefined ? undefined : toAgentRunResult(event.result)
   const active = activeDeliveryChannel(context.channels, context.context, context.run)
+  const reply: AgentChannelDeliveryFinishEffectContext<TRuntimeConfig, CALL_OPTIONS>["reply"] = (input, options = {}) => {
+    const inputArtifacts = typeof input === "object" && input !== null ? input.artifacts : undefined
+    return createReplyDeliveryEffectIntent(input, {
+      ...options,
+      artifacts: options.artifacts ?? inputArtifacts ?? result?.artifacts,
+    })
+  }
   return {
     ...context.runtimeContext,
     actor: context.actor,
@@ -1900,7 +1907,7 @@ function createFinishDeliveryEffectContext<
     invoker: context.invoker,
     ...(event.result !== undefined ? { output: event.result } : {}),
     reaction: createReactionDeliveryEffectIntent,
-    reply: createReplyDeliveryEffectIntent,
+    reply,
     ...(result !== undefined ? { result } : {}),
     request: context.runtimeContext.request,
     run: context.run,

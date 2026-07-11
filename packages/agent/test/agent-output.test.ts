@@ -28,6 +28,27 @@ describe("agent output helpers", () => {
     })
   })
 
+  it("preserves published delivery artifacts in Agent run results", () => {
+    const value = {
+      artifacts: [{
+        alt: "Preview",
+        mediaType: "image/png",
+        path: "artifacts/preview.png",
+        placement: "inline",
+        url: "https://assets.example/preview.png",
+      }, { path: 42 }],
+      text: "done",
+    }
+
+    expect(toAgentRunResult(value).artifacts).toEqual([{
+      alt: "Preview",
+      mediaType: "image/png",
+      path: "artifacts/preview.png",
+      placement: "inline",
+      url: "https://assets.example/preview.png",
+    }])
+  })
+
   it("normalizes AI SDK v6 output objects into Agent run results", () => {
     const value = {
       _output: "ok from output",
