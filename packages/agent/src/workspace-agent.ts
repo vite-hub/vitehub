@@ -37,6 +37,7 @@ import type {
   AgentDriverKind,
   AgentInvocationContextStore,
   AgentInvocationContextValues,
+  AgentHostIdentity,
   AgentInvokerProfile,
   AgentInput,
   AgentModelInput,
@@ -203,10 +204,11 @@ export function workspaceNameFromOptions<
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   defaults: WorkspaceAgentDefaults<Name> = {},
+  identity?: AgentHostIdentity,
 ): Name | string {
   if (typeof options.workspace === "string") return options.workspace
   if (isWorkspaceReference(options.workspace)) return options.workspace.name
-  return options.name || defaults.workspace || defaults.name || defaultWorkspaceName
+  return options.name || identity?.workspace || identity?.name || defaults.workspace || defaults.name || defaultWorkspaceName
 }
 
 export function workspaceDefinitionFromOptions<
@@ -321,11 +323,12 @@ function workspaceDefinitionWithNameFromOptions<
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   defaults: WorkspaceAgentDefaults<Name> = {},
+  identity?: AgentHostIdentity,
 ): WorkspaceDefinition {
   const { mode: _mode, ...definition } = workspaceDefinitionFromOptions(options)
   return {
     ...definition,
-    name: workspaceNameFromOptions(options, defaults),
+    name: workspaceNameFromOptions(options, defaults, identity),
   }
 }
 
@@ -1150,13 +1153,13 @@ async function createDevtoolsMetadataWorkspace<
     ...(definition.__vitehubWorkspaceAgentDefaults || definition as WorkspaceAgentDefaults<Name>),
     ...defaultsOverride,
   }
-  const workspaceName = defaults.workspace || defaults.name
-  if (!workspaceName || !definition.__vitehubWorkspaceAgentOptions) return
+  if (!definition.__vitehubWorkspaceAgentOptions) return
+  const options = definition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
+  const workspaceName = workspaceNameFromOptions(options, defaults, defaultsOverride.runtime?.agentIdentity)
 
   const { createWorkspaceSourceResolutionFacade, hasWorkspaceSourceResolvers, useWorkspace } = await import("@vite-hub/workspace/runtime")
   const workspace = useWorkspace(workspaceName)
-  const options = definition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
-  const workspaceDefinition = workspaceDefinitionWithNameFromOptions(options, defaults)
+  const workspaceDefinition = workspaceDefinitionWithNameFromOptions(options, defaults, defaultsOverride.runtime?.agentIdentity)
 
   if (hasAccessCapability(options)) {
     return { defaults, options, workspace }
@@ -1223,7 +1226,7 @@ async function resolveWorkspaceMetadataCapabilityContext<
     input as never,
     runtime.run,
   )
-  const workspaceDefinition = workspaceDefinitionWithNameFromOptions(options, resolution)
+  const workspaceDefinition = workspaceDefinitionWithNameFromOptions(options, resolution, resolution.runtime?.agentIdentity)
   const driverKind = workspaceAgentDriverKind(options)
   const capabilities = await resolveAgentCapabilities({
     capabilities: options.capabilities as AgentCapabilityDefinition<TRuntimeConfig, Name>[],

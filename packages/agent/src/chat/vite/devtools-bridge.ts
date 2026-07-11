@@ -10,7 +10,6 @@ import {
   resolveAgentDevtoolsMetadata,
   resolveAgentTriggers,
   streamAgentTrigger,
-  withAgentDefaults,
 } from "../../index.ts"
 import {
   type ChatDevtoolsConversation,
@@ -35,6 +34,7 @@ import type { ViteDevServer } from "vite"
 import type { AgentChatMessageTriggerInput } from "../../chat-trigger.ts"
 import type {
   AgentInput,
+  AgentHostIdentity,
   AgentRunInput,
   AgentRunMetadata,
   AgentRuntimeConfig,
@@ -94,6 +94,7 @@ interface ChatDevtoolsSession {
 interface ChatDevtoolsAgentEntry {
   agent: AgentInput<ViteAgentDevtoolsRuntimeContext>
   defaults?: WorkspaceAgentDefaults
+  identity: AgentHostIdentity
   metadata: ChatDevtoolsMetadata
   metadataError?: string
   metadataSelectionKey?: string
@@ -173,12 +174,19 @@ async function loadDiscoveredAgent(
   definition: DiscoveredAgentDefinition,
 ): Promise<AgentInput<ViteAgentDevtoolsRuntimeContext> | undefined> {
   const module = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
-  const agent = resolveAgentModule(module)
-  return withAgentDefaults(agent, { inferredName: definition.name, workspace: definition.workspace }) as AgentInput<ViteAgentDevtoolsRuntimeContext>
+  return resolveAgentModule(module)
 }
 
-function createDevtoolsDiscoveryContext(): ViteAgentDevtoolsRuntimeContext {
+function agentIdentity(definition: DiscoveredAgentDefinition): AgentHostIdentity {
+  return {
+    name: definition.name,
+    ...(definition.workspace ? { workspace: definition.workspace } : {}),
+  }
+}
+
+function createDevtoolsDiscoveryContext(identity: AgentHostIdentity): ViteAgentDevtoolsRuntimeContext {
   return createAgentRuntimeContext({
+    agentIdentity: identity,
     runtime: "vite",
     runtimeConfig: {},
     waitUntil: task => void Promise.resolve(task).catch(() => {}),
@@ -204,8 +212,9 @@ function createRequest(server: ViteDevServer, req: IncomingMessage): Request {
   })
 }
 
-function createRuntimeContext(server: ViteDevServer, req: IncomingMessage, run: AgentRunMetadata): ViteAgentDevtoolsRuntimeContext {
+function createRuntimeContext(server: ViteDevServer, req: IncomingMessage, identity: AgentHostIdentity, run: AgentRunMetadata): ViteAgentDevtoolsRuntimeContext {
   return createAgentRuntimeContext({
+    agentIdentity: identity,
     request: createRequest(server, req),
     run,
     runtime: "vite",
@@ -303,6 +312,7 @@ function metadataStaticKey(metadata: ChatDevtoolsMetadata): string {
 function createChatDevtoolsAgentEntry(
   name: string,
   agent: AgentInput<ViteAgentDevtoolsRuntimeContext>,
+  identity: AgentHostIdentity,
   defaults: WorkspaceAgentDefaults | undefined,
   previous: ChatDevtoolsAgentEntry | undefined,
 ): ChatDevtoolsAgentEntry {
@@ -311,12 +321,14 @@ function createChatDevtoolsAgentEntry(
   if (previous?.metadataStaticKey === staticKey) {
     previous.agent = agent
     previous.defaults = defaults
+    previous.identity = identity
     previous.name = name
     return previous
   }
   return {
     agent,
     defaults,
+    identity,
     metadata,
     metadataStaticKey: staticKey,
     metadataStatus: canResolveWorkspaceMetadata(agent) ? "loading" : "ready",
@@ -370,7 +382,7 @@ async function startMetadataResolution(
   const task = resolveAgentDevtoolsMetadata(entry.agent as never, {
     ...entry.defaults,
     input: createDevtoolsMetadataInput(metadataSelection, run),
-    runtime: { run },
+    runtime: { agentIdentity: entry.identity, run },
   } as never)
     .then((metadata) => {
       if (entry.metadataTask !== task || entry.metadataSelectionKey !== selectionKey) return
@@ -390,7 +402,6 @@ async function startMetadataResolution(
 }
 
 async function discoverChatAgents(server: ViteDevServer, state: ChatDevtoolsBridgeState): Promise<void> {
-  const context = createDevtoolsDiscoveryContext()
   const entries = new Map<string, ChatDevtoolsAgentEntry>()
   const definitions = discoverAgentDefinitions({
     mode: "server-agents",
@@ -406,6 +417,8 @@ async function discoverChatAgents(server: ViteDevServer, state: ChatDevtoolsBrid
   installServerAgentWorkspaceRegistry(server, loaded)
 
   for (const { agent, definition } of loaded) {
+    const identity = agentIdentity(definition)
+    const context = createDevtoolsDiscoveryContext(identity)
     const triggers = await resolveAgentTriggers(agent as never, context as never)
     const trigger = triggers["chat.message"]
     if (!trigger || trigger.devtools === false) continue
@@ -413,6 +426,7 @@ async function discoverChatAgents(server: ViteDevServer, state: ChatDevtoolsBrid
     entries.set(definition.name, createChatDevtoolsAgentEntry(
       definition.name,
       agent,
+      identity,
       workspaceDefaults(definition),
       state.entries.get(definition.name),
     ))
@@ -801,7 +815,7 @@ async function sendDevtoolsUIMessage(
   session.thinkingFallback = null
   await onChange?.(await serializeState(state, selected))
 
-  const runtimeContext = createRuntimeContext(server, req, run)
+  const runtimeContext = createRuntimeContext(server, req, selectedEntry.identity, run)
   const triggerInput: AgentChatMessageTriggerInput = {
     ...(session.invokerProfileId ? { invokerProfileId: session.invokerProfileId } : {}),
     ...(requestedSelection.meta ? { meta: requestedSelection.meta } : {}),

@@ -7364,17 +7364,18 @@ describe("agent message protocol", () => {
     })
 
     it("uses discovered Agent identity for unnamed workflow runtime bindings", async () => {
-      const { defineAgent, runAgent, withAgentDefaults, workflow } = await import("../src/index.ts")
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
-      const agent = withAgentDefaults(defineAgent({
+      const agent = defineAgent({
         runtime: workflow(),
         driver: { run: context => `received ${context.prompt}` },
-      }), { inferredName: "browser" })
-      const run = await runAgent(agent!, {
+      })
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "browser" },
         memo: vi.fn(),
         runtime: "vercel",
         waitUntil: promise => waitUntilTasks.push(promise),
@@ -7385,6 +7386,124 @@ describe("agent message protocol", () => {
         result: "received hello",
         status: "completed",
       })
+    })
+
+    it("keeps one discovered Agent Definition isolated across host identities", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { resolveRegisteredWorkspaceDefinition } = await import("@vite-hub/workspace")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({
+        runtime: workflow(),
+        driver: { run: context => context.agentIdentity },
+        workspace: {},
+      })
+      const originalRuntime = agent.runtime
+      const originalDefaults = agent.__vitehubWorkspaceAgentDefaults
+      const docsIdentity = { name: "identity-docs-agent", workspace: "identity-docs-workspace" }
+      const supportIdentity = { name: "identity-support-agent", workspace: "identity-support-workspace" }
+      const docsRun = await runAgent(agent, {
+        agentIdentity: docsIdentity,
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "docs" }) as { id: string }
+      const supportRun = await runAgent(agent, {
+        agentIdentity: supportIdentity,
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "support" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun(docsIdentity.name, docsRun.id)).resolves.toMatchObject({
+        result: docsIdentity,
+        status: "completed",
+      })
+      await expect(getWorkflowRun(supportIdentity.name, supportRun.id)).resolves.toMatchObject({
+        result: supportIdentity,
+        status: "completed",
+      })
+      await expect(resolveRegisteredWorkspaceDefinition(docsIdentity.workspace)).resolves.toMatchObject({ name: docsIdentity.workspace })
+      await expect(resolveRegisteredWorkspaceDefinition(supportIdentity.workspace)).resolves.toMatchObject({ name: supportIdentity.workspace })
+      expect(agent.runtime).toBe(originalRuntime)
+      expect(agent.__vitehubWorkspaceAgentDefaults).toBe(originalDefaults)
+      expect(agent.__vitehubWorkspaceAgentDefaults).toEqual({})
+    })
+
+    it("resolves workflow names from explicit binding, definition, then host identity", async () => {
+      const { defineAgent, runAgent, withAgentDefaults, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      const hostIdentity = { name: "identity-host-fallback" }
+      const bindingAgent = defineAgent({
+        name: "identity-definition-shadowed",
+        runtime: workflow("identity-binding-wins"),
+        driver: { run: context => context.agentIdentity },
+      })
+      const definitionAgent = defineAgent({
+        name: "identity-definition-wins",
+        runtime: workflow(),
+        driver: { run: context => context.agentIdentity },
+      })
+      const hostAgent = defineAgent({
+        runtime: workflow(),
+        driver: { run: context => context.agentIdentity },
+      })
+      const legacyAgent = withAgentDefaults(defineAgent({
+        runtime: workflow(),
+        driver: { run: context => context.agentIdentity },
+      }), { inferredName: "identity-legacy-fallback" })!
+
+      const bindingRun = await runAgent(bindingAgent, {
+        agentIdentity: hostIdentity,
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+      const definitionRun = await runAgent(definitionAgent, {
+        agentIdentity: hostIdentity,
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+      const hostRun = await runAgent(hostAgent, {
+        agentIdentity: hostIdentity,
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+      const legacyRun = await runAgent(legacyAgent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("identity-binding-wins", bindingRun.id)).resolves.toMatchObject({ result: hostIdentity })
+      await expect(getWorkflowRun("identity-definition-wins", definitionRun.id)).resolves.toMatchObject({ result: hostIdentity })
+      await expect(getWorkflowRun(hostIdentity.name, hostRun.id)).resolves.toMatchObject({ result: hostIdentity })
+      await expect(getWorkflowRun("identity-legacy-fallback", legacyRun.id)).resolves.toMatchObject({ status: "completed" })
+    })
+
+    it("resolves workspace names from explicit configuration before host identity", async () => {
+      const { defineAgent } = await import("../src/index.ts")
+      const { workspaceNameFromOptions } = await import("../src/workspace-agent.ts")
+      const hostIdentity = { name: "identity-host-agent", workspace: "identity-host-workspace" }
+      const inferred = defineAgent({ driver: { run: () => "ok" }, workspace: {} })
+      const named = defineAgent({ driver: { run: () => "ok" }, name: "identity-explicit-name", workspace: {} })
+      const referenced = defineAgent({ driver: { run: () => "ok" }, workspace: { name: "identity-explicit-reference" } })
+      const stringWorkspace = defineAgent({ driver: { run: () => "ok" }, workspace: "identity-explicit-string" })
+
+      expect(workspaceNameFromOptions(inferred.__vitehubWorkspaceAgentOptions, {}, hostIdentity)).toBe(hostIdentity.workspace)
+      expect(workspaceNameFromOptions(named.__vitehubWorkspaceAgentOptions, {}, hostIdentity)).toBe("identity-explicit-name")
+      expect(workspaceNameFromOptions(referenced.__vitehubWorkspaceAgentOptions, {}, hostIdentity)).toBe("identity-explicit-reference")
+      expect(workspaceNameFromOptions(stringWorkspace.__vitehubWorkspaceAgentOptions, {}, hostIdentity)).toBe("identity-explicit-string")
     })
 
     it("preserves Agent Definition metadata when applying discovered defaults", async () => {

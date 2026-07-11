@@ -111,6 +111,7 @@ import type {
   AgentFinishExtensions,
   AgentChatOptions,
   AgentHandlerOptions,
+  AgentHostIdentity,
   AgentInput,
   AgentInputHook,
   AgentInvocationContextStore,
@@ -252,6 +253,7 @@ export type {
   AgentFinishExtensionValues,
   AgentFinishHook,
   AgentHandlerOptions,
+  AgentHostIdentity,
   AgentHarnessCredentialSource,
   AgentHarnessDriver,
   AgentHarnessDriverInput,
@@ -571,7 +573,6 @@ function hasAgentDefinition(value: unknown): value is AgentDefinition {
 
 function resolveAgentWorkflowRuntimeBinding<
   TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
 ): AgentWorkflowRuntimeBinding | undefined {
@@ -579,8 +580,15 @@ function resolveAgentWorkflowRuntimeBinding<
   return agent.runtime?.kind === "workflow" ? agent.runtime : undefined
 }
 
-function resolveAgentWorkflowName(binding: AgentWorkflowRuntimeBinding): string {
-  if (binding.name) return binding.name
+function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  binding: AgentWorkflowRuntimeBinding,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+): string {
+  const definition = hasAgentDefinition(agent) ? agent : undefined
+  const legacyDefaults = (definition as Partial<WorkspaceAgentDefinition> | undefined)?.__vitehubWorkspaceAgentDefaults
+  const name = binding.name || definition?.name || context.agentIdentity?.name || legacyDefaults?.name
+  if (name) return name
   throw new Error("[vitehub] Agent runtime workflow() requires a name when invoked directly. A stable Workflow Definition target requires workflow(\"name\").")
 }
 
@@ -617,12 +625,13 @@ async function runAgentAsWorkflow<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
 ) {
-  const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig, CALL_OPTIONS>(agent)
+  const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
   if (!binding) return undefined
 
-  const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS>(agent, resolveAgentWorkflowName(binding))
+  const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS>(agent, resolveAgentWorkflowName(agent, binding, context))
   const resolvedContext = createResolvedRuntimeContext(context)
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
+    ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
     input,
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,
@@ -910,7 +919,7 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   const driver = normalizeAgentDriver(options)
-  const { capabilities, channels, cli, description, hooks, messages, runtime, version, workspace } = options
+  const { capabilities, channels, cli, description, hooks, messages, name, runtime, version, workspace } = options
   const run = driver.kind === "run" ? driver.run : undefined
   const baseCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
@@ -955,6 +964,7 @@ function defineBaseAgent<
     hooks,
     invoker,
     messages,
+    name,
     runtime,
     run,
     version,
@@ -1048,7 +1058,7 @@ export function withAgentDefaults<TContext extends AgentRuntimeContext>(
         ...(options.workspace ? { workspace: options.workspace } : {}),
       }
     : undefined
-  const runtime = withAgentWorkflowRuntimeName(agent.runtime, options.inferredName)
+  const runtime = withAgentWorkflowRuntimeName(agent.runtime, agent.name ? undefined : options.inferredName)
   return !workspaceDefaults && (!runtime || runtime === agent.runtime)
     ? agent
     : cloneAgentDefinitionWithDefaults(agent, workspaceDefaults, runtime === agent.runtime ? undefined : runtime)
@@ -1377,7 +1387,7 @@ async function createAgentInvocationContext<
     const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
     const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
     const workspaceName = workspaceOptions
-      ? workspaceNameFromOptions(workspaceOptions, workspaceDefinition?.__vitehubWorkspaceAgentDefaults)
+      ? workspaceNameFromOptions(workspaceOptions, workspaceDefinition?.__vitehubWorkspaceAgentDefaults, context.agentIdentity)
       : workspaceDefinition?.__vitehubWorkspaceAgentDefaults?.workspace
     const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
     const configuredWorkspaceDefinition = workspaceOptions && workspaceName
