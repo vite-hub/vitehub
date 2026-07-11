@@ -25,7 +25,6 @@
     "@vueuse/core": "catalog:ui",
     "docus": "catalog:nuxt",
     "h3": "catalog:h3-v1-compat",
-    "motion-v": "catalog:ui",
     "nuxt": "catalog:nuxt",
     "shiki": "catalog:ui"
   },

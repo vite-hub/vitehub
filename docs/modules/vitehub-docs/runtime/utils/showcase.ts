@@ -6,11 +6,8 @@ import {
   getFrameworkConfigPath,
   sortShowcaseFiles,
 } from "../../shared/showcase";
-export { showcasePhaseIds } from "../../shared/showcase";
-export type { ShowcasePhaseId } from "../../shared/showcase";
 
 type ShowcaseExample = DocsExample;
-export type ExampleFile = { path: string; code: string };
 
 const extensionToLanguage = new Map<string, string>([
   ["ts", "ts"],
@@ -44,7 +41,7 @@ function getSupportedShowcaseFrameworks(example: ShowcaseExample) {
   return frameworks.filter((framework): framework is Framework => Boolean(example.frameworks[framework] && example.files[framework]?.length));
 }
 
-export function resolveShowcaseFramework(example: ShowcaseExample, framework: Framework) {
+function resolveShowcaseFramework(example: ShowcaseExample, framework: Framework) {
   const supportedFrameworks = getSupportedShowcaseFrameworks(example);
   return supportedFrameworks.includes(framework) ? framework : supportedFrameworks[0] || framework;
 }

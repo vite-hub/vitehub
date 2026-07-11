@@ -5,4 +5,3 @@ const frameworkDefs = [
 export type Framework = (typeof frameworkDefs)[number]["id"];
 
 export const frameworks = frameworkDefs.map(entry => entry.id) as Framework[];
-export const defaultFramework: Framework = "vite";

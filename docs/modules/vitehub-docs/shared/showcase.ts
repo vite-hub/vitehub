@@ -1,7 +1,7 @@
 import type { Framework } from "../runtime/utils/frameworks";
 
 export const showcasePhaseIds = ["configure", "define", "run"] as const;
-export type ShowcasePhaseId = (typeof showcasePhaseIds)[number];
+type ShowcasePhaseId = (typeof showcasePhaseIds)[number];
 
 type ShowcaseModeConfigLike = {
   phases: Partial<Record<ShowcasePhaseId, string>>;
