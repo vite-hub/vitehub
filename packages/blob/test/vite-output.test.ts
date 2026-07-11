@@ -428,7 +428,7 @@ describe("Vite provider outputs", () => {
 
     await generateProviderOutputs({
       blob: {
-        serve: { route: "assets", store: "assets" },
+        serve: { route: "/", store: "assets" },
         stores: {
           assets: {
             access: "public",
@@ -456,7 +456,7 @@ describe("Vite provider outputs", () => {
     }
 
     await expect(runtimeModule.blob.store("assets").put("notes/assets.txt", "hello")).resolves.toMatchObject({
-      url: "/assets/notes/assets.txt",
+      url: "/notes/assets.txt",
     })
 
     expect(vercelBlobMock.put).toHaveBeenCalledWith(

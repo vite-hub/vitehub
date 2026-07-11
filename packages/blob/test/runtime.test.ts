@@ -430,10 +430,13 @@ describe("blob runtime", () => {
     expect(otherStore.url).toBe("https://blob.example/notes/private.txt")
   })
 
-  it("returns route-relative URLs when Blob serving has no public base URL", async () => {
+  it.each([
+    ["assets", "/assets/notes/served.txt"],
+    ["/", "/notes/served.txt"],
+  ])("returns route-relative URLs for the %s Blob serving route", async (route, expectedUrl) => {
     setBlobRuntimeConfig({
       serve: {
-        route: "assets",
+        route,
         store: "assets",
       },
       store: {
@@ -457,7 +460,7 @@ describe("blob runtime", () => {
 
     const put = await blob.store("assets").put("notes/served.txt", "value")
 
-    expect(put.url).toBe("/assets/notes/served.txt")
+    expect(put.url).toBe(expectedUrl)
   })
 
   it("rejects missing named stores at runtime", async () => {
