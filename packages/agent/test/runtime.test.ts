@@ -1959,6 +1959,11 @@ describe("agent message protocol", () => {
     expect(agent.chat).toBeUndefined()
   })
 
+  it("rejects unknown inline schedule option and entry keys", () => {
+    expect(() => schedule({ schedules: ["0 9 * * *"], timeZone: "Europe/Copenhagen" } as never)).toThrow('schedule() does not support "timeZone"')
+    expect(() => schedule({ schedules: [{ cron: "0 9 * * *", timeZone: "Europe/Copenhagen" }] } as never)).toThrow('schedule({ schedules }) entry does not support "timeZone"')
+  })
+
   it("runs scheduled agents with schedule-owned input metadata and no synthetic messages", async () => {
     const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
     const seen: unknown[] = []

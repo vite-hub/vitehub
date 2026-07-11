@@ -46,6 +46,8 @@ export default defineEventHandler(() => {
 })
 ```
 
+Runtime Schedule updates preserve `timeZone` when it is omitted; set it to `UTC` to reset UTC evaluation. DST gaps skip missing local occurrences, and DST overlaps run both repeated instants.
+
 ```ts
 // vite.config.ts
 import { hubSchedule } from "@vite-hub/schedule/vite"

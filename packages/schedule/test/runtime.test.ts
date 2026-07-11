@@ -115,7 +115,9 @@ describe("Runtime Schedule helper", () => {
     expect(updated.createdAt).toEqual(created.createdAt)
     expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(created.updatedAt.getTime())
 
-    expect(await schedules.disable("schedule-1")).toMatchObject({ enabled: false })
+    expect(await schedules.update("schedule-1", { enabled: false })).toMatchObject({ enabled: false, timeZone: "Europe/Copenhagen" })
+    expect(await schedules.update("schedule-1", { timeZone: "UTC" })).toMatchObject({ timeZone: "UTC" })
+    expect(await schedules.disable("schedule-1")).toMatchObject({ enabled: false, timeZone: "UTC" })
     expect(await schedules.enable("schedule-1")).toMatchObject({ enabled: true })
     expect(await schedules.delete("schedule-1")).toBe(true)
     expect(await schedules.get("schedule-1")).toBeUndefined()
@@ -162,10 +164,37 @@ describe("Runtime Schedule helper", () => {
     await expect(schedules.create({ cron: "0 9 * * *", target: "report", timeZone: "Not/A_Zone" })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_TIME_ZONE",
     })
+    await expect(schedules.create({ cron: "0 9 * * *", target: "report", timeZone: "+01:00" })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_TIME_ZONE",
+    })
 
     await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
     await expect(schedules.update("schedule-1", { timeZone: "Not/A_Zone" })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_TIME_ZONE",
+    })
+    await expect(schedules.update("schedule-1", { timeZone: "-05:30" })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_TIME_ZONE",
+    })
+  })
+
+  it("rejects unknown Runtime Schedule create and update keys", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await expect(schedules.create({ cron: "0 9 * * *", target: "report", timezone: "UTC" } as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+      message: "Runtime Schedule create does not support \"timezone\".",
+    })
+
+    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await expect(schedules.update("schedule-1", { timezone: "UTC" } as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+      message: "Runtime Schedule update does not support \"timezone\".",
     })
   })
 
@@ -965,6 +994,83 @@ describe("Basic Self-Hosted Schedule Runner", () => {
 
     expect(calls).toBe(1)
     expect((await scheduleRunStore.listRuns())[0]?.id).toBe(`srun_runtime_copenhagen-report_${scheduledAt}`)
+    runner.stop()
+  })
+
+  it("skips Runtime Schedule times missing during a DST gap", async () => {
+    vi.useFakeTimers()
+    let scheduledAt = new Date("2026-03-29T00:30:00.000Z")
+    let calls = 0
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "30 2 * * *",
+        handler: async () => {
+          calls++
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const createdAt = new Date("2026-03-28T00:00:00.000Z")
+    await runtimeScheduleStore.create({
+      createdAt,
+      cron: "30 2 * * *",
+      enabled: true,
+      id: "copenhagen-report",
+      target: "report",
+      timeZone: "Europe/Copenhagen",
+      updatedAt: createdAt,
+    })
+
+    const runner = startScheduleRunner({ intervalMs: 10, now: () => scheduledAt, runtimeScheduleStore, scheduleRunStore })
+    await flushAsyncWork()
+    scheduledAt = new Date("2026-03-29T01:30:00.000Z")
+    await vi.advanceTimersByTimeAsync(10)
+    await flushAsyncWork()
+
+    expect(calls).toBe(0)
+    expect(await scheduleRunStore.listRuns()).toEqual([])
+    runner.stop()
+  })
+
+  it("runs both Runtime Schedule instants repeated during a DST overlap", async () => {
+    vi.useFakeTimers()
+    let scheduledAt = new Date("2026-10-25T00:30:00.000Z")
+    let calls = 0
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "30 2 * * *",
+        handler: async () => {
+          calls++
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const createdAt = new Date("2026-10-24T00:00:00.000Z")
+    await runtimeScheduleStore.create({
+      createdAt,
+      cron: "30 2 * * *",
+      enabled: true,
+      id: "copenhagen-report",
+      target: "report",
+      timeZone: "Europe/Copenhagen",
+      updatedAt: createdAt,
+    })
+
+    const runner = startScheduleRunner({ intervalMs: 10, now: () => scheduledAt, runtimeScheduleStore, scheduleRunStore })
+    await flushAsyncWork()
+    scheduledAt = new Date("2026-10-25T01:30:00.000Z")
+    await vi.advanceTimersByTimeAsync(10)
+    await flushAsyncWork()
+
+    expect(calls).toBe(2)
+    expect((await scheduleRunStore.listRuns()).map(run => run.id).sort()).toEqual([
+      "srun_runtime_copenhagen-report_2026-10-25T00:30:00.000Z",
+      "srun_runtime_copenhagen-report_2026-10-25T01:30:00.000Z",
+    ])
     runner.stop()
   })
 

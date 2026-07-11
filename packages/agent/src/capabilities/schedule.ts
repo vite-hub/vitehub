@@ -124,6 +124,9 @@ function normalizeAgentScheduleEntries(entries: unknown): AgentScheduleCapabilit
   }
   const seen = new Set<string>()
   return entries.map((entry) => {
+    if (typeof entry === "object" && entry !== null) {
+      assertAllowedKeys(entry, ["cron", "id"], "schedule({ schedules }) entry")
+    }
     const cron = normalizeScheduleCron(typeof entry === "string" ? entry : (entry as { cron?: unknown } | undefined)?.cron)
     const id = typeof entry === "object" && entry !== null && "id" in entry && (entry as { id?: unknown }).id !== undefined
       ? (entry as { id?: unknown }).id
@@ -210,7 +213,7 @@ function assertOptionalRuntimeScheduleEnabled(enabled: unknown, label: string): 
 
 function assertOptionalRuntimeScheduleTimeZone(timeZone: unknown, label: string): string | undefined {
   if (timeZone === undefined) return undefined
-  if (typeof timeZone !== "string" || timeZone.trim() !== timeZone || !timeZone) {
+  if (typeof timeZone !== "string" || timeZone.trim() !== timeZone || !timeZone || /^[+-]/.test(timeZone)) {
     throw new TypeError(`[vitehub] ${label} timeZone must be a valid IANA time zone.`)
   }
   try {
@@ -222,7 +225,7 @@ function assertOptionalRuntimeScheduleTimeZone(timeZone: unknown, label: string)
   return timeZone
 }
 
-function assertRuntimeScheduleInputKeys(input: Record<string, unknown> | undefined, allowed: string[], label: string): void {
+function assertAllowedKeys(input: object | undefined, allowed: string[], label: string): void {
   if (!input || typeof input !== "object") return
   for (const key of Object.keys(input)) {
     if (!allowed.includes(key)) {
@@ -303,7 +306,7 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
       schedule_read: createTool<RuntimeScheduleReadInput>({
         description: "Read visible Runtime Schedules or the Schedule Capability target allowlist.",
         async execute(input: RuntimeScheduleReadInput = {}) {
-          assertRuntimeScheduleInputKeys(input as Record<string, unknown>, ["id", "operation"], "schedule_read")
+          assertAllowedKeys(input as Record<string, unknown>, ["id", "operation"], "schedule_read")
           const operation = input.operation || "list"
           if (operation === "targets") return { targets: visibleRuntimeScheduleTargets(options) }
           if (operation === "get") {
@@ -324,7 +327,7 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
       tools.schedule_edit = createTool<RuntimeScheduleEditInput>({
         description: "Create, update, enable, disable, or delete scoped Runtime Schedules.",
         async execute(input) {
-          assertRuntimeScheduleInputKeys(input as Record<string, unknown> | undefined, ["cron", "enabled", "id", "operation", "target", "timeZone"], "schedule_edit")
+          assertAllowedKeys(input as Record<string, unknown> | undefined, ["cron", "enabled", "id", "operation", "target", "timeZone"], "schedule_edit")
           const operation = input?.operation
           if (operation === "create") {
             return await client.create({
@@ -396,6 +399,7 @@ export function schedule(options: AgentScheduleCapabilityOptions | RuntimeSchedu
     return runtimeScheduleCapability(options)
   }
 
+  assertAllowedKeys(options, ["schedules"], "schedule()")
   const schedules = normalizeAgentScheduleEntries(options?.schedules)
   return defineCapability({
     id: "schedule",

@@ -22,6 +22,9 @@ const cronFieldRanges = [
   cronRange.dayOfWeek,
 ] as const
 
+const runtimeScheduleCreateInputKeys = new Set(["cron", "enabled", "id", "target", "timeZone"])
+const runtimeScheduleUpdateInputKeys = new Set(["cron", "enabled", "target", "timeZone"])
+
 function parseCronNumber(value: string, range: { min: number, max: number }): number {
   if (!/^\d+$/.test(value)) {
     throw new Error("not a number")
@@ -101,7 +104,7 @@ export function validateRuntimeScheduleCron(cron: unknown): void {
 }
 
 function validateRuntimeScheduleTimeZone(timeZone: unknown): void {
-  if (typeof timeZone !== "string" || timeZone.trim() !== timeZone || !timeZone) {
+  if (typeof timeZone !== "string" || timeZone.trim() !== timeZone || !timeZone || /^[+-]/.test(timeZone)) {
     throw new ScheduleError("Runtime Schedule timeZone must be a valid IANA time zone.", {
       code: "SCHEDULE_INVALID_TIME_ZONE",
       details: { timeZone },
@@ -158,8 +161,20 @@ function assertRuntimeScheduleInputObject(input: unknown, operation: "create" | 
   }
 }
 
+function assertRuntimeScheduleInputKeys(input: Record<string, unknown>, allowed: Set<string>, operation: "create" | "update"): void {
+  const unknownKey = Object.keys(input).find(key => !allowed.has(key))
+  if (unknownKey) {
+    throw new ScheduleError(`Runtime Schedule ${operation} does not support "${unknownKey}".`, {
+      code: "SCHEDULE_INVALID_INPUT",
+      details: { key: unknownKey },
+      httpStatus: 400,
+    })
+  }
+}
+
 async function validateCreateInput(input: RuntimeScheduleCreateInput): Promise<void> {
   assertRuntimeScheduleInputObject(input, "create")
+  assertRuntimeScheduleInputKeys(input, runtimeScheduleCreateInputKeys, "create")
   await assertRuntimeTarget(input.target)
   validateRuntimeScheduleCron(input.cron)
   if (input.id !== undefined && (typeof input.id !== "string" || !input.id.trim())) {
@@ -183,6 +198,7 @@ async function validateCreateInput(input: RuntimeScheduleCreateInput): Promise<v
 
 async function validateUpdateInput(input: RuntimeScheduleUpdateInput): Promise<void> {
   assertRuntimeScheduleInputObject(input, "update")
+  assertRuntimeScheduleInputKeys(input, runtimeScheduleUpdateInputKeys, "update")
   if (input.target !== undefined) {
     await assertRuntimeTarget(input.target)
   }

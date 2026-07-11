@@ -163,9 +163,11 @@ export default defineEventHandler(async () => {
 | `target` | `ScheduleTargetName` | create only | Static Schedule Definition that set `allowRuntimeSchedules: true`. |
 | `id` | `string` | No | Stable Runtime Schedule id. ViteHub generates one when omitted. |
 | `enabled` | `boolean` | No | Whether the Runtime Schedule should execute. Defaults to `true` on create. |
-| `timeZone` | `string` | No | IANA time zone used to evaluate the cron expression. Defaults to UTC. |
+| `timeZone` | `string` | No | Named IANA time zone used to evaluate the cron expression. Numeric offsets such as `+01:00` are rejected. Defaults to UTC. |
 
-`RuntimeScheduleUpdateInput` accepts `cron`, `target`, `enabled`, and `timeZone`.
+`RuntimeScheduleUpdateInput` accepts `cron`, `target`, `enabled`, and `timeZone`. Omitting `timeZone` on update preserves the stored zone; set it explicitly to `UTC` to reset UTC evaluation.
+
+Local cron matching follows conventional daylight-saving behavior: a local time missing during a DST gap is skipped, while both distinct instants in a repeated local time during a DST overlap run.
 
 ## Runtime Helper methods
 
