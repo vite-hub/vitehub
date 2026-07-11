@@ -179,7 +179,9 @@ async function publishReferencedHarnessArtifacts(
 
   const runResult = toAgentRunResult(result)
   if (!runResult.text) return result
-  const changedPaths = new Set(diff.entries.flatMap(entry => entry.type === "added" || entry.type === "modified" ? [entry.path] : []))
+  const changedPaths = new Set(diff.entries.flatMap(entry =>
+    (entry.type === "added" || entry.type === "modified") && entry.after?.type === "file" ? [entry.path] : [],
+  ))
   const artifacts = referencedHarnessArtifacts(runResult.text, assetPaths, changedPaths)
   if (!artifacts.length) return result
 

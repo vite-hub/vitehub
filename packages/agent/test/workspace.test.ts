@@ -395,11 +395,12 @@ describe("defineAgent workspace option", () => {
     const preview = new Uint8Array([7, 8, 9])
     const writeBackDiff = {
       entries: [
-        { path: "artifacts/preview.png", type: "added" as const },
-        { path: "artifacts/bare.png", type: "added" as const },
-        { path: "artifacts/app-route.png", type: "added" as const },
+        { after: { type: "file" as const }, path: "artifacts/preview.png", type: "added" as const },
+        { after: { type: "file" as const }, path: "artifacts/bare.png", type: "added" as const },
+        { after: { type: "file" as const }, path: "artifacts/app-route.png", type: "added" as const },
+        { after: { type: "directory" as const }, path: "artifacts/gallery", type: "added" as const },
         { path: "artifacts/old.png", type: "removed" as const },
-        { path: "other/outside.png", type: "modified" as const },
+        { after: { type: "file" as const }, path: "other/outside.png", type: "modified" as const },
       ],
       to: "next",
     }
@@ -430,6 +431,7 @@ describe("defineAgent workspace option", () => {
       "![Preview](/workspace/codex-session/artifacts/preview.png)",
       "Bare path: artifacts/bare.png",
       "[App route](/docs/artifacts/app-route.png)",
+      "[Gallery](artifacts/gallery)",
       "![Old](artifacts/old.png)",
       "![Outside](other/outside.png)",
     ].join("\n")
