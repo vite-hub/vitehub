@@ -165,6 +165,24 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
   }
 }
 
+function createTitleChatAdapter(setThreadTitle: (threadId: string, title: string) => Promise<void>) {
+  return Object.assign(createTestChatAdapter(), { setThreadTitle })
+}
+
+function chatWebhookRequest(messageId: number, threadId = 456, text = "hello") {
+  return new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
+    body: JSON.stringify({
+      message: {
+        chat: { id: threadId, type: "private" },
+        from: { id: 123, username: "maxi" },
+        message_id: messageId,
+        text,
+      },
+    }),
+    method: "POST",
+  })
+}
+
 describe("agent Vite plugin", () => {
   it("ignores generated ViteHub files in the Vite dev watcher", async () => {
     const { hubAgent } = await import("../src/vite.ts")
@@ -3711,6 +3729,314 @@ describe("server helpers", () => {
       await expect(handler(explicitRun, state)(request(), "discord", { agentName: "explicit", state })).resolves.toMatchObject({ status: 200 })
       expect(explicitRun).toHaveBeenCalledOnce()
       await expect(state.get("dedupe:telegram:7")).resolves.toBe(true)
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("delivers state-backed Chat SDK titles once per thread across handler recreation", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chatTitle } = await import("../src/capabilities.ts")
+    const { http } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-title-once-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const setThreadTitle = vi.fn(async () => undefined)
+    const execute = vi.fn(({ text }: { text: string }) => `Title: ${text}`)
+    const run = vi.fn(() => "ok")
+    const finish = vi.fn()
+    const createHandler = () => createChannelWebhookRouteHandler(defineAgent({
+      capabilities: [chatTitle({ execute })],
+      channels: {
+        channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
+      },
+      driver: { run },
+      hooks: { "agent:finish": finish },
+      messages: { state, stream: false, triggerHistory: "none" },
+    }) as never)
+
+    try {
+      const first = createHandler()
+      await expect(first(chatWebhookRequest(101, 456, "first"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
+      await expect(first(chatWebhookRequest(102, 456, "second"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
+      expect(run).toHaveBeenCalledTimes(2)
+      expect(execute).toHaveBeenCalledOnce()
+      expect(setThreadTitle).toHaveBeenCalledOnce()
+      expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toEqual({ title: "Title: first" })
+      expect(finish.mock.calls[1]![0].extensions.get("chat-title")).toBeUndefined()
+
+      const recreated = createHandler()
+      await expect(recreated(chatWebhookRequest(103, 456, "third"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
+      await expect(recreated(chatWebhookRequest(104, 789, "other thread"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
+
+      expect(setThreadTitle).toHaveBeenCalledTimes(2)
+      expect(setThreadTitle).toHaveBeenNthCalledWith(1, "telegram:456", "Title: first")
+      expect(setThreadTitle).toHaveBeenNthCalledWith(2, "telegram:789", "Title: other thread")
+      expect(execute).toHaveBeenCalledTimes(2)
+      await expect(state.get("chat:mini:channel:channel-title:telegram:456:delivered")).resolves.toBe(true)
+      await expect(state.get("chat:mini:channel:channel-title:telegram:789:delivered")).resolves.toBe(true)
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("releases a Chat title claim when the post-lock marker read fails", async () => {
+    const {
+      claimMessageChannelChatTitleDelivery,
+      messageChannelStateContextKey,
+    } = await import("../src/internal/channels.ts")
+    const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
+    const readError = new Error("title marker read failed")
+    const lock = { expiresAt: Date.now() + 60_000, threadId: "title:pending", token: "lock" }
+    const state = {
+      acquireLock: vi.fn(async () => lock),
+      get: vi.fn()
+        .mockResolvedValueOnce(null)
+        .mockRejectedValueOnce(readError),
+      releaseLock: vi.fn(async () => undefined),
+    }
+    const context = createAgentInvocationContextStore()
+    context.set(messageChannelStateContextKey, { keyPrefix: "chat:mini:discord:", state })
+
+    await expect(claimMessageChannelChatTitleDelivery(context, { threadId: "discord:123" } as never)).resolves.toEqual({
+      deliver: true,
+      error: readError,
+    })
+    expect(state.releaseLock).toHaveBeenCalledWith(lock)
+  })
+
+  it("does not redeliver a Chat title when marker observation succeeds but lock release fails", async () => {
+    const {
+      claimMessageChannelChatTitleDelivery,
+      messageChannelStateContextKey,
+    } = await import("../src/internal/channels.ts")
+    const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
+    const releaseError = new Error("title lock release failed")
+    const lock = { expiresAt: Date.now() + 60_000, threadId: "title:pending", token: "lock" }
+    const state = {
+      acquireLock: vi.fn(async () => lock),
+      get: vi.fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(true),
+      releaseLock: vi.fn(async () => { throw releaseError }),
+    }
+    const context = createAgentInvocationContextStore()
+    context.set(messageChannelStateContextKey, { keyPrefix: "chat:mini:discord:", state })
+
+    await expect(claimMessageChannelChatTitleDelivery(context, { threadId: "discord:123" } as never)).resolves.toEqual({
+      deliver: false,
+      error: releaseError,
+      reason: "already-delivered",
+    })
+  })
+
+  it("releases failed title delivery claims for finish and later webhook retries", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chatTitle } = await import("../src/capabilities.ts")
+    const { http } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-title-retry-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const setThreadTitle = vi.fn()
+      .mockRejectedValueOnce(new Error("early delivery failed"))
+      .mockRejectedValueOnce(new Error("finish delivery failed"))
+      .mockResolvedValue(undefined)
+    const handler = createChannelWebhookRouteHandler(defineAgent({
+      capabilities: [chatTitle({ execute: ({ text }) => `Title: ${text}` })],
+      channels: {
+        channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
+      },
+      driver: { run: () => "ok" },
+      messages: { state, stream: false, triggerHistory: "none" },
+    }) as never)
+
+    try {
+      await expect(handler(chatWebhookRequest(111, 456, "first"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
+      await expect(state.get("chat:mini:channel:channel-title:telegram:456:delivered")).resolves.toBeNull()
+
+      await expect(handler(chatWebhookRequest(112, 456, "retry"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
+      expect(setThreadTitle).toHaveBeenCalledTimes(3)
+      expect(setThreadTitle).toHaveBeenLastCalledWith("telegram:456", "Title: retry")
+      await expect(state.get("chat:mini:channel:channel-title:telegram:456:delivered")).resolves.toBe(true)
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("claims concurrent Chat SDK title delivery atomically", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chatTitle } = await import("../src/capabilities.ts")
+    const { http } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-title-concurrent-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    let releaseDelivery: () => void = () => {}
+    const deliveryPending = new Promise<void>((resolve) => {
+      releaseDelivery = resolve
+    })
+    const setThreadTitle = vi.fn(async () => await deliveryPending)
+    const execute = vi.fn(({ text }: { text: string }) => `Title: ${text}`)
+    const messageState = (prefix: string) => new Proxy(state, {
+      get(target, property) {
+        if (property === "acquireLock") {
+          return (threadId: string, ttlMs: number) => target.acquireLock(
+            threadId.includes("channel-title:") ? threadId : `${prefix}:${threadId}`,
+            ttlMs,
+          )
+        }
+        if (property === "forceReleaseLock") {
+          return (threadId: string) => target.forceReleaseLock(
+            threadId.includes("channel-title:") ? threadId : `${prefix}:${threadId}`,
+          )
+        }
+        const value = Reflect.get(target, property)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    const createHandler = (prefix: string, adapter: ReturnType<typeof createTitleChatAdapter>) => createChannelWebhookRouteHandler(defineAgent({
+      capabilities: [chatTitle({ execute })],
+      channels: {
+        channel: http({ adapter: () => adapter as never }),
+      },
+      driver: { run: () => "ok" },
+      messages: { state: messageState(prefix), stream: false, triggerHistory: "none" },
+    }) as never)
+    const firstAdapter = createTitleChatAdapter(setThreadTitle)
+    const secondAdapter = createTitleChatAdapter(setThreadTitle)
+    const firstHandler = createHandler("first", firstAdapter)
+    const secondHandler = createHandler("second", secondAdapter)
+
+    try {
+      const first = firstHandler(chatWebhookRequest(121, 456, "first"), "channel", { agentName: "mini" })
+      await vi.waitFor(() => expect(setThreadTitle).toHaveBeenCalledOnce())
+      const second = secondHandler(chatWebhookRequest(122, 456, "second"), "channel", { agentName: "mini" })
+      await vi.waitFor(() => expect(secondAdapter.postMessage).toHaveBeenCalled())
+      expect(setThreadTitle).toHaveBeenCalledOnce()
+      expect(execute).toHaveBeenCalledOnce()
+
+      releaseDelivery()
+      await expect(Promise.all([first, second])).resolves.toHaveLength(2)
+      expect(setThreadTitle).toHaveBeenCalledOnce()
+      expect(execute).toHaveBeenCalledOnce()
+      await expect(state.get("chat:mini:channel:channel-title:telegram:456:delivered")).resolves.toBe(true)
+    }
+    finally {
+      releaseDelivery()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("isolates title delivery by agent and channel on shared explicit state", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chatTitle } = await import("../src/capabilities.ts")
+    const { http } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-title-scope-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const setThreadTitle = vi.fn(async () => undefined)
+    const handler = (channel: string) => createChannelWebhookRouteHandler(defineAgent({
+      capabilities: [chatTitle({ execute: () => `${channel} title` })],
+      channels: {
+        [channel]: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
+      },
+      driver: { run: () => "ok" },
+      messages: { state, stream: false, triggerHistory: "none" },
+    }) as never)
+
+    try {
+      await expect(handler("discord")(chatWebhookRequest(131), "discord", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
+      await expect(handler("slack")(chatWebhookRequest(132), "slack", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
+      await expect(handler("discord")(chatWebhookRequest(133), "discord", { agentName: "work-coordinator" })).resolves.toMatchObject({ status: 200 })
+
+      expect(setThreadTitle).toHaveBeenCalledTimes(3)
+      await expect(state.get("chat:mini:discord:channel-title:telegram:456:delivered")).resolves.toBe(true)
+      await expect(state.get("chat:mini:slack:channel-title:telegram:456:delivered")).resolves.toBe(true)
+      await expect(state.get("chat:work-coordinator:discord:channel-title:telegram:456:delivered")).resolves.toBe(true)
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("can deliver state-backed Chat SDK titles on every invocation", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chatTitle } = await import("../src/capabilities.ts")
+    const { http } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-title-always-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const setThreadTitle = vi.fn(async () => undefined)
+    const handler = createChannelWebhookRouteHandler(defineAgent({
+      capabilities: [chatTitle({ channelDelivery: "always", execute: ({ text }) => `Title: ${text}` })],
+      channels: {
+        channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
+      },
+      driver: { run: () => "ok" },
+      messages: { state, stream: false, triggerHistory: "none" },
+    }) as never)
+
+    try {
+      await expect(handler(chatWebhookRequest(141, 456, "first"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
+      await expect(handler(chatWebhookRequest(142, 456, "second"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
+
+      expect(setThreadTitle).toHaveBeenCalledTimes(2)
+      expect(setThreadTitle).toHaveBeenNthCalledWith(1, "telegram:456", "Title: first")
+      expect(setThreadTitle).toHaveBeenNthCalledWith(2, "telegram:456", "Title: second")
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps Chat SDK output and best-effort title delivery when title state coordination fails", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chatTitle } = await import("../src/capabilities.ts")
+    const { http } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-title-state-failure-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const failingState = new Proxy(state, {
+      get(target, property) {
+        if (property === "get") {
+          return async (key: string) => {
+            if (key.includes("channel-title:")) throw new Error("title state unavailable")
+            return await target.get(key)
+          }
+        }
+        const value = Reflect.get(target, property)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    const setThreadTitle = vi.fn(async () => undefined)
+    const adapter = createTitleChatAdapter(setThreadTitle)
+    const handler = createChannelWebhookRouteHandler(defineAgent({
+      capabilities: [chatTitle({ execute: () => "Best effort title" })],
+      channels: {
+        channel: http({ adapter: () => adapter as never }),
+      },
+      driver: { run: () => "ok" },
+      messages: { state: failingState, stream: false, triggerHistory: "none" },
+    }) as never)
+
+    try {
+      await expect(handler(chatWebhookRequest(151), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
+      expect(setThreadTitle).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "ok" })
     }
     finally {
       await state.disconnect()

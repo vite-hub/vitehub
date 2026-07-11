@@ -5423,6 +5423,42 @@ describe("agent message protocol", () => {
     expect(events).toContainEqual({ type: "finish" })
   })
 
+  it("keeps plain stream titles per invocation with once-per-thread Channel delivery", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const execute = vi.fn(({ text }) => `Title: ${text}`)
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [chatTitle({ channelDelivery: "once-per-thread", execute })],
+      driver: { run: () => (async function* () {
+          yield { text: "hello", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
+      hooks: { "agent:finish": finish },
+    })
+
+    for (const id of ["user-1", "user-2"]) {
+      const stream = await streamAgent(agent, {
+        memo: vi.fn(),
+        run: { runId: id, threadId: "thread-1" },
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, {
+        messages: [createMessage({ id, role: "user", text: id })],
+      })
+      const events = []
+      for await (const event of stream as AsyncIterable<unknown>) events.push(event)
+      expect(events).toContainEqual({
+        data: { title: `Title: ${id}`, type: "chat-title" },
+        type: "data",
+      })
+    }
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(finish.mock.calls.map(([event]) => event.extensions.get("chat-title"))).toEqual([
+      { title: "Title: user-1" },
+      { title: "Title: user-2" },
+    ])
+  })
+
   it("streams agent output while chat title generation is pending", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     let resolveTitle: (title: string) => void = () => {}

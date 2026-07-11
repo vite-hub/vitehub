@@ -1,7 +1,13 @@
 import { capabilityInvocationStartSymbol, defineCapability } from "../capability-runtime.ts"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../agent-output.ts"
 import { messageChannelTitleSupportContextKey } from "../channels.ts"
-import { createMessageChannelChatTitleEffectIntent, messageChannelTitleDeliveredContextKey } from "../internal/channels.ts"
+import {
+  claimMessageChannelChatTitleDelivery,
+  createMessageChannelChatTitleEffectIntent,
+  finishMessageChannelChatTitleDelivery,
+  messageChannelStateContextKey,
+  messageChannelTitleDeliveredContextKey,
+} from "../internal/channels.ts"
 import { getMessageText } from "../messages.ts"
 import { normalizeAgentDriver } from "../internal/agent-driver.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
@@ -22,6 +28,7 @@ import type {
   Message,
   StreamEvent,
 } from "../messages.ts"
+import type { MessageChannelChatTitleDeliveryAttempt, MessageChannelStateBinding } from "../internal/channels.ts"
 
 type ToUIMessageStream = (...args: unknown[]) => ReadableStream<unknown>
 const chatTitleApplied = Symbol("vitehub.chat-title.applied")
@@ -52,6 +59,7 @@ export type ChatTitleTemplateVariable =
   | ((input: ChatTitleTemplateInput) => MaybePromise<boolean | null | number | string | undefined>)
 
 export interface ChatTitleOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  channelDelivery?: "always" | "once-per-thread"
   driver?: AgentDriver<TRuntimeConfig>
   execute?: (input: ChatTitleExecuteInput) => MaybePromise<ChatTitleExecuteResult>
   fallback?: string
@@ -513,19 +521,44 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
   return Object.assign(defineCapability({
     id: capabilityId,
     output(context) {
+      let channelDeliveryAttempt: MessageChannelChatTitleDeliveryAttempt | Promise<MessageChannelChatTitleDeliveryAttempt> | undefined
+      const getChannelDeliveryAttempt = () => {
+        const state = context.context.get<MessageChannelStateBinding>(messageChannelStateContextKey)
+        channelDeliveryAttempt ??= options.channelDelivery === "always" || !supportsChatTitleDelivery(context) || !state || !context.run?.threadId
+          ? { deliver: true }
+          : claimMessageChannelChatTitleDelivery(context.context, context.run)
+              .catch(error => ({ deliver: true, error }))
+        return channelDeliveryAttempt
+      }
+      const releaseChannelDeliveryAttempt = async () => {
+        await finishMessageChannelChatTitleDelivery(await getChannelDeliveryAttempt(), false).catch(() => undefined)
+      }
       let title: Promise<string | undefined> | undefined
       const getTitle = () => {
         title ??= (async () => {
           const messages = context.input.messages()
           const message = firstUserMessage(messages)
           if (!message) return
-          return await generateChatTitle(context, options as ChatTitleOptions, {
-            input: context.input.get(),
-            message,
-            messages,
-            text: getMessageText(message),
-          })
-        })().catch(() => undefined)
+          const pendingAttempt = getChannelDeliveryAttempt()
+          const attempt = pendingAttempt instanceof Promise ? await pendingAttempt : pendingAttempt
+          if (!attempt.deliver) return
+          try {
+            const resolvedTitle = await generateChatTitle(context, options as ChatTitleOptions, {
+              input: context.input.get(),
+              message,
+              messages,
+              text: getMessageText(message),
+            })
+            if (!resolvedTitle) {
+              await finishMessageChannelChatTitleDelivery(attempt, false).catch(() => undefined)
+            }
+            return resolvedTitle
+          }
+          catch {
+            await finishMessageChannelChatTitleDelivery(attempt, false).catch(() => undefined)
+            return undefined
+          }
+        })()
         return title
       }
 
@@ -534,19 +567,33 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
         if (!shouldProvideChatTitleFinishExtension(context)) return
         if (context.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) return
         const resolvedTitle = await getTitle()
-        if (!resolvedTitle || !supportsChatTitleDelivery(context)) return
-        if (context.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) return
-        context.delivery.effect(createMessageChannelChatTitleEffectIntent(resolvedTitle.trim()))
+        if (!resolvedTitle || !supportsChatTitleDelivery(context)) {
+          await releaseChannelDeliveryAttempt()
+          return
+        }
+        if (context.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) {
+          await releaseChannelDeliveryAttempt()
+          return
+        }
+        context.delivery.effect(createMessageChannelChatTitleEffectIntent(
+          resolvedTitle.trim(),
+          options.channelDelivery,
+          await getChannelDeliveryAttempt(),
+        ))
       })
       context.finish.provide(async () => {
         if (!shouldProvideChatTitleFinishExtension(context)) return
         const resolvedTitle = await getTitle()
         return resolvedTitle ? { title: resolvedTitle } : undefined
       })
-      const titleDeliveryEffect: AgentChannelDeliveryFinishEffectCallback = (finish) => {
+      const titleDeliveryEffect: AgentChannelDeliveryFinishEffectCallback = async (finish) => {
         const resolvedTitle = finish.extensions.get(capabilityId, "title")
         return typeof resolvedTitle === "string" && resolvedTitle.trim()
-          ? { kind: "title", payload: { title: resolvedTitle.trim() } }
+          ? createMessageChannelChatTitleEffectIntent(
+              resolvedTitle.trim(),
+              options.channelDelivery,
+              await getChannelDeliveryAttempt(),
+            )
           : undefined
       }
       titleDeliveryEffect.active = finish =>
