@@ -13,8 +13,7 @@ useSeoMeta({
 <template>
   <UMain class="bg-default text-default">
     <LandingHero />
-    <LandingRelationship />
-    <LandingQuickstarts />
+    <LandingPaths />
     <LandingCta />
   </UMain>
 </template>
