@@ -47,6 +47,10 @@ function hasVercelBlobWorkspaceDefinition(definitions: DiscoveredWorkspaceDefini
   })
 }
 
+function hasCloudflareArtifactsWorkspaceDefinition(definition: DiscoveredWorkspaceDefinition): boolean {
+  return !!definition.source && /\bprovider\s*:\s*["']cloudflare-artifacts["']/.test(definition.source)
+}
+
 function vercelFunctionRuntimePackages(options: false | ResolvedWorkspaceModuleOptions, definitions: DiscoveredWorkspaceDefinition[] = []) {
   const hasVercelBlobStore = (options && options.store?.provider === "vercel-blob") || hasVercelBlobWorkspaceDefinition(definitions)
   return [
@@ -138,7 +142,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   const loader = createWorkspaceDefinitionLoader(rootDir)
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
-    if (!shouldBundleWorkspaceAssets(options.assets, definition.name)) continue
+    if (!shouldBundleWorkspaceAssets(options.assets, definition.name) && !hasCloudflareArtifactsWorkspaceDefinition(definition)) continue
     const workspace = normalizeWorkspaceDefinition(
       definition.name,
       await loadDiscoveredWorkspaceDefinition(loader, definition),
