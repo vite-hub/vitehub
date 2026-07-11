@@ -133,11 +133,12 @@ function resolveOwnedCloudflareArtifacts(
 async function resolveDefinitionCloudflareArtifactsConfigs(
   definitions: DiscoveredWorkspaceDefinition[],
   rootDir: string,
+  options: ResolvedWorkspaceModuleOptions,
 ): Promise<ResolvedWorkspaceModuleOptions[]> {
   const loader = createWorkspaceDefinitionLoader(rootDir)
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
-    if (!shouldBundleWorkspaceAssets(config.assets, definition.name)) continue
+    if (!shouldBundleWorkspaceAssets(options.assets, definition.name)) continue
     const workspace = normalizeWorkspaceDefinition(
       definition.name,
       await loadDiscoveredWorkspaceDefinition(loader, definition),
@@ -162,7 +163,7 @@ async function writeCloudflareArtifactsProviderOutput(
   const configs = config
     ? [
         ...(config.store.provider === "cloudflare-artifacts" ? [config] : []),
-        ...await resolveDefinitionCloudflareArtifactsConfigs(definitions, rootDir),
+        ...await resolveDefinitionCloudflareArtifactsConfigs(definitions, rootDir, config),
       ]
     : []
   const requestedConfig = createCloudflareArtifactsWranglerConfig(configs)
