@@ -21,19 +21,38 @@ import type {
   WorkspaceStore,
 } from "../../core/types.ts"
 
-interface ArtifactsRepo {
-  createToken(scope?: "read" | "write", ttl?: number): Promise<{ plaintext: string }>
-  defaultBranch?: string
+interface ArtifactsCreateTokenResult {
+  expiresAt: string
+  plaintext: string
+}
+
+interface ArtifactsCreateRepoResult {
+  defaultBranch: string
   name: string
   remote: string
+  token: string
+  tokenExpiresAt: string
+}
+
+interface ArtifactsRepo {
+  createToken(scope?: "read" | "write", ttl?: number): Promise<ArtifactsCreateTokenResult>
+  defaultBranch: string
+  lastPushAt: string | null
+  name: string
+  remote: string
+  source: string | null
 }
 
 interface ArtifactsBinding {
-  create(name: string, options?: { description?: string, readOnly?: boolean, setDefaultBranch?: string }): Promise<ArtifactsRepo & { token?: string }>
+  create(name: string, options?: { description?: string, readOnly?: boolean, setDefaultBranch?: string }): Promise<ArtifactsCreateRepoResult>
   get(name: string): Promise<ArtifactsRepo>
 }
 
 const dir = "/workspace"
+const fileMetadataPath = ".vitehub/files.json"
+const tokenRefreshWindow = 60_000
+
+type FileMetadata = Pick<WorkspaceFile, "mediaType" | "metadata">
 
 function tokenSecret(token: string) {
   return token.split("?expires=")[0] || token
@@ -43,12 +62,37 @@ function repoName(options: CloudflareArtifactsWorkspaceStoreOptions, workspaceNa
   return options.repo || `${options.repoPrefix || "vitehub-workspace-"}${workspaceName.replace(/[^a-zA-Z0-9_.-]/g, "-")}`
 }
 
+function errorCode(error: unknown) {
+  return typeof error === "object" && error && "code" in error
+    ? (error as { code?: number | string }).code
+    : undefined
+}
+
+function isNonFastForward(error: unknown) {
+  if (typeof error !== "object" || !error) return false
+  const value = error as {
+    code?: string
+    data?: { prettyDetails?: string, reason?: string, result?: unknown }
+    message?: string
+  }
+  if (value.code === "PushRejectedError" && value.data?.reason === "not-fast-forward") return true
+  if (value.code !== "GitPushError") return false
+  return /non-fast-forward|fetch first|stale info/i.test([
+    value.message,
+    value.data?.prettyDetails,
+    JSON.stringify(value.data?.result),
+  ].filter(Boolean).join(" "))
+}
+
 class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   #baseline: WorkspaceSnapshot | undefined
+  #files = new Map<string, FileMetadata>()
   #fs: MemoryFS | undefined
+  #pendingCommit: string | undefined
   #repo: ArtifactsRepo | undefined
-  #token: string | undefined
   #ready: Promise<void> | undefined
+  #mutationQueue: Promise<void> = Promise.resolve()
+  #token: { expiresAt: number, value: string } | undefined
 
   constructor(private options: CloudflareArtifactsWorkspaceStoreOptions, private workspaceName: string) {}
 
@@ -57,32 +101,55 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     await this.#ensure()
     const filepath = this.#absolute(normalized)
     const content = await this.#fs!.promises.readFile(filepath).catch(() => undefined)
-    return content ? { path: normalized, content: content as Uint8Array } : undefined
+    if (!content) return undefined
+    const fileMetadata = this.#files.get(normalized)
+    return {
+      path: normalized,
+      content: content as Uint8Array,
+      mediaType: fileMetadata?.mediaType,
+      metadata: fileMetadata?.metadata,
+    }
   }
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
     const normalized = normalizeSafeWorkspacePath(path)
     await this.#ensure()
-    await this.#fs!.promises.writeFile(this.#absolute(normalized), contentToBytes(file.content))
+    await this.#mutate(async () => {
+      await this.#fs!.promises.writeFile(this.#absolute(normalized), contentToBytes(file.content))
+      if (file.mediaType !== undefined || file.metadata !== undefined) {
+        this.#files.set(normalized, { mediaType: file.mediaType, metadata: file.metadata })
+      }
+      else {
+        this.#files.delete(normalized)
+      }
+      await this.#writeFileMetadata()
+    })
   }
 
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
-    const normalizedPrefix = normalizeSafeWorkspacePath(prefix, { allowEmpty: true })
     await this.#ensure()
+    return this.#listEntries(prefix, options)
+  }
+
+  async #listEntries(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
+    const normalizedPrefix = normalizeSafeWorkspacePath(prefix, { allowEmpty: true })
     const entries: WorkspaceEntry[] = []
 
     for (const [absolute, entry] of this.#fs!.entries) {
       if (absolute === dir || !absolute.startsWith(`${dir}/`)) continue
       const path = normalizeWorkspacePath(absolute.slice(`${dir}/`.length))
-      if (!path || path === ".git" || path.startsWith(".git/") || path.startsWith(".vitehub/")) continue
+      if (!path || path === ".git" || path.startsWith(".git/") || path === ".vitehub" || path.startsWith(".vitehub/")) continue
       if (normalizedPrefix) {
         if (path === normalizedPrefix) continue
         if (!path.startsWith(`${normalizedPrefix}/`)) continue
       }
       if (!options.recursive && path.slice(normalizedPrefix ? normalizedPrefix.length + 1 : 0).includes("/")) continue
       if (entry.kind === "file") {
+        const fileMetadata = this.#files.get(path)
         entries.push({
           digest: await sha256(entry.data),
+          mediaType: fileMetadata?.mediaType,
+          metadata: fileMetadata?.metadata,
           mtime: entry.mtimeMs,
           path,
           size: entry.data.byteLength,
@@ -109,8 +176,11 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     const stat = await this.#fs!.promises.stat(this.#absolute(normalized)).catch(() => undefined) as { isFile(): boolean, isDirectory(): boolean, mtimeMs?: number, size?: number } | undefined
     if (!stat) return undefined
     const bytes = stat.isFile() ? await this.#fs!.promises.readFile(this.#absolute(normalized)) as Uint8Array : undefined
+    const fileMetadata = stat.isFile() ? this.#files.get(normalized) : undefined
     return {
       digest: bytes ? await sha256(bytes) : undefined,
+      mediaType: fileMetadata?.mediaType,
+      metadata: fileMetadata?.metadata,
       mtime: stat.mtimeMs,
       path: normalized,
       size: stat.isFile() ? stat.size : undefined,
@@ -121,31 +191,41 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   async mkdir(path: string, options: MkdirOptions = {}): Promise<void> {
     const normalized = normalizeSafeWorkspacePath(path)
     await this.#ensure()
-    await this.#fs!.promises.mkdir(this.#absolute(normalized), { recursive: options.recursive ?? true })
+    await this.#mutate(() => this.#fs!.promises.mkdir(this.#absolute(normalized), { recursive: options.recursive ?? true }))
   }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {
     const normalized = normalizeSafeWorkspacePath(path)
     await this.#ensure()
-    const absolute = this.#absolute(normalized)
-    const stat = await this.#fs!.promises.stat(absolute).catch(() => undefined) as { isDirectory(): boolean } | undefined
-    if (!stat) {
-      if (options.force) return
-      throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
-    }
-    if (stat.isDirectory() && !options.recursive) {
-      const children = await this.#fs!.promises.readdir(absolute)
-      if (children.length) throw new WorkspaceError(`[vitehub] Workspace directory is not empty: ${path}.`)
-    }
-    const removed = this.#fs!.deleteTree(absolute)
-    if (!removed && !options.force) throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
+    await this.#mutate(async () => {
+      const absolute = this.#absolute(normalized)
+      const stat = await this.#fs!.promises.stat(absolute).catch(() => undefined) as { isDirectory(): boolean } | undefined
+      if (!stat) {
+        if (options.force) return
+        throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
+      }
+      if (stat.isDirectory() && !options.recursive) {
+        const children = await this.#fs!.promises.readdir(absolute)
+        if (children.length) throw new WorkspaceError(`[vitehub] Workspace directory is not empty: ${path}.`)
+      }
+      const removed = this.#fs!.deleteTree(absolute)
+      if (!removed && !options.force) throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
+      for (const key of this.#files.keys()) {
+        if (key === normalized || key.startsWith(`${normalized}/`)) this.#files.delete(key)
+      }
+      await this.#writeFileMetadata()
+    })
   }
 
   async snapshot(options: SnapshotOptions = {}): Promise<WorkspaceSnapshot> {
     await this.#ensure()
+    return this.#mutate(() => this.#createSnapshot(options))
+  }
+
+  async #createSnapshot(options: SnapshotOptions): Promise<WorkspaceSnapshot> {
     const git = await import("isomorphic-git")
     const http = await import("isomorphic-git/http/web")
-    const matrix = await git.statusMatrix({ dir, fs: this.#fs! as never })
+    const matrix = await git.statusMatrix({ dir, fs: this.#fs! as never, ignored: true })
     let changed = false
     for (const [filepath, head, workdir, stage] of matrix) {
       if (filepath.startsWith(".git/")) continue
@@ -154,37 +234,54 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
         changed = true
       }
       else if (workdir !== stage) {
-        await git.add({ dir, filepath, fs: this.#fs! as never })
+        await git.add({ dir, filepath, force: true, fs: this.#fs! as never })
         changed = true
       }
     }
 
-    let id: string | undefined
     if (changed) {
-      id = await git.commit({
+      this.#pendingCommit = await git.commit({
         author: { email: "workspace@vitehub.dev", name: "ViteHub Workspace" },
         dir,
         fs: this.#fs! as never,
         message: options.name || "Update workspace",
       })
-      await git.push({
-        dir,
-        fs: this.#fs! as never,
-        http,
-        onAuth: () => ({ password: this.#token!, username: "x" }),
-        ref: this.options.branch || "main",
-        url: this.#repo!.remote,
-      })
     }
 
-    const snapshot = await createSnapshotFromEntries(await this.list("", { recursive: true }), options.name)
-    this.#baseline = { ...snapshot, id: id || snapshot.id }
+    const id = this.#pendingCommit
+    if (id) {
+      const token = await this.#writeToken()
+      try {
+        await git.push({
+          dir,
+          fs: this.#fs! as never,
+          http,
+          onAuth: () => ({ password: token, username: "x" }),
+          ref: this.options.branch || "main",
+          url: this.#repo!.remote,
+        })
+      }
+      catch (error) {
+        if (isNonFastForward(error)) {
+          throw new WorkspaceError(
+            `[vitehub] Workspace "${this.workspaceName}" changed remotely while snapshotting branch "${this.options.branch || "main"}". Reload the Workspace before retrying.`,
+            { cause: error },
+          )
+        }
+        throw error
+      }
+      this.#pendingCommit = undefined
+    }
+
+    const snapshot = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }), options.name)
+    this.#baseline = { ...snapshot, id: id || this.#baseline?.id || snapshot.id }
     return this.#baseline
   }
 
   async diff(options: DiffOptions = {}): Promise<WorkspaceDiff> {
+    await this.#ensure()
     const from = options.from || this.#baseline
-    const to = await createSnapshotFromEntries(await this.list("", { recursive: true }))
+    const to = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }))
     return diffSnapshots(from, to)
   }
 
@@ -199,7 +296,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   async setMeta(key: string, value: unknown): Promise<void> {
     const path = this.#metaAbsolute(key)
     await this.#ensure()
-    await this.#fs!.promises.writeFile(path, contentToBytes(JSON.stringify(value)))
+    await this.#mutate(() => this.#fs!.promises.writeFile(path, contentToBytes(JSON.stringify(value))))
   }
 
   #absolute(path: string) {
@@ -213,6 +310,37 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   #metaAbsolute(key: string) {
     const normalized = normalizeSafeWorkspacePath(key.endsWith(".json") ? key : `${key}.json`)
     return this.#internalAbsolute(`.vitehub/meta/${normalized}`)
+  }
+
+  async #loadFileMetadata(): Promise<void> {
+    const content = await this.#fs!.promises.readFile(this.#internalAbsolute(fileMetadataPath)).catch(() => undefined)
+    if (!content) return
+    const files = JSON.parse(new TextDecoder().decode(content as Uint8Array)) as Record<string, FileMetadata>
+    this.#files = new Map(Object.entries(files))
+  }
+
+  async #writeFileMetadata(): Promise<void> {
+    const path = this.#internalAbsolute(fileMetadataPath)
+    if (!this.#files.size) {
+      this.#fs!.deleteTree(path)
+      return
+    }
+    const files = Object.fromEntries([...this.#files.entries()].sort(([a], [b]) => a.localeCompare(b)))
+    await this.#fs!.promises.writeFile(path, JSON.stringify(files))
+  }
+
+  #rememberToken(value: string, expiresAt: string) {
+    this.#token = {
+      expiresAt: Date.parse(expiresAt) || 0,
+      value: tokenSecret(value),
+    }
+  }
+
+  async #writeToken(): Promise<string> {
+    if (this.#token && this.#token.expiresAt > Date.now() + tokenRefreshWindow) return this.#token.value
+    const token = await this.#repo!.createToken("write", 3600)
+    this.#rememberToken(token.plaintext, token.expiresAt)
+    return this.#token!.value
   }
 
   #getBinding(): ArtifactsBinding {
@@ -229,43 +357,66 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     await this.#ready
   }
 
+  #mutate<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#mutationQueue.then(operation)
+    this.#mutationQueue = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
+  }
+
   async #load(): Promise<void> {
     const git = await import("isomorphic-git")
     const http = await import("isomorphic-git/http/web")
     const binding = this.#getBinding()
     const name = repoName(this.options, this.workspaceName)
-    let createdToken: string | undefined
+    let created: ArtifactsCreateRepoResult | undefined
+    let head: string | undefined
+    let repo: ArtifactsRepo
     try {
-      this.#repo = await binding.get(name)
+      repo = await binding.get(name)
     }
-    catch {
-      const created = await binding.create(name, {
-        description: `ViteHub workspace ${this.workspaceName}`,
-        readOnly: false,
-        setDefaultBranch: this.options.branch || "main",
-      })
-      this.#repo = created
-      createdToken = created.token
+    catch (error) {
+      if (errorCode(error) !== 10200) throw error
+      try {
+        created = await binding.create(name, {
+          description: `ViteHub workspace ${this.workspaceName}`,
+          readOnly: false,
+          setDefaultBranch: this.options.branch || "main",
+        })
+      }
+      catch (createError) {
+        if (errorCode(createError) !== 10201) throw createError
+      }
+      repo = await binding.get(name)
     }
 
-    this.#token = tokenSecret(createdToken || (await this.#repo.createToken("write", 3600)).plaintext)
+    this.#repo = repo
+    if (created) this.#rememberToken(created.token, created.tokenExpiresAt)
     this.#fs = new MemoryFS()
     await this.#fs.promises.mkdir(dir, { recursive: true })
-    try {
+    if (created || (repo.lastPushAt === null && repo.source === null)) {
+      await git.init({ defaultBranch: this.options.branch || "main", dir, fs: this.#fs as never })
+    }
+    else {
+      const branch = this.options.branch || repo.defaultBranch || "main"
+      const token = await this.#writeToken()
       await git.clone({
         depth: 1,
         dir,
         fs: this.#fs as never,
         http,
-        onAuth: () => ({ password: this.#token!, username: "x" }),
-        ref: this.options.branch || this.#repo.defaultBranch || "main",
+        onAuth: () => ({ password: token, username: "x" }),
+        ref: branch,
         singleBranch: true,
-        url: this.#repo.remote,
+        url: repo.remote,
       })
+      head = await git.resolveRef({ dir, fs: this.#fs as never, ref: branch })
     }
-    catch {
-      await git.init({ defaultBranch: this.options.branch || "main", dir, fs: this.#fs as never })
-    }
+    await this.#loadFileMetadata()
+    const baseline = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }))
+    this.#baseline = head ? { ...baseline, id: head } : baseline
   }
 }
 

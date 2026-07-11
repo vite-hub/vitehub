@@ -146,6 +146,29 @@ configureCloudflareWorkspaceRuntime()
 
 `useWorkspace()` will then resolve `cloudflare-artifacts` Workspace Stores from the configured runtime store or the Workspace Definition's `store` option.
 
+Select Cloudflare Artifacts explicitly when a Cloudflare Worker needs durable, versioned Workspace state:
+
+```ts
+// vite.config.ts
+import { hubWorkspace } from "@vite-hub/workspace/vite"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  plugins: [hubWorkspace()],
+  workspace: {
+    store: {
+      provider: "cloudflare-artifacts",
+      binding: "WORKSPACE_ARTIFACTS",
+      namespace: "vitehub",
+    },
+  },
+})
+```
+
+The Vite Integration writes matching module-level and discovered definition-level Artifacts bindings into generated Cloudflare Provider Output. Each named Workspace uses its own repository by default, and a successful `workspace.snapshot()` pushes a Git commit whose SHA is the snapshot id. The Worker adapter keeps its checkout in isolate memory, so use it for deliberately small Workspaces. Cloudflare Artifacts is currently a closed beta and is not available on Workers Free; Cloudflare hosting therefore continues to default to the `memory` Store.
+
+Artifacts repositories are private Git storage, not public attachment hosting. Use `@vite-hub/blob` with R2 or another Blob provider when an Agent needs a stable public delivery URL.
+
 ## GitHub-backed persistence
 
 Use the GitHub Workspace Store when a hosted runtime needs durable Workspace file-tree state without a provider-specific artifact store:
