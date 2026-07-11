@@ -64,7 +64,8 @@ describe("agent public types", () => {
         vendor: "test",
         version: 1 as const,
       },
-    } satisfies StandardSchemaV1<unknown, { message: string }>
+      type: "object" as const,
+    } satisfies StandardSchemaV1<unknown, { message: string }> & { type: "object" }
 
     const validationOnlyTool: AgentToolDefinition<{ message: string }> = {
       // @ts-expect-error Tool schemas must also describe their JSON shape to the model.

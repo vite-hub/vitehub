@@ -1308,7 +1308,7 @@ export interface AgentToolPolicyContext {
 }
 
 export type AgentToolStandardSchema<T = unknown> = StandardSchemaV1<unknown, T> & StandardJSONSchemaV1<unknown, T>
-export type AgentToolSchema<T = unknown> = AgentToolStandardSchema<T> | JSONSchema7
+export type AgentToolSchema<T = unknown> = AgentToolStandardSchema<T> | (JSONSchema7 & { "~standard"?: never })
 
 export interface AgentToolDefinition<TInput = unknown, TOutput = unknown> {
   description?: string
