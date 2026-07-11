@@ -370,10 +370,10 @@ function withChatTitleReadableStreamParallel<T>(
   title: Promise<string | undefined>,
   renderTitle: (title: string) => T,
 ): AsyncIterable<T> & ReadableStream<T> {
-  const reader = result.getReader()
+  let reader: ReadableStreamDefaultReader<T> | undefined
   let cancelled = false
   let closed = false
-  let streamNext: ReturnType<typeof reader.read> | undefined
+  let streamNext: Promise<ReadableStreamReadResult<T>> | undefined
   let titlePending = true
   const titleNext = title
     .then(value => ({ title: value, type: "title" as const }))
@@ -381,14 +381,14 @@ function withChatTitleReadableStreamParallel<T>(
   const releaseReader = () => {
     if (closed) return
     closed = true
-    reader.releaseLock()
+    reader?.releaseLock()
   }
 
   return markChatTitleApplied(withAsyncIterator(new ReadableStream<T>({
     async cancel(reason) {
       cancelled = true
       try {
-        await reader.cancel(reason)
+        await (reader ? reader.cancel(reason) : result.cancel(reason))
       }
       finally {
         releaseReader()
@@ -396,6 +396,7 @@ function withChatTitleReadableStreamParallel<T>(
     },
     async pull(controller) {
       if (cancelled || closed) return
+      reader ??= result.getReader()
       streamNext ??= reader.read()
       try {
         while (!cancelled) {
@@ -439,7 +440,7 @@ function withChatTitleReadableStreamParallel<T>(
         throw error
       }
     },
-  })))
+  }, { highWaterMark: 0 })))
 }
 
 function withChatTitleEvent(result: AsyncIterable<StreamEvent>, title: Promise<string | undefined>): AsyncIterable<StreamEvent> {

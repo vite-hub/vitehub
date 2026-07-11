@@ -171,6 +171,11 @@ describe("Runtime Schedule helper", () => {
       code: "SCHEDULE_INVALID_TIME_ZONE",
     })
 
+    const linked = await schedules.create({ cron: "0 9 * * *", id: "linked-zone", target: "report", timeZone: "Asia/Kolkata" })
+    expect(linked).toMatchObject({ timeZone: "Asia/Kolkata" })
+    await expect(schedules.update("linked-zone", { timeZone: "US/Eastern" })).resolves.toMatchObject({ timeZone: "US/Eastern" })
+    await expect(schedules.update("linked-zone", { timeZone: "Etc/UTC" })).resolves.toMatchObject({ timeZone: "Etc/UTC" })
+
     await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
     await expect(schedules.update("schedule-1", { timeZone: "Not/A_Zone" })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_TIME_ZONE",

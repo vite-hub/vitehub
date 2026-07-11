@@ -84,7 +84,16 @@ type NormalizedRuntimeScheduleCapabilityOptions = Omit<RuntimeScheduleCapability
   targets?: readonly string[]
 }
 
-const ianaTimeZones = new Set(Intl.supportedValuesOf("timeZone"))
+function isIanaTimeZone(timeZone: unknown): timeZone is string {
+  if (typeof timeZone !== "string" || (timeZone !== "UTC" && !timeZone.includes("/"))) return false
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone })
+    return true
+  }
+  catch {
+    return false
+  }
+}
 
 function scheduleClient(context: AgentCapabilityContext, mode: AgentCapabilityMode): RuntimeScheduleClientLike {
   const handle = requirePrimitive(context, "schedule")
@@ -215,7 +224,7 @@ function assertOptionalRuntimeScheduleEnabled(enabled: unknown, label: string): 
 
 function assertOptionalRuntimeScheduleTimeZone(timeZone: unknown, label: string): string | undefined {
   if (timeZone === undefined) return undefined
-  if (typeof timeZone !== "string" || (timeZone !== "UTC" && !ianaTimeZones.has(timeZone))) {
+  if (!isIanaTimeZone(timeZone)) {
     throw new TypeError(`[vitehub] ${label} timeZone must be a valid IANA time zone.`)
   }
   return timeZone

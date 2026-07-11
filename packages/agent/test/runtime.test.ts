@@ -5816,6 +5816,38 @@ describe("agent message protocol", () => {
     expect(events).toContainEqual({ text: "hello", type: "text-delta" })
   })
 
+  it("does not lock native readable streams before UI conversion", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    class StreamResult {
+      stream = new ReadableStream<unknown>({
+        start(controller) {
+          controller.enqueue({ text: "hello", type: "text-delta" })
+          controller.close()
+        },
+      })
+
+      fullStream = this.stream
+
+      toUIMessageStream() {
+        return this.stream.pipeThrough(new TransformStream<unknown, unknown>())
+      }
+    }
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => "Readable title" })],
+      driver: { run: () => new StreamResult() },
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "First user request" })],
+    }) as StreamResult
+    const events = []
+    for await (const event of result.toUIMessageStream()) {
+      events.push(event)
+    }
+
+    expect(events).toContainEqual({ text: "hello", type: "text-delta" })
+  })
+
   it("cancels readable stream results while a source read is pending", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     let sourcePullStarted!: () => void
