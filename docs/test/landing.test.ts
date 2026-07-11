@@ -1,46 +1,91 @@
-import { readFile, stat } from "node:fs/promises"
-import { describe, expect, it } from "vitest"
-import { landingLanes } from "../app/components/landing/content"
+import { readFile } from "node:fs/promises";
+import { describe, expect, it } from "vitest";
+import { installOptions, landingPaths, landingPrimitives } from "../app/components/landing/content";
 
 const landingFiles = [
   "Hero.vue",
+  "InstallCommand.vue",
+  "AgentDiagram.vue",
   "Paths.vue",
-  "Cta.vue",
+  "Primitives.vue",
+  "PrimitiveMotion.vue",
   "content.ts",
-]
+];
 
 describe("landing page", () => {
-  it("presents two concise and equally actionable product lanes", () => {
-    expect(landingLanes).toHaveLength(2)
-    expect(landingLanes.map(lane => lane.id)).toEqual(["server-primitives", "agents"])
+  it("makes Agents the first path without hiding Server Primitives", () => {
+    expect(landingPaths).toHaveLength(2);
+    expect(landingPaths.map((path) => path.id)).toEqual(["agents", "server-primitives"]);
 
-    for (const lane of landingLanes) {
-      expect(lane.tutorialPath).toMatch(/^\/docs\/getting-started\//)
-      expect(lane.image).toMatch(/^\/images\/landing\/.*\.webp$/)
-      expect(lane.description.length).toBeLessThan(100)
-      expect(lane.action.length).toBeLessThan(24)
+    for (const path of landingPaths) {
+      expect(path.tutorialPath).toMatch(/^\/docs\/getting-started\//);
+      expect(path.code).toContain("@vite-hub/");
+      expect(path.description.length).toBeLessThan(120);
+      expect(path.action.length).toBeLessThan(24);
     }
-  })
+  });
 
-  it("keeps one focal point and removes repeated landing copy", async () => {
+  it("offers one-click skill and package commands in the hero", () => {
+    expect(installOptions.skill.command).toBe("npx skills add https://vitehub.dev");
+    expect(installOptions.packages.map((option) => option.value)).toEqual([
+      "pnpm",
+      "npm",
+      "bun",
+      "yarn",
+    ]);
+
+    for (const option of installOptions.packages) {
+      expect(option.command).toContain("@vite-hub/agent");
+    }
+
+    expect(landingPaths[0].code).toContain("run({ prompt })");
+    expect(landingPaths[0].code).not.toMatch(/codexDriver|agent\/capabilities|agent\/channels/);
+  });
+
+  it("keeps one focal point while restoring concrete code and motion", async () => {
     const source = (
       await Promise.all(
-        landingFiles.map(file => readFile(new URL(`../app/components/landing/${file}`, import.meta.url), "utf8")),
+        landingFiles.map((file) =>
+          readFile(new URL(`../app/components/landing/${file}`, import.meta.url), "utf8"),
+        ),
       )
-    ).join("\n")
+    ).join("\n");
+    const normalizedSource = source.replace(/\s+/g, " ");
 
-    expect(source).toContain("The server layer for Vite.")
-    expect(source).toContain("Use portable Server Primitives directly, or compose them into Agents.")
-    expect(source).not.toMatch(/Pick this path|Verified contract|First success \/|The map \/|Your move \/|DIRECT|COMPOSED/)
-    expect(source).not.toMatch(/<pre|<ul|<ol/)
-    expect(source).not.toMatch(/Math\.random|Date\.now|window\.matchMedia/)
-    expect(source).not.toMatch(/Agents for any host|Deploy anywhere|Write it once/)
-  })
+    expect(source).toContain("The server layer for Vite.");
+    expect(normalizedSource).toContain(
+      "Define inspectable Agents with explicit drivers, Capabilities, Workspaces, and instructions",
+    );
+    expect(source).toContain("Build your first Agent");
+    expect(source).toContain("prefers-reduced-motion");
+    expect(source).toMatch(/<pre|<code/);
+    expect(source).not.toMatch(/vitehub-backplane\.webp|server-primitives\.webp|agents\.webp/);
+    expect(source).not.toMatch(
+      /Pick this path|Verified contract|First success \/|The map \/|Your move \/|DIRECT|COMPOSED/,
+    );
+    expect(source).not.toMatch(/Math\.random|Date\.now|window\.matchMedia/);
+    expect(source).not.toMatch(/Agents for any host|Deploy anywhere|Write it once/);
+    expect(source).toContain(":aria-pressed");
+    expect(source).not.toMatch(/role="(?:tab|tablist|radio|radiogroup)"/);
+  });
 
-  it("ships lightweight landing artwork", async () => {
-    for (const file of ["vitehub-backplane.webp", "server-primitives.webp", "agents.webp"]) {
-      const metadata = await stat(new URL(`../public/images/landing/${file}`, import.meta.url))
-      expect(metadata.size).toBeLessThan(200_000)
-    }
-  })
-})
+  it("ends with a compact set of animated primitives", () => {
+    expect(landingPrimitives.map((primitive) => primitive.id)).toEqual([
+      "workspace",
+      "kv",
+      "queue",
+      "workflow",
+      "schedule",
+      "sandbox",
+    ]);
+  });
+
+  it("wires landing-page metadata through Docus", async () => {
+    const source = await readFile(new URL("../app/pages/index.vue", import.meta.url), "utf8");
+
+    expect(source).toContain("useSeo({");
+    expect(source).toContain('type: "website"');
+    expect(source).toContain('defineOgImage("Landing"');
+    expect(source).not.toContain("titleTemplate");
+  });
+});
