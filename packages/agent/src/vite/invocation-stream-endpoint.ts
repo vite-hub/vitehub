@@ -382,21 +382,19 @@ async function discoverStreamAgents(server: ViteDevServer): Promise<AgentInvocat
 
 function agentWorkspaceName(entry: AgentInvocationStreamEntry): string | undefined {
   const agent = entry.agent as Partial<{
-    __vitehubWorkspaceAgentDefaults: Parameters<typeof workspaceNameFromOptions>[1]
     __vitehubWorkspaceAgentOptions: Parameters<typeof workspaceNameFromOptions>[0]
   }>
   return agent.__vitehubWorkspaceAgentOptions
-    ? workspaceNameFromOptions(agent.__vitehubWorkspaceAgentOptions, agent.__vitehubWorkspaceAgentDefaults, entry.identity)
+    ? workspaceNameFromOptions(agent.__vitehubWorkspaceAgentOptions, {}, entry.identity)
     : undefined
 }
 
 function agentWorkspaceOptions(entry: AgentInvocationStreamEntry) {
   const agent = entry.agent as Partial<{
-    __vitehubWorkspaceAgentDefaults: Parameters<typeof workspaceNameFromOptions>[1]
     __vitehubWorkspaceAgentOptions: Parameters<typeof workspaceNameFromOptions>[0]
   }>
   return agent.__vitehubWorkspaceAgentOptions
-    ? { defaults: agent.__vitehubWorkspaceAgentDefaults, options: agent.__vitehubWorkspaceAgentOptions }
+    ? { options: agent.__vitehubWorkspaceAgentOptions }
     : undefined
 }
 

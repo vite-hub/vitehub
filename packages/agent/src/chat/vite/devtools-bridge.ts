@@ -40,7 +40,6 @@ import type {
   AgentRuntimeConfig,
   AgentRuntimeContext,
   DiscoveredAgentDefinition,
-  WorkspaceAgentDefaults,
 } from "../../index.ts"
 
 type ReadUIMessageStream = typeof import("ai").readUIMessageStream
@@ -93,7 +92,6 @@ interface ChatDevtoolsSession {
 
 interface ChatDevtoolsAgentEntry {
   agent: AgentInput<ViteAgentDevtoolsRuntimeContext>
-  defaults?: WorkspaceAgentDefaults
   identity: AgentHostIdentity
   metadata: ChatDevtoolsMetadata
   metadataError?: string
@@ -135,12 +133,6 @@ function resolveAgentModule(module: unknown): AgentInput<ViteAgentDevtoolsRuntim
     return module.default as AgentInput<ViteAgentDevtoolsRuntimeContext> | undefined
   }
   return module as AgentInput<ViteAgentDevtoolsRuntimeContext> | undefined
-}
-
-function workspaceDefaults(definition: DiscoveredAgentDefinition): WorkspaceAgentDefaults | undefined {
-  return definition.workspace
-    ? { name: definition.name, workspace: definition.workspace }
-    : undefined
 }
 
 function resolveWorkspaceSourceRoot(file: string): string {
@@ -313,21 +305,18 @@ function createChatDevtoolsAgentEntry(
   name: string,
   agent: AgentInput<ViteAgentDevtoolsRuntimeContext>,
   identity: AgentHostIdentity,
-  defaults: WorkspaceAgentDefaults | undefined,
   previous: ChatDevtoolsAgentEntry | undefined,
 ): ChatDevtoolsAgentEntry {
   const metadata = createStaticDevtoolsMetadata(name, agent)
   const staticKey = metadataStaticKey(metadata)
   if (previous?.metadataStaticKey === staticKey) {
     previous.agent = agent
-    previous.defaults = defaults
     previous.identity = identity
     previous.name = name
     return previous
   }
   return {
     agent,
-    defaults,
     identity,
     metadata,
     metadataStaticKey: staticKey,
@@ -380,7 +369,6 @@ async function startMetadataResolution(
 
   const run = createDevtoolsMetadataRunMetadata(entry.name)
   const task = resolveAgentDevtoolsMetadata(entry.agent as never, {
-    ...entry.defaults,
     input: createDevtoolsMetadataInput(metadataSelection, run),
     runtime: { agentIdentity: entry.identity, run },
   } as never)
@@ -427,7 +415,6 @@ async function discoverChatAgents(server: ViteDevServer, state: ChatDevtoolsBrid
       definition.name,
       agent,
       identity,
-      workspaceDefaults(definition),
       state.entries.get(definition.name),
     ))
   }
@@ -915,11 +902,10 @@ async function materializeDevtoolsSource(
   try {
     const run = createDevtoolsMetadataRunMetadata(entry.name)
     const metadata = await materializeAgentDevtoolsSourceMetadata(entry.agent as never, {
-      ...entry.defaults,
       input: createDevtoolsMetadataInput(metadataSelection, run),
       ...(input.path ? { path: input.path } : {}),
       ...(input.source ? { source: input.source } : {}),
-      runtime: { run },
+      runtime: { agentIdentity: entry.identity, run },
       sources: materializedSourceKeys(entry.metadata),
     } as never)
     entry.metadata = metadataWithAgentName(metadata, entry.name)
