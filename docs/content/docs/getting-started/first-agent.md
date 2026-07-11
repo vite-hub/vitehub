@@ -1,108 +1,160 @@
 ---
-title: First agent
-description: Define an Agent and run one Agent Invocation from server code.
+title: First Agent
+description: Define a deterministic Agent and run one observable Agent Invocation.
 navigation.order: 4
 icon: i-lucide-bot
 ---
 
-An Agent is a named server-side actor driven by an Agent Driver. Start with one Agent Definition, then attach Capabilities only when the Agent needs controlled access to tools, Workspace files, storage, chat, or product events.
+An Agent Definition names a server-side actor and the Agent Driver that runs
+it. Start with application-owned logic so the first proof needs no credential,
+network request, or model billing.
 
-## Install agents
+::note
+You need Node.js 24 or newer and `pnpm`. The quickstart runs completely offline.
+::
+
+## Install Agents
+
+Create an empty project and install ViteHub Agents with Vite and H3.
 
 ```bash [Terminal]
-pnpm add @vite-hub/agent @ai-sdk/gateway
+mkdir vitehub-agent-start
+cd vitehub-agent-start
+pnpm init
+pnpm pkg set type=module
+pnpm add @vite-hub/agent h3 vite
 ```
 
-Register the integration.
+## Configure the server build
+
+The first proof imports its Agent Definition directly, so it only needs a
+server build. Add Agent discovery when the application needs a named registry
+or host integration.
 
 ```ts [vite.config.ts]
-import { hubAgent } from '@vite-hub/agent/vite'
-import { defineConfig } from 'vite'
+import { resolve } from "node:path"
+
+import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [hubAgent()],
-})
-```
-
-## Define an agent
-
-Create one Agent Definition under `server/agents`.
-
-```ts [server/agents/support.ts]
-import { gateway } from '@ai-sdk/gateway'
-import { defineAgent } from '@vite-hub/agent'
-
-export default defineAgent({
-  driver: {
-    instructions: 'Answer support questions with short, concrete replies.',
-    model: gateway('openai/gpt-5.1-mini'),
+  root: import.meta.dirname,
+  appType: "custom",
+  build: {
+    outDir: "dist",
+    rollupOptions: {
+      input: resolve(import.meta.dirname, "src/server.ts"),
+      output: { entryFileNames: "server.js" },
+    },
+    ssr: true,
+  },
+  ssr: {
+    external: ["@vite-hub/agent"],
   },
 })
 ```
 
-The discovered Agent name comes from the file location. This file creates the `support` Agent.
+## Define the Agent
 
-## Run an invocation
+Create a deterministic Agent Driver. `driver.run` keeps the first invocation
+observable and free from provider prerequisites.
 
-Call the Agent from ordinary server code with `runAgent()`.
+```ts [server/agents/greeting.ts]
+import { defineAgent } from "@vite-hub/agent"
 
-```ts [server/api/support.post.ts]
-import { runAgent } from '@vite-hub/agent'
-import support from '../agents/support'
+export default defineAgent({
+  description: "Returns a deterministic greeting for the first tutorial.",
+  driver: {
+    run({ prompt }) {
+      const name = typeof prompt === "string" ? prompt : "friend"
 
-export default defineEventHandler(async (event) => {
-  const body = await readBody<{ prompt: string }>(event)
+      return {
+        text: `Hello, ${name}. This result came from an Agent Invocation.`,
+      }
+    },
+  },
+})
+```
 
-  return runAgent(support, { runtime: 'vite' }, {
-    prompt: body.prompt,
+The route imports this Definition directly. Keeping it under `server/agents`
+makes the Agent boundary easy to discover and review.
+
+## Run one Agent Invocation
+
+Create one H3 route that passes host runtime context separately from invocation
+input. `memo`, `runtime`, and `waitUntil` are explicit because `runAgent()` does
+not depend on framework globals.
+
+Create the invocation-scoped memoizer first. It initializes each key once, and
+the route creates a fresh cache for every request.
+
+```ts [src/memo.ts]
+export function createMemo() {
+  const values = new Map<string, unknown>()
+
+  return <T>(key: string, create: () => T): T => {
+    if (!values.has(key)) values.set(key, create())
+    return values.get(key) as T
+  }
+}
+```
+
+```ts [src/server.ts]
+import { createServer } from "node:http"
+
+import { runAgent } from "@vite-hub/agent"
+import { H3, readBody } from "h3"
+import { toNodeHandler } from "h3/node"
+import greeting from "../server/agents/greeting"
+import { createMemo } from "./memo"
+
+const app = new H3().post("/greet", async (event) => {
+  const body = await readBody<{ name?: string }>(event) || {}
+
+  return await runAgent(greeting, {
+    memo: createMemo(),
+    runtime: "vite",
+    waitUntil: task => { void task.catch(error => console.error(error)) },
+  }, {
+    prompt: body.name?.trim() || "friend",
   })
 })
-```
 
-Run the app and post a prompt.
+const port = Number(process.env.PORT || 5173)
 
-```bash [Terminal]
-pnpm dev
-```
-
-```bash [Terminal]
-curl -X POST http://localhost:5173/api/support \
-  -H 'content-type: application/json' \
-  -d '{"prompt":"What can you help with?"}'
-```
-
-The response proves one Agent Invocation can run from normal server code. The route owns HTTP behavior, while the Agent Definition owns the Agent Driver and attached Capabilities.
-
-## Add capabilities later
-
-Capabilities expose model-facing abilities. Do not attach storage, Workspace, chat, or execution access until the product needs it.
-
-```ts [server/agents/support.ts]
-import { gateway } from '@ai-sdk/gateway'
-import { defineAgent } from '@vite-hub/agent'
-import { workspaceShell } from '@vite-hub/agent/capabilities'
-
-export default defineAgent({
-  driver: {
-    instructions: [
-      'Answer from project context first.',
-      'Inspect Workspace files before using outside knowledge.',
-    ].join('\n\n'),
-    model: gateway('openai/gpt-5.1-mini'),
-  },
-  workspace: {
-    sources: {},
-  },
-  capabilities: [
-    workspaceShell({ mode: 'read' }),
-  ],
+createServer(toNodeHandler(app)).listen(port, () => {
+  console.log(`ViteHub Agents tutorial listening on http://localhost:${port}`)
 })
 ```
 
-`workspaceShell()` requires an explicit Workspace because Workspace is the file-tree boundary. Add Sources before relying on Workspace files for answers.
+## Run the server
+
+Build and start the generated Node.js entry.
+
+```bash [Terminal]
+pnpm vite build
+node dist/server.js
+```
+
+Invoke the Agent from another terminal.
+
+```bash [Terminal]
+curl -X POST http://localhost:5173/greet \
+  -H 'content-type: application/json' \
+  -d '{"name":"Ada"}'
+```
+
+The deterministic invocation returns an inspectable result:
+
+```json [Response]
+{"text":"Hello, Ada. This result came from an Agent Invocation."}
+```
+
+You can now replace `driver.run` with a model or coding harness while keeping
+the Agent Definition and invocation boundary.
 
 ## Next steps
 
-- Read [Agent definitions](/docs/agents/agent-definitions) for the full declaration shape.
-- Read [Capabilities API](/docs/concepts/capabilities-api) before exposing model-facing abilities.
-- Read [Workspace and Sources](/docs/concepts/workspace-and-sources) before adding project files.
+- Follow the longer [Agents tutorial](/blog/agents) to upgrade this Agent to an AI SDK model.
+- Read [Agent Definitions](/docs/agents/agent-definitions) for every Agent Driver shape.
+- Read [Invocations](/docs/agents/invocations) for streaming, trusted context, and failure handling.
+- Read [Capabilities](/docs/agents/capabilities) before exposing tools or data.

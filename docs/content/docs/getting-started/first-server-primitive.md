@@ -1,80 +1,114 @@
 ---
-title: First server primitive
-description: Add KV to an app and call it from server code.
+title: First Server Primitive
+description: Add local KV to a small Vite server and return one stored value.
 navigation.order: 3
 icon: i-lucide-server-cog
 ---
 
-KV stores small values by key behind one stable Runtime Helper. It is the fastest first primitive because server code can use it after the Vite Integration resolves the local or hosted store.
+Server Primitives give application code stable APIs for infrastructure. This
+quickstart adds an explicit local KV store to a small H3 server, then proves the
+integration with one request.
+
+::note
+You need Node.js 24 or newer and `pnpm`. The first result runs locally without
+an account or credential.
+::
 
 ## Install KV
 
+Create an empty project and install KV with Vite and H3.
+
 ```bash [Terminal]
-pnpm add @vite-hub/kv
+mkdir vitehub-kv-start
+cd vitehub-kv-start
+pnpm init
+pnpm pkg set type=module
+pnpm add @vite-hub/kv h3 vite
 ```
 
-Register the KV integration.
+## Configure the Vite Integration
+
+Register `hubKv()` and select the file-backed local driver. The explicit
+configuration stores values under `.data/kv`.
 
 ```ts [vite.config.ts]
-import { hubKv } from '@vite-hub/kv/vite'
-import { defineConfig } from 'vite'
+import { resolve } from "node:path"
+
+import { hubKv } from "@vite-hub/kv/vite"
+import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [hubKv()],
+  root: import.meta.dirname,
+  appType: "custom",
+  build: {
+    outDir: "dist",
+    rollupOptions: {
+      input: resolve(import.meta.dirname, "src/server.ts"),
+      output: { entryFileNames: "server.js" },
+    },
+    ssr: true,
+  },
+  plugins: [
+    hubKv({ driver: "fs-lite", base: ".data/kv" }),
+  ],
 })
 ```
 
-Local development uses a file-backed store by default. Add Cloudflare, Vercel, or Upstash configuration only when deployment needs it.
+## Write and read one value
 
-## Write a value
+Create one H3 route. H3 owns HTTP behavior, while the `kv` Runtime Helper owns
+the application-facing storage API.
 
-Create a server route that writes a small JSON-like value through the `kv` Runtime Helper.
+```ts [src/server.ts]
+import { createServer } from "node:http"
 
-```ts [server/api/settings.put.ts]
-import { kv } from '@vite-hub/kv'
+import { kv } from "@vite-hub/kv"
+import { H3, readBody } from "h3"
+import { toNodeHandler } from "h3/node"
 
-export default defineEventHandler(async (event) => {
-  await kv.set('settings', await readBody(event))
-  return { ok: true }
+const app = new H3().post("/settings", async (event) => {
+  const settings = await readBody<{ theme: string }>(event)
+
+  await kv.set("settings", settings)
+
+  return { settings: await kv.get("settings") }
+})
+
+const port = Number(process.env.PORT || 5173)
+
+createServer(toNodeHandler(app)).listen(port, () => {
+  console.log(`ViteHub KV tutorial listening on http://localhost:${port}`)
 })
 ```
 
-## Read the value
+## Run the server
 
-Read from the same Runtime Helper in another server route.
-
-```ts [server/api/settings.get.ts]
-import { kv } from '@vite-hub/kv'
-
-export default defineEventHandler(async () => {
-  return {
-    settings: await kv.get('settings'),
-  }
-})
-```
-
-The route imports `kv` from `@vite-hub/kv`. It does not import a Cloudflare, Vercel, or local driver directly.
-
-## Inspect it
-
-Run the app and call the two routes.
+Build and start the generated Node.js entry.
 
 ```bash [Terminal]
-pnpm dev
+pnpm vite build
+node dist/server.js
 ```
 
+Send a value from another terminal.
+
 ```bash [Terminal]
-curl -X PUT http://localhost:5173/api/settings \
+curl -X POST http://localhost:5173/settings \
   -H 'content-type: application/json' \
   -d '{"theme":"system"}'
-
-curl http://localhost:5173/api/settings
 ```
 
-With the default local driver, KV data is stored under `.data/kv`. The important proof is that route code stays stable while the Vite Integration owns the selected store.
+The response proves that the route wrote and read through ViteHub:
+
+```json [Response]
+{"settings":{"theme":"system"}}
+```
+
+Changing providers belongs in `vite.config.ts`. Server code keeps importing
+`kv` from `@vite-hub/kv` when you move to a supported hosted store.
 
 ## Next steps
 
-- Read the full [KV](/docs/server-primitives/kv) page for prefixes, named stores, and hosted drivers.
-- Use [Database](/docs/server-primitives/database) when data needs relationships, joins, migrations, or history.
-- Read [Runtime Helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports) to understand why server code imports `kv` instead of a provider driver.
+- Follow the longer [Server Primitives tutorial](/blog/server-primitives) for the full boundary explanation.
+- Read [KV](/docs/server-primitives/kv) for named stores and hosted drivers.
+- Read [Runtime Helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports) for the provider boundary.

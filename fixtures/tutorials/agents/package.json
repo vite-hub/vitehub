@@ -1,0 +1,14 @@
+{
+  "name": "vitehub-agents-tutorial",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@vite-hub/agent": "workspace:*",
+    "h3": "catalog:unjs",
+    "vite": "catalog:vite"
+  }
+}

@@ -1,68 +1,74 @@
 ---
 title: Installation
-description: Install the ViteHub preset, register its Vite Integration, and verify the app boots.
+description: Install one ViteHub package or register the full Vite preset.
 navigation.order: 2
 icon: i-lucide-download
 ---
 
-::code-collapse
-
-```txt [Prompt]
-Install ViteHub in my app.
-
-- Start with the ViteHub preset.
-- Install direct primitive or provider packages only when a page asks for them.
-- Register the preset Vite Integration in `vite.config.ts`.
-- Add generated ViteHub types to `tsconfig.json`.
-- Verify local development starts without missing integration errors.
-```
-
-::
-
-ViteHub starts with the `@vite-hub/vite` preset. Add direct primitive, Agent Package, or provider packages only when a guide needs a narrower install.
+ViteHub packages are composable. Install the package that owns your first
+feature, or use the preset when you want to explore several primitives in one
+application.
 
 ## Prerequisites
 
-- Node 24 or newer.
+- Node.js 24 or newer.
 - Vite 8 or newer.
-- A server app with an ESM Vite config, such as `vite.config.ts` in a `"type": "module"` package or `vite.config.mts`.
+- An ESM package with `"type": "module"` or a `vite.config.mts` file.
 - A package manager such as `pnpm`, `npm`, `yarn`, or `bun`.
-- A local `.env` file or provider environment variable system for host credentials.
 
-::steps{level="2"}
+Model providers and hosted primitives may require credentials. Each feature
+guide lists its own environment, network, and billing prerequisites before the
+first call.
 
-## Install the preset
+## Install one package
 
-Install `@vite-hub/vite` for the default ViteHub setup.
+Direct packages keep the first integration small. The quickstarts install
+their HTTP server and Vite dependencies explicitly so every boundary remains
+reproducible.
+
+| Path | Install | Continue |
+| --- | --- | --- |
+| Server Primitives | `pnpm add @vite-hub/kv h3 vite` | [First Server Primitive](/docs/getting-started/first-server-primitive) |
+| Agents | `pnpm add @vite-hub/agent h3 vite` | [First Agent](/docs/getting-started/first-agent) |
+
+Other feature pages provide the matching package and Vite Integration. For
+example, Blob uses `@vite-hub/blob` with `hubBlob()`, while Queue uses
+`@vite-hub/queue` with `hubQueue()`.
+
+## Use the preset
+
+Install `@vite-hub/vite` when one application needs several ViteHub packages
+and you prefer one integration entry point.
 
 ```bash [Terminal]
-pnpm add @vite-hub/vite
+pnpm add @vite-hub/vite vite
 ```
 
-Model-backed agent guides may ask you to install `@vite-hub/agent` and a model provider such as `@ai-sdk/gateway` directly. Use those page-specific installs when you are following that narrower path.
-
-::tip
-Install only the packages you use. Add Env, Database, Blob, Queue, Workflow, Schedule, Sandbox, Workspace, Agent, or provider packages when a page or feature needs them.
-::
-
-## Register the Vite Integration
-
-Register the preset Vite Integration with `vitehub()` in `vite.config.ts`. ViteHub packages are ESM-only, so fresh npm projects should either set `"type": "module"` in `package.json` or name the config `vite.config.mts`.
+Register the preset in Vite.
 
 ```ts [vite.config.ts]
-import { vitehub } from "@vite-hub/vite";
-import { defineConfig } from "vite";
+import { vitehub } from "@vite-hub/vite"
+import { defineConfig } from "vite"
 
 export default defineConfig({
   plugins: [
     vitehub(),
   ],
-});
+})
 ```
+
+The preset composes package integrations. Product code still imports Runtime
+Helpers from the package that owns the feature.
+
+::tip
+Prefer a direct package for the first proof. Add the preset when it removes
+real integration repetition from an application that uses several packages.
+::
 
 ## Add generated types
 
-Some packages write generated types under `.vitehub/types`. Add that directory to `tsconfig.json` before using generated names or stable `#vitehub/...` imports.
+Some packages write types under `.vitehub/types`. Include that directory when
+your application uses generated names or stable `#vitehub/...` imports.
 
 ```json [tsconfig.json]
 {
@@ -74,20 +80,19 @@ Some packages write generated types under `.vitehub/types`. Add that directory t
 }
 ```
 
-## Verify local development
+## Verify the integration
 
-Run the development server.
+Run the application through its Vite-based development command. A Runtime
+Helper without its matching Vite Integration should fail visibly instead of
+silently choosing an unrelated provider.
 
-```bash [Terminal]
-pnpm dev
-```
+The two first-success guides include complete build and runtime commands:
 
-Confirm the app starts without missing integration errors. If server code imports a ViteHub Runtime Helper but the matching Vite Integration is missing, local development should report the mismatch before deployment.
-
-::
+- [First Server Primitive](/docs/getting-started/first-server-primitive) stores and reads a KV value without credentials.
+- [First Agent](/docs/getting-started/first-agent) runs a deterministic Agent Invocation without a model key.
 
 ## Next steps
 
-- Continue with [First server primitive](/docs/getting-started/first-server-primitive) to store and read a KV value.
-- Continue with [First agent](/docs/getting-started/first-agent) to define and run an Agent.
-- Read [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output) to understand what the integration owns.
+- Read [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output) to understand integration ownership.
+- Open [Server Primitives](/docs/server-primitives) to choose infrastructure.
+- Open [Agents](/docs/agents) to choose an Agent Driver and Capabilities.

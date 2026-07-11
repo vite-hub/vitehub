@@ -1,0 +1,14 @@
+{
+  "name": "vitehub-server-primitives-tutorial",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@vite-hub/kv": "workspace:*",
+    "h3": "catalog:unjs",
+    "vite": "catalog:vite"
+  }
+}
