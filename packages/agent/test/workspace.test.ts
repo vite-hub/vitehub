@@ -408,10 +408,13 @@ describe("defineAgent workspace option", () => {
       get: vi.fn(),
       head: vi.fn(),
       list: vi.fn(async () => ({ blobs: [], hasMore: false })),
-      put: vi.fn(async (pathname: string) => ({
-        pathname,
-        url: `/api/_vitehub/blob/${pathname}`,
-      })),
+      put: vi.fn(async (pathname: string) => {
+        const normalizedPathname = decodeURIComponent(pathname)
+        return {
+          pathname: normalizedPathname,
+          url: `/api/_vitehub/blob/${normalizedPathname}`,
+        }
+      }),
     }
     readFile.mockImplementation(async (path: string) => path === "artifacts/preview.png" ? preview : undefined)
     stat.mockImplementation(async (path: string) => path === "artifacts/preview.png"
@@ -474,7 +477,7 @@ describe("defineAgent workspace option", () => {
       ...runtimeContext,
       capabilities: { blob: store },
       request: new Request("https://review.example/api/github"),
-      run: { runId: "review-run" },
+      run: { runId: "github:acme/app#42:comment:99" },
     }
     const result = await runAgent(agent, runtime as never, { prompt: "hello" })
     expect(result).toMatchObject({
@@ -483,7 +486,7 @@ describe("defineAgent workspace option", () => {
         mediaType: "image/png",
         path: "artifacts/preview.png",
         placement: "inline",
-        url: "https://review.example/api/_vitehub/blob/vitehub-agent-artifacts/review-run/artifacts/preview.png",
+        url: expect.stringMatching(/^https:\/\/review\.example\/api\/_vitehub\/blob\/vitehub-agent-artifacts\/[a-f0-9]{64}\/artifacts\/preview\.png$/),
       }],
     })
     expect(laterRenderer).toHaveBeenCalledOnce()
@@ -497,7 +500,7 @@ describe("defineAgent workspace option", () => {
     })
     expect(store.put).toHaveBeenCalledOnce()
     expect(store.put).toHaveBeenCalledWith(
-      "vitehub-agent-artifacts/review-run/artifacts/preview.png",
+      expect.stringMatching(/^vitehub-agent-artifacts\/[a-f0-9]{64}\/artifacts\/preview\.png$/),
       preview,
       { contentType: "image/png" },
     )

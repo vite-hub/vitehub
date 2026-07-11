@@ -161,6 +161,12 @@ function absoluteBlobArtifactUrl(value: unknown, request: Request | undefined): 
   }
 }
 
+async function artifactRunPathSegment(runId: string | undefined): Promise<string> {
+  if (!runId) return globalThis.crypto.randomUUID()
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(runId))
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")
+}
+
 async function publishReferencedHarnessArtifacts(
   result: unknown,
   context: Parameters<NonNullable<AgentCapabilityDefinition["output"]>>[0],
@@ -178,7 +184,7 @@ async function publishReferencedHarnessArtifacts(
   if (!artifacts.length) return result
 
   const store = await resolveBlobStore(context, options)
-  const prefix = `vitehub-agent-artifacts/${encodeURIComponent(context.run?.runId || globalThis.crypto.randomUUID())}`
+  const prefix = `vitehub-agent-artifacts/${await artifactRunPathSegment(context.run?.runId)}`
   const published = await publishWorkspaceArtifacts(context, artifacts, {
     prefix,
     publish: async input => ({
