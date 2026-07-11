@@ -429,6 +429,7 @@ describe("defineAgent workspace option", () => {
     const providerData = { sessionId: "provider-session" }
     const markdown = [
       "![Preview](/workspace/codex-session/artifacts/preview.png)",
+      "![Nested](/workspace/codex-session/tmp/artifacts/preview.png)",
       "Bare path: artifacts/bare.png",
       "[App route](/docs/artifacts/app-route.png)",
       "[Gallery](artifacts/gallery)",
