@@ -85,8 +85,32 @@ describe("hubBlob", () => {
     } as never)
 
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
-    expect(nitroPlugin).toContain("import { blob as blobConfig } from '#vitehub/blob/config'")
+    expect(nitroPlugin).toContain('"base":".runtime/blob"')
+    expect(nitroPlugin).not.toContain("#vitehub/blob/config")
     expect(nitroPlugin).toContain("setBlobRuntimeConfig(blobConfig)")
+  })
+
+  it("masks credentials embedded in Nitro runtime setup", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-masked-"))
+    const previousToken = process.env.BLOB_READ_WRITE_TOKEN
+    process.env.BLOB_READ_WRITE_TOKEN = "private-token"
+
+    try {
+      const plugin = hubBlob()
+      const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
+      await configResolved({
+        build: { outDir: "dist" },
+        root,
+      } as never)
+    }
+    finally {
+      if (previousToken === undefined) delete process.env.BLOB_READ_WRITE_TOKEN
+      else process.env.BLOB_READ_WRITE_TOKEN = previousToken
+    }
+
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain('"token":"********"')
+    expect(nitroPlugin).not.toContain("private-token")
   })
 
   it("registers an opt-in Nitro serving route", async () => {
