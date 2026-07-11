@@ -845,7 +845,7 @@ function validateWorkspaceCapabilities<Name extends WorkspaceName>(options: Work
   for (const capability of capabilities) {
     if (capability.id === "workspace-shell") {
       const metadata = capability.metadata as { commands?: unknown } | undefined
-      const requiresWritableSession = Array.isArray(metadata?.commands)
+      const requiresWritableSession = metadata?.commands !== undefined
       if (requiresWritableSession && workspaceMode !== "write") {
         throw new Error("[vitehub] workspaceShell({ commands }) requires workspace.mode: \"write\".")
       }

@@ -26,10 +26,14 @@ function workspaceSession(options: { exitCode?: number } = {}) {
 async function capabilityTools(
   capability: AgentCapabilityDefinition = workspaceShell({ commands: ["agent-browser"] }),
   session = workspaceSession(),
+  runtime: "sandbox" | "trusted-host" | { allowProduction?: boolean, type: "trusted-host" } | null = "trusted-host",
 ): Promise<{ session: ReturnType<typeof workspaceSession>, startSession: ReturnType<typeof vi.fn>, tools: AgentToolSet }> {
   if (typeof capability.tools !== "function") throw new Error("workspaceShell capability must expose tool resolver")
   const startSession = vi.fn(async () => session)
-  const tools = await capability.tools({ workspace: { startSession, tools: { inspect: () => ({}) } } } as never) as AgentToolSet
+  const tools = await capability.tools({
+    workspace: { startSession, tools: { inspect: () => ({}) } },
+    workspaceDefinition: { name: "test", runtime: runtime ?? undefined },
+  } as never) as AgentToolSet
   return { session, startSession, tools }
 }
 
@@ -48,10 +52,45 @@ describe("workspaceShell capability", () => {
       metadata: { mode: "write" },
       requires: [{ workspace: { mode: "write", required: true } }],
     })
+    expect(workspaceShell({ commands: "trusted-host" })).toMatchObject({
+      metadata: { commands: "trusted-host", mode: "read" },
+      requires: [{ workspace: { mode: "write", required: true } }],
+    })
     expect(() => workspaceShell({ commands: [] })).toThrow("requires at least one command")
     expect(() => workspaceShell({ commands: ["pnpm test"] })).toThrow("without whitespace")
     expect(() => workspaceShell({ commands: ["./agent-browser"] })).toThrow("simple executable names or absolute paths")
     expect(() => workspaceShell({ commands: ["agent-browser\n"] })).toThrow("without whitespace")
+  })
+
+  it("runs arbitrary structured commands only in an explicit trusted-host runtime", async () => {
+    const capability = workspaceShell({ commands: "trusted-host", timeout: 5_000 })
+
+    await expect(capabilityTools(capability, workspaceSession(), null)).rejects.toThrow(
+      "requires workspace.runtime: \"trusted-host\"",
+    )
+    await expect(capabilityTools(capability, workspaceSession(), "sandbox")).rejects.toThrow(
+      "requires workspace.runtime: \"trusted-host\"",
+    )
+
+    const stringRuntime = await capabilityTools(capability)
+    await expect(stringRuntime.tools.workspace_exec!.execute?.({
+      args: ["issue", "list"],
+      command: "gh",
+    })).resolves.toMatchObject({ exitCode: 0 })
+    expect(stringRuntime.session.exec).toHaveBeenCalledWith("gh", ["issue", "list"], {
+      cwd: "/workspace",
+      env: undefined,
+      timeout: 5_000,
+    })
+
+    const objectRuntime = await capabilityTools(capability, workspaceSession(), { allowProduction: true, type: "trusted-host" })
+    await expect(objectRuntime.tools.workspace_exec!.execute?.({
+      args: ["-lc", "git status && mktemp"],
+      command: "sh",
+    })).resolves.toMatchObject({ exitCode: 0 })
+    await expect(objectRuntime.tools.workspace_exec!.execute?.({ command: "pnpm test" })).rejects.toThrow(
+      "without whitespace/control characters",
+    )
   })
 
   it("runs only allow-listed commands with structured exec options", async () => {

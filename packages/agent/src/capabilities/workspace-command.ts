@@ -135,24 +135,29 @@ function assertWorkspace(workspace: unknown, message: string): asserts workspace
 }
 
 export function workspaceCommandTools(
-  commands: readonly (string | WorkspaceCommandEntry)[],
+  commands: readonly (string | WorkspaceCommandEntry)[] | "trusted-host",
   mode: AgentCapabilityMode,
   timeout: number | undefined,
   workspace: unknown,
   options: WorkspaceCommandToolOptions = {},
 ): AgentToolSet {
-  const entries = commands.map(command => typeof command === "string" ? { command } : command)
+  const unrestricted = commands === "trusted-host"
+  const entries = unrestricted ? [] : commands.map(command => typeof command === "string" ? { command } : command)
   const commandNames = entries.map(entry => entry.command)
   const toolName = options.toolName || "workspace_exec"
   const summary = entries.map(entry => entry.description ? `${entry.command} (${entry.description})` : entry.command).join(", ")
   return {
     [toolName]: defineInternalTool({
-      description: options.description || `Run one configured command in a trusted Workspace Session at the workspace root. Allowed commands: ${summary}.`,
+      description: options.description || (unrestricted
+        ? "Run any executable in a trusted Workspace Session with the host service account's authority."
+        : `Run one configured command in a trusted Workspace Session at the workspace root. Allowed commands: ${summary}.`),
       inputSchema: {
         additionalProperties: false,
         properties: {
           args: { items: { type: "string" }, type: "array" },
-          command: { enum: commandNames, type: "string" },
+          command: unrestricted
+            ? { description: "Executable name or absolute executable path.", type: "string" }
+            : { enum: commandNames, type: "string" },
           cwd: { description: "Workspace-relative directory. Defaults to the workspace root.", type: "string" },
           env: { additionalProperties: { type: "string" }, type: "object" },
           timeout: { type: "number" },
@@ -164,7 +169,8 @@ export function workspaceCommandTools(
       async execute(input: unknown) {
         const value = input as WorkspaceCommandInput
         if (!value || typeof value.command !== "string") throw new TypeError(`[vitehub] ${toolName} requires a command.`)
-        if (!commandNames.includes(value.command)) throw new Error(`[vitehub] Workspace command "${value.command}" is not allowed.`)
+        if (unrestricted) normalizeWorkspaceCommandEntries([value.command], `${toolName} command`)
+        else if (!commandNames.includes(value.command)) throw new Error(`[vitehub] Workspace command "${value.command}" is not allowed.`)
         const args = stringArray(value.args, "args")
         const cwd = normalizeCwd(value.cwd)
         const env = envRecord(value.env)

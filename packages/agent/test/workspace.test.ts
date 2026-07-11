@@ -1109,6 +1109,12 @@ describe("defineAgent workspace option", () => {
       driver: { model: {} as never, },
       workspace: { mode: "read" },
     })).toThrow("workspaceShell({ commands }) requires workspace.mode: \"write\"")
+
+    expect(() => defineAgent({
+      capabilities: [workspaceShell({ commands: "trusted-host" })],
+      driver: { model: {} as never },
+      workspace: { mode: "read" },
+    })).toThrow("workspaceShell({ commands }) requires workspace.mode: \"write\"")
   })
 
   it("requires writable workspace for browser bash commands", async () => {
@@ -3959,6 +3965,24 @@ describe("defineAgent workspace option", () => {
         }),
       ]),
     })
+  })
+
+  it("marks unrestricted trusted-host execution in DevTools metadata", async () => {
+    const { createAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
+    const { workspaceShell } = await import("../src/capabilities.ts")
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [workspaceShell({ commands: "trusted-host", mode: "write" })],
+      driver: { model: {} as never },
+      workspace: { mode: "write", runtime: "trusted-host" },
+    }), { workspace: "support" })
+
+    expect(createAgentDevtoolsMetadata(agent).tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        commands: expect.arrayContaining(["workspace_exec (any host executable)"]),
+        description: expect.stringContaining("trusted host service account's authority"),
+        name: "workspaceShell",
+      }),
+    ]))
   })
 
   it("composes static DevTools instruction metadata", async () => {
