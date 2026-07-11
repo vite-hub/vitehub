@@ -19,6 +19,7 @@ import { toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { createChatDevtoolsStreamResponse } from "../chat/devtools-stream.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
+import { messageChannelStateContextKey } from "../internal/channels.ts"
 
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { UIMessageLike } from "../chat-message-input.ts"
@@ -972,7 +973,7 @@ async function resolveChatState(
   context: ViteAgentRouteRuntimeContext,
   registration: AgentWebhookRegistrationDefinition,
   handlerOptions: AgentChannelWebhookRouteOptions,
-): Promise<StateAdapter> {
+): Promise<{ state: StateAdapter, titleKeyPrefix: string }> {
   const agentName = handlerOptions.agentName || "agent"
   const origin = chatRegistrationOrigin(registration)
   const stateKeyPrefix = `chat:${agentName}:${origin}:`
@@ -986,10 +987,19 @@ async function resolveChatState(
       },
     } as never,
   )
-  if (!state) return getInMemoryChatState(`${agentName}:${origin}`)
-  return options?.state === undefined && !chatStateOwnsScope(handlerOptions.state)
-    ? withChatStateScope(state, stateKeyPrefix)
-    : state
+  if (!state) {
+    return {
+      state: getInMemoryChatState(`${agentName}:${origin}`),
+      titleKeyPrefix: stateKeyPrefix,
+    }
+  }
+  if (options?.state === undefined && !chatStateOwnsScope(handlerOptions.state)) {
+    return {
+      state: withChatStateScope(state, stateKeyPrefix),
+      titleKeyPrefix: "",
+    }
+  }
+  return { state, titleKeyPrefix: stateKeyPrefix }
 }
 
 function chatSdkOption<T>(options: AgentChatOptions | undefined, key: string): T | undefined {
@@ -1570,6 +1580,7 @@ async function handleChatSdkMessage(
   thread: Thread,
   message: ChatSdkMessage,
   options: AgentChatOptions | undefined,
+  state: { keyPrefix: string, state: StateAdapter },
   messageContext?: MessageContext,
 ): Promise<void> {
   let input: AgentChatMessageTriggerInput | undefined
@@ -1600,7 +1611,13 @@ async function handleChatSdkMessage(
       ...(invocation.run ? { run: invocation.run } : {}),
     }
     const chatFinish = createChatFinishExtension(input, registration)
-    const invocationInput = withChatFinishExtension(withResolvedAgentInvokerInput(invocation.input as AgentRunInput, invoker), chatFinish)
+    const invocationInput = withChatFinishExtension(withResolvedAgentInvokerInput({
+      ...(invocation.input as AgentRunInput),
+      context: {
+        ...(invocation.input as AgentRunInput).context,
+        [messageChannelStateContextKey]: state,
+      },
+    }, invoker), chatFinish)
     if (options?.stream === false) {
       const result = await runAgentInline(agent as never, runContext as never, invocationInput as never)
       const text = await collectAgentOutput(result)
@@ -1649,21 +1666,23 @@ async function createChatWebhookHandler(
   options: AgentChatOptions | undefined,
   handlerOptions: AgentChannelWebhookRouteOptions,
 ): Promise<(request: Request, webhookOptions: WebhookOptions) => Promise<Response>> {
+  const resolvedState = await resolveChatState(options, context, registration, handlerOptions)
   const chat = new Chat(createChatSdkConfig(
     adapterName,
     adapter,
-    await resolveChatState(options, context, registration, handlerOptions),
+    resolvedState.state,
     options,
   ))
+  const state = { keyPrefix: resolvedState.titleKeyPrefix, state: resolvedState.state }
 
   chat.onDirectMessage((thread, message, _channel, messageContext) =>
-    handleChatSdkMessage(agent, context, registration, thread, message, options, messageContext))
+    handleChatSdkMessage(agent, context, registration, thread, message, options, state, messageContext))
   chat.onNewMention(async (thread, message, messageContext) => {
     await thread.subscribe().catch(() => undefined)
-    await handleChatSdkMessage(agent, context, registration, thread, message, options, messageContext)
+    await handleChatSdkMessage(agent, context, registration, thread, message, options, state, messageContext)
   })
   chat.onSubscribedMessage((thread, message, messageContext) =>
-    handleChatSdkMessage(agent, context, registration, thread, message, options, messageContext))
+    handleChatSdkMessage(agent, context, registration, thread, message, options, state, messageContext))
 
   const handler = chat.webhooks[adapterName]
   if (!handler) {
@@ -2722,7 +2741,7 @@ export function createDiscordGatewayRouteHandler(
           return createJsonErrorResponse(500, `Discord chat adapter "${adapterName}" does not expose startGatewayListener().`)
         }
 
-        const state = await resolveChatState(chatOptions, context, {
+        const { state } = await resolveChatState(chatOptions, context, {
           adapter: adapterName,
           channelId: adapterName,
           id: adapterName,
