@@ -514,17 +514,18 @@ async function copySandboxChangesToWorkspace(
   }
 
   const diff = await session.diff()
-  await onWriteBack?.(diff)
   if (!diff.entries.length) return
   if (commit) {
     const commitOptions = commit(diff)
     if (!commitOptions) return
     await session.commit({ message: commitOptions.message || "harness-workspace-session" })
+    await onWriteBack?.(diff)
     return
   }
   const autoCommit = definition ? resolveWorkspaceAutoCommit(definition, diff) : undefined
   if (definition && !autoCommit) return
   await session.commit({ message: autoCommit?.message || "harness-workspace-session" })
+  await onWriteBack?.(diff)
 }
 
 export async function prepareHarnessWorkspaceSession(

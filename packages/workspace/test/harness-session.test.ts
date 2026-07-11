@@ -610,7 +610,7 @@ describe("Harness Workspace Session", () => {
     expect(workspaceSession.writeFile).toHaveBeenCalledWith("README.md", updated, { mediaType: "text/markdown" })
     expect(workspaceSession.writeFile).toHaveBeenCalledWith("new.json", added, { mediaType: "application/json" })
     expect(onWriteBack).toHaveBeenCalledWith(writeBackDiff)
-    expect(order).toEqual(["write-back", "commit"])
+    expect(order).toEqual(["commit", "write-back"])
     expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "chore: update docs" })
     expect(workspaceSession.close).toHaveBeenCalledOnce()
   })
@@ -630,6 +630,7 @@ describe("Harness Workspace Session", () => {
       writeFile: vi.fn(async () => {}),
     }
     const commit = vi.fn(() => commitPlan)
+    const onWriteBack = vi.fn(async () => {})
 
     const session = await prepareHarnessWorkspaceSession({
       fs: {
@@ -640,6 +641,7 @@ describe("Harness Workspace Session", () => {
       tools: {},
     } as never, {
       commit,
+      onWriteBack,
       session: {
         readBinaryFile: vi.fn(async () => updated),
         run: sandboxRun(["README.md"]),
@@ -653,6 +655,7 @@ describe("Harness Workspace Session", () => {
     expect(workspaceSession.writeFile).toHaveBeenCalledWith("README.md", updated, { mediaType: "text/markdown" })
     expect(commit).toHaveBeenCalledWith(diff)
     expect(workspaceSession.commit).not.toHaveBeenCalled()
+    expect(onWriteBack).not.toHaveBeenCalled()
     expect(workspaceSession.close).toHaveBeenCalledOnce()
   })
 
