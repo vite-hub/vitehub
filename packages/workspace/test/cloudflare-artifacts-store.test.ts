@@ -35,13 +35,13 @@ function artifactsError(code: number, message: string) {
   return Object.assign(new Error(message), { code })
 }
 
-function artifactsRepo(options: { lastPushAt?: string | null, source?: string | null, token?: string } = {}) {
+function artifactsRepo(options: { defaultBranch?: string, lastPushAt?: string | null, source?: string | null, token?: string } = {}) {
   return {
     createToken: vi.fn(async () => ({
       expiresAt: expiresIn(3_600_000),
       plaintext: options.token || "art_v1_fresh?expires=999",
     })),
-    defaultBranch: "main",
+    defaultBranch: options.defaultBranch || "main",
     lastPushAt: options.lastPushAt ?? null,
     name: "vitehub-workspace-docs",
     remote,
@@ -391,6 +391,25 @@ describe("Cloudflare Artifacts workspace store", () => {
     gitMock.statusMatrix.mockResolvedValueOnce([])
     await expect(store.snapshot()).resolves.toMatchObject({ id: "remote-commit" })
     expect(gitMock.resolveRef).toHaveBeenCalledWith(expect.objectContaining({ ref: "main" }))
+  })
+
+  it("snapshots an existing repository to its default branch", async () => {
+    const repo = artifactsRepo({
+      defaultBranch: "trunk",
+      lastPushAt: "2026-07-11T00:00:00.000Z",
+    })
+    gitMock.clone.mockResolvedValueOnce(undefined)
+    const store = await createStore({
+      create: vi.fn(),
+      get: vi.fn(async () => repo),
+    })
+
+    await store.writeFile("README.md", { content: "hello", path: "README.md" })
+    await store.snapshot()
+
+    expect(gitMock.clone).toHaveBeenCalledWith(expect.objectContaining({ ref: "trunk" }))
+    expect(gitMock.resolveRef).toHaveBeenCalledWith(expect.objectContaining({ ref: "trunk" }))
+    expect(gitMock.push).toHaveBeenCalledWith(expect.objectContaining({ ref: "trunk" }))
   })
 
   it("stages Workspace files ignored by repository Git rules", async () => {

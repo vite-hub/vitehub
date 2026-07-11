@@ -90,6 +90,7 @@ function isNonFastForward(error: unknown) {
 
 class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   #baseline: WorkspaceSnapshot | undefined
+  #branch = "main"
   #files = new Map<string, FileMetadata>()
   #fs: MemoryFS | undefined
   #pendingCommit: string | undefined
@@ -261,14 +262,14 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
           fs: this.#fs! as never,
           http,
           onAuth: () => ({ password: token, username: "x" }),
-          ref: this.options.branch || "main",
+          ref: this.#branch,
           url: this.#repo!.remote,
         })
       }
       catch (error) {
         if (isNonFastForward(error)) {
           throw new WorkspaceError(
-            `[vitehub] Workspace "${this.workspaceName}" changed remotely while snapshotting branch "${this.options.branch || "main"}". Reload the Workspace before retrying.`,
+            `[vitehub] Workspace "${this.workspaceName}" changed remotely while snapshotting branch "${this.#branch}". Reload the Workspace before retrying.`,
             { cause: error },
           )
         }
@@ -397,14 +398,14 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     }
 
     this.#repo = repo
+    this.#branch = this.options.branch || repo.defaultBranch || "main"
     if (created) this.#rememberToken(created.token)
     this.#fs = new MemoryFS()
     await this.#fs.promises.mkdir(dir, { recursive: true })
     if (created || (repo.lastPushAt === null && repo.source === null)) {
-      await git.init({ defaultBranch: this.options.branch || "main", dir, fs: this.#fs as never })
+      await git.init({ defaultBranch: this.#branch, dir, fs: this.#fs as never })
     }
     else {
-      const branch = this.options.branch || repo.defaultBranch || "main"
       const token = await this.#writeToken()
       await git.clone({
         depth: 1,
@@ -412,11 +413,11 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
         fs: this.#fs as never,
         http,
         onAuth: () => ({ password: token, username: "x" }),
-        ref: branch,
+        ref: this.#branch,
         singleBranch: true,
         url: repo.remote,
       })
-      head = await git.resolveRef({ dir, fs: this.#fs as never, ref: branch })
+      head = await git.resolveRef({ dir, fs: this.#fs as never, ref: this.#branch })
     }
     await this.#loadFileMetadata()
     const baseline = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }))
