@@ -1,12 +1,12 @@
 ---
 title: Raw Markdown pages
-description: Use public raw Markdown routes for page-level AI-readable ViteHub documentation.
+description: Load one canonical ViteHub documentation page as clean Markdown.
 navigation.order: 61
 icon: i-vscode-icons-file-type-markdown
 ---
 
-Raw Markdown pages expose ViteHub docs content without the rendered docs shell.
-Use them when an AI tool or coding agent needs copyable page content with a stable URL.
+Raw Markdown pages expose canonical ViteHub content without the rendered site shell.
+Use them after `llms.txt` identifies the smallest page that answers the current task.
 
 ## Route patterns
 
@@ -18,54 +18,40 @@ Use them when an AI tool or coding agent needs copyable page content with a stab
 
 For example, the rendered page `/docs/ai-resources/markdown-pages` is available as `/raw/docs/ai-resources/markdown-pages.md`.
 
-## Local source layout
+## Give an agent one page
 
-Agents working inside this repository can inspect the authoring files directly.
+Start with the compact index, select one raw page, and preserve its URL with the supplied context.
 
-| Source path | Purpose |
-| --- | --- |
-| `docs/content/docs/index.md` | Root docs page. |
-| `docs/content/docs/<section>/index.md` | Section landing page. |
-| `docs/content/docs/<section>/<page>.md` | Normal page source. |
-| `docs/content/docs/<section>/.navigation.yml` | Sidebar metadata. |
-
-## Authoring rules
-
-Markdown pages should define the subject in the first sentence and keep examples small.
-Use complete sentences, active voice, present tense, and file-labeled code blocks.
-
-```md [docs/content/docs/development/generated-files.md]
-# Generated files
-
-Generated files prove how ViteHub resolved Definitions, Runtime Registries, stable imports, and Provider Output.
-Application code should use Stable ViteHub Import Paths instead of importing generated files directly.
+```txt [Agent flow]
+1. Fetch https://vitehub.dev/llms.txt.
+2. Select one raw Markdown URL for the task.
+3. Read that page and inspect the installed package contract.
+4. Keep the URL in the final implementation report.
 ```
 
-## Public raw Markdown
+Add a second page only when the first page links to a required concept or reference.
+This keeps task context focused and makes documentation drift easier to identify.
 
-Public raw Markdown routes are available for each docs page.
-Use local source files when you are editing the repo; use raw routes when you are feeding published docs to an external tool.
+## Copy context into another tool
 
-| Feature | Status |
-| --- | --- |
-| Local Markdown source | Available |
-| Rendered docs routes | Available |
-| Raw Markdown route per docs page | Available |
-| Markdown manifest with page metadata | Partially available through generated docs artifacts |
+Copy the relevant section with its source URL.
+The receiving tool can then preserve provenance and fetch current context when needed.
 
-## Copy and paste usage
-
-When sharing docs context with an AI tool, paste the smallest relevant section and include the raw URL above it.
-For repo-local work, include the local source path instead.
-
-```txt [External AI context]
-Source: https://vitehub.dev/raw/docs/ai-resources/markdown-pages.md
+```txt [Prompt context]
+Source: https://vitehub.dev/raw/docs/agents/instructions.md
 
 <paste the relevant Markdown section>
 ```
 
-## Next steps
+## Inspect local source
 
-- Use [llms.txt](/docs/ai-resources) for the page index.
-- Use [File conventions](/docs/reference/file-conventions) for source layout rules.
-- Use [MCP docs server](/docs/ai-resources/mcp-docs-server) for the planned remote access path.
+Agents contributing to this repository can inspect `docs/content/docs/` directly.
+Use the public raw URL when building an external application so the context remains portable.
+
+::important
+Raw pages describe the current published documentation. If their examples disagree with an application's installed exports or types, use the installed contract and report the mismatch.
+::
+
+## Choose another format
+
+Use [AI-readable documentation](/docs/ai-resources) to choose between the public skill, `llms.txt`, `llms-full.txt`, raw Markdown, and rendered pages.
