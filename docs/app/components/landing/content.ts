@@ -14,16 +14,18 @@ export const landingLanes = [
     docsPath: "/docs/server-primitives",
     action: "Run the Server Primitives tutorial",
     docsAction: "Explore every primitive",
-    codeLabel: "server/api/launch.put.ts",
+    codeLabel: "src/server.ts",
     code: `import { kv } from '@vite-hub/kv'
-import { defineEventHandler } from 'h3'
+import { H3 } from 'h3'
 
-export default defineEventHandler(async () => {
+const app = new H3().put('/launch', async () => {
   await kv.set('launch', { ready: true })
 
   return kv.get('launch')
-})`,
-    proof: "The route imports one stable Runtime Helper. The Vite Integration resolves the local or hosted KV driver.",
+})
+
+export default app`,
+    proof: "The H3 app imports one stable Runtime Helper. The Vite Integration resolves the local or hosted KV driver.",
   },
   {
     id: "agents",

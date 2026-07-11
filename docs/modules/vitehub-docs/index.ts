@@ -27,10 +27,9 @@ export default defineNuxtModule({
   },
   async setup(_options, nuxt) {
     const docsRoot = nuxt.options.rootDir;
-    const repoRoot = resolve(docsRoot, "..");
     const outputDir = resolve(docsRoot, ".generated");
 
-    const manifest = readDocsArtifactsManifest(outputDir) || writeDocsArtifacts({ docsRoot, repoRoot, outputDir });
+    const manifest = readDocsArtifactsManifest(outputDir) || writeDocsArtifacts({ docsRoot, outputDir });
     nuxt.options.alias["#vitehub-docs-manifest"] = resolve(outputDir, "docs-manifest.mjs");
     nuxt.hook("prerender:routes", (context) => {
       for (const route of collectPrerenderRoutes(manifest)) {
@@ -40,11 +39,5 @@ export default defineNuxtModule({
 
     // Remove Docus catch-all page; ViteHub owns the docs route shell.
     nuxt.hook("pages:extend", removeDocusCatchAllPage);
-
-    // Regenerate artifacts when showcase examples change (Content handles markdown HMR).
-    nuxt.hook("builder:watch", async (_event, path) => {
-      if (!path.includes("/packages/") || !path.includes("/examples/")) return;
-      writeDocsArtifacts({ docsRoot, repoRoot, outputDir });
-    });
   },
 });

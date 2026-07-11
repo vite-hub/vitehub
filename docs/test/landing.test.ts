@@ -22,7 +22,8 @@ describe("landing page", () => {
       expect(lane.outcomes).toHaveLength(3)
     }
 
-    expect(landingLanes[0].codeLabel).toMatch(/\.put\.ts$/)
+    expect(landingLanes[0].codeLabel).toBe("src/server.ts")
+    expect(landingLanes[0].code).toContain("new H3()")
   })
 
   it("keeps the two layers explicit", () => {
