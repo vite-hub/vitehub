@@ -87,7 +87,7 @@ function createViteHubCodex(settings: CodexHarnessSettings) {
         bootstrapDir: codexBootstrapDir,
         commands: [
           { command: `mkdir -p ${codexBootstrapDir}` },
-          { command: `if command -v pnpm >/dev/null 2>&1; then pnpm --dir ${codexBootstrapDir} install --ignore-workspace --frozen-lockfile --store-dir ${codexBootstrapDir}/.pnpm-store; else corepack pnpm@10.33.2 --dir ${codexBootstrapDir} install --ignore-workspace --frozen-lockfile --store-dir ${codexBootstrapDir}/.pnpm-store; fi` },
+          { command: `if command -v corepack >/dev/null 2>&1 && corepack pnpm@10.33.2 --dir ${codexBootstrapDir} install --ignore-workspace --frozen-lockfile --store-dir ${codexBootstrapDir}/.pnpm-store; then :; else pnpm --dir ${codexBootstrapDir} install --ignore-workspace --frozen-lockfile --store-dir ${codexBootstrapDir}/.pnpm-store; fi` },
         ],
         files: [
           { content: `${JSON.stringify(packageJson, null, 2)}\n`, path: `${codexBootstrapDir}/package.json` },
