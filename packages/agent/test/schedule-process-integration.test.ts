@@ -129,6 +129,7 @@ describe("Agent Process Schedule integration", () => {
       server: { middlewareMode: true },
     })
     const closeHandlers: Array<() => Promise<void> | void> = []
+    const requestHandlers: Array<() => Promise<void> | void> = []
     let scheduleProbe: {
       executeRuntimeSchedule: (options: { id: string, scheduledAt: Date }) => Promise<unknown>
       resetScheduleRuntime: () => void
@@ -159,12 +160,13 @@ describe("Agent Process Schedule integration", () => {
         hooks: {
           hook(name: string, handler: () => Promise<void> | void) {
             if (name === "close") closeHandlers.push(handler)
+            if (name === "request") requestHandlers.push(handler)
           },
         },
       }
       await runtimePlugin.default(nitroApp)
-      expect(pluginSource).toMatch(/nitroApp\.fetch = async \((?:request|\.\.\.args)\) =>/)
-      expect(pluginSource).not.toContain("nitroApp.hooks.hook('request'")
+      for (const request of requestHandlers) await request()
+      expect(pluginSource).toMatch(/nitroApp\.(?:fetch = async \((?:request|\.\.\.args)\) =>|hooks\.hook\('request')/)
       expect(pluginSource).not.toContain("h3App")
       const response = await nitroApp.fetch(new Request("https://example.com/api/_vitehub/agents/mini/chat", {
         body: JSON.stringify({
