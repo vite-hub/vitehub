@@ -142,19 +142,22 @@ describe("Agent Process Schedule integration", () => {
       expect(registry).toHaveProperty("agent/mini")
 
       const runtimePlugin = await server.ssrLoadModule(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"))
-      const stack: Array<{ handler: () => Promise<void> }> = []
+      const requestHandlers: Array<() => Promise<void> | void> = []
       await runtimePlugin.default({
         captureError(error: unknown) {
           throw error
         },
-        h3App: { stack },
         hooks: {
           hook(name: string, handler: () => Promise<void> | void) {
             if (name === "close") closeHandlers.push(handler)
+            if (name === "request") requestHandlers.push(handler)
           },
         },
       })
-      await stack[0]!.handler()
+      expect(pluginSource).toContain("nitroApp.hooks.hook('request'")
+      expect(pluginSource).not.toContain("h3App")
+      expect(requestHandlers).toHaveLength(1)
+      await requestHandlers[0]!()
 
       const routeSource = await readFile(join(root, ".vitehub", "agent", "chat-webhook-route.ts"), "utf8")
       expect(routeSource).toContain('import { schedules as vitehubSchedules } from "@vite-hub/schedule/runtime"')
