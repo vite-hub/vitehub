@@ -5,6 +5,7 @@ import type {
 } from "../types.ts"
 
 export const scheduledAgentNameContextKey = "agent.name"
+export const scheduledAgentChannelIdsContextKey = "agent.channels"
 export const scheduledAgentTurnContextKey = "agent.schedule.turn"
 
 const scheduledAgentName = Symbol("vitehub.agent.name")
@@ -91,9 +92,15 @@ export function createScheduledAgentTurnInput(
   invoker: AgentInvoker,
   run: AgentRunMetadata | undefined,
   delivery: "origin" | undefined,
+  channelIds: readonly string[] = [],
 ): ScheduledAgentTurnInput {
-  if (delivery === "origin" && (!run?.channelId || !run.threadId || !run.origin)) {
-    throw new Error('[vitehub] schedule({ delivery: "origin" }) requires channelId and threadId from a named run origin.')
+  if (delivery === "origin") {
+    if (!run?.channelId || !run.threadId || !run.origin) {
+      throw new Error('[vitehub] schedule({ delivery: "origin" }) requires channelId and threadId from a named run origin.')
+    }
+    if (!channelIds.includes(run.channelId)) {
+      throw new Error('[vitehub] schedule({ delivery: "origin" }) requires the run channelId to match a configured Agent Channel.')
+    }
   }
   return {
     ...(delivery === "origin"

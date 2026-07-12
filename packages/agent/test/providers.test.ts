@@ -1657,25 +1657,9 @@ describe("server helpers", () => {
       method: "POST",
     }), { agentName: "mini", capabilities: { schedule: { schedules } } })
 
-    expect(response.status).toBe(200)
-    await expect(response.text()).resolves.toContain("scheduled daily-0900")
-    expect(schedules.create).toHaveBeenCalledWith({
-      cron: "0 9 * * *",
-      enabled: undefined,
-      id: "daily-0900",
-      input: {
-        delivery: {
-          channelId: "http:mini",
-          origin: "http",
-          threadId: "http:mini:daily-thread",
-        },
-        invoker: { id: "anonymous:http", kind: "anonymous", label: "Anonymous" },
-        kind: "agent-turn",
-        prompt: "Send my daily report.",
-      },
-      target: "agent/mini",
-      timeZone: "Asia/Bangkok",
-    })
+    expect(response.status).toBe(500)
+    await expect(response.text()).resolves.toContain("requires the run channelId to match a configured Agent Channel")
+    expect(schedules.create).not.toHaveBeenCalled()
   })
 
   it("keeps manual chat route Schedule primitives explicit", async () => {

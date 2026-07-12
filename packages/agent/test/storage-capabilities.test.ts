@@ -17,6 +17,7 @@ async function resolveTools(
   workspace?: ReadonlyWorkspaceFacade,
   invocation: {
     agentName?: string
+    channelIds?: string[]
     invoker?: AgentInvoker
     run?: AgentRunMetadata
   } = {},
@@ -28,6 +29,7 @@ async function resolveTools(
   }, {
     context: {
       ...(invocation.agentName ? { "agent.name": invocation.agentName } : {}),
+      ...(invocation.channelIds ? { "agent.channels": invocation.channelIds } : {}),
       ...(invocation.invoker ? { invoker: invocation.invoker } : {}),
     },
   }, workspace as never)
@@ -165,6 +167,7 @@ describe("storage capabilities", () => {
     })
     const creator = {
       agentName: "digest",
+      channelIds: ["discord"],
       invoker: {
         email: { address: "maxi@example.com", domain: "example.com" },
         id: "discord:user-1",

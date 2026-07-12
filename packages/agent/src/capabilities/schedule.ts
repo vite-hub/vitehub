@@ -4,6 +4,7 @@ import { defineCapability, normalizeMode } from "../capability-runtime.ts"
 import {
   createScheduledAgentTurnInput,
   parseScheduledAgentTurnInput,
+  scheduledAgentChannelIdsContextKey,
   scheduledAgentNameContextKey,
   scheduledAgentTargetName,
   scheduledAgentTurnContextKey,
@@ -412,7 +413,13 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
                 cron: assertRuntimeScheduleCron(input.cron, "cronjob create"),
                 enabled: assertOptionalRuntimeScheduleEnabled(input.enabled, "cronjob create"),
                 id: assertOptionalRuntimeScheduleId(input.id, "cronjob create"),
-                input: createScheduledAgentTurnInput(input.prompt, context.invoker, context.run, options.delivery),
+                input: createScheduledAgentTurnInput(
+                  input.prompt,
+                  context.invoker,
+                  context.run,
+                  options.delivery,
+                  context.context.get<string[]>(scheduledAgentChannelIdsContextKey),
+                ),
                 target: scope.selfTarget,
                 ...(timeZone ? { timeZone } : {}),
               }))

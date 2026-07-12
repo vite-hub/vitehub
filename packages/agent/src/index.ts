@@ -33,6 +33,7 @@ import {
 import {
   getScheduledAgentName,
   parseScheduledAgentTurnInput,
+  scheduledAgentChannelIdsContextKey,
   scheduledAgentNameContextKey,
   scheduledAgentTurnContextKey,
   setScheduledAgentName,
@@ -1425,6 +1426,7 @@ async function createAgentInvocationContext<
   const runtimeContext = resolvedContext.trace || !resolvedContext.traceLog ? resolvedContext : { ...resolvedContext, trace: { id: createTraceId(context.run) } }
   const callbackContext = createAgentCallbackContext(runtimeContext)
   const invocationContext = createAgentInvocationContextStore(input.context)
+  invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
   invocationContext.set(scheduledAgentNameContextKey, getScheduledAgentName(definition), { overwrite: true })
   let invoker = createFallbackAgentInvoker(context.run)
   try {
