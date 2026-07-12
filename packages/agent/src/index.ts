@@ -1799,7 +1799,7 @@ async function resolveFinishUsageRecord<
 }
 
 type AgentInvocationFinishOutcome =
-  | { result?: unknown, status: "success" }
+  | { result?: unknown, status: "success", usage?: AgentUsageRecord }
   | { error: unknown, status: "error" }
 
 function finishOutcomeFromCleanup(outcome: { failed: false } | { error: unknown, failed: true }, result?: unknown): AgentInvocationFinishOutcome {
@@ -2002,11 +2002,11 @@ async function finishAgentInvocation<
     await context.startTask
     await context.close()
     let resultKind: string | undefined
-    let usage: AgentUsageRecord | undefined
+    let usage = failed ? undefined : outcome.usage
     if (!failed) {
       try {
         resultKind = agentResultKind(result)
-        usage = await resolveAgentUsageRecord(result, context.run)
+        usage ??= await resolveAgentUsageRecord(result, context.run)
       }
       catch {
         // Invocation data must not change Agent output or mask the original failure.
@@ -2089,7 +2089,7 @@ async function finalizeAgentInvocationResult<
 >(
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS> & { hasCapabilityCleanup: boolean },
   result: unknown,
-  finalizeObject: (result: unknown) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, value: TResult }>,
+  finalizeObject: (result: unknown) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, finishUsage?: AgentUsageRecord, value: TResult }>,
   failureMessage: string,
   options: {
     finalizeRawStreams?: boolean
@@ -2117,7 +2117,7 @@ async function finalizeAgentInvocationResult<
     const finalized = await finalizeObject(result)
     finishLifecycleStarted = true
     if (!finalized.deferFinish) {
-      await finishAgentInvocation(context, { result: finalized.finishResult, status: "success" })
+      await finishAgentInvocation(context, { result: finalized.finishResult, status: "success", usage: finalized.finishUsage })
     }
     return finalized.value
   }
@@ -2167,7 +2167,11 @@ export async function runAgentInline<
         ? renderedResult ? result : await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
         : result
       const final = renderOutput ? await applyFinalOutputRenderers(rendered, runContext, outputExtensions) : rendered
-      return { finishResult: resultWithUsageRecord(final, driverUsageRecord), value: final }
+      return {
+        finishResult: hasFinishWork(runContext) ? resultWithUsageRecord(final, driverUsageRecord) : final,
+        finishUsage: driverUsageRecord,
+        value: final,
+      }
     }, "[vitehub] Agent run failed and finish lifecycle also failed.", {
       outputExtensions,
       wrapStream: stream => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, runContext),
@@ -2194,7 +2198,11 @@ export async function runAgentInline<
     const rendered = renderOutput ? await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions) : result
     const final = renderOutput ? await applyFinalOutputRenderers(rendered, adapterContext, outputExtensions) : rendered
     const runResult = renderOutput ? toAgentRunResult(final) : final
-    return { finishResult: resultWithUsageRecord(final, driverUsageRecord), value: runResult }
+    return {
+      finishResult: hasFinishWork(adapterContext) ? resultWithUsageRecord(final, driverUsageRecord) : final,
+      finishUsage: driverUsageRecord,
+      value: runResult,
+    }
   }, "[vitehub] Agent run failed and finish lifecycle also failed.")
 }
 

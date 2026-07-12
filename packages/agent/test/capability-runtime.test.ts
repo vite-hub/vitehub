@@ -1800,6 +1800,26 @@ describe("agent capability runtime", () => {
     expect(close).toHaveBeenCalledWith({ failed: false })
   })
 
+  it("closes streamed output as failed when source iterator return rejects", async () => {
+    const { withCapabilityCleanup } = await import("../src/capability-runtime.ts")
+    const returnError = new Error("return failed")
+    const close = vi.fn(async () => {})
+    const iterator = {
+      next: vi.fn(async () => ({ done: false as const, value: "hello" })),
+      return: vi.fn(async () => { throw returnError }),
+    }
+    const stream = {
+      [Symbol.asyncIterator]: () => iterator,
+    }
+
+    const consume = async () => {
+      for await (const _chunk of withCapabilityCleanup(stream, close)) break
+    }
+
+    await expect(consume()).rejects.toThrow("return failed")
+    expect(close).toHaveBeenCalledWith({ error: returnError, failed: true })
+  })
+
   it("preserves read-only Response metadata while wrapping body cleanup", async () => {
     const { withResponseCleanup } = await import("../src/capability-runtime.ts")
     const source = await fetch("data:text/plain,ok")

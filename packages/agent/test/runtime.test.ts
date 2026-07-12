@@ -477,6 +477,32 @@ describe("agent message protocol", () => {
     }
   })
 
+  it("does not mutate non-extensible results while capturing trace usage", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    let traceLog: ReturnType<typeof createTraceEventLog> | undefined
+    const result = Object.freeze({
+      text: "ok",
+      usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
+    })
+    const agent = defineAgent({
+      driver: { run: (context) => {
+          traceLog = context.traceLog
+          return result
+        } },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).resolves.toBe(result)
+    expect(traceLog!.entries().at(-1)?.attributes).toMatchObject({
+      "usage.record": {
+        usage: { totalTokens: 10 },
+      },
+    })
+  })
+
   it("preserves driver usage for traces before rendering output", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     let traceLog: ReturnType<typeof createTraceEventLog> | undefined

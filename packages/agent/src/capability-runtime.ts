@@ -1290,6 +1290,33 @@ type CapabilityCleanupOutcome =
   | { failed: false }
   | { error: unknown, failed: true }
 
+async function closeCapabilityStreamIterator(
+  iterator: AsyncIterator<unknown>,
+  completed: boolean,
+  outcome: CapabilityCleanupOutcome,
+  close: (outcome: CapabilityCleanupOutcome) => Promise<void>,
+): Promise<void> {
+  if (!completed) {
+    const returnTask = iterator.return?.()
+    if (outcome.failed) void returnTask?.catch(() => {})
+    else {
+      try {
+        await returnTask
+      }
+      catch (returnError) {
+        try {
+          await close({ error: returnError, failed: true })
+        }
+        catch (closeError) {
+          throw new AggregateError([returnError, closeError], "[vitehub] Agent stream return failed and finish lifecycle also failed.")
+        }
+        throw returnError
+      }
+    }
+  }
+  await close(outcome)
+}
+
 export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
   stream: T,
   close: (outcome: CapabilityCleanupOutcome) => Promise<void>,
@@ -1316,12 +1343,7 @@ export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
       throw caught
     }
     finally {
-      if (!completed) {
-        const returnTask = iterator.return?.()
-        if (failed) void returnTask?.catch(() => {})
-        else await returnTask
-      }
-      await close(failed ? { error, failed: true } : { failed: false })
+      await closeCapabilityStreamIterator(iterator, completed, failed ? { error, failed: true } : { failed: false }, close)
     }
   })()
 }
