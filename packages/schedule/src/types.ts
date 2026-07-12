@@ -61,6 +61,11 @@ export interface RuntimeScheduleRecord<TInput = unknown> extends RuntimeSchedule
   timeZone?: string
 }
 
+export interface RuntimeScheduleWake {
+  scheduleId: string
+  scheduledAt: Date
+}
+
 export interface RuntimeScheduleCreateInput<TTarget extends ScheduleTargetName = ScheduleTargetName, TInput = unknown> {
   cron: string
   enabled?: boolean

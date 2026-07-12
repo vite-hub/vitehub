@@ -45,6 +45,7 @@ describe("schedule provider output", () => {
     const packageJson = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as { exports: Record<string, unknown> }
 
     expect(packageJson.exports).not.toHaveProperty("./definition")
+    expect(packageJson.exports).toHaveProperty("./runtime/driver", "./dist/runtime/driver.js")
   })
 
   it("emits Cloudflare, Vercel, and Netlify schedule provider wake output", async () => {

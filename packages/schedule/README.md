@@ -66,9 +66,20 @@ import { hubSchedule } from "@vite-hub/schedule/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [hubSchedule()],
+  plugins: [
+    hubSchedule({
+      runtime: {
+        driver: "process",
+        prefix: "my-app:schedule",
+      },
+    }),
+  ],
 })
 ```
+
+The explicit `process` runtime generates Nitro wiring for a long-running process. It installs the discovered registry, creates both stores through the default KV store configured by `hubKv()`, applies the Schedule prefix, scans due schedules, and closes the driver with Nitro. `intervalMs` must be no greater than the one-minute cron resolution. `providerOutput` remains independent, so static provider wake output can be enabled or disabled separately.
+
+Run exactly one long-lived process or replica with this driver. The KV run store records occurrences but does not provide distributed leader election or locking. Do not select the process driver for request-scoped or serverless hosts that may stop between requests. Those hosts need a provider or host wake integration through `@vite-hub/schedule/runtime/driver`.
 
 ## Vite Integration
 
@@ -90,5 +101,26 @@ export default {
 ```
 
 Cron parsing uses [`cron-schedule`](https://github.com/P4sca1/cron-schedule).
+
+## Runtime Wake Drivers
+
+Host integrations can connect dynamic Runtime Schedules to a native scheduler through `@vite-hub/schedule/runtime/driver`:
+
+```ts
+import { installScheduleRuntime } from "@vite-hub/schedule/runtime/driver"
+
+const controller = await installScheduleRuntime({
+  createDriver: context => hostScheduler.driver(context),
+  registry: scheduleRegistry,
+  runtimeScheduleStore,
+  scheduleRunStore,
+})
+```
+
+The driver receives the complete stored Runtime Schedule snapshot, including disabled records. Installation finishes only after the initial snapshot is reconciled. Later creates, updates, and deletes persist first, reconcile serially, and roll back the stored record if host reconciliation fails. A native wake calls `context.wake({ scheduleId, scheduledAt })`; `controller.close()` releases driver resources without deleting schedule state.
+
+Long-running hosts can use `createProcessScheduleWakeDriver()` from `@vite-hub/schedule/runtime/process` when they install the runtime directly. It keeps wake registration inside the current process; it does not install cron, systemd, or another operating-system scheduler.
+
+`startScheduleRunner()` remains available as the polling compatibility runner for long-running hosts.
 
 Learn more at [vitehub.dev](https://vitehub.dev).
