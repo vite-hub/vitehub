@@ -105,7 +105,7 @@ function omitUndefinedPatch(patch: RuntimeScheduleUpdateInput): RuntimeScheduleU
   return {
     ...(patch.cron !== undefined ? { cron: patch.cron } : {}),
     ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
-    ...(patch.input !== undefined ? { input: structuredClone(patch.input) } : {}),
+    ...(Object.hasOwn(patch, "input") ? { input: structuredClone(patch.input) } : {}),
     ...(patch.target !== undefined ? { target: patch.target } : {}),
     ...(patch.timeZone !== undefined ? { timeZone: patch.timeZone } : {}),
   }
