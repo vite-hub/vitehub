@@ -44,8 +44,14 @@ export type AgentCapabilities = RuntimeCapabilities
 
 export interface AgentRuntimeConfig {}
 
+export interface AgentHostIdentity {
+  readonly name: string
+  readonly workspace?: WorkspaceName
+}
+
 export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends Omit<RuntimeHostContext<TRuntimeConfig>, "cloudflare" | "platform" | "runtime"> {
+  agentIdentity?: AgentHostIdentity
   cloudflare?: RuntimeHostContext<TRuntimeConfig>["cloudflare"]
   devtools?: {
     reportToolStep?: (step: AgentToolStep) => MaybePromise<void>
@@ -996,6 +1002,7 @@ type AgentSharedSettings<
   hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
+  name?: string
   runtime?: AgentRuntimeBinding
   version?: string
   workspace?: WorkspaceAgentWorkspaceConfig
@@ -1025,6 +1032,7 @@ export interface AgentDefinition<
   hooks?: AgentCapabilityHooks<TRuntimeConfig, WorkspaceName> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
+  name?: string
   runtime?: AgentRuntimeBinding
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
@@ -1124,12 +1132,6 @@ export interface ResolvedAgentModuleOptions {
   }
   routes: ResolvedAgentRoutesOptions
   runtime: AgentRuntime
-}
-
-export interface AgentHandlerOptions<TRuntimeContext extends AgentRuntimeContext = AgentRuntimeContext> {
-  inferredName?: string
-  lifecycleHooks?: AgentRuntimeHooks<TRuntimeContext>
-  workspace?: WorkspaceName
 }
 
 export interface AgentRegistryHandlerOptions<TRuntimeContext extends AgentRuntimeContext = AgentRuntimeContext> {

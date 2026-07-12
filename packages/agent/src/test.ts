@@ -1,7 +1,6 @@
 import {
   defineAgent,
   runAgentInline,
-  withAgentDefaults,
 } from "./index.ts"
 import { resolveAgentUsageRecord } from "./agent-output.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
@@ -343,12 +342,7 @@ export function createAgentTestRunner<
   }
 
   const instrumentedAgent = withTestModelInstrumentation(agent, options.instrumentModel)
-  const preparedAgent: AgentInput<AgentRuntimeContext<TRuntimeConfig>> = options.workspace
-    ? withAgentDefaults(
-        instrumentedAgent,
-        { inferredName: options.name, workspace: options.workspace },
-      ) as AgentInput<AgentRuntimeContext<TRuntimeConfig>>
-    : instrumentedAgent
+  const identityName = options.name || options.workspace
 
   return {
     async run(input) {
@@ -356,6 +350,9 @@ export function createAgentTestRunner<
       let workspaceInspectionGuardrails = 0
       let finishEvent: AgentFinishEvent | undefined
       const context = createAgentRuntimeContext({
+        ...(identityName
+          ? { agentIdentity: { name: identityName, ...(options.workspace ? { workspace: options.workspace } : {}) } }
+          : {}),
         devtools: {
           reportToolStep(step) {
             toolSteps.push(step)
@@ -378,7 +375,7 @@ export function createAgentTestRunner<
       })
 
       const raw = await runAgentInline<TRuntimeConfig, CALL_OPTIONS>(
-        withTestFinishCapture(preparedAgent, value => {
+        withTestFinishCapture(instrumentedAgent, value => {
           finishEvent = value as AgentFinishEvent
         }),
         context,

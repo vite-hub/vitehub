@@ -37,6 +37,7 @@ import type {
   AgentDriverKind,
   AgentInvocationContextStore,
   AgentInvocationContextValues,
+  AgentHostIdentity,
   AgentInvokerProfile,
   AgentInput,
   AgentModelInput,
@@ -106,7 +107,6 @@ export type WorkspaceAgentDefinition<
   TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined = AgentCapabilityDefinition<TRuntimeConfig>[] | undefined,
 > = AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues> & WorkspaceAgentWorkspaceOptions & {
   __vitehubWorkspaceAgent: true
-  __vitehubWorkspaceAgentDefaults?: WorkspaceAgentDefaults<Name>
   __vitehubWorkspaceAgentOptions: WorkspaceAgentOptions<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities>
 }
 
@@ -203,10 +203,11 @@ export function workspaceNameFromOptions<
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   defaults: WorkspaceAgentDefaults<Name> = {},
+  identity?: AgentHostIdentity,
 ): Name | string {
   if (typeof options.workspace === "string") return options.workspace
   if (isWorkspaceReference(options.workspace)) return options.workspace.name
-  return options.name || defaults.workspace || defaults.name || defaultWorkspaceName
+  return options.name || identity?.workspace || identity?.name || defaults.workspace || defaults.name || defaultWorkspaceName
 }
 
 export function workspaceDefinitionFromOptions<
@@ -321,11 +322,12 @@ function workspaceDefinitionWithNameFromOptions<
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   defaults: WorkspaceAgentDefaults<Name> = {},
+  identity?: AgentHostIdentity,
 ): WorkspaceDefinition {
   const { mode: _mode, ...definition } = workspaceDefinitionFromOptions(options)
   return {
     ...definition,
-    name: workspaceNameFromOptions(options, defaults),
+    name: workspaceNameFromOptions(options, defaults, identity),
   }
 }
 
@@ -639,7 +641,6 @@ function workspaceMetadataFiles<
   Name extends WorkspaceName,
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
-  _defaults: WorkspaceAgentDefaults<Name>,
 ): AgentDevtoolsFileTreeItem[] {
   const sources = normalizedSourcesFromOptions(options)
   return sources.sort((left, right) => left.key.localeCompare(right.key)).map((source) => {
@@ -847,7 +848,6 @@ function clearReadyMaterializationHints(item: AgentDevtoolsFileTreeItem) {
 
 async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
-  _defaults: WorkspaceAgentDefaults<Name>,
   workspace: ReadonlyWorkspaceFacade<Name>,
 ): Promise<AgentDevtoolsFileTreeItem[]> {
   const root: AgentDevtoolsFileTreeItem = {
@@ -1153,23 +1153,23 @@ async function createDevtoolsMetadataWorkspace<
   defaultsOverride: AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name> = {},
 ) {
   const defaults = {
-    ...(definition.__vitehubWorkspaceAgentDefaults || definition as WorkspaceAgentDefaults<Name>),
+    ...(typeof definition.name === "string" ? { name: definition.name } : {}),
     ...defaultsOverride,
   }
-  const workspaceName = defaults.workspace || defaults.name
-  if (!workspaceName || !definition.__vitehubWorkspaceAgentOptions) return
+  if (!definition.__vitehubWorkspaceAgentOptions) return
+  const options = definition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
+  const workspaceName = workspaceNameFromOptions(options, defaults, defaultsOverride.runtime?.agentIdentity)
 
   const { createWorkspaceSourceResolutionFacade, hasWorkspaceSourceResolvers, useWorkspace } = await import("@vite-hub/workspace/runtime")
   const workspace = useWorkspace(workspaceName)
-  const options = definition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
-  const workspaceDefinition = workspaceDefinitionWithNameFromOptions(options, defaults)
+  const workspaceDefinition = workspaceDefinitionWithNameFromOptions(options, defaults, defaultsOverride.runtime?.agentIdentity)
 
   if (hasAccessCapability(options)) {
-    return { defaults, options, workspace }
+    return { options, workspace }
   }
 
   if (!hasWorkspaceSourceResolvers(workspaceDefinition)) {
-    return { defaults, options, workspace }
+    return { options, workspace }
   }
 
   const resolved = await createWorkspaceSourceResolutionFacade(workspace, workspaceDefinition, {
@@ -1179,7 +1179,6 @@ async function createDevtoolsMetadataWorkspace<
   })
 
   return {
-    defaults,
     options: workspaceOptionsFromDefinition(options, resolved.definition),
     workspace: resolved.workspace,
   }
@@ -1229,7 +1228,7 @@ async function resolveWorkspaceMetadataCapabilityContext<
     input as never,
     runtime.run,
   )
-  const workspaceDefinition = workspaceDefinitionWithNameFromOptions(options, resolution)
+  const workspaceDefinition = workspaceDefinitionWithNameFromOptions(options, resolution, resolution.runtime?.agentIdentity)
   const driverKind = workspaceAgentDriverKind(options)
   const capabilities = await resolveAgentCapabilities({
     capabilities: options.capabilities as AgentCapabilityDefinition<TRuntimeConfig, Name>[],
@@ -1274,7 +1273,7 @@ export function createAgentDevtoolsMetadata<
 
   const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
   return {
-    files: workspaceMetadataFiles(options, workspaceDefinition.__vitehubWorkspaceAgentDefaults || workspaceDefinition as WorkspaceAgentDefaults<Name>),
+    files: workspaceMetadataFiles(options),
     instructions: workspaceMetadataInstructions(options),
     ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
     tools: workspaceMetadataTools(options),
@@ -1320,7 +1319,7 @@ export async function resolveAgentDevtoolsMetadata<
   )
 
   return {
-    files: await resolveWorkspaceMetadataFiles(metadataOptions as never, metadataWorkspace.defaults as never, capabilityContext.workspace as never),
+    files: await resolveWorkspaceMetadataFiles(metadataOptions as never, capabilityContext.workspace as never),
     instructions: instructionMetadata.instructions,
     ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
     ...(config ? { config } : {}),
@@ -1387,7 +1386,7 @@ export async function materializeAgentDevtoolsSourceMetadata<
   )
 
   return {
-    files: await resolveWorkspaceMetadataFiles(metadataOptions as never, metadataWorkspace.defaults as never, capabilityContext.workspace as never),
+    files: await resolveWorkspaceMetadataFiles(metadataOptions as never, capabilityContext.workspace as never),
     instructions: instructionMetadata.instructions,
     ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
     ...(config ? { config } : {}),

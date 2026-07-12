@@ -186,7 +186,6 @@ async function assertGeneratedOutput() {
   assert(existsSync(denoServer), "missing .vitehub/agent/deno-server.ts")
   const source = await readFile(denoServer, "utf8")
   for (const expected of [
-    "import { withAgentDefaults } from '@vite-hub/agent'",
     "import { createAgentChatRouteHandler, createAgentWebhookRouteHandler } from '@vite-hub/agent/server'",
     "await import('../schedule/deno-cron.mjs').catch",
     "const chatRoutePattern = new RegExp",
@@ -195,6 +194,7 @@ async function assertGeneratedOutput() {
     assert(source.includes(expected), `Deno server output missing ${expected}`)
   }
   for (const forbidden of [
+    "withAgentDefaults",
     "from \"@/",
     "from '@/",
     "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",

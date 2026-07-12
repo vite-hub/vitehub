@@ -85,9 +85,10 @@ describe("agent config", () => {
     try {
       const agent = await import("../src/index.ts")
       expect(agent.defineAgent).toBeTypeOf("function")
-      expect(agent.withAgentDefaults(agent.defineAgent({
+      expect(agent.defineAgent({
         driver: { run: async () => "ok", },
-      }))?.run).toBeTypeOf("function")
+      }).run).toBeTypeOf("function")
+      expect(agent).not.toHaveProperty("withAgentDefaults")
     }
     finally {
       vi.doUnmock("@vite-hub/workspace")

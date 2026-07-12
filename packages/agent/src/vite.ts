@@ -425,6 +425,12 @@ function generatedHostedWorkspaceRuntimeSetup(definitions: DiscoveredAgentDefini
   }
 }
 
+function generatedAgentIdentityEntries(definitions: DiscoveredAgentDefinition[]): string {
+  return definitions
+    .map(definition => `${JSON.stringify(definition.name)}: ${JSON.stringify({ name: definition.name, ...(definition.workspace ? { workspace: definition.workspace } : {}) })}`)
+    .join(",\n  ")
+}
+
 async function generateAgentWebhookRouteHandler(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
@@ -440,7 +446,7 @@ async function generateAgentWebhookRouteHandler(
     .map(async (definition, index) => {
       const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
       return definition.workspace
-        ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, agent${index}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))}, ${JSON.stringify({ inferredName: definition.name, workspace: definition.workspace })})`
+        ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, agent${index}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))})`
         : undefined
     })))
     .filter(Boolean)
@@ -448,7 +454,7 @@ async function generateAgentWebhookRouteHandler(
   const agentEntries = definitions
     .map(async (definition, index) => {
       const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
-      const agentExpression = `withAgentDefaults(withWorkspaceSourceRoot(resolveAgentModule(agent${index}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))}), ${JSON.stringify({ inferredName: definition.name, workspace: definition.workspace })})`
+      const agentExpression = `withWorkspaceSourceRoot(resolveAgentModule(agent${index}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))})`
       return `${JSON.stringify(definition.name)}: ${agentExpression}`
     })
   const resolvedAgentEntries = (await Promise.all(agentEntries))
@@ -456,6 +462,7 @@ async function generateAgentWebhookRouteHandler(
   const agentModuleEntries = definitions
     .map((definition, index) => `${JSON.stringify(definition.name)}: agent${index}`)
     .join(",\n  ")
+  const agentIdentityEntries = generatedAgentIdentityEntries(definitions)
   const hostedWorkspaceRuntime = generatedHostedWorkspaceRuntimeSetup(definitions, workspaceImportBase)
   const webhookRoute = typeof options.webhookRoute === "string" ? options.webhookRoute : ""
   const webhookSelector = webhookRoute.includes("[webhook]") ? "getRouterParam(event, 'webhook')" : "''"
@@ -466,7 +473,7 @@ async function generateAgentWebhookRouteHandler(
       : ""
 
   return [
-    `import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
+    `import { workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
     ...(options.cloudflareState ? [`import { createCloudflareAgentState } from ${JSON.stringify(subpath(agentImportBase, "cloudflare"))}`] : []),
     ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
     `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
@@ -498,8 +505,8 @@ async function generateAgentWebhookRouteHandler(
     "  return { ...agent, ...workspaceDefinitionFromOptions(workspaceOptions), __vitehubWorkspaceAgentOptions: workspaceOptions }",
     "}",
     "",
-    "function workspaceRegistryEntry(name, module, sourceRootDir, colocatedInstructions, defaults) {",
-    "  const agent = withAgentDefaults(withWorkspaceSourceRoot(resolveAgentModule(module), sourceRootDir, colocatedInstructions), defaults)",
+    "function workspaceRegistryEntry(name, module, sourceRootDir, colocatedInstructions) {",
+    "  const agent = withWorkspaceSourceRoot(resolveAgentModule(module), sourceRootDir, colocatedInstructions)",
     "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
     "  return [name, async () => ({ ...module, default: agent })]",
     "}",
@@ -521,6 +528,7 @@ async function generateAgentWebhookRouteHandler(
     `setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].filter(Boolean)))`,
     "",
     `const agents = {${resolvedAgentEntries ? `\n  ${resolvedAgentEntries}\n` : ""}}`,
+    `const agentIdentities = {${agentIdentityEntries ? `\n  ${agentIdentityEntries}\n` : ""}}`,
     `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
     "const chatHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createChannelChatRouteHandler(agent, resolveChatRouteOptions(agentModules[name]))]))",
     "const webhookHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createChannelWebhookRouteHandler(agent)]))",
@@ -538,7 +546,7 @@ async function generateAgentWebhookRouteHandler(
     "    throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
     "  }",
     "  const cloudflare = cloudflareFromEvent(event)",
-    `  return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare${runtimeRouteOption}, ${webhookStateOption}waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event) })`,
+    `  return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare${runtimeRouteOption}, ${webhookStateOption}waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event) })`,
     "})",
     "",
   ].join("\n")
@@ -559,7 +567,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
     .map(async (definition, index) => {
       const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
       return definition.workspace
-        ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, agent${index}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))}, ${JSON.stringify({ inferredName: definition.name, workspace: definition.workspace })})`
+        ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, agent${index}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))})`
         : undefined
     })))
     .filter(Boolean)
@@ -567,19 +575,20 @@ async function generateAgentNetlifyFunctionRouteHandler(
   const agentEntries = (await Promise.all(definitions
     .map(async (definition, index) => {
       const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
-      const agentExpression = `withAgentDefaults(withWorkspaceSourceRoot(resolveAgentModule(agent${index}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))}), ${JSON.stringify({ inferredName: definition.name, workspace: definition.workspace })})`
+      const agentExpression = `withWorkspaceSourceRoot(resolveAgentModule(agent${index}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))})`
       return `${JSON.stringify(definition.name)}: ${agentExpression}`
     })))
     .join(",\n  ")
   const agentModuleEntries = definitions
     .map((definition, index) => `${JSON.stringify(definition.name)}: agent${index}`)
     .join(",\n  ")
+  const agentIdentityEntries = generatedAgentIdentityEntries(definitions)
   const hostedWorkspaceRuntime = generatedHostedWorkspaceRuntimeSetup(definitions, workspaceImportBase)
   const webhookSelector = routeUsesParam(options.webhookRoute, "webhook") ? "netlifyParam(context, 'webhook')" : "''"
   const webhookStateOption = options.libsqlState ? "state: chatStateFromLibsql(), " : ""
 
   return [
-    `import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
+    `import { workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
     ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
     `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler, createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     `import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(agentImportBase, "server/workspace"))}`,
@@ -620,8 +629,8 @@ async function generateAgentNetlifyFunctionRouteHandler(
     "  return { ...agent, ...workspaceDefinitionFromOptions(workspaceOptions), __vitehubWorkspaceAgentOptions: workspaceOptions }",
     "}",
     "",
-    "function workspaceRegistryEntry(name, module, sourceRootDir, colocatedInstructions, defaults) {",
-    "  const agent = withAgentDefaults(withWorkspaceSourceRoot(resolveAgentModule(module), sourceRootDir, colocatedInstructions), defaults)",
+    "function workspaceRegistryEntry(name, module, sourceRootDir, colocatedInstructions) {",
+    "  const agent = withWorkspaceSourceRoot(resolveAgentModule(module), sourceRootDir, colocatedInstructions)",
     "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
     "  return [name, async () => ({ ...module, default: agent })]",
     "}",
@@ -633,6 +642,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
     `setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].filter(Boolean)))`,
     "",
     `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
+    `const agentIdentities = {${agentIdentityEntries ? `\n  ${agentIdentityEntries}\n` : ""}}`,
     `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
     "const chatHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createChannelChatRouteHandler(agent, resolveChatRouteOptions(agentModules[name]))]))",
     "const webhookHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createChannelWebhookRouteHandler(agent)]))",
@@ -671,9 +681,9 @@ async function generateAgentNetlifyFunctionRouteHandler(
     "    if (!webhookUrl) {",
     "      return Response.json({ message: 'Discord Gateway route requires an Agent webhook route.', status: 500 }, { status: 500 })",
     "    }",
-    `    return await handler(request, { agentName: agent, durationMs${runtimeRouteOption}, waitUntil, webhookUrl })`,
+    `    return await handler(request, { agentIdentity: agentIdentities[agent], durationMs${runtimeRouteOption}, waitUntil, webhookUrl })`,
     "  }",
-    `  return isWebhookRoute ? await handler(request, webhook, { agentName: agent${runtimeRouteOption}, ${webhookStateOption}waitUntil }) : await handler(request, { agentName: agent${runtimeRouteOption}, waitUntil })`,
+    `  return isWebhookRoute ? await handler(request, webhook, { agentIdentity: agentIdentities[agent]${runtimeRouteOption}, ${webhookStateOption}waitUntil }) : await handler(request, { agentIdentity: agentIdentities[agent]${runtimeRouteOption}, waitUntil })`,
     "}",
     "",
   ].join("\n")
@@ -705,14 +715,15 @@ async function generateAgentDiscordGatewayRouteHandler(
   const agentEntries = (await Promise.all(definitions
     .map(async (definition, index) => {
       const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
-      const agentExpression = `withAgentDefaults(withWorkspaceSourceRoot(resolveAgentModule(agent${index}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))}), ${JSON.stringify({ inferredName: definition.name, workspace: definition.workspace })})`
+      const agentExpression = `withWorkspaceSourceRoot(resolveAgentModule(agent${index}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))})`
       return `${JSON.stringify(definition.name)}: ${agentExpression}`
     })))
     .join(",\n  ")
   const agentNames = definitions.map(definition => definition.name)
+  const agentIdentityEntries = generatedAgentIdentityEntries(definitions)
 
   return [
-    `import { withAgentDefaults, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
+    `import { workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
     `import { createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server"))}`,
     "import { createError, defineEventHandler, getRequestHeader, getRequestHeaders, getRequestURL, getRouterParam } from 'h3'",
     imports,
@@ -755,6 +766,7 @@ async function generateAgentDiscordGatewayRouteHandler(
     `const webhookRoute = ${JSON.stringify(generatedWebhookRoute(options.webhookRoute))}`,
     `const defaultDurationMs = ${JSON.stringify(9 * 60 * 1000)}`,
     `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
+    `const agentIdentities = {${agentIdentityEntries ? `\n  ${agentIdentityEntries}\n` : ""}}`,
     `const agentNames = ${JSON.stringify(agentNames)}`,
     "const handlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createDiscordGatewayRouteHandler(agent)]))",
     "",
@@ -779,7 +791,7 @@ async function generateAgentDiscordGatewayRouteHandler(
     "  if (!webhookUrl) {",
     "    throw createError({ statusCode: 500, statusMessage: 'Discord Gateway route requires an Agent webhook route.' })",
     "  }",
-    `  return await handler(new Request(requestUrl, { method: event.method || 'GET', headers: getRequestHeaders(event) }), { agentName: agent, cloudflare, durationMs${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event), webhookUrl })`,
+    `  return await handler(new Request(requestUrl, { method: event.method || 'GET', headers: getRequestHeaders(event) }), { agentIdentity: agentIdentities[agent], cloudflare, durationMs${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event), webhookUrl })`,
     "})",
     "",
   ].join("\n")
@@ -812,7 +824,7 @@ async function generateAgentDenoServer(
     .map(async (definition, index) => {
       const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
       return definition.workspace
-        ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, agent${index}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))}, ${JSON.stringify({ inferredName: definition.name, workspace: definition.workspace })})`
+        ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, agent${index}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))})`
         : undefined
     })))
     .filter(Boolean)
@@ -820,13 +832,14 @@ async function generateAgentDenoServer(
   const agentEntries = (await Promise.all(definitions
     .map(async (definition, index) => {
       const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
-      const agentExpression = `withAgentDefaults(withWorkspaceSourceRoot(resolveAgentModule(agent${index}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))}), ${JSON.stringify({ inferredName: definition.name, workspace: definition.workspace })})`
+      const agentExpression = `withWorkspaceSourceRoot(resolveAgentModule(agent${index}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))})`
       return `${JSON.stringify(definition.name)}: ${agentExpression}`
     })))
     .join(",\n  ")
   const agentModuleEntries = definitions
     .map((definition, index) => `${JSON.stringify(definition.name)}: agent${index}`)
     .join(",\n  ")
+  const agentIdentityEntries = generatedAgentIdentityEntries(definitions)
   const hostedWorkspaceRuntime = generatedHostedWorkspaceRuntimeSetup(definitions, workspaceImportBase)
   const workspaceRuntimeImports = workspaceEntries
     ? [`import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(workspaceImportBase, "runtime"))}`, ...hostedWorkspaceRuntime.imports]
@@ -836,7 +849,7 @@ async function generateAgentDenoServer(
     : []
 
   return [
-    `import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
+    `import { workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
     `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     ...workspaceRuntimeImports,
     imports,
@@ -869,8 +882,8 @@ async function generateAgentDenoServer(
     "  return { ...agent, ...workspaceDefinitionFromOptions(workspaceOptions), __vitehubWorkspaceAgentOptions: workspaceOptions }",
     "}",
     "",
-    "function workspaceRegistryEntry(name, module, sourceRootDir, colocatedInstructions, defaults) {",
-    "  const agent = withAgentDefaults(withWorkspaceSourceRoot(resolveAgentModule(module), sourceRootDir, colocatedInstructions), defaults)",
+    "function workspaceRegistryEntry(name, module, sourceRootDir, colocatedInstructions) {",
+    "  const agent = withWorkspaceSourceRoot(resolveAgentModule(module), sourceRootDir, colocatedInstructions)",
     "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
     "  return [name, async () => ({ ...module, default: agent })]",
     "}",
@@ -907,6 +920,7 @@ async function generateAgentDenoServer(
     "}",
     "",
     `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
+    `const agentIdentities = {${agentIdentityEntries ? `\n  ${agentIdentityEntries}\n` : ""}}`,
     `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
     "const chatHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createChannelChatRouteHandler(agent, resolveChatRouteOptions(agentModules[name]))]))",
     "const webhookHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createChannelWebhookRouteHandler(agent)]))",
@@ -924,7 +938,7 @@ async function generateAgentDenoServer(
     "  const webhook = groups.webhook || ''",
     "  const handler = agent ? (isWebhookRoute ? webhookHandlers[agent] : chatHandlers[agent]) : undefined",
     "  if (!handler || (!chatMatch && !webhookMatch)) return jsonError(404, 'Unknown ViteHub agent route.')",
-    "  return isWebhookRoute ? await handler(request, webhook, { agentName: agent }) : await handler(request, { agentName: agent })",
+    "  return isWebhookRoute ? await handler(request, webhook, { agentIdentity: agentIdentities[agent] }) : await handler(request, { agentIdentity: agentIdentities[agent] })",
     "}",
     "",
     "const serveOptions = resolveDenoServeOptions(Deno.args)",
