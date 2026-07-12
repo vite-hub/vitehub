@@ -59,7 +59,6 @@ export function resolveCloudflareArtifactsStore(
     },
     {
       binding: "WORKSPACE_ARTIFACTS",
-      branch: "main",
       namespace: "vitehub",
       provider: "cloudflare-artifacts" as const,
     },
