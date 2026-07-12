@@ -6,7 +6,7 @@ import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/
 import { chat, chatTitle, observability, schedule, subagents, usageTelemetry } from "../src/capabilities.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 
-import type { AgentChannelDeliveryFinishEffectCallback } from "../src/index.ts"
+import type { AgentChannelDeliveryFinishEffectCallback, AgentFinishEvent } from "../src/index.ts"
 import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
 
 const harnessAgentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
@@ -47,8 +47,6 @@ vi.mock("../src/internal/ai-sdk-runtime.ts", () => ({
   loadAiSdk,
 }))
 loadAiSdk.mockImplementation(async () => await import("ai"))
-
-const { withAgentDefaults } = await import("../src/index.ts")
 
 afterEach(() => {
   harnessAgentSettings.length = 0
@@ -287,9 +285,11 @@ describe("agent message protocol", () => {
       },
     })
 
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+    const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       prompt: "review",
-    })).resolves.toBe(handled)
+    }) as Response
+    expect(response).not.toBe(handled)
+    await expect(response.text()).resolves.toBe("handled")
     expect(inputHook).not.toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
   })
@@ -415,6 +415,192 @@ describe("agent message protocol", () => {
       "runtime.name": "unknown",
     })
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret prompt")
+  })
+
+  it("captures metadata-only invocation data without an observability capability", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finishEvents: AgentFinishEvent[] = []
+    const agent = defineAgent({
+      hooks: {
+        "agent:finish": (event) => {
+          finishEvents.push(event)
+        },
+      },
+      driver: { run: () => ({
+          text: "ok",
+          usageRecord: {
+            raw: { prompt: "provider secret" },
+            usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
+          },
+        }) },
+    })
+    const host = {
+      memo: vi.fn(),
+      run: { runId: "run-default-trace" },
+      runtime: "unknown" as const,
+      waitUntil: vi.fn(),
+    }
+
+    await runAgent(agent, host, { prompt: "first secret prompt" })
+    await runAgent(agent, host, { prompt: "second secret prompt" })
+
+    expect(finishEvents).toHaveLength(2)
+    expect(finishEvents[0]!.runtime.trace).toEqual({ id: "run-default-trace" })
+    expect(finishEvents[0]!.runtime.traceLog).not.toBe(finishEvents[1]!.runtime.traceLog)
+    expect(finishEvents[0]!.invocation).toMatchObject({
+      resultKind: "object",
+      usage: {
+        run: { runId: "run-default-trace" },
+        usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
+      },
+    })
+    for (const event of finishEvents) {
+      const traceLog = event.runtime.traceLog!
+      expect(traceLog.entries().map(entry => entry.name)).toEqual([
+        "agent.invocation.start",
+        "agent.invocation.finish",
+      ])
+      expect(deriveTraceRuns(traceLog.entries())).toMatchObject([
+        { id: "run-default-trace", status: "completed" },
+      ])
+      expect(traceLog.entries().at(-1)?.attributes).toMatchObject({
+        "result.kind": "object",
+        "usage.record": {
+          run: { runId: "run-default-trace" },
+          usage: { totalTokens: 10 },
+        },
+      })
+      expect(JSON.stringify(traceLog.entries())).not.toContain("secret prompt")
+      expect(JSON.stringify(traceLog.entries())).not.toContain("provider secret")
+    }
+  })
+
+  it("does not mutate non-extensible results while capturing trace usage", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    let traceLog: ReturnType<typeof createTraceEventLog> | undefined
+    const result = Object.freeze({
+      text: "ok",
+      usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
+    })
+    const agent = defineAgent({
+      driver: { run: (context) => {
+          traceLog = context.traceLog
+          return result
+        } },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).resolves.toBe(result)
+    expect(traceLog!.entries().at(-1)?.attributes).toMatchObject({
+      "usage.record": {
+        usage: { totalTokens: 10 },
+      },
+    })
+  })
+
+  it("preserves driver usage for traces before rendering output", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    let traceLog: ReturnType<typeof createTraceEventLog> | undefined
+    const agent = defineAgent({
+      capabilities: [{
+        id: "plain-output",
+        output(context) {
+          context.output.render(() => "rendered")
+        },
+      }],
+      driver: { run(context) {
+          traceLog = context.traceLog
+          return {
+            text: "provider output",
+            usageRecord: {
+              usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
+            },
+          }
+        } },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-rendered-usage" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).resolves.toBe("rendered")
+
+    expect(traceLog!.entries().at(-1)?.attributes).toMatchObject({
+      "usage.record": {
+        run: { runId: "run-rendered-usage" },
+        usage: { totalTokens: 5 },
+      },
+    })
+  })
+
+  it("preserves caller-supplied Trace Event logs, trace context, and entry sinks", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const onEntry = vi.fn()
+    const trace = { id: "request-trace", parentId: "request-parent" }
+    const traceLog = createTraceEventLog({ onEntry })
+    const finish = vi.fn()
+    const agent = defineAgent({
+      hooks: { "agent:finish": finish },
+      driver: { run: () => "ok" },
+    })
+
+    await runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-supplied-trace" },
+      runtime: "unknown",
+      trace,
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})
+
+    expect(finish.mock.calls[0]![0].runtime.trace).toBe(trace)
+    expect(finish.mock.calls[0]![0].runtime.traceLog).toBe(traceLog)
+    expect(onEntry).toHaveBeenCalledTimes(2)
+    expect(new Set(traceLog.entries().map(entry => entry.trace))).toEqual(new Set([trace]))
+  })
+
+  it("records driver and finish-hook failures in default invocation traces", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    let driverTraceLog: ReturnType<typeof createTraceEventLog> | undefined
+    const driverFailure = defineAgent({
+      driver: { run(context) {
+          driverTraceLog = context.traceLog
+          throw new Error("driver failed")
+        } },
+    })
+
+    await expect(runAgent(driverFailure, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow("driver failed")
+    expect(deriveTraceRuns(driverTraceLog!.entries())).toMatchObject([{ status: "failed" }])
+
+    let finishTraceLog: ReturnType<typeof createTraceEventLog> | undefined
+    const finishFailure = defineAgent({
+      hooks: {
+        "agent:finish"(event) {
+          finishTraceLog = event.runtime.traceLog
+          throw new Error("finish failed")
+        },
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(finishFailure, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow("finish failed")
+    expect(finishTraceLog!.entries().map(entry => entry.name)).toEqual([
+      "agent.invocation.start",
+      "agent.invocation.error",
+    ])
+    expect(deriveTraceRuns(finishTraceLog!.entries())).toMatchObject([{ status: "failed" }])
   })
 
   it("records a failed invocation when Agent Finish Hooks fail", async () => {
@@ -763,6 +949,38 @@ describe("agent message protocol", () => {
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret")
   })
 
+  it("captures yielded usage in runAgent invocation data", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      hooks: { "agent:finish": finish },
+      driver: { run: () => (async function* () {
+          yield { text: "hello", type: "text-delta" }
+          yield { type: "usage", usageRecord: { usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } } }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-streamed-usage" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {}) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      run: { runId: "run-streamed-usage" },
+      usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+    })
+    expect(finish.mock.calls[0]![0].runtime.traceLog.entries().at(-1)?.attributes).toMatchObject({
+      "usage.record": {
+        run: { runId: "run-streamed-usage" },
+        usage: { totalTokens: 5 },
+      },
+    })
+  })
+
   it("derives yielded stream error Trace Events as failed runs", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
@@ -987,6 +1205,7 @@ describe("agent message protocol", () => {
     }), { workspace: workspaceName })
 
     await expect(runAgent(reviewerAgent, {
+      agentIdentity: { name: "reviewer", workspace: workspaceName },
       memo: vi.fn(),
       runtime: "unknown",
       waitUntil: vi.fn(),
@@ -1364,6 +1583,126 @@ describe("agent message protocol", () => {
       sandbox: { providerId: "vercel" },
     })
     expect(harnessCreateSession).toHaveBeenCalledWith({ sessionId: "acme:run-1" })
+  })
+
+  it("configures each generated invocation without resuming across instruction changes", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const firstSession = { detach: vi.fn(async () => ({ token: "resume" })), destroy: vi.fn() }
+    const secondSession = { detach: vi.fn(async () => ({ token: "next" })), destroy: vi.fn() }
+    const instructions = vi.fn(({ input }: { input: { options?: { attempt: number, pullRequest: number, workDir: string } } }) => `Repair ${input.options?.pullRequest}, attempt ${input.options?.attempt}`)
+    const workDir = vi.fn(({ input }: { input: { options?: { attempt: number, pullRequest: number, workDir: string } } }) => input.options?.workDir)
+    harnessCreateSession.mockResolvedValueOnce(firstSession).mockResolvedValueOnce(secondSession)
+    harnessGenerate.mockResolvedValue({ text: "ok" })
+
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        instructions,
+        sessionKey: "pull-request-559",
+        workDir,
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      options: { attempt: 1, pullRequest: 559, workDir: "vitehub/pr-559" },
+      prompt: "fix the pull request",
+    })).resolves.toMatchObject({ text: "ok" })
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      options: { attempt: 2, pullRequest: 559, workDir: "vitehub/pr-559" },
+      prompt: "continue fixing the pull request",
+    })).resolves.toMatchObject({ text: "ok" })
+
+    expect(instructions).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ options: { attempt: 1, pullRequest: 559, workDir: "vitehub/pr-559" } }),
+    }))
+    expect(workDir).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ options: { attempt: 1, pullRequest: 559, workDir: "vitehub/pr-559" } }),
+    }))
+    expect(harnessAgentSettings.at(-2)).toMatchObject({
+      instructions: "Repair 559, attempt 1",
+      sandboxConfig: {
+        onSession: expect.any(Function),
+        workDir: "vitehub/pr-559",
+      },
+    })
+    expect(harnessAgentSettings.at(-1)).toMatchObject({
+      instructions: "Repair 559, attempt 2",
+      sandboxConfig: {
+        onSession: expect.any(Function),
+        workDir: "vitehub/pr-559",
+      },
+    })
+    expect(harnessGenerate).toHaveBeenCalledWith(expect.not.objectContaining({ instructions: expect.anything() }))
+    const firstSessionOptions = harnessCreateSession.mock.calls[0]?.[0] as { resumeFrom?: unknown, sessionId: string }
+    const secondSessionOptions = harnessCreateSession.mock.calls[1]?.[0] as { resumeFrom?: unknown, sessionId: string }
+    expect(firstSessionOptions.sessionId).toMatch(/^vitehub:[a-f0-9]{64}$/)
+    expect(secondSessionOptions.sessionId).toMatch(/^vitehub:[a-f0-9]{64}$/)
+    expect(secondSessionOptions.sessionId).not.toBe(firstSessionOptions.sessionId)
+    expect(firstSessionOptions).not.toHaveProperty("resumeFrom")
+    expect(secondSessionOptions).not.toHaveProperty("resumeFrom")
+  })
+
+  it("configures harness instructions and work directories before streaming", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessStream.mockResolvedValueOnce({
+      fullStream: (async function* () {
+        yield { text: "ok", type: "text-delta" }
+      })(),
+    })
+
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        instructions: "Review the exact pull request head.",
+        workDir: "vitehub/pr-568",
+      },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "review" })
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(harnessAgentSettings.at(-1)).toMatchObject({
+      instructions: "Review the exact pull request head.",
+      sandboxConfig: {
+        onSession: expect.any(Function),
+        workDir: "vitehub/pr-568",
+      },
+    })
+    expect(harnessStream).toHaveBeenCalledWith(expect.not.objectContaining({ instructions: expect.anything() }))
+  })
+
+  it("rejects invalid harness work directories before creating a session", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+
+    for (const workDir of ["", "   ", "../repo", "repo/../../tmp", "/tmp/repo", "repo\\nested", () => 42] as const) {
+      const agent = defineAgent({
+        driver: {
+          harness: { provider: "codex" },
+          workDir: workDir as never,
+        },
+      })
+
+      await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" }))
+        .rejects.toThrow("defineAgent({ driver.workDir }) must resolve to a non-empty relative POSIX path inside the sandbox default working directory")
+    }
+
+    expect(harnessCreateSession).not.toHaveBeenCalled()
+  })
+
+  it("rejects non-string harness instructions before creating a session", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        instructions: (() => 42) as never,
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" }))
+      .rejects.toThrow("defineAgent({ driver.instructions }) must resolve to a string")
+    expect(harnessCreateSession).not.toHaveBeenCalled()
   })
 
   it("labels non-token harness usage with sanitized credentials", async () => {
@@ -1912,8 +2251,8 @@ describe("agent message protocol", () => {
     } as never)).toThrow("driver.credentials.value")
 
     expect(() => defineAgent({
-      driver: { harness: { provider: "codex" }, instructions: "ignored" },
-    } as never)).toThrow("does not support option: instructions")
+      driver: { harness: { provider: "codex" }, instructions: "used" },
+    })).not.toThrow()
 
     expect(() => defineAgent({
       driver: { harness: { provider: "codex" }, sandbox: { provider: "sandbox" } },
@@ -2593,6 +2932,62 @@ describe("agent message protocol", () => {
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
     expect(effect).toHaveBeenCalledOnce()
     expect(order).toEqual(["run", "effect:result:ok:done:42"])
+  })
+
+  it("lets agent finish hooks return delivery effects after capability finish effects", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const order: string[] = []
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "feedback",
+          prepare(context) {
+            context.delivery.finishEffect(context => context.reply("capability"))
+          },
+        }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          effects: {
+            reaction({ effect }) {
+              order.push(`reaction:${effect.payload}`)
+            },
+            reply({ effect }) {
+              order.push(`reply:${effect.payload}`)
+            },
+            status({ effect }) {
+              order.push(`status:${(effect.payload as { state?: string } | undefined)?.state}`)
+            },
+          },
+          messages: false,
+        }),
+      },
+      driver: { run: () => "ok" },
+      hooks: {
+        "agent:finish"(event) {
+          return [
+            event.reply("hook"),
+            event.reaction("done"),
+            event.status("completed"),
+          ]
+        },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { channelId: "portal", runId: "portal-run" },
+      runtime: "unknown" as const,
+      waitUntil: vi.fn(),
+    }, {})).resolves.toBe("ok")
+
+    expect(order).toEqual([
+      "reply:capability",
+      "reply:hook",
+      "reaction:done",
+      "status:completed",
+    ])
   })
 
   it("carries result artifacts through custom finish replies", async () => {
@@ -4278,11 +4673,11 @@ describe("agent message protocol", () => {
       capabilities: [{ id: "custom" }],
       channels: { web: webChat() },
       driver: { run: () => "ok" },
+      name: "docs",
       workspace: {},
     })
-    const registered = withAgentDefaults(agent as never, { workspace: "docs" })
 
-    await expect(resolveAgentTriggers(registered, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "chat.message": {
         capabilityId: "chat",
       },
@@ -6589,8 +6984,11 @@ describe("agent message protocol", () => {
     let pulls = 0
     let cancelReason: unknown
     let releaseBlockedPull: (() => void) | undefined
+    let traceLog: ReturnType<typeof createTraceEventLog> | undefined
     const agent = defineAgent({
-      driver: { run: () => ({
+      driver: { run: (context) => {
+        traceLog = context.traceLog
+        return {
           fullStream: (async function* () {
             yield { type: "finish" }
           })(),
@@ -6612,15 +7010,14 @@ describe("agent message protocol", () => {
               },
             })
           },
-        }) },
+        }
+      } },
     })
 
     const stream = await streamAgent(agent, {
       memo: vi.fn(),
       run: { runId: "run-1" },
       runtime: "unknown",
-      trace: { id: "request-1" },
-      traceLog: createTraceEventLog(),
       waitUntil: vi.fn(),
     }, {
       messages: [createMessage({ role: "user", text: "Explain availability" })],
@@ -6637,6 +7034,12 @@ describe("agent message protocol", () => {
 
     expect(cancelResult).toBe("cancelled")
     expect(cancelReason).toBe("client disconnected")
+    expect(traceLog!.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.stream.finish",
+      "agent.invocation.error",
+    ])
+    expect(deriveTraceRuns(traceLog!.entries())).toMatchObject([{ status: "failed" }])
   })
 
   it("emits one chat title data part when async event streams become UI message streams", async () => {
@@ -6713,12 +7116,18 @@ describe("agent message protocol", () => {
 
   it("renders custom async event streams returned from runAgent", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
+    let traceLog: ReturnType<typeof createTraceEventLog> | undefined
+    const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [chatTitle({ execute: () => "Run title" })],
-      driver: { run: () => (async function* () {
+      hooks: { "agent:finish": finish },
+      driver: { run: (context) => {
+        traceLog = context.traceLog
+        return (async function* () {
           yield { text: "answer", type: "text-delta" }
           yield { type: "finish" }
-        })() },
+        })()
+      } },
     })
 
     const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -6731,6 +7140,8 @@ describe("agent message protocol", () => {
 
     expect(events).toContainEqual({ data: { title: "Run title", type: "chat-title" }, type: "data" })
     expect(events).toContainEqual({ text: "answer", type: "text-delta" })
+    expect(finish.mock.calls[0]![0].invocation.resultKind).toBe("stream")
+    expect(deriveTraceRuns(traceLog!.entries())).toMatchObject([{ status: "completed" }])
   })
 
   it("exposes chat title finish extension without registering command metadata", async () => {
@@ -6790,6 +7201,7 @@ describe("agent message protocol", () => {
       error,
     }))
     expect(finish.mock.calls[0]![0]).not.toHaveProperty("result")
+    expect(deriveTraceRuns(finish.mock.calls[0]![0].runtime.traceLog.entries())).toMatchObject([{ status: "failed" }])
   })
 
   it("runs agent finish hooks when Response bodies are canceled", async () => {
@@ -6809,6 +7221,7 @@ describe("agent message protocol", () => {
     const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}) as Response
     await response.body?.cancel()
     expect(finish).toHaveBeenCalledTimes(1)
+    expect(deriveTraceRuns(finish.mock.calls[0]![0].runtime.traceLog.entries())).toMatchObject([{ status: "completed" }])
   })
 
   it("runs agent finish hooks when Response wrapping fails", async () => {
@@ -6830,31 +7243,53 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0]).not.toHaveProperty("result")
   })
 
-  it("returns generated Response results unchanged", async () => {
+  it("preserves generated Response payload and metadata while tracing completion", async () => {
     const { runAgent } = await import("../src/index.ts")
-    const response = Response.json({ ok: true })
+    const response = Response.json({ ok: true }, {
+      headers: { "x-agent": "generated" },
+      status: 202,
+      statusText: "Accepted",
+    })
     const agent = {
       generate: vi.fn(async () => response),
       name: "response-agent",
     }
 
-    await expect(runAgent(agent as never, {} as never, {
+    const result = await runAgent(agent as never, {} as never, {
       messages: [createMessage({ role: "user", text: "hello" })],
-    })).resolves.toBe(response)
+    }) as Response
+
+    expect(result).not.toBe(response)
+    expect(result.status).toBe(response.status)
+    expect(result.statusText).toBe(response.statusText)
+    expect(result.headers.get("content-type")).toBe(response.headers.get("content-type"))
+    expect(result.headers.get("x-agent")).toBe("generated")
+    await expect(result.json()).resolves.toEqual({ ok: true })
   })
 
-  it("returns streamed Response results unchanged", async () => {
+  it("preserves streamed Response payload and metadata while tracing completion", async () => {
     const { streamAgent } = await import("../src/index.ts")
-    const response = new Response("ok")
+    const response = new Response("ok", {
+      headers: { "x-agent": "streamed" },
+      status: 206,
+      statusText: "Partial Content",
+    })
     const agent = {
       generate: vi.fn(),
       name: "response-agent",
       stream: vi.fn(async () => response),
     }
 
-    await expect(streamAgent(agent as never, {} as never, {
+    const result = await streamAgent(agent as never, {} as never, {
       messages: [createMessage({ role: "user", text: "hello" })],
-    })).resolves.toBe(response)
+    }) as Response
+
+    expect(result).not.toBe(response)
+    expect(result.status).toBe(response.status)
+    expect(result.statusText).toBe(response.statusText)
+    expect(result.headers.get("content-type")).toBe(response.headers.get("content-type"))
+    expect(result.headers.get("x-agent")).toBe("streamed")
+    await expect(result.text()).resolves.toBe("ok")
   })
 
   it("converts text streams into ViteHub stream events", async () => {
@@ -7712,17 +8147,18 @@ describe("agent message protocol", () => {
     })
 
     it("uses discovered Agent identity for unnamed workflow runtime bindings", async () => {
-      const { defineAgent, runAgent, withAgentDefaults, workflow } = await import("../src/index.ts")
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
-      const agent = withAgentDefaults(defineAgent({
+      const agent = defineAgent({
         runtime: workflow(),
         driver: { run: context => `received ${context.prompt}` },
-      }), { inferredName: "browser" })
-      const run = await runAgent(agent!, {
+      })
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "browser" },
         memo: vi.fn(),
         runtime: "vercel",
         waitUntil: promise => waitUntilTasks.push(promise),
@@ -7735,14 +8171,119 @@ describe("agent message protocol", () => {
       })
     })
 
-    it("preserves Agent Definition metadata when applying discovered defaults", async () => {
-      const { createAgentDevtoolsMetadata, defineAgent, withAgentDefaults, workflow } = await import("../src/index.ts")
-      const agent = withAgentDefaults(defineAgent({
-        driver: { model: { id: "test-model" } as never },
-        runtime: workflow(),
-      }), { inferredName: "browser" })
+    it("keeps one discovered Agent Definition isolated across host identities", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { resolveRegisteredWorkspaceDefinition } = await import("@vite-hub/workspace")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
 
-      expect(createAgentDevtoolsMetadata(agent!)).toMatchObject({
+      const agent = defineAgent({
+        runtime: workflow(),
+        driver: { run: context => context.agentIdentity },
+        workspace: {},
+      })
+      const originalRuntime = agent.runtime
+      const docsIdentity = { name: "identity-docs-agent", workspace: "identity-docs-workspace" }
+      const supportIdentity = { name: "identity-support-agent", workspace: "identity-support-workspace" }
+      const docsRun = await runAgent(agent, {
+        agentIdentity: docsIdentity,
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "docs" }) as { id: string }
+      const supportRun = await runAgent(agent, {
+        agentIdentity: supportIdentity,
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "support" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun(docsIdentity.name, docsRun.id)).resolves.toMatchObject({
+        result: docsIdentity,
+        status: "completed",
+      })
+      await expect(getWorkflowRun(supportIdentity.name, supportRun.id)).resolves.toMatchObject({
+        result: supportIdentity,
+        status: "completed",
+      })
+      await expect(resolveRegisteredWorkspaceDefinition(docsIdentity.workspace)).resolves.toMatchObject({ name: docsIdentity.workspace })
+      await expect(resolveRegisteredWorkspaceDefinition(supportIdentity.workspace)).resolves.toMatchObject({ name: supportIdentity.workspace })
+      expect(agent.runtime).toBe(originalRuntime)
+    })
+
+    it("resolves workflow names from explicit binding, definition, then host identity", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      const hostIdentity = { name: "identity-host-fallback" }
+      const bindingAgent = defineAgent({
+        name: "identity-definition-shadowed",
+        runtime: workflow("identity-binding-wins"),
+        driver: { run: context => context.agentIdentity },
+      })
+      const definitionAgent = defineAgent({
+        name: "identity-definition-wins",
+        runtime: workflow(),
+        driver: { run: context => context.agentIdentity },
+      })
+      const hostAgent = defineAgent({
+        runtime: workflow(),
+        driver: { run: context => context.agentIdentity },
+      })
+
+      const bindingRun = await runAgent(bindingAgent, {
+        agentIdentity: hostIdentity,
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+      const definitionRun = await runAgent(definitionAgent, {
+        agentIdentity: hostIdentity,
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+      const hostRun = await runAgent(hostAgent, {
+        agentIdentity: hostIdentity,
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("identity-binding-wins", bindingRun.id)).resolves.toMatchObject({ result: hostIdentity })
+      await expect(getWorkflowRun("identity-definition-wins", definitionRun.id)).resolves.toMatchObject({ result: hostIdentity })
+      await expect(getWorkflowRun(hostIdentity.name, hostRun.id)).resolves.toMatchObject({ result: hostIdentity })
+    })
+
+    it("resolves workspace names from explicit configuration before host identity", async () => {
+      const { defineAgent } = await import("../src/index.ts")
+      const { workspaceNameFromOptions } = await import("../src/workspace-agent.ts")
+      const hostIdentity = { name: "identity-host-agent", workspace: "identity-host-workspace" }
+      const inferred = defineAgent({ driver: { run: () => "ok" }, workspace: {} })
+      const named = defineAgent({ driver: { run: () => "ok" }, name: "identity-explicit-name", workspace: {} })
+      const referenced = defineAgent({ driver: { run: () => "ok" }, workspace: { name: "identity-explicit-reference" } })
+      const stringWorkspace = defineAgent({ driver: { run: () => "ok" }, workspace: "identity-explicit-string" })
+
+      expect(workspaceNameFromOptions(inferred.__vitehubWorkspaceAgentOptions, {}, hostIdentity)).toBe(hostIdentity.workspace)
+      expect(workspaceNameFromOptions(named.__vitehubWorkspaceAgentOptions, {}, hostIdentity)).toBe("identity-explicit-name")
+      expect(workspaceNameFromOptions(referenced.__vitehubWorkspaceAgentOptions, {}, hostIdentity)).toBe("identity-explicit-reference")
+      expect(workspaceNameFromOptions(stringWorkspace.__vitehubWorkspaceAgentOptions, {}, hostIdentity)).toBe("identity-explicit-string")
+    })
+
+    it("preserves Agent Definition metadata for explicitly named definitions", async () => {
+      const { createAgentDevtoolsMetadata, defineAgent, workflow } = await import("../src/index.ts")
+      const agent = defineAgent({
+        driver: { model: { id: "test-model" } as never },
+        name: "browser",
+        runtime: workflow(),
+      })
+
+      expect(createAgentDevtoolsMetadata(agent)).toMatchObject({
         config: {
           driver: {
             kind: "model",
@@ -7752,52 +8293,19 @@ describe("agent message protocol", () => {
       })
     })
 
-    it("keeps workspace defaults scoped to each prepared Agent Definition", async () => {
-      const { defineAgent } = await import("../src/index.ts")
-      const defaults = (agent: unknown) => (agent as { __vitehubWorkspaceAgentDefaults?: { name?: string, workspace?: string } }).__vitehubWorkspaceAgentDefaults
-      const agent = defineAgent({
-        driver: { run: () => "ok" },
-        workspace: {},
-      })
-
-      const docsAgent = withAgentDefaults(agent, { inferredName: "docs-agent", workspace: "docs" })
-      const supportAgent = withAgentDefaults(agent, { inferredName: "support-agent", workspace: "support" })
-
-      expect(docsAgent).not.toBe(agent)
-      expect(supportAgent).not.toBe(agent)
-      expect(docsAgent).not.toBe(supportAgent)
-      expect(defaults(agent)).toEqual({})
-      expect(defaults(docsAgent)).toEqual({ name: "docs-agent", workspace: "docs" })
-      expect(defaults(supportAgent)).toEqual({ name: "support-agent", workspace: "support" })
-    })
-
-    it("preserves existing workspace defaults when applying an inferred registry name", async () => {
-      const { defineAgent } = await import("../src/index.ts")
-      const defaults = (agent: unknown) => (agent as { __vitehubWorkspaceAgentDefaults?: { name?: string, workspace?: string } }).__vitehubWorkspaceAgentDefaults
-      const agent = defineAgent({
-        driver: { run: () => "ok" },
-        workspace: {},
-      })
-
-      const preparedAgent = withAgentDefaults(agent, { inferredName: "support-agent", workspace: "support" })
-      const registryAgent = withAgentDefaults(preparedAgent, { inferredName: "registry-support" })
-
-      expect(registryAgent).not.toBe(preparedAgent)
-      expect(defaults(registryAgent)).toEqual({ name: "registry-support", workspace: "support" })
-    })
-
-    it("uses workspace Agent defaults for unnamed workflow runtime bindings", async () => {
+    it("uses explicit Agent Definition names for unnamed workflow runtime bindings", async () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
-      const agent = withAgentDefaults(defineAgent({
+      const agent = defineAgent({
+        name: "reviewer",
         runtime: workflow(),
         driver: { run: context => `received ${context.prompt}` },
         workspace: {},
-      }), { inferredName: "reviewer", workspace: "reviewer" })
+      })
       const run = await runAgent(agent, {
         memo: vi.fn(),
         runtime: "vercel",

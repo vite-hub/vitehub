@@ -182,6 +182,27 @@ describe("schedule provider output", () => {
     expect(JSON.parse(await readFile(join(cloudflareRoot, "wrangler.json"), "utf8")).triggers.crons).toEqual(["0 1 * * *", "0 0 * * *"])
   })
 
+  it("removes stale Deno and Cloudflare output when no static schedules remain", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-empty-cleanup-")
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    const configFile = join(cloudflareRoot, "wrangler.json")
+    const config = JSON.parse(await readFile(configFile, "utf8"))
+    await writeFile(configFile, JSON.stringify({
+      ...config,
+      custom: "keep",
+      triggers: { ...config.triggers, crons: ["0 1 * * *", ...config.triggers.crons] },
+    }), "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    expect(existsSync(join(rootDir, ".vitehub", "schedule", "deno-cron.mjs"))).toBe(false)
+    expect(existsSync(join(rootDir, ".vitehub", "schedule", "cloudflare-worker.mjs"))).toBe(false)
+    expect(existsSync(join(cloudflareRoot, "index.js"))).toBe(false)
+    await expect(readFile(configFile, "utf8")).resolves.toContain('"custom": "keep"')
+    expect(JSON.parse(await readFile(configFile, "utf8")).triggers.crons).toEqual(["0 1 * * *"])
+  })
+
   it("reports provider cron syntax limitations before output generation", () => {
     expect(() => validateProviderCron("0 0 1 1 * 2026", "cleanup")).toThrow(/provider wake output only supports five-field UTC cron syntax/)
     expect(() => validateProviderCron("0 0 * JAN *", "cleanup")).toThrow(/provider wake output only supports five-field UTC cron syntax/)

@@ -66,6 +66,28 @@ export default defineEventHandler(async (event) => {
 
 Use `output: 'events'` when an internal caller wants ViteHub stream events. Use `output: 'ui-message-stream'` when a chat UI expects UI message stream chunks.
 
+## Inspect invocation data
+
+Every Agent Invocation receives a trace context and a metadata-only in-memory Trace Event Log. Agent runtime callbacks can inspect `runtime.trace` and `runtime.traceLog`. A host can supply its own trace context or Trace Event Log when it needs request-trace continuity, a shared log, a different content policy, or an `onEntry` sink. ViteHub preserves the supplied objects; it does not persist the default log.
+
+That preservation applies to inline Agent Invocations. A workflow-backed invocation crosses a durable serialization boundary, so process-local Trace Event Logs and `onEntry` sinks are not carried into the Workflow Run. The workflow execution creates its own invocation trace instead.
+
+Agent Finish Hooks receive core completion facts without an observability Capability:
+
+```ts [server/agents/support.ts]
+export default defineAgent({
+  driver: { model },
+  hooks: {
+    'agent:finish'(event) {
+      const { durationMs, resultKind, usage } = event.invocation
+      event.runtime.waitUntil(recordInvocation({ durationMs, resultKind, usage }))
+    },
+  },
+})
+```
+
+The finish hook runs before the invocation's terminal Trace Event. Agent tests and eval observations expose the finalized `TraceRunView` as `result.trace` or `observation.trace` after completion. Stream and Response traces become terminal when the caller consumes, cancels, or encounters an error from the output.
+
 ## Invoke a trigger
 
 Use `runAgentTrigger` or `streamAgentTrigger` when a Capability owns the product event shape. The trigger prepares Agent Invocation input, metadata, and run state before the Agent Driver starts.
@@ -146,6 +168,19 @@ export default defineAgent({
       const usage = event.extensions.get('usage-telemetry')
       if (!usage) return
       event.runtime.waitUntil(recordUsage(usage))
+    },
+  },
+})
+```
+
+Finish hooks can also return channel delivery effects. Use `event.reply()`, `event.reaction()`, or `event.status()` and return one effect or an array; ViteHub delivers them after Capability finish effects.
+
+```ts [server/agents/support.ts]
+export default defineAgent({
+  driver: { run: () => 'Done' },
+  hooks: {
+    'agent:finish'(event) {
+      return event.reply('Usage recorded.')
     },
   },
 })

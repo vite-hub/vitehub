@@ -73,8 +73,8 @@ import {
 | Rate limit | [`rateLimit()`](/docs/capabilities/rate-limit) | A trusted invocation budget should be checked or consumed before the Agent runs. |
 | Chat title | [`chatTitle()`](/docs/capabilities/chat-title) | Chat streams and finish extensions should include a generated conversation title. |
 | Chat summary | [`chatSummary()`](/docs/capabilities/chat-summary) | A summary command should replace explicit input with a conversation summary. |
-| Observability | [`observability()`](/docs/capabilities/observability) | Lifecycle events, model instrumentation, and finish metadata should be attached to Agent Invocations. |
-| Usage telemetry | [`usageTelemetry()`](/docs/capabilities/usage-telemetry) | Finish hooks or Channel Delivery finish effects should receive primitive usage JSON. |
+| Observability (deprecated) | [`observability()`](/docs/capabilities/observability) | Existing code still needs the legacy lifecycle callback or finish extension while migrating to built-in invocation traces. |
+| Usage telemetry (deprecated) | [`usageTelemetry()`](/docs/capabilities/usage-telemetry) | Existing code still needs the legacy flat primitive usage extension while migrating to `invocation.usage`. |
 
 ## Read capability pages first
 

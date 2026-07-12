@@ -1,4 +1,4 @@
-import { resolveAgentUsageRecord } from "../agent-output.ts"
+import { agentResultKind, resolveAgentUsageRecord } from "../agent-output.ts"
 import { defineCapability } from "../capability-runtime.ts"
 
 import type {
@@ -75,17 +75,6 @@ interface AgentObservabilityCapabilityMetadata<
   observability: AgentObservabilityOptions<TRuntimeConfig, CALL_OPTIONS>
 }
 
-function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return Boolean(value && typeof value === "object" && Symbol.asyncIterator in value)
-}
-
-function resultKind(result: unknown): string {
-  if (result === null) return "null"
-  if (isAsyncIterable(result)) return "stream"
-  if (Array.isArray(result)) return "array"
-  return typeof result
-}
-
 function capabilityEventBase<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentCapabilityRuntimeContext<TRuntimeConfig>,
 ): AgentObservabilityEventBase<TRuntimeConfig> {
@@ -122,6 +111,9 @@ async function notify<TRuntimeConfig extends AgentRuntimeConfig>(
   }
 }
 
+/**
+ * @deprecated Agent invocations now capture runtime Trace Events and finish data by default. Use a host TraceEventLog sink and model execution instrumentation directly.
+ */
 export function observability<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -161,7 +153,7 @@ export function observability<
       }
     },
     async finish(event: AgentFinishEvent<TRuntimeConfig>) {
-      const usage = await resolveAgentUsageRecord(event.result, event.invocation.run)
+      const usage = event.invocation.usage ?? await resolveAgentUsageRecord(event.result, event.invocation.run)
       if (event.errorMessage !== undefined) {
         return {
           durationMs: event.invocation.durationMs,
@@ -172,7 +164,7 @@ export function observability<
 
       return {
         durationMs: event.invocation.durationMs,
-        resultKind: resultKind(event.result),
+        resultKind: event.invocation.resultKind ?? agentResultKind(event.result),
         status: "completed",
         ...(usage ? { usage } : {}),
       } satisfies AgentObservabilityFinishExtension

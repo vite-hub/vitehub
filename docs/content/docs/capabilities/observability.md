@@ -10,7 +10,11 @@ icon: i-lucide-radar
 `observability()` gives an Agent Definition one place to attach runtime telemetry.
 It can instrument model execution, emit lifecycle events, and provide a finish extension with invocation status, duration, result kind, and structured usage when the Agent Driver reports it.
 
-## Installation
+::warning
+`observability()` is deprecated. Agent Invocations now capture metadata-only Trace Events by default, and Agent Finish Hooks receive result kind and normalized usage on `event.invocation`. Supply a Runtime `traceLog` with `onEntry` when the host needs an external sink.
+::
+
+## Legacy installation
 
 Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
 
@@ -28,7 +32,7 @@ export default defineAgent({
 })
 ```
 
-## What it adds
+## Legacy behavior
 
 The Capability emits a `start` event before driver execution.
 When `onEvent` is configured, it also emits a `finish` or `error` event after the invocation completes.

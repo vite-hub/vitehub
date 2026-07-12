@@ -1,15 +1,17 @@
 import {
   defineAgent,
   runAgentInline,
-  withAgentDefaults,
 } from "./index.ts"
 import { resolveAgentUsageRecord } from "./agent-output.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
+import { createTraceEventLog, deriveTraceRuns } from "@vite-hub/runtime"
 import { registerWorkspace } from "@vite-hub/workspace/test"
 
 import type {
   AgentInput,
   AgentFinishEvent,
+  AgentFinishHook,
+  AgentFinishHookEvent,
   AgentFinishExtensions,
   AgentModelExecutionOptions,
   AgentModelInstrumentation,
@@ -25,6 +27,7 @@ import type {
   WorkspaceAgentDefinition,
 } from "./index.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
+import type { TraceEventLog, TraceRunView } from "@vite-hub/runtime"
 
 export { createAgentRuntimeContext }
 
@@ -45,6 +48,7 @@ export interface AgentTestRunResult {
   raw: unknown
   text: string
   toolSteps: AgentToolStep[]
+  trace?: TraceRunView
   usage?: unknown
   warnings?: unknown
 }
@@ -130,12 +134,12 @@ function withTestFinishCapture<TRuntimeConfig extends AgentRuntimeConfig>(
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput<AgentRuntimeContext<TRuntimeConfig>> & { hooks?: Record<string, unknown> }
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
   const hooks = clone.hooks || {}
-  const finishHook = hooks["agent:finish"] as ((event: AgentFinishEvent<TRuntimeConfig>) => MaybePromise<void>) | undefined
+  const finishHook = hooks["agent:finish"] as AgentFinishHook<TRuntimeConfig> | undefined
   clone.hooks = {
     ...hooks,
-    async "agent:finish"(event: AgentFinishEvent<TRuntimeConfig>) {
+    async "agent:finish"(event: AgentFinishHookEvent<TRuntimeConfig>) {
       capture(event)
-      await finishHook?.(event)
+      return await finishHook?.(event)
     },
   }
   return clone
@@ -302,13 +306,16 @@ async function normalizeAgentTestResult(
   value: unknown,
   toolSteps: AgentToolStep[],
   getFinishEvent: () => AgentFinishEvent | undefined,
+  getTrace: () => TraceRunView | undefined,
 ): Promise<AgentTestRunResult> {
-  const finishEvent = getFinishEvent()
-  const usage = (await resolveAgentUsageRecord(value, finishEvent?.invocation.run))?.usage
   if (value instanceof Response) {
     const text = await value.clone().text()
+    const finishEvent = getFinishEvent()
+    const trace = getTrace()
+    const usage = await normalizedTestUsage(value, finishEvent)
     return {
       ...(finishEvent?.extensions ? { extensions: finishEvent.extensions } : {}),
+      ...(trace ? { trace } : {}),
       ...(usage ? { usage } : {}),
       raw: value,
       text,
@@ -319,6 +326,9 @@ async function normalizeAgentTestResult(
   const result = typeof value === "object" && value !== null
     ? value as AgentRunResult
     : undefined
+  const finishEvent = getFinishEvent()
+  const trace = getTrace()
+  const usage = await normalizedTestUsage(value, finishEvent)
 
   return {
     ...(finishEvent?.extensions ? { extensions: finishEvent.extensions } : {}),
@@ -326,9 +336,20 @@ async function normalizeAgentTestResult(
     raw: value,
     text: textFromRaw(value),
     toolSteps: [...toolSteps, ...toolStepsFromRaw(value)],
+    ...(trace ? { trace } : {}),
     usage: usage ?? result?.usage,
     warnings: result?.warnings,
   }
+}
+
+async function normalizedTestUsage(value: unknown, event: AgentFinishEvent | undefined) {
+  return event?.invocation.usage?.usage ?? (await resolveAgentUsageRecord(value, event?.invocation.run))?.usage
+}
+
+function completedTraceRun(traceLog: TraceEventLog, run: AgentRunMetadata | undefined): TraceRunView | undefined {
+  const runs = deriveTraceRuns(traceLog.entries())
+  const trace = run?.runId ? runs.find(item => item.id === run.runId) : runs.length === 1 ? runs[0] : undefined
+  return trace?.status === "running" ? undefined : trace
 }
 
 export function createAgentTestRunner<
@@ -343,19 +364,19 @@ export function createAgentTestRunner<
   }
 
   const instrumentedAgent = withTestModelInstrumentation(agent, options.instrumentModel)
-  const preparedAgent: AgentInput<AgentRuntimeContext<TRuntimeConfig>> = options.workspace
-    ? withAgentDefaults(
-        instrumentedAgent,
-        { inferredName: options.name, workspace: options.workspace },
-      ) as AgentInput<AgentRuntimeContext<TRuntimeConfig>>
-    : instrumentedAgent
+  const identityName = options.name || options.workspace
 
   return {
     async run(input) {
       const toolSteps: AgentToolStep[] = []
       let workspaceInspectionGuardrails = 0
       let finishEvent: AgentFinishEvent | undefined
+      const run = await resolveRun(options.name, options.run)
+      const traceLog = createTraceEventLog()
       const context = createAgentRuntimeContext({
+        ...(identityName
+          ? { agentIdentity: { name: identityName, ...(options.workspace ? { workspace: options.workspace } : {}) } }
+          : {}),
         devtools: {
           reportToolStep(step) {
             toolSteps.push(step)
@@ -371,20 +392,21 @@ export function createAgentTestRunner<
           },
         },
         request: options.request,
-        run: await resolveRun(options.name, options.run),
+        run,
         runtime: options.runtime || (options.workspace || isWorkspaceAgentDefinition(agent) ? "vite" : "unknown"),
         runtimeConfig: await resolveRuntimeConfig(options.runtimeConfig),
+        traceLog,
         waitUntil: options.waitUntil || createWaitUntil(),
       })
 
       const raw = await runAgentInline<TRuntimeConfig, CALL_OPTIONS>(
-        withTestFinishCapture(preparedAgent, value => {
+        withTestFinishCapture(instrumentedAgent, value => {
           finishEvent = value as AgentFinishEvent
         }),
         context,
         input,
       )
-      return await normalizeAgentTestResult(raw, toolSteps, () => finishEvent)
+      return await normalizeAgentTestResult(raw, toolSteps, () => finishEvent, () => completedTraceRun(traceLog, run))
     },
   }
 }

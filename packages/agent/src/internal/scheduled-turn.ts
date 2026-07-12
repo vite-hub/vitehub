@@ -8,8 +8,6 @@ export const scheduledAgentNameContextKey = "agent.name"
 export const scheduledAgentChannelIdsContextKey = "agent.channels"
 export const scheduledAgentTurnContextKey = "agent.schedule.turn"
 
-const scheduledAgentName = Symbol("vitehub.agent.name")
-
 export interface ScheduledAgentTurnDelivery {
   channelId: string
   origin: string
@@ -137,18 +135,6 @@ export function scheduledAgentTurnPrompt(value: unknown): string | undefined {
 
 export function scheduledAgentTargetName(name: string | undefined): string | undefined {
   return name ? `agent/${name}` : undefined
-}
-
-export function getScheduledAgentName(value: unknown): string | undefined {
-  if (!isRecord(value)) return
-  return optionalString(value[scheduledAgentName], "Discovered Agent name")
-}
-
-export function setScheduledAgentName(value: object, name: string): void {
-  Object.defineProperty(value, scheduledAgentName, {
-    configurable: true,
-    value: requiredString(name, "Discovered Agent name"),
-  })
 }
 
 export const scheduledAgentTurnReplyEffect: AgentChannelDeliveryFinishEffectCallback = (finish) => {

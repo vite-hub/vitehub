@@ -92,8 +92,33 @@ describe("agent test runner", () => {
       finishReason: "stop",
       text: "done",
       toolSteps: [],
+      trace: {
+        status: "completed",
+      },
       usage: { outputTokens: 2 },
     })
+  })
+
+  it("captures a terminal trace after reading Response output", async () => {
+    const { runAgentForTest } = await import("../src/test.ts")
+    const agent = {
+      generate: vi.fn(async () => new Response("done", { status: 202 })),
+      stream: vi.fn(),
+      tools: {},
+      version: "agent-v1",
+    }
+
+    const result = await runAgentForTest(agent as never, {
+      runtimeConfig: {},
+    }, {
+      prompt: "hello",
+    })
+
+    expect(result.text).toBe("done")
+    expect(result.trace).toMatchObject({
+      status: "completed",
+    })
+    expect(result.trace?.events.at(-1)?.name).toBe("agent.invocation.finish")
   })
 
   it("collects harness-native raw tool steps for eval scorers", async () => {
@@ -160,6 +185,33 @@ describe("agent test runner", () => {
       ["review-output", { resultKind: "object", runId: "run-extensions" }],
     ])
     expect(JSON.stringify(result.extensions)).toBe('{"review-output":{"resultKind":"object","runId":"run-extensions"}}')
+  })
+
+  it("preserves finish hook delivery effects while capturing test results", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const { createAgentTestRunner } = await import("../src/test.ts")
+    const reply = vi.fn()
+    const runner = createAgentTestRunner(defineAgent({
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reply },
+          messages: false,
+        }),
+      },
+      driver: { run: () => "done" },
+      hooks: {
+        "agent:finish": event => event.reply("usage"),
+      },
+    }), {
+      run: { channelId: "portal", runId: "test-run" },
+      runtimeConfig: {},
+    })
+
+    await expect(runner.run({ prompt: "hello" })).resolves.toMatchObject({ text: "done" })
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({
+      effect: expect.objectContaining({ kind: "reply", payload: "usage" }),
+    }))
   })
 
   it("applies workspace defaults and collects workspace tool steps", async () => {

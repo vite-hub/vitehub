@@ -27,6 +27,7 @@ import {
   type Message,
 } from "./messages.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
+import type { TraceRunView } from "@vite-hub/runtime"
 
 export interface AgentScore {
   metadata?: unknown
@@ -43,6 +44,7 @@ export interface AgentObservation {
   scenario: string
   text: string
   toolSteps: AgentToolStep[]
+  trace?: TraceRunView
   usage?: unknown
   variant: string
   warnings?: unknown
@@ -366,6 +368,7 @@ function toObservation(result: AgentTestRunResult, scenario: { metadata?: unknow
     scenario: scenario.name,
     text: result.text,
     toolSteps: result.toolSteps,
+    ...(result.trace ? { trace: result.trace } : {}),
     usage: result.usage,
     variant: variant.name,
     warnings: result.warnings,

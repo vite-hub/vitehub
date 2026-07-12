@@ -282,6 +282,9 @@ describe("agent eval", () => {
       outputTokens: 5,
       totalTokens: 9,
     })
+    expect(output.trace).toMatchObject({
+      status: "completed",
+    })
     expect(output.scores[0]).toMatchObject({
       passed: true,
       score: 1,

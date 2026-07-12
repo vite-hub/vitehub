@@ -8,8 +8,8 @@ import {
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
 import { getMessageText } from "./messages.ts"
-import { resolveRuntimeContext } from "@vite-hub/runtime"
-import { isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
+import { createTraceEventLog, resolveRuntimeContext } from "@vite-hub/runtime"
+import { agentResultKind, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import {
   finishMessageChannelChatTitleDelivery,
@@ -31,12 +31,10 @@ import {
   resolveAgentInvoker,
 } from "./invoker.ts"
 import {
-  getScheduledAgentName,
   parseScheduledAgentTurnInput,
   scheduledAgentChannelIdsContextKey,
   scheduledAgentNameContextKey,
   scheduledAgentTurnContextKey,
-  setScheduledAgentName,
 } from "./internal/scheduled-turn.ts"
 
 import {
@@ -123,9 +121,10 @@ import type {
   AgentDriverContribution,
   AgentDriverKind,
   AgentFinishEvent,
+  AgentFinishHookEvent,
   AgentFinishExtensions,
   AgentChatOptions,
-  AgentHandlerOptions,
+  AgentHostIdentity,
   AgentInput,
   AgentInputHook,
   AgentInvocationContextStore,
@@ -151,6 +150,7 @@ import type {
   AgentRuntimeContext,
   AgentSettings,
   AgentUsageCost,
+  AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
   AgentToolDefinition,
   MaybePromise,
@@ -266,13 +266,16 @@ export type {
   AgentFinishExtensions,
   AgentFinishExtensionValues,
   AgentFinishHook,
-  AgentHandlerOptions,
+  AgentFinishHookEvent,
+  AgentHostIdentity,
   AgentHarnessCredentialSource,
   AgentHarnessDriver,
   AgentHarnessDriverInput,
+  AgentHarnessInstructions,
   AgentHarnessSandboxProvider,
   AgentHarnessSandboxProviderInput,
   AgentHarnessSessionKey,
+  AgentHarnessWorkDir,
   AgentInput,
   AgentInputHook,
   AgentIntegrationOption,
@@ -587,7 +590,6 @@ function hasAgentDefinition(value: unknown): value is AgentDefinition {
 
 function resolveAgentWorkflowRuntimeBinding<
   TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
 ): AgentWorkflowRuntimeBinding | undefined {
@@ -595,8 +597,14 @@ function resolveAgentWorkflowRuntimeBinding<
   return agent.runtime?.kind === "workflow" ? agent.runtime : undefined
 }
 
-function resolveAgentWorkflowName(binding: AgentWorkflowRuntimeBinding): string {
-  if (binding.name) return binding.name
+function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  binding: AgentWorkflowRuntimeBinding,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+): string {
+  const definition = hasAgentDefinition(agent) ? agent : undefined
+  const name = binding.name || definition?.name || context.agentIdentity?.name
+  if (name) return name
   throw new Error("[vitehub] Agent runtime workflow() requires a name when invoked directly. A stable Workflow Definition target requires workflow(\"name\").")
 }
 
@@ -633,12 +641,13 @@ async function runAgentAsWorkflow<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
 ) {
-  const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig, CALL_OPTIONS>(agent)
+  const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
   if (!binding) return undefined
 
-  const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS>(agent, resolveAgentWorkflowName(binding))
+  const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS>(agent, resolveAgentWorkflowName(agent, binding, context))
   const resolvedContext = createResolvedRuntimeContext(context)
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
+    ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
     input,
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,
@@ -960,7 +969,7 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   const driver = normalizeAgentDriver(options)
-  const { capabilities, channels, cli, description, hooks, messages, runtime, version, workspace } = options
+  const { capabilities, channels, cli, description, hooks, messages, name, runtime, version, workspace } = options
   const run = driver.kind === "run" ? driver.run : undefined
   const baseCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
@@ -1005,6 +1014,7 @@ function defineBaseAgent<
     hooks,
     invoker,
     messages,
+    name,
     runtime,
     run,
     version,
@@ -1035,11 +1045,6 @@ export function workflow(name?: string): AgentWorkflowRuntimeBinding {
   }
 }
 
-function withAgentWorkflowRuntimeName(runtime: AgentRuntimeBinding | undefined, name: string | undefined): AgentRuntimeBinding | undefined {
-  if (!name || runtime?.kind !== "workflow" || runtime.name) return runtime
-  return { ...runtime, name }
-}
-
 function createSyntheticWorkspaceRun<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -1055,58 +1060,6 @@ function createSyntheticWorkspaceRun<
       : result
   }
   return Object.assign(run, { [syntheticWorkspaceRun]: true })
-}
-
-function cloneAgentDefinitionWithDefaults<TContext extends AgentRuntimeContext>(
-  agent: AgentInput<TContext>,
-  defaults: WorkspaceAgentDefaults | undefined,
-  runtime: AgentRuntimeBinding | undefined,
-  inferredName: string | undefined,
-): AgentInput<TContext> {
-  const clone = Object.create(Object.getPrototypeOf(agent)) as AgentDefinition
-  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
-  if (defaults) {
-    (clone as Partial<WorkspaceAgentDefinition>).__vitehubWorkspaceAgentDefaults = defaults
-  }
-  if (runtime) {
-    clone.runtime = runtime
-  }
-  if (inferredName) {
-    setScheduledAgentName(clone, inferredName)
-  }
-  if (clone.run && syntheticWorkspaceRun in clone.run) {
-    clone.run = createSyntheticWorkspaceRun(clone as never) as typeof clone.run
-  }
-  return clone as AgentInput<TContext>
-}
-
-export function withAgentDefaults<TContext extends AgentRuntimeContext>(
-  agent: AgentInput<TContext>,
-  options?: AgentHandlerOptions<TContext>,
-): AgentInput<TContext>
-export function withAgentDefaults<TContext extends AgentRuntimeContext>(
-  agent: AgentInput<TContext> | undefined,
-  options?: AgentHandlerOptions<TContext>,
-): AgentInput<TContext> | undefined
-export function withAgentDefaults<TContext extends AgentRuntimeContext>(
-  agent: AgentInput<TContext> | undefined,
-  options: AgentHandlerOptions<TContext> = {},
-): AgentInput<TContext> | undefined {
-  if (!agent || !hasAgentDefinition(agent)) return agent
-  const workspaceDefinition = agent as Partial<WorkspaceAgentDefinition>
-  const inferredName = options.inferredName?.trim()
-  const existingWorkspaceDefaults = workspaceDefinition.__vitehubWorkspaceAgentDefaults
-  const workspaceDefaults = workspaceDefinition.__vitehubWorkspaceAgent && (inferredName || options.workspace)
-    ? {
-        ...existingWorkspaceDefaults,
-        ...(inferredName ? { name: inferredName } : {}),
-        ...(options.workspace ? { workspace: options.workspace } : {}),
-      }
-    : undefined
-  const runtime = withAgentWorkflowRuntimeName(agent.runtime, inferredName)
-  return !workspaceDefaults && (!runtime || runtime === agent.runtime) && (!inferredName || getScheduledAgentName(agent) === inferredName)
-    ? agent
-    : cloneAgentDefinitionWithDefaults(agent, workspaceDefaults, runtime === agent.runtime ? undefined : runtime, inferredName)
 }
 
 export interface DefineAgent {
@@ -1157,7 +1110,6 @@ function createWorkspaceAgentDefinition<
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile>,
-  defaults: WorkspaceAgentDefaults<Name> = {},
 ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS> {
   const workspaceDefinition = workspaceDefinitionFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
   validateWorkspaceCapabilities(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>, workspaceDefinition)
@@ -1165,7 +1117,7 @@ function createWorkspaceAgentDefinition<
     ...options,
     description: options.description,
     hooks: options.hooks,
-    runtime: withAgentWorkflowRuntimeName(options.runtime, defaults.name),
+    runtime: options.runtime,
     version: options.version,
     workspace: workspaceDefinition,
   } as never) as WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>
@@ -1176,7 +1128,6 @@ function createWorkspaceAgentDefinition<
 
   Object.assign(definition, workspaceDefinition, {
     __vitehubWorkspaceAgent: true,
-    __vitehubWorkspaceAgentDefaults: defaults,
     __vitehubWorkspaceAgentOptions: options,
   })
   return definition
@@ -1232,7 +1183,7 @@ export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>
     throw new Error(`[vitehub] Agent "${name}" did not export a valid default agent.`)
   }
 
-  return withAgentDefaults(agent, { inferredName: name }) as AgentInput<TContext>
+  return agent
 }
 
 export async function resolveAgentTriggers<
@@ -1316,7 +1267,7 @@ type AgentInvocationContext<
   finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
-  finishHook?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS> extends infer TEvent ? (event: TEvent) => MaybePromise<void> : never
+  finishHook?: (event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   hasCapabilityCleanup: boolean
   harnessSandboxProvider?: unknown
   hooks?: AgentHookObserverHooks
@@ -1423,11 +1374,17 @@ async function createAgentInvocationContext<
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const resolvedContext = createResolvedRuntimeContext(context)
-  const runtimeContext = resolvedContext.trace || !resolvedContext.traceLog ? resolvedContext : { ...resolvedContext, trace: { id: createTraceId(context.run) } }
+  const runtimeContext = resolvedContext.trace && resolvedContext.traceLog
+    ? resolvedContext
+    : {
+        ...resolvedContext,
+        trace: resolvedContext.trace || { id: createTraceId(context.run) },
+        traceLog: resolvedContext.traceLog || createTraceEventLog(),
+      }
   const callbackContext = createAgentCallbackContext(runtimeContext)
   const invocationContext = createAgentInvocationContextStore(input.context)
   invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
-  invocationContext.set(scheduledAgentNameContextKey, getScheduledAgentName(definition), { overwrite: true })
+  invocationContext.set(scheduledAgentNameContextKey, context.agentIdentity?.name, { overwrite: true })
   let invoker = createFallbackAgentInvoker(context.run)
   try {
     invoker = await resolveAgentInvoker(
@@ -1441,8 +1398,8 @@ async function createAgentInvocationContext<
     const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
     const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
     const workspaceName = workspaceOptions
-      ? workspaceNameFromOptions(workspaceOptions, workspaceDefinition?.__vitehubWorkspaceAgentDefaults)
-      : workspaceDefinition?.__vitehubWorkspaceAgentDefaults?.workspace
+      ? workspaceNameFromOptions(workspaceOptions, {}, context.agentIdentity)
+      : undefined
     const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
     const configuredWorkspaceDefinition = workspaceOptions && workspaceName
       ? { ...workspaceDefinitionFromOptions(workspaceOptions), name: workspaceName }
@@ -1615,7 +1572,7 @@ type InvocationRunContext<
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
-  finishHook?: (event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void>
+  finishHook?: (event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   hooks?: AgentHookObserverHooks
   input: AgentRunInput<CALL_OPTIONS>
   outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
@@ -1719,6 +1676,9 @@ function withStreamedResult(
   return {
     finishResult() {
       return resultWithStreamedTextAndUsage(result, streamedText, usageRecord, fallbackUsageRecord)
+    },
+    finishUsage() {
+      return usageRecord ?? fallbackUsageRecord
     },
     stream: (async function* () {
       for await (const chunk of stream) {
@@ -1844,11 +1804,19 @@ async function resolveFinishUsageRecord<
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
   result: unknown,
 ): Promise<Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined> {
-  return hasFinishWork(context) ? await resolveAgentUsageRecord(result, context.run) : undefined
+  if (hasFinishWork(context)) return await resolveAgentUsageRecord(result, context.run)
+  if (!context.runtimeContext.traceLog) return undefined
+  try {
+    return await resolveAgentUsageRecord(result, context.run)
+  }
+  catch {
+    // Core tracing is best-effort and must not change Agent output.
+    return undefined
+  }
 }
 
 type AgentInvocationFinishOutcome =
-  | { result?: unknown, status: "success" }
+  | { result?: unknown, status: "success", usage?: AgentUsageRecord }
   | { error: unknown, status: "error" }
 
 function finishOutcomeFromCleanup(outcome: { failed: false } | { error: unknown, failed: true }, result?: unknown): AgentInvocationFinishOutcome {
@@ -1981,6 +1949,22 @@ function createFinishDeliveryEffectContext<
   }
 }
 
+function createAgentFinishHookEvent<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+): AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS> {
+  const delivery = createFinishDeliveryEffectContext(event, context)
+  return {
+    ...event,
+    reaction: delivery.reaction,
+    reply: delivery.reply,
+    status: delivery.status,
+  }
+}
+
 function activeFinishDeliveryEffectProviders<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -2050,6 +2034,17 @@ async function finishAgentInvocation<
   try {
     await context.startTask
     await context.close()
+    let resultKind: string | undefined
+    let usage = failed ? undefined : outcome.usage
+    if (!failed) {
+      try {
+        resultKind = agentResultKind(result)
+        usage ??= await resolveAgentUsageRecord(result, context.run)
+      }
+      catch {
+        // Invocation data must not change Agent output or mask the original failure.
+      }
+    }
     if (hasFinishWork(context)) {
       const details = failed ? agentErrorDetails(error) : undefined
       const eventBase = {
@@ -2060,7 +2055,9 @@ async function finishAgentInvocation<
         invoker: context.invoker,
         invocation: {
           durationMs,
+          ...(resultKind !== undefined ? { resultKind } : {}),
           ...(context.run ? { run: context.run } : {}),
+          ...(usage ? { usage } : {}),
         },
         ...(result !== undefined ? { result } : {}),
         runtime: context.runtimeContext,
@@ -2072,14 +2069,20 @@ async function finishAgentInvocation<
         const finishEvent = { ...eventBase, extensions }
         const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, finishEvent as never)
         await applyChannelDeliveryEffectIntents(context, await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context), finishEvent as never)
+        let finishHookResult: void | AgentChannelDeliveryFinishEffectResult
         await runObservedAgentHook(context.hooks, {
           ids: { runId: context.run?.runId },
           name: "agent:finish",
           owner: "agent",
           phase: "finish",
         }, async () => {
-          await context.finishHook?.(finishEvent)
+          finishHookResult = await context.finishHook?.(createAgentFinishHookEvent(finishEvent, context))
         })
+        if (finishHookResult) {
+          const finishHookIntents: AgentChannelDeliveryEffectIntent[] = []
+          appendDeliveryEffectIntent(finishHookIntents, finishHookResult)
+          await applyChannelDeliveryEffectIntents(context, finishHookIntents, finishEvent)
+        }
       }
     }
     if (!failed) await commitWorkspaceChanges(context)
@@ -2087,6 +2090,8 @@ async function finishAgentInvocation<
       await traceAgentInvocationFinish(toTraceContext(context), {
         "invocation.durationMs": durationMs,
         "result.hasValue": result !== undefined,
+        ...(resultKind !== undefined ? { "result.kind": resultKind } : {}),
+        ...(usage ? { "usage.record": usage } : {}),
       })
     }
     else {
@@ -2123,7 +2128,7 @@ async function finalizeAgentInvocationResult<
 >(
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS> & { hasCapabilityCleanup: boolean },
   result: unknown,
-  finalizeObject: (result: unknown) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, value: TResult }>,
+  finalizeObject: (result: unknown) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, finishUsage?: AgentUsageRecord, value: TResult }>,
   failureMessage: string,
   options: {
     finalizeRawStreams?: boolean
@@ -2142,16 +2147,25 @@ async function finalizeAgentInvocationResult<
     if (isAsyncIterable(result) && !hasTraceableStreamResult(result) && !options.finalizeRawStreams) {
       finishLifecycleStarted = shouldWrapOutput
       const stream = options.wrapStream?.(result) || result
-      if (shouldWrapOutput && context.finalOutputRenderers.length) {
+      if (shouldWrapOutput) {
         const streamed = withStreamedResult(stream, result)
+        if (!context.finalOutputRenderers.length) {
+          return withCapabilityCleanup(streamed.stream, async (outcome) => {
+            const finishOutcome = finishOutcomeFromCleanup(outcome, result)
+            const usage = streamed.finishUsage()
+            return finishAgentInvocation(context, finishOutcome.status === "success"
+              ? { ...finishOutcome, usage: usage ? await resolveAgentUsageRecord({ usageRecord: usage }, context.run) : undefined }
+              : finishOutcome)
+          }, { abortSignal: context.input.abortSignal })
+        }
         return withCapabilityCleanup(streamed.stream, outcome => finishStreamAgentInvocation(context, streamed.finishResult(), finishOutcomeFromCleanup(outcome), failureMessage, options.outputExtensions), { abortSignal: context.input.abortSignal })
       }
-      return shouldWrapOutput ? withCapabilityCleanup(stream, outcome => finishAgentInvocation(context, finishOutcomeFromCleanup(outcome, result)), { abortSignal: context.input.abortSignal }) : stream
+      return stream
     }
     const finalized = await finalizeObject(result)
     finishLifecycleStarted = true
     if (!finalized.deferFinish) {
-      await finishAgentInvocation(context, { result: finalized.finishResult, status: "success" })
+      await finishAgentInvocation(context, { result: finalized.finishResult, status: "success", usage: finalized.finishUsage })
     }
     return finalized.value
   }
@@ -2201,7 +2215,11 @@ export async function runAgentInline<
         ? renderedResult ? result : await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
         : result
       const final = renderOutput ? await applyFinalOutputRenderers(rendered, runContext, outputExtensions) : rendered
-      return { finishResult: resultWithUsageRecord(final, driverUsageRecord), value: final }
+      return {
+        finishResult: hasFinishWork(runContext) ? resultWithUsageRecord(final, driverUsageRecord) : final,
+        finishUsage: driverUsageRecord,
+        value: final,
+      }
     }, "[vitehub] Agent run failed and finish lifecycle also failed.", {
       outputExtensions,
       wrapStream: stream => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, runContext),
@@ -2228,7 +2246,11 @@ export async function runAgentInline<
     const rendered = renderOutput ? await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions) : result
     const final = renderOutput ? await applyFinalOutputRenderers(rendered, adapterContext, outputExtensions) : rendered
     const runResult = renderOutput ? toAgentRunResult(final) : final
-    return { finishResult: resultWithUsageRecord(final, driverUsageRecord), value: runResult }
+    return {
+      finishResult: hasFinishWork(adapterContext) ? resultWithUsageRecord(final, driverUsageRecord) : final,
+      finishUsage: driverUsageRecord,
+      value: runResult,
+    }
   }, "[vitehub] Agent run failed and finish lifecycle also failed.")
 }
 

@@ -32,7 +32,6 @@ function workspaceRegistryState(): WorkspaceRegistryState {
 function pickWorkspaceFields(definition: WorkspaceDefinitionInput | Record<string, unknown>): WorkspaceDefinitionInput {
   const {
     __vitehubWorkspaceAgent: _agent,
-    __vitehubWorkspaceAgentDefaults: _agentDefaults,
     __vitehubWorkspaceAgentOptions: _agentOptions,
     description: _description,
     fallback: _fallback,
