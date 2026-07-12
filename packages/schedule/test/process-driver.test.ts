@@ -109,6 +109,28 @@ describe("Process Schedule Wake Driver", () => {
     await driver.close?.()
   })
 
+  it("uses the shared time-zone matcher for process wakes", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-15T07:00:20.000Z"))
+    const wake = vi.fn<RuntimeScheduleWakeDriverContext["wake"]>(async () => {})
+    const driver = await createDriver({
+      reportError: vi.fn(),
+      wake,
+    })
+
+    await driver.reconcile([
+      record("copenhagen", { cron: "0 9 * * *", timeZone: "Europe/Copenhagen" }),
+    ])
+    await flushAsyncWork()
+
+    expect(wake).toHaveBeenCalledOnce()
+    expect(wake).toHaveBeenCalledWith({
+      scheduleId: "copenhagen",
+      scheduledAt: new Date("2026-07-15T07:00:00.000Z"),
+    })
+    await driver.close?.()
+  })
+
   it("reconciles additions and removals without polling the schedule store", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T09:00:20.000Z"))

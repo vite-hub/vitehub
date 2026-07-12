@@ -11,7 +11,14 @@ import { getMessageText } from "./messages.ts"
 import { resolveRuntimeContext } from "@vite-hub/runtime"
 import { isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
-import { isMessageChannelChatTitleEffectIntent, messageChannelTitleDeliveredContextKey, resolveAgentChannelChatOptions } from "./internal/channels.ts"
+import {
+  finishMessageChannelChatTitleDelivery,
+  isMessageChannelChatTitleEffectIntent,
+  messageChannelTitleDeliveredContextKey,
+  prepareMessageChannelChatTitleDelivery,
+  resolveAgentChannelChatOptions,
+} from "./internal/channels.ts"
+import type { MessageChannelChatTitleDeliveryAttempt } from "./internal/channels.ts"
 import {
   channelHasCustomTitleEffect,
   messageChannelSupportsTitleEffect,
@@ -758,6 +765,29 @@ async function applyChannelDeliveryEffectIntents<
       continue
     }
 
+    const titleDelivery = isMessageChannelChatTitleEffectIntent(intent)
+      ? await prepareMessageChannelChatTitleDelivery(context.context, context.run, intent).catch(async (error) => {
+          await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, {
+            ...metadata,
+            "error.message": agentErrorMessage(error),
+          })
+          return { deliver: true } as MessageChannelChatTitleDeliveryAttempt
+        })
+      : undefined
+    if (titleDelivery?.error) {
+      await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, {
+        ...metadata,
+        "error.message": agentErrorMessage(titleDelivery.error),
+      })
+    }
+    if (titleDelivery && !titleDelivery.deliver) {
+      await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, {
+        ...metadata,
+        "channel.effect.skipped": titleDelivery.reason,
+      })
+      continue
+    }
+
     let delivered = true
     for (const handler of handlers) {
       try {
@@ -795,7 +825,18 @@ async function applyChannelDeliveryEffectIntents<
         })
       }
     }
-    if (isMessageChannelChatTitleEffectIntent(intent) && delivered) {
+    if (titleDelivery) {
+      try {
+        await finishMessageChannelChatTitleDelivery(titleDelivery, delivered, Boolean(finish))
+      }
+      catch (error) {
+        await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, {
+          ...metadata,
+          "error.message": agentErrorMessage(error),
+        })
+      }
+    }
+    if (titleDelivery && delivered) {
       context.context.set(messageChannelTitleDeliveredContextKey, true, { overwrite: true })
     }
   }
@@ -845,7 +886,7 @@ function validateWorkspaceCapabilities<Name extends WorkspaceName>(options: Work
   for (const capability of capabilities) {
     if (capability.id === "workspace-shell") {
       const metadata = capability.metadata as { commands?: unknown } | undefined
-      const requiresWritableSession = Array.isArray(metadata?.commands)
+      const requiresWritableSession = metadata?.commands !== undefined
       if (requiresWritableSession && workspaceMode !== "write") {
         throw new Error("[vitehub] workspaceShell({ commands }) requires workspace.mode: \"write\".")
       }

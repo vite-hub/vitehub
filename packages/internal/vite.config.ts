@@ -34,6 +34,7 @@ export default defineConfig({
       "src/runtime/context.ts",
       "src/runtime/hosted.ts",
       "src/runtime/random.ts",
+      "src/runtime/time-zone.ts",
       "src/runtime/vercel-hosted.ts",
     ],
     outExtensions: () => ({

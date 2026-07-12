@@ -41,6 +41,7 @@ export interface RuntimeScheduleRecord extends RuntimeScheduleMetadata {
   enabled: boolean
   id: string
   target: ScheduleTargetName
+  timeZone?: string
 }
 
 export interface RuntimeScheduleWake {
@@ -53,12 +54,14 @@ export interface RuntimeScheduleCreateInput<TTarget extends ScheduleTargetName =
   enabled?: boolean
   id?: string
   target: TTarget
+  timeZone?: string
 }
 
 export interface RuntimeScheduleUpdateInput<TTarget extends ScheduleTargetName = ScheduleTargetName> {
   cron?: string
   enabled?: boolean
   target?: TTarget
+  timeZone?: string
 }
 
 export interface RuntimeScheduleStore {

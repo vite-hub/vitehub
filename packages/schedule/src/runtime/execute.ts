@@ -1,6 +1,7 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
 
 import { ScheduleError } from "../errors.ts"
+import { isRuntimeScheduleDue } from "./due.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 
 import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore, ScheduleTargetName } from "../types.ts"
@@ -23,6 +24,7 @@ interface ExecuteStaticScheduleOptions {
 
 interface ExecuteRuntimeScheduleOptions {
   id: string
+  requireDue?: boolean
   runtimeScheduleStore?: RuntimeScheduleStore
   scheduledAt?: Date
   scheduleRunStore?: ScheduleRunStore
@@ -248,6 +250,13 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
       httpStatus: 409,
     })
   }
+  if (runtimeOptions.requireDue && !isRuntimeScheduleDue(schedule, scheduledAt)) {
+    throw new ScheduleError(`Runtime Schedule is not due: ${id}`, {
+      code: "SCHEDULE_NOT_DUE",
+      details: { id, scheduledAt },
+      httpStatus: 409,
+    })
+  }
   const definition = await loadScheduleDefinition(schedule.target)
   if (!definition) {
     throw new ScheduleError(`Unknown Runtime Schedule target: ${schedule.target}`, {
@@ -277,6 +286,7 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
 export async function executeRuntimeScheduleWake(input: RuntimeScheduleWake, options: ExecuteRuntimeScheduleWakeOptions): Promise<void> {
   await executeRuntimeSchedule({
     id: input.scheduleId,
+    requireDue: true,
     runtimeScheduleStore: options.runtimeScheduleStore,
     scheduledAt: input.scheduledAt,
     scheduleRunStore: options.scheduleRunStore,

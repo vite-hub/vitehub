@@ -86,13 +86,14 @@ async function reconcileAfterMutation(
 
 function createReconciledStore(
   store: RuntimeScheduleStore,
-  driver: RuntimeScheduleWakeDriver,
+  getDriver: () => RuntimeScheduleWakeDriver,
   reportError: (error: unknown) => void,
-): { runtimeScheduleStore: RuntimeScheduleStore, serialize: SerializeOperation } {
-  const serialize = createSerializer()
+  serialize: SerializeOperation,
+): RuntimeScheduleStore {
   const runtimeScheduleStore: RuntimeScheduleStore = {
     create(record) {
       return serialize(async () => {
+        const driver = getDriver()
         const created = await store.create(record)
         await reconcileAfterMutation(driver, store, async () => {
           if (!await store.delete(created.id)) {
@@ -104,6 +105,7 @@ function createReconciledStore(
     },
     delete(id) {
       return serialize(async () => {
+        const driver = getDriver()
         const previous = await store.get(id)
         const deleted = await store.delete(id)
         if (!deleted) return false
@@ -124,6 +126,7 @@ function createReconciledStore(
     },
     update(id, patch) {
       return serialize(async () => {
+        const driver = getDriver()
         const previous = await store.get(id)
         const updated = await store.update(id, patch)
         if (!updated) return undefined
@@ -144,7 +147,7 @@ function createReconciledStore(
     },
   }
 
-  return { runtimeScheduleStore, serialize }
+  return runtimeScheduleStore
 }
 
 export async function installScheduleRuntime(options: InstallScheduleRuntimeOptions): Promise<ScheduleRuntimeController> {
@@ -152,13 +155,14 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
   const previousRuntimeScheduleStore = getRuntimeScheduleStore()
   const previousScheduleRunStore = getScheduleRunStore()
   const reportError = createErrorReporter(options.onError)
+  const serialize = createSerializer()
   let driver: RuntimeScheduleWakeDriver | undefined
+  let installed = false
 
   setScheduleRuntimeRegistry(options.registry)
-  setRuntimeScheduleStore(options.runtimeScheduleStore)
   setScheduleRunStore(options.scheduleRunStore)
 
-  try {
+  const initializing = serialize(async () => {
     driver = await options.createDriver({
       reportError,
       wake: async input => {
@@ -169,6 +173,18 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
       },
     })
     await driver.reconcile(await options.runtimeScheduleStore.list())
+    installed = true
+  })
+  const runtimeScheduleStore = createReconciledStore(options.runtimeScheduleStore, () => {
+    if (!driver || !installed) {
+      throw new Error("Runtime Schedule wake driver installation did not complete.")
+    }
+    return driver
+  }, reportError, serialize)
+  setRuntimeScheduleStore(runtimeScheduleStore)
+
+  try {
+    await initializing
   }
   catch (error) {
     try {
@@ -183,9 +199,10 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
     throw error
   }
 
+  if (!driver) {
+    throw new Error("Runtime Schedule wake driver installation did not produce a driver.")
+  }
   const installedDriver = driver
-  const { runtimeScheduleStore, serialize } = createReconciledStore(options.runtimeScheduleStore, installedDriver, reportError)
-  setRuntimeScheduleStore(runtimeScheduleStore)
 
   let closePromise: Promise<void> | undefined
   return {

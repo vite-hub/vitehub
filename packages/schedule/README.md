@@ -41,9 +41,12 @@ export default defineEventHandler(() => {
   return schedules.create({
     cron: "30 3 * * 1",
     target: "daily-report",
+    timeZone: "Europe/Copenhagen",
   })
 })
 ```
+
+Runtime Schedule updates preserve `timeZone` when it is omitted; set it to `UTC` to reset UTC evaluation. DST gaps skip missing local occurrences, and DST overlaps run both repeated instants.
 
 ```ts
 // vite.config.ts

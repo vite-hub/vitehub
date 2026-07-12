@@ -28,6 +28,7 @@
     "./runtime/cloudflare-env": "./dist/runtime/cloudflare-env.js",
     "./http-request": "./dist/http-request.js",
     "./runtime/random": "./dist/runtime/random.js",
+    "./runtime/time-zone": "./dist/runtime/time-zone.js",
     "./build/cloudflare": "./dist/build/cloudflare.js",
     "./build/deployment-output": "./dist/build/deployment-output.js",
     "./build/mode": "./dist/build/mode.js",

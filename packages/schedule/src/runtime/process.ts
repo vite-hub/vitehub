@@ -1,4 +1,4 @@
-import { floorUTCMinute, isRuntimeScheduleDue } from "./due.ts"
+import { isRuntimeScheduleDue } from "./due.ts"
 
 import type { RuntimeScheduleRecord } from "../types.ts"
 import type { RuntimeScheduleWakeDriverFactory } from "./driver.ts"
@@ -11,6 +11,16 @@ export interface ProcessScheduleWakeDriverOptions {
 
 const DEFAULT_INTERVAL_MS = 60_000
 const DEFAULT_CONCURRENCY = 1
+
+function floorUTCMinute(date: Date): Date {
+  return new Date(Date.UTC(
+    date.getUTCFullYear(),
+    date.getUTCMonth(),
+    date.getUTCDate(),
+    date.getUTCHours(),
+    date.getUTCMinutes(),
+  ))
+}
 
 function validateOptions(options: ProcessScheduleWakeDriverOptions): { concurrency: number, intervalMs: number } {
   const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS

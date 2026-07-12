@@ -386,12 +386,18 @@ function capabilityMetadataTool(capability: NormalizedCapability, options: { dri
   if (options.driverKind === "harness") return undefined
   if (capability.id === "workspace-shell") {
     const mode = normalizeMode(capability.mode, "Workspace Shell")
+    const trustedHostCommands = (capability.metadata as { commands?: unknown } | undefined)?.commands === "trusted-host"
     return {
       category: "workspace",
-      commands: workspaceShellMetadataCommands(mode, options.sourceRequests),
-      description: mode === "write"
-        ? "Run curated workspace read and write shell operations."
-        : "Run curated workspace read shell operations.",
+      commands: [
+        ...workspaceShellMetadataCommands(mode, options.sourceRequests),
+        ...(trustedHostCommands ? ["workspace_exec (any host executable)"] : []),
+      ],
+      description: trustedHostCommands
+        ? `Run workspace ${mode === "write" ? "read and write" : "read"} operations and any executable with the trusted host service account's authority.`
+        : mode === "write"
+          ? "Run curated workspace read and write shell operations."
+          : "Run curated workspace read shell operations.",
       icon: "i-lucide-terminal",
       name: "workspaceShell",
       status: "available",

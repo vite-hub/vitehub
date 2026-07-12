@@ -1,5 +1,5 @@
+import { isRuntimeScheduleDue } from "./due.ts"
 import { executeRuntimeScheduleWake } from "./execute.ts"
-import { floorUTCMinute, isRuntimeScheduleDue } from "./due.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore } from "./state.ts"
 
 import type { RuntimeScheduleRecord, RuntimeScheduleStore, ScheduleRunStore } from "../types.ts"
@@ -20,6 +20,16 @@ export interface ScheduleRunnerOptions {
 
 const DEFAULT_INTERVAL_MS = 60_000
 const DEFAULT_CONCURRENCY = 1
+
+function floorUTCMinute(date: Date): Date {
+  return new Date(Date.UTC(
+    date.getUTCFullYear(),
+    date.getUTCMonth(),
+    date.getUTCDate(),
+    date.getUTCHours(),
+    date.getUTCMinutes(),
+  ))
+}
 
 function toRunId(scheduleId: string, scheduledAt: Date): string {
   return `srun_runtime_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}`

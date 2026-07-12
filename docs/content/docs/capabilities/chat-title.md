@@ -43,6 +43,8 @@ export default defineAgent({
 `chatTitle()` runs in the output phase.
 It wraps compatible async streams or UI message streams so the title can arrive alongside the response, and it provides `{ title }` in the finish extension.
 
+For framework-managed Chat SDK message Channels, ViteHub generates and delivers the title once per thread by default, even when each webhook contains only the current message or the handler is recreated. Follow-up Channel invocations skip title generation after successful delivery. Set `channelDelivery: "always"` when the platform title should be refreshed on every invocation. Plain `runAgent()` and UI invocations without framework-managed Chat SDK delivery still receive stream data and finish extensions per invocation.
+
 The Capability avoids wrapping the same result twice.
 
 ## Requirements
@@ -71,6 +73,7 @@ Test a vague first message and confirm the fallback title is used instead of an 
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
+| `channelDelivery` | `"once-per-thread" \| "always"` | `"once-per-thread"` | Deliver framework-managed Chat SDK Channel titles once per thread, or on every invocation. |
 | `execute` | `(input) => string \| { title?: string }` | none | Custom title generator. |
 | `fallback` | `string` | `"New Conversation"` | Title used when generation returns no usable text. |
 | `id` | `string` | `"chat-title"` | Capability id. |
