@@ -1,4 +1,4 @@
-import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunContext } from "../types.ts"
+import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunContext } from "../types.ts"
 
 export interface ExecuteStaticScheduleOptions {
   cron: string
@@ -27,7 +27,7 @@ interface CloudflareScheduledEventLike {
   scheduledTime?: number | string | Date
 }
 
-type LoadedScheduleModule = ScheduleDefinition | { default?: ScheduleDefinition }
+type LoadedScheduleModule = ScheduleRegistryDefinition | { default?: ScheduleRegistryDefinition }
 
 export interface StaticScheduleRun extends ScheduleRunContext {
   cron: string
@@ -145,6 +145,6 @@ function readCloudflareEventEnv(event: CloudflareScheduledEventLike): Record<str
 }
 
 function unwrapScheduleDefinition(loaded: LoadedScheduleModule): ScheduleDefinition | undefined {
-  if (typeof loaded === "object" && loaded !== null && "default" in loaded) return loaded.default
-  return loaded as ScheduleDefinition
+  const definition = typeof loaded === "object" && loaded !== null && "default" in loaded ? loaded.default : loaded
+  return definition && "cron" in definition ? definition : undefined
 }

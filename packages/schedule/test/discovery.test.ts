@@ -113,6 +113,25 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
+  it("discovers defineScheduleTarget calls as runtime-only targets", async () => {
+    const rootDir = await createTempDir("vitehub-schedule-runtime-target-")
+    await writeFile(
+      join(rootDir, "agent-turn.schedule.ts"),
+      "export default defineScheduleTarget<{ prompt: string }>({ handler: context => context.input?.prompt })\n",
+      "utf8",
+    )
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir,
+    })).toMatchObject([{
+      allowRuntimeSchedules: true,
+      name: "agent-turn",
+      runtimeOnly: true,
+      source: "vite-suffix",
+    }])
+  })
+
   it("reads runtime opt-in from generic defineSchedule calls", async () => {
     const rootDir = await createTempDir("vitehub-schedule-runtime-generic-opt-in-")
     await writeFile(

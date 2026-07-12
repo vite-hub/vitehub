@@ -1,6 +1,6 @@
 import { expectTypeOf, it } from "vitest"
 
-import { defineSchedule, schedules } from "../src/index.ts"
+import { defineSchedule, defineScheduleTarget, schedules } from "../src/index.ts"
 import { installScheduleRuntime } from "../src/runtime/driver.ts"
 import { createProcessScheduleWakeDriver } from "../src/runtime/process.ts"
 import { hubSchedule } from "../src/vite.ts"
@@ -44,9 +44,28 @@ it("types the defineSchedule helper signature", () => {
   defineSchedule({ cron: "0 9 * * *", handler: () => {}, timeZone: "Europe/Copenhagen" })
 })
 
+it("types cronless Runtime Schedule targets", () => {
+  const target = defineScheduleTarget<{ prompt: string }>({
+    handler: async (context) => {
+      expectTypeOf(context.input).toEqualTypeOf<{ prompt: string } | undefined>()
+      return context.input?.prompt
+    },
+  })
+
+  expectTypeOf(target.handler).parameters.toEqualTypeOf<[ScheduleRunContext<{ prompt: string }>]>()
+
+  // @ts-expect-error handler is required.
+  defineScheduleTarget({})
+
+  // @ts-expect-error cron belongs to defineSchedule, not defineScheduleTarget.
+  defineScheduleTarget({ cron: "0 9 * * *", handler: () => {} })
+})
+
 it("types Runtime Schedule helper inputs", async () => {
-  await schedules.create({ cron: "0 9 * * *", target: "daily-report", timeZone: "Europe/Copenhagen" })
-  await schedules.update("schedule-1", { cron: "15 10 * * *", enabled: false, target: "daily-report", timeZone: "Asia/Bangkok" })
+  const created = await schedules.create({ cron: "0 9 * * *", input: { prompt: "Daily report" }, target: "daily-report", timeZone: "Europe/Copenhagen" })
+  expectTypeOf(created.input).toEqualTypeOf<{ prompt: string } | undefined>()
+  const updated = await schedules.update("schedule-1", { cron: "15 10 * * *", enabled: false, input: { prompt: "Weekday report" }, target: "daily-report", timeZone: "Asia/Bangkok" })
+  expectTypeOf(updated.input).toEqualTypeOf<{ prompt: string } | undefined>()
 
   // @ts-expect-error create requires a target.
   await schedules.create({ cron: "0 9 * * *" })

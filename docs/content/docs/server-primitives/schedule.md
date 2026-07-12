@@ -50,6 +50,7 @@ export default defineSchedule({
 | Import | Use |
 | --- | --- |
 | `defineSchedule` from `@vite-hub/schedule` | Declare a Static Schedule Definition. |
+| `defineScheduleTarget` from `@vite-hub/schedule` | Declare a cronless target for Runtime Schedules. |
 | `schedules`, `validateRuntimeScheduleCron` from `@vite-hub/schedule` or `@vite-hub/schedule/runtime` | Manage Runtime Schedules and validate cron strings. |
 | `executeSchedule`, `executeStaticSchedule`, `executeRuntimeSchedule`, `createScheduleRun` from `@vite-hub/schedule` | Execute schedules from provider hooks or custom runtime wiring. |
 | `startScheduleRunner` from `@vite-hub/schedule` | Run due Runtime Schedules on long-running hosts. |
@@ -138,11 +139,25 @@ Cron expressions use the Schedule Time Base, currently UTC. The discovered file 
 | `handler` | `ScheduleHandler` | Yes | Function called with Schedule Run Context. |
 | `allowRuntimeSchedules` | `boolean` | No | Allows Runtime Schedules to target this definition. |
 
-`ScheduleRunContext` includes `id`, `scheduledAt`, optional `attemptId`, optional `runId`, optional Runtime Schedule id, and optional Runtime Schedule target.
+`ScheduleRunContext` includes `id`, `scheduledAt`, optional `attemptId`, optional `runId`, optional Runtime Schedule id, optional Runtime Schedule target, and optional Runtime Schedule `input`.
 
 ## Create recurring Runtime Schedules
 
 Runtime Schedules are dynamic cron schedules stored by ViteHub. A Runtime Schedule can target only a Runtime Schedule Target that opted into runtime reuse. Set an IANA `timeZone` when the cron should follow local civil time and daylight-saving changes; omit it to keep UTC behavior.
+
+Use `defineScheduleTarget()` when the handler should run only through Runtime Schedules and does not need its own build-time cron. These targets are runtime-eligible by construction and do not emit static provider output.
+
+```ts [server/schedules/report.ts]
+import { defineScheduleTarget } from '@vite-hub/schedule'
+
+export default defineScheduleTarget<{ prompt: string }>({
+  async handler({ input }) {
+    if (input) await generateReport(input.prompt)
+  },
+})
+```
+
+`defineSchedule()` remains cron-required and can opt into runtime reuse with `allowRuntimeSchedules`:
 
 ```ts [server/schedules/daily-report.ts]
 import { defineSchedule } from '@vite-hub/schedule'
@@ -165,7 +180,8 @@ export default defineEventHandler(async () => {
   return schedules.create({
     cron: '30 8 * * 1-5',
     id: 'weekday-report',
-    target: 'daily-report',
+    input: { prompt: 'Summarize yesterday' },
+    target: 'report',
     timeZone: 'Europe/Copenhagen',
   })
 })
@@ -176,12 +192,13 @@ export default defineEventHandler(async () => {
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |
 | `cron` | `string` | create only | Five-field cron expression evaluated in `timeZone`, or UTC when `timeZone` is omitted. |
-| `target` | `ScheduleTargetName` | create only | Static Schedule Definition that set `allowRuntimeSchedules: true`. |
+| `target` | `ScheduleTargetName` | create only | A `defineScheduleTarget()` declaration or Static Schedule Definition that set `allowRuntimeSchedules: true`. |
 | `id` | `string` | No | Stable Runtime Schedule id. ViteHub generates one when omitted. |
 | `enabled` | `boolean` | No | Whether the Runtime Schedule should execute. Defaults to `true` on create. |
+| `input` | `unknown` | No | Opaque input passed to the target handler as `context.input`. |
 | `timeZone` | `string` | No | Named IANA time zone used to evaluate the cron expression. Numeric offsets such as `+01:00` are rejected. Defaults to UTC. |
 
-`RuntimeScheduleUpdateInput` accepts `cron`, `target`, `enabled`, and `timeZone`. Omitting `timeZone` on update preserves the stored zone; set it explicitly to `UTC` to reset UTC evaluation.
+`RuntimeScheduleUpdateInput` accepts `cron`, `target`, `enabled`, `input`, and `timeZone`. Create stores an input snapshot. Providing `input` on update replaces the complete snapshot; omitting it preserves the existing value. Schedule does not merge or interpret input, and the configured store must support the value's serialization requirements. Omitting `timeZone` on update preserves the stored zone; set it explicitly to `UTC` to reset UTC evaluation.
 
 Local cron matching follows conventional daylight-saving behavior: a local time missing during a DST gap is skipped, while both distinct instants in a repeated local time during a DST overlap run.
 
