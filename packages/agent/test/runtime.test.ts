@@ -1633,8 +1633,13 @@ describe("agent message protocol", () => {
       },
     })
     expect(harnessGenerate).toHaveBeenCalledWith(expect.not.objectContaining({ instructions: expect.anything() }))
-    expect(harnessCreateSession).toHaveBeenNthCalledWith(1, { sessionId: "pull-request-559" })
-    expect(harnessCreateSession).toHaveBeenNthCalledWith(2, { sessionId: "pull-request-559" })
+    const firstSessionOptions = harnessCreateSession.mock.calls[0]?.[0] as { resumeFrom?: unknown, sessionId: string }
+    const secondSessionOptions = harnessCreateSession.mock.calls[1]?.[0] as { resumeFrom?: unknown, sessionId: string }
+    expect(firstSessionOptions.sessionId).toMatch(/^vitehub:[a-f0-9]{64}$/)
+    expect(secondSessionOptions.sessionId).toMatch(/^vitehub:[a-f0-9]{64}$/)
+    expect(secondSessionOptions.sessionId).not.toBe(firstSessionOptions.sessionId)
+    expect(firstSessionOptions).not.toHaveProperty("resumeFrom")
+    expect(secondSessionOptions).not.toHaveProperty("resumeFrom")
   })
 
   it("configures harness instructions and work directories before streaming", async () => {

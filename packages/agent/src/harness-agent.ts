@@ -724,6 +724,17 @@ function getResumeStates(options: object): Map<string, unknown> {
   return states
 }
 
+async function resolveHarnessProviderSessionId(
+  sessionId: string,
+  resumeKey: string,
+  identity: { instructions?: string, workDir?: string },
+): Promise<string> {
+  if (identity.instructions === undefined && identity.workDir === undefined) return sessionId
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(resumeKey))
+  const fingerprint = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")
+  return `vitehub:${fingerprint}`
+}
+
 export function createHarnessAgentAdapter<
   CALL_OPTIONS = unknown,
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -741,11 +752,14 @@ export function createHarnessAgentAdapter<
   ) {
     const sessionId = await resolveHarnessSessionKey(options.sessionKey, context)
     const resumeKey = sessionId ? JSON.stringify([sessionId, identity.instructions, identity.workDir]) : undefined
+    const providerSessionId = sessionId && resumeKey
+      ? await resolveHarnessProviderSessionId(sessionId, resumeKey, identity)
+      : undefined
     const resumesSession = resumeKey ? resumeStates.has(resumeKey) : false
     const resumeFrom = resumeKey ? resumeStates.get(resumeKey) : undefined
     const sessionOptions = {
       ...(context.input.abortSignal ? { abortSignal: context.input.abortSignal } : {}),
-      ...(sessionId ? { sessionId } : {}),
+      ...(providerSessionId ? { sessionId: providerSessionId } : {}),
       ...(resumeFrom !== undefined ? { resumeFrom } : {}),
       ...(typeof context.input.timeout === "number" ? { timeout: context.input.timeout } : {}),
     }
