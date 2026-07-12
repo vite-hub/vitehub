@@ -3,6 +3,7 @@ import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it } from "vitest"
@@ -18,6 +19,13 @@ async function createConsumerRoot() {
 
   await mkdir(join(rootDir, "node_modules", "@vite-hub"), { recursive: true })
   await symlink(resolve(import.meta.dirname, ".."), join(rootDir, "node_modules", "@vite-hub", "kv"), "dir")
+  await mkdir(join(rootDir, "node_modules", "preserved-external"), { recursive: true })
+  await writeFile(join(rootDir, "node_modules", "preserved-external", "package.json"), JSON.stringify({
+    exports: "./index.js",
+    name: "preserved-external",
+    type: "module",
+  }))
+  await writeFile(join(rootDir, "node_modules", "preserved-external", "index.js"), "")
   await mkdir(join(rootDir, "src"), { recursive: true })
   await writeFile(join(rootDir, "package.json"), JSON.stringify({
     name: "vitehub-kv-vite-fixture",
@@ -53,7 +61,7 @@ async function readOutput(root: string): Promise<string> {
 }
 
 describe("KV Vite output", () => {
-  it("builds an fs-lite server bundle without the optional Upstash peer", async () => {
+  it("runs an fs-lite server bundle without the optional Upstash peer", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")
     const [{ build }, { hubKv }] = await Promise.all([
@@ -79,7 +87,7 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { driver: "fs-lite" },
+      kv: { base: join(rootDir, ".data", "kv"), driver: "fs-lite" },
       logLevel: "silent",
       plugins: [
         hubKv(),
@@ -97,11 +105,16 @@ describe("KV Vite output", () => {
     })
 
     const output = await readOutput(join(rootDir, "dist"))
+    const worker = await import(pathToFileURL(join(rootDir, "dist", "worker.js")).href) as {
+      default: () => Promise<unknown>
+    }
 
     expect(output).toContain(`import "preserved-external"`)
-    expect(output).toContain(`from "@upstash/redis"`)
+    expect(output).not.toContain(`from "@upstash/redis"`)
+    expect(output).toContain(`import("unstorage/drivers/upstash")`)
     expect(output).not.toContain("__vite-optional-peer-dep")
     expect(output).not.toContain(`from "unstorage/drivers/fs-lite"`)
+    await expect(worker.default()).resolves.toBeNull()
   })
 
   it("bundles selected runtime config into server output", async () => {
