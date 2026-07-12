@@ -1105,7 +1105,7 @@ describe("hubWorkspace", () => {
     await expect(closeBundle.handler()).resolves.toBeUndefined()
   })
 
-  it("emits imported definition-level Cloudflare Artifacts bindings when assets are disabled", async () => {
+  it("emits aliased definition-level Cloudflare Artifacts bindings when assets are disabled", async () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "workspace-store.ts"), [
       `export const store = {`,
@@ -1116,17 +1116,27 @@ describe("hubWorkspace", () => {
       ``,
     ].join("\n"))
     await writeFile(join(root, "src", "docs.workspace.ts"), [
-      `import { store } from "./workspace-store"`,
+      `import { store } from "@/workspace-store"`,
       `export default { store }`,
       ``,
     ].join("\n"))
     const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
     const { hubWorkspace } = await import("../src/vite.ts")
-    const plugin = hubWorkspace({ assets: false })
-    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+    const plugin = hubWorkspace({ assets: false, projectRoot: "." })
+    const configResolved = plugin.configResolved as (config: {
+      command: "build"
+      createResolver: () => (id: string) => Promise<string | undefined>
+      resolve: { alias: Array<{ find: string, replacement: string }> }
+      root: string
+    }) => Promise<void>
     const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
 
-    await configResolved({ command: "build", root })
+    await configResolved({
+      command: "build",
+      createResolver: () => async id => id.startsWith("@/") ? join(root, "src", id.slice(2)) : undefined,
+      resolve: { alias: [{ find: "@", replacement: join(root, "src") }] },
+      root,
+    })
     await closeBundle.handler()
 
     const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))

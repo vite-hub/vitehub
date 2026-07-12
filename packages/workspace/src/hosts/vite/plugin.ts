@@ -1,5 +1,5 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { dirname, extname, relative, resolve } from "node:path"
+import { dirname, extname, isAbsolute, relative, resolve } from "node:path"
 
 import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "@vite-hub/internal/build/cloudflare"
 import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
@@ -66,15 +66,26 @@ async function readSourceModule(file: string): Promise<{ file: string, source: s
   }
 }
 
-async function sourceModuleUsesCloudflareArtifacts(file: string, visited = new Set<string>()): Promise<boolean> {
+type SourceModuleResolver = (id: string, importer: string) => Promise<string | undefined>
+
+async function sourceModuleUsesCloudflareArtifacts(
+  file: string,
+  resolveModule?: SourceModuleResolver,
+  visited = new Set<string>(),
+): Promise<boolean> {
   const loaded = await readSourceModule(file)
   if (!loaded || visited.has(loaded.file)) return false
   visited.add(loaded.file)
   if (/\bprovider\s*:\s*["']cloudflare-artifacts["']/.test(loaded.source)) return true
 
-  const staticModuleSpecifier = /\b(?:import|export)\s+(?:[^"']*?\s+from\s+)?["'](\.[^"']*)["']/g
+  const staticModuleSpecifier = /\b(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']/g
   for (const match of loaded.source.matchAll(staticModuleSpecifier)) {
-    if (await sourceModuleUsesCloudflareArtifacts(resolve(dirname(loaded.file), match[1]!), visited)) return true
+    const specifier = match[1]!
+    const resolvedModule = specifier.startsWith(".")
+      ? resolve(dirname(loaded.file), specifier)
+      : await resolveModule?.(specifier, loaded.file)
+    const resolvedFile = resolvedModule?.split(/[?#]/, 1)[0]
+    if (resolvedFile && isAbsolute(resolvedFile) && await sourceModuleUsesCloudflareArtifacts(resolvedFile, resolveModule, visited)) return true
   }
   return false
 }
@@ -166,11 +177,13 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   definitions: DiscoveredWorkspaceDefinition[],
   rootDir: string,
   options: ResolvedWorkspaceModuleOptions,
+  resolveModule?: SourceModuleResolver,
+  aliases?: Record<string, string>,
 ): Promise<ResolvedWorkspaceModuleOptions[]> {
-  const loader = createWorkspaceDefinitionLoader(rootDir)
+  const loader = createWorkspaceDefinitionLoader(rootDir, aliases)
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
-    if (!shouldBundleWorkspaceAssets(options.assets, definition.name) && !await sourceModuleUsesCloudflareArtifacts(definition.path)) continue
+    if (!shouldBundleWorkspaceAssets(options.assets, definition.name) && !await sourceModuleUsesCloudflareArtifacts(definition.path, resolveModule)) continue
     const workspace = normalizeWorkspaceDefinition(
       definition.name,
       await loadDiscoveredWorkspaceDefinition(loader, definition),
@@ -191,11 +204,13 @@ async function writeCloudflareArtifactsProviderOutput(
   rootDir: string,
   config: false | ResolvedWorkspaceModuleOptions,
   definitions: DiscoveredWorkspaceDefinition[],
+  resolveModule?: SourceModuleResolver,
+  aliases?: Record<string, string>,
 ): Promise<void> {
   const configs = config
     ? [
         ...(config.store.provider === "cloudflare-artifacts" ? [config] : []),
-        ...await resolveDefinitionCloudflareArtifactsConfigs(definitions, rootDir, config),
+        ...await resolveDefinitionCloudflareArtifactsConfigs(definitions, rootDir, config, resolveModule, aliases),
       ]
     : []
   const requestedConfig = createCloudflareArtifactsWranglerConfig(configs)
@@ -266,6 +281,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isWorkspaceRegistry(value: unknown): value is Record<string, () => Promise<{ default?: unknown }>> {
   return isRecord(value) && Object.values(value).every(item => typeof item === "function")
+}
+
+function workspaceDefinitionLoaderAliases(config: ResolvedConfig): Record<string, string> {
+  return Object.fromEntries(config.resolve.alias.flatMap(alias =>
+    typeof alias.find === "string" ? [[alias.find, alias.replacement]] : [],
+  ))
 }
 
 function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]): boolean {
@@ -709,7 +730,13 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
             packages: vercelFunctionRuntimePackages(resolvedOptions, definitions),
             rootDir: roots.projectRoot,
           }),
-          writeCloudflareArtifactsProviderOutput(roots.projectRoot, resolvedOptions, definitions),
+          writeCloudflareArtifactsProviderOutput(
+            roots.projectRoot,
+            resolvedOptions,
+            definitions,
+            resolved.createResolver?.(),
+            resolved.resolve ? workspaceDefinitionLoaderAliases(resolved) : undefined,
+          ),
         ])
       },
     },

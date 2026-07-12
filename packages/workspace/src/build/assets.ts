@@ -50,9 +50,9 @@ function generatedViteHubImportAliases(rootDir: string) {
   return aliases
 }
 
-export function createWorkspaceDefinitionLoader(rootDir: string) {
+export function createWorkspaceDefinitionLoader(rootDir: string, alias: Record<string, string> = {}) {
   return createJiti(import.meta.url, {
-    alias: generatedViteHubImportAliases(rootDir),
+    alias: { ...alias, ...generatedViteHubImportAliases(rootDir) },
     moduleCache: false,
   })
 }

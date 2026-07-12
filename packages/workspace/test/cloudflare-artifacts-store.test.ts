@@ -62,12 +62,13 @@ function createdRepo(token = `art_v1_created?expires=${Math.floor((Date.now() + 
   }
 }
 
-async function createStore(binding: unknown) {
+async function createStore(binding: unknown, options: { branch?: string } = {}) {
   setActiveCloudflareEnv({ WORKSPACE_ARTIFACTS: binding })
   const { createCloudflareArtifactsWorkspaceStore } = await import("../src/providers/cloudflare/artifacts-store.ts")
   return createCloudflareArtifactsWorkspaceStore({
     binding: "WORKSPACE_ARTIFACTS",
     namespace: "vitehub",
+    ...options,
     provider: "cloudflare-artifacts",
   }, "docs")
 }
@@ -403,10 +404,12 @@ describe("Cloudflare Artifacts workspace store", () => {
       lastPushAt: "2026-07-11T00:00:00.000Z",
     })
     gitMock.clone.mockResolvedValueOnce(undefined)
+    const { resolveCloudflareArtifactsStore } = await import("../src/config.ts")
+    const options = resolveCloudflareArtifactsStore({}, {})
     const store = await createStore({
       create: vi.fn(),
       get: vi.fn(async () => repo),
-    })
+    }, options)
 
     await store.writeFile("README.md", { content: "hello", path: "README.md" })
     await store.snapshot()
