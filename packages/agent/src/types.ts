@@ -910,6 +910,22 @@ export type AgentHarnessSessionKey<
   | string
   | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>) => MaybePromise<string | undefined>)
 
+export type AgentHarnessInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TContextValues extends object = AgentInvocationContextValues,
+> =
+  | string
+  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>) => MaybePromise<string | undefined>)
+
+export type AgentHarnessWorkDir<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TContextValues extends object = AgentInvocationContextValues,
+> =
+  | string
+  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>) => MaybePromise<string | undefined>)
+
 export type AgentHarnessDriverInput<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -941,6 +957,7 @@ export interface AgentModelDriver<
   run?: never
   sandbox?: never
   sessionKey?: never
+  workDir?: never
 }
 
 export interface AgentHarnessDriver<
@@ -951,13 +968,14 @@ export interface AgentHarnessDriver<
   credentials?: AgentHarnessCredentialSource
   execution?: never
   harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
-  instructions?: never
+  instructions?: AgentHarnessInstructions<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   model?: never
   permissionMode?: never
   permissions?: never
   run?: never
   sandbox?: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  workDir?: AgentHarnessWorkDir<TRuntimeConfig, CALL_OPTIONS, TContextValues>
 }
 
 export interface AgentRunDriver<
@@ -975,6 +993,7 @@ export interface AgentRunDriver<
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   sandbox?: never
   sessionKey?: never
+  workDir?: never
 }
 
 export type AgentDriver<

@@ -4,8 +4,10 @@ import type {
   AgentAdapterInstructions,
   AgentHarnessCredentialSource,
   AgentHarnessDriverInput,
+  AgentHarnessInstructions,
   AgentHarnessSandboxProviderInput,
   AgentHarnessSessionKey,
+  AgentHarnessWorkDir,
   AgentInvokerProfile,
   AgentModelExecutionOptions,
   AgentModelResolver,
@@ -27,9 +29,11 @@ type NormalizedAgentDriver<
   | {
     credentials?: AgentHarnessCredentialSource
     harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
+    instructions?: AgentHarnessInstructions<TRuntimeConfig, CALL_OPTIONS>
     kind: "harness"
     sandbox?: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS>
     sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
+    workDir?: AgentHarnessWorkDir<TRuntimeConfig, CALL_OPTIONS>
   }
   | {
     kind: "run"
@@ -82,7 +86,7 @@ function normalizeHarnessCredentialSource(value: unknown): AgentHarnessCredentia
 }
 
 const modelDriverKeys = new Set(["execution", "instructions", "model"])
-const harnessDriverKeys = new Set(["credentials", "harness", "sandbox", "sessionKey"])
+const harnessDriverKeys = new Set(["credentials", "harness", "instructions", "sandbox", "sessionKey", "workDir"])
 const runDriverKeys = new Set(["run"])
 
 function validateHarnessSandboxProviderInput(value: unknown): void {
@@ -126,9 +130,11 @@ function normalizeExplicitAgentDriver<
     return {
       credentials: normalizeHarnessCredentialSource(driver.credentials),
       harness: driver.harness as AgentHarnessDriverInput,
+      instructions: driver.instructions as AgentHarnessInstructions<TRuntimeConfig, CALL_OPTIONS> | undefined,
       kind: "harness",
       sandbox: driver.sandbox as AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS> | undefined,
       sessionKey: driver.sessionKey as AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS> | undefined,
+      workDir: driver.workDir as AgentHarnessWorkDir<TRuntimeConfig, CALL_OPTIONS> | undefined,
     }
   }
 

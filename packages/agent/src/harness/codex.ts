@@ -7,28 +7,39 @@ import { createCodex } from "@ai-sdk/harness-codex"
 import { createLocalHarnessSandbox, type LocalHarnessSandboxOptions } from "./local-sandbox.ts"
 
 import type { CodexHarnessSettings } from "@ai-sdk/harness-codex"
-import type { AgentHarnessCredentialSource, AgentHarnessDriver, AgentHarnessSandboxProviderInput } from "../types.ts"
+import type {
+  AgentHarnessCredentialSource,
+  AgentHarnessDriver,
+  AgentHarnessInstructions,
+  AgentHarnessSandboxProviderInput,
+  AgentHarnessWorkDir,
+  AgentRuntimeConfig,
+} from "../types.ts"
 
-type CodexDriverSandboxOptions =
+type CodexDriverSandboxOptions<CALL_OPTIONS = unknown> =
   | false
   | LocalHarnessSandboxOptions
-  | AgentHarnessSandboxProviderInput
+  | AgentHarnessSandboxProviderInput<AgentRuntimeConfig, CALL_OPTIONS>
 
-export interface CodexDriverOptions extends CodexHarnessSettings {
+export interface CodexDriverOptions<CALL_OPTIONS = unknown> extends CodexHarnessSettings {
   authJson?: string
   authJsonPath?: string
   credentials?: AgentHarnessCredentialSource
   env?: Record<string, string | undefined>
-  sandbox?: CodexDriverSandboxOptions
+  instructions?: AgentHarnessInstructions<AgentRuntimeConfig, CALL_OPTIONS>
+  sandbox?: CodexDriverSandboxOptions<CALL_OPTIONS>
+  workDir?: AgentHarnessWorkDir<AgentRuntimeConfig, CALL_OPTIONS>
 }
 
-export function codexDriver(options: CodexDriverOptions = {}): AgentHarnessDriver {
+export function codexDriver<CALL_OPTIONS = unknown>(options: CodexDriverOptions<CALL_OPTIONS> = {}): AgentHarnessDriver<AgentRuntimeConfig, CALL_OPTIONS> {
   const {
     authJson,
     authJsonPath,
     credentials,
     env,
+    instructions,
     sandbox,
+    workDir,
     ...settings
   } = options
   const defaultOpenAIAuth = settings.auth === undefined
@@ -44,7 +55,9 @@ export function codexDriver(options: CodexDriverOptions = {}): AgentHarnessDrive
   return {
     credentials: credentials ?? { label: "Codex", source: "ambient" },
     harness: createCodex({ ...settings, auth }),
+    ...(instructions !== undefined ? { instructions } : {}),
     ...(sandboxProvider ? { sandbox: sandboxProvider } : {}),
+    ...(workDir !== undefined ? { workDir } : {}),
   }
 }
 

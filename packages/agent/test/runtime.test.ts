@@ -1585,6 +1585,121 @@ describe("agent message protocol", () => {
     expect(harnessCreateSession).toHaveBeenCalledWith({ sessionId: "acme:run-1" })
   })
 
+  it("configures harness instructions and work directories for each generated invocation", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const firstSession = { detach: vi.fn(async () => ({ token: "resume" })), destroy: vi.fn() }
+    const secondSession = { detach: vi.fn(async () => ({ token: "next" })), destroy: vi.fn() }
+    const instructions = vi.fn(({ input }: { input: { options?: { attempt: number, pullRequest: number, workDir: string } } }) => `Repair ${input.options?.pullRequest}, attempt ${input.options?.attempt}`)
+    const workDir = vi.fn(({ input }: { input: { options?: { attempt: number, pullRequest: number, workDir: string } } }) => input.options?.workDir)
+    harnessCreateSession.mockResolvedValueOnce(firstSession).mockResolvedValueOnce(secondSession)
+    harnessGenerate.mockResolvedValue({ text: "ok" })
+
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        instructions,
+        sessionKey: "pull-request-559",
+        workDir,
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      options: { attempt: 1, pullRequest: 559, workDir: "vitehub/pr-559" },
+      prompt: "fix the pull request",
+    })).resolves.toMatchObject({ text: "ok" })
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      options: { attempt: 2, pullRequest: 559, workDir: "vitehub/pr-559" },
+      prompt: "continue fixing the pull request",
+    })).resolves.toMatchObject({ text: "ok" })
+
+    expect(instructions).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ options: { attempt: 1, pullRequest: 559, workDir: "vitehub/pr-559" } }),
+    }))
+    expect(workDir).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ options: { attempt: 1, pullRequest: 559, workDir: "vitehub/pr-559" } }),
+    }))
+    expect(harnessAgentSettings.at(-2)).toMatchObject({
+      instructions: "Repair 559, attempt 1",
+      sandboxConfig: {
+        onSession: expect.any(Function),
+        workDir: "vitehub/pr-559",
+      },
+    })
+    expect(harnessAgentSettings.at(-1)).toMatchObject({
+      instructions: "Repair 559, attempt 2",
+      sandboxConfig: {
+        onSession: expect.any(Function),
+        workDir: "vitehub/pr-559",
+      },
+    })
+    expect(harnessGenerate).toHaveBeenCalledWith(expect.not.objectContaining({ instructions: expect.anything() }))
+    expect(harnessCreateSession).toHaveBeenNthCalledWith(1, { sessionId: "pull-request-559" })
+    expect(harnessCreateSession).toHaveBeenNthCalledWith(2, { resumeFrom: { token: "resume" }, sessionId: "pull-request-559" })
+  })
+
+  it("configures harness instructions and work directories before streaming", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessStream.mockResolvedValueOnce({
+      fullStream: (async function* () {
+        yield { text: "ok", type: "text-delta" }
+      })(),
+    })
+
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        instructions: "Review the exact pull request head.",
+        workDir: "vitehub/pr-568",
+      },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "review" })
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(harnessAgentSettings.at(-1)).toMatchObject({
+      instructions: "Review the exact pull request head.",
+      sandboxConfig: {
+        onSession: expect.any(Function),
+        workDir: "vitehub/pr-568",
+      },
+    })
+    expect(harnessStream).toHaveBeenCalledWith(expect.not.objectContaining({ instructions: expect.anything() }))
+  })
+
+  it("rejects invalid harness work directories before creating a session", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+
+    for (const workDir of ["", "   ", () => 42] as const) {
+      const agent = defineAgent({
+        driver: {
+          harness: { provider: "codex" },
+          workDir: workDir as never,
+        },
+      })
+
+      await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" }))
+        .rejects.toThrow("defineAgent({ driver.workDir }) must resolve to a non-empty string")
+    }
+
+    expect(harnessCreateSession).not.toHaveBeenCalled()
+  })
+
+  it("rejects non-string harness instructions before creating a session", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        instructions: (() => 42) as never,
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" }))
+      .rejects.toThrow("defineAgent({ driver.instructions }) must resolve to a string")
+    expect(harnessCreateSession).not.toHaveBeenCalled()
+  })
+
   it("labels non-token harness usage with sanitized credentials", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const session = { destroy: vi.fn() }
@@ -2131,8 +2246,8 @@ describe("agent message protocol", () => {
     } as never)).toThrow("driver.credentials.value")
 
     expect(() => defineAgent({
-      driver: { harness: { provider: "codex" }, instructions: "ignored" },
-    } as never)).toThrow("does not support option: instructions")
+      driver: { harness: { provider: "codex" }, instructions: "used" },
+    })).not.toThrow()
 
     expect(() => defineAgent({
       driver: { harness: { provider: "codex" }, sandbox: { provider: "sandbox" } },

@@ -30,8 +30,10 @@ import type {
   AgentDriverContributionKind,
   AgentHarnessCredentialSource,
   AgentHarnessDriverInput,
+  AgentHarnessInstructions,
   AgentHarnessSandboxProviderInput,
   AgentHarnessSessionKey,
+  AgentHarnessWorkDir,
   AgentRunCallbackContext,
   AgentRuntimeConfig,
   AgentToolSet,
@@ -74,8 +76,10 @@ interface HarnessAgentAdapterOptions<
 > {
   credentials?: AgentHarnessCredentialSource
   harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
+  instructions?: AgentHarnessInstructions<TRuntimeConfig, CALL_OPTIONS>
   sandbox?: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS>
   sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
+  workDir?: AgentHarnessWorkDir<TRuntimeConfig, CALL_OPTIONS>
 }
 
 function hasEntries(value: unknown): value is Record<string, unknown> {
@@ -303,10 +307,8 @@ function latestHarnessUserMessage(messages: Message[]): Message[] {
 }
 
 async function toHarnessCallInput(context: AgentAdapterRunContext, resumesSession = false) {
-  const instructions = await composeHarnessInstructions(context.instructions || "", context)
   const base = {
     abortSignal: context.input.abortSignal,
-    ...(instructions ? { instructions } : {}),
     timeout: context.input.timeout,
     ...("options" in context.input ? { options: context.input.options } : {}),
   }
@@ -379,6 +381,38 @@ async function resolveHarnessSessionKey<
     return resolved || undefined
   }
   return sessionKey || undefined
+}
+
+async function resolveHarnessDriverInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  instructions: AgentHarnessInstructions<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
+): Promise<string | undefined> {
+  const resolved = typeof instructions === "function"
+    ? await instructions(toRunCallbackContext(context))
+    : instructions
+  if (resolved !== undefined && typeof resolved !== "string") {
+    throw new TypeError("[vitehub] defineAgent({ driver.instructions }) must resolve to a string.")
+  }
+  return resolved ? await composeHarnessInstructions(resolved, context) : undefined
+}
+
+async function resolveHarnessWorkDir<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  workDir: AgentHarnessWorkDir<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
+): Promise<string | undefined> {
+  const resolved = typeof workDir === "function"
+    ? await workDir(toRunCallbackContext(context))
+    : workDir
+  if (resolved !== undefined && (typeof resolved !== "string" || !resolved.trim())) {
+    throw new TypeError("[vitehub] defineAgent({ driver.workDir }) must resolve to a non-empty string.")
+  }
+  return resolved
 }
 
 async function createDefaultHarnessSandbox(context: AgentAdapterRunContext) {
@@ -477,10 +511,14 @@ async function createHarnessAgent<
   const { HarnessAgent } = await import("@ai-sdk/harness/agent") as unknown as { HarnessAgent: HarnessAgentConstructor }
   const sandbox = context.harnessSandboxProvider ?? await resolveHarnessSandboxProvider(options.sandbox, context) ?? await createDefaultHarnessSandbox(context)
   const harness = await resolveHarness(options.harness, context)
+  const instructions = await resolveHarnessDriverInstructions(options.instructions, context)
+  const workDir = await resolveHarnessWorkDir(options.workDir, context)
   const tools = toHarnessTools(context)
   return new HarnessAgent({
     harness,
+    ...(instructions ? { instructions } : {}),
     sandboxConfig: {
+      ...(workDir !== undefined ? { workDir } : {}),
       onSession: async ({ abortSignal, session, sessionWorkDir }: { abortSignal?: AbortSignal, session: unknown, sessionWorkDir: string }) => {
         setActiveHarnessWorkspaceFiles(context.context, activeHarnessWorkspaceFiles(session as HarnessFileSandbox, sessionWorkDir, abortSignal))
         await prepareWorkspaceSession(session, sessionWorkDir, abortSignal)
