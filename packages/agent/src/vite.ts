@@ -38,6 +38,7 @@ const generatedAgentDiscordGatewayRouteHandler = ".vitehub/agent/discord-gateway
 const generatedAgentWebhookRouteHandler = ".vitehub/agent/chat-webhook-route.ts"
 const generatedAgentNetlifyFunction = ".vitehub/agent/netlify-function.mjs"
 const netlifyAgentFunctionName = "vitehub-agent"
+const generatedScheduleRuntimeRegistrySuffix = "/.vitehub/nitro/schedule/runtime-registry.js"
 const resolvedScheduleRegistryId = "\0#vitehub/schedule/registry"
 const resolvedScheduleTargetsId = "\0#vitehub/schedule/targets"
 const scheduleRuntimeImport = "@vite-hub/schedule/runtime"
@@ -101,6 +102,11 @@ function generatedAgentRouteCapabilities(options: AgentGeneratedImportOptions) {
 
 function hasScheduleVitePlugin(config: Pick<ResolvedConfig, "plugins">): boolean {
   return config.plugins?.some(plugin => plugin.name === scheduleVitePluginName) === true
+}
+
+function isScheduleRegistryId(id: string): boolean {
+  if (id === resolvedScheduleRegistryId) return true
+  return id.replace(/\\/g, "/").split("?", 1)[0]!.endsWith(generatedScheduleRuntimeRegistrySuffix)
 }
 
 function discoverScheduledAgentDefinitions(root: string): DiscoveredAgentDefinition[] {
@@ -1162,9 +1168,9 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     },
     async transform(code, id) {
       if (agent === false || !resolved?.root) return
-      if (id !== resolvedScheduleRegistryId && id !== resolvedScheduleTargetsId) return
+      if (!isScheduleRegistryId(id) && id !== resolvedScheduleTargetsId) return
       const definitions = discoverScheduledAgentDefinitions(resolved.root)
-      return id === resolvedScheduleRegistryId
+      return isScheduleRegistryId(id)
         ? await transformScheduleRegistry(code, definitions, getAgentImportBase(agent))
         : transformScheduleTargets(code, definitions)
     },
