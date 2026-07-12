@@ -22,7 +22,7 @@ interface PluginHarness {
 
 interface NitroAppHarness {
   captureError: ReturnType<typeof vi.fn>
-  fetch: (request: Request, init?: RequestInit) => Promise<Response>
+  localFetch: ReturnType<typeof vi.fn>
   hooks: {
     hook: (name: string, handler: () => Promise<void>) => void
   }
@@ -80,11 +80,11 @@ async function loadProcessPlugin(installScheduleRuntime: PluginHarness["installS
   return module.default
 }
 
-function createNitroApp(fetch: NitroAppHarness["fetch"]) {
+function createNitroApp(localFetch = vi.fn()) {
   const hooks = new Map<string, () => Promise<void>>()
   const app: NitroAppHarness = {
     captureError: vi.fn(),
-    fetch,
+    localFetch,
     hooks: {
       hook(name, handler) {
         hooks.set(name, handler)
@@ -95,50 +95,54 @@ function createNitroApp(fetch: NitroAppHarness["fetch"]) {
 }
 
 describe("generated Nitro Process Runtime plugin", () => {
-  it("waits for runtime installation before delegating to the existing fetch handler", async () => {
+  it("installs without a fetch method on the Nitro app", async () => {
+    const plugin = await loadProcessPlugin(async () => ({ close: vi.fn() }))
+    const { app } = createNitroApp()
+
+    expect(() => plugin(app)).not.toThrow()
+  })
+
+  it("waits for runtime installation in the Nitro request hook", async () => {
     let resolveInstallation!: (controller: RuntimeController) => void
     const installation = new Promise<RuntimeController>((resolve) => {
       resolveInstallation = resolve
     })
     const plugin = await loadProcessPlugin(() => installation)
-    const downstream = vi.fn(async () => new Response("route response"))
-    const { app, hooks } = createNitroApp(downstream)
+    const { app, hooks } = createNitroApp()
     const close = vi.fn()
 
     plugin(app)
-    const responsePromise = app.fetch(new Request("http://localhost/report"))
-    expect(downstream).not.toHaveBeenCalled()
+    let requestReady = false
+    const requestPromise = hooks.get("request")!().then(() => { requestReady = true })
+    await Promise.resolve()
+    expect(requestReady).toBe(false)
 
     resolveInstallation({ close })
-    await expect(responsePromise.then(response => response.text())).resolves.toBe("route response")
-    expect(downstream).toHaveBeenCalledOnce()
+    await requestPromise
+    expect(requestReady).toBe(true)
 
     await hooks.get("close")?.()
     expect(close).toHaveBeenCalledOnce()
   })
 
-  it("surfaces installation failures without calling the existing fetch handler", async () => {
+  it("surfaces installation failures from the Nitro request hook", async () => {
     const installationError = new Error("runtime installation failed")
     const plugin = await loadProcessPlugin(() => Promise.reject(installationError))
-    const downstream = vi.fn(async () => new Response("route response"))
-    const { app } = createNitroApp(downstream)
+    const { app, hooks } = createNitroApp()
 
     plugin(app)
-    await expect(app.fetch(new Request("http://localhost/report"))).rejects.toBe(installationError)
-    expect(downstream).not.toHaveBeenCalled()
+    await expect(hooks.get("request")!()).rejects.toBe(installationError)
     expect(app.captureError).toHaveBeenCalledWith(installationError, { tags: ["vitehub-schedule"] })
   })
 
-  it("forwards every argument to the existing fetch handler", async () => {
+  it("does not replace Nitro's local fetch entrypoint", async () => {
     const plugin = await loadProcessPlugin(async () => ({ close: vi.fn() }))
-    const downstream = vi.fn(async () => new Response("route response"))
-    const { app } = createNitroApp(downstream)
-    const request = new Request("http://localhost/report")
-    const init = { headers: { "x-vitehub-test": "forwarded" }, method: "POST" }
+    const localFetch = vi.fn()
+    const { app, hooks } = createNitroApp(localFetch)
 
     plugin(app)
-    await app.fetch(request, init)
+    await hooks.get("request")!()
 
-    expect(downstream).toHaveBeenCalledWith(request, init)
+    expect(app.localFetch).toBe(localFetch)
   })
 })
