@@ -1297,7 +1297,13 @@ async function closeCapabilityStreamIterator(
   close: (outcome: CapabilityCleanupOutcome) => Promise<void>,
 ): Promise<void> {
   if (!completed) {
-    const returnTask = iterator.return?.()
+    let returnTask: Promise<IteratorResult<unknown>> | undefined
+    try {
+      returnTask = iterator.return?.()
+    }
+    catch (returnError) {
+      returnTask = Promise.reject(returnError)
+    }
     if (outcome.failed) void returnTask?.catch(() => {})
     else {
       try {
