@@ -210,6 +210,42 @@ describe("Runtime Schedule Wake Driver", () => {
     expect(handler).toHaveBeenCalledOnce()
   })
 
+  it("lets a handler woken during initial reconciliation mutate Runtime Schedules", async () => {
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
+    await runtimeScheduleStore.create({
+      createdAt: scheduledAt,
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "daily",
+      target: "report",
+      updatedAt: scheduledAt,
+    })
+
+    await installScheduleRuntime({
+      createDriver: context => ({
+        async reconcile(records) {
+          if (records.some(record => record.id === "daily")) {
+            await context.wake({ scheduleId: "daily", scheduledAt })
+          }
+        },
+      }),
+      registry: {
+        report: async () => ({
+          cron: "0 9 * * *",
+          handler: async () => {
+            await schedules.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
+          },
+          options: { allowRuntimeSchedules: true },
+        }),
+      },
+      runtimeScheduleStore,
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+
+    await expect(schedules.get("follow-up")).resolves.toMatchObject({ id: "follow-up" })
+  })
+
   it("lets mutation reconciliation await a native wake", async () => {
     const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
     const handler = vi.fn()
