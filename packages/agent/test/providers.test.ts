@@ -4694,6 +4694,83 @@ describe("server helpers", () => {
     }
   })
 
+  it("posts default and configured rate-limit messages to chat", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { RateLimitRejectedError } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+
+    try {
+      for (const [index, message] of [undefined, "You've reached today's limit."].entries()) {
+        const adapter = createTestChatAdapter({ deferMessageProcessing: true })
+        const agent = defineAgent({
+          capabilities: [
+            defineChatCapability({
+              platforms: { telegram: () => adapter as never },
+              webhooks: { telegram: {} },
+            }),
+          ],
+          driver: {
+            run: () => {
+              throw new RateLimitRejectedError("rate-limit", {} as never, message)
+            },
+          },
+        })
+        const handler = createChannelWebhookRouteHandler(agent as never)
+
+        const tasks: Promise<unknown>[] = []
+        const response = await handler(chatWebhookRequest(2001 + index), "telegram", {
+          waitUntil: task => tasks.push(task),
+        })
+        expect(response.status).toBe(200)
+        await Promise.all(tasks)
+
+        expect(adapter.postMessage).toHaveBeenLastCalledWith(
+          "telegram:456",
+          message ?? "Rate limit exceeded. Try again later.",
+        )
+      }
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it("keeps name-spoofed rate-limit errors behind the generic chat fallback", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter({ deferMessageProcessing: true })
+    const waitUntilTasks: Promise<unknown>[] = []
+    const error = new Error("internal details")
+    error.name = "RateLimitRejectedError"
+    const agent = defineAgent({
+      capabilities: [
+        defineChatCapability({
+          platforms: { telegram: () => adapter as never },
+          webhooks: { telegram: {} },
+        }),
+      ],
+      driver: { run: () => { throw error } },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = await handler(chatWebhookRequest(2003), "telegram", {
+        waitUntil: task => waitUntilTasks.push(task),
+      })
+      expect(response.status).toBe(200)
+      await Promise.all(waitUntilTasks)
+      expect(adapter.postMessage).toHaveBeenLastCalledWith("telegram:456", "Sorry, I couldn't process that message.")
+      expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", "internal details")
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it("lets chat webhooks opt out of streaming model execution", async () => {
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")

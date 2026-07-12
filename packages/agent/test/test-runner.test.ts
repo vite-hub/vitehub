@@ -187,6 +187,33 @@ describe("agent test runner", () => {
     expect(JSON.stringify(result.extensions)).toBe('{"review-output":{"resultKind":"object","runId":"run-extensions"}}')
   })
 
+  it("preserves finish hook delivery effects while capturing test results", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const { createAgentTestRunner } = await import("../src/test.ts")
+    const reply = vi.fn()
+    const runner = createAgentTestRunner(defineAgent({
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reply },
+          messages: false,
+        }),
+      },
+      driver: { run: () => "done" },
+      hooks: {
+        "agent:finish": event => event.reply("usage"),
+      },
+    }), {
+      run: { channelId: "portal", runId: "test-run" },
+      runtimeConfig: {},
+    })
+
+    await expect(runner.run({ prompt: "hello" })).resolves.toMatchObject({ text: "done" })
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({
+      effect: expect.objectContaining({ kind: "reply", payload: "usage" }),
+    }))
+  })
+
   it("applies workspace defaults and collects workspace tool steps", async () => {
     const { registerWorkspace } = await import("@vite-hub/workspace/test")
     const execute = vi.fn(async () => "workspace result")

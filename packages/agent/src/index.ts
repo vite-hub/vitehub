@@ -115,6 +115,7 @@ import type {
   AgentDriverContribution,
   AgentDriverKind,
   AgentFinishEvent,
+  AgentFinishHookEvent,
   AgentFinishExtensions,
   AgentChatOptions,
   AgentHostIdentity,
@@ -259,6 +260,7 @@ export type {
   AgentFinishExtensions,
   AgentFinishExtensionValues,
   AgentFinishHook,
+  AgentFinishHookEvent,
   AgentHostIdentity,
   AgentHarnessCredentialSource,
   AgentHarnessDriver,
@@ -1256,7 +1258,7 @@ type AgentInvocationContext<
   finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
-  finishHook?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS> extends infer TEvent ? (event: TEvent) => MaybePromise<void> : never
+  finishHook?: (event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   hasCapabilityCleanup: boolean
   harnessSandboxProvider?: unknown
   hooks?: AgentHookObserverHooks
@@ -1552,7 +1554,7 @@ type InvocationRunContext<
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
-  finishHook?: (event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void>
+  finishHook?: (event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   hooks?: AgentHookObserverHooks
   input: AgentRunInput<CALL_OPTIONS>
   outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
@@ -1929,6 +1931,22 @@ function createFinishDeliveryEffectContext<
   }
 }
 
+function createAgentFinishHookEvent<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>,
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+): AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS> {
+  const delivery = createFinishDeliveryEffectContext(event, context)
+  return {
+    ...event,
+    reaction: delivery.reaction,
+    reply: delivery.reply,
+    status: delivery.status,
+  }
+}
+
 function activeFinishDeliveryEffectProviders<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -2033,14 +2051,20 @@ async function finishAgentInvocation<
         const finishEvent = { ...eventBase, extensions }
         const activeDeliveryProviders = activeFinishDeliveryEffectProviders(context, finishEvent as never)
         await applyChannelDeliveryEffectIntents(context, await resolveFinishDeliveryEffectIntents(activeDeliveryProviders, finishEvent as never, context), finishEvent as never)
+        let finishHookResult: void | AgentChannelDeliveryFinishEffectResult
         await runObservedAgentHook(context.hooks, {
           ids: { runId: context.run?.runId },
           name: "agent:finish",
           owner: "agent",
           phase: "finish",
         }, async () => {
-          await context.finishHook?.(finishEvent)
+          finishHookResult = await context.finishHook?.(createAgentFinishHookEvent(finishEvent, context))
         })
+        if (finishHookResult) {
+          const finishHookIntents: AgentChannelDeliveryEffectIntent[] = []
+          appendDeliveryEffectIntent(finishHookIntents, finishHookResult)
+          await applyChannelDeliveryEffectIntents(context, finishHookIntents, finishEvent)
+        }
       }
     }
     if (!failed) await commitWorkspaceChanges(context)

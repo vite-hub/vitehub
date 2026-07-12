@@ -173,6 +173,19 @@ export default defineAgent({
 })
 ```
 
+Finish hooks can also return channel delivery effects. Use `event.reply()`, `event.reaction()`, or `event.status()` and return one effect or an array; ViteHub delivers them after Capability finish effects.
+
+```ts [server/agents/support.ts]
+export default defineAgent({
+  driver: { run: () => 'Done' },
+  hooks: {
+    'agent:finish'(event) {
+      return event.reply('Usage recorded.')
+    },
+  },
+})
+```
+
 Finish hooks should not quietly grant new abilities. Capabilities and Agent Drivers remain the authority boundaries.
 
 ### Handle failures
