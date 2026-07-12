@@ -421,6 +421,12 @@ describe("storage capabilities", () => {
         }),
       }),
     ]))
+    const editVariants = variants.filter(variant => (variant.properties?.operation as { const?: unknown } | undefined)?.const === "edit")
+    expect(editVariants).toEqual(expect.arrayContaining([
+      expect.objectContaining({ properties: expect.objectContaining({ prompt: expect.anything() }) }),
+      expect.objectContaining({ properties: expect.objectContaining({ target: expect.anything() }) }),
+    ]))
+    expect(editVariants.every(variant => !(variant.properties?.prompt && variant.properties.target))).toBe(true)
     for (const variant of variants) {
       expect(variant.properties).not.toEqual(expect.objectContaining({
         channelId: expect.anything(),

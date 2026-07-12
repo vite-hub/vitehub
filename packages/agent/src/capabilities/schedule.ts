@@ -347,7 +347,6 @@ function runtimeScheduleInputSchema(mode: AgentCapabilityMode, allowSelfTarget: 
         enabled: { type: "boolean" },
         id: { type: "string" },
         operation: { const: "edit", type: "string" },
-        ...(allowSelfTarget ? { prompt: { description: "Prompt for the scheduled Agent turn.", type: "string" } } : {}),
         target: runtimeScheduleTargetSchema,
         timeZone: runtimeScheduleEditTimeZoneSchema,
       }, ["id", "operation"]),
@@ -357,14 +356,24 @@ function runtimeScheduleInputSchema(mode: AgentCapabilityMode, allowSelfTarget: 
       }, ["id", "operation"]),
     )
     if (allowSelfTarget) {
-      variants.push(jsonObjectSchema({
-        cron: runtimeScheduleCronSchema,
-        enabled: { type: "boolean" },
-        id: { type: "string" },
-        operation: { const: "create", type: "string" },
-        prompt: { description: "Prompt for the scheduled Agent turn.", type: "string" },
-        timeZone: runtimeScheduleCreateTimeZoneSchema,
-      }, ["cron", "operation", "prompt"]))
+      variants.push(
+        jsonObjectSchema({
+          cron: runtimeScheduleCronSchema,
+          enabled: { type: "boolean" },
+          id: { type: "string" },
+          operation: { const: "create", type: "string" },
+          prompt: { description: "Prompt for the scheduled Agent turn.", type: "string" },
+          timeZone: runtimeScheduleCreateTimeZoneSchema,
+        }, ["cron", "operation", "prompt"]),
+        jsonObjectSchema({
+          cron: runtimeScheduleCronSchema,
+          enabled: { type: "boolean" },
+          id: { type: "string" },
+          operation: { const: "edit", type: "string" },
+          prompt: { description: "Prompt for the scheduled Agent turn.", type: "string" },
+          timeZone: runtimeScheduleEditTimeZoneSchema,
+        }, ["id", "operation", "prompt"]),
+      )
     }
   }
   return { oneOf: variants }
