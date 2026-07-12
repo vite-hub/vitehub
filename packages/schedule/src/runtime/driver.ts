@@ -38,21 +38,41 @@ export interface ScheduleRuntimeController {
   close(): Promise<void>
 }
 
-type SerializeOperation = <T>(operation: () => Promise<T>) => Promise<T>
+interface SerializeOperation {
+  <T>(operation: () => Promise<T>): Promise<T>
+  defer(operation: () => Promise<void>): void
+  isReentrant(): boolean
+}
 
 function createSerializer(): SerializeOperation {
   let tail = Promise.resolve()
-  const operationStorage = new AsyncLocalStorage<{ active: boolean }>()
-  return function serialize<T>(operation: () => Promise<T>): Promise<T> {
+  const operationStorage = new AsyncLocalStorage<{
+    active: boolean
+    deferred: Array<() => Promise<void>>
+    depth: number
+  }>()
+  const serialize = function serialize<T>(operation: () => Promise<T>): Promise<T> {
     const activeOperation = operationStorage.getStore()
     if (activeOperation?.active) {
-      return operation()
+      return (async () => {
+        activeOperation.depth++
+        try {
+          return await operation()
+        }
+        finally {
+          activeOperation.depth--
+        }
+      })()
     }
 
-    const operationContext = { active: true }
+    const operationContext = { active: true, deferred: [] as Array<() => Promise<void>>, depth: 0 }
     const result = tail.then(() => operationStorage.run(operationContext, async () => {
       try {
-        return await operation()
+        const value = await operation()
+        while (operationContext.deferred.length > 0) {
+          await operationContext.deferred.shift()!()
+        }
+        return value
       }
       finally {
         operationContext.active = false
@@ -61,6 +81,18 @@ function createSerializer(): SerializeOperation {
     tail = result.then(() => {}, () => {})
     return result
   }
+  serialize.defer = (operation: () => Promise<void>) => {
+    const activeOperation = operationStorage.getStore()
+    if (!activeOperation?.active) {
+      throw new Error("Cannot defer work outside an active serialized operation.")
+    }
+    activeOperation.deferred.push(operation)
+  }
+  serialize.isReentrant = () => {
+    const activeOperation = operationStorage.getStore()
+    return Boolean(activeOperation?.active && activeOperation.depth > 0)
+  }
+  return serialize
 }
 
 function createErrorReporter(onError: InstallScheduleRuntimeOptions["onError"]): (error: unknown) => void {
@@ -100,6 +132,23 @@ async function reconcileAfterMutation(
   }
 }
 
+function deferReentrantReconciliation(
+  driver: RuntimeScheduleWakeDriver,
+  store: RuntimeScheduleStore,
+  reportError: (error: unknown) => void,
+  serialize: SerializeOperation,
+): void {
+  if (!serialize.isReentrant()) return
+  serialize.defer(async () => {
+    try {
+      await driver.reconcile(await store.list())
+    }
+    catch (error) {
+      reportError(error)
+    }
+  })
+}
+
 function createReconciledStore(
   store: RuntimeScheduleStore,
   getDriver: () => RuntimeScheduleWakeDriver,
@@ -116,6 +165,7 @@ function createReconciledStore(
             throw new Error(`Runtime Schedule create rollback failed: ${created.id}`)
           }
         }, reportError)
+        deferReentrantReconciliation(driver, store, reportError, serialize)
         return created
       })
     },
@@ -131,6 +181,7 @@ function createReconciledStore(
           }
           await store.create(previous)
         }, reportError)
+        deferReentrantReconciliation(driver, store, reportError, serialize)
         return true
       })
     },
@@ -158,6 +209,7 @@ function createReconciledStore(
           }
           await store.create(previous)
         }, reportError)
+        deferReentrantReconciliation(driver, store, reportError, serialize)
         return updated
       })
     },
