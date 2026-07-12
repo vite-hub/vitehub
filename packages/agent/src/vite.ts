@@ -39,7 +39,8 @@ const generatedAgentWebhookRouteHandler = ".vitehub/agent/chat-webhook-route.ts"
 const generatedAgentNetlifyFunction = ".vitehub/agent/netlify-function.mjs"
 const netlifyAgentFunctionName = "vitehub-agent"
 const generatedScheduleRuntimeRegistrySuffix = "/.vitehub/nitro/schedule/runtime-registry.js"
-const resolvedScheduleRegistryId = "\0#vitehub/schedule/registry"
+const scheduleRegistryId = "#vitehub/schedule/registry"
+const resolvedScheduleRegistryId = `\0${scheduleRegistryId}`
 const resolvedScheduleTargetsId = "\0#vitehub/schedule/targets"
 const scheduleRuntimeImport = "@vite-hub/schedule/runtime"
 const scheduleVitePluginName = "@vite-hub/schedule/vite"
@@ -93,10 +94,17 @@ function getWorkspaceImportBase(options: AgentModuleOptions | false | undefined)
 function generatedAgentRouteCapabilities(options: AgentGeneratedImportOptions) {
   if (!options.schedule) return { imports: [] as string[], requestOption: "", requestProperty: "", setup: [] as string[] }
   return {
-    imports: [`import { schedules as vitehubSchedules } from ${JSON.stringify(scheduleRuntimeImport)}`],
+    imports: [
+      `import vitehubAgentScheduleRegistry from ${JSON.stringify(scheduleRegistryId)}`,
+      `import { schedules as vitehubSchedules, setScheduleRuntimeRegistry as vitehubSetScheduleRuntimeRegistry } from ${JSON.stringify(scheduleRuntimeImport)}`,
+    ],
     requestOption: "capabilities: vitehubAgentRouteCapabilities, ",
     requestProperty: ", capabilities: vitehubAgentRouteCapabilities",
-    setup: ["const vitehubAgentRouteCapabilities = { schedule: { schedules: vitehubSchedules } }", ""],
+    setup: [
+      "vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)",
+      "const vitehubAgentRouteCapabilities = { schedule: { schedules: vitehubSchedules } }",
+      "",
+    ],
   }
 }
 

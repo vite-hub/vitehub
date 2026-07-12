@@ -605,7 +605,9 @@ describe("agent Vite plugin", () => {
       const gatewayRoute = await readFile(join(root, ".vitehub/agent/discord-gateway-route.ts"), "utf8")
 
       for (const route of [webhookRoute, gatewayRoute]) {
-        expect(route).toContain('import { schedules as vitehubSchedules } from "@vite-hub/schedule/runtime"')
+        expect(route).toContain('import vitehubAgentScheduleRegistry from "#vitehub/schedule/registry"')
+        expect(route).toContain('setScheduleRuntimeRegistry as vitehubSetScheduleRuntimeRegistry } from "@vite-hub/schedule/runtime"')
+        expect(route).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
         expect(route).toContain("const vitehubAgentRouteCapabilities = { schedule: { schedules: vitehubSchedules } }")
         expect(route).toContain("capabilities: vitehubAgentRouteCapabilities")
       }
@@ -618,7 +620,8 @@ describe("agent Vite plugin", () => {
         } as never)
       }
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
-      expect(denoServer).toContain('import { schedules as vitehubSchedules } from "@vite-hub/schedule/runtime"')
+      expect(denoServer).toContain('import vitehubAgentScheduleRegistry from "#vitehub/schedule/registry"')
+      expect(denoServer).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
       expect(denoServer).toContain("capabilities: vitehubAgentRouteCapabilities")
 
       process.env.VITEHUB_HOSTING = "netlify"
@@ -636,7 +639,8 @@ describe("agent Vite plugin", () => {
         await netlifyPlugin.closeBundle.handler.call({} as never)
       }
       const netlifyFunction = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
-      expect(netlifyFunction).toContain('import { schedules as vitehubSchedules } from "@vite-hub/schedule/runtime"')
+      expect(netlifyFunction).toContain('import vitehubAgentScheduleRegistry from "#vitehub/schedule/registry"')
+      expect(netlifyFunction).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
       expect(netlifyFunction).toContain("capabilities: vitehubAgentRouteCapabilities")
     }
     finally {
