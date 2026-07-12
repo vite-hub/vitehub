@@ -235,10 +235,11 @@ describe("agent Vite plugin", () => {
       await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {} })", "utf8")
       await writeFile(join(root, "server", "agents", "support", "instructions.md"), "Use support instructions.\n", "utf8")
       const plugin = hubAgent({ routes: { chat: false, discordGateway: false, webhooks: false } })
-      const configResolved = plugin.configResolved as unknown as (config: { agent?: unknown, command: "serve", plugins: Array<{ name: string }>, root: string }) => Promise<void>
+      const configResolved = plugin.configResolved as unknown as (config: { agent?: unknown, command: "serve", createResolver: () => (id: string) => Promise<string | undefined>, plugins: Array<{ name: string }>, root: string }) => Promise<void>
       const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
       await configResolved({
         command: "serve",
+        createResolver: () => async id => `/app/node_modules/${id}`,
         plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/kv/vite" }],
         root,
       })
@@ -262,6 +263,19 @@ describe("agent Vite plugin", () => {
       expect(registry).not.toContain("cron:")
       expect(targets).toContain('scheduleTargetNames.push("agent/digest")')
       expect(targets).toContain('scheduleTargetNames.push("agent/support")')
+
+      const filteredPlugin = hubAgent({ routes: { chat: false, discordGateway: false, webhooks: false } })
+      const filteredConfigResolved = filteredPlugin.configResolved as unknown as typeof configResolved
+      const filteredTransform = filteredPlugin.transform as typeof transform
+      await filteredConfigResolved({
+        command: "serve",
+        createResolver: () => async id => id === "@vite-hub/kv" ? `/app/node_modules/${id}` : undefined,
+        plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/kv/vite" }],
+        root,
+      })
+      const filteredRegistry = await filteredTransform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")
+      expect(filteredRegistry).not.toContain('from "@vite-hub/blob"')
+      expect(filteredRegistry).toContain("{ capabilities: { kv: vitehubKv, schedule: { schedules: vitehubSchedules } } }")
     }
     finally {
       await rm(root, { force: true, recursive: true })

@@ -94,9 +94,16 @@ const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapabilit
   { importName: "kv", name: "kv", packageName: "@vite-hub/kv", pluginName: "@vite-hub/kv/vite" },
 ]
 
-function resolveGeneratedAgentRuntimeCapabilities(config: Pick<ResolvedConfig, "plugins">): GeneratedAgentRuntimeCapability[] {
+async function resolveGeneratedAgentRuntimeCapabilities(
+  config: Pick<ResolvedConfig, "plugins" | "root"> & Partial<Pick<ResolvedConfig, "createResolver">>,
+): Promise<GeneratedAgentRuntimeCapability[]> {
   const pluginNames = new Set(config.plugins?.map(plugin => plugin.name))
-  return generatedAgentRuntimeCapabilityDefinitions.filter(capability => pluginNames.has(capability.pluginName))
+  const candidates = generatedAgentRuntimeCapabilityDefinitions.filter(capability => pluginNames.has(capability.pluginName))
+  const resolveImport = config.createResolver?.()
+  if (!resolveImport) return candidates
+  const importer = join(config.root, ".vitehub", "agent", "runtime-capabilities.js")
+  const resolved = await Promise.all(candidates.map(async capability => await resolveImport(capability.packageName, importer) ? capability : undefined))
+  return resolved.filter((capability): capability is GeneratedAgentRuntimeCapability => capability !== undefined)
 }
 
 function generatedAgentRuntimeCapabilityAlias(capability: GeneratedAgentRuntimeCapability): string {
@@ -1217,6 +1224,7 @@ async function cleanupNetlifyAgentProviderOutput(config: ResolvedConfig): Promis
 
 export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   let agent: AgentModuleOptions | false | undefined = options
+  let runtimeCapabilities: GeneratedAgentRuntimeCapability[] = []
   let resolved: ResolvedConfig | undefined
 
   return {
@@ -1253,7 +1261,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       if (!isScheduleRegistryId(id) && id !== resolvedScheduleTargetsId) return
       const definitions = discoverScheduledAgentDefinitions(resolved.root)
       return isScheduleRegistryId(id)
-        ? await transformScheduleRegistry(code, definitions, getAgentImportBase(agent), undefined, resolveGeneratedAgentRuntimeCapabilities(resolved))
+        ? await transformScheduleRegistry(code, definitions, getAgentImportBase(agent), undefined, runtimeCapabilities)
         : transformScheduleTargets(code, definitions)
     },
     vitehub: {
@@ -1316,7 +1324,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       agent = config.agent ?? agent
       const normalized = normalizeAgentOptions(agent)
       const schedule = hasScheduleVitePlugin(config)
-      const runtimeCapabilities = resolveGeneratedAgentRuntimeCapabilities(config)
+      runtimeCapabilities = await resolveGeneratedAgentRuntimeCapabilities(config)
       if (normalized && (normalized.routes.chat || normalized.routes.webhooks || normalized.routes.discordGateway)) {
         if (normalized.runtime === "deno") {
           if (normalized.routes.chat || normalized.routes.webhooks) {
@@ -1400,7 +1408,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           await writeNetlifyAgentProviderOutput(resolved, normalized, {
             agentImportBase: getAgentImportBase(agent),
             libsqlState: resolveWebhookLibsqlAgentState(normalized),
-            runtimeCapabilities: resolveGeneratedAgentRuntimeCapabilities(resolved),
+            runtimeCapabilities,
             schedule: hasScheduleVitePlugin(resolved),
             workspaceImportBase: getWorkspaceImportBase(agent),
           })
