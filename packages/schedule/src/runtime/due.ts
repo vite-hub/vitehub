@@ -45,6 +45,9 @@ function scheduleDateFields(scheduledAt: Date, timeZone: string | undefined) {
 }
 
 export function isRuntimeScheduleDue(schedule: RuntimeScheduleRecord, scheduledAt: Date): boolean {
+  if (scheduledAt.getUTCSeconds() !== 0 || scheduledAt.getUTCMilliseconds() !== 0) {
+    return false
+  }
   if (schedule.cron.trim().split(/\s+/).length !== 5) {
     throw new TypeError(`Runtime Schedule "${schedule.id}" must use a five-field cron expression.`)
   }

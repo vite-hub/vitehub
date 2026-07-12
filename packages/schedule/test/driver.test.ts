@@ -221,6 +221,43 @@ describe("Runtime Schedule Wake Driver", () => {
     await updating
   })
 
+  it("rejects native wakes outside the exact minute occurrence", async () => {
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-07-11T08:00:00.000Z")
+    const handler = vi.fn()
+    let context: RuntimeScheduleWakeDriverContext | undefined
+    await runtimeScheduleStore.create({ createdAt: now, cron: "0 9 * * *", enabled: true, id: "daily", target: "report", updatedAt: now })
+    await installScheduleRuntime({
+      createDriver(driverContext) {
+        context = driverContext
+        return { async reconcile() {} }
+      },
+      registry: {
+        report: async () => ({ cron: "0 9 * * *", handler, options: { allowRuntimeSchedules: true } }),
+      },
+      runtimeScheduleStore,
+      scheduleRunStore,
+    })
+
+    await expect(context!.wake({
+      scheduleId: "daily",
+      scheduledAt: new Date("2026-07-11T09:00:30.000Z"),
+    })).rejects.toMatchObject({ code: "SCHEDULE_NOT_DUE" })
+    await expect(context!.wake({
+      scheduleId: "daily",
+      scheduledAt: new Date("2026-07-11T09:00:00.001Z"),
+    })).rejects.toMatchObject({ code: "SCHEDULE_NOT_DUE" })
+    expect(handler).not.toHaveBeenCalled()
+    expect(await scheduleRunStore.listRuns()).toEqual([])
+
+    await context!.wake({
+      scheduleId: "daily",
+      scheduledAt: new Date("2026-07-11T09:00:00.000Z"),
+    })
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
   it("reconciles serialized full snapshots after create, update, and delete", async () => {
     const snapshots: unknown[] = []
     await installScheduleRuntime({
