@@ -114,6 +114,135 @@ describe("Vite schedule integration", () => {
     await expect(readFile(join(root, ".vitehub", "schedule", "registry.d.ts"), "utf8")).resolves.toContain("ScheduleRegistryDefinition")
   })
 
+  it("installs an explicit Process Runtime through generated Nitro wiring", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-process-runtime-"))
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await writeFile(join(root, "server", "schedules", "report.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '*/10 * * * *', allowRuntimeSchedules: true, handler: () => {} })",
+      "",
+    ].join("\n"), "utf8")
+
+    const userConfig: Record<string, unknown> = { root }
+    const plugin = hubSchedule({
+      providerOutput: false,
+      runtime: {
+        concurrency: 2,
+        driver: "process",
+        intervalMs: 5_000,
+        prefix: "brujula:schedule",
+      },
+    })
+    const config = await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+      userConfig,
+      { command: "serve", mode: "development" },
+    )
+
+    expect(config).toEqual({
+      nitro: {
+        plugins: [".vitehub/nitro/schedule/plugin.ts"],
+      },
+    })
+    expect(userConfig).toMatchObject(config as Record<string, unknown>)
+    expect(userConfig).not.toHaveProperty("nitro.cloudflare")
+    expect(userConfig).not.toHaveProperty("nitro.modules")
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("createProcessScheduleWakeDriver")
+    expect(pluginSource).toContain("installScheduleRuntime")
+    expect(pluginSource).toContain("createKVRuntimeScheduleStore")
+    expect(pluginSource).toContain("createKVScheduleRunStore")
+    expect(pluginSource).toContain("\"prefix\": \"brujula:schedule\"")
+    expect(pluginSource).toContain("\"concurrency\": 2")
+    expect(pluginSource).toContain("\"intervalMs\": 5000")
+    expect(pluginSource).toContain("nitroApp.captureError")
+    expect(pluginSource).toContain("nitroApp.hooks.hook('close'")
+    expect(pluginSource).toContain("nitroApp.h3App.stack.unshift({")
+    expect(pluginSource).toContain("route: '/'")
+    expect(pluginSource).toContain("const result = await runtimeInstallation")
+    expect(pluginSource).toContain("if ('error' in result) throw result.error")
+    expect(pluginSource).toContain("if ('controller' in result) await result.controller.close()")
+    expect(pluginSource).toContain("export default definePlugin((nitroApp) => {")
+    expect(pluginSource).not.toContain("definePlugin(async")
+    expect(pluginSource).toContain("from \"./runtime-registry.js\"")
+    expect(pluginSource).not.toContain("cloudflare:scheduled")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "runtime-registry.js"), "utf8")).resolves.toContain("server/schedules/report.ts")
+    resolvePluginConfig(plugin, root)
+    await expect(loadScheduleRegistry(plugin)).resolves.toContain("server/schedules/report.ts")
+  })
+
+  it("keeps explicit Process Runtime registry separate from static Provider Wake definitions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-process-static-"))
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(join(root, "server", "schedules", "report.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '*/10 * * * *', allowRuntimeSchedules: true, handler: () => {} })",
+      "",
+    ].join("\n"), "utf8")
+    await writeFile(join(root, "src", "cleanup.schedule.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 0 * * *', allowRuntimeSchedules: true, handler: () => {} })",
+      "",
+    ].join("\n"), "utf8")
+
+    const userConfig: Record<string, unknown> = { root }
+    const plugin = hubSchedule({ runtime: { driver: "process" } })
+    await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+      userConfig,
+      { command: "build", mode: "production" },
+    )
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("cloudflare:scheduled")
+    expect(pluginSource).toContain("installScheduleRuntime")
+    const providerRegistry = await readFile(join(root, ".vitehub", "schedule", "registry.js"), "utf8")
+    const processRegistry = await readFile(join(root, ".vitehub", "nitro", "schedule", "runtime-registry.js"), "utf8")
+    resolvePluginConfig(plugin, root)
+    const runtimeRegistry = await loadScheduleRegistry(plugin)
+    expect(providerRegistry).toContain("server/schedules/report.ts")
+    expect(providerRegistry).not.toContain("src/cleanup.schedule.ts")
+    expect(processRegistry).toContain("server/schedules/report.ts")
+    expect(processRegistry).toContain("src/cleanup.schedule.ts")
+    expect(runtimeRegistry).toContain("server/schedules/report.ts")
+    expect(runtimeRegistry).toContain("src/cleanup.schedule.ts")
+  })
+
+  it("does not infer a Process Runtime from Nitro or discovered definitions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-no-process-runtime-"))
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await writeFile(join(root, "server", "schedules", "report.ts"), "export default defineSchedule({ cron: '* * * * *', handler: () => {} })\n", "utf8")
+
+    const plugin = hubSchedule()
+    await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+      { root },
+      { command: "serve", mode: "development" },
+    )
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
+    expect(pluginSource).not.toContain("installScheduleRuntime")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "runtime-registry.js"), "utf8")).rejects.toThrow()
+  })
+
+  it("rejects invalid Process Runtime options before generating Nitro code", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-invalid-process-"))
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await writeFile(join(root, "server", "schedules", "report.ts"), "export default defineSchedule({ cron: '* * * * *', handler: () => {} })\n", "utf8")
+
+    for (const runtime of [
+      { driver: "process", intervalMs: 0 },
+      { driver: "process", intervalMs: 60_001 },
+      { concurrency: 0, driver: "process" },
+      { driver: "process", prefix: 1 },
+    ]) {
+      const plugin = hubSchedule({ runtime: runtime as never })
+      await expect((plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+        { root },
+        { command: "serve", mode: "development" },
+      )).rejects.toThrow("Process Runtime")
+    }
+  })
+
   it("installs Schedule Provider Wake through the Nuxt module", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-nuxt-"))
     await mkdir(join(root, "server", "schedules"), { recursive: true })
