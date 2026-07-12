@@ -173,22 +173,29 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
   const reportError = createErrorReporter(options.onError)
   const serialize = createSerializer()
   let driver: RuntimeScheduleWakeDriver | undefined
+  let aborted = false
 
   setScheduleRuntimeRegistry(options.registry)
   setScheduleRunStore(options.scheduleRunStore)
 
   const initializing = serialize(async () => {
-    driver = await options.createDriver({
-      reportError,
-      wake: input => executeRuntimeScheduleWake(input, {
-        runtimeScheduleStore: options.runtimeScheduleStore,
-        scheduleRunStore: options.scheduleRunStore,
-      }),
-    })
-    await driver.reconcile(await options.runtimeScheduleStore.list())
+    try {
+      driver = await options.createDriver({
+        reportError,
+        wake: input => executeRuntimeScheduleWake(input, {
+          runtimeScheduleStore: options.runtimeScheduleStore,
+          scheduleRunStore: options.scheduleRunStore,
+        }),
+      })
+      await driver.reconcile(await options.runtimeScheduleStore.list())
+    }
+    catch (error) {
+      aborted = true
+      throw error
+    }
   })
   const runtimeScheduleStore = createReconciledStore(options.runtimeScheduleStore, () => {
-    if (!driver) {
+    if (!driver || aborted) {
       throw new Error("Runtime Schedule wake driver installation did not complete.")
     }
     return driver

@@ -106,6 +106,35 @@ describe("Runtime Schedule Wake Driver", () => {
     ])
   })
 
+  it("rejects queued mutations without writing when installation fails", async () => {
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    let rejectReconcile: (() => void) | undefined
+    let reconcileCount = 0
+    const installing = installScheduleRuntime({
+      createDriver: () => ({
+        async reconcile() {
+          reconcileCount++
+          if (reconcileCount === 1) {
+            await new Promise<void>(resolve => { rejectReconcile = resolve })
+            throw new Error("initial reconcile failed")
+          }
+        },
+      }),
+      registry,
+      runtimeScheduleStore,
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+    await flushAsyncWork()
+
+    const creating = schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
+    await flushAsyncWork()
+    rejectReconcile?.()
+
+    await expect(installing).rejects.toThrow("initial reconcile failed")
+    await expect(creating).rejects.toThrow("installation did not complete")
+    expect(await runtimeScheduleStore.list()).toEqual([])
+  })
+
   it("delivers exact wake identity and time through Runtime Schedule execution", async () => {
     const scheduledAt = new Date("2026-07-11T09:30:00.000Z")
     const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
