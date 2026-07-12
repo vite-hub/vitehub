@@ -65,8 +65,15 @@ export function createProcessScheduleWakeDriver(options: ProcessScheduleWakeDriv
         if (!input) return
         const key = occurrenceKey(input)
         activeOccurrences.add(key)
+        let wakeResult: Promise<void>
+        try {
+          wakeResult = Promise.resolve(context.wake(input))
+        }
+        catch (error) {
+          wakeResult = Promise.reject(error)
+        }
         let wakePromise: Promise<void>
-        wakePromise = context.wake(input)
+        wakePromise = wakeResult
           .catch(reportError)
           .finally(() => {
             activeOccurrences.delete(key)

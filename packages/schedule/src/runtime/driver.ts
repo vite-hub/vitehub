@@ -137,8 +137,8 @@ function deferReentrantReconciliation(
   store: RuntimeScheduleStore,
   reportError: (error: unknown) => void,
   serialize: SerializeOperation,
-): void {
-  if (!serialize.isReentrant()) return
+): boolean {
+  if (!serialize.isReentrant()) return false
   serialize.defer(async () => {
     try {
       await driver.reconcile(await store.list())
@@ -147,6 +147,7 @@ function deferReentrantReconciliation(
       reportError(error)
     }
   })
+  return true
 }
 
 function createReconciledStore(
@@ -160,12 +161,13 @@ function createReconciledStore(
       return serialize(async () => {
         const driver = getDriver()
         const created = await store.create(record)
-        await reconcileAfterMutation(driver, store, async () => {
-          if (!await store.delete(created.id)) {
-            throw new Error(`Runtime Schedule create rollback failed: ${created.id}`)
-          }
-        }, reportError)
-        deferReentrantReconciliation(driver, store, reportError, serialize)
+        if (!deferReentrantReconciliation(driver, store, reportError, serialize)) {
+          await reconcileAfterMutation(driver, store, async () => {
+            if (!await store.delete(created.id)) {
+              throw new Error(`Runtime Schedule create rollback failed: ${created.id}`)
+            }
+          }, reportError)
+        }
         return created
       })
     },
@@ -175,13 +177,14 @@ function createReconciledStore(
         const previous = await store.get(id)
         const deleted = await store.delete(id)
         if (!deleted) return false
-        await reconcileAfterMutation(driver, store, async () => {
-          if (!previous) {
-            throw new Error(`Runtime Schedule delete rollback failed: ${id}`)
-          }
-          await store.create(previous)
-        }, reportError)
-        deferReentrantReconciliation(driver, store, reportError, serialize)
+        if (!deferReentrantReconciliation(driver, store, reportError, serialize)) {
+          await reconcileAfterMutation(driver, store, async () => {
+            if (!previous) {
+              throw new Error(`Runtime Schedule delete rollback failed: ${id}`)
+            }
+            await store.create(previous)
+          }, reportError)
+        }
         return true
       })
     },
@@ -197,19 +200,20 @@ function createReconciledStore(
         const previous = await store.get(id)
         const updated = await store.update(id, patch)
         if (!updated) return undefined
-        await reconcileAfterMutation(driver, store, async () => {
-          if (!previous) {
+        if (!deferReentrantReconciliation(driver, store, reportError, serialize)) {
+          await reconcileAfterMutation(driver, store, async () => {
+            if (!previous) {
+              if (!await store.delete(id)) {
+                throw new Error(`Runtime Schedule update rollback failed: ${id}`)
+              }
+              return
+            }
             if (!await store.delete(id)) {
               throw new Error(`Runtime Schedule update rollback failed: ${id}`)
             }
-            return
-          }
-          if (!await store.delete(id)) {
-            throw new Error(`Runtime Schedule update rollback failed: ${id}`)
-          }
-          await store.create(previous)
-        }, reportError)
-        deferReentrantReconciliation(driver, store, reportError, serialize)
+            await store.create(previous)
+          }, reportError)
+        }
         return updated
       })
     },

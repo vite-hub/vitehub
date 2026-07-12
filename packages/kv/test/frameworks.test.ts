@@ -66,20 +66,22 @@ describe("hubKv", () => {
       options: { ssr: boolean },
     ) => unknown | Promise<unknown>
 
-    expect(await resolveId("@upstash/redis", undefined, { ssr: true })).toEqual({
+    expect(await resolveId("@upstash/redis", "/app/node_modules/unstorage/dist/drivers/upstash.mjs", { ssr: true })).toEqual({
       external: true,
       id: "@upstash/redis",
     })
-    expect(await resolveId("unstorage/drivers/upstash", undefined, { ssr: true })).toEqual({
+    expect(await resolveId("unstorage/drivers/upstash", "/app/node_modules/@vite-hub/kv/dist/index.js", { ssr: true })).toEqual({
       external: true,
       id: "unstorage/drivers/upstash",
     })
     expect(await resolveId("@upstash/redis", undefined, { ssr: false })).toBeUndefined()
     expect(await resolveId("unstorage/drivers/fs-lite", undefined, { ssr: true })).toBeUndefined()
+    expect(await resolveId("@upstash/redis", "/app/server/redis.ts", { ssr: true })).toBeUndefined()
+    expect(await resolveId("unstorage/drivers/upstash", "/app/server/storage.ts", { ssr: true })).toBeUndefined()
 
     const upstashPlugin = hubKv({ driver: "upstash" })
     const resolveUpstashId = upstashPlugin.resolveId as typeof resolveId
-    expect(await resolveUpstashId("unstorage/drivers/upstash", undefined, { ssr: true })).toBeUndefined()
+    expect(await resolveUpstashId("unstorage/drivers/upstash", "/app/node_modules/@vite-hub/kv/dist/index.js", { ssr: true })).toBeUndefined()
   })
 
   it("anchors generated Cloudflare runtime imports to the KV package", async () => {

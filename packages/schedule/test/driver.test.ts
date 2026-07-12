@@ -329,15 +329,24 @@ describe("Runtime Schedule Wake Driver", () => {
   it("reconciles re-entrant handler mutations after the active snapshot", async () => {
     const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
     const snapshots: string[][] = []
+    let concurrentReconcile = false
+    let reconciling = false
     let woke = false
     await installScheduleRuntime({
       createDriver: context => ({
         async reconcile(records) {
-          if (!woke && records.some(record => record.id === "daily")) {
-            woke = true
-            await context.wake({ scheduleId: "daily", scheduledAt })
+          if (reconciling) concurrentReconcile = true
+          reconciling = true
+          try {
+            if (!woke && records.some(record => record.id === "daily")) {
+              woke = true
+              await context.wake({ scheduleId: "daily", scheduledAt })
+            }
+            snapshots.push(records.map(record => record.id))
           }
-          snapshots.push(records.map(record => record.id))
+          finally {
+            reconciling = false
+          }
         },
       }),
       registry: {
@@ -355,6 +364,7 @@ describe("Runtime Schedule Wake Driver", () => {
 
     await schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
 
+    expect(concurrentReconcile).toBe(false)
     expect(snapshots.at(-1)).toEqual(["daily", "follow-up"])
   })
 

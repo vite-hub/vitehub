@@ -286,6 +286,26 @@ describe("Process Schedule Wake Driver", () => {
     await driver.close?.()
   })
 
+  it("reports synchronous wake errors and continues scanning later minutes", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-11T09:00:20.000Z"))
+    const error = new Error("wake failed synchronously")
+    const reportError = vi.fn<RuntimeScheduleWakeDriverContext["reportError"]>()
+    const wake = vi.fn<RuntimeScheduleWakeDriverContext["wake"]>()
+      .mockImplementationOnce(() => { throw error })
+      .mockResolvedValue(undefined)
+    const driver = await createDriver({ reportError, wake }, { intervalMs: 1_000 })
+
+    await expect(driver.reconcile([record("daily")])).resolves.toBeUndefined()
+    await flushAsyncWork()
+    expect(reportError).toHaveBeenCalledWith(error)
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(wake).toHaveBeenCalledTimes(2)
+
+    await driver.close?.()
+  })
+
   it("validates options and stored cron expressions before reconciliation succeeds", async () => {
     const context: RuntimeScheduleWakeDriverContext = {
       reportError: vi.fn(),

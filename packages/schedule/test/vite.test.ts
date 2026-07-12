@@ -37,7 +37,10 @@ describe("Vite schedule integration", () => {
 
   it("registers runtime-only targets without emitting static provider output", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-runtime-target-"))
+    const netlifyRoot = createDefaultNetlifyOutputRoot(root)
     await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await mkdir(join(netlifyRoot, "functions"), { recursive: true })
+    await writeFile(join(netlifyRoot, "functions", "vitehub-schedule-stale.mjs"), "stale\n", "utf8")
     await writeFile(join(root, "server", "schedules", "agent-turn.ts"), [
       "import { defineScheduleTarget } from '@vite-hub/schedule'",
       "export default defineScheduleTarget({ handler: () => {} })",
@@ -51,10 +54,17 @@ describe("Vite schedule integration", () => {
     )
     expect(config).toBeNull()
 
-    resolvePluginConfig(plugin, root)
+    ;(plugin.configResolved as (config: Record<string, unknown>) => void)({
+      build: { outDir: "dist" },
+      command: "build",
+      resolve: { alias: [] },
+      root,
+    })
+    await (plugin.closeBundle as () => Promise<void>)()
     await expect(loadScheduleRegistry(plugin)).resolves.toContain("server/schedules/agent-turn.ts")
     await expect(loadScheduleTargets(plugin)).resolves.toContain('"agent-turn"')
     expect(existsSync(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"))).toBe(false)
+    await expect(readFile(join(netlifyRoot, "functions", "vitehub-schedule-stale.mjs"), "utf8")).rejects.toThrow()
   })
 
   it("contributes discovered schedules to the in-flight Nitro config before framework plugins consume it", async () => {

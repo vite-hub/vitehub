@@ -69,6 +69,7 @@ interface GeneratedScheduleArtifacts {
 interface GenerateProviderOutputsOptions {
   bundleAlias?: Record<string, string>
   clientOutDir: string
+  definitions?: DiscoveredScheduleDefinition[]
   rootDir: string
   runtimeImport?: string
   source?: DiscoveredScheduleDefinition["source"]
@@ -570,12 +571,16 @@ function createScheduleDefinitionAliasPlugin(): Plugin {
   }
 }
 
-async function writeProviderEntries(rootDir: string, source?: DiscoveredScheduleDefinition["source"]): Promise<GeneratedScheduleArtifacts> {
+async function writeProviderEntries(
+  rootDir: string,
+  source?: DiscoveredScheduleDefinition["source"],
+  providedDefinitions?: DiscoveredScheduleDefinition[],
+): Promise<GeneratedScheduleArtifacts> {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
-  const definitions = discoverScheduleDefinitions({ rootDir })
+  const definitions = (providedDefinitions ?? discoverScheduleDefinitions({ rootDir }))
     .filter(definition => !source || definition.source === source)
     .filter(definition => definition.runtimeOnly !== true)
   await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
@@ -637,6 +642,7 @@ export async function writeVercelScheduleFunctions(options: {
   }
 
   const configFile = resolve(outputRoot, "config.json")
+  await mkdir(outputRoot, { recursive: true })
   let vercelConfig = createVercelConfigJson() as ReturnType<typeof createVercelConfigJson> & { crons?: Array<{ path: string, schedule: string }> }
   try {
     vercelConfig = JSON.parse(await readFile(configFile, "utf8"))
@@ -750,15 +756,17 @@ async function writeCloudflareScheduleOutput(options: {
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
-  const artifacts = await writeProviderEntries(options.rootDir, options.source)
+  const artifacts = await writeProviderEntries(options.rootDir, options.source, options.definitions)
   const crons = await readDefinitionCrons(artifacts.definitions)
-  await writeFile(artifacts.denoCronFile, renderDenoCronEntry(artifacts.denoCronFile, artifacts.registryFile, crons, options.runtimeImport), "utf8")
-  await writeCloudflareScheduleOutput({
-    bundleAlias: options.bundleAlias,
-    bundleEntry: artifacts.cloudflareWorkerFile,
-    crons: [...new Set(crons.values())],
-    rootDir: options.rootDir,
-  })
+  if (options.definitions?.length !== 0) {
+    await writeFile(artifacts.denoCronFile, renderDenoCronEntry(artifacts.denoCronFile, artifacts.registryFile, crons, options.runtimeImport), "utf8")
+    await writeCloudflareScheduleOutput({
+      bundleAlias: options.bundleAlias,
+      bundleEntry: artifacts.cloudflareWorkerFile,
+      crons: [...new Set(crons.values())],
+      rootDir: options.rootDir,
+    })
+  }
   await writeVercelScheduleFunctions({
     bundleAlias: options.bundleAlias,
     definitions: artifacts.definitions,

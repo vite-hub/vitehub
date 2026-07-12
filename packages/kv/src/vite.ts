@@ -54,6 +54,18 @@ function hasUpstashStore(kv: KVViteRuntimeConfig["kv"]): boolean {
   return Object.values(kv.stores || { default: kv.store }).some(store => store.driver === "upstash")
 }
 
+function isKVOptionalUpstashImport(id: string, importer: string | undefined): boolean {
+  if (!importer) return false
+  const normalizedImporter = importer.replace(/\\/g, "/").split("?", 1)[0]!
+  if (id === UPSTASH_DRIVER_IMPORT_ID) {
+    return normalizedImporter.endsWith("/packages/kv/src/runtime/driver.ts")
+      || normalizedImporter.endsWith("/packages/kv/dist/index.js")
+      || normalizedImporter.includes("/@vite-hub/kv/dist/index.js")
+  }
+  return id === UPSTASH_REDIS_IMPORT_ID
+    && /\/unstorage\/(?:dist\/)?drivers\/upstash(?:\.[^/]*)?$/.test(normalizedImporter)
+}
+
 function createCloudflareKVWranglerConfig(kv: KVViteRuntimeConfig["kv"]) {
   if (!kv) return
   const target: { cloudflare?: { wrangler?: { kv_namespaces?: Array<{ binding: string, id?: string }> } } } = {}
@@ -144,11 +156,11 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
     },
-    resolveId(id, _importer, resolveOptions) {
-      if (id === UPSTASH_DRIVER_IMPORT_ID && resolveOptions?.ssr && !hasUpstashStore(getConfig().kv)) {
+    resolveId(id, importer, resolveOptions) {
+      if (id === UPSTASH_DRIVER_IMPORT_ID && resolveOptions?.ssr && !hasUpstashStore(getConfig().kv) && isKVOptionalUpstashImport(id, importer)) {
         return { external: true, id }
       }
-      if (id === UPSTASH_REDIS_IMPORT_ID && resolveOptions?.ssr) return { external: true, id }
+      if (id === UPSTASH_REDIS_IMPORT_ID && resolveOptions?.ssr && isKVOptionalUpstashImport(id, importer)) return { external: true, id }
       if (id === "@vite-hub/kv" && isCloudflareKVConfig(getConfig().kv)) return RESOLVED_KV_RUNTIME_ID
       if (id === KV_VIRTUAL_CONFIG_ID) return RESOLVED_KV_VIRTUAL_CONFIG_ID
     },

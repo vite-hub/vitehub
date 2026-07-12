@@ -496,12 +496,13 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       }
     },
     async closeBundle() {
-      if (!resolved || !emitStandaloneProviderOutput || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
+      if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
         return
       }
       await generateProviderOutputs({
         bundleAlias: resolveStringAliases(resolved),
         clientOutDir: resolved.build.outDir,
+        ...(!emitStandaloneProviderOutput ? { definitions: [] } : {}),
         rootDir: resolved.root,
         runtimeImport: internalOptions.runtimeImport,
         source: standaloneProviderSource,
