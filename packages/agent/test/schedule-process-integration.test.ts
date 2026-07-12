@@ -34,7 +34,7 @@ describe("Agent Process Schedule integration", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "mini.ts"), [
       "import { defineAgent } from '@vite-hub/agent'",
-      "import { schedule } from '@vite-hub/agent/capabilities'",
+      "import { kv, schedule } from '@vite-hub/agent/capabilities'",
       "import { defineChannel } from '@vite-hub/agent/channels'",
       "const proof = globalThis.__vitehubProcessScheduledAgentProof",
       "export const chatRoute = {",
@@ -44,7 +44,7 @@ describe("Agent Process Schedule integration", () => {
       "  }),",
       "}",
       "export default defineAgent({",
-      "  capabilities: [schedule({ allowSelfTarget: true, delivery: 'origin', mode: 'write', policy: 'allow', timeZone: 'Asia/Bangkok' })],",
+      "  capabilities: [kv(), schedule({ allowSelfTarget: true, delivery: 'origin', mode: 'write', policy: 'allow', timeZone: 'Asia/Bangkok' })],",
       "  channels: {",
       "    discord: defineChannel('discord', {",
       "      adapter: {",
@@ -56,7 +56,7 @@ describe("Agent Process Schedule integration", () => {
       "  driver: {",
       "    async run({ context, invoker, prompt, run, runtimeContext, tools, workspace }) {",
       "      if (context.get('schedule')) {",
-      "        proof.runs.push({ hasScheduleHandle: Boolean(runtimeContext.capabilities?.schedule), hasWorkspace: Boolean(workspace), invoker, prompt, run, servicePath: process.env.VITEHUB_TEST_SERVICE_PATH })",
+      "        proof.runs.push({ hasScheduleHandle: Boolean(runtimeContext.capabilities?.schedule), hasWorkspace: Boolean(workspace), invoker, kvValue: await tools.kv_read.execute({ key: 'scheduled-proof' }), prompt, run, servicePath: process.env.VITEHUB_TEST_SERVICE_PATH })",
       "        return { text: `Scheduled ${prompt}` }",
       "      }",
       "      const record = await tools.cronjob.execute({ cron: '0 9 1 1 *', id: 'proof-0900', operation: 'create', prompt: 'Send my daily report.' })",
@@ -89,7 +89,7 @@ describe("Agent Process Schedule integration", () => {
           routes: { chat: true, discordGateway: false, webhooks: false },
         }),
         {
-          name: "test-host-runtime",
+          name: "@vite-hub/kv/vite",
           resolveId(id) {
             if (id === "#vitehub/kv/config") return "\0test-kv-config"
             if (id === "nitro") return "\0test-nitro-runtime"
@@ -142,6 +142,8 @@ describe("Agent Process Schedule integration", () => {
       expect(routeSource).toContain('import vitehubAgentScheduleRegistry from "#vitehub/schedule/registry"')
       expect(routeSource).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
       expect(routeSource).toContain("capabilities: vitehubAgentRouteCapabilities")
+      expect(routeSource).toContain('import { kv as vitehubKv } from "@vite-hub/kv"')
+      expect(routeSource).toContain("const vitehubAgentRouteCapabilities = { kv: vitehubKv, schedule: { schedules: vitehubSchedules } }")
       const runtimePlugin = await server.ssrLoadModule(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"))
       const route = await server.ssrLoadModule(join(root, ".vitehub", "agent", "chat-webhook-route.ts"))
       const nitroApp = {
@@ -201,6 +203,7 @@ describe("Agent Process Schedule integration", () => {
         hasScheduleHandle: true,
         hasWorkspace: true,
         invoker: { id: "discord:user-1", kind: "chat", label: "Reauthorized Maxi" },
+        kvValue: null,
         prompt: "Send my daily report.",
         run: expect.objectContaining({
           channelId: "discord",

@@ -235,16 +235,22 @@ describe("agent Vite plugin", () => {
       await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {} })", "utf8")
       await writeFile(join(root, "server", "agents", "support", "instructions.md"), "Use support instructions.\n", "utf8")
       const plugin = hubAgent({ routes: { chat: false, discordGateway: false, webhooks: false } })
-      const configResolved = plugin.configResolved as (config: { agent?: unknown, command: "serve", root: string }) => Promise<void>
+      const configResolved = plugin.configResolved as unknown as (config: { agent?: unknown, command: "serve", plugins: Array<{ name: string }>, root: string }) => Promise<void>
       const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
-      await configResolved({ command: "serve", root })
+      await configResolved({
+        command: "serve",
+        plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/kv/vite" }],
+        root,
+      })
 
       const registry = await transform("const registry = { reports: async () => ({}) }\nexport default registry\n", "\0#vitehub/schedule/registry")
       const targets = await transform("export const scheduleTargetNames = [\"reports\"];\n", "\0#vitehub/schedule/targets")
 
       expect(registry).toContain("defineScheduledAgentTarget")
+      expect(registry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
+      expect(registry).toContain('import { kv as vitehubKv } from "@vite-hub/kv"')
       expect(registry).toContain('import { schedules as vitehubSchedules } from "@vite-hub/schedule/runtime"')
-      expect(registry).toContain("{ capabilities: { schedule: { schedules: vitehubSchedules } } }")
+      expect(registry).toContain("{ capabilities: { blob: vitehubBlob, kv: vitehubKv, schedule: { schedules: vitehubSchedules } } }")
       expect(registry).toContain('registry["agent/digest"]')
       expect(registry).toContain('{"inferredName":"digest"}')
       expect(registry).toContain('registry["agent/support"]')
