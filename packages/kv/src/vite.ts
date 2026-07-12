@@ -21,6 +21,7 @@ const RESOLVED_KV_VIRTUAL_CONFIG_ID = `\0${KV_VIRTUAL_CONFIG_ID}`
 const KV_RUNTIME_ID = "#vitehub/kv/runtime"
 const RESOLVED_KV_RUNTIME_ID = `\0${KV_RUNTIME_ID}`
 const UPSTASH_REDIS_IMPORT_ID = "@upstash/redis"
+const UPSTASH_DRIVER_IMPORT_ID = "unstorage/drivers/upstash"
 const UNSTORAGE_IMPORT_ID = import.meta.resolve("unstorage")
 const CLOUDFLARE_KV_DRIVER_IMPORT_ID = import.meta.resolve("unstorage/drivers/cloudflare-kv-binding")
 const mergeNoExternal = createNoExternalMerger("@vite-hub/kv")
@@ -46,6 +47,11 @@ function serializeVirtualConfig(config: KVViteRuntimeConfig): string {
 function isCloudflareKVConfig(kv: KVViteRuntimeConfig["kv"]): kv is ResolvedKVModuleOptions {
   return Boolean(kv) && Object.values((kv as ResolvedKVModuleOptions).stores || { default: (kv as ResolvedKVModuleOptions).store })
     .every(store => store.driver === "cloudflare-kv-binding")
+}
+
+function hasUpstashStore(kv: KVViteRuntimeConfig["kv"]): boolean {
+  if (!kv) return false
+  return Object.values(kv.stores || { default: kv.store }).some(store => store.driver === "upstash")
 }
 
 function createCloudflareKVWranglerConfig(kv: KVViteRuntimeConfig["kv"]) {
@@ -139,6 +145,9 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
       }
     },
     resolveId(id, _importer, resolveOptions) {
+      if (id === UPSTASH_DRIVER_IMPORT_ID && resolveOptions.ssr && !hasUpstashStore(getConfig().kv)) {
+        return { external: true, id }
+      }
       if (id === UPSTASH_REDIS_IMPORT_ID && resolveOptions.ssr) return { external: true, id }
       if (id === "@vite-hub/kv" && isCloudflareKVConfig(getConfig().kv)) return RESOLVED_KV_RUNTIME_ID
       if (id === KV_VIRTUAL_CONFIG_ID) return RESOLVED_KV_VIRTUAL_CONFIG_ID
