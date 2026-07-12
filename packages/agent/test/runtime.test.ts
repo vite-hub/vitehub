@@ -2177,8 +2177,8 @@ describe("agent message protocol", () => {
         target: "agent/digest",
       },
     }])
-    expect(channelIdFromThreadId).not.toHaveBeenCalled()
-    expect(postMessage).toHaveBeenCalledWith("discord:channel:thread-7", { markdown: "Scheduled reply" })
+    expect(channelIdFromThreadId).toHaveBeenCalledWith("discord:channel:thread-7")
+    expect(postMessage).toHaveBeenCalledWith("discord:channel", { markdown: "Scheduled reply" })
 
     await expect(target.handler({
       id: "srun-invalid",
