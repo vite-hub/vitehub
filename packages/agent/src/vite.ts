@@ -37,6 +37,7 @@ const generatedAgentDenoServer = ".vitehub/agent/deno-server.ts"
 const generatedAgentDiscordGatewayRouteHandler = ".vitehub/agent/discord-gateway-route.ts"
 const generatedAgentWebhookRouteHandler = ".vitehub/agent/chat-webhook-route.ts"
 const generatedAgentNetlifyFunction = ".vitehub/agent/netlify-function.mjs"
+const generatedAgentScheduleRegistry = ".vitehub/agent/schedule-registry.js"
 const netlifyAgentFunctionName = "vitehub-agent"
 const generatedScheduleRuntimeRegistrySuffix = "/.vitehub/nitro/schedule/runtime-registry.js"
 const scheduleRegistryId = "#vitehub/schedule/registry"
@@ -76,6 +77,7 @@ interface InternalAgentModuleOptions extends AgentModuleOptions {
 interface AgentGeneratedImportOptions {
   agentImportBase?: string
   schedule?: boolean
+  scheduleRegistryImport?: string
   workspaceImportBase?: string
 }
 
@@ -95,7 +97,7 @@ function generatedAgentRouteCapabilities(options: AgentGeneratedImportOptions) {
   if (!options.schedule) return { imports: [] as string[], requestOption: "", requestProperty: "", setup: [] as string[] }
   return {
     imports: [
-      `import vitehubAgentScheduleRegistry from ${JSON.stringify(scheduleRegistryId)}`,
+      `import vitehubAgentScheduleRegistry from ${JSON.stringify(options.scheduleRegistryImport ?? scheduleRegistryId)}`,
       `import { schedules as vitehubSchedules, setScheduleRuntimeRegistry as vitehubSetScheduleRuntimeRegistry } from ${JSON.stringify(scheduleRuntimeImport)}`,
     ],
     requestOption: "capabilities: vitehubAgentRouteCapabilities, ",
@@ -137,6 +139,7 @@ async function transformScheduleRegistry(
   code: string,
   definitions: DiscoveredAgentDefinition[],
   agentImportBase: string,
+  importAnchor?: string,
 ): Promise<string | undefined> {
   if (!definitions.length) return
   if (!/\b(?:const|let|var)\s+registry\b/.test(code)) {
@@ -145,10 +148,11 @@ async function transformScheduleRegistry(
   const entries = (await Promise.all(definitions.map(async (definition) => {
     const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
     const defaults = { inferredName: definition.name, workspace: definition.workspace }
+    const handlerImport = importAnchor ? moduleImportSpecifier(importAnchor, definition.handler) : definition.handler
     return [
       `if (Object.prototype.hasOwnProperty.call(registry, ${JSON.stringify(`agent/${definition.name}`)})) throw new Error(${JSON.stringify(`[vitehub] Duplicate Runtime Schedule target: agent/${definition.name}`)})`,
       `registry[${JSON.stringify(`agent/${definition.name}`)}] = async () => {`,
-      `  const module = await import(${JSON.stringify(definition.handler)})`,
+      `  const module = await import(${JSON.stringify(handlerImport)})`,
       `  return vitehubDefineScheduledAgentTarget(vitehubWithAgentDefaults(vitehubWithWorkspaceSourceRoot(vitehubResolveScheduledAgentModule(module), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))}), ${JSON.stringify(defaults)}), { capabilities: { schedule: { schedules: vitehubSchedules } } })`,
       "}",
     ]
@@ -177,6 +181,19 @@ async function transformScheduleRegistry(
     ...entries,
     "",
   ].join("\n")
+}
+
+async function writeStandaloneAgentScheduleRegistry(
+  root: string,
+  definitions: DiscoveredAgentDefinition[],
+  agentImportBase: string,
+): Promise<string> {
+  const registryPath = join(root, generatedAgentScheduleRegistry)
+  const base = ["const registry = {}", "", "export default registry", ""].join("\n")
+  const contents = await transformScheduleRegistry(base, definitions, agentImportBase, registryPath) ?? base
+  await mkdir(dirname(registryPath), { recursive: true })
+  await writeFile(registryPath, contents, "utf8")
+  return registryPath
 }
 
 function transformScheduleTargets(code: string, definitions: DiscoveredAgentDefinition[]): string | undefined {
@@ -1066,8 +1083,14 @@ async function writeAgentDenoServer(
     mode: "server-agents",
     scanDirs: [join(root, "server")],
   })
+  const scheduleRegistryImport = options.schedule
+    ? moduleImportSpecifier(handlerPath, await writeStandaloneAgentScheduleRegistry(root, definitions, options.agentImportBase ?? agentPackageName))
+    : undefined
   await mkdir(dirname(handlerPath), { recursive: true })
-  await writeFile(handlerPath, await generateAgentDenoServer(definitions, handlerPath, options), "utf8")
+  await writeFile(handlerPath, await generateAgentDenoServer(definitions, handlerPath, {
+    ...options,
+    scheduleRegistryImport,
+  }), "utf8")
 }
 
 async function writeAgentNetlifyFunctionRouteHandler(
@@ -1079,8 +1102,14 @@ async function writeAgentNetlifyFunctionRouteHandler(
     mode: "server-agents",
     scanDirs: [join(root, "server")],
   })
+  const scheduleRegistryImport = options.schedule
+    ? moduleImportSpecifier(handlerPath, await writeStandaloneAgentScheduleRegistry(root, definitions, options.agentImportBase ?? agentPackageName))
+    : undefined
   await mkdir(dirname(handlerPath), { recursive: true })
-  await writeFile(handlerPath, await generateAgentNetlifyFunctionRouteHandler(definitions, handlerPath, options), "utf8")
+  await writeFile(handlerPath, await generateAgentNetlifyFunctionRouteHandler(definitions, handlerPath, {
+    ...options,
+    scheduleRegistryImport,
+  }), "utf8")
   return handlerPath
 }
 

@@ -620,9 +620,12 @@ describe("agent Vite plugin", () => {
         } as never)
       }
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
-      expect(denoServer).toContain('import vitehubAgentScheduleRegistry from "#vitehub/schedule/registry"')
+      expect(denoServer).toContain('import vitehubAgentScheduleRegistry from "./schedule-registry.js"')
       expect(denoServer).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
       expect(denoServer).toContain("capabilities: vitehubAgentRouteCapabilities")
+      const standaloneRegistry = await readFile(join(root, ".vitehub/agent/schedule-registry.js"), "utf8")
+      expect(standaloneRegistry).toContain('registry["agent/support"]')
+      expect(standaloneRegistry).toContain('import("../../server/agents/support.ts")')
 
       process.env.VITEHUB_HOSTING = "netlify"
       const netlifyPlugin = hubAgent({ routes: { chat: true, discordGateway: true } })
@@ -639,7 +642,7 @@ describe("agent Vite plugin", () => {
         await netlifyPlugin.closeBundle.handler.call({} as never)
       }
       const netlifyFunction = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
-      expect(netlifyFunction).toContain('import vitehubAgentScheduleRegistry from "#vitehub/schedule/registry"')
+      expect(netlifyFunction).toContain('import vitehubAgentScheduleRegistry from "./schedule-registry.js"')
       expect(netlifyFunction).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
       expect(netlifyFunction).toContain("capabilities: vitehubAgentRouteCapabilities")
     }
