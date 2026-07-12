@@ -63,7 +63,8 @@ export function codexDriver<CALL_OPTIONS = unknown>(options: CodexDriverOptions<
   }
 }
 
-const codexBootstrapDir = "tmp/harness/codex"
+const codexBootstrapDir = "/tmp/harness/codex"
+const localCodexBootstrapDir = "tmp/harness/codex"
 const codexBridgeVersion = "0.144.1"
 const codexBridgeLockReplacements = {
   "0.130.0": codexBridgeVersion,
@@ -81,12 +82,6 @@ function createViteHubCodex(settings: CodexHarnessSettings) {
   const harness = createCodex(settings)
   return {
     ...harness,
-    async doStart(options: Parameters<typeof harness.doStart>[0]) {
-      return await harness.doStart({
-        ...options,
-        sandboxSession: relativeCodexSandboxSession(options.sandboxSession),
-      })
-    },
     async getBootstrap() {
       const [pkg, lock, bridge, hostToolMcp] = await Promise.all([
         readCodexBridgeAsset("package.json"),
@@ -126,7 +121,7 @@ function replaceCodexBridgeLock(lock: string): string {
 }
 
 function relativeCodexSandboxSession<T extends object>(session: T, bootstrapDir?: string): T {
-  const anchoredBootstrapDir = bootstrapDir ?? `${(session as T & { defaultWorkingDirectory: string }).defaultWorkingDirectory.replace(/\/+$/, "")}/${codexBootstrapDir}`
+  const anchoredBootstrapDir = bootstrapDir ?? `${(session as T & { defaultWorkingDirectory: string }).defaultWorkingDirectory.replace(/\/+$/, "")}/${localCodexBootstrapDir}`
   return new Proxy(session, {
     get(target, property, receiver) {
       if (property === "restricted") {
@@ -156,7 +151,7 @@ function codexSandboxProvider(options: {
   if (typeof sandbox === "function" || isHarnessSandboxProvider(sandbox)) return sandbox
 
   const localOptions = sandbox as LocalHarnessSandboxOptions | undefined
-  return createLocalHarnessSandbox({
+  const provider = createLocalHarnessSandbox({
     ...localOptions,
     env: codexLocalEnv({
       authJson: options.authJson,
@@ -168,6 +163,23 @@ function codexSandboxProvider(options: {
       preferOpenAI: options.preferOpenAI,
     }),
   })
+  return {
+    ...provider,
+    async createSession(createOptions: Parameters<typeof provider.createSession>[0]) {
+      const onFirstCreate = createOptions?.onFirstCreate
+      const session = await provider.createSession({
+        ...createOptions,
+        ...(onFirstCreate
+          ? {
+              onFirstCreate: async (session, context) => {
+                await onFirstCreate(relativeCodexSandboxSession(session), context)
+              },
+            }
+          : {}),
+      })
+      return relativeCodexSandboxSession(session)
+    },
+  }
 }
 
 function isHarnessSandboxProvider(value: unknown): value is AgentHarnessSandboxProviderInput {
