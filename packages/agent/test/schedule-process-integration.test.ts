@@ -140,8 +140,8 @@ describe("Agent Process Schedule integration", () => {
       const routeSource = await readFile(join(root, ".vitehub", "agent", "chat-webhook-route.ts"), "utf8")
       expect(routeSource).toContain('import { schedules as vitehubSchedules } from "@vite-hub/schedule/runtime"')
       expect(routeSource).toContain("capabilities: vitehubAgentRouteCapabilities")
-      const route = await server.ssrLoadModule(join(root, ".vitehub", "agent", "chat-webhook-route.ts"))
       const runtimePlugin = await server.ssrLoadModule(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"))
+      const route = await server.ssrLoadModule(join(root, ".vitehub", "agent", "chat-webhook-route.ts"))
       const nitroApp = {
         captureError(error: unknown) {
           throw error
