@@ -18,7 +18,7 @@ export interface ScheduledAgentTurnDelivery {
 
 export interface ScheduledAgentTurnInput {
   delivery?: ScheduledAgentTurnDelivery
-  invoker: AgentInvoker
+  invoker: AgentInvoker & { kind: string }
   kind: "agent-turn"
   prompt: string
 }
@@ -43,7 +43,7 @@ function assertExactKeys(value: Record<PropertyKey, unknown>, keys: readonly str
   if (unknownKey) throw new TypeError(`[vitehub] ${label} does not support "${unknownKey}".`)
 }
 
-function durableInvoker(value: unknown): AgentInvoker {
+function durableInvoker(value: unknown): AgentInvoker & { kind: string } {
   if (!isRecord(value)) {
     throw new TypeError("[vitehub] Scheduled Agent turn durable invoker must be an object.")
   }
@@ -53,7 +53,7 @@ function durableInvoker(value: unknown): AgentInvoker {
     if (!isRecord(email)) throw new TypeError("[vitehub] Scheduled Agent turn durable invoker email must be an object.")
     assertExactKeys(email, ["address", "domain"], "Scheduled Agent turn durable invoker email")
   }
-  const kind = optionalString(value.kind, "Scheduled Agent turn durable invoker kind")
+  const kind = requiredString(value.kind, "Scheduled Agent turn durable invoker kind")
   const label = optionalString(value.label, "Scheduled Agent turn durable invoker label")
   return {
     ...(email
@@ -65,12 +65,12 @@ function durableInvoker(value: unknown): AgentInvoker {
         }
       : {}),
     id: requiredString(value.id, "Scheduled Agent turn durable invoker id"),
-    ...(kind ? { kind } : {}),
+    kind,
     ...(label ? { label } : {}),
   }
 }
 
-function durableInvokerFromCurrent(value: AgentInvoker): AgentInvoker {
+function durableInvokerFromCurrent(value: AgentInvoker): AgentInvoker & { kind: string } {
   const { meta: _meta, ...durable } = value
   return durableInvoker(durable)
 }

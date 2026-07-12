@@ -220,6 +220,17 @@ describe("storage capabilities", () => {
       operation: "create",
       prompt: "This cannot be delivered.",
     })).rejects.toThrow("channelId and threadId")
+    const kindless = await resolveTools([capability], { schedule: { schedules } }, undefined, {
+      agentName: "digest",
+      channelIds: ["discord"],
+      invoker: { id: "discord:user-1" },
+      run: { channelId: "discord", origin: "discord", runId: "run-kindless", threadId: "discord:thread-1" },
+    })
+    await expect(kindless.cronjob!.execute?.({
+      cron: "0 10 * * *",
+      operation: "create",
+      prompt: "This identity is incomplete.",
+    })).rejects.toThrow("durable invoker kind")
 
     await expect(tools.cronjob!.execute?.({ id: "daily", operation: "get" })).resolves.toEqual({
       createdAt,
