@@ -3,10 +3,11 @@ import { randomId } from "@vite-hub/internal/runtime/random"
 import { ScheduleError } from "../errors.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 
-import type { RuntimeScheduleRecord, RuntimeScheduleStore, ScheduleDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore, ScheduleTargetName } from "../types.ts"
+import type { RuntimeScheduleRecord, RuntimeScheduleStore, ScheduleDefinition, ScheduleRegistryDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore, ScheduleTargetName } from "../types.ts"
 
 interface ExecuteScheduleOptions {
-  definition: ScheduleDefinition
+  definition: ScheduleRegistryDefinition
+  input?: unknown
   runStore?: ScheduleRunStore
   scheduleId: string
   source?: "direct" | "runtime" | "static"
@@ -132,10 +133,11 @@ async function startAttempt(run: ScheduleRunRecord, store: ScheduleRunStore = ge
   return attempt
 }
 
-function toHandlerContext(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord): ScheduleRunContext {
+function toHandlerContext(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord, input?: unknown): ScheduleRunContext {
   return {
     attemptId: attempt.id,
     id: run.id,
+    ...(input !== undefined ? { input } : {}),
     runId: run.id,
     scheduleId: run.scheduleId,
     scheduledAt: run.scheduledAt,
@@ -192,7 +194,7 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
   const runStore = options.runStore ?? getScheduleRunStore()
   const attempt = await startAttempt(run, runStore)
   try {
-    await options.definition.handler(toHandlerContext(run, attempt))
+    await options.definition.handler(toHandlerContext(run, attempt, options.input))
     return await completeRun(run, attempt, runStore)
   }
   catch (error) {
@@ -261,6 +263,7 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
 
   return await executeSchedule({
     definition,
+    input: schedule.input,
     runStore: scheduleRunStore,
     scheduleId: schedule.id,
     source: "runtime",

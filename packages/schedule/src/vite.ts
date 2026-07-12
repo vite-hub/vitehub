@@ -175,9 +175,9 @@ function renderNitroCloudflareModule(crons: string[]): string {
 
 function renderScheduleRegistryTypes(): string {
   return [
-    "import type { ScheduleDefinition } from '@vite-hub/schedule'",
+    "import type { ScheduleRegistryDefinition } from '@vite-hub/schedule'",
     "",
-    "declare const registry: Record<string, () => Promise<ScheduleDefinition | { default?: ScheduleDefinition }>>",
+    "declare const registry: Record<string, () => Promise<ScheduleRegistryDefinition | { default?: ScheduleRegistryDefinition }>>",
     "export default registry",
     "",
   ].join("\n")
@@ -200,17 +200,18 @@ async function writeNitroCloudflarePlugin(root: string, definitions: DiscoveredS
 }
 
 function hasServerScheduleDefinitions(definitions: DiscoveredScheduleDefinition[]): boolean {
-  return definitions.some(definition => definition.source === "server-schedules")
+  return definitions.some(definition => definition.runtimeOnly !== true && definition.source === "server-schedules")
 }
 
 function hasViteSuffixScheduleDefinitions(definitions: DiscoveredScheduleDefinition[]): boolean {
-  return definitions.some(definition => definition.source === "vite-suffix")
+  return definitions.some(definition => definition.runtimeOnly !== true && definition.source === "vite-suffix")
 }
 
 function selectNitroScheduleDefinitions(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): DiscoveredScheduleDefinition[] {
   if (options.providerOutput === false || options.providerOutput === "standalone") return []
-  if (options.providerOutput === "nitro") return definitions
-  return definitions.filter(definition => definition.source === "server-schedules")
+  const staticDefinitions = definitions.filter(definition => definition.runtimeOnly !== true)
+  if (options.providerOutput === "nitro") return staticDefinitions
+  return staticDefinitions.filter(definition => definition.source === "server-schedules")
 }
 
 function selectStandaloneProviderSource(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): DiscoveredScheduleDefinition["source"] | undefined {
@@ -225,9 +226,9 @@ function shouldInstallNitroSchedulePlugin(definitions: DiscoveredScheduleDefinit
 
 function shouldEmitStandaloneProviderOutput(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): boolean {
   if (options.providerOutput === false || options.providerOutput === "nitro") return false
-  if (options.providerOutput === "standalone") return true
+  if (options.providerOutput === "standalone") return definitions.some(definition => definition.runtimeOnly !== true)
   if (hasServerScheduleDefinitions(definitions)) return hasViteSuffixScheduleDefinitions(definitions)
-  return definitions.length > 0
+  return definitions.some(definition => definition.runtimeOnly !== true)
 }
 
 export async function createScheduleNitroConfig(options: ScheduleNitroConfigOptions = {}): Promise<NitroConfig | null> {

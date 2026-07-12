@@ -49,6 +49,12 @@ describe("schedule provider output", () => {
 
   it("emits Cloudflare, Vercel, and Netlify schedule provider wake output", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-")
+    await writeFile(join(rootDir, "src", "agent-turn.schedule.ts"), [
+      "import { defineScheduleTarget } from '@vite-hub/schedule'",
+      "",
+      "export default defineScheduleTarget({ handler: () => 'ok' })",
+      "",
+    ].join("\n"), "utf8")
 
     await generateProviderOutputs({
       clientOutDir: "dist/client",
@@ -69,9 +75,12 @@ describe("schedule provider output", () => {
       schedule: "0 0 * * *",
     }])
     expect(await readFile(vercelFunction, "utf8")).toContain("executeStaticSchedule")
+    expect(existsSync(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "agent-turn.func"))).toBe(false)
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("export const config = {")
+    expect(existsSync(join(createDefaultNetlifyOutputRoot(rootDir), "functions", "vitehub-schedule-agent-turn.mjs"))).toBe(false)
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("executeStaticSchedule")
+    await expect(readFile(join(rootDir, ".vitehub", "schedule", "registry.mjs"), "utf8")).resolves.not.toContain("agent-turn")
   })
 
   it("creates Netlify scheduled function output contributions", async () => {

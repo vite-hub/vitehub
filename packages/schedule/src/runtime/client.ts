@@ -23,8 +23,8 @@ const cronFieldRanges = [
   cronRange.dayOfWeek,
 ] as const
 
-const runtimeScheduleCreateInputKeys = new Set(["cron", "enabled", "id", "target", "timeZone"])
-const runtimeScheduleUpdateInputKeys = new Set(["cron", "enabled", "target", "timeZone"])
+const runtimeScheduleCreateInputKeys = new Set(["cron", "enabled", "id", "input", "target", "timeZone"])
+const runtimeScheduleUpdateInputKeys = new Set(["cron", "enabled", "input", "target", "timeZone"])
 
 function parseCronNumber(value: string, range: { min: number, max: number }): number {
   if (!/^\d+$/.test(value)) {
@@ -207,7 +207,7 @@ async function validateUpdateInput(input: RuntimeScheduleUpdateInput): Promise<v
   }
 }
 
-async function updateRuntimeSchedule<TTarget extends ScheduleTargetName>(id: string, input: RuntimeScheduleUpdateInput<TTarget>): Promise<RuntimeScheduleRecord> {
+async function updateRuntimeSchedule<TTarget extends ScheduleTargetName, TInput>(id: string, input: RuntimeScheduleUpdateInput<TTarget, TInput>): Promise<RuntimeScheduleRecord<TInput>> {
   await validateUpdateInput(input)
   const updated = await getRuntimeScheduleStore().update(id, {
     ...input,
@@ -220,11 +220,11 @@ async function updateRuntimeSchedule<TTarget extends ScheduleTargetName>(id: str
       httpStatus: 404,
     })
   }
-  return updated
+  return updated as RuntimeScheduleRecord<TInput>
 }
 
 export const schedules = {
-  async create<TTarget extends ScheduleTargetName>(input: RuntimeScheduleCreateInput<TTarget>): Promise<RuntimeScheduleRecord> {
+  async create<TTarget extends ScheduleTargetName, TInput = unknown>(input: RuntimeScheduleCreateInput<TTarget, TInput>): Promise<RuntimeScheduleRecord<TInput>> {
     await validateCreateInput(input)
     const now = new Date()
     return await getRuntimeScheduleStore().create({
@@ -232,10 +232,11 @@ export const schedules = {
       cron: input.cron,
       enabled: input.enabled ?? true,
       id: input.id ?? randomId("sched"),
+      ...(input.input !== undefined ? { input: input.input } : {}),
       target: input.target,
       ...(input.timeZone ? { timeZone: input.timeZone } : {}),
       updatedAt: now,
-    })
+    }) as RuntimeScheduleRecord<TInput>
   },
   async delete(id: string): Promise<boolean> {
     return await getRuntimeScheduleStore().delete(id)
@@ -264,7 +265,7 @@ export const schedules = {
   async run(id: string, options: { scheduledAt?: Date } = {}): Promise<ScheduleRunRecord> {
     return await executeRuntimeSchedule({ id, scheduledAt: options.scheduledAt })
   },
-  async update<TTarget extends ScheduleTargetName>(id: string, input: RuntimeScheduleUpdateInput<TTarget>): Promise<RuntimeScheduleRecord> {
+  async update<TTarget extends ScheduleTargetName, TInput = unknown>(id: string, input: RuntimeScheduleUpdateInput<TTarget, TInput>): Promise<RuntimeScheduleRecord<TInput>> {
     return await updateRuntimeSchedule(id, input)
   },
 }
