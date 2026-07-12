@@ -1528,6 +1528,131 @@ describe("server helpers", () => {
     }))
   })
 
+  it("uses the installed Runtime Schedule primitive through chat route contexts", async () => {
+    const createdAt = new Date("2026-07-12T00:00:00.000Z")
+    const schedules = {
+      create: vi.fn(async input => ({
+        ...input,
+        createdAt,
+        enabled: input.enabled ?? true,
+        id: input.id || "created",
+        updatedAt: createdAt,
+      })),
+      delete: vi.fn(),
+      disable: vi.fn(),
+      enable: vi.fn(),
+      get: vi.fn(),
+      list: vi.fn(async () => []),
+      run: vi.fn(),
+      update: vi.fn(),
+    }
+    vi.doMock("@vite-hub/schedule/runtime", () => ({ schedules }))
+    try {
+      const { defineAgent, withAgentDefaults } = await import("../src/index.ts")
+      const { schedule } = await import("../src/capabilities.ts")
+      const { defineChatCapability } = await import("../src/chat-trigger.ts")
+      const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+      const agent = withAgentDefaults(defineAgent({
+        capabilities: [
+          defineChatCapability(),
+          schedule({
+            allowSelfTarget: true,
+            delivery: "origin",
+            mode: "write",
+            policy: "allow",
+            timeZone: "Asia/Bangkok",
+          }),
+        ],
+        driver: {
+          async run({ tools }) {
+            const record = await tools!.cronjob!.execute?.({
+              cron: "0 9 * * *",
+              id: "daily-0900",
+              operation: "create",
+              prompt: "Send my daily report.",
+            }) as { id: string }
+            return `scheduled ${record.id}`
+          },
+        },
+      }), { inferredName: "mini" })!
+      const handler = createChannelChatRouteHandler(agent as never)
+
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/mini/chat", {
+        body: JSON.stringify({
+          id: "daily-thread",
+          messages: [{
+            id: "user-1",
+            parts: [{ text: "remind me every day", type: "text" }],
+            role: "user",
+          }],
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }), { agentName: "mini" })
+
+      expect(response.status).toBe(200)
+      await expect(response.text()).resolves.toContain("scheduled daily-0900")
+      expect(schedules.create).toHaveBeenCalledWith({
+        cron: "0 9 * * *",
+        enabled: undefined,
+        id: "daily-0900",
+        input: {
+          delivery: {
+            channelId: "http:mini",
+            origin: "http",
+            threadId: "http:mini:daily-thread",
+          },
+          invoker: { id: "anonymous:http", kind: "anonymous", label: "Anonymous" },
+          kind: "agent-turn",
+          prompt: "Send my daily report.",
+        },
+        target: "agent/mini",
+        timeZone: "Asia/Bangkok",
+      })
+    }
+    finally {
+      vi.doUnmock("@vite-hub/schedule/runtime")
+    }
+  })
+
+  it("reports a missing optional Schedule peer from chat route contexts", async () => {
+    vi.resetModules()
+    vi.doMock("@vite-hub/schedule/runtime", () => {
+      throw new Error("optional peer unavailable")
+    })
+    try {
+      const { defineAgent } = await import("../src/index.ts")
+      const { schedule } = await import("../src/capabilities.ts")
+      const { defineChatCapability } = await import("../src/chat-trigger.ts")
+      const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+      const handler = createChannelChatRouteHandler(defineAgent({
+        capabilities: [defineChatCapability(), schedule({ mode: "read" })],
+        driver: { run: () => "unused" },
+      }) as never)
+
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/mini/chat", {
+        body: JSON.stringify({
+          messages: [{
+            id: "user-1",
+            parts: [{ text: "list reminders", type: "text" }],
+            role: "user",
+          }],
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }), { agentName: "mini" })
+
+      expect(response.status).toBe(500)
+      await expect(response.json()).resolves.toMatchObject({
+        message: expect.stringContaining("Agent routes with Schedule Capability require @vite-hub/schedule to be installed."),
+      })
+    }
+    finally {
+      vi.doUnmock("@vite-hub/schedule/runtime")
+      vi.resetModules()
+    }
+  })
+
   it("leaves custom text/event-stream chat Response bodies unchanged", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")

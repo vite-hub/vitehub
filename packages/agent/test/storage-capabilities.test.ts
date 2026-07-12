@@ -51,6 +51,14 @@ describe("storage capabilities", () => {
     }, runtime({ schedule: { schedules } }), {}).then(resolved => Object.keys(resolved.tools!).sort())).resolves.toEqual(["cronjob"])
   })
 
+  it("keeps Runtime Schedule primitives explicit outside hosted route contexts", async () => {
+    const { schedule } = await import("../src/capabilities.ts")
+
+    await expect(resolveTools([schedule({ mode: "read" })], {})).rejects.toThrow(
+      'Capability "schedule" requires the schedule primitive to be configured.',
+    )
+  })
+
   it("exposes scoped Runtime Schedule read and edit tools", async () => {
     const { schedule } = await import("../src/capabilities.ts")
     const records = [

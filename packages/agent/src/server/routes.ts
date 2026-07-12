@@ -168,6 +168,7 @@ const chatFinishMessagesKey = Symbol("vitehub.chat.finish.messages")
 const chatNativeStreamUpdateIntervalMs = 1
 const chatTypingRefreshIntervalMs = 4000
 const chatTypingRefreshTimeoutMs = 2000
+const scheduleRuntimePackageName: string = "@vite-hub/schedule/runtime"
 
 type AgentChatQueuedFinishExtension = AgentChatFinishExtension & {
   [chatFinishMessagesKey]: AgentChatMessage[]
@@ -286,16 +287,39 @@ function detectRuntime(): AgentRuntimeName {
   return "unknown"
 }
 
-function createRuntimeContext(
+function agentRequiresPrimitive(agent: AgentInput<ViteAgentRouteRuntimeContext>, primitive: string): boolean {
+  return getAgentCapabilities(agent).some(capability => capability.requires?.some(requirement => requirement.primitive === primitive))
+}
+
+async function resolveAgentRouteCapabilities(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  capabilities?: ViteAgentRouteRuntimeContext["capabilities"],
+): Promise<ViteAgentRouteRuntimeContext["capabilities"]> {
+  if (capabilities?.schedule !== undefined || !agentRequiresPrimitive(agent, "schedule")) return capabilities
+  try {
+    const schedules = ((await import(scheduleRuntimePackageName)) as { schedules?: unknown }).schedules
+    if (!schedules) throw new Error("The package did not export schedules.")
+    return { ...capabilities, schedule: { schedules } }
+  }
+  catch (error) {
+    throw new Error(`[vitehub] Agent routes with Schedule Capability require @vite-hub/schedule to be installed. ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+async function createRuntimeContext(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
   request: Request,
   run: AgentRunMetadata | undefined,
   waitUntil?: AgentWaitUntil,
   cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"],
   runtimeOverride?: AgentRuntimeName,
-): ViteAgentRouteRuntimeContext {
+  capabilities?: ViteAgentRouteRuntimeContext["capabilities"],
+): Promise<ViteAgentRouteRuntimeContext> {
   const waitUntilController = createRuntimeWaitUntilController({ forward: waitUntil })
   const runtime = cloudflare ? "cloudflare-agents" : runtimeOverride || detectRuntime()
+  const routeCapabilities = await resolveAgentRouteCapabilities(agent, capabilities)
   return createAgentRuntimeContext({
+    ...(routeCapabilities ? { capabilities: routeCapabilities } : {}),
     ...(cloudflare ? { cloudflare } : {}),
     flushWaitUntil: waitUntilController.flushWaitUntil,
     request,
@@ -2394,7 +2418,8 @@ async function sendDevtoolsUIMessage(
   state.session.thinkingFallback = null
   await onChange?.(serializeAgentChatDevtoolsState(name, state, requestedSelection))
 
-  const runtimeContext = createRuntimeContext(
+  const runtimeContext = await createRuntimeContext(
+    agent,
     request,
     run,
     await resolveRuntimeWaitUntil(requestOptions.waitUntil ?? options.waitUntil),
@@ -2483,7 +2508,8 @@ async function handleAgentChannelDevtoolsRouteRequest(
       return withChatDevtoolsCors(createBadRequest("Missing chat devtools action."))
     }
 
-    const runtime = createRuntimeContext(
+    const runtime = await createRuntimeContext(
+      agent,
       request,
       undefined,
       await resolveRuntimeWaitUntil(requestOptions.waitUntil ?? options.waitUntil),
@@ -2578,7 +2604,8 @@ export function createChannelChatRouteHandler(
       const auth = await routeOptions.admission?.authenticate?.({ agentName, body: parsed.body, rawBody: parsed.rawBody, request })
       if (auth === false) throw createRouteError(401, "Agent chat route request was not admitted.")
       const body = await parseAgentChannelChatRouteAdmissionBody(parsed.body, routeOptions.admission?.body)
-      const context = createRuntimeContext(
+      const context = await createRuntimeContext(
+        agent,
         createRuntimeRequest(request, parsed.rawBody),
         undefined,
         await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
@@ -2625,7 +2652,8 @@ export function createChannelWebhookRouteHandler(
     }
 
     const waitUntil = await resolveRuntimeWaitUntil(handlerOptions.waitUntil)
-    const context = createRuntimeContext(
+    const context = await createRuntimeContext(
+      agent,
       request,
       undefined,
       waitUntil,
@@ -2658,7 +2686,8 @@ export function createChannelWebhookRouteHandler(
             await context.flushWaitUntil?.()
             return invocation.response
           }
-          const runContext = createRuntimeContext(
+          const runContext = await createRuntimeContext(
+            agent,
             request,
             invocation.run,
             waitUntil,
@@ -2713,7 +2742,8 @@ export function createDiscordGatewayRouteHandler(
       return createJsonErrorResponse(405, "Discord Gateway route only accepts GET requests.")
     }
 
-    const context = createRuntimeContext(
+    const context = await createRuntimeContext(
+      agent,
       request,
       undefined,
       await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
