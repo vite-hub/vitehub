@@ -50,6 +50,7 @@ In read mode, the Agent receives inspection tools from the active Workspace faca
 In write mode, the Agent receives writable Workspace tools when the Workspace exposes them.
 When `commands` is set, ViteHub starts a Workspace Session for each `workspace_exec` call.
 Read mode runs the command without committing Workspace changes; write mode commits successful command results back to the Workspace Store.
+The mode controls Workspace tools and writeback only. It does not make an executed command read-only or prevent side effects on the host.
 
 ## Requirements
 
@@ -80,7 +81,9 @@ export default defineAgent({
 })
 ```
 
-This is not isolation. The Agent can run `sh`, `gh`, `git`, generated scripts, and any other reachable executable with the filesystem, network, process, and inherited environment authority of the service account. Use a dedicated service account or container with narrowly scoped credentials, mounts, and network access.
+Trusted-host commands run as the ViteHub service account and inherit its full process environment. Tools such as `git`, `gh`, and `ssh` therefore use values such as `HOME`, `XDG_CONFIG_HOME`, `GH_CONFIG_DIR`, and `SSH_AUTH_SOCK`; application secrets in the process environment are inherited too.
+
+Workspace rules and Workspace Scope constrain materialization and the diff ViteHub commits back to the Workspace Store. They do not constrain direct host effects through absolute paths or child processes. This is not isolation: the Agent can run `sh`, `gh`, `git`, generated scripts, and any other reachable executable with the service account's filesystem, network, credential, and process authority. Use a dedicated service account or container with narrowly scoped credentials, mounts, and network access.
 
 ## Driver support
 
