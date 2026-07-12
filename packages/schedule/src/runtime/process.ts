@@ -137,7 +137,10 @@ export function createProcessScheduleWakeDriver(options: ProcessScheduleWakeDriv
           }
         }
         schedules = nextSchedules
-        timer ??= setInterval(scan, intervalMs)
+        if (!timer) {
+          timer = setInterval(scan, intervalMs)
+          timer.unref?.()
+        }
         scan()
       },
     }

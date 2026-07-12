@@ -279,6 +279,26 @@ describe("Process Schedule Wake Driver", () => {
     await expect(driver.reconcile([record("later")])).rejects.toThrow("is closed")
   })
 
+  it("does not keep the host process alive solely for polling", async () => {
+    const probe = setInterval(() => {}, 60_000)
+    const timerPrototype = Object.getPrototypeOf(probe) as { unref: () => unknown }
+    clearInterval(probe)
+    const unref = vi.spyOn(timerPrototype, "unref")
+    const driver = await createDriver({
+      reportError: vi.fn(),
+      wake: vi.fn(),
+    })
+
+    try {
+      await driver.reconcile([])
+      expect(unref).toHaveBeenCalledOnce()
+    }
+    finally {
+      await driver.close?.()
+      unref.mockRestore()
+    }
+  })
+
   it("waits for active wakes to settle before closing", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T09:00:20.000Z"))
