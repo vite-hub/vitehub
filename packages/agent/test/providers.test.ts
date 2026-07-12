@@ -1187,10 +1187,12 @@ describe("agent Vite plugin", () => {
     })
   })
 
-  it("keeps Schedule runtime code out of the generated Agent handler subpath", async () => {
+  it("keeps the optional Schedule peer out of the generated Agent handler subpath", async () => {
     const built = await readFile(new URL("../dist/server/internal.js", import.meta.url), "utf8")
+    const declaration = await readFile(new URL("../dist/server/internal.d.ts", import.meta.url), "utf8")
 
     expect(built).not.toMatch(/\bfrom ["']@vite-hub\/schedule(?:["'/])/)
+    expect(declaration).not.toMatch(/\bfrom ["']@vite-hub\/schedule(?:["'/])/)
   })
 
   it("keeps esbuild external in the Agent Vite plugin package build", async () => {
