@@ -1,4 +1,4 @@
-export { defineSchedule } from "./definition.ts"
+export { defineSchedule, defineScheduleTarget } from "./definition.ts"
 export { discoverScheduleDefinitions } from "./discovery.ts"
 export type {} from "./registry-module.d.ts"
 export { ScheduleError } from "./errors.ts"
@@ -35,12 +35,15 @@ export type {
   ScheduleDefinitionInput,
   ScheduleDefinitionRegistry,
   ScheduleHandler,
+  ScheduleRegistryDefinition,
   ScheduleRunContext,
   ScheduleRunError,
   ScheduleRunRecord,
   ScheduleRunStatus,
   ScheduleRunStore,
   ScheduleTargetName,
+  ScheduleTargetDefinition,
+  ScheduleTargetDefinitionInput,
 } from "./types.ts"
 
 export type {

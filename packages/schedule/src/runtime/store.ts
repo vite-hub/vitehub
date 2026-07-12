@@ -74,10 +74,11 @@ async function resolveDefaultKVStore(): Promise<ScheduleKVStorage> {
   return module.kv
 }
 
-function cloneRuntimeSchedule(record: RuntimeScheduleRecord): RuntimeScheduleRecord {
+function cloneRuntimeSchedule<TInput>(record: RuntimeScheduleRecord<TInput>): RuntimeScheduleRecord<TInput> {
   return {
     ...record,
     createdAt: new Date(record.createdAt),
+    ...(record.input !== undefined ? { input: structuredClone(record.input) } : {}),
     updatedAt: new Date(record.updatedAt),
   }
 }
@@ -86,6 +87,7 @@ function serializeRuntimeSchedule(record: RuntimeScheduleRecord): StoredRuntimeS
   return {
     ...record,
     createdAt: record.createdAt.toISOString(),
+    ...(record.input !== undefined ? { input: structuredClone(record.input) } : {}),
     updatedAt: record.updatedAt.toISOString(),
   }
 }
@@ -94,6 +96,7 @@ function deserializeRuntimeSchedule(record: StoredRuntimeScheduleRecord): Runtim
   return {
     ...record,
     createdAt: new Date(record.createdAt),
+    ...(record.input !== undefined ? { input: structuredClone(record.input) } : {}),
     updatedAt: new Date(record.updatedAt),
   }
 }
@@ -102,6 +105,7 @@ function omitUndefinedPatch(patch: RuntimeScheduleUpdateInput): RuntimeScheduleU
   return {
     ...(patch.cron !== undefined ? { cron: patch.cron } : {}),
     ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+    ...(patch.input !== undefined ? { input: structuredClone(patch.input) } : {}),
     ...(patch.target !== undefined ? { target: patch.target } : {}),
     ...(patch.timeZone !== undefined ? { timeZone: patch.timeZone } : {}),
   }

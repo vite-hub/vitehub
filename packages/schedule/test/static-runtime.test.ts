@@ -18,6 +18,10 @@ describe("Static Schedule runtime", () => {
         cron: "0 4 * * *",
         handler: async ({ scheduledAt }) => calls.push(`report:${scheduledAt.toISOString()}`),
       }),
+      runtimeOnly: async () => ({
+        handler: async () => calls.push("runtime-only"),
+        options: { allowRuntimeSchedules: true },
+      }),
       skipped: async () => ({
         default: {
           cron: "0 5 * * *",

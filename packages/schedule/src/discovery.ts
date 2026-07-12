@@ -231,7 +231,12 @@ function findTypeParametersEnd(source: string, index: number): number {
   return -1
 }
 
-function readDefineScheduleObjectAfterDefault(source: string, index: number): string | undefined {
+interface ParsedScheduleDefinition {
+  objectSource: string
+  runtimeOnly: boolean
+}
+
+function readDefineScheduleObjectAfterDefault(source: string, index: number): ParsedScheduleDefinition | undefined {
   let cursor = skipIgnorable(source, index)
   let openParens = 0
   while (source[cursor] === "(") {
@@ -239,8 +244,13 @@ function readDefineScheduleObjectAfterDefault(source: string, index: number): st
     cursor = skipIgnorable(source, cursor + 1)
   }
 
-  if (!source.startsWith("defineSchedule", cursor)) return undefined
-  cursor += "defineSchedule".length
+  const factory = source.startsWith("defineScheduleTarget", cursor)
+    ? "defineScheduleTarget"
+    : source.startsWith("defineSchedule", cursor)
+      ? "defineSchedule"
+      : undefined
+  if (!factory) return undefined
+  cursor += factory.length
 
   cursor = skipIgnorable(source, cursor)
   if (source[cursor] === "<") {
@@ -260,31 +270,38 @@ function readDefineScheduleObjectAfterDefault(source: string, index: number): st
     openParens -= 1
     afterObject = skipIgnorable(source, afterObject + 1)
   }
-  return openParens === 0 ? objectSource : undefined
+  return openParens === 0 ? { objectSource, runtimeOnly: factory === "defineScheduleTarget" } : undefined
 }
 
-function readDefaultDefineScheduleObject(source: string): string | undefined {
+function readDefaultDefineScheduleObject(source: string): ParsedScheduleDefinition | undefined {
   let match: RegExpExecArray | null
   const pattern = /\bexport\s+default\b/g
   while ((match = pattern.exec(source))) {
     if (isInsideNonCode(source, match.index)) continue
-    const objectSource = readDefineScheduleObjectAfterDefault(source, match.index + match[0].length)
-    if (objectSource) return objectSource
+    const definition = readDefineScheduleObjectAfterDefault(source, match.index + match[0].length)
+    if (definition) return definition
   }
 }
 
-function readAllowRuntimeSchedules(file: string): boolean {
-  const objectSource = readDefaultDefineScheduleObject(readFileSync(file, "utf8"))
-  return objectSource ? readTopLevelBooleanProperty(objectSource, "allowRuntimeSchedules") === true : false
+function readScheduleDiscoveryMetadata(file: string): Pick<DiscoveredScheduleDefinition, "allowRuntimeSchedules" | "runtimeOnly"> {
+  const definition = readDefaultDefineScheduleObject(readFileSync(file, "utf8"))
+  if (!definition) return { allowRuntimeSchedules: false }
+  if (definition.runtimeOnly) {
+    return { allowRuntimeSchedules: true, runtimeOnly: true }
+  }
+  return { allowRuntimeSchedules: readTopLevelBooleanProperty(definition.objectSource, "allowRuntimeSchedules") === true }
 }
 
 function createDiscoveredScheduleDefinition(source: DiscoveredScheduleDefinition["source"]) {
-  return (context: { file: string, name: string }): DiscoveredScheduleDefinition => ({
-    allowRuntimeSchedules: readAllowRuntimeSchedules(context.file),
-    handler: context.file,
-    name: context.name,
-    source,
-  })
+  return (context: { file: string, name: string }): DiscoveredScheduleDefinition => {
+    const metadata = readScheduleDiscoveryMetadata(context.file)
+    return {
+      ...metadata,
+      handler: context.file,
+      name: context.name,
+      source,
+    }
+  }
 }
 
 function normalizeSuffixScheduleName(rootDir: string, file: string) {

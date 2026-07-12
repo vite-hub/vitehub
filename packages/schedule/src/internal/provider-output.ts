@@ -53,6 +53,10 @@ export function resolveScheduleDefinitionEntry(metaUrl = import.meta.url) {
 const scheduleRuntimeEntry = resolveScheduleRuntimeEntry()
 const scheduleDefinitionEntry = resolveScheduleDefinitionEntry()
 
+function staticScheduleDefinitions(definitions: DiscoveredScheduleDefinition[]): DiscoveredScheduleDefinition[] {
+  return definitions.filter(definition => definition.runtimeOnly !== true)
+}
+
 interface GeneratedScheduleArtifacts {
   cloudflareWorkerFile: string
   denoCronFile: string
@@ -573,6 +577,7 @@ async function writeProviderEntries(rootDir: string, source?: DiscoveredSchedule
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const definitions = discoverScheduleDefinitions({ rootDir })
     .filter(definition => !source || definition.source === source)
+    .filter(definition => definition.runtimeOnly !== true)
   await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
 
   const cloudflareWorkerFile = resolve(generatedDir, "cloudflare-worker.mjs")
@@ -586,7 +591,7 @@ async function writeProviderEntries(rootDir: string, source?: DiscoveredSchedule
 
 export async function readDefinitionCrons(definitions: DiscoveredScheduleDefinition[]) {
   const crons = new Map<string, string>()
-  for (const definition of definitions) {
+  for (const definition of staticScheduleDefinitions(definitions)) {
     const cron = readStaticScheduleCron(definition.handler, definition.name)
     validateProviderCron(cron, definition.name)
     crons.set(definition.name, cron)
@@ -601,12 +606,13 @@ export async function writeVercelScheduleFunctions(options: {
   registryFile: string
   rootDir: string
 }, crons: Map<string, string>) {
+  const definitions = staticScheduleDefinitions(options.definitions)
   const outputRoot = options.outputRoot
   const functionRoot = resolve(outputRoot, "functions", "api", "vitehub", "schedules", "vercel")
   await rm(functionRoot, { force: true, recursive: true })
 
   const emittedFunctionNames = new Map<string, string>()
-  for (const definition of options.definitions) {
+  for (const definition of definitions) {
     const safeName = definition.name.replace(/[^a-z0-9/_-]+/gi, "_").split("/").filter(Boolean).join("/")
     const existingName = emittedFunctionNames.get(safeName)
     if (existingName) {
@@ -640,7 +646,7 @@ export async function writeVercelScheduleFunctions(options: {
   }
   const schedulePathPrefix = "/api/vitehub/schedules/vercel/"
   const existingCrons = vercelConfig.crons?.filter(cron => !cron.path.startsWith(schedulePathPrefix)) ?? []
-  vercelConfig.crons = [...existingCrons, ...options.definitions.map(definition => ({
+  vercelConfig.crons = [...existingCrons, ...definitions.map(definition => ({
     path: getVercelSchedulePath(definition.name),
     schedule: crons.get(definition.name)!,
   }))]
@@ -652,9 +658,10 @@ export async function createNetlifyScheduleFunctionOutputs(options: {
   functionRoot: string
   registryFile: string
 }): Promise<NetlifyScheduleFunctionOutput[]> {
-  const crons = await readDefinitionCrons(options.definitions)
+  const definitions = staticScheduleDefinitions(options.definitions)
+  const crons = await readDefinitionCrons(definitions)
   const emitted = new Map<string, string>()
-  return options.definitions.map((definition) => {
+  return definitions.map((definition) => {
     const fileName = sanitizeNetlifyScheduleFunctionName(definition.name)
     const existingName = emitted.get(fileName)
     if (existingName) {

@@ -35,6 +35,28 @@ describe("Vite schedule integration", () => {
     expect(plugin.enforce).toBe("pre")
   })
 
+  it("registers runtime-only targets without emitting static provider output", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-runtime-target-"))
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await writeFile(join(root, "server", "schedules", "agent-turn.ts"), [
+      "import { defineScheduleTarget } from '@vite-hub/schedule'",
+      "export default defineScheduleTarget({ handler: () => {} })",
+      "",
+    ].join("\n"), "utf8")
+
+    const plugin = hubSchedule()
+    const config = await (plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => unknown)(
+      { root },
+      { command: "build", mode: "production" },
+    )
+    expect(config).toBeNull()
+
+    resolvePluginConfig(plugin, root)
+    await expect(loadScheduleRegistry(plugin)).resolves.toContain("server/schedules/agent-turn.ts")
+    await expect(loadScheduleTargets(plugin)).resolves.toContain('"agent-turn"')
+    expect(existsSync(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"))).toBe(false)
+  })
+
   it("contributes discovered schedules to the in-flight Nitro config before framework plugins consume it", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-nitro-config-"))
     await mkdir(join(root, "server", "schedules"), { recursive: true })
@@ -89,7 +111,7 @@ describe("Vite schedule integration", () => {
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.ts"), "utf8")).resolves.toContain("dedupeCloudflareCrons")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.ts"), "utf8")).resolves.toContain("\"*/10 * * * *\"")
     await expect(readFile(join(root, ".vitehub", "schedule", "registry.js"), "utf8")).resolves.toContain("\"mirror\": async () => import(")
-    await expect(readFile(join(root, ".vitehub", "schedule", "registry.d.ts"), "utf8")).resolves.toContain("ScheduleDefinition")
+    await expect(readFile(join(root, ".vitehub", "schedule", "registry.d.ts"), "utf8")).resolves.toContain("ScheduleRegistryDefinition")
   })
 
   it("installs Schedule Provider Wake through the Nuxt module", async () => {

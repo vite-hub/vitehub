@@ -1,7 +1,8 @@
-import type { ScheduleDefinition, ScheduleDefinitionInput } from "./types.ts"
+import type { ScheduleDefinition, ScheduleDefinitionInput, ScheduleTargetDefinition, ScheduleTargetDefinitionInput } from "./types.ts"
 
 const cronFieldPattern = /^[^\s]+$/
 const scheduleDefinitionKeys = new Set(["allowRuntimeSchedules", "cron", "handler"])
+const scheduleTargetDefinitionKeys = new Set(["handler"])
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
@@ -46,4 +47,24 @@ export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput
     definition.options = { allowRuntimeSchedules: input.allowRuntimeSchedules }
   }
   return definition
+}
+
+export function defineScheduleTarget<TInput = unknown, TResult = unknown>(input: ScheduleTargetDefinitionInput<TInput, TResult>): ScheduleTargetDefinition<TInput, TResult> {
+  if (!isPlainObject(input)) {
+    throw new TypeError("`defineScheduleTarget()` expects an object with `handler`.")
+  }
+
+  const unknownKey = Object.keys(input).find(key => !scheduleTargetDefinitionKeys.has(key))
+  if (unknownKey) {
+    throw new TypeError(`\`defineScheduleTarget()\` does not support the "${unknownKey}" option.`)
+  }
+
+  if (typeof input.handler !== "function") {
+    throw new TypeError("`defineScheduleTarget()` requires a schedule handler.")
+  }
+
+  return {
+    handler: input.handler,
+    options: { allowRuntimeSchedules: true },
+  }
 }
