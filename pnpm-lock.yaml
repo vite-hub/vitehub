@@ -440,9 +440,6 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@vite-hub/schedule':
-        specifier: workspace:*
-        version: link:../schedule
       '@vite-hub/workspace':
         specifier: workspace:*
         version: link:../workspace
@@ -492,6 +489,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vite-hub/schedule':
+        specifier: workspace:*
+        version: link:../schedule
       '@vite-hub/workflow':
         specifier: workspace:*
         version: link:../workflow

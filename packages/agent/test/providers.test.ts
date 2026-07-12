@@ -1118,6 +1118,20 @@ describe("agent Vite plugin", () => {
     expect(pkg.dependencies?.esbuild).toBe("catalog:esbuild-v27")
   })
 
+  it("publishes Schedule as an optional Agent integration peer", async () => {
+    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
+      dependencies?: Record<string, string>
+      devDependencies?: Record<string, string>
+      peerDependencies?: Record<string, string>
+      peerDependenciesMeta?: Record<string, { optional?: boolean }>
+    }
+
+    expect(pkg.dependencies?.["@vite-hub/schedule"]).toBeUndefined()
+    expect(pkg.devDependencies?.["@vite-hub/schedule"]).toBe("workspace:*")
+    expect(pkg.peerDependencies?.["@vite-hub/schedule"]).toBe("workspace:*")
+    expect(pkg.peerDependenciesMeta?.["@vite-hub/schedule"]).toEqual({ optional: true })
+  })
+
   it("does not publish subpath-only integrations as root peers", async () => {
     const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
       dependencies?: Record<string, string>
