@@ -165,7 +165,7 @@ describe("Agent Process Schedule integration", () => {
         },
       }
       await runtimePlugin.default(nitroApp)
-      expect(pluginSource).toContain("nitroApp.fetch = async (request) =>")
+      expect(pluginSource).toMatch(/nitroApp\.fetch = async \((?:request|\.\.\.args)\) =>/)
       expect(pluginSource).not.toContain("nitroApp.hooks.hook('request'")
       expect(pluginSource).not.toContain("h3App")
       const response = await nitroApp.fetch(new Request("https://example.com/api/_vitehub/agents/mini/chat", {
