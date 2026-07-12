@@ -19,6 +19,7 @@ import type { DiscoveredScheduleDefinition } from "../types.ts"
 export const schedulePackageName = "@vite-hub/schedule"
 const scheduleStaticRuntimeImport = "@vite-hub/schedule/runtime/static"
 const productName = "schedule"
+const cloudflareOutputStateFileName = "cloudflare-output.json"
 const denoCronFileName = "deno-cron.mjs"
 const generatedRegistryFileName = "registry.mjs"
 
@@ -712,6 +713,7 @@ async function writeCloudflareScheduleOutput(options: {
   bundleEntry: string
   crons: string[]
   rootDir: string
+  stateFile: string
 }) {
   const outputRoot = createDefaultCloudflareOutputRoot(options.rootDir)
   await mkdir(outputRoot, { recursive: true })
@@ -728,6 +730,9 @@ async function writeCloudflareScheduleOutput(options: {
   const existingTriggers = typeof wranglerConfig.triggers === "object" && wranglerConfig.triggers !== null
     ? wranglerConfig.triggers as { crons?: string[] }
     : {}
+  const previousState = await readCloudflareOutputState(options.stateFile)
+  const externalCrons = (existingTriggers.crons ?? []).filter(cron => !previousState?.crons.includes(cron))
+  const ownedCrons = options.crons.filter(cron => !externalCrons.includes(cron))
   const main = typeof wranglerConfig.main === "string" && wranglerConfig.main
     ? wranglerConfig.main
     : "index.js"
@@ -739,7 +744,7 @@ async function writeCloudflareScheduleOutput(options: {
     observability: wranglerConfig.observability ?? { enabled: true },
     triggers: {
       ...existingTriggers,
-      crons: [...new Set([...(existingTriggers.crons ?? []), ...options.crons])],
+      crons: [...new Set([...externalCrons, ...options.crons])],
     },
   }
 
@@ -752,31 +757,37 @@ async function writeCloudflareScheduleOutput(options: {
       plugins: [createScheduleDefinitionAliasPlugin()],
     }),
     writeFile(configFile, `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8"),
+    writeFile(options.stateFile, `${JSON.stringify({ crons: ownedCrons, main }, null, 2)}\n`, "utf8"),
   ])
 }
 
-async function readGeneratedDenoCrons(file: string): Promise<string[]> {
+interface CloudflareOutputState {
+  crons: string[]
+  main: string
+}
+
+async function readCloudflareOutputState(file: string): Promise<CloudflareOutputState | undefined> {
   let source: string
   try {
     source = await readFile(file, "utf8")
   }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
     throw error
   }
-  const serialized = source.match(/const scheduleCrons = (\{[\s\S]*?\})\n\nasync function loadScheduleDefinition/)?.[1]
-  if (!serialized) return []
   try {
-    const crons = JSON.parse(serialized) as Record<string, unknown>
-    return Object.values(crons).filter((cron): cron is string => typeof cron === "string")
+    const state = JSON.parse(source) as Partial<CloudflareOutputState>
+    if (!Array.isArray(state.crons) || state.crons.some(cron => typeof cron !== "string") || typeof state.main !== "string" || !state.main) return
+    return { crons: state.crons, main: state.main }
   }
   catch {
-    return []
+    return
   }
 }
 
-async function cleanCloudflareScheduleOutput(rootDir: string, generatedCrons: readonly string[]): Promise<void> {
-  if (generatedCrons.length === 0) return
+async function cleanCloudflareScheduleOutput(rootDir: string, stateFile: string): Promise<void> {
+  const state = await readCloudflareOutputState(stateFile)
+  if (!state) return
   const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
   const configFile = resolve(outputRoot, "wrangler.json")
   let configSource: string | undefined
@@ -787,27 +798,28 @@ async function cleanCloudflareScheduleOutput(rootDir: string, generatedCrons: re
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
 
-  let main = "index.js"
   if (configSource !== undefined) {
     const config = JSON.parse(configSource) as Record<string, unknown>
-    if (typeof config.main === "string" && config.main) main = config.main
     const triggers = typeof config.triggers === "object" && config.triggers !== null
       ? config.triggers as Record<string, unknown>
       : undefined
     const crons = Array.isArray(triggers?.crons)
-      ? triggers.crons.filter((cron): cron is string => typeof cron === "string" && !generatedCrons.includes(cron))
+      ? triggers.crons.filter((cron): cron is string => typeof cron === "string" && !state.crons.includes(cron))
       : []
     if (triggers) {
       config.triggers = { ...triggers, crons }
     }
     await writeFile(configFile, `${JSON.stringify(config, null, 2)}\n`, "utf8")
   }
-  await rm(resolve(outputRoot, main), { force: true })
+  await Promise.all([
+    rm(resolve(outputRoot, state.main), { force: true }),
+    rm(stateFile, { force: true }),
+  ])
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
   const generatedDir = ensureGeneratedDir(options.rootDir, productName)
-  const previousCrons = await readGeneratedDenoCrons(resolve(generatedDir, denoCronFileName))
+  const cloudflareStateFile = resolve(generatedDir, cloudflareOutputStateFileName)
   const artifacts = await writeProviderEntries(options.rootDir, options.source, options.definitions)
   const crons = await readDefinitionCrons(artifacts.definitions)
   if (artifacts.definitions.length > 0) {
@@ -817,13 +829,14 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
       bundleEntry: artifacts.cloudflareWorkerFile,
       crons: [...new Set(crons.values())],
       rootDir: options.rootDir,
+      stateFile: cloudflareStateFile,
     })
   }
   else {
     await Promise.all([
       rm(artifacts.cloudflareWorkerFile, { force: true }),
       rm(artifacts.denoCronFile, { force: true }),
-      cleanCloudflareScheduleOutput(options.rootDir, previousCrons),
+      cleanCloudflareScheduleOutput(options.rootDir, cloudflareStateFile),
     ])
   }
   await writeVercelScheduleFunctions({

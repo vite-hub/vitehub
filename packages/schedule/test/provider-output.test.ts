@@ -203,6 +203,22 @@ describe("schedule provider output", () => {
     expect(JSON.parse(await readFile(configFile, "utf8")).triggers.crons).toEqual(["0 1 * * *"])
   })
 
+  it("preserves an existing Cloudflare trigger that matches a generated cron", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-cron-ownership-")
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareRoot, { recursive: true })
+    const configFile = join(cloudflareRoot, "wrangler.json")
+    await writeFile(configFile, JSON.stringify({
+      main: "index.js",
+      triggers: { crons: ["0 0 * * *"] },
+    }), "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    expect(JSON.parse(await readFile(configFile, "utf8")).triggers.crons).toEqual(["0 0 * * *"])
+  })
+
   it("reports provider cron syntax limitations before output generation", () => {
     expect(() => validateProviderCron("0 0 1 1 * 2026", "cleanup")).toThrow(/provider wake output only supports five-field UTC cron syntax/)
     expect(() => validateProviderCron("0 0 * JAN *", "cleanup")).toThrow(/provider wake output only supports five-field UTC cron syntax/)
