@@ -58,7 +58,7 @@ export default defineAgent({
 })
 ```
 
-The Agent can now create a cron job with a `prompt`, such as a daily report. `delivery: 'origin'` sends the result back to the channel thread where the schedule was created. Creating that schedule fails when the invocation has no deliverable channel thread.
+The Agent can now create a cron job with a `prompt`, such as a daily report. Only an invocation with the same resolved invoker `id` and `kind` can inspect or manage that scheduled turn. `delivery: 'origin'` sends the result back to the channel thread where the schedule was created. Creating that schedule fails when the invocation has no deliverable channel thread.
 
 ## Runtime behavior
 
@@ -99,7 +99,7 @@ The Capability should reject it before the Agent starts.
 | `targets` | `string[]` | all visible targets | Allowlist of Runtime Schedule target names. |
 | `allowSelfTarget` | `boolean` | `false` | Lets the Agent create scheduled turns for itself. ViteHub derives the target from the discovered Agent name. |
 | `delivery` | `"origin"` | none | Delivers a scheduled Agent turn to the channel thread where it was created. Requires `allowSelfTarget: true`. |
-| `timeZone` | `string` | UTC | Default IANA time zone for Runtime Schedules created by the tool. |
+| `timeZone` | `string` | none (UTC fallback) | Default IANA time zone for Runtime Schedules created by the tool. New schedules use it before falling back to UTC. |
 | `policy` | `AgentToolPolicyDecision \| function` | `"require-approval"` | Policy for mutating `cronjob` operations. Read operations remain allowed. |
 
 ## Reference

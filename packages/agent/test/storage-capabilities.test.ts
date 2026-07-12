@@ -122,6 +122,7 @@ describe("storage capabilities", () => {
     await expect(blocked.cronjob!.execute?.({ cron: "0 9 * * *", operation: "create", target: "agent/daily" })).rejects.toThrow("Self Schedule Permission")
 
     const allowed = await resolveTools([schedule({ allowSelfTarget: true, mode: "write" })], { schedule: schedules }, undefined, { agentName: "daily" })
+    await expect(allowed.cronjob!.execute?.({ operation: "targets" })).resolves.toEqual({ targets: undefined })
     await expect(allowed.cronjob!.execute?.({ cron: "0 9 * * *", operation: "create", prompt: "Prepare the daily report." })).resolves.toMatchObject({ target: "agent/daily" })
   })
 
@@ -134,12 +135,12 @@ describe("storage capabilities", () => {
         record = { ...input, createdAt, enabled: input.enabled ?? true, updatedAt: createdAt }
         return record
       }),
-      delete: vi.fn(),
-      disable: vi.fn(),
-      enable: vi.fn(),
+      delete: vi.fn(async () => true),
+      disable: vi.fn(async () => ({ ...record, enabled: false })),
+      enable: vi.fn(async () => ({ ...record, enabled: true })),
       get: vi.fn(async () => record),
       list: vi.fn(async () => record ? [record] : []),
-      run: vi.fn(),
+      run: vi.fn(async (id: string) => ({ id: `run-${id}`, scheduleId: id })),
       update: vi.fn(async (_id: string, input: Record<string, unknown>) => {
         record = { ...record, ...input }
         return record
@@ -227,9 +228,35 @@ describe("storage capabilities", () => {
       updatedAt: createdAt,
     }])
 
+    const intruder = await resolveTools([capability], { schedule: { schedules } }, undefined, {
+      agentName: "digest",
+      invoker: { id: "discord:user-2", kind: "chat", label: "Another user" },
+      run: { channelId: "discord", origin: "discord", runId: "run-intruder", threadId: "discord:thread-2" },
+    })
+    await expect(intruder.cronjob!.execute?.({ operation: "list" })).resolves.toEqual([])
+    await expect(intruder.cronjob!.execute?.({ id: "daily", operation: "get" })).rejects.toThrow("current invoker scope")
+    await expect(intruder.cronjob!.execute?.({ id: "daily", operation: "edit", prompt: "Expose another user's report." })).rejects.toThrow("current invoker scope")
+    await expect(intruder.cronjob!.execute?.({ id: "daily", operation: "run" })).rejects.toThrow("current invoker scope")
+    await expect(intruder.cronjob!.execute?.({ id: "daily", operation: "pause" })).rejects.toThrow("current invoker scope")
+    await expect(intruder.cronjob!.execute?.({ id: "daily", operation: "resume" })).rejects.toThrow("current invoker scope")
+    await expect(intruder.cronjob!.execute?.({ id: "daily", operation: "delete" })).rejects.toThrow("current invoker scope")
+    expect(schedules.update).not.toHaveBeenCalled()
+    expect(schedules.run).not.toHaveBeenCalled()
+    expect(schedules.disable).not.toHaveBeenCalled()
+    expect(schedules.enable).not.toHaveBeenCalled()
+    expect(schedules.delete).not.toHaveBeenCalled()
+
+    const wrongInvokerKind = await resolveTools([capability], { schedule: { schedules } }, undefined, {
+      agentName: "digest",
+      invoker: { id: "discord:user-1", kind: "cli" },
+      run: { origin: "cli", runId: "run-wrong-kind" },
+    })
+    await expect(wrongInvokerKind.cronjob!.execute?.({ operation: "list" })).resolves.toEqual([])
+    await expect(wrongInvokerKind.cronjob!.execute?.({ id: "daily", operation: "get" })).rejects.toThrow("current invoker scope")
+
     const editor = await resolveTools([capability], { schedule: { schedules } }, undefined, {
       agentName: "digest",
-      invoker: { id: "discord:user-2", kind: "chat", meta: { accessToken: "different-secret" } },
+      invoker: { id: "discord:user-1", kind: "chat", label: "Maxi, refreshed", meta: { accessToken: "different-secret" } },
       run: { channelId: "discord", origin: "discord", runId: "run-edit", threadId: "discord:thread-2" },
     })
     await editor.cronjob!.execute?.({ id: "daily", operation: "edit", prompt: "Prepare a shorter report.", timeZone: "Europe/Madrid" })
@@ -247,6 +274,44 @@ describe("storage capabilities", () => {
       },
       timeZone: "Europe/Madrid",
     })
+    await expect(editor.cronjob!.execute?.({ id: "daily", operation: "run" })).resolves.toEqual({ id: "run-daily", scheduleId: "daily" })
+    await expect(editor.cronjob!.execute?.({ id: "daily", operation: "pause" })).resolves.toMatchObject({ enabled: false, prompt: "Prepare a shorter report." })
+    await expect(editor.cronjob!.execute?.({ id: "daily", operation: "resume" })).resolves.toMatchObject({ enabled: true, prompt: "Prepare a shorter report." })
+    await expect(editor.cronjob!.execute?.({ id: "daily", operation: "delete" })).resolves.toBe(true)
+  })
+
+  it("keeps Agent-turn ownership when its target is in a generic allowlist", async () => {
+    const { schedule } = await import("../src/capabilities.ts")
+    const generic = { cron: "0 8 * * *", enabled: true, id: "generic", target: "reports" }
+    const privateTurn = {
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "private-turn",
+      input: {
+        invoker: { id: "discord:user-1", kind: "chat" },
+        kind: "agent-turn",
+        prompt: "Private report prompt.",
+      },
+      target: "reports",
+    }
+    const schedules = {
+      get: vi.fn(async id => [generic, privateTurn].find(record => record.id === id)),
+      list: vi.fn(async () => [generic, privateTurn]),
+    }
+    const capability = schedule({ mode: "read", targets: ["reports"] })
+    const owner = await resolveTools([capability], { schedule: { schedules } }, undefined, {
+      invoker: { id: "discord:user-1", kind: "chat" },
+    })
+    const intruder = await resolveTools([capability], { schedule: { schedules } }, undefined, {
+      invoker: { id: "discord:user-2", kind: "chat" },
+    })
+
+    await expect(owner.cronjob!.execute?.({ operation: "list" })).resolves.toEqual([
+      generic,
+      { cron: "0 9 * * *", enabled: true, id: "private-turn", prompt: "Private report prompt.", target: "reports" },
+    ])
+    await expect(intruder.cronjob!.execute?.({ operation: "list" })).resolves.toEqual([generic])
+    await expect(intruder.cronjob!.execute?.({ id: "private-turn", operation: "get" })).rejects.toThrow("current invoker scope")
   })
 
   it("applies self-target permissions to Runtime Schedule list results", async () => {
@@ -317,6 +382,20 @@ describe("storage capabilities", () => {
     })
     const variants = (tools.cronjob!.inputSchema as { oneOf: Array<{ properties?: Record<string, unknown> }> }).oneOf
     expect(variants.some(variant => variant.properties?.prompt)).toBe(true)
+    expect(variants).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          operation: expect.objectContaining({ const: "create" }),
+          timeZone: expect.objectContaining({ description: expect.stringContaining("schedule({ timeZone }), then UTC") }),
+        }),
+      }),
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          operation: expect.objectContaining({ const: "edit" }),
+          timeZone: expect.objectContaining({ description: expect.stringContaining("preserve the existing value") }),
+        }),
+      }),
+    ]))
     for (const variant of variants) {
       expect(variant.properties).not.toEqual(expect.objectContaining({
         channelId: expect.anything(),

@@ -20,6 +20,7 @@ import type {
   AgentCapabilityContext,
   AgentCapabilityDefinition,
   AgentCapabilityMode,
+  AgentInvoker,
   AgentToolPolicyContext,
   AgentToolPolicyDecision,
   AgentToolSet,
@@ -100,6 +101,7 @@ type NormalizedRuntimeScheduleCapabilityOptions = Omit<RuntimeScheduleCapability
 }
 
 type RuntimeScheduleScope = Pick<NormalizedRuntimeScheduleCapabilityOptions, "allowSelfTarget" | "targets"> & {
+  invoker: Pick<AgentInvoker, "id" | "kind">
   selfTarget?: string
 }
 
@@ -266,7 +268,7 @@ function assertAllowedKeys(input: object | undefined, allowed: string[], label: 
 function visibleRuntimeSchedules(records: RuntimeScheduleRecordLike[], options: RuntimeScheduleScope): RuntimeScheduleRecordLike[] {
   return records.filter((record) => {
     try {
-      assertAllowedRuntimeScheduleTarget(record.target, options, "cronjob")
+      assertScopedRuntimeSchedule(record, options, "cronjob")
       return true
     }
     catch {
@@ -282,6 +284,7 @@ function publicRuntimeSchedule(record: RuntimeScheduleRecordLike): Omit<RuntimeS
 }
 
 function visibleRuntimeScheduleTargets(options: RuntimeScheduleScope): readonly string[] | undefined {
+  if (!options.targets) return undefined
   const targets = [...(options.targets || []), ...(options.allowSelfTarget && options.selfTarget ? [options.selfTarget] : [])]
   if (!targets.length) return undefined
   return [...new Set(targets)].filter((target) => {
@@ -295,16 +298,31 @@ function visibleRuntimeScheduleTargets(options: RuntimeScheduleScope): readonly 
   })
 }
 
+function assertScopedRuntimeSchedule(record: RuntimeScheduleRecordLike, options: RuntimeScheduleScope, label: string): void {
+  assertAllowedRuntimeScheduleTarget(record.target, options, label)
+  if (!record.input || typeof record.input !== "object" || Array.isArray(record.input) || (record.input as { kind?: unknown }).kind !== "agent-turn") return
+  let owner: AgentInvoker | undefined
+  try {
+    owner = parseScheduledAgentTurnInput(record.input).invoker
+  }
+  catch {
+    owner = undefined
+  }
+  if (owner?.id === options.invoker.id && owner.kind === options.invoker.kind) return
+  throw new Error(`[vitehub] ${label} is outside the current invoker scope.`)
+}
+
 async function requireScopedRuntimeSchedule(client: RuntimeScheduleClientLike, id: string, options: RuntimeScheduleScope): Promise<RuntimeScheduleRecordLike> {
   const record = await client.get(id)
   if (!record) throw new Error(`[vitehub] Runtime Schedule not found: ${id}`)
-  assertAllowedRuntimeScheduleTarget(record.target, options, "cronjob")
+  assertScopedRuntimeSchedule(record, options, "cronjob")
   return record
 }
 
 const runtimeScheduleTargetSchema = { description: "Runtime Schedule target name.", type: "string" }
 const runtimeScheduleCronSchema = { description: "Five-field cron expression, evaluated in timeZone or UTC when omitted.", type: "string" }
-const runtimeScheduleTimeZoneSchema = { description: "IANA time zone used to evaluate cron. Defaults to UTC.", type: "string" }
+const runtimeScheduleCreateTimeZoneSchema = { description: "IANA time zone used to evaluate cron. Defaults to schedule({ timeZone }), then UTC.", type: "string" }
+const runtimeScheduleEditTimeZoneSchema = { description: "IANA time zone used to evaluate cron. Omit it to preserve the existing value.", type: "string" }
 
 function runtimeScheduleInputSchema(mode: AgentCapabilityMode, allowSelfTarget: boolean) {
   const variants = [
@@ -321,7 +339,7 @@ function runtimeScheduleInputSchema(mode: AgentCapabilityMode, allowSelfTarget: 
         id: { type: "string" },
         operation: { const: "create", type: "string" },
         target: runtimeScheduleTargetSchema,
-        timeZone: runtimeScheduleTimeZoneSchema,
+        timeZone: runtimeScheduleCreateTimeZoneSchema,
       }, ["cron", "operation", "target"]),
       jsonObjectSchema({
         cron: runtimeScheduleCronSchema,
@@ -330,7 +348,7 @@ function runtimeScheduleInputSchema(mode: AgentCapabilityMode, allowSelfTarget: 
         operation: { const: "edit", type: "string" },
         ...(allowSelfTarget ? { prompt: { description: "Prompt for the scheduled Agent turn.", type: "string" } } : {}),
         target: runtimeScheduleTargetSchema,
-        timeZone: runtimeScheduleTimeZoneSchema,
+        timeZone: runtimeScheduleEditTimeZoneSchema,
       }, ["id", "operation"]),
       jsonObjectSchema({
         id: { type: "string" },
@@ -344,7 +362,7 @@ function runtimeScheduleInputSchema(mode: AgentCapabilityMode, allowSelfTarget: 
         id: { type: "string" },
         operation: { const: "create", type: "string" },
         prompt: { description: "Prompt for the scheduled Agent turn.", type: "string" },
-        timeZone: runtimeScheduleTimeZoneSchema,
+        timeZone: runtimeScheduleCreateTimeZoneSchema,
       }, ["cron", "operation", "prompt"]))
     }
   }
@@ -356,6 +374,7 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
     if (context.context.get<boolean>(scheduledAgentTurnContextKey) === true) return
     const scope: RuntimeScheduleScope = {
       ...options,
+      invoker: { id: context.invoker.id, kind: context.invoker.kind },
       selfTarget: scheduledAgentTargetName(context.context.get<string>(scheduledAgentNameContextKey)),
     }
     const client = scheduleClient(context as never, options.mode)
@@ -377,7 +396,7 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
           if (operation === "get") {
             const record = await client.get(assertRuntimeScheduleId(input.id, "cronjob get"))
             if (!record) return undefined
-            assertAllowedRuntimeScheduleTarget(record.target, scope, "cronjob get")
+            assertScopedRuntimeSchedule(record, scope, "cronjob get")
             return publicRuntimeSchedule(record)
           }
           if (operation === "list") return visibleRuntimeSchedules(await client.list(), scope).map(publicRuntimeSchedule)
