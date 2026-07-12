@@ -14,7 +14,7 @@ The concrete key holds the implementation value directly. Driver-specific option
 | Driver | Use it when | Driver-owned options |
 | --- | --- | --- |
 | `driver.model` | The Agent should call an AI SDK model through ViteHub model execution. | `instructions`, `execution` |
-| `driver.harness` | The Agent should run through an AI SDK harness adapter behind ViteHub's Agent Harness Driver Contract. | `credentials`, `sessionKey` |
+| `driver.harness` | The Agent should run through an AI SDK harness adapter behind ViteHub's Agent Harness Driver Contract. | `credentials`, `instructions`, `sandbox`, `sessionKey`, `workDir` |
 | `driver.run` | The Agent should execute developer code directly. | none |
 
 Driver variants are mutually exclusive. A single Agent Definition cannot combine `driver.model` with `driver.run`, or `driver.harness` with model instructions.
@@ -65,6 +65,8 @@ export default defineAgent({
       reasoningEffort: 'low',
     }),
     credentials: { label: 'local Codex', source: 'ambient' },
+    instructions: 'Review the exact pull request head before changing code.',
+    workDir: 'repositories/vitehub',
   },
 })
 ```
@@ -86,9 +88,9 @@ export default defineAgent({
 
 `sandbox({ commands })` remains the Capability shape for model-facing command execution authority.
 
-`driver.harness`, `driver.sessionKey`, and `driver.sandbox` can also be callbacks. Use callbacks when one Agent Definition needs invocation-scoped harness auth, sandbox env/root setup, or session reuse.
+`driver.harness`, `driver.instructions`, `driver.sessionKey`, `driver.sandbox`, and `driver.workDir` can also be callbacks. Each callback receives the invocation `input`, `context`, `invoker`, and run metadata. Use callbacks when one Agent Definition needs invocation-scoped harness auth, instructions, sandbox setup, working directory, or session reuse.
 
-Harness-backed drivers do not receive `driver.instructions` as a model prompt. Use explicit harness configuration or Workspace instruction surfaces when the harness needs guidance.
+ViteHub resolves `driver.instructions` before constructing the AI SDK `HarnessAgent`, so stock harness adapters receive the invocation-specific instructions for generated and streamed turns. Session reuse keeps the harness adapter's normal instruction lifecycle. `driver.workDir` must resolve to a non-empty relative POSIX path inside the sandbox default working directory.
 
 Harness-backed drivers receive resolved Capability tools through harness tool support, but they do not receive provider tools or ambient Capability, Source, or Skill prose.
 When a Capability should support harness execution with files, declare those files with `requires.workspace.paths` or contribute them through Workspace Sources.
