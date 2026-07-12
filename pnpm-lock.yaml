@@ -266,6 +266,9 @@ overrides:
   vitest: npm:@voidzero-dev/vite-plus-test@0.1.24
 
 patchedDependencies:
+  '@ai-sdk/harness-codex@1.0.0':
+    hash: 48675655cdded2ceda5ac285c844841544d5bd6677981d9b13d6372c0574d86e
+    path: patches/@ai-sdk__harness-codex@1.0.0.patch
   h3@2.0.1-rc.20:
     hash: 7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600
     path: patches/h3@2.0.1-rc.20.patch
@@ -418,7 +421,7 @@ importers:
     dependencies:
       '@ai-sdk/harness-codex':
         specifier: catalog:ai
-        version: 1.0.0
+        version: 1.0.0(patch_hash=48675655cdded2ceda5ac285c844841544d5bd6677981d9b13d6372c0574d86e)
       '@libsql/client':
         specifier: catalog:database
         version: 0.15.15
@@ -12969,7 +12972,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@ai-sdk/harness-codex@1.0.0':
+  '@ai-sdk/harness-codex@1.0.0(patch_hash=48675655cdded2ceda5ac285c844841544d5bd6677981d9b13d6372c0574d86e)':
     dependencies:
       '@ai-sdk/harness': 1.0.0(ws@8.21.0)(zod@3.25.76)
       '@ai-sdk/provider-utils': 5.0.0(zod@3.25.76)
