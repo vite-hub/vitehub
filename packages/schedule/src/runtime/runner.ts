@@ -1,4 +1,5 @@
-import { executeRuntimeScheduleWake, isRuntimeScheduleDue } from "./execute.ts"
+import { isRuntimeScheduleDue } from "./due.ts"
+import { executeRuntimeScheduleWake } from "./execute.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore } from "./state.ts"
 
 import type { RuntimeScheduleRecord, RuntimeScheduleStore, ScheduleRunStore } from "../types.ts"

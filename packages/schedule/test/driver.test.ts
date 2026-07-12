@@ -144,6 +144,40 @@ describe("Runtime Schedule Wake Driver", () => {
     })
   })
 
+  it("delivers timezone-aware native wakes", async () => {
+    const scheduledAt = new Date("2026-07-11T02:00:00.000Z")
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-07-11T01:00:00.000Z")
+    const handler = vi.fn()
+    let context: RuntimeScheduleWakeDriverContext | undefined
+    await runtimeScheduleStore.create({
+      createdAt: now,
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "bangkok-report",
+      target: "report",
+      timeZone: "Asia/Bangkok",
+      updatedAt: now,
+    })
+
+    await installScheduleRuntime({
+      createDriver(driverContext) {
+        context = driverContext
+        return { async reconcile() {} }
+      },
+      registry: {
+        report: async () => ({ cron: "0 9 * * *", handler, options: { allowRuntimeSchedules: true } }),
+      },
+      runtimeScheduleStore,
+      scheduleRunStore,
+    })
+
+    await context!.wake({ scheduleId: "bangkok-report", scheduledAt })
+
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt }))
+  })
+
   it("rejects a stale native wake after the stored cron changes", async () => {
     const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
     const scheduleRunStore = createMemoryScheduleRunStore()

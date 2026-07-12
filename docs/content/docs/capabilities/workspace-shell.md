@@ -1,6 +1,6 @@
 ---
 title: Workspace shell
-description: Expose shell-shaped Workspace inspection, mutation, and allowlisted Workspace command tools.
+description: Expose Workspace inspection, mutation, and explicit executable tools.
 navigation.title: Workspace shell
 navigation.order: 50
 navigation.group: Workspace
@@ -8,7 +8,7 @@ icon: i-lucide-folder-search
 ---
 
 `workspaceShell()` adds model-facing Workspace tools to an Agent.
-It exposes shell-shaped inspection by default, write tools when the Agent's Workspace grants write mode, and optional allowlisted commands through the same Capability.
+It exposes shell-shaped inspection by default, write tools when the Agent's Workspace grants write mode, and optional executable commands through the same Capability.
 
 ## Installation
 
@@ -19,6 +19,7 @@ Use the configuration example below as the starting point, then tighten modes, p
 
 The Capability contributes Workspace inspection tools in read mode and structured Workspace mutation tools in write mode.
 When configured with `commands`, it also contributes a `workspace_exec` tool that can run only those executable names or absolute executable paths inside a trusted Workspace Session.
+Set `commands: 'trusted-host'` only when an Agent running on infrastructure you control should be able to select any executable available to the host service account.
 When Workspace Sources expose request descriptors, tool descriptions and generated metadata can describe controlled request access; broader usage guidance belongs in Agent Driver Instructions.
 
 ## Configuration
@@ -58,7 +59,28 @@ Configured commands also require `workspace.mode: 'write'`, even when `workspace
 
 Workspace Shell is not Sandbox.
 It exposes Workspace file operations and optional Workspace-session commands, while `sandbox()` runs allowlisted executables in an isolated runtime.
-Keep arbitrary executable execution in `sandbox()` or a domain-specific Capability.
+Use `sandbox()` for untrusted execution and a domain-specific Capability when the executable set is known.
+
+For a Linux-hosted Agent that intentionally owns its machine or container, configure both unrestricted trusted-host commands and the trusted-host Workspace runtime:
+
+```ts [server/agents/operator.ts]
+export default defineAgent({
+  capabilities: [
+    workspaceShell({ commands: 'trusted-host', mode: 'write' }),
+  ],
+  driver: { model },
+  workspace: {
+    mode: 'write',
+    runtime: {
+      type: 'trusted-host',
+      allowProduction: true,
+    },
+    store,
+  },
+})
+```
+
+This is not isolation. The Agent can run `sh`, `gh`, `git`, generated scripts, and any other reachable executable with the filesystem, network, process, and inherited environment authority of the service account. Use a dedicated service account or container with narrowly scoped credentials, mounts, and network access.
 
 ## Driver support
 
@@ -72,7 +94,8 @@ Keep arbitrary executable execution in `sandbox()` or a domain-specific Capabili
 
 Open DevTools and inspect the Agent's tool list.
 Read mode should expose inspection tools, and write mode should expose mutation tools only when the Workspace is writable.
-Agents with configured commands should expose `workspace_exec` with only the configured command names.
+Agents with a command array should expose `workspace_exec` with only the configured command names.
+Trusted-host command mode should expose a free executable field only when the resolved Workspace runtime is trusted-host.
 
 Try reading outside an `access()` Workspace Scope when both Capabilities are attached.
 The scoped Workspace should hide or reject paths outside the selected grants.
@@ -82,7 +105,7 @@ The scoped Workspace should hide or reject paths outside the selected grants.
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `mode` | `"read" \| "write"` | `"read"` | Selects Workspace inspection tools or write-capable Workspace tools. |
-| `commands` | `string[]` | - | Optional executable names or absolute executable paths allowed through the `workspace_exec` tool. |
+| `commands` | `string[] \| "trusted-host"` | - | Executable allowlist, or explicit unrestricted host execution for a trusted-host Workspace. |
 | `timeout` | `number` | - | Optional default timeout in milliseconds for configured command execution. |
 
 ## Reference

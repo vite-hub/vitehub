@@ -1,7 +1,7 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
-import { parseCronExpression } from "cron-schedule"
 
 import { ScheduleError } from "../errors.ts"
+import { isRuntimeScheduleDue } from "./due.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 
 import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore, ScheduleTargetName } from "../types.ts"
@@ -62,26 +62,6 @@ function validateScheduledAt(scheduledAt: Date): Date {
     })
   }
   return scheduledAt
-}
-
-export function isRuntimeScheduleDue(schedule: RuntimeScheduleRecord, scheduledAt: Date): boolean {
-  if (schedule.cron.trim().split(/\s+/).length !== 5) {
-    throw new TypeError(`Runtime Schedule "${schedule.id}" must use a five-field cron expression.`)
-  }
-  const cron = parseCronExpression(schedule.cron)
-  const minute = scheduledAt.getUTCMinutes()
-  const hour = scheduledAt.getUTCHours()
-  const day = scheduledAt.getUTCDate()
-  const month = scheduledAt.getUTCMonth()
-  const weekday = scheduledAt.getUTCDay()
-
-  if (!cron.minutes.includes(minute) || !cron.hours.includes(hour) || !cron.months.includes(month)) {
-    return false
-  }
-  if (cron.days.length !== 31 && cron.weekdays.length !== 7) {
-    return cron.days.includes(day) || cron.weekdays.includes(weekday)
-  }
-  return cron.days.includes(day) && cron.weekdays.includes(weekday)
 }
 
 function toRunError(error: unknown): ScheduleRunError {

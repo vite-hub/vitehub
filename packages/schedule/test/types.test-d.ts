@@ -35,17 +35,23 @@ it("types the defineSchedule helper signature", () => {
 
   // @ts-expect-error allowRuntimeSchedules must be a boolean when provided.
   defineSchedule({ cron: "0 9 * * *", handler: () => {}, allowRuntimeSchedules: "yes" })
+
+  // @ts-expect-error Static Schedule Definitions remain UTC-only.
+  defineSchedule({ cron: "0 9 * * *", handler: () => {}, timeZone: "Europe/Copenhagen" })
 })
 
 it("types Runtime Schedule helper inputs", async () => {
-  await schedules.create({ cron: "0 9 * * *", target: "daily-report" })
-  await schedules.update("schedule-1", { cron: "15 10 * * *", enabled: false, target: "daily-report" })
+  await schedules.create({ cron: "0 9 * * *", target: "daily-report", timeZone: "Europe/Copenhagen" })
+  await schedules.update("schedule-1", { cron: "15 10 * * *", enabled: false, target: "daily-report", timeZone: "Asia/Bangkok" })
 
   // @ts-expect-error create requires a target.
   await schedules.create({ cron: "0 9 * * *" })
 
   // @ts-expect-error update enabled must be boolean.
   await schedules.update("schedule-1", { enabled: "yes" })
+
+  // @ts-expect-error update timeZone must be a string.
+  await schedules.update("schedule-1", { timeZone: 123 })
 })
 
 it("types the generated schedule registry module", () => {

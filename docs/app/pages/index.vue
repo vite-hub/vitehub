@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { useHead, useSeoMeta } from "#app/composables/head";
+const title = "Agents and Server Primitives for Vite";
+const description =
+  "Define inspectable Agents with explicit runtime boundaries, then run them on any host with portable Server Primitives for Vite.";
 
-useHead({ titleTemplate: () => "ViteHub" });
+useSeo({
+  title,
+  description,
+  type: "website",
+});
 
-useSeoMeta({
-  title: "ViteHub — Server primitives and agents for Vite",
-  ogTitle: "ViteHub — Server primitives and agents for Vite",
-  description: "Use portable Server Primitives directly in your Vite application, or compose them into inspectable Agents with explicit runtime boundaries.",
+defineOgImage("Landing", {
+  title,
+  description: formatOgDescription(title, description),
 });
 </script>
 
@@ -14,6 +19,6 @@ useSeoMeta({
   <UMain class="bg-default text-default">
     <LandingHero />
     <LandingPaths />
-    <LandingCta />
+    <LandingPrimitives />
   </UMain>
 </template>

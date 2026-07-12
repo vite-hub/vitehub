@@ -30,13 +30,13 @@ describe("storage capabilities", () => {
         schedule({ schedules: ["0 9 * * *"] }),
         schedule({ mode: "read", targets: ["reports"] }),
       ],
-    }, runtime({ schedule: { schedules } }), {}).then(resolved => Object.keys(resolved.tools!).sort())).resolves.toEqual(["schedule_read"])
+    }, runtime({ schedule: { schedules } }), {}).then(resolved => Object.keys(resolved.tools!).sort())).resolves.toEqual(["cronjob"])
   })
 
   it("exposes scoped Runtime Schedule read and edit tools", async () => {
     const { schedule } = await import("../src/capabilities.ts")
     const records = [
-      { createdAt: new Date("2026-05-23T00:00:00.000Z"), cron: "0 9 * * *", enabled: true, id: "daily", target: "reports", updatedAt: new Date("2026-05-23T00:00:00.000Z") },
+      { createdAt: new Date("2026-05-23T00:00:00.000Z"), cron: "0 9 * * *", enabled: true, id: "daily", target: "reports", timeZone: "Europe/Copenhagen", updatedAt: new Date("2026-05-23T00:00:00.000Z") },
       { createdAt: new Date("2026-05-23T00:00:00.000Z"), cron: "0 10 * * *", enabled: true, id: "private", target: "private", updatedAt: new Date("2026-05-23T00:00:00.000Z") },
     ]
     const schedules = {
@@ -46,32 +46,44 @@ describe("storage capabilities", () => {
       enable: vi.fn(async id => ({ ...records.find(record => record.id === id)!, enabled: true })),
       get: vi.fn(async id => records.find(record => record.id === id)),
       list: vi.fn(async () => records),
+      run: vi.fn(async id => ({ id: `run-${id}`, scheduleId: id })),
       update: vi.fn(async (id, input) => ({ ...records.find(record => record.id === id)!, ...input })),
     }
 
-    await expect(resolveTools([schedule({ mode: "read", targets: ["reports"] })], { schedule: { schedules } }).then(tools => Object.keys(tools).sort())).resolves.toEqual(["schedule_read"])
+    await expect(resolveTools([schedule({ mode: "read", targets: ["reports"] })], { schedule: { schedules } }).then(tools => Object.keys(tools).sort())).resolves.toEqual(["cronjob"])
 
     const tools = await resolveTools([schedule({ mode: "write", policy: "allow", targets: ["reports"] })], { schedule: { schedules } })
-    expect(Object.keys(tools).sort()).toEqual(["schedule_edit", "schedule_read"])
-    expect(tools.schedule_edit?.policy).toBe("allow")
+    expect(Object.keys(tools)).toEqual(["cronjob"])
+    expect(await (tools.cronjob!.policy as (context: { input?: unknown, name: string }) => unknown)({ input: { operation: "list" }, name: "cronjob" })).toBe("allow")
 
-    await expect(tools.schedule_read!.execute?.({ operation: "targets" })).resolves.toEqual({ targets: ["reports"] })
-    await expect(tools.schedule_read!.execute?.({ operation: "list" })).resolves.toEqual([records[0]])
-    await expect(tools.schedule_read!.execute?.({ id: "daily", operation: "get" })).resolves.toEqual(records[0])
-    await expect(tools.schedule_read!.execute?.({ id: "private", operation: "get" })).rejects.toThrow("allowlist")
+    await expect(tools.cronjob!.execute?.({ operation: "targets" })).resolves.toEqual({ targets: ["reports"] })
+    await expect(tools.cronjob!.execute?.({ operation: "list" })).resolves.toEqual([records[0]])
+    await expect(tools.cronjob!.execute?.({ id: "daily", operation: "get" })).resolves.toEqual(records[0])
+    await expect(tools.cronjob!.execute?.({ id: "private", operation: "get" })).rejects.toThrow("allowlist")
 
-    await tools.schedule_edit!.execute?.({ cron: "15 9 * * *", id: "new-daily", operation: "create", target: "reports" })
-    expect(schedules.create).toHaveBeenCalledWith({ cron: "15 9 * * *", enabled: undefined, id: "new-daily", target: "reports" })
+    await tools.cronjob!.execute?.({ cron: "15 9 * * *", id: "new-daily", operation: "create", target: "reports", timeZone: "Europe/Copenhagen" })
+    expect(schedules.create).toHaveBeenCalledWith({ cron: "15 9 * * *", enabled: undefined, id: "new-daily", target: "reports", timeZone: "Europe/Copenhagen" })
 
-    await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", operation: "create", target: "private" })).rejects.toThrow("allowlist")
-    await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timezone: "UTC" } as never)).rejects.toThrow()
-    await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", enabled: "false", operation: "create", target: "reports" } as never)).rejects.toThrow("enabled must be a boolean")
-    await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", id: 123, operation: "create", target: "reports" } as never)).rejects.toThrow("id must be a non-empty Runtime Schedule id")
-    await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", id: "", operation: "create", target: "reports" })).rejects.toThrow("id must be a non-empty Runtime Schedule id")
-    await tools.schedule_edit!.execute?.({ cron: "30 9 * * *", id: "daily", operation: "update" })
-    expect(schedules.update).toHaveBeenCalledWith("daily", { cron: "30 9 * * *" })
-    await expect(tools.schedule_edit!.execute?.({ enabled: "false", id: "daily", operation: "update" } as never)).rejects.toThrow("enabled must be a boolean")
-    await expect(tools.schedule_edit!.execute?.({ id: "private", operation: "delete" })).rejects.toThrow("allowlist")
+    await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", operation: "create", target: "private" })).rejects.toThrow("allowlist")
+    await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timezone: "UTC" } as never)).rejects.toThrow()
+    await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timeZone: "Not/A_Zone" })).rejects.toThrow("valid IANA time zone")
+    await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timeZone: "+01:00" })).rejects.toThrow("valid IANA time zone")
+    await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timeZone: "PST" })).rejects.toThrow("valid IANA time zone")
+    await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timeZone: "Asia/Kolkata" })).resolves.toMatchObject({ timeZone: "Asia/Kolkata" })
+    await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timeZone: "CET" })).resolves.toMatchObject({ timeZone: "CET" })
+    await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", enabled: "false", operation: "create", target: "reports" } as never)).rejects.toThrow("enabled must be a boolean")
+    await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", id: 123, operation: "create", target: "reports" } as never)).rejects.toThrow("id must be a non-empty Runtime Schedule id")
+    await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", id: "", operation: "create", target: "reports" })).rejects.toThrow("id must be a non-empty Runtime Schedule id")
+    await tools.cronjob!.execute?.({ cron: "30 9 * * *", id: "daily", operation: "edit", timeZone: "Asia/Bangkok" })
+    expect(schedules.update).toHaveBeenCalledWith("daily", { cron: "30 9 * * *", timeZone: "Asia/Bangkok" })
+    await expect(tools.cronjob!.execute?.({ id: "daily", operation: "edit", timeZone: "US/Eastern" })).resolves.toMatchObject({ timeZone: "US/Eastern" })
+    await tools.cronjob!.execute?.({ id: "daily", operation: "pause" })
+    expect(schedules.disable).toHaveBeenCalledWith("daily")
+    await tools.cronjob!.execute?.({ id: "daily", operation: "resume" })
+    expect(schedules.enable).toHaveBeenCalledWith("daily")
+    await expect(tools.cronjob!.execute?.({ id: "daily", operation: "run" })).resolves.toEqual({ id: "run-daily", scheduleId: "daily" })
+    await expect(tools.cronjob!.execute?.({ enabled: "false", id: "daily", operation: "edit" } as never)).rejects.toThrow("enabled must be a boolean")
+    await expect(tools.cronjob!.execute?.({ id: "private", operation: "delete" })).rejects.toThrow("allowlist")
   })
 
   it("blocks self-targeting Runtime Schedules unless explicitly allowed", async () => {
@@ -83,14 +95,15 @@ describe("storage capabilities", () => {
       enable: vi.fn(),
       get: vi.fn(),
       list: vi.fn(async () => []),
+      run: vi.fn(),
       update: vi.fn(),
     }
 
     const blocked = await resolveTools([schedule({ mode: "write", selfTarget: "agent/daily", targets: ["agent/daily"] })], { schedule: schedules })
-    await expect(blocked.schedule_edit!.execute?.({ cron: "0 9 * * *", operation: "create", target: "agent/daily" })).rejects.toThrow("Self Schedule Permission")
+    await expect(blocked.cronjob!.execute?.({ cron: "0 9 * * *", operation: "create", target: "agent/daily" })).rejects.toThrow("Self Schedule Permission")
 
     const allowed = await resolveTools([schedule({ allowSelfTarget: true, mode: "write", selfTarget: "agent/daily", targets: ["agent/daily"] })], { schedule: schedules })
-    await expect(allowed.schedule_edit!.execute?.({ cron: "0 9 * * *", operation: "create", target: "agent/daily" })).resolves.toMatchObject({ target: "agent/daily" })
+    await expect(allowed.cronjob!.execute?.({ cron: "0 9 * * *", operation: "create", target: "agent/daily" })).resolves.toMatchObject({ target: "agent/daily" })
   })
 
   it("applies self-target permissions to Runtime Schedule list results", async () => {
@@ -106,8 +119,8 @@ describe("storage capabilities", () => {
       },
     })
 
-    await expect(tools.schedule_read!.execute?.({ operation: "targets" })).resolves.toEqual({ targets: ["reports"] })
-    await expect(tools.schedule_read!.execute?.({ operation: "list" })).resolves.toEqual([records[1]])
+    await expect(tools.cronjob!.execute?.({ operation: "targets" })).resolves.toEqual({ targets: ["reports"] })
+    await expect(tools.cronjob!.execute?.({ operation: "list" })).resolves.toEqual([records[1]])
   })
 
   it("accepts read-only Runtime Schedule clients in read mode", async () => {
@@ -119,7 +132,7 @@ describe("storage capabilities", () => {
       },
     })
 
-    expect(Object.keys(tools)).toEqual(["schedule_read"])
+    expect(Object.keys(tools)).toEqual(["cronjob"])
   })
 
   it("uses strict Runtime Schedule tool schemas", async () => {
@@ -132,11 +145,12 @@ describe("storage capabilities", () => {
         enable: vi.fn(),
         get: vi.fn(),
         list: vi.fn(),
+        run: vi.fn(),
         update: vi.fn(),
       },
     })
 
-    expect(tools.schedule_edit!.inputSchema).toMatchObject({
+    expect(tools.cronjob!.inputSchema).toMatchObject({
       oneOf: expect.arrayContaining([
         expect.objectContaining({
           additionalProperties: false,
@@ -145,6 +159,15 @@ describe("storage capabilities", () => {
             every: expect.anything(),
             policy: expect.anything(),
             timezone: expect.anything(),
+          }),
+        }),
+      ]),
+    })
+    expect(tools.cronjob!.inputSchema).toMatchObject({
+      oneOf: expect.arrayContaining([
+        expect.objectContaining({
+          properties: expect.objectContaining({
+            timeZone: expect.objectContaining({ type: "string" }),
           }),
         }),
       ]),

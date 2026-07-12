@@ -1,6 +1,6 @@
 ---
 title: Schedule
-description: Declare Agent Schedules or expose Runtime Schedule tools to an Agent.
+description: Declare Agent Schedules or let an Agent manage Runtime Schedules through one cronjob tool.
 navigation.title: Schedule
 navigation.order: 110
 navigation.group: Runtime primitives
@@ -8,7 +8,7 @@ icon: i-lucide-calendar-clock
 ---
 
 `schedule()` covers two schedule-related Agent abilities.
-It can declare fixed Agent Schedules as Capability metadata, or it can expose Runtime Schedule read and edit tools when configured with a mode.
+It can declare fixed Agent Schedules as Capability metadata, or it can expose one `cronjob` tool for Runtime Schedules when configured with a mode.
 
 ## Installation
 
@@ -18,7 +18,7 @@ Use the configuration example below as the starting point, then tighten modes, p
 ## What it adds
 
 Static Agent Schedule mode records one or more five-field UTC cron expressions on the Capability.
-Runtime Schedule mode contributes `schedule_read` and, in write mode, `schedule_edit`.
+Runtime Schedule mode contributes one `cronjob` tool. Read mode supports `targets`, `list`, and `get`. Write mode also supports `create`, `edit`, `pause`, `resume`, `run`, and `delete`.
 
 ## Configuration
 
@@ -42,7 +42,7 @@ export default defineAgent({
 ## Runtime behavior
 
 Static schedules add metadata that framework integrations and schedule-aware runtime behavior can inspect.
-Runtime Schedule mode reads visible Runtime Schedules and can create, update, enable, disable, or delete scoped schedules when write mode is enabled.
+Runtime Schedule mode reads visible Runtime Schedules and can create, edit, pause, resume, run, or delete scoped schedules when write mode is enabled. The `cronjob` tool accepts an optional IANA `timeZone` on create and edit, while schedules without one continue to use UTC.
 
 ## Requirements
 
@@ -63,7 +63,7 @@ Self-targeting requires explicit self-target permission.
 ## Inspect and verify
 
 Inspect Capability metadata for static schedule ids and cron expressions.
-For Runtime Schedule mode, inspect the tool list and verify `schedule_edit` appears only in write mode.
+For Runtime Schedule mode, inspect the tool list and verify it contains only `cronjob` for scheduling. Its schema exposes only read operations in read mode.
 
 Run a schedule with a six-field cron expression during development.
 The Capability should reject it before the Agent starts.
@@ -77,7 +77,7 @@ The Capability should reject it before the Agent starts.
 | `targets` | `string[]` | all visible targets | Allowlist of Runtime Schedule target names. |
 | `selfTarget` | `string` | none | Target name of the owning Agent. |
 | `allowSelfTarget` | `boolean` | `false` | Allows Runtime Schedule tools to target the owning Agent. |
-| `policy` | `AgentToolPolicyDecision \| function` | `"require-approval"` | Policy for `schedule_edit`. |
+| `policy` | `AgentToolPolicyDecision \| function` | `"require-approval"` | Policy for mutating `cronjob` operations. Read operations remain allowed. |
 
 ## Reference
 
