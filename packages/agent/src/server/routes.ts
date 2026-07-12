@@ -75,6 +75,7 @@ interface ViteAgentRouteRuntimeContext extends AgentRuntimeContext<ViteAgentRout
 }
 
 interface AgentRouteRuntimeOptions {
+  capabilities?: ViteAgentRouteRuntimeContext["capabilities"]
   cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"]
   runtime?: AgentRuntimeName
   waitUntil?: AgentWaitUntil
@@ -168,7 +169,6 @@ const chatFinishMessagesKey = Symbol("vitehub.chat.finish.messages")
 const chatNativeStreamUpdateIntervalMs = 1
 const chatTypingRefreshIntervalMs = 4000
 const chatTypingRefreshTimeoutMs = 2000
-const scheduleRuntimePackageName: string = "@vite-hub/schedule/runtime"
 
 type AgentChatQueuedFinishExtension = AgentChatFinishExtension & {
   [chatFinishMessagesKey]: AgentChatMessage[]
@@ -287,37 +287,18 @@ function detectRuntime(): AgentRuntimeName {
   return "unknown"
 }
 
-function agentRequiresPrimitive(agent: AgentInput<ViteAgentRouteRuntimeContext>, primitive: string): boolean {
-  return getAgentCapabilities(agent).some(capability => capability.requires?.some(requirement => requirement.primitive === primitive))
-}
-
-async function resolveAgentRouteCapabilities(
-  agent: AgentInput<ViteAgentRouteRuntimeContext>,
-): Promise<ViteAgentRouteRuntimeContext["capabilities"]> {
-  if (!agentRequiresPrimitive(agent, "schedule")) return
-  try {
-    const schedules = ((await import(scheduleRuntimePackageName)) as { schedules?: unknown }).schedules
-    if (!schedules) throw new Error("The package did not export schedules.")
-    return { schedule: { schedules } }
-  }
-  catch (error) {
-    throw new Error(`[vitehub] Agent routes with Schedule Capability require @vite-hub/schedule to be installed. ${error instanceof Error ? error.message : String(error)}`)
-  }
-}
-
-async function createRuntimeContext(
-  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+function createRuntimeContext(
   request: Request,
   run: AgentRunMetadata | undefined,
   waitUntil?: AgentWaitUntil,
   cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"],
   runtimeOverride?: AgentRuntimeName,
-): Promise<ViteAgentRouteRuntimeContext> {
+  capabilities?: ViteAgentRouteRuntimeContext["capabilities"],
+): ViteAgentRouteRuntimeContext {
   const waitUntilController = createRuntimeWaitUntilController({ forward: waitUntil })
   const runtime = cloudflare ? "cloudflare-agents" : runtimeOverride || detectRuntime()
-  const routeCapabilities = await resolveAgentRouteCapabilities(agent)
   return createAgentRuntimeContext({
-    ...(routeCapabilities ? { capabilities: routeCapabilities } : {}),
+    ...(capabilities ? { capabilities } : {}),
     ...(cloudflare ? { cloudflare } : {}),
     flushWaitUntil: waitUntilController.flushWaitUntil,
     request,
@@ -2416,13 +2397,13 @@ async function sendDevtoolsUIMessage(
   state.session.thinkingFallback = null
   await onChange?.(serializeAgentChatDevtoolsState(name, state, requestedSelection))
 
-  const runtimeContext = await createRuntimeContext(
-    agent,
+  const runtimeContext = createRuntimeContext(
     request,
     run,
     await resolveRuntimeWaitUntil(requestOptions.waitUntil ?? options.waitUntil),
     requestOptions.cloudflare ?? options.cloudflare,
     requestOptions.runtime ?? options.runtime,
+    requestOptions.capabilities ?? options.capabilities,
   )
   const triggerInput: AgentChatMessageTriggerInput = {
     ...(state.session.invokerProfileId ? { invokerProfileId: state.session.invokerProfileId } : {}),
@@ -2506,13 +2487,13 @@ async function handleAgentChannelDevtoolsRouteRequest(
       return withChatDevtoolsCors(createBadRequest("Missing chat devtools action."))
     }
 
-    const runtime = await createRuntimeContext(
-      agent,
+    const runtime = createRuntimeContext(
       request,
       undefined,
       await resolveRuntimeWaitUntil(requestOptions.waitUntil ?? options.waitUntil),
       requestOptions.cloudflare ?? options.cloudflare,
       requestOptions.runtime ?? options.runtime,
+      requestOptions.capabilities ?? options.capabilities,
     )
     const invokerSelection = normalizeInvokerSelection(body)
     await runWithRuntimeCloudflareEnv(runtime, async () => await startAgentDevtoolsMetadataResolution(agent, state, options, runtime, invokerSelection))
@@ -2602,13 +2583,13 @@ export function createChannelChatRouteHandler(
       const auth = await routeOptions.admission?.authenticate?.({ agentName, body: parsed.body, rawBody: parsed.rawBody, request })
       if (auth === false) throw createRouteError(401, "Agent chat route request was not admitted.")
       const body = await parseAgentChannelChatRouteAdmissionBody(parsed.body, routeOptions.admission?.body)
-      const context = await createRuntimeContext(
-        agent,
+      const context = createRuntimeContext(
         createRuntimeRequest(request, parsed.rawBody),
         undefined,
         await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
         handlerOptions.cloudflare,
         handlerOptions.runtime,
+        handlerOptions.capabilities,
       )
       const trustInput = Boolean(routeOptions.admission?.authenticate && routeOptions.input?.trust?.length)
       const baseInput = agentChannelChatRouteInput(body, agentName, Boolean(trustInput || routeOptions.admission?.context || routeOptions.mapInput), routeOptions)
@@ -2650,13 +2631,13 @@ export function createChannelWebhookRouteHandler(
     }
 
     const waitUntil = await resolveRuntimeWaitUntil(handlerOptions.waitUntil)
-    const context = await createRuntimeContext(
-      agent,
+    const context = createRuntimeContext(
       request,
       undefined,
       waitUntil,
       handlerOptions.cloudflare,
       handlerOptions.runtime,
+      handlerOptions.capabilities,
     )
     return await runWithRuntimeCloudflareEnv(context, async () => {
       const match = await findAgentWebhookRegistration(agent, context, request, webhookId)
@@ -2684,13 +2665,13 @@ export function createChannelWebhookRouteHandler(
             await context.flushWaitUntil?.()
             return invocation.response
           }
-          const runContext = await createRuntimeContext(
-            agent,
+          const runContext = createRuntimeContext(
             request,
             invocation.run,
             waitUntil,
             handlerOptions.cloudflare,
             handlerOptions.runtime,
+            handlerOptions.capabilities,
           )
           context.waitUntil(runWithRuntimeCloudflareEnv(runContext, async () => {
             const result = await runAgent(agent as never, runContext as never, invocation.input as never)
@@ -2740,13 +2721,13 @@ export function createDiscordGatewayRouteHandler(
       return createJsonErrorResponse(405, "Discord Gateway route only accepts GET requests.")
     }
 
-    const context = await createRuntimeContext(
-      agent,
+    const context = createRuntimeContext(
       request,
       undefined,
       await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
       handlerOptions.cloudflare,
       handlerOptions.runtime,
+      handlerOptions.capabilities,
     )
     return await runWithRuntimeCloudflareEnv(context, async () => {
       const chatOptions = getAgentChatOptions(agent)

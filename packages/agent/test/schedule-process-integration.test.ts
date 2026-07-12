@@ -5,14 +5,6 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { createServer } from "vite"
 
-import {
-  createMemoryRuntimeScheduleStore,
-  createMemoryScheduleRunStore,
-  executeRuntimeSchedule,
-  resetScheduleRuntime,
-  schedules,
-} from "../../schedule/src/index.ts"
-import { installScheduleRuntime } from "../../schedule/src/runtime/driver.ts"
 import { hubSchedule } from "../../schedule/src/vite.ts"
 import { hubAgent } from "../src/vite.ts"
 
@@ -24,7 +16,6 @@ interface ScheduledAgentProof {
 const proofKey = "__vitehubProcessScheduledAgentProof"
 
 afterEach(() => {
-  resetScheduleRuntime()
   delete (globalThis as Record<string, unknown>)[proofKey]
   delete process.env.VITEHUB_TEST_SERVICE_PATH
 })
@@ -33,6 +24,10 @@ describe("Agent Process Schedule integration", () => {
   it("creates and executes an Agent turn through the canonical process registry", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-process-schedule-"))
     const agentSourceRoot = join(import.meta.dirname, "..", "src")
+    const scheduleSourceRoot = join(import.meta.dirname, "..", "..", "schedule", "src")
+    const kvSourceRoot = join(import.meta.dirname, "..", "..", "kv", "src")
+    const workspaceSourceRoot = join(import.meta.dirname, "..", "..", "workspace", "src")
+    const kvConfig = { store: { base: join(root, "kv"), driver: "fs-lite" } }
     const proof: ScheduledAgentProof = { deliveries: [], runs: [] }
     ;(globalThis as Record<string, unknown>)[proofKey] = proof
     process.env.VITEHUB_TEST_SERVICE_PATH = "/srv/mini"
@@ -42,8 +37,14 @@ describe("Agent Process Schedule integration", () => {
       "import { schedule } from '@vite-hub/agent/capabilities'",
       "import { defineChannel } from '@vite-hub/agent/channels'",
       "const proof = globalThis.__vitehubProcessScheduledAgentProof",
+      "export const chatRoute = {",
+      "  mapInput: () => ({",
+      "    invokerProfileId: 'discord:user-1',",
+      "    run: { channelId: 'discord', origin: 'discord', threadId: 'discord:channel:thread-1' },",
+      "  }),",
+      "}",
       "export default defineAgent({",
-      "  capabilities: [schedule({ allowSelfTarget: true, delivery: 'origin', mode: 'write' })],",
+      "  capabilities: [schedule({ allowSelfTarget: true, delivery: 'origin', mode: 'write', policy: 'allow', timeZone: 'Asia/Bangkok' })],",
       "  channels: {",
       "    discord: defineChannel('discord', {",
       "      adapter: {",
@@ -53,25 +54,62 @@ describe("Agent Process Schedule integration", () => {
       "    }),",
       "  },",
       "  driver: {",
-      "    run({ invoker, prompt, run, workspace }) {",
-      "      proof.runs.push({ hasWorkspace: Boolean(workspace), invoker, prompt, run, servicePath: process.env.VITEHUB_TEST_SERVICE_PATH })",
-      "      return { text: `Scheduled ${prompt}` }",
+      "    async run({ context, invoker, prompt, run, tools, workspace }) {",
+      "      if (context.get('schedule')) {",
+      "        proof.runs.push({ hasWorkspace: Boolean(workspace), invoker, prompt, run, servicePath: process.env.VITEHUB_TEST_SERVICE_PATH })",
+      "        return { text: `Scheduled ${prompt}` }",
+      "      }",
+      "      const record = await tools.cronjob.execute({ cron: '0 9 1 1 *', id: 'proof-0900', operation: 'create', prompt: 'Send my daily report.' })",
+      "      return { text: `Created ${record.id}` }",
       "    },",
       "  },",
-      "  invoker: { resolve: ({ defaultInvoker }) => ({ ...defaultInvoker, label: 'Reauthorized Maxi' }) },",
+      "  invoker: {",
+      "    profiles: [{ id: 'discord:user-1', kind: 'chat', label: 'Maxi' }],",
+      "    resolve: ({ defaultInvoker, selectedProfile }) => ({ ...(selectedProfile || defaultInvoker), label: 'Reauthorized Maxi' }),",
+      "  },",
       "  workspace: { mode: 'write', store: { provider: 'memory' } },",
       "})",
       "",
     ].join("\n"), "utf8")
+    await writeFile(join(root, "schedule-probe.ts"), [
+      "export { executeRuntimeSchedule, resetScheduleRuntime, schedules } from '@vite-hub/schedule'",
+      "",
+    ].join("\n"), "utf8")
 
-    const schedulePlugin = hubSchedule({ providerOutput: false, runtime: { driver: "process" } })
+    const schedulePlugin = hubSchedule({ providerOutput: false, runtime: { driver: "process", prefix: root } })
     const server = await createServer({
       appType: "custom",
       configFile: false,
       logLevel: "silent",
       plugins: [
         schedulePlugin as never,
-        hubAgent({ eval: false, routes: { chat: false, discordGateway: false, webhooks: false } }),
+        hubAgent({
+          eval: false,
+          providers: { state: { provider: "memory" } },
+          routes: { chat: true, discordGateway: false, webhooks: false },
+        }),
+        {
+          name: "test-host-runtime",
+          resolveId(id) {
+            if (id === "#vitehub/kv/config") return "\0test-kv-config"
+            if (id === "nitro") return "\0test-nitro-runtime"
+            if (id === "h3") return "\0test-h3-runtime"
+          },
+          load(id) {
+            if (id === "\0test-kv-config") return `export const kv = ${JSON.stringify(kvConfig)}`
+            if (id === "\0test-nitro-runtime") return "export const definePlugin = plugin => plugin"
+            if (id === "\0test-h3-runtime") {
+              return [
+                "export const createError = input => Object.assign(new Error(input.statusMessage), input)",
+                "export const defineEventHandler = handler => handler",
+                "export const getRequestHeaders = event => event.headers || {}",
+                "export const getRequestURL = event => new URL(event.url)",
+                "export const getRouterParam = (event, name) => event.params?.[name]",
+                "export const readRawBody = async event => event.body",
+              ].join("\n")
+            }
+          },
+        },
       ],
       resolve: {
         alias: [
@@ -79,12 +117,23 @@ describe("Agent Process Schedule integration", () => {
           { find: /^@vite-hub\/agent\/capabilities$/, replacement: join(agentSourceRoot, "capabilities.ts") },
           { find: /^@vite-hub\/agent\/channels$/, replacement: join(agentSourceRoot, "channels.ts") },
           { find: /^@vite-hub\/agent\/server\/internal$/, replacement: join(agentSourceRoot, "server", "internal.ts") },
+          { find: /^@vite-hub\/schedule$/, replacement: join(scheduleSourceRoot, "index.ts") },
+          { find: /^@vite-hub\/schedule\/runtime$/, replacement: join(scheduleSourceRoot, "runtime.ts") },
+          { find: /^@vite-hub\/schedule\/runtime\/driver$/, replacement: join(scheduleSourceRoot, "runtime", "driver.ts") },
+          { find: /^@vite-hub\/schedule\/runtime\/process$/, replacement: join(scheduleSourceRoot, "runtime", "process.ts") },
+          { find: /^@vite-hub\/kv$/, replacement: join(kvSourceRoot, "index.ts") },
+          { find: /^@vite-hub\/workspace\/runtime$/, replacement: join(workspaceSourceRoot, "runtime.ts") },
         ],
       },
       root,
       server: { middlewareMode: true },
     })
-    let controller: Awaited<ReturnType<typeof installScheduleRuntime>> | undefined
+    const closeHandlers: Array<() => Promise<void> | void> = []
+    let scheduleProbe: {
+      executeRuntimeSchedule: (options: { id: string, scheduledAt: Date }) => Promise<unknown>
+      resetScheduleRuntime: () => void
+      schedules: { get: (id: string) => Promise<unknown> }
+    } | undefined
     try {
       const pluginSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
       expect(pluginSource).toContain('runtimeScheduleRegistry from "#vitehub/schedule/registry"')
@@ -92,30 +141,56 @@ describe("Agent Process Schedule integration", () => {
       const registry = registryModule.default
       expect(registry).toHaveProperty("agent/mini")
 
-      controller = await installScheduleRuntime({
-        createDriver: () => ({ reconcile: async () => {} }),
-        registry,
-        runtimeScheduleStore: createMemoryRuntimeScheduleStore(),
-        scheduleRunStore: createMemoryScheduleRunStore(),
-      })
-      await expect(schedules.create({
-        cron: "0 9 * * *",
-        id: "daily-0900",
-        input: {
-          delivery: { channelId: "discord", origin: "discord", threadId: "discord:channel:thread-1" },
-          invoker: { id: "discord:user-1", kind: "chat", label: "Maxi" },
-          kind: "agent-turn",
-          prompt: "Send my daily report.",
+      const runtimePlugin = await server.ssrLoadModule(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"))
+      const stack: Array<{ handler: () => Promise<void> }> = []
+      await runtimePlugin.default({
+        captureError(error: unknown) {
+          throw error
         },
+        h3App: { stack },
+        hooks: {
+          hook(name: string, handler: () => Promise<void> | void) {
+            if (name === "close") closeHandlers.push(handler)
+          },
+        },
+      })
+      await stack[0]!.handler()
+
+      const routeSource = await readFile(join(root, ".vitehub", "agent", "chat-webhook-route.ts"), "utf8")
+      expect(routeSource).toContain('import { schedules as vitehubSchedules } from "@vite-hub/schedule/runtime"')
+      expect(routeSource).toContain("capabilities: vitehubAgentRouteCapabilities")
+      const route = await server.ssrLoadModule(join(root, ".vitehub", "agent", "chat-webhook-route.ts"))
+      const response = await route.default({
+        body: JSON.stringify({
+          id: "thread-1",
+          messages: [{
+            id: "user-1",
+            parts: [{ text: "Create my daily report.", type: "text" }],
+            role: "user",
+          }],
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+        params: { agent: "mini" },
+        url: "https://example.com/api/_vitehub/agents/mini/chat",
+      })
+      const responseText = await response.text()
+      expect({ responseText, status: response.status }).toEqual({
+        responseText: expect.stringContaining("Created proof-0900"),
+        status: 200,
+      })
+
+      scheduleProbe = await server.ssrLoadModule(join(root, "schedule-probe.ts")) as typeof scheduleProbe
+      await expect(scheduleProbe!.schedules.get("proof-0900")).resolves.toMatchObject({
+        id: "proof-0900",
         target: "agent/mini",
         timeZone: "Asia/Bangkok",
-      })).resolves.toMatchObject({ id: "daily-0900", target: "agent/mini" })
-
-      const run = await executeRuntimeSchedule({
-        id: "daily-0900",
-        scheduledAt: new Date("2026-07-12T02:00:00.000Z"),
       })
-      expect(run).toMatchObject({ scheduleId: "daily-0900", status: "succeeded", target: "agent/mini" })
+      const run = await scheduleProbe!.executeRuntimeSchedule({
+        id: "proof-0900",
+        scheduledAt: new Date("2026-01-01T02:00:00.000Z"),
+      })
+      expect(run).toMatchObject({ scheduleId: "proof-0900", status: "succeeded", target: "agent/mini" })
       expect(proof.runs).toEqual([{
         hasWorkspace: true,
         invoker: { id: "discord:user-1", kind: "chat", label: "Reauthorized Maxi" },
@@ -133,7 +208,8 @@ describe("Agent Process Schedule integration", () => {
       }])
     }
     finally {
-      await controller?.close()
+      for (const close of closeHandlers) await close()
+      scheduleProbe?.resetScheduleRuntime()
       await server.close()
       await rm(root, { force: true, recursive: true })
     }
