@@ -21,6 +21,51 @@ function close(server: Server | undefined): Promise<void> {
 }
 
 describe("local harness sandbox", () => {
+  it("serializes bootstrap work and releases the queue after failure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-local-sandbox-"))
+    const provider = createLocalHarnessSandbox({ rootDir: root })
+    const events: string[] = []
+    let releaseFirst!: () => void
+    const firstReady = new Promise<void>(resolve => releaseFirst = resolve)
+    let markFirstStarted!: () => void
+    const firstStarted = new Promise<void>(resolve => markFirstStarted = resolve)
+
+    const first = provider.createSession({
+      onFirstCreate: async () => {
+        events.push("first:start")
+        markFirstStarted()
+        await firstReady
+        events.push("first:fail")
+        throw new Error("bootstrap failed")
+      },
+    })
+    const second = provider.createSession({
+      onFirstCreate: async () => {
+        events.push("second:start")
+      },
+    })
+
+    try {
+      await firstStarted
+      expect(events).toEqual(["first:start"])
+
+      releaseFirst()
+      await expect(first).rejects.toThrow("bootstrap failed")
+      const secondSession = await second
+
+      try {
+        expect(events).toEqual(["first:start", "first:fail", "second:start"])
+      }
+      finally {
+        await secondSession.destroy?.()
+      }
+    }
+    finally {
+      releaseFirst()
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("runs commands and reads written files", async () => {
     const provider = createLocalHarnessSandbox({ env: { PATH: process.env.PATH } })
     const session = await provider.createSession()

@@ -215,14 +215,28 @@ async function createSession(options: LocalHarnessSandboxOptions, sessionId: str
 }
 
 export function createLocalHarnessSandbox(options: LocalHarnessSandboxOptions = {}): HarnessV1SandboxProvider {
+  let firstCreate = Promise.resolve()
+
   return {
     ...(options.ports ? { bridgePorts: options.ports } : {}),
     providerId: "local",
     specificationVersion: "harness-sandbox-v1",
     async createSession(createOptions) {
-      const session = await createSession(options, createOptions?.sessionId)
-      await createOptions?.onFirstCreate?.(session, { abortSignal: createOptions.abortSignal })
-      return session
+      const onFirstCreate = createOptions?.onFirstCreate
+      if (!onFirstCreate) return await createSession(options, createOptions?.sessionId)
+
+      const previous = firstCreate
+      let release!: () => void
+      firstCreate = new Promise(resolve => release = resolve)
+      await previous
+      try {
+        const session = await createSession(options, createOptions?.sessionId)
+        await onFirstCreate(session, { abortSignal: createOptions.abortSignal })
+        return session
+      }
+      finally {
+        release()
+      }
     },
   }
 }

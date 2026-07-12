@@ -164,6 +164,16 @@ index d3e0ddc65dc0a65ac9f8b2d81b21619939b97f47..fddc72fd6cfc59bb601eaf1ea09f73cf
            }
          ]
        };
+@@ -343,7 +343,9 @@ function resolveBridgePort(sandboxSession, override) {
+   });
+ }
+ async function readBridgeAsset(name) {
++  const packageEntry = import.meta.resolve("@ai-sdk/harness-codex");
+   const candidates = [
++    new URL(`./bridge/${name}`, packageEntry),
+     new URL(`./bridge/${name}`, import.meta.url),
+     new URL(`../bridge/${name}`, import.meta.url)
+   ];
 diff --git a/src/bridge/package.json b/src/bridge/package.json
 index 898b7721302a9f793b4bcc685781ac395f972453..1613e3f1d6cf1b70a1b5e0748b366985ad388ebc 100644
 --- a/src/bridge/package.json
@@ -330,3 +340,10 @@ index 9cf07639396f5fd3a63674429df7b500dce05201..24e059400dda600e3c02ec168550dd0a
            },
          ],
        };
+@@ -438,4 +438,6 @@ async function readBridgeAsset(name: string): Promise<string> {
++  const packageEntry = import.meta.resolve('@ai-sdk/harness-codex');
+   const candidates = [
++    new URL(`./bridge/${name}`, packageEntry),
+     new URL(`./bridge/${name}`, import.meta.url),
+     new URL(`../bridge/${name}`, import.meta.url),
+   ];
