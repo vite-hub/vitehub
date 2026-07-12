@@ -118,7 +118,6 @@ catalogs:
     tinyglobby: ^0.2.16
 
 patchedDependencies:
-  '@ai-sdk/harness-codex@1.0.0': patches/@ai-sdk__harness-codex@1.0.0.patch
   h3@2.0.1-rc.20: patches/h3@2.0.1-rc.20.patch
 
 overrides:
