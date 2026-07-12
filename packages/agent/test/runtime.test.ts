@@ -951,6 +951,38 @@ describe("agent message protocol", () => {
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret")
   })
 
+  it("captures yielded usage in runAgent invocation data", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      hooks: { "agent:finish": finish },
+      driver: { run: () => (async function* () {
+          yield { text: "hello", type: "text-delta" }
+          yield { type: "usage", usageRecord: { usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } } }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-streamed-usage" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {}) as AsyncIterable<unknown>
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      run: { runId: "run-streamed-usage" },
+      usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+    })
+    expect(finish.mock.calls[0]![0].runtime.traceLog.entries().at(-1)?.attributes).toMatchObject({
+      "usage.record": {
+        run: { runId: "run-streamed-usage" },
+        usage: { totalTokens: 5 },
+      },
+    })
+  })
+
   it("derives yielded stream error Trace Events as failed runs", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()

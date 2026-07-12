@@ -1663,6 +1663,9 @@ function withStreamedResult(
     finishResult() {
       return resultWithStreamedTextAndUsage(result, streamedText, usageRecord, fallbackUsageRecord)
     },
+    finishUsage() {
+      return usageRecord ?? fallbackUsageRecord
+    },
     stream: (async function* () {
       for await (const chunk of stream) {
         const event = toAgentStreamEvent(chunk, toolNames)
@@ -2108,11 +2111,20 @@ async function finalizeAgentInvocationResult<
     if (isAsyncIterable(result) && !hasTraceableStreamResult(result) && !options.finalizeRawStreams) {
       finishLifecycleStarted = shouldWrapOutput
       const stream = options.wrapStream?.(result) || result
-      if (shouldWrapOutput && context.finalOutputRenderers.length) {
+      if (shouldWrapOutput) {
         const streamed = withStreamedResult(stream, result)
+        if (!context.finalOutputRenderers.length) {
+          return withCapabilityCleanup(streamed.stream, async (outcome) => {
+            const finishOutcome = finishOutcomeFromCleanup(outcome, result)
+            const usage = streamed.finishUsage()
+            return finishAgentInvocation(context, finishOutcome.status === "success"
+              ? { ...finishOutcome, usage: usage ? await resolveAgentUsageRecord({ usageRecord: usage }, context.run) : undefined }
+              : finishOutcome)
+          }, { abortSignal: context.input.abortSignal })
+        }
         return withCapabilityCleanup(streamed.stream, outcome => finishStreamAgentInvocation(context, streamed.finishResult(), finishOutcomeFromCleanup(outcome), failureMessage, options.outputExtensions), { abortSignal: context.input.abortSignal })
       }
-      return shouldWrapOutput ? withCapabilityCleanup(stream, outcome => finishAgentInvocation(context, finishOutcomeFromCleanup(outcome, result)), { abortSignal: context.input.abortSignal }) : stream
+      return stream
     }
     const finalized = await finalizeObject(result)
     finishLifecycleStarted = true
