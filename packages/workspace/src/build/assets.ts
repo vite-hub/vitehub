@@ -50,15 +50,20 @@ function generatedViteHubImportAliases(rootDir: string) {
   return aliases
 }
 
-function createWorkspaceConfigLoader(rootDir: string) {
+export function createWorkspaceDefinitionLoader(rootDir: string, alias: Record<string, string> = {}) {
   return createJiti(import.meta.url, {
-    alias: generatedViteHubImportAliases(rootDir),
+    alias: { ...alias, ...generatedViteHubImportAliases(rootDir) },
     moduleCache: false,
   })
 }
 
-async function importWorkspaceConfig(loader: ReturnType<typeof createJiti>, path: string): Promise<{ default?: WorkspaceDefinitionInput }> {
-  return await loader.import(path)
+export async function loadDiscoveredWorkspaceDefinition(
+  loader: ReturnType<typeof createJiti>,
+  definition: DiscoveredWorkspaceDefinition,
+): Promise<WorkspaceDefinitionInput> {
+  const mod = await loader.import(definition.path) as { default?: WorkspaceDefinitionInput }
+  if (!mod.default) throw new TypeError(`[vitehub] Workspace definition "${definition.name}" has no default export.`)
+  return mod.default
 }
 
 function runtimeAssetsModulePath() {
@@ -96,19 +101,18 @@ export async function syncDiscoveredWorkspaceAssetBundles(
   if (!options) return []
 
   const bundles: WorkspaceAssetBundle[] = []
-  const workspaceConfigLoader = createWorkspaceConfigLoader(rootDir)
+  const workspaceConfigLoader = createWorkspaceDefinitionLoader(rootDir)
   for (const definition of definitions) {
     if (!shouldBundleWorkspaceAssets(options.assets, definition.name)) continue
 
-    const mod = await importWorkspaceConfig(workspaceConfigLoader, definition.path)
-    if (!mod.default) throw new TypeError(`[vitehub] Workspace definition "${definition.name}" has no default export.`)
+    const workspace = await loadDiscoveredWorkspaceDefinition(workspaceConfigLoader, definition)
 
     const store = createMemoryWorkspaceStore()
     await syncWorkspaceDefinition({
-      ...mod.default,
+      ...workspace,
       name: definition.name,
-      rootDir: mod.default.rootDir || rootDir,
-      sourceRootDir: mod.default.sourceRootDir ?? definition.sourceRootDir,
+      rootDir: workspace.rootDir || rootDir,
+      sourceRootDir: workspace.sourceRootDir ?? definition.sourceRootDir,
       store,
     }, store)
     bundles.push(await collectWorkspaceStoreAssetBundle(definition.name, store))

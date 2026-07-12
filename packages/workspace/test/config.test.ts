@@ -104,11 +104,11 @@ describe("workspace config", () => {
 
     expect(config && config.store).toEqual(expect.objectContaining({
       binding: "WORKSPACE_ARTIFACTS",
-      branch: "main",
       namespace: "e2e",
       provider: "cloudflare-artifacts",
       repoPrefix: "workspace-",
     }))
+    expect(config && config.store).not.toHaveProperty("branch")
   })
 
   it("defaults to memory on Vercel hosting", () => {

@@ -64,6 +64,26 @@ find dist -maxdepth 4 -type f | sort
 
 Agent routes should come from generated Provider Output. Raw Cloudflare Worker fetch handlers are not a public Agent API.
 
+Workspace adds an Artifacts binding when its Store explicitly selects Cloudflare Artifacts:
+
+```ts [vite.config.ts]
+import { hubWorkspace } from '@vite-hub/workspace/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubWorkspace()],
+  workspace: {
+    store: {
+      provider: 'cloudflare-artifacts',
+      binding: 'WORKSPACE_ARTIFACTS',
+      namespace: 'vitehub',
+    },
+  },
+})
+```
+
+Inspect the generated `artifacts` entry in `wrangler.json` before deployment. Workspace preserves unrelated app-owned Artifacts bindings. Cloudflare hosting still defaults to the ephemeral `memory` Store because Artifacts requires explicit beta access.
+
 ## Production notes
 
 Cloudflare local development and deployed Workers do not always expose the same runtime behavior.
