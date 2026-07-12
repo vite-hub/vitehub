@@ -1428,7 +1428,14 @@ async function createAgentInvocationContext<
   invocationContext.set(scheduledAgentNameContextKey, getScheduledAgentName(definition), { overwrite: true })
   let invoker = createFallbackAgentInvoker(context.run)
   try {
-    invoker = await resolveAgentInvoker(definition?.invoker, callbackContext, invocationContext, input, context.run)
+    invoker = await resolveAgentInvoker(
+      definition?.invoker,
+      callbackContext,
+      invocationContext,
+      input,
+      context.run,
+      invocationContext.get<boolean>(scheduledAgentTurnContextKey) === true,
+    )
     const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
     const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
     const workspaceName = workspaceOptions

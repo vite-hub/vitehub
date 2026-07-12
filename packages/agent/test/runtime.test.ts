@@ -2194,6 +2194,33 @@ describe("agent message protocol", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ["returns no identity", undefined],
+    ["returns a different identity", { id: "discord:user-2", kind: "chat" }],
+  ])("rejects a scheduled Agent turn when invoker reauthorization %s", async (_scenario, resolvedInvoker) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineScheduledAgentTarget } = await import("../src/server/internal.ts")
+    const run = vi.fn(() => "must not run")
+    const agent = defineAgent({
+      driver: { run },
+      invoker: {
+        resolve: () => resolvedInvoker,
+      },
+    })
+    const target = defineScheduledAgentTarget(agent)
+
+    await expect(target.handler({
+      id: "srun-revoked",
+      input: {
+        invoker: { id: "discord:user-1", kind: "chat" },
+        kind: "agent-turn",
+        prompt: "Prepare my daily report.",
+      },
+      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+    })).rejects.toThrow("matching invoker reauthorization")
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it("converts ViteHub messages to model messages internally", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 
