@@ -1585,7 +1585,7 @@ describe("agent message protocol", () => {
     expect(harnessCreateSession).toHaveBeenCalledWith({ sessionId: "acme:run-1" })
   })
 
-  it("configures harness instructions and work directories for each generated invocation", async () => {
+  it("configures each generated invocation without resuming across instruction changes", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const firstSession = { detach: vi.fn(async () => ({ token: "resume" })), destroy: vi.fn() }
     const secondSession = { detach: vi.fn(async () => ({ token: "next" })), destroy: vi.fn() }
@@ -1634,7 +1634,7 @@ describe("agent message protocol", () => {
     })
     expect(harnessGenerate).toHaveBeenCalledWith(expect.not.objectContaining({ instructions: expect.anything() }))
     expect(harnessCreateSession).toHaveBeenNthCalledWith(1, { sessionId: "pull-request-559" })
-    expect(harnessCreateSession).toHaveBeenNthCalledWith(2, { resumeFrom: { token: "resume" }, sessionId: "pull-request-559" })
+    expect(harnessCreateSession).toHaveBeenNthCalledWith(2, { sessionId: "pull-request-559" })
   })
 
   it("configures harness instructions and work directories before streaming", async () => {

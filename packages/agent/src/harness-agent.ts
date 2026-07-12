@@ -515,7 +515,7 @@ async function createHarnessAgent<
   options: HarnessAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>,
   context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
   prepareWorkspaceSession: (session: unknown, sessionWorkDir: string, abortSignal: AbortSignal | undefined) => Promise<void>,
-): Promise<HarnessAgentLike> {
+): Promise<{ agent: HarnessAgentLike, instructions?: string, workDir?: string }> {
   assertSupportedHarnessDriverContributions(context)
   const { HarnessAgent } = await import("@ai-sdk/harness/agent") as unknown as { HarnessAgent: HarnessAgentConstructor }
   const sandbox = context.harnessSandboxProvider ?? await resolveHarnessSandboxProvider(options.sandbox, context) ?? await createDefaultHarnessSandbox(context)
@@ -523,7 +523,7 @@ async function createHarnessAgent<
   const instructions = await resolveHarnessDriverInstructions(options.instructions, context)
   const workDir = await resolveHarnessWorkDir(options.workDir, context)
   const tools = toHarnessTools(context)
-  return new HarnessAgent({
+  const agent = new HarnessAgent({
     harness,
     ...(instructions ? { instructions } : {}),
     sandboxConfig: {
@@ -537,6 +537,7 @@ async function createHarnessAgent<
     sandbox,
     ...(tools ? { tools } : {}),
   })
+  return { agent, instructions, workDir }
 }
 
 function hasDetach(session: HarnessAgentSessionLike): session is HarnessAgentSessionLike & { detach: () => MaybePromise<unknown> } {
@@ -736,10 +737,12 @@ export function createHarnessAgentAdapter<
     agent: HarnessAgentLike,
     context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
     getWorkspaceSession: () => { close: (error?: unknown) => MaybePromise<void> } | undefined,
+    identity: { instructions?: string, workDir?: string },
   ) {
     const sessionId = await resolveHarnessSessionKey(options.sessionKey, context)
-    const resumesSession = sessionId ? resumeStates.has(sessionId) : false
-    const resumeFrom = sessionId ? resumeStates.get(sessionId) : undefined
+    const resumeKey = sessionId ? JSON.stringify([sessionId, identity.instructions, identity.workDir]) : undefined
+    const resumesSession = resumeKey ? resumeStates.has(resumeKey) : false
+    const resumeFrom = resumeKey ? resumeStates.get(resumeKey) : undefined
     const sessionOptions = {
       ...(context.input.abortSignal ? { abortSignal: context.input.abortSignal } : {}),
       ...(sessionId ? { sessionId } : {}),
@@ -758,18 +761,18 @@ export function createHarnessAgentAdapter<
       finally {
         setActiveHarnessWorkspaceFiles(context.context, undefined)
       }
-      if (!sessionId || closeError) {
-        if (sessionId) resumeStates.delete(sessionId)
+      if (!resumeKey || closeError) {
+        if (resumeKey) resumeStates.delete(resumeKey)
         await destroySession(session)
         if (closeError !== error) throw closeError
         return
       }
       if (!hasDetach(session)) {
-        resumeStates.delete(sessionId)
+        resumeStates.delete(resumeKey)
         await destroySession(session)
         return
       }
-      resumeStates.set(sessionId, await session.detach())
+      resumeStates.set(resumeKey, await session.detach())
     }
     if (context.input.abortSignal?.aborted) {
       const error = context.input.abortSignal.reason || new Error("[vitehub] Harness Agent Driver session aborted.")
@@ -785,7 +788,7 @@ export function createHarnessAgentAdapter<
 
   async function createAgentAndSession(context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>) {
     let workspaceSession: { close: (error?: unknown) => MaybePromise<void>, refreshGitBaseline?: () => MaybePromise<void> } | undefined
-    const agent = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal) => {
+    const resolved = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal) => {
       if (!context.workspace) return
       const harnessInstructions = await resolveHarnessInstructions(context)
       const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
@@ -812,8 +815,8 @@ export function createHarnessAgentAdapter<
       }
     })
     return {
-      agent,
-      ...await createSession(agent, context, () => workspaceSession),
+      agent: resolved.agent,
+      ...await createSession(resolved.agent, context, () => workspaceSession, resolved),
     }
   }
 
