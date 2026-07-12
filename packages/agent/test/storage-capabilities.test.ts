@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import type { ReadonlyWorkspaceFacade } from "@vite-hub/workspace"
+import type { AgentInvoker, AgentRunMetadata } from "../src/types.ts"
 
 const runtime = (capabilities: Record<string, unknown>) => ({
   capabilities,
@@ -10,9 +11,28 @@ const runtime = (capabilities: Record<string, unknown>) => ({
   waitUntil: vi.fn(),
 })
 
-async function resolveTools(capabilities: unknown[], handles: Record<string, unknown>, workspace?: ReadonlyWorkspaceFacade) {
+async function resolveTools(
+  capabilities: unknown[],
+  handles: Record<string, unknown>,
+  workspace?: ReadonlyWorkspaceFacade,
+  invocation: {
+    agentName?: string
+    channelIds?: string[]
+    invoker?: AgentInvoker
+    run?: AgentRunMetadata
+  } = {},
+) {
   const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-  const resolved = await resolveAgentCapabilities({ capabilities: capabilities as never }, runtime(handles), {}, workspace as never)
+  const resolved = await resolveAgentCapabilities({ capabilities: capabilities as never }, {
+    ...runtime(handles),
+    ...(invocation.run ? { run: invocation.run } : {}),
+  }, {
+    context: {
+      ...(invocation.agentName ? { "agent.name": invocation.agentName } : {}),
+      ...(invocation.channelIds ? { "agent.channels": invocation.channelIds } : {}),
+      ...(invocation.invoker ? { invoker: invocation.invoker } : {}),
+    },
+  }, workspace as never)
   return resolved.tools!
 }
 
@@ -31,6 +51,14 @@ describe("storage capabilities", () => {
         schedule({ mode: "read", targets: ["reports"] }),
       ],
     }, runtime({ schedule: { schedules } }), {}).then(resolved => Object.keys(resolved.tools!).sort())).resolves.toEqual(["cronjob"])
+  })
+
+  it("keeps Runtime Schedule primitives explicit outside hosted route contexts", async () => {
+    const { schedule } = await import("../src/capabilities.ts")
+
+    await expect(resolveTools([schedule({ mode: "read" })], {})).rejects.toThrow(
+      'Capability "schedule" requires the schedule primitive to be configured.',
+    )
   })
 
   it("exposes scoped Runtime Schedule read and edit tools", async () => {
@@ -88,6 +116,7 @@ describe("storage capabilities", () => {
 
   it("blocks self-targeting Runtime Schedules unless explicitly allowed", async () => {
     const { schedule } = await import("../src/capabilities.ts")
+    expect(() => schedule({ delivery: "origin", mode: "write" })).toThrow("allowSelfTarget")
     const schedules = {
       create: vi.fn(async input => input),
       delete: vi.fn(),
@@ -99,11 +128,215 @@ describe("storage capabilities", () => {
       update: vi.fn(),
     }
 
-    const blocked = await resolveTools([schedule({ mode: "write", selfTarget: "agent/daily", targets: ["agent/daily"] })], { schedule: schedules })
+    const blocked = await resolveTools([schedule({ mode: "write", targets: ["agent/daily"] })], { schedule: schedules }, undefined, { agentName: "daily" })
     await expect(blocked.cronjob!.execute?.({ cron: "0 9 * * *", operation: "create", target: "agent/daily" })).rejects.toThrow("Self Schedule Permission")
 
-    const allowed = await resolveTools([schedule({ allowSelfTarget: true, mode: "write", selfTarget: "agent/daily", targets: ["agent/daily"] })], { schedule: schedules })
-    await expect(allowed.cronjob!.execute?.({ cron: "0 9 * * *", operation: "create", target: "agent/daily" })).resolves.toMatchObject({ target: "agent/daily" })
+    const allowed = await resolveTools([schedule({ allowSelfTarget: true, mode: "write" })], { schedule: schedules }, undefined, { agentName: "daily" })
+    await expect(allowed.cronjob!.execute?.({ operation: "targets" })).resolves.toEqual({ targets: undefined })
+    await expect(allowed.cronjob!.execute?.({ cron: "0 9 * * *", operation: "create", prompt: "Prepare the daily report." })).resolves.toMatchObject({ target: "agent/daily" })
+    schedules.get.mockResolvedValueOnce({ cron: "0 8 * * *", enabled: true, id: "generic", target: "reports" })
+    await expect(allowed.cronjob!.execute?.({ id: "generic", operation: "edit", target: "agent/daily" })).rejects.toThrow("requires a prompt")
+    expect(schedules.update).not.toHaveBeenCalled()
+  })
+
+  it("captures durable scheduled Agent turns without exposing or rebinding identity and delivery", async () => {
+    const { schedule } = await import("../src/capabilities.ts")
+    const createdAt = new Date("2026-05-23T00:00:00.000Z")
+    let record: Record<string, unknown> | undefined
+    const schedules = {
+      create: vi.fn(async (input: Record<string, unknown>) => {
+        record = { ...input, createdAt, enabled: input.enabled ?? true, updatedAt: createdAt }
+        return record
+      }),
+      delete: vi.fn(async () => true),
+      disable: vi.fn(async () => ({ ...record, enabled: false })),
+      enable: vi.fn(async () => ({ ...record, enabled: true })),
+      get: vi.fn(async () => record),
+      list: vi.fn(async () => record ? [record] : []),
+      run: vi.fn(async (id: string) => ({ id: `run-${id}`, scheduleId: id })),
+      update: vi.fn(async (_id: string, input: Record<string, unknown>) => {
+        record = { ...record, ...input }
+        return record
+      }),
+    }
+    const capability = schedule({
+      allowSelfTarget: true,
+      delivery: "origin",
+      mode: "write",
+      timeZone: "Asia/Bangkok",
+    })
+    const creator = {
+      agentName: "digest",
+      channelIds: ["discord"],
+      invoker: {
+        email: { address: "maxi@example.com", domain: "example.com" },
+        id: "discord:user-1",
+        kind: "chat",
+        label: "Maxi",
+        meta: { accessToken: "secret", providerUser: { id: "provider-1" } },
+      },
+      run: { channelId: "discord", origin: "discord", runId: "run-create", threadId: "discord:thread-1" },
+    }
+    const tools = await resolveTools([capability], { schedule: { schedules } }, undefined, creator)
+
+    await expect(tools.cronjob!.execute?.({
+      cron: "0 9 * * *",
+      id: "daily",
+      operation: "create",
+      prompt: "Prepare my daily report.",
+    })).resolves.toMatchObject({ id: "daily", target: "agent/digest" })
+    expect(schedules.create).toHaveBeenCalledWith({
+      cron: "0 9 * * *",
+      enabled: undefined,
+      id: "daily",
+      input: {
+        delivery: { channelId: "discord", origin: "discord", threadId: "discord:thread-1" },
+        invoker: {
+          email: { address: "maxi@example.com", domain: "example.com" },
+          id: "discord:user-1",
+          kind: "chat",
+          label: "Maxi",
+        },
+        kind: "agent-turn",
+        prompt: "Prepare my daily report.",
+      },
+      target: "agent/digest",
+      timeZone: "Asia/Bangkok",
+    })
+    await expect(tools.cronjob!.execute?.({
+      cron: "0 9 * * *",
+      invoker: { id: "spoofed" },
+      operation: "create",
+      origin: "telegram",
+      prompt: "Spoofed report.",
+    } as never)).rejects.toThrow("does not support")
+    const undeliverable = await resolveTools([capability], { schedule: { schedules } }, undefined, {
+      agentName: "digest",
+      invoker: { id: "cli:user-1" },
+      run: { channelId: "cli", origin: "cli", runId: "run-without-thread" },
+    })
+    await expect(undeliverable.cronjob!.execute?.({
+      cron: "0 10 * * *",
+      operation: "create",
+      prompt: "This cannot be delivered.",
+    })).rejects.toThrow("channelId and threadId")
+    const kindless = await resolveTools([capability], { schedule: { schedules } }, undefined, {
+      agentName: "digest",
+      channelIds: ["discord"],
+      invoker: { id: "discord:user-1" },
+      run: { channelId: "discord", origin: "discord", runId: "run-kindless", threadId: "discord:thread-1" },
+    })
+    await expect(kindless.cronjob!.execute?.({
+      cron: "0 10 * * *",
+      operation: "create",
+      prompt: "This identity is incomplete.",
+    })).rejects.toThrow("durable invoker kind")
+
+    await expect(tools.cronjob!.execute?.({ id: "daily", operation: "get" })).resolves.toEqual({
+      createdAt,
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "daily",
+      prompt: "Prepare my daily report.",
+      target: "agent/digest",
+      timeZone: "Asia/Bangkok",
+      updatedAt: createdAt,
+    })
+    await expect(tools.cronjob!.execute?.({ operation: "list" })).resolves.toEqual([{
+      createdAt,
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "daily",
+      prompt: "Prepare my daily report.",
+      target: "agent/digest",
+      timeZone: "Asia/Bangkok",
+      updatedAt: createdAt,
+    }])
+
+    const intruder = await resolveTools([capability], { schedule: { schedules } }, undefined, {
+      agentName: "digest",
+      invoker: { id: "discord:user-2", kind: "chat", label: "Another user" },
+      run: { channelId: "discord", origin: "discord", runId: "run-intruder", threadId: "discord:thread-2" },
+    })
+    await expect(intruder.cronjob!.execute?.({ operation: "list" })).resolves.toEqual([])
+    await expect(intruder.cronjob!.execute?.({ id: "daily", operation: "get" })).rejects.toThrow("current invoker scope")
+    await expect(intruder.cronjob!.execute?.({ id: "daily", operation: "edit", prompt: "Expose another user's report." })).rejects.toThrow("current invoker scope")
+    await expect(intruder.cronjob!.execute?.({ id: "daily", operation: "run" })).rejects.toThrow("current invoker scope")
+    await expect(intruder.cronjob!.execute?.({ id: "daily", operation: "pause" })).rejects.toThrow("current invoker scope")
+    await expect(intruder.cronjob!.execute?.({ id: "daily", operation: "resume" })).rejects.toThrow("current invoker scope")
+    await expect(intruder.cronjob!.execute?.({ id: "daily", operation: "delete" })).rejects.toThrow("current invoker scope")
+    expect(schedules.update).not.toHaveBeenCalled()
+    expect(schedules.run).not.toHaveBeenCalled()
+    expect(schedules.disable).not.toHaveBeenCalled()
+    expect(schedules.enable).not.toHaveBeenCalled()
+    expect(schedules.delete).not.toHaveBeenCalled()
+
+    const wrongInvokerKind = await resolveTools([capability], { schedule: { schedules } }, undefined, {
+      agentName: "digest",
+      invoker: { id: "discord:user-1", kind: "cli" },
+      run: { origin: "cli", runId: "run-wrong-kind" },
+    })
+    await expect(wrongInvokerKind.cronjob!.execute?.({ operation: "list" })).resolves.toEqual([])
+    await expect(wrongInvokerKind.cronjob!.execute?.({ id: "daily", operation: "get" })).rejects.toThrow("current invoker scope")
+
+    const editor = await resolveTools([capability], { schedule: { schedules } }, undefined, {
+      agentName: "digest",
+      invoker: { id: "discord:user-1", kind: "chat", label: "Maxi, refreshed", meta: { accessToken: "different-secret" } },
+      run: { channelId: "discord", origin: "discord", runId: "run-edit", threadId: "discord:thread-2" },
+    })
+    await editor.cronjob!.execute?.({ id: "daily", operation: "edit", prompt: "Prepare a shorter report.", timeZone: "Europe/Madrid" })
+    expect(schedules.update).toHaveBeenLastCalledWith("daily", {
+      input: {
+        delivery: { channelId: "discord", origin: "discord", threadId: "discord:thread-1" },
+        invoker: {
+          email: { address: "maxi@example.com", domain: "example.com" },
+          id: "discord:user-1",
+          kind: "chat",
+          label: "Maxi",
+        },
+        kind: "agent-turn",
+        prompt: "Prepare a shorter report.",
+      },
+      timeZone: "Europe/Madrid",
+    })
+    await expect(editor.cronjob!.execute?.({ id: "daily", operation: "run" })).resolves.toEqual({ id: "run-daily", scheduleId: "daily" })
+    await expect(editor.cronjob!.execute?.({ id: "daily", operation: "pause" })).resolves.toMatchObject({ enabled: false, prompt: "Prepare a shorter report." })
+    await expect(editor.cronjob!.execute?.({ id: "daily", operation: "resume" })).resolves.toMatchObject({ enabled: true, prompt: "Prepare a shorter report." })
+    await expect(editor.cronjob!.execute?.({ id: "daily", operation: "delete" })).resolves.toBe(true)
+  })
+
+  it("keeps Agent-turn ownership when its target is in a generic allowlist", async () => {
+    const { schedule } = await import("../src/capabilities.ts")
+    const generic = { cron: "0 8 * * *", enabled: true, id: "generic", target: "reports" }
+    const privateTurn = {
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "private-turn",
+      input: {
+        invoker: { id: "discord:user-1", kind: "chat" },
+        kind: "agent-turn",
+        prompt: "Private report prompt.",
+      },
+      target: "reports",
+    }
+    const schedules = {
+      get: vi.fn(async id => [generic, privateTurn].find(record => record.id === id)),
+      list: vi.fn(async () => [generic, privateTurn]),
+    }
+    const capability = schedule({ mode: "read", targets: ["reports"] })
+    const owner = await resolveTools([capability], { schedule: { schedules } }, undefined, {
+      invoker: { id: "discord:user-1", kind: "chat" },
+    })
+    const intruder = await resolveTools([capability], { schedule: { schedules } }, undefined, {
+      invoker: { id: "discord:user-2", kind: "chat" },
+    })
+
+    await expect(owner.cronjob!.execute?.({ operation: "list" })).resolves.toEqual([
+      generic,
+      { cron: "0 9 * * *", enabled: true, id: "private-turn", prompt: "Private report prompt.", target: "reports" },
+    ])
+    await expect(intruder.cronjob!.execute?.({ operation: "list" })).resolves.toEqual([generic])
+    await expect(intruder.cronjob!.execute?.({ id: "private-turn", operation: "get" })).rejects.toThrow("current invoker scope")
   })
 
   it("applies self-target permissions to Runtime Schedule list results", async () => {
@@ -112,12 +345,12 @@ describe("storage capabilities", () => {
       { cron: "0 9 * * *", enabled: true, id: "own", target: "agent/daily" },
       { cron: "0 10 * * *", enabled: true, id: "reports", target: "reports" },
     ]
-    const tools = await resolveTools([schedule({ mode: "read", selfTarget: "agent/daily", targets: ["agent/daily", "reports"] })], {
+    const tools = await resolveTools([schedule({ mode: "read", targets: ["agent/daily", "reports"] })], {
       schedule: {
         get: vi.fn(),
         list: vi.fn(async () => records),
       },
-    })
+    }, undefined, { agentName: "daily" })
 
     await expect(tools.cronjob!.execute?.({ operation: "targets" })).resolves.toEqual({ targets: ["reports"] })
     await expect(tools.cronjob!.execute?.({ operation: "list" })).resolves.toEqual([records[1]])
@@ -137,7 +370,7 @@ describe("storage capabilities", () => {
 
   it("uses strict Runtime Schedule tool schemas", async () => {
     const { schedule } = await import("../src/capabilities.ts")
-    const tools = await resolveTools([schedule({ mode: "write", targets: ["reports"] })], {
+    const tools = await resolveTools([schedule({ allowSelfTarget: true, mode: "write", targets: ["reports"] })], {
       schedule: {
         create: vi.fn(),
         delete: vi.fn(),
@@ -172,6 +405,37 @@ describe("storage capabilities", () => {
         }),
       ]),
     })
+    const variants = (tools.cronjob!.inputSchema as { oneOf: Array<{ properties?: Record<string, unknown> }> }).oneOf
+    expect(variants.some(variant => variant.properties?.prompt)).toBe(true)
+    expect(variants).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          operation: expect.objectContaining({ const: "create" }),
+          timeZone: expect.objectContaining({ description: expect.stringContaining("schedule({ timeZone }), then UTC") }),
+        }),
+      }),
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          operation: expect.objectContaining({ const: "edit" }),
+          timeZone: expect.objectContaining({ description: expect.stringContaining("preserve the existing value") }),
+        }),
+      }),
+    ]))
+    const editVariants = variants.filter(variant => (variant.properties?.operation as { const?: unknown } | undefined)?.const === "edit")
+    expect(editVariants).toEqual(expect.arrayContaining([
+      expect.objectContaining({ properties: expect.objectContaining({ prompt: expect.anything() }) }),
+      expect.objectContaining({ properties: expect.objectContaining({ target: expect.anything() }) }),
+    ]))
+    expect(editVariants.every(variant => !(variant.properties?.prompt && variant.properties.target))).toBe(true)
+    for (const variant of variants) {
+      expect(variant.properties).not.toEqual(expect.objectContaining({
+        channelId: expect.anything(),
+        delivery: expect.anything(),
+        invoker: expect.anything(),
+        origin: expect.anything(),
+        threadId: expect.anything(),
+      }))
+    }
   })
 
   it("exposes curated KV read and edit tools", async () => {

@@ -30,6 +30,14 @@ import {
   normalizeAgentInvokerOptions,
   resolveAgentInvoker,
 } from "./invoker.ts"
+import {
+  getScheduledAgentName,
+  parseScheduledAgentTurnInput,
+  scheduledAgentChannelIdsContextKey,
+  scheduledAgentNameContextKey,
+  scheduledAgentTurnContextKey,
+  setScheduledAgentName,
+} from "./internal/scheduled-turn.ts"
 
 import {
   applyCapabilityToolTransforms,
@@ -526,6 +534,7 @@ interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
 interface ScheduleRunContextLike {
   attemptId?: string
   id: string
+  input?: unknown
   runId?: string
   scheduleId?: string
   scheduledAt: Date
@@ -1052,6 +1061,7 @@ function cloneAgentDefinitionWithDefaults<TContext extends AgentRuntimeContext>(
   agent: AgentInput<TContext>,
   defaults: WorkspaceAgentDefaults | undefined,
   runtime: AgentRuntimeBinding | undefined,
+  inferredName: string | undefined,
 ): AgentInput<TContext> {
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentDefinition
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
@@ -1060,6 +1070,9 @@ function cloneAgentDefinitionWithDefaults<TContext extends AgentRuntimeContext>(
   }
   if (runtime) {
     clone.runtime = runtime
+  }
+  if (inferredName) {
+    setScheduledAgentName(clone, inferredName)
   }
   if (clone.run && syntheticWorkspaceRun in clone.run) {
     clone.run = createSyntheticWorkspaceRun(clone as never) as typeof clone.run
@@ -1081,18 +1094,19 @@ export function withAgentDefaults<TContext extends AgentRuntimeContext>(
 ): AgentInput<TContext> | undefined {
   if (!agent || !hasAgentDefinition(agent)) return agent
   const workspaceDefinition = agent as Partial<WorkspaceAgentDefinition>
+  const inferredName = options.inferredName?.trim()
   const existingWorkspaceDefaults = workspaceDefinition.__vitehubWorkspaceAgentDefaults
-  const workspaceDefaults = workspaceDefinition.__vitehubWorkspaceAgent && (options.inferredName || options.workspace)
+  const workspaceDefaults = workspaceDefinition.__vitehubWorkspaceAgent && (inferredName || options.workspace)
     ? {
         ...existingWorkspaceDefaults,
-        ...(options.inferredName ? { name: options.inferredName } : {}),
+        ...(inferredName ? { name: inferredName } : {}),
         ...(options.workspace ? { workspace: options.workspace } : {}),
       }
     : undefined
-  const runtime = withAgentWorkflowRuntimeName(agent.runtime, options.inferredName)
-  return !workspaceDefaults && (!runtime || runtime === agent.runtime)
+  const runtime = withAgentWorkflowRuntimeName(agent.runtime, inferredName)
+  return !workspaceDefaults && (!runtime || runtime === agent.runtime) && (!inferredName || getScheduledAgentName(agent) === inferredName)
     ? agent
-    : cloneAgentDefinitionWithDefaults(agent, workspaceDefaults, runtime === agent.runtime ? undefined : runtime)
+    : cloneAgentDefinitionWithDefaults(agent, workspaceDefaults, runtime === agent.runtime ? undefined : runtime, inferredName)
 }
 
 export interface DefineAgent {
@@ -1412,9 +1426,18 @@ async function createAgentInvocationContext<
   const runtimeContext = resolvedContext.trace || !resolvedContext.traceLog ? resolvedContext : { ...resolvedContext, trace: { id: createTraceId(context.run) } }
   const callbackContext = createAgentCallbackContext(runtimeContext)
   const invocationContext = createAgentInvocationContextStore(input.context)
+  invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
+  invocationContext.set(scheduledAgentNameContextKey, getScheduledAgentName(definition), { overwrite: true })
   let invoker = createFallbackAgentInvoker(context.run)
   try {
-    invoker = await resolveAgentInvoker(definition?.invoker, callbackContext, invocationContext, input, context.run)
+    invoker = await resolveAgentInvoker(
+      definition?.invoker,
+      callbackContext,
+      invocationContext,
+      input,
+      context.run,
+      invocationContext.get<boolean>(scheduledAgentTurnContextKey) === true,
+    )
     const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
     const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
     const workspaceName = workspaceOptions
@@ -2229,6 +2252,9 @@ export async function runScheduledAgent(
 ): Promise<unknown> {
   const memoValues = new Map<string, unknown>()
   const runId = context.runId || context.id
+  const turn = context.input && typeof context.input === "object" && (context.input as { kind?: unknown }).kind === "agent-turn"
+    ? parseScheduledAgentTurnInput(context.input)
+    : undefined
 
   return await runAgent(agent, {
     ...runtimeContext,
@@ -2236,11 +2262,17 @@ export async function runScheduledAgent(
       if (!memoValues.has(key)) memoValues.set(key, create())
       return memoValues.get(key) as never
     },
-    run: { ...runtimeContext.run, runId },
+    run: { ...runtimeContext.run, ...turn?.delivery, runId },
     runtime: runtimeContext.runtime ?? "unknown",
     waitUntil: runtimeContext.waitUntil ?? (() => {}),
   }, {
     context: {
+      ...(turn
+        ? {
+            invoker: turn.invoker,
+            [scheduledAgentTurnContextKey]: true,
+          }
+        : {}),
       schedule: {
         id: context.id,
         kind: "schedule",
@@ -2250,6 +2282,7 @@ export async function runScheduledAgent(
         target: context.target,
       },
     },
+    ...(turn ? { prompt: turn.prompt } : {}),
   })
 }
 

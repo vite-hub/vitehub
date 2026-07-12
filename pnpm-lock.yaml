@@ -489,6 +489,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vite-hub/schedule':
+        specifier: workspace:*
+        version: link:../schedule
       '@vite-hub/workflow':
         specifier: workspace:*
         version: link:../workflow
