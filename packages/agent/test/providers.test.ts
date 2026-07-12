@@ -1093,6 +1093,12 @@ describe("agent Vite plugin", () => {
     })
   })
 
+  it("keeps Schedule runtime code out of the generated Agent handler subpath", async () => {
+    const built = await readFile(new URL("../dist/server/internal.js", import.meta.url), "utf8")
+
+    expect(built).not.toMatch(/\bfrom ["']@vite-hub\/schedule(?:["'/])/)
+  })
+
   it("keeps esbuild external in the Agent Vite plugin package build", async () => {
     const config = await readFile(new URL("../vite.config.ts", import.meta.url), "utf8")
     const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
