@@ -21,6 +21,31 @@ function close(server: Server | undefined): Promise<void> {
 }
 
 describe("local harness sandbox", () => {
+  it("does not serialize bootstrap work for independent roots", async () => {
+    const provider = createLocalHarnessSandbox()
+    let releaseFirst!: () => void
+    const firstReady = new Promise<void>(resolve => releaseFirst = resolve)
+    let markSecondStarted!: () => void
+    const secondStarted = new Promise<void>(resolve => markSecondStarted = resolve)
+
+    const first = provider.createSession({
+      onFirstCreate: async () => await firstReady,
+    })
+    const second = provider.createSession({
+      onFirstCreate: async () => markSecondStarted(),
+    })
+
+    try {
+      await secondStarted
+      releaseFirst()
+      const sessions = await Promise.all([first, second])
+      await Promise.all(sessions.map(session => session.destroy?.()))
+    }
+    finally {
+      releaseFirst()
+    }
+  })
+
   it("serializes bootstrap work and releases the queue after failure", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-local-sandbox-"))
     const provider = createLocalHarnessSandbox({ rootDir: root })
