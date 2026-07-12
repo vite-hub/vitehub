@@ -141,6 +141,7 @@
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/devtools": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vitejs/devtools-kit": "catalog:vite",
     "chat": "catalog:chat",

@@ -38,6 +38,8 @@ const generatedAgentDiscordGatewayRouteHandler = ".vitehub/agent/discord-gateway
 const generatedAgentWebhookRouteHandler = ".vitehub/agent/chat-webhook-route.ts"
 const generatedAgentNetlifyFunction = ".vitehub/agent/netlify-function.mjs"
 const netlifyAgentFunctionName = "vitehub-agent"
+const resolvedScheduleRegistryId = "\0#vitehub/schedule/registry"
+const resolvedScheduleTargetsId = "\0#vitehub/schedule/targets"
 const workspacePackageName = "@vite-hub/workspace"
 const optionalMessageAdapterRuntimeExternals = [
   "bufferutil",
@@ -82,6 +84,62 @@ function getAgentImportBase(options: AgentModuleOptions | false | undefined): st
 
 function getWorkspaceImportBase(options: AgentModuleOptions | false | undefined): string {
   return getInternalAgentOptions(options)?.workspaceImportBase ?? workspacePackageName
+}
+
+function discoverScheduledAgentDefinitions(root: string): DiscoveredAgentDefinition[] {
+  const definitions = [
+    ...discoverAgentDefinitions({ mode: "vite-suffix", rootDir: root }),
+    ...discoverAgentDefinitions({ mode: "server-agents", scanDirs: [join(root, "server")] }),
+  ]
+  const unique = new Map<string, DiscoveredAgentDefinition>()
+  for (const definition of definitions) {
+    const existing = unique.get(definition.name)
+    if (existing && existing.handler !== definition.handler) {
+      throw new Error(`[vitehub] Duplicate Agent name "${definition.name}" cannot be registered as a Runtime Schedule target.`)
+    }
+    unique.set(definition.name, definition)
+  }
+  return [...unique.values()]
+}
+
+function transformScheduleRegistry(
+  code: string,
+  definitions: DiscoveredAgentDefinition[],
+  agentImportBase: string,
+): string | undefined {
+  if (!definitions.length) return
+  if (!/\b(?:const|let|var)\s+registry\b/.test(code)) {
+    throw new Error("[vitehub] Unable to extend the Runtime Schedule registry: expected a registry binding.")
+  }
+  const entries = definitions.flatMap(definition => [
+    `if (Object.prototype.hasOwnProperty.call(registry, ${JSON.stringify(`agent/${definition.name}`)})) throw new Error(${JSON.stringify(`[vitehub] Duplicate Runtime Schedule target: agent/${definition.name}`)})`,
+    `registry[${JSON.stringify(`agent/${definition.name}`)}] = async () => {`,
+    `  const module = await import(${JSON.stringify(definition.handler)})`,
+    `  return vitehubDefineScheduledAgentTarget(vitehubWithAgentDefaults(vitehubResolveScheduledAgentModule(module), { inferredName: ${JSON.stringify(definition.name)} }))`,
+    "}",
+  ])
+  return [
+    `import { withAgentDefaults as vitehubWithAgentDefaults } from ${JSON.stringify(agentImportBase)}`,
+    `import { defineScheduledAgentTarget as vitehubDefineScheduledAgentTarget } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    code,
+    "function vitehubResolveScheduledAgentModule(module) {",
+    "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
+    "}",
+    ...entries,
+    "",
+  ].join("\n")
+}
+
+function transformScheduleTargets(code: string, definitions: DiscoveredAgentDefinition[]): string | undefined {
+  if (!definitions.length) return
+  if (!/\b(?:const|let|var)\s+scheduleTargetNames\b/.test(code)) {
+    throw new Error("[vitehub] Unable to extend Runtime Schedule targets: expected a scheduleTargetNames binding.")
+  }
+  return [
+    code,
+    ...definitions.map(definition => `if (!scheduleTargetNames.includes(${JSON.stringify(`agent/${definition.name}`)})) scheduleTargetNames.push(${JSON.stringify(`agent/${definition.name}`)})`),
+    "",
+  ].join("\n")
 }
 
 function subpath(base: string, path: string): string {
@@ -1046,6 +1104,22 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       if (agent !== false) {
         await registerAgentInvocationStreamEndpoint(server)
       }
+    },
+    handleHotUpdate(context) {
+      const file = context.file.replace(/\\/g, "/")
+      if (!/\.agent\.(?:c|m)?[jt]s$/i.test(file) && !/\/server\/agents\/.*\.(?:c|m)?[jt]s$/i.test(file)) return
+      for (const id of [resolvedScheduleRegistryId, resolvedScheduleTargetsId]) {
+        const module = context.server.moduleGraph.getModuleById(id)
+        if (module) context.server.moduleGraph.invalidateModule(module)
+      }
+    },
+    transform(code, id) {
+      if (agent === false || !resolved?.root) return
+      if (id !== resolvedScheduleRegistryId && id !== resolvedScheduleTargetsId) return
+      const definitions = discoverScheduledAgentDefinitions(resolved.root)
+      return id === resolvedScheduleRegistryId
+        ? transformScheduleRegistry(code, definitions, getAgentImportBase(agent))
+        : transformScheduleTargets(code, definitions)
     },
     vitehub: {
       cli: async () => {

@@ -1142,7 +1142,7 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
     ? await resolveEffectOption(context.channel.adapter as MaybeResolvable<Adapter, AgentChannelDeliveryEffectContext<TRuntimeConfig>>, context)
     : undefined
   if (adapter && context.run?.threadId) {
-    await adapter.postMessage(adapter.channelIdFromThreadId(context.run.threadId), message)
+    await adapter.postMessage(context.run.threadId, message)
   }
 }
 

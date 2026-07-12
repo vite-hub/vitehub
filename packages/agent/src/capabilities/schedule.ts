@@ -2,6 +2,15 @@ import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
 
 import { defineCapability, normalizeMode } from "../capability-runtime.ts"
 import {
+  createScheduledAgentTurnInput,
+  parseScheduledAgentTurnInput,
+  scheduledAgentNameContextKey,
+  scheduledAgentTargetName,
+  scheduledAgentTurnContextKey,
+  scheduledAgentTurnPrompt,
+  scheduledAgentTurnReplyEffect,
+} from "../internal/scheduled-turn.ts"
+import {
   createTool,
   jsonObjectSchema,
   requirePrimitive,
@@ -21,18 +30,20 @@ export type ScheduleCapabilityToolPolicy = AgentToolPolicyDecision | ((context: 
 
 export interface RuntimeScheduleCapabilityOptions<TTarget extends string = string> {
   allowSelfTarget?: boolean
+  delivery?: "origin"
   mode: AgentCapabilityMode
   policy?: ScheduleCapabilityToolPolicy
-  selfTarget?: TTarget
   targets?: readonly TTarget[]
+  timeZone?: string
 }
 
 export interface RuntimeScheduleCapabilityMetadata<TTarget extends string = string> {
   allowSelfTarget: boolean
+  delivery?: "origin"
   kind: "runtime-schedule"
   mode: AgentCapabilityMode
-  selfTarget?: TTarget
   targets?: readonly TTarget[]
+  timeZone?: string
 }
 
 export type AgentScheduleEntry =
@@ -56,20 +67,21 @@ interface RuntimeScheduleRecordLike {
   cron: string
   enabled: boolean
   id: string
+  input?: unknown
   target: string
   timeZone?: string
   updatedAt?: Date | string
 }
 
 interface RuntimeScheduleClientLike {
-  create: (input: { cron: string, enabled?: boolean, id?: string, target: string, timeZone?: string }) => MaybePromise<RuntimeScheduleRecordLike>
+  create: (input: { cron: string, enabled?: boolean, id?: string, input?: unknown, target: string, timeZone?: string }) => MaybePromise<RuntimeScheduleRecordLike>
   delete: (id: string) => MaybePromise<boolean>
   disable: (id: string) => MaybePromise<RuntimeScheduleRecordLike>
   enable: (id: string) => MaybePromise<RuntimeScheduleRecordLike>
   get: (id: string) => MaybePromise<RuntimeScheduleRecordLike | undefined>
   list: () => MaybePromise<RuntimeScheduleRecordLike[]>
   run: (id: string) => MaybePromise<unknown>
-  update: (id: string, input: { cron?: string, enabled?: boolean, target?: string, timeZone?: string }) => MaybePromise<RuntimeScheduleRecordLike>
+  update: (id: string, input: { cron?: string, enabled?: boolean, input?: unknown, target?: string, timeZone?: string }) => MaybePromise<RuntimeScheduleRecordLike>
 }
 
 interface RuntimeScheduleToolInput {
@@ -77,6 +89,7 @@ interface RuntimeScheduleToolInput {
   enabled?: boolean
   id?: string
   operation?: "create" | "delete" | "edit" | "get" | "list" | "pause" | "resume" | "run" | "targets"
+  prompt?: string
   target?: string
   timeZone?: string
 }
@@ -84,6 +97,10 @@ interface RuntimeScheduleToolInput {
 type NormalizedRuntimeScheduleCapabilityOptions = Omit<RuntimeScheduleCapabilityOptions<string>, "allowSelfTarget" | "targets"> & {
   allowSelfTarget: boolean
   targets?: readonly string[]
+}
+
+type RuntimeScheduleScope = Pick<NormalizedRuntimeScheduleCapabilityOptions, "allowSelfTarget" | "targets"> & {
+  selfTarget?: string
 }
 
 function scheduleClient(context: AgentCapabilityContext, mode: AgentCapabilityMode): RuntimeScheduleClientLike {
@@ -153,28 +170,37 @@ function normalizeRuntimeScheduleTargets(targets: unknown): readonly string[] | 
 }
 
 function normalizeRuntimeScheduleOptions<TTarget extends string>(options: RuntimeScheduleCapabilityOptions<TTarget>): NormalizedRuntimeScheduleCapabilityOptions {
+  assertAllowedKeys(options, ["allowSelfTarget", "delivery", "mode", "policy", "targets", "timeZone"], "schedule()")
   const mode = normalizeMode(options.mode, "Schedule")
   const targets = normalizeRuntimeScheduleTargets(options.targets)
-  if (options.selfTarget !== undefined && (typeof options.selfTarget !== "string" || !options.selfTarget.trim())) {
-    throw new TypeError("[vitehub] schedule({ selfTarget }) must be a non-empty Runtime Schedule target name.")
-  }
   if (options.allowSelfTarget !== undefined && typeof options.allowSelfTarget !== "boolean") {
     throw new TypeError("[vitehub] schedule({ allowSelfTarget }) must be a boolean.")
   }
+  if (options.delivery !== undefined && options.delivery !== "origin") {
+    throw new TypeError('[vitehub] schedule({ delivery }) must be "origin" when provided.')
+  }
+  if (options.delivery === "origin" && options.allowSelfTarget !== true) {
+    throw new TypeError('[vitehub] schedule({ delivery: "origin" }) requires allowSelfTarget: true.')
+  }
+  const timeZone = assertOptionalRuntimeScheduleTimeZone(options.timeZone, "schedule()")
   return {
     ...options,
     allowSelfTarget: options.allowSelfTarget === true,
     mode,
     targets,
+    ...(timeZone ? { timeZone } : {}),
   }
 }
 
-function assertAllowedRuntimeScheduleTarget(target: string | undefined, options: Pick<RuntimeScheduleCapabilityOptions, "allowSelfTarget" | "selfTarget" | "targets">, label: string): string {
+function assertAllowedRuntimeScheduleTarget(target: string | undefined, options: RuntimeScheduleScope, label: string): string {
   if (typeof target !== "string" || !target.trim()) {
     throw new TypeError(`[vitehub] ${label} target must be a non-empty Runtime Schedule target name.`)
   }
-  if (options.selfTarget && target === options.selfTarget && options.allowSelfTarget !== true) {
-    throw new Error(`[vitehub] ${label} cannot target the owning Agent without explicit Self Schedule Permission.`)
+  if (options.selfTarget && target === options.selfTarget) {
+    if (options.allowSelfTarget !== true) {
+      throw new Error(`[vitehub] ${label} cannot target the owning Agent without explicit Self Schedule Permission.`)
+    }
+    return target
   }
   if (options.targets && !options.targets.includes(target)) {
     throw new Error(`[vitehub] ${label} target is outside this Schedule Capability allowlist: ${target}`)
@@ -205,6 +231,13 @@ function assertRuntimeScheduleCron(cron: unknown, label: string): string {
   return normalized
 }
 
+function assertRuntimeSchedulePrompt(prompt: unknown, label: string): string {
+  if (typeof prompt !== "string" || !prompt.trim()) {
+    throw new TypeError(`[vitehub] ${label} prompt must be a non-empty string.`)
+  }
+  return prompt.trim()
+}
+
 function assertOptionalRuntimeScheduleEnabled(enabled: unknown, label: string): boolean | undefined {
   if (enabled === undefined) return undefined
   if (typeof enabled !== "boolean") {
@@ -230,7 +263,7 @@ function assertAllowedKeys(input: object | undefined, allowed: string[], label: 
   }
 }
 
-function visibleRuntimeSchedules(records: RuntimeScheduleRecordLike[], options: Pick<RuntimeScheduleCapabilityOptions, "allowSelfTarget" | "selfTarget" | "targets">): RuntimeScheduleRecordLike[] {
+function visibleRuntimeSchedules(records: RuntimeScheduleRecordLike[], options: RuntimeScheduleScope): RuntimeScheduleRecordLike[] {
   return records.filter((record) => {
     try {
       assertAllowedRuntimeScheduleTarget(record.target, options, "cronjob")
@@ -242,8 +275,16 @@ function visibleRuntimeSchedules(records: RuntimeScheduleRecordLike[], options: 
   })
 }
 
-function visibleRuntimeScheduleTargets(options: Pick<RuntimeScheduleCapabilityOptions, "allowSelfTarget" | "selfTarget" | "targets">): readonly string[] | undefined {
-  return options.targets?.filter((target) => {
+function publicRuntimeSchedule(record: RuntimeScheduleRecordLike): Omit<RuntimeScheduleRecordLike, "input"> & { prompt?: string } {
+  const { input, ...visible } = record
+  const prompt = scheduledAgentTurnPrompt(input)
+  return prompt ? { ...visible, prompt } : visible
+}
+
+function visibleRuntimeScheduleTargets(options: RuntimeScheduleScope): readonly string[] | undefined {
+  const targets = [...(options.targets || []), ...(options.allowSelfTarget && options.selfTarget ? [options.selfTarget] : [])]
+  if (!targets.length) return undefined
+  return [...new Set(targets)].filter((target) => {
     try {
       assertAllowedRuntimeScheduleTarget(target, options, "cronjob")
       return true
@@ -254,7 +295,7 @@ function visibleRuntimeScheduleTargets(options: Pick<RuntimeScheduleCapabilityOp
   })
 }
 
-async function requireScopedRuntimeSchedule(client: RuntimeScheduleClientLike, id: string, options: Pick<RuntimeScheduleCapabilityOptions, "allowSelfTarget" | "selfTarget" | "targets">): Promise<RuntimeScheduleRecordLike> {
+async function requireScopedRuntimeSchedule(client: RuntimeScheduleClientLike, id: string, options: RuntimeScheduleScope): Promise<RuntimeScheduleRecordLike> {
   const record = await client.get(id)
   if (!record) throw new Error(`[vitehub] Runtime Schedule not found: ${id}`)
   assertAllowedRuntimeScheduleTarget(record.target, options, "cronjob")
@@ -265,7 +306,7 @@ const runtimeScheduleTargetSchema = { description: "Runtime Schedule target name
 const runtimeScheduleCronSchema = { description: "Five-field cron expression, evaluated in timeZone or UTC when omitted.", type: "string" }
 const runtimeScheduleTimeZoneSchema = { description: "IANA time zone used to evaluate cron. Defaults to UTC.", type: "string" }
 
-function runtimeScheduleInputSchema(mode: AgentCapabilityMode) {
+function runtimeScheduleInputSchema(mode: AgentCapabilityMode, allowSelfTarget: boolean) {
   const variants = [
     jsonObjectSchema({
       id: { description: "Runtime Schedule id for get.", type: "string" },
@@ -287,6 +328,7 @@ function runtimeScheduleInputSchema(mode: AgentCapabilityMode) {
         enabled: { type: "boolean" },
         id: { type: "string" },
         operation: { const: "edit", type: "string" },
+        ...(allowSelfTarget ? { prompt: { description: "Prompt for the scheduled Agent turn.", type: "string" } } : {}),
         target: runtimeScheduleTargetSchema,
         timeZone: runtimeScheduleTimeZoneSchema,
       }, ["id", "operation"]),
@@ -295,12 +337,27 @@ function runtimeScheduleInputSchema(mode: AgentCapabilityMode) {
         operation: { enum: ["delete", "pause", "resume", "run"], type: "string" },
       }, ["id", "operation"]),
     )
+    if (allowSelfTarget) {
+      variants.push(jsonObjectSchema({
+        cron: runtimeScheduleCronSchema,
+        enabled: { type: "boolean" },
+        id: { type: "string" },
+        operation: { const: "create", type: "string" },
+        prompt: { description: "Prompt for the scheduled Agent turn.", type: "string" },
+        timeZone: runtimeScheduleTimeZoneSchema,
+      }, ["cron", "operation", "prompt"]))
+    }
   }
   return { oneOf: variants }
 }
 
 function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOptions): AgentCapabilityDefinition["tools"] {
   return (context) => {
+    if (context.context.get<boolean>(scheduledAgentTurnContextKey) === true) return
+    const scope: RuntimeScheduleScope = {
+      ...options,
+      selfTarget: scheduledAgentTargetName(context.context.get<string>(scheduledAgentNameContextKey)),
+    }
     const client = scheduleClient(context as never, options.mode)
     const writeOperations = new Set(["create", "delete", "edit", "pause", "resume", "run"])
     const writePolicy = options.policy || "require-approval"
@@ -312,57 +369,91 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
           if (writeOperations.has(operation) && options.mode !== "write") {
             throw new Error(`[vitehub] cronjob ${operation} requires Schedule Capability write mode.`)
           }
-          assertAllowedKeys(input as Record<string, unknown>, operation === "create" || operation === "edit" ? ["cron", "enabled", "id", "operation", "target", "timeZone"] : ["id", "operation"], "cronjob")
-          if (operation === "targets") return { targets: visibleRuntimeScheduleTargets(options) }
+          const agentTurn = input.prompt !== undefined
+          assertAllowedKeys(input as Record<string, unknown>, operation === "create" || operation === "edit"
+            ? ["cron", "enabled", "id", "operation", ...(agentTurn ? ["prompt"] : ["target"]), "timeZone"]
+            : ["id", "operation"], "cronjob")
+          if (operation === "targets") return { targets: visibleRuntimeScheduleTargets(scope) }
           if (operation === "get") {
             const record = await client.get(assertRuntimeScheduleId(input.id, "cronjob get"))
             if (!record) return undefined
-            assertAllowedRuntimeScheduleTarget(record.target, options, "cronjob get")
-            return record
+            assertAllowedRuntimeScheduleTarget(record.target, scope, "cronjob get")
+            return publicRuntimeSchedule(record)
           }
-          if (operation === "list") return visibleRuntimeSchedules(await client.list(), options)
+          if (operation === "list") return visibleRuntimeSchedules(await client.list(), scope).map(publicRuntimeSchedule)
           if (operation === "create") {
-            return await client.create({
+            const timeZone = input.timeZone === undefined
+              ? options.timeZone
+              : assertOptionalRuntimeScheduleTimeZone(input.timeZone, "cronjob create")
+            if (agentTurn) {
+              if (!scope.allowSelfTarget || !scope.selfTarget) {
+                throw new Error("[vitehub] cronjob create requires Self Schedule Permission and a discovered Agent name.")
+              }
+              return publicRuntimeSchedule(await client.create({
+                cron: assertRuntimeScheduleCron(input.cron, "cronjob create"),
+                enabled: assertOptionalRuntimeScheduleEnabled(input.enabled, "cronjob create"),
+                id: assertOptionalRuntimeScheduleId(input.id, "cronjob create"),
+                input: createScheduledAgentTurnInput(input.prompt, context.invoker, context.run, options.delivery),
+                target: scope.selfTarget,
+                ...(timeZone ? { timeZone } : {}),
+              }))
+            }
+            const target = assertAllowedRuntimeScheduleTarget(input.target, scope, "cronjob create")
+            if (target === scope.selfTarget) {
+              throw new Error("[vitehub] cronjob create requires a prompt when targeting the owning Agent.")
+            }
+            return publicRuntimeSchedule(await client.create({
               cron: assertRuntimeScheduleCron(input.cron, "cronjob create"),
               enabled: assertOptionalRuntimeScheduleEnabled(input.enabled, "cronjob create"),
               id: assertOptionalRuntimeScheduleId(input.id, "cronjob create"),
-              target: assertAllowedRuntimeScheduleTarget(input.target, options, "cronjob create"),
-              ...(input.timeZone === undefined ? {} : { timeZone: assertOptionalRuntimeScheduleTimeZone(input.timeZone, "cronjob create") }),
-            })
+              target,
+              ...(timeZone ? { timeZone } : {}),
+            }))
           }
           if (operation === "edit") {
             const id = assertRuntimeScheduleId(input.id, "cronjob edit")
-            await requireScopedRuntimeSchedule(client, id, options)
-            const update: { cron?: string, enabled?: boolean, target?: string, timeZone?: string } = {}
+            const record = await requireScopedRuntimeSchedule(client, id, scope)
+            const scheduledTurn = scheduledAgentTurnPrompt(record.input) !== undefined
+            if (agentTurn && !scheduledTurn) {
+              throw new Error("[vitehub] cronjob edit prompt is only supported for scheduled Agent turns.")
+            }
+            if (scheduledTurn && input.target !== undefined) {
+              throw new Error("[vitehub] cronjob edit cannot retarget a scheduled Agent turn.")
+            }
+            const update: { cron?: string, enabled?: boolean, input?: unknown, target?: string, timeZone?: string } = {}
             if (input.cron !== undefined) update.cron = assertRuntimeScheduleCron(input.cron, "cronjob edit")
             if (input.enabled !== undefined) update.enabled = assertOptionalRuntimeScheduleEnabled(input.enabled, "cronjob edit")
-            if (input.target !== undefined) update.target = assertAllowedRuntimeScheduleTarget(input.target, options, "cronjob edit")
+            if (input.prompt !== undefined) {
+              const previous = parseScheduledAgentTurnInput(record.input)
+              update.input = { ...previous, prompt: assertRuntimeSchedulePrompt(input.prompt, "cronjob edit") }
+            }
+            if (input.target !== undefined) update.target = assertAllowedRuntimeScheduleTarget(input.target, scope, "cronjob edit")
             if (input.timeZone !== undefined) update.timeZone = assertOptionalRuntimeScheduleTimeZone(input.timeZone, "cronjob edit")
-            return await client.update(id, update)
+            return publicRuntimeSchedule(await client.update(id, update))
           }
           if (operation === "resume") {
             const id = assertRuntimeScheduleId(input.id, "cronjob resume")
-            await requireScopedRuntimeSchedule(client, id, options)
-            return await client.enable(id)
+            await requireScopedRuntimeSchedule(client, id, scope)
+            return publicRuntimeSchedule(await client.enable(id))
           }
           if (operation === "pause") {
             const id = assertRuntimeScheduleId(input.id, "cronjob pause")
-            await requireScopedRuntimeSchedule(client, id, options)
-            return await client.disable(id)
+            await requireScopedRuntimeSchedule(client, id, scope)
+            return publicRuntimeSchedule(await client.disable(id))
           }
           if (operation === "run") {
             const id = assertRuntimeScheduleId(input.id, "cronjob run")
-            await requireScopedRuntimeSchedule(client, id, options)
+            await requireScopedRuntimeSchedule(client, id, scope)
             return await client.run(id)
           }
           if (operation === "delete") {
             const id = assertRuntimeScheduleId(input.id, "cronjob delete")
-            await requireScopedRuntimeSchedule(client, id, options)
+            await requireScopedRuntimeSchedule(client, id, scope)
             return await client.delete(id)
           }
           throw new Error(`[vitehub] Unsupported cronjob operation: ${String(operation)}`)
         },
-        inputSchema: runtimeScheduleInputSchema(options.mode),
+        inputSchema: runtimeScheduleInputSchema(options.mode, options.allowSelfTarget),
         name: "cronjob",
         policy: async policyContext => writeOperations.has((policyContext.input as { operation?: unknown } | undefined)?.operation as string)
           ? typeof writePolicy === "function" ? await writePolicy(policyContext) : writePolicy
@@ -380,12 +471,18 @@ function runtimeScheduleCapability<TTarget extends string>(options: RuntimeSched
     id: "runtime-schedule",
     metadata: {
       allowSelfTarget: normalized.allowSelfTarget,
+      delivery: normalized.delivery,
       kind: "runtime-schedule",
       mode: normalized.mode,
-      selfTarget: normalized.selfTarget,
       targets: normalized.targets,
+      timeZone: normalized.timeZone,
     } satisfies RuntimeScheduleCapabilityMetadata,
     mode: normalized.mode,
+    output(context) {
+      if (normalized.delivery === "origin" && context.context.get<boolean>(scheduledAgentTurnContextKey) === true) {
+        context.delivery.finishEffect(scheduledAgentTurnReplyEffect)
+      }
+    },
     requires: [{ primitive: "schedule" }],
     tools: runtimeScheduleTools(normalized),
   })

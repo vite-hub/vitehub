@@ -2086,6 +2086,88 @@ describe("agent message protocol", () => {
     }])
   })
 
+  it("reauthorizes durable scheduled Agent turns and replies to the full origin thread", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const { defineScheduledAgentTarget } = await import("../src/server/internal.ts")
+    const channelIdFromThreadId = vi.fn(() => "discord:channel")
+    const postMessage = vi.fn(async () => undefined)
+    const resolveInvoker = vi.fn(({ defaultInvoker }) => ({ ...defaultInvoker, label: "Reauthorized Maxi" }))
+    const seen: unknown[] = []
+    const agent = defineAgent({
+      capabilities: [schedule({ allowSelfTarget: true, delivery: "origin", mode: "write" })],
+      channels: {
+        discord: defineChannel("discord", {
+          adapter: {
+            channelIdFromThreadId,
+            postMessage,
+          } as never,
+        }),
+      },
+      driver: { run: context => {
+          seen.push({
+            invoker: context.invoker,
+            prompt: context.prompt,
+            run: context.run,
+            schedule: context.context.get("schedule"),
+          })
+          return { text: "Scheduled reply" }
+        } },
+      invoker: { resolve: resolveInvoker },
+    })
+    const target = defineScheduledAgentTarget(agent)
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+
+    expect(target.options).toEqual({ allowRuntimeSchedules: true })
+    await expect(target.handler({
+      id: "srun-daily",
+      input: {
+        delivery: { channelId: "discord", origin: "discord", threadId: "discord:channel:thread-7" },
+        invoker: { id: "discord:user-1", kind: "chat", label: "Maxi" },
+        kind: "agent-turn",
+        prompt: "Prepare my daily report.",
+      },
+      runId: "srun-daily",
+      scheduleId: "daily",
+      scheduledAt,
+      target: "agent/digest",
+    })).resolves.toMatchObject({ text: "Scheduled reply" })
+
+    expect(resolveInvoker).toHaveBeenCalledWith(expect.objectContaining({
+      defaultInvoker: { id: "discord:user-1", kind: "chat", label: "Maxi" },
+    }))
+    expect(seen).toEqual([{
+      invoker: { id: "discord:user-1", kind: "chat", label: "Reauthorized Maxi" },
+      prompt: "Prepare my daily report.",
+      run: {
+        channelId: "discord",
+        origin: "discord",
+        runId: "srun-daily",
+        threadId: "discord:channel:thread-7",
+      },
+      schedule: {
+        id: "srun-daily",
+        kind: "schedule",
+        runId: "srun-daily",
+        scheduleId: "daily",
+        scheduledAt,
+        target: "agent/digest",
+      },
+    }])
+    expect(channelIdFromThreadId).not.toHaveBeenCalled()
+    expect(postMessage).toHaveBeenCalledWith("discord:channel:thread-7", { markdown: "Scheduled reply" })
+
+    await expect(target.handler({
+      id: "srun-invalid",
+      input: {
+        invoker: { id: "discord:user-1", meta: { token: "must-not-persist" } },
+        kind: "agent-turn",
+        prompt: "Invalid payload.",
+      } as never,
+      scheduledAt,
+    })).rejects.toThrow("durable invoker")
+  })
+
   it("converts ViteHub messages to model messages internally", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 

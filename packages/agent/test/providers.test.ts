@@ -226,6 +226,66 @@ describe("agent Vite plugin", () => {
     expect(result).toMatchObject({ agent: { routes: { chat: true } } })
   })
 
+  it("adds discovered Agents to runtime Schedule registry and target names", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-schedule-targets-"))
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "digest.ts"), "export default {}", "utf8")
+      const plugin = hubAgent({ routes: { chat: false, discordGateway: false, webhooks: false } })
+      const configResolved = plugin.configResolved as (config: { agent?: unknown, command: "serve", root: string }) => Promise<void>
+      const transform = plugin.transform as (code: string, id: string) => string | undefined
+      await configResolved({ command: "serve", root })
+
+      const registry = transform("const registry = { reports: async () => ({}) }\nexport default registry\n", "\0#vitehub/schedule/registry")
+      const targets = transform("export const scheduleTargetNames = [\"reports\"];\n", "\0#vitehub/schedule/targets")
+
+      expect(registry).toContain("defineScheduledAgentTarget")
+      expect(registry).toContain('registry["agent/digest"]')
+      expect(registry).toContain("inferredName: \"digest\"")
+      expect(registry).not.toContain("cron:")
+      expect(targets).toContain('scheduleTargetNames.push("agent/digest")')
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("leaves Schedule virtual modules unchanged without discovered Agents", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-empty-schedule-targets-"))
+    try {
+      const plugin = hubAgent({ routes: { chat: false, discordGateway: false, webhooks: false } })
+      const configResolved = plugin.configResolved as (config: { agent?: unknown, command: "serve", root: string }) => Promise<void>
+      const transform = plugin.transform as (code: string, id: string) => string | undefined
+      await configResolved({ command: "serve", root })
+
+      expect(transform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")).toBeUndefined()
+      expect(transform("export const scheduleTargetNames = [];\n", "\0#vitehub/schedule/targets")).toBeUndefined()
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("invalidates runtime Schedule virtual modules when an Agent changes", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent()
+    const registryModule = { id: "registry" }
+    const targetsModule = { id: "targets" }
+    const getModuleById = vi.fn((id: string) => id === "\0#vitehub/schedule/registry" ? registryModule : id === "\0#vitehub/schedule/targets" ? targetsModule : undefined)
+    const invalidateModule = vi.fn()
+    const handleHotUpdate = plugin.handleHotUpdate as (context: unknown) => void
+
+    handleHotUpdate({
+      file: "/app/server/agents/digest.ts",
+      server: { moduleGraph: { getModuleById, invalidateModule } },
+    })
+
+    expect(invalidateModule).toHaveBeenCalledWith(registryModule)
+    expect(invalidateModule).toHaveBeenCalledWith(targetsModule)
+  })
+
   it("materializes the MCP runtime package for Vercel build output", async () => {
     const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubAgent } = await import("../src/vite.ts")
