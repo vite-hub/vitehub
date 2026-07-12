@@ -446,7 +446,12 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
               const previous = parseScheduledAgentTurnInput(record.input)
               update.input = { ...previous, prompt: assertRuntimeSchedulePrompt(input.prompt, "cronjob edit") }
             }
-            if (input.target !== undefined) update.target = assertAllowedRuntimeScheduleTarget(input.target, scope, "cronjob edit")
+            if (input.target !== undefined) {
+              update.target = assertAllowedRuntimeScheduleTarget(input.target, scope, "cronjob edit")
+              if (!scheduledTurn && update.target === scope.selfTarget) {
+                throw new Error("[vitehub] cronjob edit requires a prompt when targeting the owning Agent.")
+              }
+            }
             if (input.timeZone !== undefined) update.timeZone = assertOptionalRuntimeScheduleTimeZone(input.timeZone, "cronjob edit")
             return publicRuntimeSchedule(await client.update(id, update))
           }

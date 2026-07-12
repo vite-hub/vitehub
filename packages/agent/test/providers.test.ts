@@ -230,21 +230,30 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-schedule-targets-"))
     try {
-      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await mkdir(join(root, "server", "agents", "support", "workspace"), { recursive: true })
       await writeFile(join(root, "server", "agents", "digest.ts"), "export default {}", "utf8")
+      await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {} })", "utf8")
+      await writeFile(join(root, "server", "agents", "support", "instructions.md"), "Use support instructions.\n", "utf8")
       const plugin = hubAgent({ routes: { chat: false, discordGateway: false, webhooks: false } })
       const configResolved = plugin.configResolved as (config: { agent?: unknown, command: "serve", root: string }) => Promise<void>
-      const transform = plugin.transform as (code: string, id: string) => string | undefined
+      const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
       await configResolved({ command: "serve", root })
 
-      const registry = transform("const registry = { reports: async () => ({}) }\nexport default registry\n", "\0#vitehub/schedule/registry")
-      const targets = transform("export const scheduleTargetNames = [\"reports\"];\n", "\0#vitehub/schedule/targets")
+      const registry = await transform("const registry = { reports: async () => ({}) }\nexport default registry\n", "\0#vitehub/schedule/registry")
+      const targets = await transform("export const scheduleTargetNames = [\"reports\"];\n", "\0#vitehub/schedule/targets")
 
       expect(registry).toContain("defineScheduledAgentTarget")
       expect(registry).toContain('registry["agent/digest"]')
-      expect(registry).toContain("inferredName: \"digest\"")
+      expect(registry).toContain('{"inferredName":"digest"}')
+      expect(registry).toContain('registry["agent/support"]')
+      expect(registry).toContain("vitehubWithWorkspaceSourceRoot")
+      expect(registry).toContain("vitehubWorkspaceDefinitionFromOptions")
+      expect(registry).toContain(JSON.stringify(join(root, "server", "agents", "support", "workspace")))
+      expect(registry).toContain(JSON.stringify("Use support instructions.\n"))
+      expect(registry).toContain('__vitehubAgentInstructions')
       expect(registry).not.toContain("cron:")
       expect(targets).toContain('scheduleTargetNames.push("agent/digest")')
+      expect(targets).toContain('scheduleTargetNames.push("agent/support")')
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -257,11 +266,11 @@ describe("agent Vite plugin", () => {
     try {
       const plugin = hubAgent({ routes: { chat: false, discordGateway: false, webhooks: false } })
       const configResolved = plugin.configResolved as (config: { agent?: unknown, command: "serve", root: string }) => Promise<void>
-      const transform = plugin.transform as (code: string, id: string) => string | undefined
+      const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
       await configResolved({ command: "serve", root })
 
-      expect(transform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")).toBeUndefined()
-      expect(transform("export const scheduleTargetNames = [];\n", "\0#vitehub/schedule/targets")).toBeUndefined()
+      await expect(transform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")).resolves.toBeUndefined()
+      await expect(transform("export const scheduleTargetNames = [];\n", "\0#vitehub/schedule/targets")).resolves.toBeUndefined()
     }
     finally {
       await rm(root, { force: true, recursive: true })

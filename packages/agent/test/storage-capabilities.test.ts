@@ -124,6 +124,9 @@ describe("storage capabilities", () => {
     const allowed = await resolveTools([schedule({ allowSelfTarget: true, mode: "write" })], { schedule: schedules }, undefined, { agentName: "daily" })
     await expect(allowed.cronjob!.execute?.({ operation: "targets" })).resolves.toEqual({ targets: undefined })
     await expect(allowed.cronjob!.execute?.({ cron: "0 9 * * *", operation: "create", prompt: "Prepare the daily report." })).resolves.toMatchObject({ target: "agent/daily" })
+    schedules.get.mockResolvedValueOnce({ cron: "0 8 * * *", enabled: true, id: "generic", target: "reports" })
+    await expect(allowed.cronjob!.execute?.({ id: "generic", operation: "edit", target: "agent/daily" })).rejects.toThrow("requires a prompt")
+    expect(schedules.update).not.toHaveBeenCalled()
   })
 
   it("captures durable scheduled Agent turns without exposing or rebinding identity and delivery", async () => {

@@ -102,28 +102,45 @@ function discoverScheduledAgentDefinitions(root: string): DiscoveredAgentDefinit
   return [...unique.values()]
 }
 
-function transformScheduleRegistry(
+async function transformScheduleRegistry(
   code: string,
   definitions: DiscoveredAgentDefinition[],
   agentImportBase: string,
-): string | undefined {
+): Promise<string | undefined> {
   if (!definitions.length) return
   if (!/\b(?:const|let|var)\s+registry\b/.test(code)) {
     throw new Error("[vitehub] Unable to extend the Runtime Schedule registry: expected a registry binding.")
   }
-  const entries = definitions.flatMap(definition => [
-    `if (Object.prototype.hasOwnProperty.call(registry, ${JSON.stringify(`agent/${definition.name}`)})) throw new Error(${JSON.stringify(`[vitehub] Duplicate Runtime Schedule target: agent/${definition.name}`)})`,
-    `registry[${JSON.stringify(`agent/${definition.name}`)}] = async () => {`,
-    `  const module = await import(${JSON.stringify(definition.handler)})`,
-    `  return vitehubDefineScheduledAgentTarget(vitehubWithAgentDefaults(vitehubResolveScheduledAgentModule(module), { inferredName: ${JSON.stringify(definition.name)} }))`,
-    "}",
-  ])
+  const entries = (await Promise.all(definitions.map(async (definition) => {
+    const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
+    const defaults = { inferredName: definition.name, workspace: definition.workspace }
+    return [
+      `if (Object.prototype.hasOwnProperty.call(registry, ${JSON.stringify(`agent/${definition.name}`)})) throw new Error(${JSON.stringify(`[vitehub] Duplicate Runtime Schedule target: agent/${definition.name}`)})`,
+      `registry[${JSON.stringify(`agent/${definition.name}`)}] = async () => {`,
+      `  const module = await import(${JSON.stringify(definition.handler)})`,
+      `  return vitehubDefineScheduledAgentTarget(vitehubWithAgentDefaults(vitehubWithWorkspaceSourceRoot(vitehubResolveScheduledAgentModule(module), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))}), ${JSON.stringify(defaults)}))`,
+      "}",
+    ]
+  }))).flat()
   return [
-    `import { withAgentDefaults as vitehubWithAgentDefaults } from ${JSON.stringify(agentImportBase)}`,
+    `import { withAgentDefaults as vitehubWithAgentDefaults, workspaceDefinitionFromOptions as vitehubWorkspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
     `import { defineScheduledAgentTarget as vitehubDefineScheduledAgentTarget } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     code,
     "function vitehubResolveScheduledAgentModule(module) {",
     "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
+    "}",
+    "function vitehubWithWorkspaceSourceRoot(agent, sourceRootDir, colocatedInstructions) {",
+    "  const options = agent?.__vitehubWorkspaceAgentOptions",
+    "  const workspace = options?.workspace",
+    "  if (!workspace || typeof workspace !== 'object' || 'name' in workspace) return agent",
+    "  const existingSources = agent.sources && typeof agent.sources === 'object' ? agent.sources : undefined",
+    "  const sources = colocatedInstructions",
+    "    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: 'build', mount: '', workspacePath: 'AGENTS.md' }, ...workspace.sources, ...existingSources }",
+    "    : { ...workspace.sources, ...existingSources }",
+    "  const resolvedSources = Object.keys(sources).length ? sources : undefined",
+    "  const resolvedSourceRootDir = workspace.sourceRootDir ?? agent.sourceRootDir ?? sourceRootDir",
+    "  const workspaceOptions = { ...options, workspace: { ...workspace, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: resolvedSourceRootDir } }",
+    "  return { ...agent, ...vitehubWorkspaceDefinitionFromOptions(workspaceOptions), __vitehubWorkspaceAgentOptions: workspaceOptions }",
     "}",
     ...entries,
     "",
@@ -1113,12 +1130,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         if (module) context.server.moduleGraph.invalidateModule(module)
       }
     },
-    transform(code, id) {
+    async transform(code, id) {
       if (agent === false || !resolved?.root) return
       if (id !== resolvedScheduleRegistryId && id !== resolvedScheduleTargetsId) return
       const definitions = discoverScheduledAgentDefinitions(resolved.root)
       return id === resolvedScheduleRegistryId
-        ? transformScheduleRegistry(code, definitions, getAgentImportBase(agent))
+        ? await transformScheduleRegistry(code, definitions, getAgentImportBase(agent))
         : transformScheduleTargets(code, definitions)
     },
     vitehub: {
