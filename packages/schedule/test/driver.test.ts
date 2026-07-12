@@ -368,6 +368,45 @@ describe("Runtime Schedule Wake Driver", () => {
     expect(snapshots.at(-1)).toEqual(["daily", "follow-up"])
   })
 
+  it("rolls back and rejects a re-entrant mutation when deferred reconciliation fails", async () => {
+    const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
+    const reconciliationError = new Error("host reconcile failed")
+    let mutationError: unknown
+    let woke = false
+    await installScheduleRuntime({
+      createDriver: context => ({
+        async reconcile(records) {
+          if (records.some(record => record.id === "follow-up")) throw reconciliationError
+          if (!woke && records.some(record => record.id === "daily")) {
+            woke = true
+            await context.wake({ scheduleId: "daily", scheduledAt })
+          }
+        },
+      }),
+      registry: {
+        report: async () => ({
+          cron: "0 9 * * *",
+          handler: async () => {
+            try {
+              await schedules.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
+            }
+            catch (error) {
+              mutationError = error
+            }
+          },
+          options: { allowRuntimeSchedules: true },
+        }),
+      },
+      runtimeScheduleStore: createMemoryRuntimeScheduleStore(),
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+
+    await schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
+
+    expect(mutationError).toBe(reconciliationError)
+    await expect(schedules.get("follow-up")).resolves.toBeUndefined()
+  })
+
   it("executes native wakes against persisted mutations while reconciliation is pending", async () => {
     const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
     const scheduleRunStore = createMemoryScheduleRunStore()
