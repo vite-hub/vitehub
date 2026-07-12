@@ -45,10 +45,17 @@ describe("schedule provider output", () => {
     const packageJson = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as { exports: Record<string, unknown> }
 
     expect(packageJson.exports).not.toHaveProperty("./definition")
+    expect(packageJson.exports).toHaveProperty("./runtime/driver", "./dist/runtime/driver.js")
   })
 
   it("emits Cloudflare, Vercel, and Netlify schedule provider wake output", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-")
+    await writeFile(join(rootDir, "src", "agent-turn.schedule.ts"), [
+      "import { defineScheduleTarget } from '@vite-hub/schedule'",
+      "",
+      "export default defineScheduleTarget({ handler: () => 'ok' })",
+      "",
+    ].join("\n"), "utf8")
 
     await generateProviderOutputs({
       clientOutDir: "dist/client",
@@ -69,9 +76,12 @@ describe("schedule provider output", () => {
       schedule: "0 0 * * *",
     }])
     expect(await readFile(vercelFunction, "utf8")).toContain("executeStaticSchedule")
+    expect(existsSync(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "agent-turn.func"))).toBe(false)
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("export const config = {")
+    expect(existsSync(join(createDefaultNetlifyOutputRoot(rootDir), "functions", "vitehub-schedule-agent-turn.mjs"))).toBe(false)
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("executeStaticSchedule")
+    await expect(readFile(join(rootDir, ".vitehub", "schedule", "registry.mjs"), "utf8")).resolves.not.toContain("agent-turn")
   })
 
   it("creates Netlify scheduled function output contributions", async () => {
@@ -170,6 +180,43 @@ describe("schedule provider output", () => {
     await expect(readFile(join(netlifyRoot, "functions", "vitehub-schedule-stale.mjs"), "utf8")).rejects.toThrow()
     await expect(readFile(join(netlifyRoot, "functions", "vitehub-schedule-cleanup.mjs"), "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
     expect(JSON.parse(await readFile(join(cloudflareRoot, "wrangler.json"), "utf8")).triggers.crons).toEqual(["0 1 * * *", "0 0 * * *"])
+  })
+
+  it("removes stale Deno and Cloudflare output when no static schedules remain", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-empty-cleanup-")
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    const configFile = join(cloudflareRoot, "wrangler.json")
+    const config = JSON.parse(await readFile(configFile, "utf8"))
+    await writeFile(configFile, JSON.stringify({
+      ...config,
+      custom: "keep",
+      triggers: { ...config.triggers, crons: ["0 1 * * *", ...config.triggers.crons] },
+    }), "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    expect(existsSync(join(rootDir, ".vitehub", "schedule", "deno-cron.mjs"))).toBe(false)
+    expect(existsSync(join(rootDir, ".vitehub", "schedule", "cloudflare-worker.mjs"))).toBe(false)
+    expect(existsSync(join(cloudflareRoot, "index.js"))).toBe(false)
+    await expect(readFile(configFile, "utf8")).resolves.toContain('"custom": "keep"')
+    expect(JSON.parse(await readFile(configFile, "utf8")).triggers.crons).toEqual(["0 1 * * *"])
+  })
+
+  it("preserves an existing Cloudflare trigger that matches a generated cron", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-cron-ownership-")
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareRoot, { recursive: true })
+    const configFile = join(cloudflareRoot, "wrangler.json")
+    await writeFile(configFile, JSON.stringify({
+      main: "index.js",
+      triggers: { crons: ["0 0 * * *"] },
+    }), "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    expect(JSON.parse(await readFile(configFile, "utf8")).triggers.crons).toEqual(["0 0 * * *"])
   })
 
   it("reports provider cron syntax limitations before output generation", () => {

@@ -30,6 +30,12 @@ import {
   normalizeAgentInvokerOptions,
   resolveAgentInvoker,
 } from "./invoker.ts"
+import {
+  parseScheduledAgentTurnInput,
+  scheduledAgentChannelIdsContextKey,
+  scheduledAgentNameContextKey,
+  scheduledAgentTurnContextKey,
+} from "./internal/scheduled-turn.ts"
 
 import {
   applyCapabilityToolTransforms,
@@ -531,6 +537,7 @@ interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
 interface ScheduleRunContextLike {
   attemptId?: string
   id: string
+  input?: unknown
   runId?: string
   scheduleId?: string
   scheduledAt: Date
@@ -1376,9 +1383,18 @@ async function createAgentInvocationContext<
       }
   const callbackContext = createAgentCallbackContext(runtimeContext)
   const invocationContext = createAgentInvocationContextStore(input.context)
+  invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
+  invocationContext.set(scheduledAgentNameContextKey, context.agentIdentity?.name, { overwrite: true })
   let invoker = createFallbackAgentInvoker(context.run)
   try {
-    invoker = await resolveAgentInvoker(definition?.invoker, callbackContext, invocationContext, input, context.run)
+    invoker = await resolveAgentInvoker(
+      definition?.invoker,
+      callbackContext,
+      invocationContext,
+      input,
+      context.run,
+      invocationContext.get<boolean>(scheduledAgentTurnContextKey) === true,
+    )
     const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
     const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
     const workspaceName = workspaceOptions
@@ -2258,6 +2274,9 @@ export async function runScheduledAgent(
 ): Promise<unknown> {
   const memoValues = new Map<string, unknown>()
   const runId = context.runId || context.id
+  const turn = context.input && typeof context.input === "object" && (context.input as { kind?: unknown }).kind === "agent-turn"
+    ? parseScheduledAgentTurnInput(context.input)
+    : undefined
 
   return await runAgent(agent, {
     ...runtimeContext,
@@ -2265,11 +2284,17 @@ export async function runScheduledAgent(
       if (!memoValues.has(key)) memoValues.set(key, create())
       return memoValues.get(key) as never
     },
-    run: { ...runtimeContext.run, runId },
+    run: { ...runtimeContext.run, ...turn?.delivery, runId },
     runtime: runtimeContext.runtime ?? "unknown",
     waitUntil: runtimeContext.waitUntil ?? (() => {}),
   }, {
     context: {
+      ...(turn
+        ? {
+            invoker: turn.invoker,
+            [scheduledAgentTurnContextKey]: true,
+          }
+        : {}),
       schedule: {
         id: context.id,
         kind: "schedule",
@@ -2279,6 +2304,7 @@ export async function runScheduledAgent(
         target: context.target,
       },
     },
+    ...(turn ? { prompt: turn.prompt } : {}),
   })
 }
 

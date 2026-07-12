@@ -22,6 +22,9 @@ export type {
   ScheduleDefinitionOptions,
   ScheduleDefinitionRegistry,
   ScheduleHandler,
+  ScheduleRegistryDefinition,
   ScheduleRunContext,
+  ScheduleTargetDefinition,
+  ScheduleTargetDefinitionInput,
   ScheduleTargetName,
 } from "./types.ts"

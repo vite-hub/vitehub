@@ -249,7 +249,7 @@ describe("agent public types", () => {
         skills({ shellExecution: "write" }),
         sandbox({ commands: ["node"] }),
         schedule({ mode: "read", targets: ["daily-reports"] as const }),
-        schedule({ allowSelfTarget: true, mode: "write", policy: "require-approval", selfTarget: "agent/digest", targets: ["agent/digest", "daily-reports"] as const }),
+        schedule({ allowSelfTarget: true, delivery: "origin", mode: "write", policy: "require-approval", targets: ["daily-reports"] as const, timeZone: "Asia/Bangkok" }),
         transcribe({
           execute({ audio }) {
             expectTypeOf(audio.mediaType).toEqualTypeOf<string>()
@@ -323,6 +323,10 @@ describe("agent public types", () => {
     schedule<GeneratedScheduleTargetName>({ mode: "write", targets: ["daily-reports"] })
     // @ts-expect-error target allowlists are typed by generated Schedule Target Names where supplied
     schedule<GeneratedScheduleTargetName>({ mode: "write", targets: ["missing"] })
+    // @ts-expect-error self targets are inferred from the discovered Agent name
+    schedule({ mode: "write", selfTarget: "agent/digest" })
+    // @ts-expect-error origin is the only durable delivery mode
+    schedule({ allowSelfTarget: true, delivery: "discord", mode: "write" })
 
     // @ts-expect-error web search mode is required
     webSearch({})

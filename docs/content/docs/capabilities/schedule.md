@@ -39,10 +39,31 @@ export default defineAgent({
 })
 ```
 
+To let an Agent create recurring turns for itself, enable self-targeting. ViteHub derives the target from the discovered Agent name and stores the prompt with a metadata-free copy of the resolved invoker identity. Every run passes through the Agent's normal Capability policies and `agent:input` hooks again. When `invoker.resolve` is configured, ViteHub also reruns it and continues only when the resolved `id` and `kind` still match. Without a resolver, ViteHub restores the durable identity; it does not perform external authentication automatically.
+
+```ts [server/agents/mini.ts]
+import { defineAgent } from '@vite-hub/agent'
+import { schedule } from '@vite-hub/agent/capabilities'
+
+export default defineAgent({
+  driver: { model },
+  capabilities: [
+    schedule({
+      allowSelfTarget: true,
+      delivery: 'origin',
+      mode: 'write',
+      timeZone: 'Asia/Bangkok',
+    }),
+  ],
+})
+```
+
+The Agent can now create a cron job with a `prompt`, such as a daily report. Only an invocation with the same resolved invoker `id` and `kind` can inspect or manage that scheduled turn. `delivery: 'origin'` sends the result back to the channel thread where the schedule was created. Creating that schedule fails when the invocation has no deliverable channel thread.
+
 ## Runtime behavior
 
 Static schedules add metadata that framework integrations and schedule-aware runtime behavior can inspect.
-Runtime Schedule mode reads visible Runtime Schedules and can create, edit, pause, resume, run, or delete scoped schedules when write mode is enabled. The `cronjob` tool accepts an optional IANA `timeZone` on create and edit, while schedules without one continue to use UTC.
+Runtime Schedule mode reads visible Runtime Schedules and can create, edit, pause, resume, run, or delete scoped schedules when write mode is enabled. The `cronjob` tool accepts an optional IANA `timeZone` on create and edit, while schedules without one continue to use UTC. A configured `timeZone` provides the default for new schedules; edits change it only when the tool supplies a new value.
 
 ## Requirements
 
@@ -51,6 +72,7 @@ Runtime Schedule mode requires a configured `schedule` primitive.
 
 Runtime Schedule edits require write mode and approval by default.
 Self-targeting requires explicit self-target permission.
+Runtime Schedules still require a provider wake or a long-running Schedule runner to execute when due.
 
 ## Driver support
 
@@ -75,8 +97,9 @@ The Capability should reject it before the Agent starts.
 | `schedules` | `Array<string \| { cron: string; id?: string }>` | required for Agent Schedules | Declares fixed five-field UTC Agent Schedules. |
 | `mode` | `"read" \| "write"` | required for Runtime Schedule tools | Selects read or write Runtime Schedule tools. |
 | `targets` | `string[]` | all visible targets | Allowlist of Runtime Schedule target names. |
-| `selfTarget` | `string` | none | Target name of the owning Agent. |
-| `allowSelfTarget` | `boolean` | `false` | Allows Runtime Schedule tools to target the owning Agent. |
+| `allowSelfTarget` | `boolean` | `false` | Lets the Agent create scheduled turns for itself. ViteHub derives the target from the discovered Agent name. |
+| `delivery` | `"origin"` | none | Delivers a scheduled Agent turn to the channel thread where it was created. Requires `allowSelfTarget: true`. |
+| `timeZone` | `string` | none (UTC fallback) | Default IANA time zone for Runtime Schedules created by the tool. New schedules use it before falling back to UTC. |
 | `policy` | `AgentToolPolicyDecision \| function` | `"require-approval"` | Policy for mutating `cronjob` operations. Read operations remain allowed. |
 
 ## Reference

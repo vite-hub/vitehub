@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore, createScheduleRun, executeRuntimeSchedule, executeStaticSchedule, ScheduleError, schedules, startScheduleRunner } from "../src/index.ts"
+import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore, createScheduleRun, defineScheduleTarget, executeRuntimeSchedule, executeStaticSchedule, ScheduleError, schedules, startScheduleRunner } from "../src/index.ts"
 import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 import type { KVStorage } from "@vite-hub/kv"
 
@@ -93,6 +93,38 @@ describe("Runtime Schedule helper", () => {
     expect(created.updatedAt).toBeInstanceOf(Date)
     expect(await schedules.get("schedule-1")).toEqual(created)
     expect(await schedules.list()).toEqual([created])
+  })
+
+  it("stores Runtime Schedule input as replaceable snapshots", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => defineScheduleTarget({ handler: async () => {} }),
+    })
+    const input = { prompt: "Morning report", settings: { concise: true } }
+
+    const created = await schedules.create({
+      cron: "0 9 * * *",
+      id: "schedule-1",
+      input,
+      target: "report",
+    })
+    input.settings.concise = false
+    expect(created.input).toEqual({ prompt: "Morning report", settings: { concise: true } })
+
+    const read = await schedules.get("schedule-1")
+    ;(read!.input as typeof input).settings.concise = false
+    expect((await schedules.get("schedule-1"))?.input).toEqual({ prompt: "Morning report", settings: { concise: true } })
+
+    const replacement = { prompt: "Evening report", settings: { concise: false } }
+    const updated = await schedules.update("schedule-1", { input: replacement })
+    replacement.prompt = "mutated"
+    expect(updated.input).toEqual({ prompt: "Evening report", settings: { concise: false } })
+
+    await schedules.update("schedule-1", { cron: "0 18 * * *" })
+    expect((await schedules.get("schedule-1"))?.input).toEqual({ prompt: "Evening report", settings: { concise: false } })
+
+    const cleared = await schedules.update("schedule-1", { input: undefined })
+    expect(cleared.input).toBeUndefined()
+    expect((await schedules.get("schedule-1"))?.input).toBeUndefined()
   })
 
   it("updates, disables, enables, and deletes schedules through the same store", async () => {
@@ -392,6 +424,7 @@ describe("KV Runtime Schedule Store", () => {
       cron: "0 9 * * *",
       enabled: true,
       id: "schedule/1",
+      input: { prompt: "Daily report", settings: { concise: true } },
       target: "daily/report",
       timeZone: "Europe/Copenhagen",
       updatedAt,
@@ -402,6 +435,7 @@ describe("KV Runtime Schedule Store", () => {
       cron: "0 9 * * *",
       enabled: true,
       id: "schedule/1",
+      input: { prompt: "Daily report", settings: { concise: true } },
       target: "daily/report",
       timeZone: "Europe/Copenhagen",
       updatedAt,
@@ -410,18 +444,26 @@ describe("KV Runtime Schedule Store", () => {
     expect(await store.list()).toEqual([created])
 
     created.cron = "mutated"
+    ;(created.input as { settings: { concise: boolean } }).settings.concise = false
     expect((await store.get("schedule/1"))?.cron).toBe("0 9 * * *")
+    expect((await store.get("schedule/1"))?.input).toEqual({ prompt: "Daily report", settings: { concise: true } })
 
     const changedAt = new Date("2026-05-23T10:00:00.000Z")
     await expect(store.update("missing", { enabled: false, updatedAt: changedAt })).resolves.toBeUndefined()
-    const updated = await store.update("schedule/1", { cron: "30 10 * * *", enabled: false, timeZone: "Asia/Bangkok", updatedAt: changedAt })
-    expect(updated).toMatchObject({ cron: "30 10 * * *", enabled: false, id: "schedule/1", timeZone: "Asia/Bangkok" })
+    const replacement = { prompt: "Updated report", settings: { concise: false } }
+    const updated = await store.update("schedule/1", { cron: "30 10 * * *", enabled: false, input: replacement, timeZone: "Asia/Bangkok", updatedAt: changedAt })
+    replacement.prompt = "mutated"
+    expect(updated).toMatchObject({ cron: "30 10 * * *", enabled: false, id: "schedule/1", input: { prompt: "Updated report", settings: { concise: false } }, timeZone: "Asia/Bangkok" })
     expect(updated?.createdAt).toEqual(createdAt)
     expect(updated?.updatedAt).toEqual(changedAt)
     expect((await store.get("schedule/1"))?.timeZone).toBe("Asia/Bangkok")
 
     const unchanged = await store.update("schedule/1", { cron: undefined, target: undefined, updatedAt: changedAt } as never)
     expect(unchanged).toMatchObject({ cron: "30 10 * * *", target: "daily/report" })
+
+    const cleared = await store.update("schedule/1", { input: undefined, updatedAt: changedAt })
+    expect(cleared?.input).toBeUndefined()
+    expect((await store.get("schedule/1"))?.input).toBeUndefined()
 
     await expect(store.create({
       createdAt,
@@ -517,14 +559,12 @@ describe("Schedule Run bookkeeping", () => {
   it("records a run and one successful attempt for a Runtime Schedule", async () => {
     const seen: unknown[] = []
     setScheduleRuntimeRegistry({
-      report: async () => ({
-        cron: "0 9 * * *",
+      report: async () => defineScheduleTarget<{ prompt: string }>({
         handler: async context => seen.push(context),
-        options: { allowRuntimeSchedules: true },
       }),
     })
 
-    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", input: { prompt: "Daily report" }, target: "report" })
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
     const run = await schedules.run("schedule-1", { scheduledAt })
     const attempts = await schedules.listAttempts(run.id)
@@ -543,6 +583,7 @@ describe("Schedule Run bookkeeping", () => {
       expect.objectContaining({
         attemptId: attempts[0]!.id,
         id: run.id,
+        input: { prompt: "Daily report" },
         runId: run.id,
         scheduleId: "schedule-1",
         scheduledAt,

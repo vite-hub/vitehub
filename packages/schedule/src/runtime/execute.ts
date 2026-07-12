@@ -1,12 +1,14 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
 
 import { ScheduleError } from "../errors.ts"
+import { isRuntimeScheduleDue } from "./due.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 
-import type { RuntimeScheduleRecord, RuntimeScheduleStore, ScheduleDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore, ScheduleTargetName } from "../types.ts"
+import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinition, ScheduleRegistryDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore, ScheduleTargetName } from "../types.ts"
 
 interface ExecuteScheduleOptions {
-  definition: ScheduleDefinition
+  definition: ScheduleRegistryDefinition
+  input?: unknown
   runStore?: ScheduleRunStore
   scheduleId: string
   source?: "direct" | "runtime" | "static"
@@ -23,9 +25,15 @@ interface ExecuteStaticScheduleOptions {
 
 interface ExecuteRuntimeScheduleOptions {
   id: string
+  requireDue?: boolean
   runtimeScheduleStore?: RuntimeScheduleStore
   scheduledAt?: Date
   scheduleRunStore?: ScheduleRunStore
+}
+
+interface ExecuteRuntimeScheduleWakeOptions {
+  runtimeScheduleStore: RuntimeScheduleStore
+  scheduleRunStore: ScheduleRunStore
 }
 
 function assertRuntimeExecuteOptionsObject(options: unknown): asserts options is ExecuteRuntimeScheduleOptions {
@@ -132,10 +140,11 @@ async function startAttempt(run: ScheduleRunRecord, store: ScheduleRunStore = ge
   return attempt
 }
 
-function toHandlerContext(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord): ScheduleRunContext {
+function toHandlerContext(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord, input?: unknown): ScheduleRunContext {
   return {
     attemptId: attempt.id,
     id: run.id,
+    ...(input !== undefined ? { input } : {}),
     runId: run.id,
     scheduleId: run.scheduleId,
     scheduledAt: run.scheduledAt,
@@ -192,7 +201,7 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
   const runStore = options.runStore ?? getScheduleRunStore()
   const attempt = await startAttempt(run, runStore)
   try {
-    await options.definition.handler(toHandlerContext(run, attempt))
+    await options.definition.handler(toHandlerContext(run, attempt, options.input))
     return await completeRun(run, attempt, runStore)
   }
   catch (error) {
@@ -243,6 +252,13 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
       httpStatus: 409,
     })
   }
+  if (runtimeOptions.requireDue && !isRuntimeScheduleDue(schedule, scheduledAt)) {
+    throw new ScheduleError(`Runtime Schedule is not due: ${id}`, {
+      code: "SCHEDULE_NOT_DUE",
+      details: { id, scheduledAt },
+      httpStatus: 409,
+    })
+  }
   const definition = await loadScheduleDefinition(schedule.target)
   if (!definition) {
     throw new ScheduleError(`Unknown Runtime Schedule target: ${schedule.target}`, {
@@ -261,10 +277,21 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
 
   return await executeSchedule({
     definition,
+    input: schedule.input,
     runStore: scheduleRunStore,
     scheduleId: schedule.id,
     source: "runtime",
     scheduledAt,
     target: schedule.target,
+  })
+}
+
+export async function executeRuntimeScheduleWake(input: RuntimeScheduleWake, options: ExecuteRuntimeScheduleWakeOptions): Promise<void> {
+  await executeRuntimeSchedule({
+    id: input.scheduleId,
+    requireDue: true,
+    runtimeScheduleStore: options.runtimeScheduleStore,
+    scheduledAt: input.scheduledAt,
+    scheduleRunStore: options.scheduleRunStore,
   })
 }

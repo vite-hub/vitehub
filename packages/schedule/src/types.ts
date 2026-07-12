@@ -1,13 +1,16 @@
-export interface ScheduleRunContext {
+export interface ScheduleRunContext<TInput = unknown> {
   id: string
   attemptId?: string
+  input?: TInput
   runId?: string
   scheduleId?: string
   scheduledAt: Date
   target?: ScheduleTargetName
 }
 
-export type ScheduleHandler<TResult = unknown> = (context: ScheduleRunContext) => TResult | Promise<TResult>
+export type ScheduleHandler<TResult = unknown, TInput = unknown> = {
+  bivarianceHack(context: ScheduleRunContext<TInput>): TResult | Promise<TResult>
+}["bivarianceHack"]
 
 export interface ScheduleDefinitionInput<TResult = unknown> {
   allowRuntimeSchedules?: boolean
@@ -25,8 +28,21 @@ export interface ScheduleDefinition<TResult = unknown> {
   options?: ScheduleDefinitionOptions
 }
 
+export interface ScheduleTargetDefinitionInput<TInput = unknown, TResult = unknown> {
+  handler: ScheduleHandler<TResult, TInput>
+}
+
+export interface ScheduleTargetDefinition<TInput = unknown, TResult = unknown> {
+  handler: ScheduleHandler<TResult, TInput>
+  options: {
+    allowRuntimeSchedules: true
+  }
+}
+
+export type ScheduleRegistryDefinition = ScheduleDefinition | ScheduleTargetDefinition
+
 export interface ScheduleDefinitionRegistry {
-  [name: string]: () => Promise<{ default?: ScheduleDefinition } | ScheduleDefinition>
+  [name: string]: () => Promise<{ default?: ScheduleRegistryDefinition } | ScheduleRegistryDefinition>
 }
 
 export type ScheduleTargetName = string & {}
@@ -36,25 +52,33 @@ export interface RuntimeScheduleMetadata {
   updatedAt: Date
 }
 
-export interface RuntimeScheduleRecord extends RuntimeScheduleMetadata {
+export interface RuntimeScheduleRecord<TInput = unknown> extends RuntimeScheduleMetadata {
   cron: string
   enabled: boolean
   id: string
+  input?: TInput
   target: ScheduleTargetName
   timeZone?: string
 }
 
-export interface RuntimeScheduleCreateInput<TTarget extends ScheduleTargetName = ScheduleTargetName> {
+export interface RuntimeScheduleWake {
+  scheduleId: string
+  scheduledAt: Date
+}
+
+export interface RuntimeScheduleCreateInput<TTarget extends ScheduleTargetName = ScheduleTargetName, TInput = unknown> {
   cron: string
   enabled?: boolean
   id?: string
+  input?: TInput
   target: TTarget
   timeZone?: string
 }
 
-export interface RuntimeScheduleUpdateInput<TTarget extends ScheduleTargetName = ScheduleTargetName> {
+export interface RuntimeScheduleUpdateInput<TTarget extends ScheduleTargetName = ScheduleTargetName, TInput = unknown> {
   cron?: string
   enabled?: boolean
+  input?: TInput
   target?: TTarget
   timeZone?: string
 }
@@ -117,5 +141,6 @@ export interface DiscoveredScheduleDefinition {
   allowRuntimeSchedules?: boolean
   handler: string
   name: string
+  runtimeOnly?: boolean
   source?: "server-schedules" | "vite-suffix"
 }

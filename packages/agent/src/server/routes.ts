@@ -76,6 +76,7 @@ interface ViteAgentRouteRuntimeContext extends AgentRuntimeContext<ViteAgentRout
 }
 
 interface AgentRouteRuntimeOptions {
+  capabilities?: ViteAgentRouteRuntimeContext["capabilities"]
   agentIdentity?: AgentHostIdentity
   cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"]
   runtime?: AgentRuntimeName
@@ -298,11 +299,13 @@ function createRuntimeContext(
   waitUntil?: AgentWaitUntil,
   cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"],
   runtimeOverride?: AgentRuntimeName,
+  capabilities?: ViteAgentRouteRuntimeContext["capabilities"],
   agentIdentity?: AgentHostIdentity,
 ): ViteAgentRouteRuntimeContext {
   const waitUntilController = createRuntimeWaitUntilController({ forward: waitUntil })
   const runtime = cloudflare ? "cloudflare-agents" : runtimeOverride || detectRuntime()
   return createAgentRuntimeContext({
+    ...(capabilities ? { capabilities } : {}),
     ...(agentIdentity ? { agentIdentity } : {}),
     ...(cloudflare ? { cloudflare } : {}),
     flushWaitUntil: waitUntilController.flushWaitUntil,
@@ -2406,6 +2409,7 @@ async function sendDevtoolsUIMessage(
     await resolveRuntimeWaitUntil(requestOptions.waitUntil ?? options.waitUntil),
     requestOptions.cloudflare ?? options.cloudflare,
     requestOptions.runtime ?? options.runtime,
+    requestOptions.capabilities ?? options.capabilities,
     requestOptions.agentIdentity ?? options.agentIdentity,
   )
   const triggerInput: AgentChatMessageTriggerInput = {
@@ -2496,6 +2500,7 @@ async function handleAgentChannelDevtoolsRouteRequest(
       await resolveRuntimeWaitUntil(requestOptions.waitUntil ?? options.waitUntil),
       requestOptions.cloudflare ?? options.cloudflare,
       requestOptions.runtime ?? options.runtime,
+      requestOptions.capabilities ?? options.capabilities,
       requestOptions.agentIdentity ?? options.agentIdentity,
     )
     const invokerSelection = normalizeInvokerSelection(body)
@@ -2593,6 +2598,7 @@ export function createChannelChatRouteHandler(
         await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
         handlerOptions.cloudflare,
         handlerOptions.runtime,
+        handlerOptions.capabilities,
         agentIdentity,
       )
       const trustInput = Boolean(routeOptions.admission?.authenticate && routeOptions.input?.trust?.length)
@@ -2641,6 +2647,7 @@ export function createChannelWebhookRouteHandler(
       waitUntil,
       handlerOptions.cloudflare,
       handlerOptions.runtime,
+      handlerOptions.capabilities,
       routeAgentIdentity(handlerOptions),
     )
     return await runWithRuntimeCloudflareEnv(context, async () => {
@@ -2675,6 +2682,7 @@ export function createChannelWebhookRouteHandler(
             waitUntil,
             handlerOptions.cloudflare,
             handlerOptions.runtime,
+            handlerOptions.capabilities,
             routeAgentIdentity(handlerOptions),
           )
           context.waitUntil(runWithRuntimeCloudflareEnv(runContext, async () => {
@@ -2731,6 +2739,7 @@ export function createDiscordGatewayRouteHandler(
       await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
       handlerOptions.cloudflare,
       handlerOptions.runtime,
+      handlerOptions.capabilities,
       routeAgentIdentity(handlerOptions),
     )
     return await runWithRuntimeCloudflareEnv(context, async () => {
