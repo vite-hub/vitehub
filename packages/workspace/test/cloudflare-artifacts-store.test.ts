@@ -156,6 +156,22 @@ describe("Cloudflare Artifacts workspace store", () => {
     ])
   })
 
+  it("pushes an empty initial snapshot as a Git commit", async () => {
+    const store = await createStore({
+      create: vi.fn(),
+      get: vi.fn(async () => artifactsRepo()),
+    })
+    gitMock.statusMatrix.mockResolvedValueOnce([])
+
+    const snapshot = await store.snapshot({ name: "Empty workspace" })
+
+    expect(snapshot.id).toBe("commit-1")
+    expect(gitMock.commit).toHaveBeenCalledWith(expect.objectContaining({
+      message: "Empty workspace",
+    }))
+    expect(gitMock.push).toHaveBeenCalledOnce()
+  })
+
   it("configures Cloudflare hosted Workspace runtime through public API", async () => {
     const repo = artifactsRepo()
     setActiveCloudflareEnv({

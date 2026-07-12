@@ -104,6 +104,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   #branch = "main"
   #files = new Map<string, FileMetadata>()
   #fs: MemoryFS | undefined
+  #head: string | undefined
   #pendingCommit: string | undefined
   #repo: ArtifactsRepo | undefined
   #ready: Promise<void> | undefined
@@ -255,7 +256,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
       }
     }
 
-    if (changed) {
+    if (changed || (!this.#head && !this.#pendingCommit)) {
       this.#pendingCommit = await git.commit({
         author: { email: "workspace@vitehub.dev", name: "ViteHub Workspace" },
         dir,
@@ -286,11 +287,12 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
         }
         throw error
       }
+      this.#head = id
       this.#pendingCommit = undefined
     }
 
     const snapshot = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }), options.name)
-    this.#baseline = { ...snapshot, id: id || this.#baseline?.id || snapshot.id }
+    this.#baseline = { ...snapshot, id: id || this.#head || snapshot.id }
     return this.#baseline
   }
 
@@ -388,7 +390,6 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     const binding = this.#getBinding()
     const name = repoName(this.options, this.workspaceName)
     let created: ArtifactsCreateRepoResult | undefined
-    let head: string | undefined
     let repo: ArtifactsRepo
     try {
       repo = await binding.get(name)
@@ -428,11 +429,11 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
         singleBranch: true,
         url: repo.remote,
       })
-      head = await git.resolveRef({ dir, fs: this.#fs as never, ref: this.#branch })
+      this.#head = await git.resolveRef({ dir, fs: this.#fs as never, ref: this.#branch })
     }
     await this.#loadFileMetadata()
     const baseline = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }))
-    this.#baseline = head ? { ...baseline, id: head } : baseline
+    this.#baseline = this.#head ? { ...baseline, id: this.#head } : baseline
   }
 }
 
