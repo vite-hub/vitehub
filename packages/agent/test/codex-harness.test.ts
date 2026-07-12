@@ -141,6 +141,30 @@ describe("codexDriver", () => {
     expect(createCodex).toHaveBeenLastCalledWith({ auth: { gateway: { apiKey: "gateway-key" } } })
     expect(driver.sandbox).toBeUndefined()
   })
+
+  it("forwards invocation-scoped harness configuration without treating it as Codex settings", async () => {
+    const { codexDriver } = await import("../src/harness/codex.ts")
+    const instructions = vi.fn(() => "Repair the pull request.")
+    const workDir = vi.fn(() => "vitehub/pr-559")
+
+    const driver = codexDriver<{ pullRequest: number }>({
+      instructions,
+      sandbox: false,
+      workDir,
+    })
+
+    expect(driver.instructions).toBe(instructions)
+    expect(driver.workDir).toBe(workDir)
+    expect(createCodex).toHaveBeenLastCalledWith({ auth: { openai: {} } })
+  })
+
+  it("preserves an empty work directory for harness validation", async () => {
+    const { codexDriver } = await import("../src/harness/codex.ts")
+
+    const driver = codexDriver({ sandbox: false, workDir: "" })
+
+    expect(driver.workDir).toBe("")
+  })
 })
 
 function restoreEnv(key: string, value: string | undefined): void {
