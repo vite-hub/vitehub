@@ -215,14 +215,36 @@ async function createSession(options: LocalHarnessSandboxOptions, sessionId: str
 }
 
 export function createLocalHarnessSandbox(options: LocalHarnessSandboxOptions = {}): HarnessV1SandboxProvider {
+  const firstCreates = new Map<string, Promise<void>>()
+
   return {
     ...(options.ports ? { bridgePorts: options.ports } : {}),
     providerId: "local",
     specificationVersion: "harness-sandbox-v1",
     async createSession(createOptions) {
-      const session = await createSession(options, createOptions?.sessionId)
-      await createOptions?.onFirstCreate?.(session, { abortSignal: createOptions.abortSignal })
-      return session
+      const onFirstCreate = createOptions?.onFirstCreate
+      if (!onFirstCreate) return await createSession(options, createOptions?.sessionId)
+      const key = options.rootDir ? "root" : createOptions?.sessionId
+      if (!key) {
+        const session = await createSession(options, createOptions?.sessionId)
+        await onFirstCreate(session, { abortSignal: createOptions.abortSignal })
+        return session
+      }
+
+      const previous = firstCreates.get(key) ?? Promise.resolve()
+      let release!: () => void
+      const current = new Promise<void>(resolve => release = resolve)
+      firstCreates.set(key, current)
+      await previous
+      try {
+        const session = await createSession(options, createOptions?.sessionId)
+        await onFirstCreate(session, { abortSignal: createOptions.abortSignal })
+        return session
+      }
+      finally {
+        release()
+        if (firstCreates.get(key) === current) firstCreates.delete(key)
+      }
     },
   }
 }
