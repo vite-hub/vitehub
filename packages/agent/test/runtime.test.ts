@@ -2750,6 +2750,62 @@ describe("agent message protocol", () => {
     expect(order).toEqual(["run", "effect:result:ok:done:42"])
   })
 
+  it("lets agent finish hooks return delivery effects after capability finish effects", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const order: string[] = []
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "feedback",
+          prepare(context) {
+            context.delivery.finishEffect(context => context.reply("capability"))
+          },
+        }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          effects: {
+            reaction({ effect }) {
+              order.push(`reaction:${effect.payload}`)
+            },
+            reply({ effect }) {
+              order.push(`reply:${effect.payload}`)
+            },
+            status({ effect }) {
+              order.push(`status:${(effect.payload as { state?: string } | undefined)?.state}`)
+            },
+          },
+          messages: false,
+        }),
+      },
+      driver: { run: () => "ok" },
+      hooks: {
+        "agent:finish"(event) {
+          return [
+            event.reply("hook"),
+            event.reaction("done"),
+            event.status("completed"),
+          ]
+        },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { channelId: "portal", runId: "portal-run" },
+      runtime: "unknown" as const,
+      waitUntil: vi.fn(),
+    }, {})).resolves.toBe("ok")
+
+    expect(order).toEqual([
+      "reply:capability",
+      "reply:hook",
+      "reaction:done",
+      "status:completed",
+    ])
+  })
+
   it("carries result artifacts through custom finish replies", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")

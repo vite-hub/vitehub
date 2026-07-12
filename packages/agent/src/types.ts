@@ -479,10 +479,19 @@ export interface AgentFinishEvent<
   text?: string
 }
 
+export interface AgentFinishHookEvent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> extends AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS> {
+  reaction: (input: AgentChannelDeliveryReactionInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"reaction">
+  reply: (input: AgentChannelDeliveryReplyInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"reply">
+  status: (input: AgentChannelDeliveryStatusInput, options?: AgentChannelDeliveryEffectIntentOptions) => AgentChannelDeliveryEffectIntent<"status">
+}
+
 export type AgentFinishHook<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-> = (event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void>
+> = (event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
 
 export type AgentInputHook<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,

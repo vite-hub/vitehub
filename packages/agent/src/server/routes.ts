@@ -6,6 +6,7 @@ import { Chat, StreamingPlan, convertEmojiPlaceholders } from "chat"
 import { resolveAgentTriggerInvocation, resolveAgentTriggers, runAgent, runAgentInline, streamAgent, streamAgentTrigger } from "../index.ts"
 import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
+import { RateLimitRejectedError } from "../capabilities/rate-limit.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "../chat-trigger.ts"
 import { chatTriggerHistoryLimit, resolveChatTriggerHistory, uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { normalizeCapabilities } from "../capability-runtime.ts"
@@ -1485,6 +1486,7 @@ async function resolveChatErrorFallbackText(
     return resolved || undefined
   }
   if (typeof fallback === "string") return fallback
+  if (args.error instanceof RateLimitRejectedError) return args.error.message
   return defaultChatErrorFallbackText
 }
 

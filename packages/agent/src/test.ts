@@ -10,6 +10,8 @@ import { registerWorkspace } from "@vite-hub/workspace/test"
 import type {
   AgentInput,
   AgentFinishEvent,
+  AgentFinishHook,
+  AgentFinishHookEvent,
   AgentFinishExtensions,
   AgentModelExecutionOptions,
   AgentModelInstrumentation,
@@ -132,12 +134,12 @@ function withTestFinishCapture<TRuntimeConfig extends AgentRuntimeConfig>(
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput<AgentRuntimeContext<TRuntimeConfig>> & { hooks?: Record<string, unknown> }
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
   const hooks = clone.hooks || {}
-  const finishHook = hooks["agent:finish"] as ((event: AgentFinishEvent<TRuntimeConfig>) => MaybePromise<void>) | undefined
+  const finishHook = hooks["agent:finish"] as AgentFinishHook<TRuntimeConfig> | undefined
   clone.hooks = {
     ...hooks,
-    async "agent:finish"(event: AgentFinishEvent<TRuntimeConfig>) {
+    async "agent:finish"(event: AgentFinishHookEvent<TRuntimeConfig>) {
       capture(event)
-      await finishHook?.(event)
+      return await finishHook?.(event)
     },
   }
   return clone
