@@ -326,6 +326,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onWriteBack: expect.any(Function),
       paths: ["AGENTS.md", "CLAUDE.md", "skills/agent-browser"],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
@@ -386,6 +387,145 @@ describe("defineAgent workspace option", () => {
       path: "/workspace/codex-session/screenshots/result.png",
     })
     expect(store.put).toHaveBeenCalledWith("screenshots/result.png", screenshot, undefined)
+  })
+
+  it("publishes current-run Harness artifacts referenced in the final Markdown", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { blob } = await import("../src/capabilities.ts")
+    const preview = new Uint8Array([7, 8, 9])
+    const rootPreview = new Uint8Array([10, 11, 12])
+    const writeBackDiff = {
+      entries: [
+        { after: { type: "file" as const }, path: "artifacts/preview.png", type: "added" as const },
+        { after: { type: "file" as const }, path: "artifacts/root-preview.png", type: "added" as const },
+        { after: { type: "file" as const }, path: "artifacts/bare.png", type: "added" as const },
+        { after: { type: "file" as const }, path: "artifacts/app-route.png", type: "added" as const },
+        { after: { type: "directory" as const }, path: "artifacts/gallery", type: "added" as const },
+        { path: "artifacts/old.png", type: "removed" as const },
+        { after: { type: "file" as const }, path: "other/outside.png", type: "modified" as const },
+      ],
+      to: "next",
+    }
+    const store = {
+      del: vi.fn(),
+      get: vi.fn(),
+      head: vi.fn(),
+      list: vi.fn(async () => ({ blobs: [], hasMore: false })),
+      put: vi.fn(async (pathname: string) => {
+        const normalizedPathname = decodeURIComponent(pathname)
+        return {
+          pathname: normalizedPathname,
+          url: `/api/_vitehub/blob/${normalizedPathname}`,
+        }
+      }),
+    }
+    readFile.mockImplementation(async (path: string) => path === "artifacts/preview.png"
+      ? preview
+      : path === "artifacts/root-preview.png" ? rootPreview : undefined)
+    stat.mockImplementation(async (path: string) => path === "artifacts/preview.png" || path === "artifacts/root-preview.png"
+      ? { mediaType: "image/png", path, type: "file" as const }
+      : undefined)
+    prepareHarnessWorkspaceSession.mockImplementationOnce(async (_workspace, options: { onWriteBack?: (diff: typeof writeBackDiff) => unknown }) => ({
+      async close() {
+        await options.onWriteBack?.(writeBackDiff)
+      },
+    }))
+    const providerData = { sessionId: "provider-session" }
+    const markdown = [
+      "![Preview](/workspace/codex-session/artifacts/preview.png)",
+      "![Root preview](/workspace/artifacts/root-preview.png)",
+      "![Nested](/workspace/codex-session/tmp/artifacts/preview.png)",
+      "Bare path: artifacts/bare.png",
+      "[App route](/docs/artifacts/app-route.png)",
+      "[Gallery](artifacts/gallery)",
+      "![Old](artifacts/old.png)",
+      "![Outside](other/outside.png)",
+    ].join("\n")
+    const harnessResult = {
+      finishReason: "stop",
+      structured: { markdown },
+    }
+    Object.defineProperty(harnessResult, "providerData", {
+      configurable: true,
+      enumerable: false,
+      value: providerData,
+    })
+    harnessGenerate.mockResolvedValueOnce(harnessResult as never)
+    const laterRenderer = vi.fn((result: unknown) => Object.create(
+      Object.getPrototypeOf(result),
+      {
+        ...Object.getOwnPropertyDescriptors(result),
+        text: {
+          configurable: true,
+          enumerable: true,
+          value: (result as { structured: { markdown: string } }).structured.markdown,
+          writable: true,
+        },
+      },
+    ))
+
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [
+        blob({ assetPaths: ["artifacts"], mode: "write", policy: "deny" }),
+        defineCapability({
+          id: "provider-result",
+          output(context) {
+            context.output.final(laterRenderer)
+          },
+        }),
+      ],
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: { mode: "write" },
+    }), { workspace: "review" })
+
+    const runtimeContext = context() as Record<string, unknown>
+    const runtime = {
+      ...runtimeContext,
+      capabilities: { blob: store },
+      request: new Request("https://review.example/api/github"),
+      run: { runId: "github:acme/app#42:comment:99" },
+    }
+    const result = await runAgent(agent, runtime as never, { prompt: "hello" })
+    expect(result).toMatchObject({
+      artifacts: [
+        {
+          alt: "Preview",
+          mediaType: "image/png",
+          path: "artifacts/preview.png",
+          placement: "inline",
+          url: expect.stringMatching(/^https:\/\/review\.example\/api\/_vitehub\/blob\/vitehub-agent-artifacts\/[a-f0-9]{64}\/artifacts\/preview\.png$/),
+        },
+        {
+          alt: "Root preview",
+          mediaType: "image/png",
+          path: "artifacts/root-preview.png",
+          placement: "inline",
+          url: expect.stringMatching(/^https:\/\/review\.example\/api\/_vitehub\/blob\/vitehub-agent-artifacts\/[a-f0-9]{64}\/artifacts\/root-preview\.png$/),
+        },
+      ],
+    })
+    expect(laterRenderer).toHaveBeenCalledOnce()
+    const rendered = laterRenderer.mock.calls[0]![0] as Record<string, unknown>
+    expect(Object.getPrototypeOf(rendered)).toBe(Object.getPrototypeOf(harnessResult))
+    expect(Object.getOwnPropertyDescriptor(rendered, "providerData")).toEqual({
+      configurable: true,
+      enumerable: false,
+      value: providerData,
+      writable: false,
+    })
+    expect(store.put).toHaveBeenCalledTimes(2)
+    expect(store.put).toHaveBeenCalledWith(
+      expect.stringMatching(/^vitehub-agent-artifacts\/[a-f0-9]{64}\/artifacts\/preview\.png$/),
+      preview,
+      { contentType: "image/png" },
+    )
+    expect(store.put).toHaveBeenCalledWith(
+      expect.stringMatching(/^vitehub-agent-artifacts\/[a-f0-9]{64}\/artifacts\/root-preview\.png$/),
+      rootPreview,
+      { contentType: "image/png" },
+    )
   })
 
   it("scopes write-mode harness Workspace Sessions through access()", async () => {
@@ -969,6 +1109,12 @@ describe("defineAgent workspace option", () => {
       driver: { model: {} as never, },
       workspace: { mode: "read" },
     })).toThrow("workspaceShell({ commands }) requires workspace.mode: \"write\"")
+
+    expect(() => defineAgent({
+      capabilities: [workspaceShell({ commands: "trusted-host" })],
+      driver: { model: {} as never },
+      workspace: { mode: "read" },
+    })).toThrow("workspaceShell({ commands }) requires workspace.mode: \"write\"")
   })
 
   it("requires writable workspace for browser bash commands", async () => {
@@ -1084,6 +1230,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onWriteBack: expect.any(Function),
       paths: ["AGENTS.md", "CLAUDE.md"],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
@@ -1130,6 +1277,7 @@ describe("defineAgent workspace option", () => {
 
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       ignoreWriteBackPaths: ["harness-tool.mjs"],
+      onWriteBack: expect.any(Function),
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     }))
@@ -1236,6 +1384,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: ["AGENTS.md", "CLAUDE.md"],
+      onWriteBack: expect.any(Function),
       paths: ["AGENTS.md", "CLAUDE.md"],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
@@ -1309,6 +1458,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onWriteBack: expect.any(Function),
       paths: ["AGENTS.md", "CLAUDE.md", "skills/SKILL.md", "skills/review-browser-evidence/SKILL.md"],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
@@ -1361,6 +1511,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onWriteBack: expect.any(Function),
       paths: ["AGENTS.md", "CLAUDE.md", "docs/context.md"],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
@@ -1388,6 +1539,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onWriteBack: expect.any(Function),
       paths: undefined,
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
@@ -1433,6 +1585,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onWriteBack: expect.any(Function),
       paths: [""],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
@@ -1521,6 +1674,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onWriteBack: expect.any(Function),
       paths: ["AGENTS.md", "CLAUDE.md"],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
@@ -1554,6 +1708,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onWriteBack: expect.any(Function),
       paths: ["AGENTS.md", "CLAUDE.md"],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
@@ -1596,6 +1751,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onWriteBack: expect.any(Function),
       paths: ["AGENTS.md", "CLAUDE.md", "summary.md", "artifacts/usage", "artifacts/browser", "pr-diff-summary.md"],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
@@ -1641,6 +1797,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onWriteBack: expect.any(Function),
       paths: ["public", "AGENTS.md", "CLAUDE.md", ".vitehub/sources/public.json"],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
@@ -1688,6 +1845,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onWriteBack: expect.any(Function),
       paths: ["public", "AGENTS.md", "CLAUDE.md"],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
@@ -1732,6 +1890,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onWriteBack: expect.any(Function),
       paths: [""],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
@@ -1831,6 +1990,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onWriteBack: expect.any(Function),
       paths: ["public", "AGENTS.md", "CLAUDE.md", "skills/agent-browser", ".vitehub/sources/public.json"],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
@@ -1879,6 +2039,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onWriteBack: expect.any(Function),
       paths: [""],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
@@ -1923,6 +2084,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
+      onWriteBack: expect.any(Function),
       paths: ["public", "AGENTS.md", "CLAUDE.md"],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
@@ -1960,6 +2122,7 @@ describe("defineAgent workspace option", () => {
         runtime: "trusted-host",
       }),
       ignoreWriteBackPaths: [],
+      onWriteBack: expect.any(Function),
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     }))
@@ -3802,6 +3965,24 @@ describe("defineAgent workspace option", () => {
         }),
       ]),
     })
+  })
+
+  it("marks unrestricted trusted-host execution in DevTools metadata", async () => {
+    const { createAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
+    const { workspaceShell } = await import("../src/capabilities.ts")
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [workspaceShell({ commands: "trusted-host", mode: "write" })],
+      driver: { model: {} as never },
+      workspace: { mode: "write", runtime: "trusted-host" },
+    }), { workspace: "support" })
+
+    expect(createAgentDevtoolsMetadata(agent).tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        commands: expect.arrayContaining(["workspace_exec (any host executable)"]),
+        description: expect.stringContaining("trusted host service account's authority"),
+        name: "workspaceShell",
+      }),
+    ]))
   })
 
   it("composes static DevTools instruction metadata", async () => {

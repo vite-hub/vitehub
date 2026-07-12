@@ -38,6 +38,7 @@ export interface PrepareHarnessWorkspaceSessionOptions {
   ignoreWriteBackPaths?: readonly string[]
   onMaterializeProgress?: WorkspaceMaterializeSourcesOptions["onProgress"]
   onProgress?: (event: WorkspacePrepareSessionProgressEvent) => void | Promise<void>
+  onWriteBack?: (diff: WorkspaceDiff) => void | Promise<void>
   paths?: readonly string[]
   session: HarnessSandboxSession
   sessionWorkDir: string
@@ -466,6 +467,7 @@ async function copySandboxChangesToWorkspace(
   abortSignal: AbortSignal | undefined,
   ignoreWriteBackPaths: Set<string>,
   commit: PrepareHarnessWorkspaceSessionOptions["commit"],
+  onWriteBack: PrepareHarnessWorkspaceSessionOptions["onWriteBack"],
 ) {
   if (!sandbox.readBinaryFile) {
     throw new Error("[vitehub] Harness Workspace Session write mode requires sandbox.readBinaryFile.")
@@ -517,11 +519,13 @@ async function copySandboxChangesToWorkspace(
     const commitOptions = commit(diff)
     if (!commitOptions) return
     await session.commit({ message: commitOptions.message || "harness-workspace-session" })
+    await onWriteBack?.(diff)
     return
   }
   const autoCommit = definition ? resolveWorkspaceAutoCommit(definition, diff) : undefined
   if (definition && !autoCommit) return
   await session.commit({ message: autoCommit?.message || "harness-workspace-session" })
+  await onWriteBack?.(diff)
 }
 
 export async function prepareHarnessWorkspaceSession(
@@ -553,6 +557,7 @@ export async function prepareHarnessWorkspaceSession(
             options.abortSignal,
             ignoreWriteBackPaths,
             options.commit,
+            options.onWriteBack,
           )
         }
       }

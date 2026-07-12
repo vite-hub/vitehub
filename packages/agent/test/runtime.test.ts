@@ -2411,6 +2411,43 @@ describe("agent message protocol", () => {
     expect(order).toEqual(["run", "effect:result:ok:done:42"])
   })
 
+  it("carries result artifacts through custom finish replies", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const effect = vi.fn()
+    const artifact = {
+      path: "artifacts/preview.png",
+      placement: "inline" as const,
+      url: "https://assets.example/preview.png",
+    }
+    const agent = defineAgent({
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reply: effect },
+          messages: false,
+          triggers: {
+            message: {
+              invoke: context => ({
+                delivery: {
+                  finishEffects: context => context.reply("![Preview](artifacts/preview.png)"),
+                },
+                input: { prompt: "hello" },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => ({ artifacts: [artifact], text: "done" }) },
+    })
+
+    await runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})
+
+    expect(effect).toHaveBeenCalledWith(expect.objectContaining({
+      effect: expect.objectContaining({ artifacts: [artifact] }),
+    }))
+  })
+
   it("lets finish delivery effects publish Workspace artifacts", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel, publishWorkspaceArtifacts } = await import("../src/channels.ts")
@@ -5391,6 +5428,42 @@ describe("agent message protocol", () => {
     expect(events).toContainEqual({ type: "finish" })
   })
 
+  it("keeps plain stream titles per invocation with once-per-thread Channel delivery", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const execute = vi.fn(({ text }) => `Title: ${text}`)
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [chatTitle({ channelDelivery: "once-per-thread", execute })],
+      driver: { run: () => (async function* () {
+          yield { text: "hello", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
+      hooks: { "agent:finish": finish },
+    })
+
+    for (const id of ["user-1", "user-2"]) {
+      const stream = await streamAgent(agent, {
+        memo: vi.fn(),
+        run: { runId: id, threadId: "thread-1" },
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, {
+        messages: [createMessage({ id, role: "user", text: id })],
+      })
+      const events = []
+      for await (const event of stream as AsyncIterable<unknown>) events.push(event)
+      expect(events).toContainEqual({
+        data: { title: `Title: ${id}`, type: "chat-title" },
+        type: "data",
+      })
+    }
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(finish.mock.calls.map(([event]) => event.extensions.get("chat-title"))).toEqual([
+      { title: "Title: user-1" },
+      { title: "Title: user-2" },
+    ])
+  })
+
   it("streams agent output while chat title generation is pending", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     let resolveTitle: (title: string) => void = () => {}
@@ -5816,36 +5889,57 @@ describe("agent message protocol", () => {
     expect(events).toContainEqual({ text: "hello", type: "text-delta" })
   })
 
-  it("does not lock native readable streams before UI conversion", async () => {
+  it("leaves readable stream results unlocked and unread until consumption", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
+    const pull = vi.fn()
+    const source = new ReadableStream<unknown>({ pull }, { highWaterMark: 0 })
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => "Lazy title" })],
+      driver: { run: () => ({ stream: source }) },
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "First user request" })],
+    }) as { stream: ReadableStream<unknown> }
+
+    expect(source.locked).toBe(false)
+    expect(pull).not.toHaveBeenCalled()
+    await result.stream.cancel("unused")
+  })
+
+  it("keeps native UI message stream conversion available after chat title decoration", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
     class StreamResult {
       stream = new ReadableStream<unknown>({
         start(controller) {
-          controller.enqueue({ text: "hello", type: "text-delta" })
+          controller.enqueue({ messageId: "message-1", type: "start" })
+          controller.enqueue({ id: "text-1", type: "text-start" })
+          controller.enqueue({ delta: "hello", id: "text-1", type: "text-delta" })
+          controller.enqueue({ id: "text-1", type: "text-end" })
+          controller.enqueue({ finishReason: "stop", type: "finish" })
           controller.close()
         },
       })
-
-      fullStream = this.stream
 
       toUIMessageStream() {
         return this.stream.pipeThrough(new TransformStream<unknown, unknown>())
       }
     }
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute: () => "Readable title" })],
+      capabilities: [chatTitle({ execute: () => "Native UI title" })],
       driver: { run: () => new StreamResult() },
     })
 
-    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       messages: [createMessage({ role: "user", text: "First user request" })],
-    }) as StreamResult
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
     const events = []
-    for await (const event of result.toUIMessageStream()) {
+    for await (const event of stream) {
       events.push(event)
     }
 
-    expect(events).toContainEqual({ text: "hello", type: "text-delta" })
+    expect(events).toContainEqual({ data: { title: "Native UI title", type: "chat-title" }, type: "data-chat-title" })
+    expect(events).toContainEqual({ delta: "hello", id: "text-1", type: "text-delta" })
   })
 
   it("cancels readable stream results while a source read is pending", async () => {
@@ -5855,14 +5949,15 @@ describe("agent message protocol", () => {
       sourcePullStarted = resolve
     })
     const cancel = vi.fn()
+    const pull = vi.fn(() => {
+      sourcePullStarted()
+      return new Promise<void>(() => {})
+    })
     class StreamResult {
       stream = new ReadableStream<unknown>({
         cancel,
-        pull() {
-          sourcePullStarted()
-          return new Promise<void>(() => {})
-        },
-      })
+        pull,
+      }, { highWaterMark: 0 })
     }
     const agent = defineAgent({
       capabilities: [chatTitle({ execute: () => new Promise<string>(() => {}) })],
@@ -5872,9 +5967,13 @@ describe("agent message protocol", () => {
     const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       messages: [createMessage({ role: "user", text: "First user request" })],
     }) as StreamResult
+    expect(pull).not.toHaveBeenCalled()
+    const reader = result.stream.getReader()
+    const read = reader.read()
     await sourcePull
 
-    await expect(result.stream.cancel("client disconnected")).resolves.toBeUndefined()
+    await expect(reader.cancel("client disconnected")).resolves.toBeUndefined()
+    await expect(read).resolves.toEqual({ done: true, value: undefined })
     expect(cancel).toHaveBeenCalledWith("client disconnected")
   })
 

@@ -188,6 +188,7 @@ describe("agent public types", () => {
         browser(),
         browser({ command: "agent-browser", skillContent: "# Browser\n", skillPath: "skills/browser/SKILL.md", sourceKey: "skill.browser" }),
         workspaceShell({ commands: ["agent-browser", "/Users/maxi/quiver/agents/node_modules/.bin/agent-browser"] }),
+        workspaceShell({ commands: "trusted-host", mode: "write" }),
         workspaceShell({ commands: ["agent-browser"], mode: "read", timeout: 1_000 }),
         workspaceShell({ commands: ["agent-browser"], mode: "write" }),
         inputCommands({
@@ -276,6 +277,7 @@ describe("agent public types", () => {
           },
         }),
         chatTitle({
+          channelDelivery: "once-per-thread",
           model: () => ({}),
           template({ fallback, maxLength, text, trigger }) {
             expectTypeOf(fallback).toEqualTypeOf<string>()
@@ -1730,6 +1732,7 @@ describe("agent public types", () => {
 
   it("exposes output helpers from the output entry", () => {
     expectTypeOf(toAgentRunResult("ok").text).toEqualTypeOf<string | undefined>()
+    expectTypeOf(toAgentRunResult("ok").artifacts).toEqualTypeOf<readonly PublishedAgentDeliveryArtifact[] | undefined>()
     expectTypeOf(streamAgentOutputToEvents("ok")).toEqualTypeOf<AsyncIterable<StreamEvent>>()
   })
 })

@@ -60,6 +60,7 @@ import type { Message } from "./messages.ts"
 import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName, WorkspaceSelectedScope, WorkspaceSource, WorkspaceSourceInput } from "@vite-hub/workspace"
 
 type ResolvedAgentOutputRenderer = ((result: unknown, extensions?: AgentOutputExtensions) => MaybePromise<unknown>) & {
+  order?: "last"
   providerCount: number
 }
 export const workspaceMaterializationPathsSymbol: unique symbol = Symbol("vitehub.agent.workspaceMaterializationPaths")
@@ -960,7 +961,7 @@ export async function resolveAgentCapabilities<
         },
         output: {
           extensions: createAgentExtensionReader(new Map()),
-          final(renderer: AgentOutputRenderer) {
+          final(renderer: AgentOutputRenderer, options?: { order?: "last" }) {
             const resolved = ((result: unknown, extensions = createAgentExtensionReader(new Map())) => renderer(result, {
               ...capabilityContext,
               output: {
@@ -968,6 +969,7 @@ export async function resolveAgentCapabilities<
                 extensions,
               },
             })) as ResolvedAgentOutputRenderer
+            resolved.order = options?.order
             resolved.providerCount = registries.outputExtensionProviders.length
             registries.finalOutputRenderers.push(resolved)
           },
@@ -1228,6 +1230,7 @@ export async function applyOutputRenderers(
   let current = result
   let providerIndex = 0
   const extensions = createAgentExtensionReader<AgentOutputExtensionValues>(values)
+  const delayedRenderers: Array<{ extensions: AgentOutputExtensions, renderer: ResolvedAgentOutputRenderer }> = []
   for (const renderer of renderers) {
     while (providerIndex < renderer.providerCount) {
       const provider = providers[providerIndex++]
@@ -1235,7 +1238,17 @@ export async function applyOutputRenderers(
       const value = await provider.resolve({ extensions, result: current })
       if (value !== undefined) values.set(provider.id, value)
     }
+    if (renderer.order === "last") {
+      delayedRenderers.push({
+        extensions: createAgentExtensionReader(new Map(values)),
+        renderer,
+      })
+      continue
+    }
     current = await renderer(current, extensions)
+  }
+  for (const delayed of delayedRenderers) {
+    current = await delayed.renderer(current, delayed.extensions)
   }
   return current
 }

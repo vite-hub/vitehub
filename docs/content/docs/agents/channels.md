@@ -188,7 +188,9 @@ export default defineAgent({
 })
 ```
 
-GitHub comments and reviews need hosted markdown URLs instead of channel-native file uploads. The GitHub channel publishes workspace image paths that appear in reply or review bodies, then rewrites those paths to hosted raw URLs. Use `publishWorkspaceArtifacts()` from `@vite-hub/agent/channels` inside a finish effect when explicit GitHub artifacts need public URLs before delivery.
+GitHub comments and reviews need hosted markdown URLs instead of channel-native file uploads. Harness Agents can use the Blob Capability's `assetPaths` option: ViteHub publishes current-run files referenced in the final Markdown and carries them through custom `context.reply()` finish effects automatically. The GitHub channel rewrites those exact paths to their published URLs.
+
+Use `publishWorkspaceArtifacts()` from `@vite-hub/agent/channels` when a custom-run or app-owned finish effect needs to publish an explicit artifact list itself.
 
 Finish effects receive a delivery context with `context.output`, normalized `context.result`, `context.text`, `context.workspace`, `context.run`, and `context.context` so app-side delivery code can read final output, Workspace files, and typed Agent Invocation Context values without re-parsing the stream.
 
