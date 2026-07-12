@@ -1,4 +1,5 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
+import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
 
 import { ScheduleError } from "../errors.ts"
 import { executeRuntimeSchedule } from "./execute.ts"
@@ -24,17 +25,6 @@ const cronFieldRanges = [
 
 const runtimeScheduleCreateInputKeys = new Set(["cron", "enabled", "id", "target", "timeZone"])
 const runtimeScheduleUpdateInputKeys = new Set(["cron", "enabled", "target", "timeZone"])
-
-function isIanaTimeZone(timeZone: unknown): timeZone is string {
-  if (typeof timeZone !== "string" || (timeZone !== "UTC" && !timeZone.includes("/"))) return false
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone })
-    return true
-  }
-  catch {
-    return false
-  }
-}
 
 function parseCronNumber(value: string, range: { min: number, max: number }): number {
   if (!/^\d+$/.test(value)) {

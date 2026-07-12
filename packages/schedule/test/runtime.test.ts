@@ -175,6 +175,9 @@ describe("Runtime Schedule helper", () => {
     expect(linked).toMatchObject({ timeZone: "Asia/Kolkata" })
     await expect(schedules.update("linked-zone", { timeZone: "US/Eastern" })).resolves.toMatchObject({ timeZone: "US/Eastern" })
     await expect(schedules.update("linked-zone", { timeZone: "Etc/UTC" })).resolves.toMatchObject({ timeZone: "Etc/UTC" })
+    await expect(schedules.update("linked-zone", { timeZone: "CET" })).resolves.toMatchObject({ timeZone: "CET" })
+    await expect(schedules.update("linked-zone", { timeZone: "EST5EDT" })).resolves.toMatchObject({ timeZone: "EST5EDT" })
+    await expect(schedules.update("linked-zone", { timeZone: "PST8PDT" })).resolves.toMatchObject({ timeZone: "PST8PDT" })
 
     await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
     await expect(schedules.update("schedule-1", { timeZone: "Not/A_Zone" })).rejects.toMatchObject({

@@ -69,6 +69,7 @@ describe("storage capabilities", () => {
     await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timeZone: "+01:00" })).rejects.toThrow("valid IANA time zone")
     await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timeZone: "PST" })).rejects.toThrow("valid IANA time zone")
     await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timeZone: "Asia/Kolkata" })).resolves.toMatchObject({ timeZone: "Asia/Kolkata" })
+    await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timeZone: "CET" })).resolves.toMatchObject({ timeZone: "CET" })
     await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", enabled: "false", operation: "create", target: "reports" } as never)).rejects.toThrow("enabled must be a boolean")
     await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", id: 123, operation: "create", target: "reports" } as never)).rejects.toThrow("id must be a non-empty Runtime Schedule id")
     await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", id: "", operation: "create", target: "reports" })).rejects.toThrow("id must be a non-empty Runtime Schedule id")

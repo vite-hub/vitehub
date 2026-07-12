@@ -1,3 +1,5 @@
+import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
+
 import { defineCapability, normalizeMode } from "../capability-runtime.ts"
 import {
   createTool,
@@ -82,17 +84,6 @@ type RuntimeScheduleEditInput =
 type NormalizedRuntimeScheduleCapabilityOptions = Omit<RuntimeScheduleCapabilityOptions<string>, "allowSelfTarget" | "targets"> & {
   allowSelfTarget: boolean
   targets?: readonly string[]
-}
-
-function isIanaTimeZone(timeZone: unknown): timeZone is string {
-  if (typeof timeZone !== "string" || (timeZone !== "UTC" && !timeZone.includes("/"))) return false
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone })
-    return true
-  }
-  catch {
-    return false
-  }
 }
 
 function scheduleClient(context: AgentCapabilityContext, mode: AgentCapabilityMode): RuntimeScheduleClientLike {
