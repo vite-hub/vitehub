@@ -54,9 +54,9 @@ describe("Agent Process Schedule integration", () => {
       "    }),",
       "  },",
       "  driver: {",
-      "    async run({ context, invoker, prompt, run, tools, workspace }) {",
+      "    async run({ context, invoker, prompt, run, runtimeContext, tools, workspace }) {",
       "      if (context.get('schedule')) {",
-      "        proof.runs.push({ hasWorkspace: Boolean(workspace), invoker, prompt, run, servicePath: process.env.VITEHUB_TEST_SERVICE_PATH })",
+      "        proof.runs.push({ hasScheduleHandle: Boolean(runtimeContext.capabilities?.schedule), hasWorkspace: Boolean(workspace), invoker, prompt, run, servicePath: process.env.VITEHUB_TEST_SERVICE_PATH })",
       "        return { text: `Scheduled ${prompt}` }",
       "      }",
       "      const record = await tools.cronjob.execute({ cron: '0 9 1 1 *', id: 'proof-0900', operation: 'create', prompt: 'Send my daily report.' })",
@@ -199,6 +199,7 @@ describe("Agent Process Schedule integration", () => {
       })
       expect(run).toMatchObject({ scheduleId: "proof-0900", status: "succeeded", target: "agent/mini" })
       expect(proof.runs).toEqual([{
+        hasScheduleHandle: true,
         hasWorkspace: true,
         invoker: { id: "discord:user-1", kind: "chat", label: "Reauthorized Maxi" },
         prompt: "Send my daily report.",

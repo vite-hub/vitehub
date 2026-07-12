@@ -243,6 +243,8 @@ describe("agent Vite plugin", () => {
       const targets = await transform("export const scheduleTargetNames = [\"reports\"];\n", "\0#vitehub/schedule/targets")
 
       expect(registry).toContain("defineScheduledAgentTarget")
+      expect(registry).toContain('import { schedules as vitehubSchedules } from "@vite-hub/schedule/runtime"')
+      expect(registry).toContain("{ capabilities: { schedule: { schedules: vitehubSchedules } } }")
       expect(registry).toContain('registry["agent/digest"]')
       expect(registry).toContain('{"inferredName":"digest"}')
       expect(registry).toContain('registry["agent/support"]')

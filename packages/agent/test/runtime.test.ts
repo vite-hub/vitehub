@@ -2086,6 +2086,29 @@ describe("agent message protocol", () => {
     }])
   })
 
+  it("forwards host runtime capabilities through scheduled Agent targets", async () => {
+    const { kv } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineScheduledAgentTarget } = await import("../src/server/internal.ts")
+    const store = {
+      get: vi.fn(async (key: string) => `value:${key}`),
+      keys: vi.fn(async () => []),
+    }
+    const agent = defineAgent({
+      capabilities: [kv()],
+      driver: {
+        run: async ({ tools }) => await tools!.kv_read.execute!({ key: "scheduled" }),
+      },
+    })
+    const target = defineScheduledAgentTarget(agent, { capabilities: { kv: store } })
+
+    await expect(target.handler({
+      id: "srun-capabilities",
+      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+    })).resolves.toBe("value:scheduled")
+    expect(store.get).toHaveBeenCalledWith("scheduled")
+  })
+
   it("reauthorizes durable scheduled Agent turns and replies to the full origin thread", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")

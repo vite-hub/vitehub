@@ -135,13 +135,14 @@ async function transformScheduleRegistry(
       `if (Object.prototype.hasOwnProperty.call(registry, ${JSON.stringify(`agent/${definition.name}`)})) throw new Error(${JSON.stringify(`[vitehub] Duplicate Runtime Schedule target: agent/${definition.name}`)})`,
       `registry[${JSON.stringify(`agent/${definition.name}`)}] = async () => {`,
       `  const module = await import(${JSON.stringify(definition.handler)})`,
-      `  return vitehubDefineScheduledAgentTarget(vitehubWithAgentDefaults(vitehubWithWorkspaceSourceRoot(vitehubResolveScheduledAgentModule(module), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))}), ${JSON.stringify(defaults)}))`,
+      `  return vitehubDefineScheduledAgentTarget(vitehubWithAgentDefaults(vitehubWithWorkspaceSourceRoot(vitehubResolveScheduledAgentModule(module), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))}), ${JSON.stringify(defaults)}), { capabilities: { schedule: { schedules: vitehubSchedules } } })`,
       "}",
     ]
   }))).flat()
   return [
     `import { withAgentDefaults as vitehubWithAgentDefaults, workspaceDefinitionFromOptions as vitehubWorkspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
     `import { defineScheduledAgentTarget as vitehubDefineScheduledAgentTarget } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    `import { schedules as vitehubSchedules } from ${JSON.stringify(scheduleRuntimeImport)}`,
     code,
     "function vitehubResolveScheduledAgentModule(module) {",
     "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
