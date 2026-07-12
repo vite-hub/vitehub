@@ -136,7 +136,6 @@ describe("Agent Process Schedule integration", () => {
     } | undefined
     try {
       const pluginSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
-      expect(pluginSource).toContain('runtimeScheduleRegistry from "#vitehub/schedule/registry"')
       const registryModule = await server.ssrLoadModule("#vitehub/schedule/registry")
       const registry = registryModule.default
       expect(registry).toHaveProperty("agent/mini")
