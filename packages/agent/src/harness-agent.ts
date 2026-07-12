@@ -409,8 +409,17 @@ async function resolveHarnessWorkDir<
   const resolved = typeof workDir === "function"
     ? await workDir(toRunCallbackContext(context))
     : workDir
-  if (resolved !== undefined && (typeof resolved !== "string" || !resolved.trim())) {
-    throw new TypeError("[vitehub] defineAgent({ driver.workDir }) must resolve to a non-empty string.")
+  if (
+    resolved !== undefined
+    && (
+      typeof resolved !== "string"
+      || !resolved.trim()
+      || resolved.startsWith("/")
+      || resolved.includes("\\")
+      || resolved.split("/").includes("..")
+    )
+  ) {
+    throw new TypeError("[vitehub] defineAgent({ driver.workDir }) must resolve to a non-empty relative POSIX path inside the sandbox default working directory.")
   }
   return resolved
 }

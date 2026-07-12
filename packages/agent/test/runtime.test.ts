@@ -1671,7 +1671,7 @@ describe("agent message protocol", () => {
   it("rejects invalid harness work directories before creating a session", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
 
-    for (const workDir of ["", "   ", () => 42] as const) {
+    for (const workDir of ["", "   ", "../repo", "repo/../../tmp", "/tmp/repo", "repo\\nested", () => 42] as const) {
       const agent = defineAgent({
         driver: {
           harness: { provider: "codex" },
@@ -1680,7 +1680,7 @@ describe("agent message protocol", () => {
       })
 
       await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" }))
-        .rejects.toThrow("defineAgent({ driver.workDir }) must resolve to a non-empty string")
+        .rejects.toThrow("defineAgent({ driver.workDir }) must resolve to a non-empty relative POSIX path inside the sandbox default working directory")
     }
 
     expect(harnessCreateSession).not.toHaveBeenCalled()
