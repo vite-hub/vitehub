@@ -141,29 +141,35 @@ describe("Agent Process Schedule integration", () => {
       const registry = registryModule.default
       expect(registry).toHaveProperty("agent/mini")
 
-      const runtimePlugin = await server.ssrLoadModule(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"))
-      const requestHandlers: Array<() => Promise<void> | void> = []
-      await runtimePlugin.default({
-        captureError(error: unknown) {
-          throw error
-        },
-        hooks: {
-          hook(name: string, handler: () => Promise<void> | void) {
-            if (name === "close") closeHandlers.push(handler)
-            if (name === "request") requestHandlers.push(handler)
-          },
-        },
-      })
-      expect(pluginSource).toContain("nitroApp.hooks.hook('request'")
-      expect(pluginSource).not.toContain("h3App")
-      expect(requestHandlers).toHaveLength(1)
-      await requestHandlers[0]!()
-
       const routeSource = await readFile(join(root, ".vitehub", "agent", "chat-webhook-route.ts"), "utf8")
       expect(routeSource).toContain('import { schedules as vitehubSchedules } from "@vite-hub/schedule/runtime"')
       expect(routeSource).toContain("capabilities: vitehubAgentRouteCapabilities")
       const route = await server.ssrLoadModule(join(root, ".vitehub", "agent", "chat-webhook-route.ts"))
-      const response = await route.default({
+      const runtimePlugin = await server.ssrLoadModule(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"))
+      const nitroApp = {
+        captureError(error: unknown) {
+          throw error
+        },
+        async fetch(request: Request) {
+          return await route.default({
+            body: await request.text(),
+            headers: Object.fromEntries(request.headers),
+            method: request.method,
+            params: { agent: "mini" },
+            url: request.url,
+          })
+        },
+        hooks: {
+          hook(name: string, handler: () => Promise<void> | void) {
+            if (name === "close") closeHandlers.push(handler)
+          },
+        },
+      }
+      await runtimePlugin.default(nitroApp)
+      expect(pluginSource).toContain("nitroApp.fetch = async (request) =>")
+      expect(pluginSource).not.toContain("nitroApp.hooks.hook('request'")
+      expect(pluginSource).not.toContain("h3App")
+      const response = await nitroApp.fetch(new Request("https://example.com/api/_vitehub/agents/mini/chat", {
         body: JSON.stringify({
           id: "thread-1",
           messages: [{
@@ -174,9 +180,7 @@ describe("Agent Process Schedule integration", () => {
         }),
         headers: { "content-type": "application/json" },
         method: "POST",
-        params: { agent: "mini" },
-        url: "https://example.com/api/_vitehub/agents/mini/chat",
-      })
+      }))
       const responseText = await response.text()
       expect({ responseText, status: response.status }).toEqual({
         responseText: expect.stringContaining("Created proof-0900"),
