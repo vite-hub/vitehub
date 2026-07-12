@@ -80,4 +80,38 @@ describe("ViteHub Codex harness", () => {
       await rm(fixture, { force: true, recursive: true })
     }
   })
+
+  it("anchors the bridge command to the sandbox root", async () => {
+    const commands: string[] = []
+    const session = {
+      defaultWorkingDirectory: "/sandbox/root",
+      getPortUrl: async () => "ws://127.0.0.1:3000",
+      id: "sandbox",
+      ports: [3000],
+      readTextFile: async () => null,
+      restricted() {
+        return this
+      },
+      run: async () => ({ exitCode: 0, stderr: "", stdout: "" }),
+      spawn: async ({ command }: { command: string }) => {
+        commands.push(command)
+        throw new Error("captured bridge command")
+      },
+      stop: async () => {},
+      writeTextFile: async () => {},
+    }
+    const harness = codexDriver({ sandbox: false }).harness as ReturnType<typeof createCodex>
+
+    await expect(harness.doStart({
+      permissionMode: "allow-all",
+      sandboxSession: session,
+      sessionId: "review",
+      sessionWorkDir: "/sandbox/root/codex-review",
+    } as never)).rejects.toThrow("captured bridge command")
+
+    expect(commands).toEqual([
+      expect.stringContaining("node /sandbox/root/tmp/harness/codex/bridge.mjs"),
+    ])
+    expect(commands[0]).not.toContain("/sandbox/root/codex-review/tmp/harness/codex")
+  })
 })

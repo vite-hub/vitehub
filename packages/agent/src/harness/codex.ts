@@ -112,16 +112,17 @@ function replaceCodexBridgeLock(lock: string): string {
   return result
 }
 
-function relativeCodexSandboxSession<T extends object>(session: T): T {
+function relativeCodexSandboxSession<T extends object>(session: T, bootstrapDir?: string): T {
+  const anchoredBootstrapDir = bootstrapDir ?? `${(session as T & { defaultWorkingDirectory: string }).defaultWorkingDirectory.replace(/\/+$/, "")}/${codexBootstrapDir}`
   return new Proxy(session, {
     get(target, property, receiver) {
       if (property === "restricted") {
-        return () => relativeCodexSandboxSession((target as T & { restricted(): object }).restricted())
+        return () => relativeCodexSandboxSession((target as T & { restricted(): object }).restricted(), anchoredBootstrapDir)
       }
       if (property === "run" || property === "spawn") {
         return (options: { command: string }) => (target as T & Record<"run" | "spawn", (options: never) => unknown>)[property]({
           ...options,
-          command: options.command.replaceAll("/tmp/harness/codex", codexBootstrapDir),
+          command: options.command.replaceAll("/tmp/harness/codex", anchoredBootstrapDir),
         } as never)
       }
       const value = Reflect.get(target, property, receiver)
