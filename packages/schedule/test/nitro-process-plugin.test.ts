@@ -44,6 +44,7 @@ async function loadProcessPlugin(installScheduleRuntime: PluginHarness["installS
   await mkdir(join(root, "server"), { recursive: true })
 
   const plugin = hubSchedule({
+    projectRoot: root,
     providerOutput: false,
     runtime: { driver: "process" },
   })

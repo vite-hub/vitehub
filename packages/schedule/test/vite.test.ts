@@ -179,6 +179,7 @@ describe("Vite schedule integration", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-empty-process-runtime-"))
     const userConfig: Record<string, unknown> = { root }
     const plugin = hubSchedule({
+      projectRoot: root,
       providerOutput: false,
       runtime: { driver: "process" },
     })
@@ -567,7 +568,7 @@ describe("Vite schedule integration", () => {
     await writeFile(join(root, "src", "cleanup.schedule.ts"), "export default null\n", "utf8")
     await writeFile(join(root, "src", "reports.schedule.ts"), "export default defineSchedule({ cron: \"0 0 * * *\", handler: () => {} })\n", "utf8")
 
-    const plugin = hubSchedule()
+    const plugin = hubSchedule({ projectRoot: root })
     resolvePluginConfig(plugin, root)
     const registry = await loadScheduleRegistry(plugin)
 
