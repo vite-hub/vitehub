@@ -145,10 +145,10 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
       }
     },
     resolveId(id, _importer, resolveOptions) {
-      if (id === UPSTASH_DRIVER_IMPORT_ID && resolveOptions.ssr && !hasUpstashStore(getConfig().kv)) {
+      if (id === UPSTASH_DRIVER_IMPORT_ID && resolveOptions?.ssr && !hasUpstashStore(getConfig().kv)) {
         return { external: true, id }
       }
-      if (id === UPSTASH_REDIS_IMPORT_ID && resolveOptions.ssr) return { external: true, id }
+      if (id === UPSTASH_REDIS_IMPORT_ID && resolveOptions?.ssr) return { external: true, id }
       if (id === "@vite-hub/kv" && isCloudflareKVConfig(getConfig().kv)) return RESOLVED_KV_RUNTIME_ID
       if (id === KV_VIRTUAL_CONFIG_ID) return RESOLVED_KV_VIRTUAL_CONFIG_ID
     },
