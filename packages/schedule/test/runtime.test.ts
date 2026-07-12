@@ -121,6 +121,10 @@ describe("Runtime Schedule helper", () => {
 
     await schedules.update("schedule-1", { cron: "0 18 * * *" })
     expect((await schedules.get("schedule-1"))?.input).toEqual({ prompt: "Evening report", settings: { concise: false } })
+
+    const cleared = await schedules.update("schedule-1", { input: undefined })
+    expect(cleared.input).toBeUndefined()
+    expect((await schedules.get("schedule-1"))?.input).toBeUndefined()
   })
 
   it("updates, disables, enables, and deletes schedules through the same store", async () => {
@@ -456,6 +460,10 @@ describe("KV Runtime Schedule Store", () => {
 
     const unchanged = await store.update("schedule/1", { cron: undefined, target: undefined, updatedAt: changedAt } as never)
     expect(unchanged).toMatchObject({ cron: "30 10 * * *", target: "daily/report" })
+
+    const cleared = await store.update("schedule/1", { input: undefined, updatedAt: changedAt })
+    expect(cleared?.input).toBeUndefined()
+    expect((await store.get("schedule/1"))?.input).toBeUndefined()
 
     await expect(store.create({
       createdAt,
