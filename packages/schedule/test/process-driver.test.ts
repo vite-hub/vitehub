@@ -257,6 +257,7 @@ describe("Process Schedule Wake Driver", () => {
 
     const driver = await createDriver(context)
     await expect(driver.reconcile([record("invalid", { cron: "bad" })])).rejects.toThrow("five-field cron expression")
+    await expect(driver.reconcile([record("disabled-invalid", { cron: "bad", enabled: false })])).resolves.toBeUndefined()
     await driver.close?.()
   })
 

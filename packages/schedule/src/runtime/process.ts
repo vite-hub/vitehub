@@ -118,6 +118,7 @@ export function createProcessScheduleWakeDriver(options: ProcessScheduleWakeDriv
         }
         const scheduledAt = floorUTCMinute(now())
         for (const record of records) {
+          if (!record.enabled) continue
           isRuntimeScheduleDue(record, scheduledAt)
         }
         const nextSchedules = records.map(record => ({ ...record }))
