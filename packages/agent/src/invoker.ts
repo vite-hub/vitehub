@@ -240,7 +240,7 @@ export async function resolveAgentInvoker<
     ...(run ? { run } : {}),
     ...(selectedProfile ? { selectedProfile } : {}),
   })
-  if (requireMatchingRequestedInvoker) {
+  if (requireMatchingRequestedInvoker && normalizedOptions?.resolve) {
     if (!requestedInvoker || resolved === undefined || resolved === null) {
       throw new Error("[vitehub] Scheduled Agent turns require matching invoker reauthorization.")
     }

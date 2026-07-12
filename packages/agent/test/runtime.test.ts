@@ -2194,6 +2194,32 @@ describe("agent message protocol", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it("runs durable scheduled Agent turns through input hooks without an invoker resolver", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineScheduledAgentTarget } = await import("../src/server/internal.ts")
+    const inputHook = vi.fn(({ invoker }) => {
+      expect(invoker).toEqual({ id: "discord:user-1", kind: "chat", label: "Maxi" })
+    })
+    const run = vi.fn(({ invoker }) => invoker)
+    const agent = defineAgent({
+      driver: { run },
+      hooks: { "agent:input": inputHook },
+    })
+    const target = defineScheduledAgentTarget(agent)
+
+    await expect(target.handler({
+      id: "srun-durable",
+      input: {
+        invoker: { id: "discord:user-1", kind: "chat", label: "Maxi" },
+        kind: "agent-turn",
+        prompt: "Prepare my daily report.",
+      },
+      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+    })).resolves.toEqual({ id: "discord:user-1", kind: "chat", label: "Maxi" })
+    expect(inputHook).toHaveBeenCalledOnce()
+    expect(run).toHaveBeenCalledOnce()
+  })
+
   it.each([
     ["returns no identity", undefined],
     ["returns a different identity", { id: "discord:user-2", kind: "chat" }],

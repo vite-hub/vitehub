@@ -39,7 +39,7 @@ export default defineAgent({
 })
 ```
 
-To let an Agent create recurring turns for itself, enable self-targeting. ViteHub derives the target from the discovered Agent name, stores the prompt and invoker identity with the schedule, and reauthorizes that identity before every run.
+To let an Agent create recurring turns for itself, enable self-targeting. ViteHub derives the target from the discovered Agent name and stores the prompt with a metadata-free copy of the resolved invoker identity. Every run passes through the Agent's normal Capability policies and `agent:input` hooks again. When `invoker.resolve` is configured, ViteHub also reruns it and continues only when the resolved `id` and `kind` still match. Without a resolver, ViteHub restores the durable identity; it does not perform external authentication automatically.
 
 ```ts [server/agents/mini.ts]
 import { defineAgent } from '@vite-hub/agent'
