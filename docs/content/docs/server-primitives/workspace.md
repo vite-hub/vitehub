@@ -137,7 +137,7 @@ Source keys identify named origins inside the Workspace Source Map. A Source-Bac
 | `plugins` | `WorkspacePlugin[]` | Bundled rules and hooks. |
 | `loaders` | `WorkspaceLoader[]` | Build-time or runtime loaders. |
 | `publish` | `WorkspacePublisher[]` | Publication behavior after snapshots or sync. |
-| `runtime` | `'sandbox'` | Runtime mode hint for sandbox-backed execution. |
+| `runtime` | `WorkspaceRuntime` | Runtime for executable Workspace Sessions, including sandbox and explicitly trusted host execution. |
 
 ## Source Binding options
 
@@ -294,7 +294,7 @@ export async function testDocs() {
 
 Workspace owns the file tree and commit behavior. [Shell](/docs/server-primitives/shell) owns controlled command sessions, and [Sandbox](/docs/server-primitives/sandbox) owns isolated execution providers.
 
-`runtime: 'trusted-host'` runs commands on the host machine in a temporary materialized Workspace directory and is rejected when `NODE_ENV=production`. Use it only for projects and Sources you trust.
+`runtime: 'trusted-host'` runs commands on the host machine in a temporary materialized Workspace directory and is rejected when `NODE_ENV=production` unless configured as `{ type: 'trusted-host', allowProduction: true }`. Use it only for projects and Sources you trust.
 
 ### Run sessions from the CLI
 
