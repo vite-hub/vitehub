@@ -86,10 +86,38 @@ The Vite config key is `workspace`.
 | --- | --- | --- |
 | Local | `{ provider: 'local', root?: string }` | Default filesystem-backed Workspace Store. |
 | Memory | `{ provider: 'memory' }` | Test or ephemeral runtime storage. |
-| Cloudflare artifacts | `{ provider: 'cloudflare-artifacts', binding?, namespace?, repo?, repoPrefix?, branch? }` | Hosted provider adapter behind generated runtime wiring. |
+| Cloudflare Artifacts | `{ provider: 'cloudflare-artifacts', binding?, namespace?, repo?, repoPrefix?, branch? }` | Opt-in, versioned Git storage for small Cloudflare Worker Workspaces. |
 | Vercel Blob | `{ provider: 'vercel-blob', token?, prefix?, access? }` | Blob-backed Workspace Store. |
 | GitHub | `{ provider: 'github', repo?, repository?, branch?, root?, token? }` | Repository-backed Workspace Store. |
 | Custom | `WorkspaceStore` | Implement the Workspace Store contract directly. |
+
+### Cloudflare Artifacts
+
+Select Cloudflare Artifacts explicitly when a deployed Worker needs durable Workspace state:
+
+```ts [vite.config.ts]
+import { hubWorkspace } from '@vite-hub/workspace/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubWorkspace()],
+  workspace: {
+    store: {
+      provider: 'cloudflare-artifacts',
+      binding: 'WORKSPACE_ARTIFACTS',
+      namespace: 'vitehub',
+    },
+  },
+})
+```
+
+The Vite Integration adds matching module-level and discovered definition-level Artifacts Stores to generated Cloudflare Provider Output. It preserves app-owned bindings and removes only bindings previously generated for Workspace when the provider changes. Reusing one binding name for different namespaces fails the build with an actionable error. Each named Workspace uses `<repoPrefix><encoded-workspace-name>` unless `repo` selects one repository explicitly, so names that contain repository-unsafe characters still remain isolated.
+
+`workspace.snapshot()` commits and pushes the current file tree. Its snapshot id is the pushed Git commit SHA. File metadata is stored in the repository with the Workspace tree so Source-backed write protection and media types survive a fresh Worker instance.
+
+Cloudflare Artifacts is currently a closed beta and is not available on Workers Free, so the Cloudflare default remains the ephemeral `memory` Store. The Worker adapter clones into isolate memory; use it for deliberately small Workspaces rather than assuming the Artifacts repository limit is also a usable Worker checkout size. For large repositories in a sandbox, container, or VM, use Cloudflare's [ArtifactFS](https://developers.cloudflare.com/artifacts/guides/artifact-fs/) directly.
+
+Artifacts repositories are private Git storage. Use the [Blob primitive](/docs/server-primitives/blob) with R2 or another Blob provider when an Agent needs a stable public delivery URL.
 
 ## Define a workspace
 
@@ -137,7 +165,7 @@ Source keys identify named origins inside the Workspace Source Map. A Source-Bac
 | `plugins` | `WorkspacePlugin[]` | Bundled rules and hooks. |
 | `loaders` | `WorkspaceLoader[]` | Build-time or runtime loaders. |
 | `publish` | `WorkspacePublisher[]` | Publication behavior after snapshots or sync. |
-| `runtime` | `'sandbox'` | Runtime mode hint for sandbox-backed execution. |
+| `runtime` | `WorkspaceRuntime` | Runtime for executable Workspace Sessions, including sandbox and explicitly trusted host execution. |
 
 ## Source Binding options
 
@@ -294,7 +322,7 @@ export async function testDocs() {
 
 Workspace owns the file tree and commit behavior. [Shell](/docs/server-primitives/shell) owns controlled command sessions, and [Sandbox](/docs/server-primitives/sandbox) owns isolated execution providers.
 
-`runtime: 'trusted-host'` runs commands on the host machine in a temporary materialized Workspace directory and is rejected when `NODE_ENV=production`. Use it only for projects and Sources you trust.
+`runtime: 'trusted-host'` runs commands on the host machine in a temporary materialized Workspace directory and is rejected when `NODE_ENV=production` unless configured as `{ type: 'trusted-host', allowProduction: true }`. Use it only for projects and Sources you trust.
 
 ### Run sessions from the CLI
 

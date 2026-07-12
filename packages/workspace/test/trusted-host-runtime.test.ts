@@ -42,6 +42,38 @@ describe("trusted host workspace runtime", () => {
     await expect(workspace.readFile("generated/result.txt")).resolves.toBe("done\n")
   })
 
+  it("inherits the host service account environment", async () => {
+    const serviceEnvironment = {
+      GH_CONFIG_DIR: "/home/vitehub/.config/gh",
+      HOME: "/home/vitehub",
+      SSH_AUTH_SOCK: "/run/user/1000/ssh-agent",
+      XDG_CONFIG_HOME: "/home/vitehub/.config",
+    }
+    for (const [key, value] of Object.entries(serviceEnvironment)) vi.stubEnv(key, value)
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "trusted-host",
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+
+    const session = await workspace.startSession()
+    const result = await session.exec(process.execPath, [
+      "-e",
+      `process.stdout.write(JSON.stringify({
+        GH_CONFIG_DIR: process.env.GH_CONFIG_DIR,
+        HOME: process.env.HOME,
+        SSH_AUTH_SOCK: process.env.SSH_AUTH_SOCK,
+        XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+      }))`,
+    ])
+
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(result.stdout)).toEqual(serviceEnvironment)
+    await session.close()
+  })
+
   it("rejects changes outside scoped session paths", async () => {
     const workspace = createWorkspace({
       ...defineWorkspace({

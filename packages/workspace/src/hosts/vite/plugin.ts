@@ -1,11 +1,13 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { dirname, relative, resolve } from "node:path"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { dirname, extname, isAbsolute, relative, resolve } from "node:path"
 
+import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "@vite-hub/internal/build/cloudflare"
 import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 
+import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, shouldBundleWorkspaceAssets } from "../../build/assets.ts"
 import { createWorkspaceRegistryContents, discoverViteWorkspaceDefinitions } from "../../build/discovery.ts"
 import { initializeWorkspaceAssetRegistry, refreshWorkspaceBuildState, syncWorkspaceBuildAssets } from "../../build/integration.ts"
 import { workspaceSuffixPattern } from "../../build/workspace-config.ts"
@@ -14,13 +16,14 @@ import { normalizeWorkspaceOptions } from "../../config.ts"
 import { normalizeWorkspaceDefinition } from "../../core/registry.ts"
 import { installHostedWorkspaceRuntime } from "../../hosted.ts"
 import { installHostedVercelBlobWorkspaceRuntime } from "../../hosted-vercel-blob.ts"
+import { configureCloudflareArtifacts } from "../../integrations/cloudflare.ts"
 import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenServerId } from "../../server.ts"
 
 import type { HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
-import type { ResolvedWorkspaceModuleOptions, WorkspaceModuleOptions } from "../../core/types.ts"
+import type { ResolvedWorkspaceModuleOptions, WorkspaceDefinitionInput, WorkspaceModuleOptions } from "../../core/types.ts"
 import type { WorkspaceDevTokenOptions } from "../../server.ts"
 
 const WORKSPACE_PACKAGE_NAME = "@vite-hub/workspace"
@@ -33,6 +36,7 @@ const RESOLVED_WORKSPACE_PREFIX = `\0${WORKSPACE_PREFIX}`
 const RESOLVED_WORKSPACE_REGISTRY_ID = `\0${WORKSPACE_REGISTRY_ID}`
 const generatedNitroWorkspacePlugin = ".vitehub/nitro/workspace/plugin.ts"
 const generatedNitroWorkspaceRegistry = ".vitehub/nitro/workspace/registry.js"
+const cloudflareArtifactsBindingsFileName = ".vitehub-workspace-artifacts-bindings.json"
 const mergeNoExternal = createNoExternalMerger(WORKSPACE_PACKAGE_NAME)
 const workspacesDirSegment = /[\\/](?:server[\\/])?workspaces(?:[\\/]|$)/
 
@@ -43,12 +47,194 @@ function hasVercelBlobWorkspaceDefinition(definitions: DiscoveredWorkspaceDefini
   })
 }
 
+const sourceModuleExtensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs", ".tsx", ".jsx"]
+
+async function readSourceModule(file: string): Promise<{ file: string, source: string } | undefined> {
+  const candidates = extname(file)
+    ? [file]
+    : [
+        ...sourceModuleExtensions.map(extension => `${file}${extension}`),
+        ...sourceModuleExtensions.map(extension => resolve(file, `index${extension}`)),
+      ]
+  for (const candidate of candidates) {
+    try {
+      return { file: candidate, source: await readFile(candidate, "utf8") }
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+  }
+}
+
+type SourceModuleResolver = (id: string, importer: string) => Promise<string | undefined>
+
+async function sourceModuleUsesCloudflareArtifacts(
+  file: string,
+  resolveModule?: SourceModuleResolver,
+  visited = new Set<string>(),
+): Promise<boolean> {
+  const loaded = await readSourceModule(file)
+  if (!loaded || visited.has(loaded.file)) return false
+  visited.add(loaded.file)
+  if (/\bprovider\s*:\s*["']cloudflare-artifacts["']/.test(loaded.source)) return true
+
+  const staticModuleSpecifier = /\b(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']/g
+  for (const match of loaded.source.matchAll(staticModuleSpecifier)) {
+    const specifier = match[1]!
+    const resolvedModule = specifier.startsWith(".")
+      ? resolve(dirname(loaded.file), specifier)
+      : await resolveModule?.(specifier, loaded.file)
+    const resolvedFile = resolvedModule?.split(/[?#]/, 1)[0]
+    if (resolvedFile && isAbsolute(resolvedFile) && await sourceModuleUsesCloudflareArtifacts(resolvedFile, resolveModule, visited)) return true
+  }
+  return false
+}
+
 function vercelFunctionRuntimePackages(options: false | ResolvedWorkspaceModuleOptions, definitions: DiscoveredWorkspaceDefinition[] = []) {
   const hasVercelBlobStore = (options && options.store?.provider === "vercel-blob") || hasVercelBlobWorkspaceDefinition(definitions)
   return [
     { name: WORKSPACE_PACKAGE_NAME, resolveFrom: import.meta.url },
     ...(hasVercelBlobStore ? [{ name: "@vercel/blob" }] : []),
   ]
+}
+
+type CloudflareArtifactsWranglerConfig = {
+  artifacts: Array<{ binding: string, namespace: string }>
+}
+
+type ConfiguredCloudflareArtifact = Record<string, unknown> & { binding: string }
+
+function cloudflareArtifactsBindingsFile(rootDir: string): string {
+  return resolve(createDefaultCloudflareOutputRoot(rootDir), cloudflareArtifactsBindingsFileName)
+}
+
+function cloudflareWranglerFile(rootDir: string): string {
+  return resolve(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+}
+
+function hasCloudflareArtifactBinding(value: unknown): value is ConfiguredCloudflareArtifact {
+  return isRecord(value) && typeof value.binding === "string"
+}
+
+async function readConfiguredCloudflareArtifacts(rootDir: string): Promise<ConfiguredCloudflareArtifact[]> {
+  try {
+    const parsed = JSON.parse(await readFile(cloudflareWranglerFile(rootDir), "utf8"))
+    if (!isRecord(parsed) || !Array.isArray(parsed.artifacts)) return []
+    return parsed.artifacts.filter(hasCloudflareArtifactBinding)
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
+    throw error
+  }
+}
+
+async function readOwnedCloudflareArtifactsBindings(rootDir: string): Promise<string[]> {
+  try {
+    const parsed = JSON.parse(await readFile(cloudflareArtifactsBindingsFile(rootDir), "utf8"))
+    return Array.isArray(parsed) ? parsed.filter(value => typeof value === "string") : []
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
+    throw error
+  }
+}
+
+async function writeOwnedCloudflareArtifactsBindings(rootDir: string, bindings: string[]): Promise<void> {
+  const file = cloudflareArtifactsBindingsFile(rootDir)
+  if (!bindings.length) {
+    await rm(file, { force: true })
+    return
+  }
+  await mkdir(createDefaultCloudflareOutputRoot(rootDir), { recursive: true })
+  await writeFile(file, `${JSON.stringify([...new Set(bindings)], null, 2)}\n`, "utf8")
+}
+
+function createCloudflareArtifactsWranglerConfig(configs: ResolvedWorkspaceModuleOptions[]): CloudflareArtifactsWranglerConfig | undefined {
+  const target: { cloudflare?: { wrangler?: { artifacts?: Array<{ binding: string, namespace: string }> } } } = {}
+  for (const config of configs) configureCloudflareArtifacts(target, config)
+  const artifacts = target.cloudflare?.wrangler?.artifacts
+  return artifacts?.length ? { artifacts } : undefined
+}
+
+function resolveOwnedCloudflareArtifacts(
+  requested: CloudflareArtifactsWranglerConfig["artifacts"],
+  configured: ConfiguredCloudflareArtifact[],
+  previousBindings: string[],
+): CloudflareArtifactsWranglerConfig["artifacts"] {
+  const previous = new Set(previousBindings)
+  return requested.filter((artifact) => {
+    if (previous.has(artifact.binding)) return true
+    const existing = configured.filter(entry => entry.binding === artifact.binding)
+    const collision = existing.find(entry => entry.namespace !== artifact.namespace)
+    if (collision) {
+      throw new TypeError(`[vitehub] Cloudflare Artifacts binding "${artifact.binding}" already exists in Wrangler config with namespace ${JSON.stringify(collision.namespace)}, but Workspace requested namespace "${artifact.namespace}". Configure a unique binding or use the existing namespace.`)
+    }
+    return existing.length === 0
+  })
+}
+
+async function resolveDefinitionCloudflareArtifactsConfigs(
+  definitions: DiscoveredWorkspaceDefinition[],
+  rootDir: string,
+  options: ResolvedWorkspaceModuleOptions,
+  resolveModule?: SourceModuleResolver,
+  aliases?: Record<string, string>,
+): Promise<ResolvedWorkspaceModuleOptions[]> {
+  const loader = createWorkspaceDefinitionLoader(rootDir, aliases)
+  const configs: ResolvedWorkspaceModuleOptions[] = []
+  for (const definition of definitions) {
+    const bundlesAssets = shouldBundleWorkspaceAssets(options.assets, definition.name)
+    let loaded: WorkspaceDefinitionInput
+    try {
+      loaded = await loadDiscoveredWorkspaceDefinition(loader, definition)
+    }
+    catch (error) {
+      if (bundlesAssets || await sourceModuleUsesCloudflareArtifacts(definition.path, resolveModule)) throw error
+      continue
+    }
+    const workspace = normalizeWorkspaceDefinition(definition.name, loaded)
+    if (!workspace.store || "readFile" in workspace.store) continue
+    const config = normalizeWorkspaceOptions({ store: workspace.store }, {
+      dev: false,
+      env: process.env,
+      hosting: process.env.VITEHUB_HOSTING,
+      rootDir: workspace.rootDir || rootDir,
+    })
+    if (config && config.store.provider === "cloudflare-artifacts") configs.push(config)
+  }
+  return configs
+}
+
+async function writeCloudflareArtifactsProviderOutput(
+  rootDir: string,
+  config: false | ResolvedWorkspaceModuleOptions,
+  definitions: DiscoveredWorkspaceDefinition[],
+  resolveModule?: SourceModuleResolver,
+  aliases?: Record<string, string>,
+): Promise<void> {
+  const configs = config
+    ? [
+        ...(config.store.provider === "cloudflare-artifacts" ? [config] : []),
+        ...await resolveDefinitionCloudflareArtifactsConfigs(definitions, rootDir, config, resolveModule, aliases),
+      ]
+    : []
+  const requestedConfig = createCloudflareArtifactsWranglerConfig(configs)
+  const [configuredArtifacts, previousBindings] = await Promise.all([
+    readConfiguredCloudflareArtifacts(rootDir),
+    readOwnedCloudflareArtifactsBindings(rootDir),
+  ])
+  const ownedArtifacts = resolveOwnedCloudflareArtifacts(requestedConfig?.artifacts ?? [], configuredArtifacts, previousBindings)
+  const wranglerConfig = ownedArtifacts.length ? { artifacts: ownedArtifacts } : undefined
+  const nextBindings = ownedArtifacts.map(binding => binding.binding)
+  if (!wranglerConfig && !previousBindings.length) return
+
+  await writeCloudflareWranglerConfig({
+    rootDir,
+    wranglerArrayOwnedValues: { artifacts: [...previousBindings, ...nextBindings] },
+    wranglerArrayMergeKeys: { artifacts: "binding" },
+    ...(wranglerConfig ? { wranglerConfig } : {}),
+  })
+  await writeOwnedCloudflareArtifactsBindings(rootDir, nextBindings)
 }
 
 export interface WorkspaceNitroConfigOptions {
@@ -100,6 +286,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isWorkspaceRegistry(value: unknown): value is Record<string, () => Promise<{ default?: unknown }>> {
   return isRecord(value) && Object.values(value).every(item => typeof item === "function")
+}
+
+function workspaceDefinitionLoaderAliases(config: ResolvedConfig): Record<string, string> {
+  return Object.fromEntries(config.resolve.alias.flatMap(alias =>
+    typeof alias.find === "string" ? [[alias.find, alias.replacement]] : [],
+  ))
 }
 
 function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]): boolean {
@@ -527,6 +719,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     },
     closeBundle: {
       order: "post",
+      sequential: true,
       async handler() {
         if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
         const roots = {
@@ -537,10 +730,19 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         await Promise.all(definitions.map(async (definition) => {
           definition.source = await readFile(definition.path, "utf8")
         }))
-        await copyVercelFunctionRuntimePackages({
-          packages: vercelFunctionRuntimePackages(resolvedOptions, definitions),
-          rootDir: roots.projectRoot,
-        })
+        await Promise.all([
+          copyVercelFunctionRuntimePackages({
+            packages: vercelFunctionRuntimePackages(resolvedOptions, definitions),
+            rootDir: roots.projectRoot,
+          }),
+          writeCloudflareArtifactsProviderOutput(
+            roots.projectRoot,
+            resolvedOptions,
+            definitions,
+            resolved.createResolver?.(),
+            resolved.resolve ? workspaceDefinitionLoaderAliases(resolved) : undefined,
+          ),
+        ])
       },
     },
     async configureServer(devServer) {
