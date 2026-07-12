@@ -1198,7 +1198,11 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     handleHotUpdate(context) {
       const file = context.file.replace(/\\/g, "/")
       if (!/\.agent\.(?:c|m)?[jt]s$/i.test(file) && !/\/server\/agents\/.*\.(?:c|m)?[jt]s$/i.test(file)) return
-      for (const id of [resolvedScheduleRegistryId, resolvedScheduleTargetsId]) {
+      const scheduleModuleIds = [resolvedScheduleRegistryId, resolvedScheduleTargetsId]
+      if (resolved?.root) {
+        scheduleModuleIds.push(join(resolved.root, generatedScheduleRuntimeRegistrySuffix).replace(/\\/g, "/"))
+      }
+      for (const id of scheduleModuleIds) {
         const module = context.server.moduleGraph.getModuleById(id)
         if (module) context.server.moduleGraph.invalidateModule(module)
       }

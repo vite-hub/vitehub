@@ -279,12 +279,20 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it("invalidates runtime Schedule virtual modules when an Agent changes", async () => {
+  it("invalidates runtime Schedule modules when an Agent changes", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent()
+    const plugin = hubAgent({ eval: false, routes: { chat: false, discordGateway: false, webhooks: false } })
     const registryModule = { id: "registry" }
     const targetsModule = { id: "targets" }
-    const getModuleById = vi.fn((id: string) => id === "\0#vitehub/schedule/registry" ? registryModule : id === "\0#vitehub/schedule/targets" ? targetsModule : undefined)
+    const nitroRegistryModule = { id: "nitro-registry" }
+    const configResolved = plugin.configResolved as unknown as (config: { agent?: unknown, command: "serve", plugins: never[], root: string }) => Promise<void>
+    await configResolved({ command: "serve", plugins: [], root: "/app" })
+    const modules = new Map<string, object>([
+      ["\0#vitehub/schedule/registry", registryModule],
+      ["\0#vitehub/schedule/targets", targetsModule],
+      ["/app/.vitehub/nitro/schedule/runtime-registry.js", nitroRegistryModule],
+    ])
+    const getModuleById = vi.fn((id: string) => modules.get(id))
     const invalidateModule = vi.fn()
     const handleHotUpdate = plugin.handleHotUpdate as (context: unknown) => void
 
@@ -295,6 +303,7 @@ describe("agent Vite plugin", () => {
 
     expect(invalidateModule).toHaveBeenCalledWith(registryModule)
     expect(invalidateModule).toHaveBeenCalledWith(targetsModule)
+    expect(invalidateModule).toHaveBeenCalledWith(nitroRegistryModule)
   })
 
   it("materializes the MCP runtime package for Vercel build output", async () => {
