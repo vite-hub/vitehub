@@ -62,8 +62,19 @@ function tokenExpiresAt(token: string) {
   return expires ? Number(expires) * 1000 : 0
 }
 
+function encodeWorkspaceRepoName(workspaceName: string) {
+  let encoded = ""
+  for (const byte of new TextEncoder().encode(workspaceName)) {
+    const character = String.fromCharCode(byte)
+    if (/[a-zA-Z0-9.-]/.test(character)) encoded += character
+    else if (character === "_") encoded += "__"
+    else encoded += `_${byte.toString(16).padStart(2, "0")}`
+  }
+  return encoded
+}
+
 function repoName(options: CloudflareArtifactsWorkspaceStoreOptions, workspaceName: string) {
-  return options.repo || `${options.repoPrefix || "vitehub-workspace-"}${workspaceName.replace(/[^a-zA-Z0-9_.-]/g, "-")}`
+  return options.repo || `${options.repoPrefix || "vitehub-workspace-"}${encodeWorkspaceRepoName(workspaceName)}`
 }
 
 function hasArtifactsErrorCode(error: unknown, code: string, numericCode: number) {

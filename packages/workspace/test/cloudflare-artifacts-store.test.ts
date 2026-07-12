@@ -91,6 +91,36 @@ afterEach(() => {
 })
 
 describe("Cloudflare Artifacts workspace store", () => {
+  it("derives distinct repository names from distinct Workspace names", async () => {
+    const names: string[] = []
+    const binding = {
+      create: vi.fn(),
+      get: vi.fn(async (name: string) => {
+        names.push(name)
+        throw artifactsError("INTERNAL_ERROR", 10400, "stop after resolving the repository name")
+      }),
+    }
+    setActiveCloudflareEnv({ WORKSPACE_ARTIFACTS: binding })
+    const { createCloudflareArtifactsWorkspaceStore } = await import("../src/providers/cloudflare/artifacts-store.ts")
+    const options = {
+      binding: "WORKSPACE_ARTIFACTS",
+      namespace: "vitehub",
+      provider: "cloudflare-artifacts" as const,
+    }
+
+    for (const name of ["a/b", "a-b", "a_2fb"]) {
+      const store = createCloudflareArtifactsWorkspaceStore(options, name)
+      await expect(store.readFile("README.md")).rejects.toThrow("stop after resolving")
+    }
+
+    expect(names).toEqual([
+      "vitehub-workspace-a_2fb",
+      "vitehub-workspace-a-b",
+      "vitehub-workspace-a__2fb",
+    ])
+    expect(new Set(names).size).toBe(names.length)
+  })
+
   it("uses the Artifacts binding and commits snapshots", async () => {
     const repo = artifactsRepo()
     const binding = {

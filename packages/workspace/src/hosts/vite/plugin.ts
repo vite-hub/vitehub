@@ -23,7 +23,7 @@ import type { HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } fr
 import type { DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
-import type { ResolvedWorkspaceModuleOptions, WorkspaceModuleOptions } from "../../core/types.ts"
+import type { ResolvedWorkspaceModuleOptions, WorkspaceDefinitionInput, WorkspaceModuleOptions } from "../../core/types.ts"
 import type { WorkspaceDevTokenOptions } from "../../server.ts"
 
 const WORKSPACE_PACKAGE_NAME = "@vite-hub/workspace"
@@ -183,11 +183,16 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   const loader = createWorkspaceDefinitionLoader(rootDir, aliases)
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
-    if (!shouldBundleWorkspaceAssets(options.assets, definition.name) && !await sourceModuleUsesCloudflareArtifacts(definition.path, resolveModule)) continue
-    const workspace = normalizeWorkspaceDefinition(
-      definition.name,
-      await loadDiscoveredWorkspaceDefinition(loader, definition),
-    )
+    const bundlesAssets = shouldBundleWorkspaceAssets(options.assets, definition.name)
+    let loaded: WorkspaceDefinitionInput
+    try {
+      loaded = await loadDiscoveredWorkspaceDefinition(loader, definition)
+    }
+    catch (error) {
+      if (bundlesAssets || await sourceModuleUsesCloudflareArtifacts(definition.path, resolveModule)) throw error
+      continue
+    }
+    const workspace = normalizeWorkspaceDefinition(definition.name, loaded)
     if (!workspace.store || "readFile" in workspace.store) continue
     const config = normalizeWorkspaceOptions({ store: workspace.store }, {
       dev: false,
