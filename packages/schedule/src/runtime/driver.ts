@@ -221,7 +221,7 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
   let closePromise: Promise<void> | undefined
   return {
     close() {
-      return closePromise ??= serialize(async () => {
+      return closePromise ??= serialize(async () => {}).then(async () => {
         await installedDriver.close?.()
       })
     },

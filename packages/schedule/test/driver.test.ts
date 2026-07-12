@@ -557,6 +557,56 @@ describe("Runtime Schedule Wake Driver", () => {
     expect(await loadScheduleDefinition("report")).toBeDefined()
   })
 
+  it("lets active wake handlers mutate Runtime Schedules while closing", async () => {
+    const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    let context: RuntimeScheduleWakeDriverContext | undefined
+    let activeWake: Promise<void> | undefined
+    let markCloseStarted: (() => void) | undefined
+    const closeStarted = new Promise<void>(resolve => { markCloseStarted = resolve })
+    await runtimeScheduleStore.create({
+      createdAt: scheduledAt,
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "daily",
+      target: "report",
+      updatedAt: scheduledAt,
+    })
+    const controller = await installScheduleRuntime({
+      createDriver(driverContext) {
+        context = driverContext
+        return {
+          async close() {
+            markCloseStarted?.()
+            await activeWake
+          },
+          async reconcile() {},
+        }
+      },
+      registry: {
+        report: async () => ({
+          cron: "0 9 * * *",
+          handler: async () => {
+            await closeStarted
+            await schedules.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
+          },
+          options: { allowRuntimeSchedules: true },
+        }),
+      },
+      runtimeScheduleStore,
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+
+    activeWake = context!.wake({ scheduleId: "daily", scheduledAt })
+    const closing = controller.close()
+
+    await vi.waitFor(() => expect(runtimeScheduleStore.get("follow-up")).toBeDefined(), {
+      interval: 1,
+      timeout: 250,
+    })
+    await Promise.all([activeWake, closing])
+  })
+
   it("restores prior runtime state and closes resources when initial reconciliation fails", async () => {
     const previousRuntimeScheduleStore = createMemoryRuntimeScheduleStore()
     const previousScheduleRunStore = createMemoryScheduleRunStore()
