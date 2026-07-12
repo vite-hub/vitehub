@@ -293,13 +293,12 @@ function agentRequiresPrimitive(agent: AgentInput<ViteAgentRouteRuntimeContext>,
 
 async function resolveAgentRouteCapabilities(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
-  capabilities?: ViteAgentRouteRuntimeContext["capabilities"],
 ): Promise<ViteAgentRouteRuntimeContext["capabilities"]> {
-  if (capabilities?.schedule !== undefined || !agentRequiresPrimitive(agent, "schedule")) return capabilities
+  if (!agentRequiresPrimitive(agent, "schedule")) return
   try {
     const schedules = ((await import(scheduleRuntimePackageName)) as { schedules?: unknown }).schedules
     if (!schedules) throw new Error("The package did not export schedules.")
-    return { ...capabilities, schedule: { schedules } }
+    return { schedule: { schedules } }
   }
   catch (error) {
     throw new Error(`[vitehub] Agent routes with Schedule Capability require @vite-hub/schedule to be installed. ${error instanceof Error ? error.message : String(error)}`)
@@ -313,11 +312,10 @@ async function createRuntimeContext(
   waitUntil?: AgentWaitUntil,
   cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"],
   runtimeOverride?: AgentRuntimeName,
-  capabilities?: ViteAgentRouteRuntimeContext["capabilities"],
 ): Promise<ViteAgentRouteRuntimeContext> {
   const waitUntilController = createRuntimeWaitUntilController({ forward: waitUntil })
   const runtime = cloudflare ? "cloudflare-agents" : runtimeOverride || detectRuntime()
-  const routeCapabilities = await resolveAgentRouteCapabilities(agent, capabilities)
+  const routeCapabilities = await resolveAgentRouteCapabilities(agent)
   return createAgentRuntimeContext({
     ...(routeCapabilities ? { capabilities: routeCapabilities } : {}),
     ...(cloudflare ? { cloudflare } : {}),
