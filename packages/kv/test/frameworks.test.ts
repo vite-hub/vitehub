@@ -57,6 +57,23 @@ describe("hubKv", () => {
     expect(code).toContain(".virtual/kv")
   })
 
+  it("externalizes only the optional Upstash peer in server builds", async () => {
+    const { hubKv } = await import("../src/vite.ts")
+    const plugin = hubKv({ driver: "fs-lite" })
+    const resolveId = plugin.resolveId as unknown as (
+      id: string,
+      importer: string | undefined,
+      options: { ssr: boolean },
+    ) => unknown | Promise<unknown>
+
+    expect(await resolveId("@upstash/redis", undefined, { ssr: true })).toEqual({
+      external: true,
+      id: "@upstash/redis",
+    })
+    expect(await resolveId("@upstash/redis", undefined, { ssr: false })).toBeUndefined()
+    expect(await resolveId("unstorage/drivers/fs-lite", undefined, { ssr: true })).toBeUndefined()
+  })
+
   it("anchors generated Cloudflare runtime imports to the KV package", async () => {
     const { hubKv } = await import("../src/vite.ts")
     const plugin = hubKv({ binding: "KV", driver: "cloudflare-kv-binding" })

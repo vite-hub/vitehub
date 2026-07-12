@@ -165,12 +165,10 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
   const initializing = serialize(async () => {
     driver = await options.createDriver({
       reportError,
-      wake: async input => {
-        await executeRuntimeScheduleWake(input, {
-          runtimeScheduleStore: options.runtimeScheduleStore,
-          scheduleRunStore: options.scheduleRunStore,
-        })
-      },
+      wake: input => serialize(() => executeRuntimeScheduleWake(input, {
+        runtimeScheduleStore: options.runtimeScheduleStore,
+        scheduleRunStore: options.scheduleRunStore,
+      })),
     })
     await driver.reconcile(await options.runtimeScheduleStore.list())
     installed = true

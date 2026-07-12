@@ -20,6 +20,7 @@ import type { Plugin, ResolvedConfig } from "vite"
 const RESOLVED_KV_VIRTUAL_CONFIG_ID = `\0${KV_VIRTUAL_CONFIG_ID}`
 const KV_RUNTIME_ID = "#vitehub/kv/runtime"
 const RESOLVED_KV_RUNTIME_ID = `\0${KV_RUNTIME_ID}`
+const UPSTASH_REDIS_IMPORT_ID = "@upstash/redis"
 const UNSTORAGE_IMPORT_ID = import.meta.resolve("unstorage")
 const CLOUDFLARE_KV_DRIVER_IMPORT_ID = import.meta.resolve("unstorage/drivers/cloudflare-kv-binding")
 const mergeNoExternal = createNoExternalMerger("@vite-hub/kv")
@@ -137,7 +138,8 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
     },
-    resolveId(id) {
+    resolveId(id, _importer, resolveOptions) {
+      if (id === UPSTASH_REDIS_IMPORT_ID && resolveOptions.ssr) return { external: true, id }
       if (id === "@vite-hub/kv" && isCloudflareKVConfig(getConfig().kv)) return RESOLVED_KV_RUNTIME_ID
       if (id === KV_VIRTUAL_CONFIG_ID) return RESOLVED_KV_VIRTUAL_CONFIG_ID
     },
