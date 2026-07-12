@@ -178,7 +178,90 @@ describe("Runtime Schedule Wake Driver", () => {
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt }))
   })
 
-  it("serializes native wakes with schedule mutations", async () => {
+  it("lets initial reconciliation await a native wake", async () => {
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
+    const handler = vi.fn()
+    await runtimeScheduleStore.create({
+      createdAt: scheduledAt,
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "daily",
+      target: "report",
+      updatedAt: scheduledAt,
+    })
+
+    await installScheduleRuntime({
+      createDriver: context => ({
+        async reconcile(records) {
+          if (records.some(record => record.id === "daily")) {
+            await context.wake({ scheduleId: "daily", scheduledAt })
+          }
+        },
+      }),
+      registry: {
+        report: async () => ({ cron: "0 9 * * *", handler, options: { allowRuntimeSchedules: true } }),
+      },
+      runtimeScheduleStore,
+      scheduleRunStore,
+    })
+
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
+  it("lets mutation reconciliation await a native wake", async () => {
+    const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
+    const handler = vi.fn()
+    await installScheduleRuntime({
+      createDriver: context => ({
+        async reconcile(records) {
+          if (records.some(record => record.id === "daily")) {
+            await context.wake({ scheduleId: "daily", scheduledAt })
+          }
+        },
+      }),
+      registry: {
+        report: async () => ({ cron: "0 9 * * *", handler, options: { allowRuntimeSchedules: true } }),
+      },
+      runtimeScheduleStore: createMemoryRuntimeScheduleStore(),
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+
+    await schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
+
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
+  it("lets a handler woken during mutation reconciliation mutate Runtime Schedules", async () => {
+    const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
+    await installScheduleRuntime({
+      createDriver: context => ({
+        async reconcile(records) {
+          if (records.some(record => record.id === "daily")) {
+            await context.wake({ scheduleId: "daily", scheduledAt })
+          }
+        },
+      }),
+      registry: {
+        report: async () => ({
+          cron: "0 9 * * *",
+          handler: async () => {
+            await schedules.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
+          },
+          options: { allowRuntimeSchedules: true },
+        }),
+      },
+      runtimeScheduleStore: createMemoryRuntimeScheduleStore(),
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+
+    await schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
+
+    await expect(schedules.get("follow-up")).resolves.toMatchObject({ id: "follow-up" })
+  })
+
+  it("executes native wakes against persisted mutations while reconciliation is pending", async () => {
     const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
     const scheduleRunStore = createMemoryScheduleRunStore()
     const now = new Date("2026-07-11T08:00:00.000Z")
@@ -215,16 +298,11 @@ describe("Runtime Schedule Wake Driver", () => {
       scheduleId: "daily",
       scheduledAt: new Date("2026-07-11T09:00:00.000Z"),
     })
-    let wakeSettled = false
-    void waking.then(() => { wakeSettled = true }, () => { wakeSettled = true })
-    await flushAsyncWork()
-
-    expect(wakeSettled).toBe(false)
+    await expect(waking).rejects.toMatchObject({ code: "SCHEDULE_NOT_DUE" })
     expect(handler).not.toHaveBeenCalled()
 
     releaseReconcile?.()
     await updating
-    await expect(waking).rejects.toMatchObject({ code: "SCHEDULE_NOT_DUE" })
     expect(handler).not.toHaveBeenCalled()
   })
 
@@ -477,6 +555,56 @@ describe("Runtime Schedule Wake Driver", () => {
     expect(close).toHaveBeenCalledOnce()
     expect(await schedules.get("daily")).toMatchObject({ id: "daily" })
     expect(await loadScheduleDefinition("report")).toBeDefined()
+  })
+
+  it("lets active wake handlers mutate Runtime Schedules while closing", async () => {
+    const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    let context: RuntimeScheduleWakeDriverContext | undefined
+    let activeWake: Promise<void> | undefined
+    let markCloseStarted: (() => void) | undefined
+    const closeStarted = new Promise<void>(resolve => { markCloseStarted = resolve })
+    await runtimeScheduleStore.create({
+      createdAt: scheduledAt,
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "daily",
+      target: "report",
+      updatedAt: scheduledAt,
+    })
+    const controller = await installScheduleRuntime({
+      createDriver(driverContext) {
+        context = driverContext
+        return {
+          async close() {
+            markCloseStarted?.()
+            await activeWake
+          },
+          async reconcile() {},
+        }
+      },
+      registry: {
+        report: async () => ({
+          cron: "0 9 * * *",
+          handler: async () => {
+            await closeStarted
+            await schedules.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
+          },
+          options: { allowRuntimeSchedules: true },
+        }),
+      },
+      runtimeScheduleStore,
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+
+    activeWake = context!.wake({ scheduleId: "daily", scheduledAt })
+    const closing = controller.close()
+
+    await vi.waitFor(() => expect(runtimeScheduleStore.get("follow-up")).toBeDefined(), {
+      interval: 1,
+      timeout: 250,
+    })
+    await Promise.all([activeWake, closing])
   })
 
   it("restores prior runtime state and closes resources when initial reconciliation fails", async () => {

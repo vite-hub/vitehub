@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { schedules } from "../src/runtime/client.ts"
 import { installScheduleRuntime } from "../src/runtime/driver.ts"
 import { createProcessScheduleWakeDriver } from "../src/runtime/process.ts"
 import { resetScheduleRuntime } from "../src/runtime/state.ts"
@@ -75,6 +76,46 @@ describe("Process Schedule Wake Driver", () => {
       }),
     ])
     await controller.close()
+  })
+
+  it("lets active wake handlers reconcile Runtime Schedules while closing", async () => {
+    vi.useFakeTimers()
+    const now = new Date("2026-07-11T09:00:20.000Z")
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    await runtimeScheduleStore.create(record("daily"))
+    let markCloseStarted: (() => void) | undefined
+    const closeStarted = new Promise<void>(resolve => { markCloseStarted = resolve })
+    const processDriverFactory = createProcessScheduleWakeDriver({ now: () => now })
+
+    const controller = await installScheduleRuntime({
+      async createDriver(context) {
+        const driver = await processDriverFactory(context)
+        return {
+          async close() {
+            const closing = Promise.resolve(driver.close?.())
+            markCloseStarted?.()
+            await closing
+          },
+          reconcile: records => driver.reconcile(records),
+        }
+      },
+      registry: {
+        report: async () => ({
+          cron: "* * * * *",
+          handler: async () => {
+            await closeStarted
+            await schedules.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
+          },
+          options: { allowRuntimeSchedules: true },
+        }),
+      },
+      runtimeScheduleStore,
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+
+    await controller.close()
+
+    await expect(schedules.get("follow-up")).resolves.toMatchObject({ id: "follow-up" })
   })
 
   it("wakes each enabled due schedule once per process minute", async () => {

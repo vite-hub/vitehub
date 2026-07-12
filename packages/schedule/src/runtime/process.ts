@@ -40,6 +40,7 @@ export function createProcessScheduleWakeDriver(options: ProcessScheduleWakeDriv
     const now = options.now ?? (() => new Date())
     let schedules: RuntimeScheduleRecord[] = []
     let timer: ReturnType<typeof setInterval> | undefined
+    let closing = false
     let closed = false
     let occurrenceMinute: number | undefined
     const dispatched = new Set<string>()
@@ -104,13 +105,14 @@ export function createProcessScheduleWakeDriver(options: ProcessScheduleWakeDriv
 
     return {
       async close() {
-        closed = true
+        closing = true
         queue.length = 0
         if (timer) {
           clearInterval(timer)
           timer = undefined
         }
         await Promise.allSettled(activeWakes)
+        closed = true
       },
       async reconcile(records) {
         if (closed) {
@@ -137,6 +139,7 @@ export function createProcessScheduleWakeDriver(options: ProcessScheduleWakeDriv
           }
         }
         schedules = nextSchedules
+        if (closing) return
         if (!timer) {
           timer = setInterval(scan, intervalMs)
           timer.unref?.()

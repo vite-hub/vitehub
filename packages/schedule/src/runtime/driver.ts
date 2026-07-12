@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks"
+
 import { executeRuntimeScheduleWake } from "./execute.ts"
 import {
   getRuntimeScheduleStore,
@@ -40,8 +42,22 @@ type SerializeOperation = <T>(operation: () => Promise<T>) => Promise<T>
 
 function createSerializer(): SerializeOperation {
   let tail = Promise.resolve()
+  const operationStorage = new AsyncLocalStorage<{ active: boolean }>()
   return function serialize<T>(operation: () => Promise<T>): Promise<T> {
-    const result = tail.then(operation)
+    const activeOperation = operationStorage.getStore()
+    if (activeOperation?.active) {
+      return operation()
+    }
+
+    const operationContext = { active: true }
+    const result = tail.then(() => operationStorage.run(operationContext, async () => {
+      try {
+        return await operation()
+      }
+      finally {
+        operationContext.active = false
+      }
+    }))
     tail = result.then(() => {}, () => {})
     return result
   }
@@ -165,10 +181,10 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
   const initializing = serialize(async () => {
     driver = await options.createDriver({
       reportError,
-      wake: input => serialize(() => executeRuntimeScheduleWake(input, {
+      wake: input => executeRuntimeScheduleWake(input, {
         runtimeScheduleStore: options.runtimeScheduleStore,
         scheduleRunStore: options.scheduleRunStore,
-      })),
+      }),
     })
     await driver.reconcile(await options.runtimeScheduleStore.list())
     installed = true
@@ -205,7 +221,7 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
   let closePromise: Promise<void> | undefined
   return {
     close() {
-      return closePromise ??= serialize(async () => {
+      return closePromise ??= serialize(async () => {}).then(async () => {
         await installedDriver.close?.()
       })
     },

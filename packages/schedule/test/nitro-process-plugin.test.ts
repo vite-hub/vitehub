@@ -22,7 +22,7 @@ interface PluginHarness {
 
 interface NitroAppHarness {
   captureError: ReturnType<typeof vi.fn>
-  fetch: (request: Request) => Promise<Response>
+  fetch: (request: Request, init?: RequestInit) => Promise<Response>
   hooks: {
     hook: (name: string, handler: () => Promise<void>) => void
   }
@@ -44,6 +44,7 @@ async function loadProcessPlugin(installScheduleRuntime: PluginHarness["installS
   await mkdir(join(root, "server"), { recursive: true })
 
   const plugin = hubSchedule({
+    projectRoot: root,
     providerOutput: false,
     runtime: { driver: "process" },
   })
@@ -126,5 +127,18 @@ describe("generated Nitro Process Runtime plugin", () => {
     await expect(app.fetch(new Request("http://localhost/report"))).rejects.toBe(installationError)
     expect(downstream).not.toHaveBeenCalled()
     expect(app.captureError).toHaveBeenCalledWith(installationError, { tags: ["vitehub-schedule"] })
+  })
+
+  it("forwards every argument to the existing fetch handler", async () => {
+    const plugin = await loadProcessPlugin(async () => ({ close: vi.fn() }))
+    const downstream = vi.fn(async () => new Response("route response"))
+    const { app } = createNitroApp(downstream)
+    const request = new Request("http://localhost/report")
+    const init = { headers: { "x-vitehub-test": "forwarded" }, method: "POST" }
+
+    plugin(app)
+    await app.fetch(request, init)
+
+    expect(downstream).toHaveBeenCalledWith(request, init)
   })
 })
