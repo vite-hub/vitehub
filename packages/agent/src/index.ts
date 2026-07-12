@@ -8,8 +8,8 @@ import {
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
 import { getMessageText } from "./messages.ts"
-import { resolveRuntimeContext } from "@vite-hub/runtime"
-import { isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
+import { createTraceEventLog, resolveRuntimeContext } from "@vite-hub/runtime"
+import { agentResultKind, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import {
   finishMessageChannelChatTitleDelivery,
@@ -143,6 +143,7 @@ import type {
   AgentRuntimeContext,
   AgentSettings,
   AgentUsageCost,
+  AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
   AgentToolDefinition,
   MaybePromise,
@@ -1362,7 +1363,13 @@ async function createAgentInvocationContext<
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const resolvedContext = createResolvedRuntimeContext(context)
-  const runtimeContext = resolvedContext.trace || !resolvedContext.traceLog ? resolvedContext : { ...resolvedContext, trace: { id: createTraceId(context.run) } }
+  const runtimeContext = resolvedContext.trace && resolvedContext.traceLog
+    ? resolvedContext
+    : {
+        ...resolvedContext,
+        trace: resolvedContext.trace || { id: createTraceId(context.run) },
+        traceLog: resolvedContext.traceLog || createTraceEventLog(),
+      }
   const callbackContext = createAgentCallbackContext(runtimeContext)
   const invocationContext = createAgentInvocationContextStore(input.context)
   let invoker = createFallbackAgentInvoker(context.run)
@@ -1650,6 +1657,9 @@ function withStreamedResult(
     finishResult() {
       return resultWithStreamedTextAndUsage(result, streamedText, usageRecord, fallbackUsageRecord)
     },
+    finishUsage() {
+      return usageRecord ?? fallbackUsageRecord
+    },
     stream: (async function* () {
       for await (const chunk of stream) {
         const event = toAgentStreamEvent(chunk, toolNames)
@@ -1774,11 +1784,19 @@ async function resolveFinishUsageRecord<
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
   result: unknown,
 ): Promise<Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined> {
-  return hasFinishWork(context) ? await resolveAgentUsageRecord(result, context.run) : undefined
+  if (hasFinishWork(context)) return await resolveAgentUsageRecord(result, context.run)
+  if (!context.runtimeContext.traceLog) return undefined
+  try {
+    return await resolveAgentUsageRecord(result, context.run)
+  }
+  catch {
+    // Core tracing is best-effort and must not change Agent output.
+    return undefined
+  }
 }
 
 type AgentInvocationFinishOutcome =
-  | { result?: unknown, status: "success" }
+  | { result?: unknown, status: "success", usage?: AgentUsageRecord }
   | { error: unknown, status: "error" }
 
 function finishOutcomeFromCleanup(outcome: { failed: false } | { error: unknown, failed: true }, result?: unknown): AgentInvocationFinishOutcome {
@@ -1980,6 +1998,17 @@ async function finishAgentInvocation<
   try {
     await context.startTask
     await context.close()
+    let resultKind: string | undefined
+    let usage = failed ? undefined : outcome.usage
+    if (!failed) {
+      try {
+        resultKind = agentResultKind(result)
+        usage ??= await resolveAgentUsageRecord(result, context.run)
+      }
+      catch {
+        // Invocation data must not change Agent output or mask the original failure.
+      }
+    }
     if (hasFinishWork(context)) {
       const details = failed ? agentErrorDetails(error) : undefined
       const eventBase = {
@@ -1990,7 +2019,9 @@ async function finishAgentInvocation<
         invoker: context.invoker,
         invocation: {
           durationMs,
+          ...(resultKind !== undefined ? { resultKind } : {}),
           ...(context.run ? { run: context.run } : {}),
+          ...(usage ? { usage } : {}),
         },
         ...(result !== undefined ? { result } : {}),
         runtime: context.runtimeContext,
@@ -2017,6 +2048,8 @@ async function finishAgentInvocation<
       await traceAgentInvocationFinish(toTraceContext(context), {
         "invocation.durationMs": durationMs,
         "result.hasValue": result !== undefined,
+        ...(resultKind !== undefined ? { "result.kind": resultKind } : {}),
+        ...(usage ? { "usage.record": usage } : {}),
       })
     }
     else {
@@ -2053,7 +2086,7 @@ async function finalizeAgentInvocationResult<
 >(
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS> & { hasCapabilityCleanup: boolean },
   result: unknown,
-  finalizeObject: (result: unknown) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, value: TResult }>,
+  finalizeObject: (result: unknown) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, finishUsage?: AgentUsageRecord, value: TResult }>,
   failureMessage: string,
   options: {
     finalizeRawStreams?: boolean
@@ -2072,16 +2105,25 @@ async function finalizeAgentInvocationResult<
     if (isAsyncIterable(result) && !hasTraceableStreamResult(result) && !options.finalizeRawStreams) {
       finishLifecycleStarted = shouldWrapOutput
       const stream = options.wrapStream?.(result) || result
-      if (shouldWrapOutput && context.finalOutputRenderers.length) {
+      if (shouldWrapOutput) {
         const streamed = withStreamedResult(stream, result)
+        if (!context.finalOutputRenderers.length) {
+          return withCapabilityCleanup(streamed.stream, async (outcome) => {
+            const finishOutcome = finishOutcomeFromCleanup(outcome, result)
+            const usage = streamed.finishUsage()
+            return finishAgentInvocation(context, finishOutcome.status === "success"
+              ? { ...finishOutcome, usage: usage ? await resolveAgentUsageRecord({ usageRecord: usage }, context.run) : undefined }
+              : finishOutcome)
+          }, { abortSignal: context.input.abortSignal })
+        }
         return withCapabilityCleanup(streamed.stream, outcome => finishStreamAgentInvocation(context, streamed.finishResult(), finishOutcomeFromCleanup(outcome), failureMessage, options.outputExtensions), { abortSignal: context.input.abortSignal })
       }
-      return shouldWrapOutput ? withCapabilityCleanup(stream, outcome => finishAgentInvocation(context, finishOutcomeFromCleanup(outcome, result)), { abortSignal: context.input.abortSignal }) : stream
+      return stream
     }
     const finalized = await finalizeObject(result)
     finishLifecycleStarted = true
     if (!finalized.deferFinish) {
-      await finishAgentInvocation(context, { result: finalized.finishResult, status: "success" })
+      await finishAgentInvocation(context, { result: finalized.finishResult, status: "success", usage: finalized.finishUsage })
     }
     return finalized.value
   }
@@ -2131,7 +2173,11 @@ export async function runAgentInline<
         ? renderedResult ? result : await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
         : result
       const final = renderOutput ? await applyFinalOutputRenderers(rendered, runContext, outputExtensions) : rendered
-      return { finishResult: resultWithUsageRecord(final, driverUsageRecord), value: final }
+      return {
+        finishResult: hasFinishWork(runContext) ? resultWithUsageRecord(final, driverUsageRecord) : final,
+        finishUsage: driverUsageRecord,
+        value: final,
+      }
     }, "[vitehub] Agent run failed and finish lifecycle also failed.", {
       outputExtensions,
       wrapStream: stream => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, runContext),
@@ -2158,7 +2204,11 @@ export async function runAgentInline<
     const rendered = renderOutput ? await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions) : result
     const final = renderOutput ? await applyFinalOutputRenderers(rendered, adapterContext, outputExtensions) : rendered
     const runResult = renderOutput ? toAgentRunResult(final) : final
-    return { finishResult: resultWithUsageRecord(final, driverUsageRecord), value: runResult }
+    return {
+      finishResult: hasFinishWork(adapterContext) ? resultWithUsageRecord(final, driverUsageRecord) : final,
+      finishUsage: driverUsageRecord,
+      value: runResult,
+    }
   }, "[vitehub] Agent run failed and finish lifecycle also failed.")
 }
 

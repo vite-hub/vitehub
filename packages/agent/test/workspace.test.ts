@@ -3369,7 +3369,10 @@ describe("defineAgent workspace option", () => {
       onStepEnd,
       stopWhen,
       temperature: 0.2,
-      telemetry,
+      telemetry: {
+        integrations: expect.any(Array),
+        isEnabled: true,
+      },
       toolChoice: "auto",
     })
   })
@@ -3433,7 +3436,11 @@ describe("defineAgent workspace option", () => {
       workspace: {},
     }), { workspace: "docs" })
 
-    await expect(streamAgent(agent as never, context(), { messages: [] })).resolves.toBe(stream)
+    const result = await streamAgent(agent as never, context(), { messages: [] }) as AsyncIterable<unknown>
+    const events = []
+    for await (const event of result) events.push(event)
+
+    expect(events).toEqual([{ text: "ok", type: "text-delta" }])
     expect(run).toHaveBeenCalled()
   })
 

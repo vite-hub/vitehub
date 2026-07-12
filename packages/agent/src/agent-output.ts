@@ -8,6 +8,13 @@ import type { AgentRunMetadata, AgentRunResult, AgentUsage, AgentUsageRecord } f
 
 export { isAsyncIterable } from "./internal/stream-result.ts"
 
+export function agentResultKind(result: unknown): string {
+  if (result === null) return "null"
+  if (isAsyncIterable(result)) return "stream"
+  if (Array.isArray(result)) return "array"
+  return typeof result
+}
+
 function textFromContent(content: unknown): string | undefined {
   if (!Array.isArray(content)) return
 
