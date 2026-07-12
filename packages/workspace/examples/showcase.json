@@ -9,7 +9,7 @@
       "id": "cloudflare-artifacts",
       "label": "Cloudflare",
       "icon": "i-simple-icons-cloudflare",
-      "configOverride": "  workspace: {},"
+      "configOverride": "  workspace: {\n    store: {\n      provider: 'cloudflare-artifacts',\n      binding: 'WORKSPACE_ARTIFACTS',\n      namespace: 'vitehub',\n    },\n  },"
     },
     {
       "id": "vercel-runtime",

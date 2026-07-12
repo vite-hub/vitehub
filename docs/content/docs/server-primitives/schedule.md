@@ -126,7 +126,7 @@ Cron expressions use the Schedule Time Base, currently UTC. The discovered file 
 
 ## Create recurring Runtime Schedules
 
-Runtime Schedules are dynamic cron schedules stored by ViteHub. A Runtime Schedule can target only a Runtime Schedule Target that opted into runtime reuse.
+Runtime Schedules are dynamic cron schedules stored by ViteHub. A Runtime Schedule can target only a Runtime Schedule Target that opted into runtime reuse. Set an IANA `timeZone` when the cron should follow local civil time and daylight-saving changes; omit it to keep UTC behavior.
 
 ```ts [server/schedules/daily-report.ts]
 import { defineSchedule } from '@vite-hub/schedule'
@@ -150,6 +150,7 @@ export default defineEventHandler(async () => {
     cron: '30 8 * * 1-5',
     id: 'weekday-report',
     target: 'daily-report',
+    timeZone: 'Europe/Copenhagen',
   })
 })
 ```
@@ -158,12 +159,15 @@ export default defineEventHandler(async () => {
 
 | Input | Type | Required | Description |
 | --- | --- | --- | --- |
-| `cron` | `string` | create only | Five-field UTC cron expression. |
+| `cron` | `string` | create only | Five-field cron expression evaluated in `timeZone`, or UTC when `timeZone` is omitted. |
 | `target` | `ScheduleTargetName` | create only | Static Schedule Definition that set `allowRuntimeSchedules: true`. |
 | `id` | `string` | No | Stable Runtime Schedule id. ViteHub generates one when omitted. |
 | `enabled` | `boolean` | No | Whether the Runtime Schedule should execute. Defaults to `true` on create. |
+| `timeZone` | `string` | No | Named IANA time zone used to evaluate the cron expression. Numeric offsets such as `+01:00` are rejected. Defaults to UTC. |
 
-`RuntimeScheduleUpdateInput` accepts `cron`, `target`, and `enabled`.
+`RuntimeScheduleUpdateInput` accepts `cron`, `target`, `enabled`, and `timeZone`. Omitting `timeZone` on update preserves the stored zone; set it explicitly to `UTC` to reset UTC evaluation.
+
+Local cron matching follows conventional daylight-saving behavior: a local time missing during a DST gap is skipped, while both distinct instants in a repeated local time during a DST overlap run.
 
 ## Runtime Helper methods
 
@@ -203,7 +207,7 @@ Attach a Schedule Capability only when a model should manage schedules. Read [Of
 
 Schedule Runs, Schedule Run Attempts, retry policy, overlap policy, and dedupe policy belong to Schedule. Naming a policy does not imply every policy is configurable in the first version.
 
-Use UTC unless a later ViteHub API explicitly introduces another Schedule Time Base.
+Static Schedule Definitions and Provider Wake output remain UTC. Runtime Schedules use UTC by default and can persist an IANA `timeZone` when local clock time must follow daylight-saving changes.
 
 ## Next steps
 
