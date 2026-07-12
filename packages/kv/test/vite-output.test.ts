@@ -53,6 +53,57 @@ async function readOutput(root: string): Promise<string> {
 }
 
 describe("KV Vite output", () => {
+  it("builds an fs-lite server bundle without the optional Upstash peer", async () => {
+    const rootDir = await createConsumerRoot()
+    const entry = join(rootDir, "src", "worker.ts")
+    const [{ build }, { hubKv }] = await Promise.all([
+      import("vite"),
+      import("../src/vite.ts"),
+    ])
+    await writeFile(entry, [
+      `import "preserved-external"`,
+      `import { kv } from "@vite-hub/kv"`,
+      `export default async () => await kv.get("proof")`,
+      ``,
+    ].join("\n"))
+
+    await build({
+      appType: "custom",
+      build: {
+        outDir: "dist",
+        rollupOptions: {
+          external: ["preserved-external"],
+          input: entry,
+          output: { entryFileNames: "worker.js" },
+        },
+        ssr: entry,
+      },
+      configFile: false,
+      kv: { driver: "fs-lite" },
+      logLevel: "silent",
+      plugins: [
+        hubKv(),
+        {
+          name: "missing-upstash-peer",
+          resolveId(id) {
+            if (id === "@upstash/redis") return "\0missing-upstash-peer"
+          },
+          load(id) {
+            if (id === "\0missing-upstash-peer") return "export default {}"
+          },
+        },
+      ],
+      root: rootDir,
+    })
+
+    const output = await readOutput(join(rootDir, "dist"))
+
+    expect(output).toContain(`import "preserved-external"`)
+    expect(output).toContain(`from "@upstash/redis"`)
+    expect(output).not.toContain("__vite-optional-peer-dep")
+    expect(output).not.toContain(`from "unstorage/drivers/fs-lite"`)
+  })
+
   it("bundles selected runtime config into server output", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")
