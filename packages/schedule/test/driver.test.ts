@@ -106,6 +106,35 @@ describe("Runtime Schedule Wake Driver", () => {
     ])
   })
 
+  it("rejects queued mutations without writing when installation fails", async () => {
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    let rejectReconcile: (() => void) | undefined
+    let reconcileCount = 0
+    const installing = installScheduleRuntime({
+      createDriver: () => ({
+        async reconcile() {
+          reconcileCount++
+          if (reconcileCount === 1) {
+            await new Promise<void>(resolve => { rejectReconcile = resolve })
+            throw new Error("initial reconcile failed")
+          }
+        },
+      }),
+      registry,
+      runtimeScheduleStore,
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+    await flushAsyncWork()
+
+    const creating = schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
+    await flushAsyncWork()
+    rejectReconcile?.()
+
+    await expect(installing).rejects.toThrow("initial reconcile failed")
+    await expect(creating).rejects.toThrow("installation did not complete")
+    expect(await runtimeScheduleStore.list()).toEqual([])
+  })
+
   it("delivers exact wake identity and time through Runtime Schedule execution", async () => {
     const scheduledAt = new Date("2026-07-11T09:30:00.000Z")
     const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
@@ -210,6 +239,42 @@ describe("Runtime Schedule Wake Driver", () => {
     expect(handler).toHaveBeenCalledOnce()
   })
 
+  it("lets a handler woken during initial reconciliation mutate Runtime Schedules", async () => {
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
+    await runtimeScheduleStore.create({
+      createdAt: scheduledAt,
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "daily",
+      target: "report",
+      updatedAt: scheduledAt,
+    })
+
+    await installScheduleRuntime({
+      createDriver: context => ({
+        async reconcile(records) {
+          if (records.some(record => record.id === "daily")) {
+            await context.wake({ scheduleId: "daily", scheduledAt })
+          }
+        },
+      }),
+      registry: {
+        report: async () => ({
+          cron: "0 9 * * *",
+          handler: async () => {
+            await schedules.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
+          },
+          options: { allowRuntimeSchedules: true },
+        }),
+      },
+      runtimeScheduleStore,
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+
+    await expect(schedules.get("follow-up")).resolves.toMatchObject({ id: "follow-up" })
+  })
+
   it("lets mutation reconciliation await a native wake", async () => {
     const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
     const handler = vi.fn()
@@ -259,6 +324,38 @@ describe("Runtime Schedule Wake Driver", () => {
     await schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
 
     await expect(schedules.get("follow-up")).resolves.toMatchObject({ id: "follow-up" })
+  })
+
+  it("reconciles re-entrant handler mutations after the active snapshot", async () => {
+    const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
+    const snapshots: string[][] = []
+    let woke = false
+    await installScheduleRuntime({
+      createDriver: context => ({
+        async reconcile(records) {
+          if (!woke && records.some(record => record.id === "daily")) {
+            woke = true
+            await context.wake({ scheduleId: "daily", scheduledAt })
+          }
+          snapshots.push(records.map(record => record.id))
+        },
+      }),
+      registry: {
+        report: async () => ({
+          cron: "0 9 * * *",
+          handler: async () => {
+            await schedules.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
+          },
+          options: { allowRuntimeSchedules: true },
+        }),
+      },
+      runtimeScheduleStore: createMemoryRuntimeScheduleStore(),
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+
+    await schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
+
+    expect(snapshots.at(-1)).toEqual(["daily", "follow-up"])
   })
 
   it("executes native wakes against persisted mutations while reconciliation is pending", async () => {
