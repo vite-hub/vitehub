@@ -178,7 +178,7 @@ describe("Runtime Schedule Wake Driver", () => {
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt }))
   })
 
-  it("rejects a stale native wake after the stored cron changes", async () => {
+  it("serializes native wakes with schedule mutations", async () => {
     const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
     const scheduleRunStore = createMemoryScheduleRunStore()
     const now = new Date("2026-07-11T08:00:00.000Z")
@@ -211,14 +211,21 @@ describe("Runtime Schedule Wake Driver", () => {
 
     const updating = schedules.update("daily", { cron: "0 10 * * *" })
     await reconcileStarted
-    await expect(context!.wake({
+    const waking = context!.wake({
       scheduleId: "daily",
       scheduledAt: new Date("2026-07-11T09:00:00.000Z"),
-    })).rejects.toMatchObject({ code: "SCHEDULE_NOT_DUE" })
+    })
+    let wakeSettled = false
+    void waking.then(() => { wakeSettled = true }, () => { wakeSettled = true })
+    await flushAsyncWork()
+
+    expect(wakeSettled).toBe(false)
     expect(handler).not.toHaveBeenCalled()
 
     releaseReconcile?.()
     await updating
+    await expect(waking).rejects.toMatchObject({ code: "SCHEDULE_NOT_DUE" })
+    expect(handler).not.toHaveBeenCalled()
   })
 
   it("rejects native wakes outside the exact minute occurrence", async () => {
