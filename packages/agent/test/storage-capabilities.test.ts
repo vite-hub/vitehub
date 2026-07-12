@@ -36,7 +36,7 @@ describe("storage capabilities", () => {
   it("exposes scoped Runtime Schedule read and edit tools", async () => {
     const { schedule } = await import("../src/capabilities.ts")
     const records = [
-      { createdAt: new Date("2026-05-23T00:00:00.000Z"), cron: "0 9 * * *", enabled: true, id: "daily", target: "reports", updatedAt: new Date("2026-05-23T00:00:00.000Z") },
+      { createdAt: new Date("2026-05-23T00:00:00.000Z"), cron: "0 9 * * *", enabled: true, id: "daily", target: "reports", timeZone: "Europe/Copenhagen", updatedAt: new Date("2026-05-23T00:00:00.000Z") },
       { createdAt: new Date("2026-05-23T00:00:00.000Z"), cron: "0 10 * * *", enabled: true, id: "private", target: "private", updatedAt: new Date("2026-05-23T00:00:00.000Z") },
     ]
     const schedules = {
@@ -61,16 +61,22 @@ describe("storage capabilities", () => {
     await expect(tools.cronjob!.execute?.({ id: "daily", operation: "get" })).resolves.toEqual(records[0])
     await expect(tools.cronjob!.execute?.({ id: "private", operation: "get" })).rejects.toThrow("allowlist")
 
-    await tools.cronjob!.execute?.({ cron: "15 9 * * *", id: "new-daily", operation: "create", target: "reports" })
-    expect(schedules.create).toHaveBeenCalledWith({ cron: "15 9 * * *", enabled: undefined, id: "new-daily", target: "reports" })
+    await tools.cronjob!.execute?.({ cron: "15 9 * * *", id: "new-daily", operation: "create", target: "reports", timeZone: "Europe/Copenhagen" })
+    expect(schedules.create).toHaveBeenCalledWith({ cron: "15 9 * * *", enabled: undefined, id: "new-daily", target: "reports", timeZone: "Europe/Copenhagen" })
 
     await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", operation: "create", target: "private" })).rejects.toThrow("allowlist")
     await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timezone: "UTC" } as never)).rejects.toThrow()
+    await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timeZone: "Not/A_Zone" })).rejects.toThrow("valid IANA time zone")
+    await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timeZone: "+01:00" })).rejects.toThrow("valid IANA time zone")
+    await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timeZone: "PST" })).rejects.toThrow("valid IANA time zone")
+    await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timeZone: "Asia/Kolkata" })).resolves.toMatchObject({ timeZone: "Asia/Kolkata" })
+    await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timeZone: "CET" })).resolves.toMatchObject({ timeZone: "CET" })
     await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", enabled: "false", operation: "create", target: "reports" } as never)).rejects.toThrow("enabled must be a boolean")
     await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", id: 123, operation: "create", target: "reports" } as never)).rejects.toThrow("id must be a non-empty Runtime Schedule id")
     await expect(tools.cronjob!.execute?.({ cron: "0 8 * * *", id: "", operation: "create", target: "reports" })).rejects.toThrow("id must be a non-empty Runtime Schedule id")
-    await tools.cronjob!.execute?.({ cron: "30 9 * * *", id: "daily", operation: "edit" })
-    expect(schedules.update).toHaveBeenCalledWith("daily", { cron: "30 9 * * *" })
+    await tools.cronjob!.execute?.({ cron: "30 9 * * *", id: "daily", operation: "edit", timeZone: "Asia/Bangkok" })
+    expect(schedules.update).toHaveBeenCalledWith("daily", { cron: "30 9 * * *", timeZone: "Asia/Bangkok" })
+    await expect(tools.cronjob!.execute?.({ id: "daily", operation: "edit", timeZone: "US/Eastern" })).resolves.toMatchObject({ timeZone: "US/Eastern" })
     await tools.cronjob!.execute?.({ id: "daily", operation: "pause" })
     expect(schedules.disable).toHaveBeenCalledWith("daily")
     await tools.cronjob!.execute?.({ id: "daily", operation: "resume" })
@@ -153,6 +159,15 @@ describe("storage capabilities", () => {
             every: expect.anything(),
             policy: expect.anything(),
             timezone: expect.anything(),
+          }),
+        }),
+      ]),
+    })
+    expect(tools.cronjob!.inputSchema).toMatchObject({
+      oneOf: expect.arrayContaining([
+        expect.objectContaining({
+          properties: expect.objectContaining({
+            timeZone: expect.objectContaining({ type: "string" }),
           }),
         }),
       ]),

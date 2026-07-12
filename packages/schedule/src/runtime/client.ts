@@ -1,4 +1,5 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
+import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
 
 import { ScheduleError } from "../errors.ts"
 import { executeRuntimeSchedule } from "./execute.ts"
@@ -21,6 +22,9 @@ const cronFieldRanges = [
   cronRange.month,
   cronRange.dayOfWeek,
 ] as const
+
+const runtimeScheduleCreateInputKeys = new Set(["cron", "enabled", "id", "target", "timeZone"])
+const runtimeScheduleUpdateInputKeys = new Set(["cron", "enabled", "target", "timeZone"])
 
 function parseCronNumber(value: string, range: { min: number, max: number }): number {
   if (!/^\d+$/.test(value)) {
@@ -65,7 +69,7 @@ function validateCronPart(part: string, range: { min: number, max: number }): vo
 
 export function validateRuntimeScheduleCron(cron: unknown): void {
   if (typeof cron !== "string" || cron.trim() !== cron || cron.length === 0) {
-    throw new ScheduleError("Runtime Schedule cron must be a five-field UTC cron expression.", {
+    throw new ScheduleError("Runtime Schedule cron must be a five-field cron expression.", {
       code: "SCHEDULE_INVALID_CRON",
       details: { cron },
       httpStatus: 400,
@@ -74,7 +78,7 @@ export function validateRuntimeScheduleCron(cron: unknown): void {
 
   const fields = cron.split(/\s+/)
   if (fields.length !== 5) {
-    throw new ScheduleError("Runtime Schedule cron must be a five-field UTC cron expression.", {
+    throw new ScheduleError("Runtime Schedule cron must be a five-field cron expression.", {
       code: "SCHEDULE_INVALID_CRON",
       details: { cron },
       httpStatus: 400,
@@ -95,6 +99,16 @@ export function validateRuntimeScheduleCron(cron: unknown): void {
     throw new ScheduleError(`Invalid Runtime Schedule cron expression: ${cron}`, {
       code: "SCHEDULE_INVALID_CRON",
       details: { cron },
+      httpStatus: 400,
+    })
+  }
+}
+
+function validateRuntimeScheduleTimeZone(timeZone: unknown): void {
+  if (!isIanaTimeZone(timeZone)) {
+    throw new ScheduleError("Runtime Schedule timeZone must be a valid IANA time zone.", {
+      code: "SCHEDULE_INVALID_TIME_ZONE",
+      details: { timeZone },
       httpStatus: 400,
     })
   }
@@ -137,8 +151,20 @@ function assertRuntimeScheduleInputObject(input: unknown, operation: "create" | 
   }
 }
 
+function assertRuntimeScheduleInputKeys(input: Record<string, unknown>, allowed: Set<string>, operation: "create" | "update"): void {
+  const unknownKey = Object.keys(input).find(key => !allowed.has(key))
+  if (unknownKey) {
+    throw new ScheduleError(`Runtime Schedule ${operation} does not support "${unknownKey}".`, {
+      code: "SCHEDULE_INVALID_INPUT",
+      details: { key: unknownKey },
+      httpStatus: 400,
+    })
+  }
+}
+
 async function validateCreateInput(input: RuntimeScheduleCreateInput): Promise<void> {
   assertRuntimeScheduleInputObject(input, "create")
+  assertRuntimeScheduleInputKeys(input, runtimeScheduleCreateInputKeys, "create")
   await assertRuntimeTarget(input.target)
   validateRuntimeScheduleCron(input.cron)
   if (input.id !== undefined && (typeof input.id !== "string" || !input.id.trim())) {
@@ -155,10 +181,14 @@ async function validateCreateInput(input: RuntimeScheduleCreateInput): Promise<v
       httpStatus: 400,
     })
   }
+  if (input.timeZone !== undefined) {
+    validateRuntimeScheduleTimeZone(input.timeZone)
+  }
 }
 
 async function validateUpdateInput(input: RuntimeScheduleUpdateInput): Promise<void> {
   assertRuntimeScheduleInputObject(input, "update")
+  assertRuntimeScheduleInputKeys(input, runtimeScheduleUpdateInputKeys, "update")
   if (input.target !== undefined) {
     await assertRuntimeTarget(input.target)
   }
@@ -171,6 +201,9 @@ async function validateUpdateInput(input: RuntimeScheduleUpdateInput): Promise<v
       details: { enabled: input.enabled },
       httpStatus: 400,
     })
+  }
+  if (input.timeZone !== undefined) {
+    validateRuntimeScheduleTimeZone(input.timeZone)
   }
 }
 
@@ -200,6 +233,7 @@ export const schedules = {
       enabled: input.enabled ?? true,
       id: input.id ?? randomId("sched"),
       target: input.target,
+      ...(input.timeZone ? { timeZone: input.timeZone } : {}),
       updatedAt: now,
     })
   },
