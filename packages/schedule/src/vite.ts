@@ -376,16 +376,21 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
     return null
   }
 
-  const nitroDefinitions = processRuntime ? [] : selectNitroScheduleDefinitions(definitions, options)
+  const nitroDefinitions = processRuntime && options.providerOutput !== "nitro" ? [] : selectNitroScheduleDefinitions(definitions, options)
   const crons = options.command === "build"
     ? [...new Set((await readDefinitionCrons(nitroDefinitions)).values())]
     : []
+  const nitroDefinitionNames = new Set(nitroDefinitions.map(definition => definition.name))
   const plugin = await writeNitroSchedulePlugin(roots.projectRoot, {
     crons,
     processRuntime,
     providerDefinitions: nitroDefinitions,
     runtimeDefinitions: definitions,
-    staticDefinitions: definitions.filter(definition => definition.runtimeOnly !== true),
+    staticDefinitions: definitions.filter(definition =>
+      definition.runtimeOnly !== true
+      && !nitroDefinitionNames.has(definition.name)
+      && !(processRuntime && options.providerOutput === "standalone")
+    ),
     runtimeImport: (options as InternalScheduleVitePluginOptions).runtimeImport,
   })
   return mergeNitroScheduleConfig(options.nitro, {
@@ -445,7 +450,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         rootDir: roots.viteRoot,
         serverRootDir: roots.projectRoot,
       })
-      emitStandaloneProviderOutput = options.runtime === undefined && shouldEmitStandaloneProviderOutput(definitions, options)
+      emitStandaloneProviderOutput = (options.runtime === undefined || options.providerOutput === "standalone") && shouldEmitStandaloneProviderOutput(definitions, options)
       standaloneProviderSource = selectStandaloneProviderSource(definitions, options)
       if (!shouldInstallNitroSchedulePlugin(definitions, options)) {
         return null

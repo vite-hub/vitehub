@@ -273,6 +273,55 @@ describe("Vite schedule integration", () => {
     await expect(readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-cleanup.mjs"), "utf8")).rejects.toThrow()
   })
 
+  it("honors explicit Nitro Provider Wake output with the Process Runtime", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-process-nitro-output-"))
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(join(root, "src", "cleanup.schedule.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 0 * * *', handler: () => {} })",
+      "",
+    ].join("\n"), "utf8")
+
+    const plugin = hubSchedule({ projectRoot: root, providerOutput: "nitro", runtime: { driver: "process" } })
+    await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+      { root },
+      { command: "build", mode: "production" },
+    )
+
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("cloudflare:scheduled")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "static-registry.js"), "utf8")).resolves.not.toContain("src/cleanup.schedule.ts")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.ts"), "utf8")).resolves.toContain("\"0 0 * * *\"")
+  })
+
+  it("honors explicit standalone Provider Wake output with the Process Runtime", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-process-standalone-output-"))
+    await mkdir(join(root, "src"), { recursive: true })
+    await mkdir(join(root, "dist", "client"), { recursive: true })
+    await writeFile(join(root, "src", "cleanup.schedule.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 0 * * *', handler: () => {} })",
+      "",
+    ].join("\n"), "utf8")
+
+    const plugin = hubSchedule({ projectRoot: root, providerOutput: "standalone", runtime: { driver: "process" } })
+    await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+      { root },
+      { command: "build", mode: "production" },
+    )
+    ;(plugin.configResolved as (config: Record<string, unknown>) => void)({
+      build: { outDir: "dist/client" },
+      command: "build",
+      resolve: { alias: [] },
+      root,
+    })
+    await (plugin.closeBundle as () => Promise<void>)()
+
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.not.toContain("cloudflare:scheduled")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "static-registry.js"), "utf8")).resolves.not.toContain("src/cleanup.schedule.ts")
+    await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).resolves.toContain("\"0 0 * * *\"")
+    await expect(readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-cleanup.mjs"), "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
+  })
+
   it("writes a resolvable Process Runtime registry for direct Nitro config integration", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-direct-nitro-process-"))
     await mkdir(join(root, "server", "schedules"), { recursive: true })
