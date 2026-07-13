@@ -99,6 +99,26 @@ describe("landing page", () => {
     ]);
   });
 
+  it("keeps reduced-motion and hidden install controls static", async () => {
+    const primitiveMotion = await readFile(
+      new URL("../app/components/landing/PrimitiveMotion.vue", import.meta.url),
+      "utf8",
+    );
+    const reducedMotion = primitiveMotion.slice(
+      primitiveMotion.indexOf("@media (prefers-reduced-motion: reduce)"),
+    );
+    const installCommand = await readFile(
+      new URL("../app/components/landing/InstallCommand.vue", import.meta.url),
+      "utf8",
+    );
+
+    expect(reducedMotion).toContain("animation: none;");
+    expect(reducedMotion).not.toMatch(/animation:[^;]*infinite/);
+    expect(installCommand).toContain(
+      `:class="activeTab === 'package' ? 'w-[17.25rem]' : 'w-0'"`,
+    );
+  });
+
   it("wires landing-page metadata through Docus", async () => {
     const source = await readFile(new URL("../app/pages/index.vue", import.meta.url), "utf8");
 

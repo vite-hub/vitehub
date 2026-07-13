@@ -499,7 +499,8 @@ const delay = `${Math.max(0, primitives.indexOf(props.name)) * 60}ms`;
   .workspace-cursor,
   .source-scan,
   .target {
-    animation: reduced-confirm 4.8s linear var(--scene-delay) infinite both;
+    animation: none;
+    opacity: 0.7;
     transform: none;
   }
   .write {
@@ -514,16 +515,6 @@ const delay = `${Math.max(0, primitives.indexOf(props.name)) * 60}ms`;
   .db-scan,
   .source-scan {
     transform: translateY(17px);
-  }
-  @keyframes reduced-confirm {
-    0%,
-    4% {
-      opacity: 0.45;
-    }
-    8%,
-    100% {
-      opacity: 0.7;
-    }
   }
 }
 </style>

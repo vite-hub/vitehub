@@ -102,7 +102,8 @@ onBeforeUnmount(() => {
       </div>
 
       <div
-        class="relative h-10 w-[17.25rem] shrink-0"
+        class="relative h-10 shrink-0"
+        :class="activeTab === 'package' ? 'w-[17.25rem]' : 'w-0'"
         role="group"
         aria-label="Package manager"
         :aria-hidden="activeTab !== 'package'"
