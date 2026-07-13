@@ -5,11 +5,11 @@
     >
       <div class="vh-landing-reveal min-w-0">
         <h1 class="vh-hero-title max-w-[9ch] font-semibold text-highlighted text-balance">
-          The server layer for Vite.
+          Agents, built like applications.
         </h1>
         <p class="mt-7 max-w-[44ch] text-lg/8 text-muted text-pretty sm:text-xl/8">
-          Define inspectable Agents with explicit drivers, Capabilities, Workspaces, and
-          instructions—then run them on any host, backed by portable Server Primitives.
+          If Nuxt makes web apps obvious, ViteHub does the same for agents. Write instructions and
+          skills in Markdown, tools in TypeScript, and run them on any Vite host.
         </p>
 
         <LandingInstallCommand class="mt-9" />

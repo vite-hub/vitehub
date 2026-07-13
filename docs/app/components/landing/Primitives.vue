@@ -32,7 +32,7 @@ import { landingPrimitives } from "./content";
       </div>
 
       <ul
-        class="mt-12 grid gap-px border border-default bg-[var(--ui-border)] sm:grid-cols-2 lg:mt-16 lg:grid-cols-3"
+        class="mt-12 grid gap-px border border-default bg-[var(--ui-border)] sm:grid-cols-2 lg:mt-16 lg:grid-cols-4"
         role="list"
       >
         <li v-for="primitive in landingPrimitives" :key="primitive.id" class="min-w-0 bg-default">

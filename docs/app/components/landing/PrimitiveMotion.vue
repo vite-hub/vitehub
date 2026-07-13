@@ -1,335 +1,430 @@
 <script setup lang="ts">
-defineProps<{ name: string }>();
+const props = defineProps<{ name: string }>();
+
+const primitives = [
+  "workspace",
+  "kv",
+  "queue",
+  "workflow",
+  "schedule",
+  "sandbox",
+  "database",
+  "blob",
+  "auth",
+  "env",
+  "source",
+  "shell",
+];
+const delay = `${Math.max(0, primitives.indexOf(props.name)) * 60}ms`;
 </script>
 
 <template>
-  <svg v-if="name === 'workspace'" viewBox="0 0 96 56" class="size-full" aria-hidden="true">
-    <path d="M12 12h18l5 5h22" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".42" />
-    <rect
-      x="12"
-      y="9"
-      width="72"
-      height="38"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.5"
-      opacity=".22"
-    />
-    <rect x="24" y="22" width="31" height="3" fill="currentColor" opacity=".34" />
-    <rect x="24" y="29" width="22" height="3" fill="currentColor" opacity=".24" />
-    <path
-      d="M24 38l4 3-4 3"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.5"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      opacity=".62"
-    />
-    <rect x="32" y="39.5" width="18" height="3" fill="currentColor" opacity=".4" />
-    <rect x="52" y="38.5" width="2" height="5" fill="currentColor" class="pm-blink" />
-  </svg>
-
-  <svg v-else-if="name === 'kv'" viewBox="0 0 96 56" class="size-full" aria-hidden="true">
-    <circle
-      cx="20"
-      cy="28"
-      r="9"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.75"
-      opacity=".42"
-    />
-    <line x1="29" y1="28" x2="57" y2="28" stroke="currentColor" stroke-width="1.5" opacity=".28" />
-    <rect x="62" y="18" width="22" height="20" fill="currentColor" class="pm-kv-value" />
-    <circle cx="38" cy="28" r="3" fill="currentColor" class="pm-kv-dot" />
-  </svg>
-
-  <svg v-else-if="name === 'queue'" viewBox="0 0 96 56" class="size-full" aria-hidden="true">
-    <line
-      x1="10"
-      y1="28"
-      x2="86"
-      y2="28"
-      stroke="currentColor"
-      stroke-width="1.25"
-      stroke-dasharray="3 4"
-      opacity=".25"
-    />
-    <circle
-      v-for="index in 4"
-      :key="index"
-      cx="12"
-      cy="28"
-      r="6"
-      fill="currentColor"
-      class="pm-queue-dot"
-      :style="{ animationDelay: `${(index - 1) * -1.15}s` }"
-    />
-  </svg>
-
-  <svg v-else-if="name === 'workflow'" viewBox="0 0 96 56" class="size-full" aria-hidden="true">
-    <line
-      x1="20"
-      y1="24"
-      x2="76"
-      y2="24"
-      stroke="currentColor"
-      stroke-width="1.5"
-      stroke-dasharray="3 3"
-      opacity=".28"
-    />
-    <path
-      d="M76 31c-18 20-38 20-56 0"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.25"
-      stroke-dasharray="3 3"
-      opacity=".18"
-    />
-    <circle
-      v-for="x in [20, 48, 76]"
-      :key="x"
-      :cx="x"
-      cy="24"
-      r="7"
-      fill="var(--ui-bg)"
-      stroke="currentColor"
-      stroke-width="1.5"
-      opacity=".5"
-    />
-    <circle cx="20" cy="24" r="3" fill="currentColor" class="pm-workflow-token" />
-  </svg>
-
-  <svg v-else-if="name === 'schedule'" viewBox="0 0 96 56" class="size-full" aria-hidden="true">
-    <circle
-      cx="48"
-      cy="28"
-      r="19"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.5"
-      opacity=".26"
-    />
-    <circle
-      cx="48"
-      cy="28"
-      r="19"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.5"
-      class="pm-radar"
-    />
-    <circle cx="48" cy="28" r="2.5" fill="currentColor" opacity=".65" />
-    <line
-      x1="48"
-      y1="28"
-      x2="48"
-      y2="14"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      class="pm-hand"
-    />
-  </svg>
-
-  <svg v-else viewBox="0 0 96 56" class="size-full" aria-hidden="true">
-    <path
-      d="M48 8l26 12v25L48 50 22 45V20z"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.5"
-      opacity=".34"
-    />
-    <path
-      d="M22 20l26 12 26-12M48 32v18"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.25"
-      opacity=".22"
-    />
-    <path d="M31 17l26 12v14L31 38z" fill="currentColor" opacity=".12" class="pm-sandbox-scan" />
-    <circle cx="48" cy="30" r="4" fill="currentColor" class="pm-sandbox-core" />
+  <svg
+    viewBox="0 0 96 56"
+    class="primitive-motion size-full"
+    :style="{ '--scene-delay': delay }"
+    aria-hidden="true"
+  >
+    <template v-if="name === 'kv'">
+      <circle cx="19" cy="28" r="7" class="outline" />
+      <path d="M26 28h38" class="line" />
+      <rect x="66" y="20" width="18" height="16" rx="2" class="fill target" />
+      <circle cx="31" cy="28" r="2.5" class="accent write" />
+    </template>
+    <template v-else-if="name === 'database'">
+      <rect x="20" y="8" width="56" height="40" rx="3" class="outline" />
+      <path d="M20 17h56" class="line" />
+      <rect x="24" y="21" width="48" height="5" rx="1" class="fill db-scan" />
+      <path d="M25 23h33M25 31h43M25 39h37" class="line" />
+    </template>
+    <template v-else-if="name === 'queue'">
+      <path d="M10 28h76" class="line dashed" />
+      <circle cx="24" cy="28" r="5" class="fill" />
+      <circle cx="42" cy="28" r="5" class="fill" />
+      <circle cx="60" cy="28" r="5" class="accent queue-item" />
+      <path d="m78 24 5 4-5 4" class="outline" />
+    </template>
+    <template v-else-if="name === 'schedule'">
+      <circle cx="48" cy="28" r="20" class="outline" />
+      <path d="M48 28V14M48 28l9 6" class="accent clock-hand" />
+      <circle cx="48" cy="28" r="2.5" class="fill" />
+      <circle cx="48" cy="28" r="20" class="accent trigger" />
+    </template>
+    <template v-else-if="name === 'workflow'">
+      <path d="M20 23h56M76 30Q48 49 20 30" class="line dashed" />
+      <circle v-for="x in [20, 48, 76]" :key="x" :cx="x" cy="23" r="6" class="outline" />
+      <circle cx="20" cy="23" r="3" class="accent workflow-token" />
+    </template>
+    <template v-else-if="name === 'sandbox'">
+      <rect x="26" y="8" width="44" height="40" rx="5" class="outline boundary" />
+      <rect x="43" y="23" width="10" height="10" rx="2" class="fill" />
+      <path d="M48 23V13M53 28h11M48 33v10M43 28H32" class="accent rejected" />
+    </template>
+    <template v-else-if="name === 'shell'">
+      <rect x="18" y="8" width="60" height="40" rx="4" class="outline" />
+      <path d="M18 17h60M25 23l5 4-5 4M34 31h16" class="line" />
+      <g class="shell-output"><path d="M25 37h38M25 42h27" class="accent" /></g>
+    </template>
+    <template v-else-if="name === 'blob'">
+      <g class="stored-card back">
+        <rect x="31" y="13" width="30" height="32" rx="2" class="outline" />
+      </g>
+      <g class="stored-card front">
+        <rect x="35" y="10" width="30" height="32" rx="2" class="fill" />
+        <path d="m39 35 7-8 6 5 7-10" class="accent" />
+        <circle cx="57" cy="17" r="3" class="accent" />
+      </g>
+    </template>
+    <template v-else-if="name === 'auth'">
+      <rect x="32" y="26" width="32" height="23" rx="3" class="outline" />
+      <path d="M39 26v-6a9 9 0 0 1 18 0v6" class="accent shackle" />
+      <path d="M48 34v7" class="line" />
+      <circle cx="48" cy="34" r="2.5" class="fill" />
+    </template>
+    <template v-else-if="name === 'env'">
+      <path d="M56 10v36" class="line dashed" />
+      <path d="m64 18 4 4 8-9" class="accent env-check" />
+      <path d="M19 19h22M19 28h18M19 37h25" class="accent env-values" />
+    </template>
+    <template v-else-if="name === 'workspace'">
+      <path d="M17 10h19l5 5h16v16H17zM24 20h24M24 26h17" class="outline" />
+      <path d="M17 35h62v15H17zM24 40l5 3-5 3M34 46h17" class="line" />
+      <rect x="54" y="42" width="3" height="5" class="fill workspace-cursor" />
+    </template>
+    <template v-else-if="name === 'source'">
+      <path d="M32 5h24l9 9v37H32zM56 5v9h9" class="outline" />
+      <path d="M39 21h19M39 29h15M39 37h19" class="line" />
+      <rect x="36" y="18" width="25" height="7" rx="1" class="fill source-scan" />
+    </template>
   </svg>
 </template>
 
 <style scoped>
-.pm-blink {
-  animation: pm-blink 1.1s step-end infinite;
+.primitive-motion {
+  --cycle: 4.8s;
+  --motion-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --motion-move: cubic-bezier(0.77, 0, 0.175, 1);
+  overflow: visible;
 }
-
-.pm-kv-dot {
-  animation: pm-kv-dot 2.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+.outline,
+.line,
+.accent {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
-
-.pm-kv-value {
-  animation: pm-kv-value 2.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+.outline {
+  stroke-width: 1.5;
+  opacity: 0.34;
 }
-
-.pm-queue-dot {
-  opacity: 0;
-  animation: pm-queue 4.6s linear infinite;
+.line {
+  stroke-width: 1.5;
+  opacity: 0.22;
 }
-
-.pm-workflow-token {
-  animation: pm-workflow 3s steps(2, jump-none) infinite;
+.accent {
+  stroke-width: 1.8;
+  opacity: 0.72;
 }
-
-.pm-hand {
-  animation: pm-hand 4s linear infinite;
+.fill {
+  fill: currentColor;
+  opacity: 0.22;
+}
+.dashed {
+  stroke-dasharray: 3 4;
+}
+.write,
+.queue-item,
+.workflow-token,
+.db-scan,
+.clock-hand,
+.trigger,
+.rejected,
+.boundary,
+.shell-output,
+.stored-card,
+.shackle,
+.env-values,
+.env-check,
+.workspace-cursor,
+.source-scan,
+.target {
+  animation-duration: var(--cycle);
+  animation-delay: var(--scene-delay);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+}
+.write {
+  animation-name: arrive-right;
+  animation-timing-function: var(--motion-out);
+}
+.target {
+  animation-name: confirm;
+  animation-timing-function: var(--motion-out);
+}
+.db-scan,
+.source-scan {
+  animation-name: scan-down;
+  animation-timing-function: var(--motion-move);
+}
+.queue-item {
+  animation-name: queue-forward;
+  animation-timing-function: var(--motion-move);
+}
+.workflow-token {
+  animation-name: workflow-handoff;
+  animation-timing-function: var(--motion-move);
+}
+.clock-hand {
   transform-origin: 48px 28px;
+  transform-box: view-box;
+  animation-name: clock-trigger;
+  animation-timing-function: var(--motion-move);
+}
+.trigger {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation-name: confirm-ring;
+  animation-timing-function: var(--motion-out);
+}
+.rejected {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation-name: reject;
+  animation-timing-function: var(--motion-out);
+}
+.boundary,
+.env-check {
+  animation-name: confirm;
+  animation-timing-function: var(--motion-out);
+}
+.shell-output {
+  animation-name: output-arrive;
+  animation-timing-function: var(--motion-out);
+}
+.stored-card {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation-name: store-card;
+  animation-timing-function: var(--motion-out);
+}
+.stored-card.back {
+  animation-delay: calc(var(--scene-delay) - 80ms);
+}
+.shackle {
+  transform-origin: 57px 26px;
+  transform-box: view-box;
+  animation-name: unlock;
+  animation-timing-function: var(--motion-move);
+}
+.env-values {
+  animation-name: validate;
+  animation-timing-function: var(--motion-move);
+}
+.workspace-cursor {
+  animation-name: cursor-result;
+  animation-timing-function: var(--motion-out);
 }
 
-.pm-radar {
-  animation: pm-radar 3s cubic-bezier(0.22, 1, 0.36, 1) infinite;
-  transform-origin: 48px 28px;
-}
-
-.pm-sandbox-scan {
-  animation: pm-sandbox-scan 3.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
-}
-
-.pm-sandbox-core {
-  animation: pm-sandbox-core 3.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
-  transform-origin: 48px 30px;
-}
-
-@keyframes pm-blink {
+@keyframes arrive-right {
   0%,
-  49% {
+  3% {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  15%,
+  100% {
+    opacity: 0.75;
+    transform: translateX(32px);
+  }
+}
+@keyframes confirm {
+  0%,
+  12% {
+    opacity: 0.15;
+  }
+  18%,
+  100% {
+    opacity: 0.55;
+  }
+}
+@keyframes scan-down {
+  0%,
+  3% {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  17%,
+  100% {
+    opacity: 0.5;
+    transform: translateY(17px);
+  }
+}
+@keyframes queue-forward {
+  0%,
+  3% {
+    transform: translateX(0);
     opacity: 0.72;
   }
-  50%,
+  17%,
   100% {
-    opacity: 0;
+    transform: translateX(18px);
+    opacity: 0.72;
   }
 }
-
-@keyframes pm-kv-dot {
-  0% {
-    opacity: 0;
+@keyframes workflow-handoff {
+  0%,
+  3% {
     transform: translateX(0);
   }
-  20% {
-    opacity: 0.72;
+  10% {
+    transform: translateX(28px);
   }
-  78% {
-    opacity: 0.72;
-  }
+  17%,
   100% {
-    opacity: 0;
-    transform: translateX(24px);
-  }
-}
-
-@keyframes pm-kv-value {
-  0%,
-  58%,
-  100% {
-    opacity: 0.16;
-  }
-  78% {
-    opacity: 0.58;
-  }
-}
-
-@keyframes pm-queue {
-  0% {
-    opacity: 0;
-    transform: translateX(-8px);
-  }
-  16% {
-    opacity: 0.54;
-  }
-  84% {
-    opacity: 0.54;
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(80px);
-  }
-}
-
-@keyframes pm-workflow {
-  from {
-    transform: translateX(0);
-  }
-  to {
     transform: translateX(56px);
   }
 }
-
-@keyframes pm-hand {
-  to {
-    transform: rotate(360deg);
+@keyframes clock-trigger {
+  0%,
+  3% {
+    transform: rotate(0);
+  }
+  17%,
+  100% {
+    transform: rotate(90deg);
   }
 }
-
-@keyframes pm-radar {
-  0% {
-    opacity: 0.38;
-    transform: scale(0.8);
+@keyframes confirm-ring {
+  0%,
+  12% {
+    opacity: 0;
+    transform: scale(0.85);
   }
-  45%,
+  18% {
+    opacity: 0.55;
+  }
+  24%,
   100% {
     opacity: 0;
-    transform: scale(1.35);
+    transform: scale(1.18);
   }
 }
-
-@keyframes pm-sandbox-scan {
+@keyframes reject {
   0%,
-  100% {
-    opacity: 0.08;
-    transform: translateY(-7px);
+  3% {
+    opacity: 0;
+    transform: scale(0.3);
   }
-  50% {
-    opacity: 0.3;
-    transform: translateY(7px);
-  }
-}
-
-@keyframes pm-sandbox-core {
-  0%,
-  100% {
-    opacity: 0.3;
-    transform: scale(0.8);
-  }
-  50% {
-    opacity: 0.7;
+  13% {
+    opacity: 0.75;
     transform: scale(1);
+  }
+  20%,
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+@keyframes output-arrive {
+  0%,
+  3% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  17%,
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes store-card {
+  0%,
+  3% {
+    opacity: 0;
+    transform: translateX(18px) rotate(8deg);
+  }
+  17%,
+  100% {
+    opacity: 1;
+    transform: translateX(0) rotate(0);
+  }
+}
+@keyframes unlock {
+  0%,
+  3% {
+    transform: rotate(0);
+  }
+  17%,
+  100% {
+    transform: rotate(-28deg);
+  }
+}
+@keyframes validate {
+  0%,
+  3% {
+    opacity: 0.35;
+    transform: translateX(0);
+  }
+  17%,
+  100% {
+    opacity: 0.72;
+    transform: translateX(18px);
+  }
+}
+@keyframes cursor-result {
+  0%,
+  9% {
+    opacity: 0;
+  }
+  14%,
+  100% {
+    opacity: 0.7;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pm-blink,
-  .pm-kv-dot,
-  .pm-kv-value,
-  .pm-queue-dot,
-  .pm-workflow-token,
-  .pm-hand,
-  .pm-radar,
-  .pm-sandbox-scan,
-  .pm-sandbox-core {
-    animation: none;
+  .write,
+  .queue-item,
+  .workflow-token,
+  .db-scan,
+  .clock-hand,
+  .trigger,
+  .rejected,
+  .boundary,
+  .shell-output,
+  .stored-card,
+  .shackle,
+  .env-values,
+  .env-check,
+  .workspace-cursor,
+  .source-scan,
+  .target {
+    animation: reduced-confirm 4.8s linear var(--scene-delay) infinite both;
+    transform: none;
   }
-
-  .pm-queue-dot,
-  .pm-kv-dot,
-  .pm-radar {
-    opacity: 0.5;
+  .write {
+    transform: translateX(32px);
   }
-
-  .pm-queue-dot:nth-of-type(2) {
-    transform: translateX(20px);
+  .queue-item {
+    transform: translateX(18px);
   }
-
-  .pm-queue-dot:nth-of-type(3) {
-    transform: translateX(40px);
+  .workflow-token {
+    transform: translateX(56px);
   }
-
-  .pm-queue-dot:nth-of-type(4) {
-    transform: translateX(60px);
+  .db-scan,
+  .source-scan {
+    transform: translateY(17px);
+  }
+  @keyframes reduced-confirm {
+    0%,
+    4% {
+      opacity: 0.45;
+    }
+    8%,
+    100% {
+      opacity: 0.7;
+    }
   }
 }
 </style>
