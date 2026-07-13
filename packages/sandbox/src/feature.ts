@@ -184,13 +184,14 @@ export async function createSandboxFeaturePlan(
   definitions: ScannedDefinition[],
   paths: {
     aliasPath: string
+    typeImportBase?: string
   },
   deps: Record<string, string>,
   hosting?: string,
   discoveredDefinitionOptions: SandboxDefinitionCompilerOptions = {},
 ): Promise<FeatureRuntimePlan> {
   const resolvedConfig = resolveSandboxFeatureConfig(sandboxConfig, hosting)
-  const manifest = createSandboxManifest(paths.aliasPath, createSandboxTypeTemplateContents(definitions))
+  const manifest = createSandboxManifest(paths.aliasPath, createSandboxTypeTemplateContents(definitions, paths.typeImportBase))
   const {
     bundleAlias,
     featureImports = manifest.imports,

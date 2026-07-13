@@ -19,6 +19,10 @@ export type { SandboxPublicOptions } from './integration'
 
 export type SandboxVitePlugin = Plugin
 
+type InternalSandboxPublicOptions = Extract<SandboxPublicOptions, object> & {
+  typeImportBase?: string
+}
+
 const SANDBOX_PACKAGE_ID = '@vite-hub/sandbox'
 const SANDBOX_PROVIDER_LOADER_ID = 'vitehub-sandbox-provider-loader'
 const SANDBOX_REGISTRY_ID = '#vitehub-sandbox-registry'
@@ -39,6 +43,18 @@ const emptyPreparedSandboxRuntime: PreparedSandboxRuntime = {
 
 function sandboxProviderLoaderFallback() {
   return resolveFeatureRuntimePath(import.meta.url, '@vite-hub/sandbox', './runtime/provider-loader', 'runtime/provider-loader.js')
+}
+
+function getSandboxTypeImportBase(options: SandboxPublicOptions | undefined): string | undefined {
+  return typeof options === 'object' && options
+    ? (options as InternalSandboxPublicOptions).typeImportBase
+    : undefined
+}
+
+function toPublicSandboxOptions(options: SandboxPublicOptions | undefined): SandboxPublicOptions | undefined {
+  if (typeof options !== 'object' || !options) return options
+  const { typeImportBase: _typeImportBase, ...publicOptions } = options as InternalSandboxPublicOptions
+  return publicOptions
 }
 
 function toSandboxAliasEntries(aliases: AliasMap): SandboxAlias[] {
@@ -151,7 +167,7 @@ async function prepareSandboxRuntimeAliases(
   rawConfig: Record<string, unknown>,
   rawEnv: ConfigEnv,
   resolved: ResolvedConfig | undefined,
-  options: { writeArtifacts?: boolean } = {},
+  options: { typeImportBase?: string, writeArtifacts?: boolean } = {},
 ): Promise<PreparedSandboxRuntime> {
   const rootDir = resolved?.root || resolve(process.cwd(), typeof rawConfig.root === 'string' ? rawConfig.root : '.')
   const context = await buildFeatureViteContext(engine, { ...rawConfig, root: rootDir }, rawEnv)
@@ -164,7 +180,7 @@ async function prepareSandboxRuntimeAliases(
   const plan = await createSandboxFeaturePlan(
     sandboxConfig,
     definitions,
-    { aliasPath: facadeFile },
+    { aliasPath: facadeFile, typeImportBase: options.typeImportBase },
     context.deps,
     context.hosting,
     {
@@ -246,7 +262,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     readPublicOptions(source) {
       const configOptions = sandboxFeatureEngine.readPublicOptions(source)
       return source.kind === 'vite' && typeof configOptions === 'undefined'
-        ? options
+        ? toPublicSandboxOptions(options)
         : configOptions
     },
   } satisfies typeof sandboxFeatureEngine
@@ -264,7 +280,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   let resolvedConfig: ResolvedConfig | undefined
 
   async function refreshSandboxRuntime() {
-    const prepared = await prepareSandboxRuntimeAliases(engine, rawConfig, rawEnv, resolvedConfig)
+    const prepared = await prepareSandboxRuntimeAliases(engine, rawConfig, rawEnv, resolvedConfig, { typeImportBase: getSandboxTypeImportBase(options) })
     generatedAliases = prepared.aliases
     generatedFiles = prepared.files
     definitions = prepared.definitions
@@ -279,7 +295,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       const result = typeof configHook === 'function'
         ? await configHook.call(this, config, env)
         : undefined
-      const prepared = await prepareSandboxRuntimeAliases(engine, rawConfig, rawEnv, resolvedConfig, { writeArtifacts: false })
+      const prepared = await prepareSandboxRuntimeAliases(engine, rawConfig, rawEnv, resolvedConfig, { typeImportBase: getSandboxTypeImportBase(options), writeArtifacts: false })
       generatedAliases = prepared.aliases
       generatedFiles = prepared.files
       definitions = prepared.definitions

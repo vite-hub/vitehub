@@ -4,6 +4,7 @@ const integrationMocks = vi.hoisted(() => ({
   hubAgent: vi.fn(() => ({ name: "@vite-hub/agent/vite" })),
   hubEnv: vi.fn(() => ({ name: "@vite-hub/env/vite" })),
   hubQueue: vi.fn(() => ({ name: "@vite-hub/queue/vite" })),
+  hubSandbox: vi.fn(() => ({ name: "@vite-hub/sandbox/vite" })),
   hubSchedule: vi.fn(() => ({ name: "@vite-hub/schedule/vite" })),
 }))
 
@@ -14,7 +15,7 @@ vi.mock("@vite-hub/devtools", () => ({ hubDevtools: () => ({ name: "@vite-hub/de
 vi.mock("@vite-hub/env/vite", () => ({ hubEnv: integrationMocks.hubEnv }))
 vi.mock("@vite-hub/kv/vite", () => ({ hubKv: () => ({ name: "@vite-hub/kv/vite" }) }))
 vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue }))
-vi.mock("@vite-hub/sandbox/vite", () => ({ hubSandbox: () => ({ name: "@vite-hub/sandbox/vite" }) }))
+vi.mock("@vite-hub/sandbox/vite", () => ({ hubSandbox: integrationMocks.hubSandbox }))
 vi.mock("@vite-hub/schedule/vite", () => ({ hubSchedule: integrationMocks.hubSchedule }))
 vi.mock("@vite-hub/workflow/vite", () => ({ hubWorkflow: () => ({ name: "@vite-hub/workflow/vite" }) }))
 vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: () => ({ name: "@vite-hub/workspace/vite" }) }))
@@ -66,9 +67,18 @@ describe("vitehub", () => {
 
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith({
       ...agent,
+      importBase: "@vite-hub/vite/agent",
       runtimeCapabilityImportBase: "@vite-hub/vite",
+      scheduleRuntimeImport: "@vite-hub/vite/schedule/runtime",
+      workspaceImportBase: "@vite-hub/vite/workspace",
     })
-    expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(schedule)
+    expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith({
+      ...schedule,
+      runtimeImport: "@vite-hub/vite/schedule/runtime/static",
+    })
+    expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith({
+      typeImportBase: "@vite-hub/vite/sandbox",
+    })
   })
 
   it("uses facade imports in generated Env modules", () => {

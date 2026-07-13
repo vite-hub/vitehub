@@ -28,7 +28,18 @@ import type { PluginOption } from "vite"
 export { env } from "@vite-hub/env/vite"
 
 type InternalAgentPresetOptions = AgentModuleOptions & {
+  importBase?: string
   runtimeCapabilityImportBase?: string
+  scheduleRuntimeImport?: string
+  workspaceImportBase?: string
+}
+
+type InternalSandboxPresetOptions = Extract<SandboxPublicOptions, object> & {
+  typeImportBase?: string
+}
+
+type InternalSchedulePresetOptions = ScheduleVitePluginOptions & {
+  runtimeImport?: string
 }
 
 const presetDependencyNames = [
@@ -91,7 +102,10 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
   if (options.agent !== false) {
     const agentOptions: InternalAgentPresetOptions = {
       ...(options.agent ?? {}),
+      importBase: "@vite-hub/vite/agent",
       runtimeCapabilityImportBase: "@vite-hub/vite",
+      scheduleRuntimeImport: "@vite-hub/vite/schedule/runtime",
+      workspaceImportBase: "@vite-hub/vite/workspace",
     }
     plugins.push(hubAgent(agentOptions))
   }
@@ -99,8 +113,20 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
   if (options.blob !== false) plugins.push(hubBlob(options.blob))
   if (options.kv !== false) plugins.push(hubKv(options.kv))
   if (options.queue) plugins.push(hubQueue(options.queue === true ? {} : options.queue))
-  if (options.sandbox !== false) plugins.push(hubSandbox(options.sandbox))
-  if (options.schedule !== false) plugins.push(hubSchedule(options.schedule))
+  if (options.sandbox !== false) {
+    const sandboxOptions: InternalSandboxPresetOptions = {
+      ...(options.sandbox ?? {}),
+      typeImportBase: "@vite-hub/vite/sandbox",
+    }
+    plugins.push(hubSandbox(sandboxOptions))
+  }
+  if (options.schedule !== false) {
+    const scheduleOptions: InternalSchedulePresetOptions = {
+      ...(options.schedule ?? {}),
+      runtimeImport: "@vite-hub/vite/schedule/runtime/static",
+    }
+    plugins.push(hubSchedule(scheduleOptions))
+  }
   if (options.workflow !== false) plugins.push(hubWorkflow(options.workflow))
   if (options.workspace !== false) plugins.push(hubWorkspace(options.workspace))
   if (options.devtools !== false) plugins.push(hubDevtools(options.devtools))
