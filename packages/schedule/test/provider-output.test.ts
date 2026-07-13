@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 
 import { afterAll, describe, expect, it } from "vitest"
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 
 import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, resolveScheduleDefinitionEntry, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
 import { discoverScheduleDefinitions } from "../src/discovery.ts"
@@ -216,6 +217,12 @@ describe("schedule provider output", () => {
 
     await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
     expect(existsSync(join(outputRoot, "config.json"))).toBe(true)
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    expect(existsSync(join(rootDir, ".vercel"))).toBe(false)
+
+    await mkdir(outputRoot, { recursive: true })
+    await writeFile(join(outputRoot, "config.json"), JSON.stringify({ ...createVercelConfigJson(), crons: [] }), "utf8")
     await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
 
     expect(existsSync(join(rootDir, ".vercel"))).toBe(false)
