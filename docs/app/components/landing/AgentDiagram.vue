@@ -48,7 +48,7 @@ const files = [
         <div class="agent-connector hidden sm:block" aria-hidden="true"><span /></div>
 
         <div
-          class="agent-invocation flex min-h-28 flex-col justify-between border border-default bg-default p-4"
+          class="agent-invocation relative isolate flex min-h-28 flex-col justify-between overflow-hidden border border-default bg-default p-4"
         >
           <div class="flex items-center gap-2 text-muted">
             <UIcon name="i-lucide-message-square-code" class="size-4" aria-hidden="true" />
@@ -97,7 +97,7 @@ const files = [
   background: var(--ui-text-highlighted);
   content: "";
   opacity: 0.18;
-  animation: agent-file-read 4.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  animation: agent-file-read 4.8s cubic-bezier(0.23, 1, 0.32, 1) infinite;
   animation-delay: var(--file-delay);
 }
 
@@ -113,10 +113,20 @@ const files = [
   left: 0;
   width: 35%;
   background: var(--ui-text-highlighted);
-  animation: agent-connect 3.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  animation: agent-connect 3.6s cubic-bezier(0.77, 0, 0.175, 1) infinite;
 }
-.agent-invocation {
-  animation: agent-invoke 3.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+.agent-invocation::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background: color-mix(in srgb, var(--ui-text-highlighted) 5%, var(--ui-bg));
+  content: "";
+  opacity: 0;
+  animation: agent-invoke 3.6s cubic-bezier(0.23, 1, 0.32, 1) infinite;
+}
+.agent-invocation > * {
+  position: relative;
+  z-index: 1;
 }
 
 @keyframes agent-file-read {
@@ -124,12 +134,12 @@ const files = [
   14%,
   100% {
     opacity: 0.18;
-    transform: scale(0.8);
+    transform: scale(0.95);
   }
   5%,
   9% {
     opacity: 0.9;
-    transform: scale(1.15);
+    transform: scale(1);
   }
 }
 @keyframes agent-connect {
@@ -150,17 +160,17 @@ const files = [
   0%,
   42%,
   100% {
-    background: var(--ui-bg);
+    opacity: 0;
   }
   55%,
   74% {
-    background: color-mix(in srgb, var(--ui-text-highlighted) 5%, var(--ui-bg));
+    opacity: 1;
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .agent-file::before,
   .agent-connector span,
-  .agent-invocation {
+  .agent-invocation::before {
     animation: none;
   }
   .agent-connector span {

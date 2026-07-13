@@ -80,7 +80,7 @@ onBeforeUnmount(() => {
         aria-label="Install ViteHub"
       >
         <span
-          class="pointer-events-none absolute top-1 bottom-1 left-1 w-[calc((100%_-_0.75rem)/2)] rounded-full bg-default ring-1 ring-accented transition-transform duration-[400ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
+          class="pointer-events-none absolute top-1 bottom-1 left-1 w-[calc((100%_-_0.75rem)/2)] rounded-full bg-default ring-1 ring-accented transition-transform duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
           :style="{
             transform:
               activeTab === 'package' ? 'translateX(calc(100% + 0.25rem))' : 'translateX(0)',
@@ -102,19 +102,14 @@ onBeforeUnmount(() => {
       </div>
 
       <div
-        class="relative h-10 shrink-0 transition-[width] duration-[260ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
-        :class="activeTab === 'package' ? 'w-48' : 'w-0'"
+        class="relative h-10 w-[17.25rem] shrink-0"
         role="group"
         aria-label="Package manager"
         :aria-hidden="activeTab !== 'package'"
       >
         <div
-          class="absolute top-0 right-0 flex items-center gap-1 rounded-full bg-muted/80 p-1 text-sm ring-1 ring-default transition-[opacity,transform,filter] duration-[260ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
-          :class="
-            activeTab === 'package'
-              ? 'translate-y-0 opacity-100'
-              : 'pointer-events-none translate-y-1 opacity-0 blur-[1px]'
-          "
+          class="package-managers absolute top-0 right-0 flex items-center gap-1 rounded-full bg-muted/80 p-1 text-sm ring-1 ring-default"
+          :class="activeTab === 'package' ? 'package-managers-visible' : 'package-managers-hidden'"
           :aria-hidden="activeTab !== 'package'"
         >
           <button
@@ -124,22 +119,24 @@ onBeforeUnmount(() => {
             :tabindex="activeTab === 'package' ? 0 : -1"
             :aria-pressed="activePackageManager === option.value"
             :aria-label="option.label"
-            class="inline-flex h-8 min-w-8 items-center justify-center overflow-hidden rounded-full font-medium transition-[width,color,transform,background-color,box-shadow] duration-[220ms] ease-out active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none"
+            class="relative inline-flex h-8 w-16 items-center overflow-hidden rounded-full font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             :class="
               activePackageManager === option.value
-                ? 'w-22 bg-default px-2.5 text-highlighted ring-1 ring-accented'
-                : 'w-8 px-0 text-muted grayscale hover:text-default'
+                ? 'bg-default text-highlighted ring-1 ring-accented'
+                : 'text-muted grayscale hover:text-default'
             "
             @click="activePackageManager = option.value"
           >
-            <UIcon :name="option.icon" class="size-3.5 shrink-0" aria-hidden="true" />
+            <UIcon
+              :name="option.icon"
+              class="package-manager-icon absolute left-1/2 size-3.5 shrink-0"
+              :class="activePackageManager === option.value ? 'package-manager-icon-selected' : ''"
+              aria-hidden="true"
+            />
             <span
-              class="overflow-hidden whitespace-nowrap transition-[max-width,opacity,margin-left] duration-[180ms] ease-out motion-reduce:transition-none"
-              :class="
-                activePackageManager === option.value
-                  ? 'ml-1.5 max-w-12 opacity-100'
-                  : 'ml-0 max-w-0 opacity-0'
-              "
+              class="package-manager-label absolute left-[1.875rem] whitespace-nowrap text-xs"
+              :class="activePackageManager === option.value ? 'opacity-100' : 'opacity-0'"
+              aria-hidden="true"
             >
               {{ option.label }}
             </span>
@@ -185,18 +182,50 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.package-managers {
+  transition:
+    opacity 220ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 220ms cubic-bezier(0.23, 1, 0.32, 1),
+    visibility 0s linear 220ms;
+}
+
+.package-managers-visible {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0s;
+}
+
+.package-managers-hidden {
+  visibility: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(0.25rem);
+}
+
+.package-manager-icon {
+  transform: translateX(-50%);
+  transition: transform 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.package-manager-icon-selected {
+  transform: translateX(calc(-50% - 1rem));
+}
+
+.package-manager-label {
+  transition: opacity 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
 .command-swap-enter-active,
 .command-swap-leave-active {
   transition:
     opacity 180ms cubic-bezier(0.23, 1, 0.32, 1),
-    filter 180ms cubic-bezier(0.23, 1, 0.32, 1),
     transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .command-swap-enter-from,
 .command-swap-leave-to {
   opacity: 0;
-  filter: blur(1px);
   transform: translateY(2px);
 }
 
@@ -204,23 +233,47 @@ onBeforeUnmount(() => {
 .copy-icon-leave-active {
   transition:
     opacity 200ms cubic-bezier(0.23, 1, 0.32, 1),
-    filter 200ms cubic-bezier(0.23, 1, 0.32, 1),
     transform 200ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .copy-icon-enter-from,
 .copy-icon-leave-to {
   opacity: 0;
-  filter: blur(1px);
-  transform: scale(0.5);
+  transform: scale(0.95);
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .package-managers {
+    transform: none;
+    transition:
+      opacity 200ms cubic-bezier(0.23, 1, 0.32, 1),
+      visibility 0s linear 200ms;
+  }
+
+  .package-managers-visible {
+    transition-delay: 0s;
+  }
+
+  .package-manager-icon {
+    transition: none;
+  }
+
+  .package-manager-label {
+    transition: opacity 200ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+
   .command-swap-enter-active,
   .command-swap-leave-active,
   .copy-icon-enter-active,
   .copy-icon-leave-active {
-    transition-duration: 0ms;
+    transition: opacity 200ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+
+  .command-swap-enter-from,
+  .command-swap-leave-to,
+  .copy-icon-enter-from,
+  .copy-icon-leave-to {
+    transform: none;
   }
 }
 </style>
