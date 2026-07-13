@@ -1,8 +1,13 @@
 <script setup lang="ts">
 const files = [
-  { label: "instructions.md", icon: "i-lucide-file-text", kind: "Markdown" },
-  { label: "skills/", icon: "i-lucide-folder", kind: "Markdown" },
-  { label: "tools.ts", icon: "i-lucide-file-code-2", kind: "TypeScript" },
+  { label: "config.ts", icon: "i-lucide-file-code-2", kind: "Definition" },
+  { label: "instructions.md", icon: "i-lucide-file-text", kind: "Instructions" },
+  { label: "skills/review/", icon: "i-lucide-folder", kind: "Skill" },
+] as const;
+
+const attachments = [
+  { label: "Pull request checkout", icon: "i-lucide-folder-git-2", kind: "Workspace" },
+  { label: "workspaceShell()", icon: "i-lucide-square-terminal", kind: "Capability" },
 ] as const;
 </script>
 
@@ -10,7 +15,7 @@ const files = [
   <figure
     class="agent-diagram overflow-hidden border border-default bg-default"
     role="img"
-    aria-label="An Agent Definition combines Markdown instructions and skills with TypeScript tools, then handles an invocation."
+    aria-label="A review Agent Definition combines instructions and a review Skill with a pull request Workspace and workspace shell Capability, then handles a pull request invocation."
   >
     <figcaption
       class="flex min-h-11 items-center justify-between gap-4 border-b border-default bg-muted/40 px-4 font-mono text-xs text-muted"
@@ -43,6 +48,33 @@ const files = [
               >
             </li>
           </ul>
+
+          <div class="mt-2 border-t border-default pt-2">
+            <p class="px-1 font-mono text-[0.625rem] uppercase tracking-[0.12em] text-dimmed">
+              Attached
+            </p>
+            <ul class="mt-1" role="list">
+              <li
+                v-for="(attachment, index) in attachments"
+                :key="attachment.label"
+                class="agent-file flex items-center gap-2.5 py-2"
+                :style="{ '--file-delay': `${(files.length + index) * 900}ms` }"
+              >
+                <UIcon
+                  :name="attachment.icon"
+                  class="size-4 shrink-0 text-muted"
+                  aria-hidden="true"
+                />
+                <span class="font-mono text-xs text-highlighted sm:text-sm">{{
+                  attachment.label
+                }}</span>
+                <span
+                  class="ml-auto hidden text-[0.625rem] uppercase tracking-[0.12em] text-dimmed sm:block"
+                  >{{ attachment.kind }}</span
+                >
+              </li>
+            </ul>
+          </div>
         </div>
 
         <div class="agent-connector hidden sm:block" aria-hidden="true"><span /></div>
@@ -52,11 +84,13 @@ const files = [
         >
           <div class="flex items-center gap-2 text-muted">
             <UIcon name="i-lucide-message-square-code" class="size-4" aria-hidden="true" />
-            <span class="font-mono text-[0.6875rem] uppercase tracking-[0.12em]">Invocation</span>
+            <span class="font-mono text-[0.6875rem] uppercase tracking-[0.12em]"
+              >Agent Invocation</span
+            >
           </div>
           <div>
-            <p class="text-sm font-medium text-highlighted">Review this pull request</p>
-            <p class="mt-1 font-mono text-xs text-muted">→ review.ts</p>
+            <p class="text-sm font-medium text-highlighted">Review pull request #574</p>
+            <p class="mt-1 font-mono text-xs text-muted">→ review Agent</p>
           </div>
         </div>
       </div>
