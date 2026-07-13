@@ -228,6 +228,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
           "    registry: runtimeScheduleRegistry,",
           "    runtimeScheduleStore: createKVRuntimeScheduleStore(scheduleStoreOptions),",
           "    scheduleRunStore: createKVScheduleRunStore(scheduleStoreOptions),",
+          "    staticRegistry: runtimeScheduleRegistry,",
           "  }).then(",
           "    controller => ({ controller }),",
           "    error => {",

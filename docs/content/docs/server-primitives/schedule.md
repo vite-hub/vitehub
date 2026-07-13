@@ -89,7 +89,7 @@ export default defineConfig({
 
 Use `createScheduleNitroConfig()` when a Nitro integration owns config merging and needs Schedule to return Nitro-ready provider output.
 
-The Process Runtime imports the discovered registry, creates the Runtime Schedule and Schedule Run stores through the default KV store configured by `hubKv()`, applies the same explicit prefix to both, installs the process wake driver, reports errors through Nitro, and closes it during Nitro shutdown. `intervalMs` must be no greater than the one-minute cron resolution. This setting is orthogonal to `providerOutput`; selecting one does not infer the other.
+The Process Runtime imports the discovered registry and runs Static Schedule Definitions alongside persisted Runtime Schedules through one driver queue. It creates the Runtime Schedule and Schedule Run stores through the default KV store configured by `hubKv()`, applies the same explicit prefix to both, reports errors through Nitro, and closes the driver during Nitro shutdown. `intervalMs` must be no greater than the one-minute cron resolution. This setting is orthogonal to `providerOutput`; selecting one does not infer the other.
 
 ::warning
 The Process Runtime requires exactly one long-lived process or replica. The KV run store records occurrences but does not provide distributed leader election or locking. Do not use this driver on request-scoped or serverless hosts that may stop between requests. It scans inside the Node.js process and does not create cron, systemd, or another operating-system schedule.
@@ -232,10 +232,11 @@ const controller = await installScheduleRuntime({
   registry: scheduleRegistry,
   runtimeScheduleStore,
   scheduleRunStore,
+  staticRegistry: scheduleRegistry,
 })
 ```
 
-`createDriver(context)` returns a driver with `reconcile(schedules)`. Every reconciliation receives the complete stored snapshot, including disabled records. Installation awaits the initial reconciliation before it succeeds.
+`createDriver(context)` returns a driver with `reconcile(schedules)`. Pass `staticRegistry` when the driver should also schedule discovered Static Schedule Definitions; each reconciliation then receives those definitions alongside the complete stored Runtime Schedule snapshot, including disabled records. Installation awaits the initial reconciliation before it succeeds.
 
 Runtime Schedule creates, updates, and deletes are serialized through the installed runtime. Each mutation persists to the canonical store before reconciliation. If reconciliation fails, ViteHub restores the previous stored record and rejects the mutation. Manual `schedules.run()` calls execute immediately and do not reconcile the driver.
 
@@ -243,7 +244,7 @@ When the host fires a native wake, call `context.wake({ scheduleId, scheduledAt 
 
 Use `createProcessScheduleWakeDriver()` from `@vite-hub/schedule/runtime/process` when a custom long-running host wants the same in-process wake behavior without generated Nitro wiring.
 
-`startScheduleRunner()` remains the polling compatibility path for long-running hosts. Static provider output remains build-time configuration and does not use this runtime driver boundary.
+`startScheduleRunner()` remains the polling compatibility path for long-running hosts. Static provider output remains build-time configuration; selecting the Process Runtime also executes discovered Static Schedule Definitions without requiring provider output.
 
 ## Storage
 

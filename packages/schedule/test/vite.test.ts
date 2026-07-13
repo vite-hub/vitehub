@@ -176,6 +176,7 @@ describe("Vite schedule integration", () => {
     expect(pluginSource).toContain("export default definePlugin((nitroApp) => {")
     expect(pluginSource).not.toContain("definePlugin(async")
     expect(pluginSource).toContain("runtimeScheduleRegistry from \"./runtime-registry.js\"")
+    expect(pluginSource).toContain("staticRegistry: runtimeScheduleRegistry")
     expect(pluginSource).not.toContain("cloudflare:scheduled")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "runtime-registry.js"), "utf8")).resolves.toContain("server/schedules/report.ts")
     resolvePluginConfig(plugin, root)
