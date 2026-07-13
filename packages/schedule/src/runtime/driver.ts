@@ -48,9 +48,12 @@ interface SerializeOperation {
   runWake(operation: () => Promise<void>): Promise<void>
 }
 
-interface StaticScheduleEntry {
+interface StaticScheduleDefinitionEntry {
   definition: ScheduleDefinition
   name: string
+}
+
+interface StaticScheduleEntry extends StaticScheduleDefinitionEntry {
   record: RuntimeScheduleRecord
 }
 
@@ -71,16 +74,16 @@ function unwrapDefinition(loaded: ScheduleRegistryDefinition | { default?: Sched
   return undefined
 }
 
-async function loadStaticDefinitions(registry: ScheduleDefinitionRegistry | undefined): Promise<StaticScheduleEntry[]> {
+async function loadStaticDefinitions(registry: ScheduleDefinitionRegistry | undefined): Promise<StaticScheduleDefinitionEntry[]> {
   if (!registry) return []
   const definitions = await Promise.all(Object.entries(registry).map(async ([name, load]) => {
     const definition = unwrapDefinition(await load())
     return definition && "cron" in definition ? { definition, name } : undefined
   }))
-  return definitions.filter((definition): definition is StaticScheduleEntry => definition !== undefined)
+  return definitions.filter((definition): definition is StaticScheduleDefinitionEntry => definition !== undefined)
 }
 
-function createStaticSchedules(definitions: readonly StaticScheduleEntry[], runtimeSchedules: readonly RuntimeScheduleRecord[]): StaticSchedules {
+function createStaticSchedules(definitions: readonly StaticScheduleDefinitionEntry[], runtimeSchedules: readonly RuntimeScheduleRecord[]): StaticSchedules {
   const occupiedIds = new Set(runtimeSchedules.map(schedule => schedule.id))
   const byId = new Map<string, StaticScheduleEntry>()
   const timestamp = new Date(0)
