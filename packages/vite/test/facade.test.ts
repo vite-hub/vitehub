@@ -22,12 +22,14 @@ describe("single-package facade", () => {
   })
 
   it("loads app APIs from the preset package", async () => {
-    const [agent, capabilities, channels, database, env, workspace] = await Promise.all([
+    const [agent, capabilities, channels, database, env, envSecret, envServer, workspace] = await Promise.all([
       import("@vite-hub/vite/agent"),
       import("@vite-hub/vite/agent/capabilities"),
       import("@vite-hub/vite/agent/channels"),
       import("@vite-hub/vite/database/drizzle"),
       import("@vite-hub/vite"),
+      import("@vite-hub/vite/env/secret"),
+      import("@vite-hub/vite/env/server"),
       import("@vite-hub/vite/workspace"),
     ])
 
@@ -36,6 +38,8 @@ describe("single-package facade", () => {
     expect(channels.defineChannel).toBeTypeOf("function")
     expect(database.db).toBeDefined()
     expect(env.env).toBeTypeOf("function")
+    expect(envSecret.SecretEnv).toBeTypeOf("function")
+    expect(envServer.resolveServerEnv).toBeTypeOf("function")
     expect(workspace.defineWorkspace).toBeTypeOf("function")
   }, 15_000)
 })

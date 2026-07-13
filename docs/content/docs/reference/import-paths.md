@@ -67,6 +67,8 @@ declaring each ViteHub package separately.
 | `@vite-hub/vite/database` | Database Definition APIs. |
 | `@vite-hub/vite/database/drizzle` | Generated Drizzle database access. |
 | `@vite-hub/vite/env` | Env Declaration APIs. |
+| `@vite-hub/vite/env/secret` | Secret Env value type. |
+| `@vite-hub/vite/env/server` | Server Env resolution used by generated Env modules. |
 | `@vite-hub/vite/kv` | KV Runtime Helper. |
 | `@vite-hub/vite/queue` | Queue Definition and Runtime Helper. |
 | `@vite-hub/vite/sandbox` | Sandbox Definition and Runtime Helper. |

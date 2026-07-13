@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 const integrationMocks = vi.hoisted(() => ({
   hubAgent: vi.fn(() => ({ name: "@vite-hub/agent/vite" })),
+  hubEnv: vi.fn(() => ({ name: "@vite-hub/env/vite" })),
   hubQueue: vi.fn(() => ({ name: "@vite-hub/queue/vite" })),
   hubSchedule: vi.fn(() => ({ name: "@vite-hub/schedule/vite" })),
 }))
@@ -10,7 +11,7 @@ vi.mock("@vite-hub/agent/vite", () => ({ hubAgent: integrationMocks.hubAgent }))
 vi.mock("@vite-hub/blob/vite", () => ({ hubBlob: () => ({ name: "@vite-hub/blob/vite" }) }))
 vi.mock("@vite-hub/database/vite", () => ({ hubDb: () => ({ name: "@vite-hub/database/vite" }) }))
 vi.mock("@vite-hub/devtools", () => ({ hubDevtools: () => ({ name: "@vite-hub/devtools" }) }))
-vi.mock("@vite-hub/env/vite", () => ({ hubEnv: () => ({ name: "@vite-hub/env/vite" }) }))
+vi.mock("@vite-hub/env/vite", () => ({ hubEnv: integrationMocks.hubEnv }))
 vi.mock("@vite-hub/kv/vite", () => ({ hubKv: () => ({ name: "@vite-hub/kv/vite" }) }))
 vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue }))
 vi.mock("@vite-hub/sandbox/vite", () => ({ hubSandbox: () => ({ name: "@vite-hub/sandbox/vite" }) }))
@@ -57,7 +58,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "cloudflare" })
   })
 
-  it("leaves generated imports owned by each integration package", () => {
+  it("passes feature options to their integration packages", () => {
     const agent = { routes: { chat: true } }
     const schedule = { providerOutput: "nitro" as const }
 
@@ -65,6 +66,32 @@ describe("vitehub", () => {
 
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(agent)
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(schedule)
+  })
+
+  it("uses facade imports in generated Env modules", () => {
+    vitehub()
+
+    expect(integrationMocks.hubEnv).toHaveBeenLastCalledWith({
+      runtimeImports: {
+        secret: "@vite-hub/vite/env/secret",
+        server: "@vite-hub/vite/env/server",
+      },
+    })
+
+    vitehub({
+      env: {
+        diagnostics: "trace",
+        runtimeImports: { server: "#app/env/server" },
+      },
+    })
+
+    expect(integrationMocks.hubEnv).toHaveBeenLastCalledWith({
+      diagnostics: "trace",
+      runtimeImports: {
+        secret: "@vite-hub/vite/env/secret",
+        server: "#app/env/server",
+      },
+    })
   })
 
   it("resolves package-owned generated imports from preset dependencies", async () => {

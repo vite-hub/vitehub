@@ -66,7 +66,17 @@ export interface ViteHubPresetOptions {
 
 export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
   const plugins: unknown[] = [presetDependencyResolver]
-  if (options.env !== false) plugins.push(hubEnv(options.env))
+  if (options.env !== false) {
+    const envOptions = options.env ?? {}
+    plugins.push(hubEnv({
+      ...envOptions,
+      runtimeImports: {
+        secret: "@vite-hub/vite/env/secret",
+        server: "@vite-hub/vite/env/server",
+        ...envOptions.runtimeImports,
+      },
+    }))
+  }
   if (options.agent !== false) plugins.push(hubAgent(options.agent))
   if (options.database !== false) plugins.push(hubDb(options.database))
   if (options.blob !== false) plugins.push(hubBlob(options.blob))
