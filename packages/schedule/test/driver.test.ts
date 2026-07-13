@@ -104,6 +104,32 @@ describe("Runtime Schedule Wake Driver", () => {
     expect(await scheduleRunStore.listRuns()).toHaveLength(2)
   })
 
+  it("loads Static Schedule definitions from module default exports before named exports", async () => {
+    const defaultHandler = vi.fn()
+    const namedHandler = vi.fn()
+    let reconciled: RuntimeScheduleRecord[] = []
+
+    await installScheduleRuntime({
+      createDriver: () => ({
+        async reconcile(records) {
+          reconciled = [...records]
+        },
+      }),
+      registry: {},
+      runtimeScheduleStore: createMemoryRuntimeScheduleStore(),
+      scheduleRunStore: createMemoryScheduleRunStore(),
+      staticRegistry: {
+        "daily-report": async () => ({
+          default: { cron: "0 9 * * *", handler: defaultHandler },
+          handler: namedHandler,
+        }),
+      },
+    })
+
+    expect(reconciled).toHaveLength(1)
+    expect(reconciled[0]).toMatchObject({ cron: "0 9 * * *", target: "daily-report" })
+  })
+
   it("keeps Static Schedule driver identities distinct from persisted ids", async () => {
     const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
     const now = new Date("2026-07-11T08:00:00.000Z")

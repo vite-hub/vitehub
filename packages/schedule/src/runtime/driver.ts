@@ -58,9 +58,14 @@ interface StaticSchedules {
 
 const staticScheduleIdPrefix = "\0vitehub:static:"
 
+function isScheduleRegistryDefinition(value: unknown): value is ScheduleRegistryDefinition {
+  return !!value && typeof value === "object" && "handler" in value
+}
+
 function unwrapDefinition(loaded: ScheduleRegistryDefinition | { default?: ScheduleRegistryDefinition }): ScheduleRegistryDefinition | undefined {
-  if ("handler" in loaded) return loaded
-  return loaded.default
+  if ("default" in loaded && isScheduleRegistryDefinition(loaded.default)) return loaded.default
+  if (isScheduleRegistryDefinition(loaded)) return loaded
+  return undefined
 }
 
 async function loadStaticDefinitions(registry: ScheduleDefinitionRegistry | undefined): Promise<StaticScheduleEntry[]> {
