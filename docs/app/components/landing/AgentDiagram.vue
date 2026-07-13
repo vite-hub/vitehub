@@ -1,19 +1,19 @@
 <script setup lang="ts">
 const stages = [
   {
-    label: "Model or harness",
+    label: "Agent Driver",
     icon: "i-lucide-cpu",
-    items: ["AI SDK", "Codex", "Claude Code"],
+    items: ["driver.model", "driver.harness", "driver.run"],
   },
   {
-    label: "Compose your Agent",
+    label: "Agent Definition",
     icon: "i-lucide-blocks",
-    items: ["yourCapability()", "Workspace", "instructions.md"],
+    items: ["instructions.md", "workspace.sources", "capabilities[]"],
   },
   {
-    label: "Deploy anywhere",
+    label: "Agent Invocation",
     icon: "i-lucide-cloud",
-    items: ["Cloudflare", "Vercel", "Node"],
+    items: ["runAgent()", "invoker", "runtime"],
   },
 ] as const;
 </script>
@@ -22,7 +22,7 @@ const stages = [
   <figure
     class="overflow-hidden border border-default bg-default p-5 sm:p-7 lg:p-9"
     role="img"
-    aria-label="ViteHub lets developers bring any model or harness, compose an Agent with their own Capabilities and a Workspace, and deploy it to any host. Examples include AI SDK models, Codex and Claude Code harnesses, custom Capabilities, and Cloudflare, Vercel, and Node hosts."
+    aria-label="A ViteHub Agent Definition is configured from an Agent Driver, instructions, Workspace Sources, Capabilities, and explicit Agent Invocation context."
   >
     <div class="power-flow">
       <template v-for="(stage, index) in stages" :key="stage.label">
