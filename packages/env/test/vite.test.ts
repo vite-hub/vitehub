@@ -225,6 +225,7 @@ describe("Vite plugin", () => {
 
   it("does not read package metadata unless packageJson is declared", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-no-package-json-"))
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "env-test", type: "module" }), "utf8")
     await writeFile(join(root, ".env.production"), "DEFINE_SENTRY_DEBUG=true\n", "utf8")
 
     const plugin = hubEnv()
@@ -281,6 +282,7 @@ describe("Vite plugin", () => {
 
   it("applies prefixes to inferred Vite env names", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-"))
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "env-test", type: "module" }), "utf8")
     await writeFile(join(root, ".env.production"), "VITEHUB_PUBLIC_APP_NAME=Quiver\n", "utf8")
 
     const plugin = hubEnv({ prefix: "VITEHUB_" })
