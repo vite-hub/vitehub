@@ -217,8 +217,10 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
     ...(processRuntime
       ? [
           "  function captureRuntimeError(error: unknown) {",
+          "    const runtimeError = error instanceof Error ? error : new Error(String(error))",
+          "    console.error('[vitehub:schedule]', runtimeError)",
           "    try {",
-          "      nitroApp.captureError?.(error instanceof Error ? error : new Error(String(error)), { tags: ['vitehub-schedule'] })",
+          "      nitroApp.captureError?.(runtimeError, { tags: ['vitehub-schedule'] })",
           "    }",
           "    catch {}",
           "  }",

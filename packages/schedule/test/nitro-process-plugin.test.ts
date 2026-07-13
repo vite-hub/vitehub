@@ -12,12 +12,16 @@ interface RuntimeController {
   close: () => Promise<void> | void
 }
 
+interface RuntimeInstallOptions {
+  onError: (error: unknown) => void
+}
+
 interface PluginHarness {
   createKVRuntimeScheduleStore: () => object
   createKVScheduleRunStore: () => object
   createProcessScheduleWakeDriver: () => () => void
   definePlugin: <T>(plugin: T) => T
-  installScheduleRuntime: () => Promise<RuntimeController>
+  installScheduleRuntime: (options: RuntimeInstallOptions) => Promise<RuntimeController>
 }
 
 interface NitroAppHarness {
@@ -95,6 +99,31 @@ function createNitroApp(localFetch = vi.fn()) {
 }
 
 describe("generated Nitro Process Runtime plugin", () => {
+  it("logs reported runtime failures while preserving Nitro error capture", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const plugin = await loadProcessPlugin(async ({ onError }) => {
+      onError("scheduled handler failed")
+      return { close: vi.fn() }
+    })
+    const { app } = createNitroApp()
+    app.captureError.mockImplementation(() => {
+      throw new Error("Nitro capture failed")
+    })
+
+    try {
+      expect(() => plugin(app)).not.toThrow()
+
+      const runtimeError = consoleError.mock.calls[0]?.[1]
+      expect(runtimeError).toBeInstanceOf(Error)
+      expect(runtimeError).toMatchObject({ message: "scheduled handler failed" })
+      expect(consoleError).toHaveBeenCalledWith("[vitehub:schedule]", runtimeError)
+      expect(app.captureError).toHaveBeenCalledWith(runtimeError, { tags: ["vitehub-schedule"] })
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it("installs without a fetch method on the Nitro app", async () => {
     const plugin = await loadProcessPlugin(async () => ({ close: vi.fn() }))
     const { app } = createNitroApp()
