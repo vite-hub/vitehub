@@ -684,7 +684,7 @@ export async function writeVercelScheduleFunctions(options: {
   const existingCrons = previousCrons.filter(cron => !cron.path.startsWith(schedulePathPrefix))
   if (!definitions.length && existingCrons.length === previousCrons.length) {
     await removeEmptyDirectories(functionRoot, options.rootDir)
-    if (previousCrons.length === 0 && "crons" in vercelConfig) {
+    if (previousCrons.length === 0) {
       delete vercelConfig.crons
       if (isDeepStrictEqual(vercelConfig, createVercelConfigJson())) {
         await rm(configFile, { force: true })

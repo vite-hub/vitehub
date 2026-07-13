@@ -227,6 +227,12 @@ describe("schedule provider output", () => {
 
     expect(existsSync(join(rootDir, ".vercel"))).toBe(false)
 
+    await mkdir(outputRoot, { recursive: true })
+    await writeFile(join(outputRoot, "config.json"), JSON.stringify(createVercelConfigJson()), "utf8")
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    expect(existsSync(join(rootDir, ".vercel"))).toBe(false)
+
     await mkdir(join(functionRoot, "stale.func"), { recursive: true })
     await writeFile(join(functionRoot, "stale.func", "index.mjs"), "stale\n", "utf8")
     await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
