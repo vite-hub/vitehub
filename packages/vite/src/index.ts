@@ -44,7 +44,8 @@ const presetDependencyNames = [
 const presetDependencyResolver = {
   name: "@vite-hub/vite/dependencies",
   enforce: "pre" as const,
-  resolveId(id: string) {
+  resolveId(id: string, importer?: string) {
+    if (!importer?.replace(/\\/g, "/").includes("/.vitehub/")) return
     if (!presetDependencyNames.some(name => id === name || id.startsWith(`${name}/`))) return
     return fileURLToPath(import.meta.resolve(id))
   },

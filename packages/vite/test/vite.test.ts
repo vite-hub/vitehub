@@ -98,7 +98,15 @@ describe("vitehub", () => {
     const resolver = vitehub()[0] as Plugin
     if (typeof resolver.resolveId !== "function") throw new TypeError("Expected a dependency resolver.")
 
-    const resolved = await resolver.resolveId.call({} as never, "@vite-hub/blob/runtime/state", undefined, {} as never)
+    expect(await resolver.resolveId.call({} as never, "@vite-hub/kv", "/app/server.ts", {} as never)).toBeUndefined()
+    expect(await resolver.resolveId.call({} as never, "@vite-hub/blob/runtime/state", "/app/server.ts", {} as never)).toBeUndefined()
+
+    const resolved = await resolver.resolveId.call(
+      {} as never,
+      "@vite-hub/blob/runtime/state",
+      "/app/.vitehub/blob/serve-route.ts",
+      {} as never,
+    )
 
     expect(resolved).toMatch(/\/blob\/dist\/runtime\/state\.js$/)
   })
