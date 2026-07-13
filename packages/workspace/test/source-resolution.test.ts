@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   custom,
   fetch,
+  file,
   github,
   mcpResources,
   type WorkspaceShellResult,
@@ -229,65 +230,7 @@ describe("Workspace Source Resolution", () => {
     })
   })
 
-  it("preserves source binding scopes when resolving sources", async () => {
-    const definition: WorkspaceDefinition = {
-      name: "support",
-      sources: {
-        ingestion: {
-          source: customerSource(),
-          scopes: ["support"],
-        },
-      },
-    }
-
-    const resolved = await resolveWorkspaceSources(definition, scope("support", ["ingestion/support"]))
-    const [ingestion] = normalizeWorkspaceSources(resolved.sources)
-
-    expect(ingestion).toMatchObject({
-      key: "ingestion",
-      scopes: ["support"],
-    })
-  })
-
-  it("preserves direct resolver source scopes when resolving sources", async () => {
-    const definition: WorkspaceDefinition = {
-      name: "support",
-      sources: {
-        ingestion: custom({
-          scopes: ["support"],
-          async resolve({ selectedWorkspaceScope }) {
-            return custom({
-              materialize: "lazy",
-              mount: `customers/${selectedWorkspaceScope?.name}`,
-              async getKeys() {
-                return ["summary.md"]
-              },
-              async getItem(key) {
-                return { key, path: key, content: "summary\n" }
-              },
-            })
-          },
-          async getKeys() {
-            return []
-          },
-          async getItem(key) {
-            throw new Error(`unresolved source read: ${key}`)
-          },
-        }),
-      },
-    }
-
-    const resolved = await resolveWorkspaceSources(definition, scope("support", ["ingestion"]))
-    const [ingestion] = normalizeWorkspaceSources(resolved.sources)
-
-    expect(ingestion).toMatchObject({
-      key: "ingestion",
-      mountPath: "customers/support",
-      scopes: ["support"],
-    })
-  })
-
-  it("resolves scoped resolver sources before filtering by final mount", async () => {
+  it("resolves authorized resolver sources before filtering by final mount", async () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
@@ -296,7 +239,7 @@ describe("Workspace Source Resolution", () => {
             async resolve({ selectedWorkspaceScope }) {
               return custom({
                 materialize: "lazy",
-                mount: `customers/${selectedWorkspaceScope?.name}`,
+                mount: `ingestion/${selectedWorkspaceScope?.name}`,
                 async getKeys() {
                   return ["summary.md"]
                 },
@@ -312,7 +255,6 @@ describe("Workspace Source Resolution", () => {
               throw new Error(`unresolved source read: ${key}`)
             },
           }),
-          scopes: ["support"],
         },
       },
     }
@@ -322,8 +264,7 @@ describe("Workspace Source Resolution", () => {
 
     expect(ingestion).toMatchObject({
       key: "ingestion",
-      mountPath: "customers/support",
-      scopes: ["support"],
+      mountPath: "ingestion/support",
     })
   })
 
@@ -813,7 +754,7 @@ describe("Workspace Source Resolution", () => {
     await expect(workspace.fs.list(".vitehub/sources")).resolves.toEqual([])
   })
 
-  it("keeps universal resolved sources outside the selected path set", async () => {
+  it("omits resolved sources outside the selected Access paths", async () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
@@ -841,10 +782,10 @@ describe("Workspace Source Resolution", () => {
 
     const resolved = await resolveWorkspaceSources(definition, scope("acme", ["ingestion/acme"]))
 
-    expect(resolved.sources).toHaveProperty("ingestion")
+    expect(resolved.sources).not.toHaveProperty("ingestion")
   })
 
-  it("keeps unscoped sources available while scoped sources require matching names", async () => {
+  it("keeps sources whose concrete paths intersect the selected Access paths", async () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
@@ -869,19 +810,16 @@ describe("Workspace Source Resolution", () => {
             return { key, path: key, content: "public\n" }
           },
         }),
-        restrictedDocs: {
-          source: custom({
-            materialize: "lazy",
-            mount: "public/restricted",
-            async getKeys() {
-              return ["secret.md"]
-            },
-            async getItem(key) {
-              return { key, path: key, content: "restricted\n" }
-            },
-          }),
-          scopes: ["private"],
-        },
+        restrictedDocs: custom({
+          materialize: "lazy",
+          mount: "public/restricted",
+          async getKeys() {
+            return ["secret.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "restricted\n" }
+          },
+        }),
       },
     }
 
@@ -892,11 +830,26 @@ describe("Workspace Source Resolution", () => {
     )
 
     expect(resolvedDefinition.sources).toHaveProperty("publicDocs")
-    expect(resolvedDefinition.sources).toHaveProperty("privateDocs")
-    expect(resolvedDefinition.sources).not.toHaveProperty("restrictedDocs")
+    expect(resolvedDefinition.sources).not.toHaveProperty("privateDocs")
+    expect(resolvedDefinition.sources).toHaveProperty("restrictedDocs")
     await expect(workspace.fs.readFile("public/README.md")).resolves.toBe("public\n")
     await expect(workspace.fs.exists("private/secret.md")).resolves.toBe(false)
-    await expect(workspace.fs.exists("public/restricted/secret.md")).resolves.toBe(false)
+    await expect(workspace.fs.readFile("public/restricted/secret.md")).resolves.toBe("restricted\n")
+  })
+
+  it("filters root-mounted finite sources by probe paths", async () => {
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        privateReadme: file("private.md"),
+        publicReadme: file("public.md"),
+      },
+    }
+
+    const resolved = await resolveWorkspaceSources(definition, scope("public", ["public.md"]))
+
+    expect(resolved.sources).toHaveProperty("publicReadme")
+    expect(resolved.sources).not.toHaveProperty("privateReadme")
   })
 
   it("keeps scoped-out source subpaths hidden in overlays", async () => {

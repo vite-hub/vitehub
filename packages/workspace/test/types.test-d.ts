@@ -48,10 +48,9 @@ describe("workspace types", () => {
         path: "assets/example.bin",
       }],
       materialize: "lazy",
-      scopes: ["support"] as const,
     })
 
-    expectTypeOf(docs.scopes).toMatchTypeOf<readonly ["support"] | undefined>()
+    expectTypeOf(docs).toEqualTypeOf<import("../src/core/types.ts").WorkspaceSource>()
     // @ts-expect-error custom file content must be Workspace content or a lazy content callback
     custom({ files: [{ content: 42, path: "invalid.txt" }] })
   })
@@ -180,7 +179,7 @@ describe("workspace types", () => {
       workspacePath: "status/summary.json",
     })
     fetch<{ status: string }>({
-      // @ts-expect-error scoped fetch source options must stay inferred so Workspace Scope literals are preserved
+      // @ts-expect-error Workspace Sources do not own access scopes.
       scopes: ["support"] as const,
       transform(data) {
         return data

@@ -87,6 +87,7 @@ export interface AgentAccessWorkspaceScopeContext<TScopeName extends string = st
   paths: string[]
   role: "viewer" | "admin" | (string & {})
   scope: TScopeName
+  sources: string[]
 }
 
 export interface AgentAccessInvocationContextValue<TScopeName extends string = string> {
@@ -785,7 +786,6 @@ export interface AgentCapabilityRuntimeContext<
 export interface AgentCapabilityTypeContract {
   inputContext?: object
   invocationContext?: object
-  workspaceScopes?: string
   workspaceSources?: string
 }
 

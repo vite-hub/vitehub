@@ -5,9 +5,8 @@ import { normalizeSafeWorkspacePath } from "../core/path.ts"
 
 import type { MaybePromise, SourceContext, WorkspaceContent, WorkspaceSource, WorkspaceSourceItem } from "../core/types.ts"
 
-type SourceScopes<T> = T extends { scopes?: infer TScopes } ? { scopes?: TScopes } : {}
-type TypedWorkspaceSource<T> = WorkspaceSource & SourceScopes<T>
-type WorkspaceSourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "probeKeys" | "scopes" | "sync" | "validate">
+type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
+type WorkspaceSourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "probeKeys" | "sync" | "validate">
 type CustomWorkspaceSourceFile = Omit<WorkspaceSourceItem, "content" | "contentStream" | "key" | "path"> & {
   content: WorkspaceContent | ((context: SourceContext) => MaybePromise<WorkspaceContent>)
   path: string
@@ -16,8 +15,8 @@ type CustomWorkspaceSourceFiles = WorkspaceSourceRuntimeOptions & {
   files: readonly CustomWorkspaceSourceFile[]
 }
 
-export function custom<const TSource extends CustomWorkspaceSourceFiles>(source: TSource): TypedWorkspaceSource<TSource>
-export function custom<const TSource extends WorkspaceSource>(source: TSource): TypedWorkspaceSource<TSource>
+export function custom<const TSource extends CustomWorkspaceSourceFiles>(source: ExactOptions<TSource, CustomWorkspaceSourceFiles>): WorkspaceSource
+export function custom<const TSource extends WorkspaceSource>(source: ExactOptions<TSource, WorkspaceSource>): WorkspaceSource
 export function custom(source: WorkspaceSource | CustomWorkspaceSourceFiles): WorkspaceSource {
   if (!("files" in source) || !Array.isArray(source.files)) return source as WorkspaceSource
 

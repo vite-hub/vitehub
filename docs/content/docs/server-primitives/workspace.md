@@ -178,7 +178,6 @@ Workspace Source Bindings can wrap Source Package loaders and add Workspace beha
 | `cache` | `false or WorkspaceCacheOptions` | Source cache policy. Use `false` to disable caching or `{ maxAge }` to set a TTL. |
 | `validate` | `WorkspaceValidateMode` | Request validation mode for API-backed Sources. Use `false` or `request`. |
 | `sync` | `WorkspaceSourceSyncConfig` | Enables explicit Workspace Source Sync. Accepts `true`, `false`, or a sync policy. |
-| `scopes` | `string[]` | Restricts the Source to matching selected Workspace Scope names. Omit it to make the Source available to every scope. |
 | `resolve` | `WorkspaceSourceResolver` | Invocation-aware source resolution. |
 
 ## Use it at runtime
@@ -277,7 +276,7 @@ github(({ channel, invocation }) => {
 })
 ```
 
-The resolver receives registered invocation context values directly and can still read them through `invocation.context`. Register app-owned values through `ViteHubWorkspaceSourceResolutionContextMap`; the Agent package registers its canonical `channel` value automatically. Agent integrations omit legacy and internal aliases from the direct view. The resolver reads trusted Agent Invocation Context Values and the Selected Workspace Scope, not model output. Access still enforces visibility, and scope-affecting resolved options are fingerprinted so source caches do not reuse data across scopes.
+The resolver receives registered invocation context values directly and can still read them through `invocation.context`. Register app-owned values through `ViteHubWorkspaceSourceResolutionContextMap`; the Agent package registers its canonical `channel` value automatically. Agent integrations omit legacy and internal aliases from the direct view. The resolver reads trusted Agent Invocation Context Values and the Selected Workspace Scope, not model output. Source Resolution only shapes the concrete Source. Authorization belongs to `access()`, whose selected scope must grant the Source key or its Workspace path. Scope-affecting resolved options are fingerprinted so source caches do not reuse data across scopes.
 
 Resolved Sources are evaluated at invocation time and default to lazy materialization. A resolver can return a narrowed GitHub `repo`, `root`, and `mount` without also declaring build-time materialization or cache options; the resolved fingerprint includes the Selected Workspace Scope so one scope cannot reuse another scope's source data.
 

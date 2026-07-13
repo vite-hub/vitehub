@@ -177,11 +177,7 @@ function hasWorkspaceCommitRules(definition: AgentAdapterRunContext["workspaceDe
 function workspaceSourceHarnessPaths(context: AgentAdapterRunContext): string[] {
   const sources = context.workspaceDefinition?.sources
   if (!sources) return []
-  const scope = hasTrustedWorkspaceAccessScope(context.context)
-    ? context.context.get("access")?.workspaceScope
-    : undefined
   return normalizeAgentWorkspaceSources(sources).flatMap((source) => {
-    if (source.scopes?.length && scope && !scope.all && !source.scopes.includes(scope.scope)) return []
     if (source.probeKeys?.length) {
       return source.probeKeys.map(key => [source.mountPath, key].filter(Boolean).join("/"))
     }
@@ -192,11 +188,7 @@ function workspaceSourceHarnessPaths(context: AgentAdapterRunContext): string[] 
 function hasLazyWorkspaceSources(context: AgentAdapterRunContext): boolean {
   const sources = context.workspaceDefinition?.sources
   if (!sources) return false
-  const scope = hasTrustedWorkspaceAccessScope(context.context)
-    ? context.context.get("access")?.workspaceScope
-    : undefined
   return normalizeAgentWorkspaceSources(sources).some((source) => {
-    if (source.scopes?.length && scope && !scope.all && !source.scopes.includes(scope.scope)) return false
     return source.materialize === "lazy"
   })
 }

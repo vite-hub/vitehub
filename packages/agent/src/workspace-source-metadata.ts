@@ -17,7 +17,6 @@ interface WorkspaceSourceMetadataDescriptor {
   mount?: WorkspaceSourceMount
   probeKeys?: string[]
   repositoryMount?: string
-  scopes?: readonly string[]
   source?: WorkspaceSource
   sync?: WorkspaceSourceSyncConfig
 }
@@ -28,7 +27,6 @@ export interface AgentWorkspaceSourceMetadata {
   materialize: WorkspaceMaterializeMode
   mountPath: string
   probeKeys?: string[]
-  scopes?: readonly string[]
   source?: WorkspaceSource
   sync: false | WorkspaceSourceSyncConfig
 }
@@ -47,7 +45,6 @@ export function normalizeAgentWorkspaceSource(key: string, input: WorkspaceSourc
   const cache = normalizeSourceCache(mount.cache ?? descriptor.cache) ?? false
   const sync = normalizeSourceSync(descriptor.sync)
   const mountPath = typeof mount.path === "string" ? mount.path : defaultSourceMountPath(key, descriptor)
-  const scopes = normalizeWorkspaceSourceScopes(key, descriptor.scopes)
 
   return {
     cache,
@@ -55,23 +52,12 @@ export function normalizeAgentWorkspaceSource(key: string, input: WorkspaceSourc
     materialize: mount.materialize || descriptor.materialize || descriptor.defaultMaterialize || (cache ? "lazy" : sync ? "none" : "build"),
     mountPath: normalizeAgentWorkspacePath(mountPath, { allowEmpty: true }),
     ...(descriptor.probeKeys?.length ? { probeKeys: descriptor.probeKeys } : {}),
-    ...(scopes.length ? { scopes } : {}),
     ...(descriptor.source ? { source: descriptor.source } : {}),
     sync,
   }
 }
 
-export function workspaceSourceKeysForScope(sources: WorkspaceDefinition["sources"], scope: string): string[] {
-  return normalizeAgentWorkspaceSources(sources)
-    .filter(source => source.scopes?.includes(scope))
-    .map(source => source.key)
-}
-
-export function workspaceSourceScopeNames(sources: WorkspaceDefinition["sources"]): string[] {
-  return [...new Set(normalizeAgentWorkspaceSources(sources).flatMap(source => source.scopes || []))].sort()
-}
-
-export function workspaceSourceScopePaths(
+export function workspaceSourceGrantPaths(
   key: string,
   input: WorkspaceSourceInput,
   runtime: Pick<typeof import("@vite-hub/workspace/runtime"), "isWorkspaceSourceRequestOnly" | "workspaceSourceRequestDescriptorPath">,
@@ -208,7 +194,6 @@ function copySourceRuntimeOptions(
     mount: input.mount as WorkspaceSourceMount | undefined ?? defaults.mount,
     probeKeys: input.probeKeys as string[] | undefined ?? defaults.probeKeys,
     repositoryMount: defaults.repositoryMount,
-    scopes: input.scopes as readonly string[] | undefined ?? defaults.scopes,
     sync: input.sync as WorkspaceSourceSyncConfig | undefined ?? defaults.sync,
   }
 }
@@ -223,7 +208,6 @@ function applyWorkspaceSourceBinding(
     materialize: hasOwn(input, "materialize") ? input.materialize as WorkspaceMaterializeMode | undefined : descriptor.materialize,
     mount: hasOwn(input, "mount") ? input.mount as WorkspaceSourceMount | undefined : descriptor.mount,
     probeKeys: hasOwn(input, "probeKeys") ? input.probeKeys as string[] | undefined : descriptor.probeKeys,
-    scopes: hasOwn(input, "scopes") ? input.scopes as readonly string[] | undefined : descriptor.scopes,
     sync: hasOwn(input, "sync") ? input.sync as WorkspaceSourceSyncConfig | undefined : descriptor.sync,
   }
 }
@@ -241,14 +225,6 @@ function normalizeSourceCache(cache: false | WorkspaceCacheOptions | undefined):
 function normalizeSourceSync(sync: WorkspaceSourceSyncConfig | undefined): false | WorkspaceSourceSyncConfig {
   if (!sync) return false
   return sync
-}
-
-function normalizeWorkspaceSourceScopes(key: string, scopes: unknown): readonly string[] {
-  if (scopes === undefined) return []
-  if (!Array.isArray(scopes) || scopes.some(scope => typeof scope !== "string")) {
-    throw new TypeError(`[vitehub] Workspace Source "${key}" scopes must be an array of strings.`)
-  }
-  return scopes.map(scope => scope.trim()).filter(Boolean)
 }
 
 function isExplicitSourceBinding(input: Record<string, unknown>): input is Record<string, unknown> & { source: WorkspaceSourceInput } {

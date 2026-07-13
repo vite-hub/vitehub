@@ -810,79 +810,11 @@ describe("agent capability runtime", () => {
     expect(resolved.workspaceMaterializationPaths).toEqual(["screenshots"])
   })
 
-  it("requires Access when capability workspace contributions add scoped sources", async () => {
-    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-
-    await expect(resolveAgentCapabilities({
-      capabilities: [
-        defineCapability({
-          id: "review",
-          workspace: {
-            sources: {
-              pullRequest: {
-                mount: "pull-request",
-                scopes: ["review"],
-                async getKeys() {
-                  return ["summary.md"]
-                },
-                async getItem(key: string) {
-                  return { content: "review context", key }
-                },
-              },
-            },
-          },
-        }),
-      ],
-    }, runtime(), {}, emptyWorkspace() as never, "read", {
-      workspaceDefinition: {
-        name: "review",
-        sources: {},
-      },
-    })).rejects.toThrow("Workspace Source scopes require access({ workspace })")
-  })
-
-  it("accepts contributed source scopes without duplicate Access declarations", async () => {
+  it("applies Access Source grants to capability workspace contribution sources", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
-
-    const resolved = await resolveAgentCapabilities({
-      capabilities: [
-        access({
-          workspace: {
-            defaultScope: "missing",
-          },
-        }),
-        defineCapability({
-          id: "review",
-          workspace: {
-            sources: {
-              pullRequest: {
-                mount: "pull-request",
-                scopes: ["missing"],
-                async getKeys() {
-                  return ["summary.md"]
-                },
-                async getItem(key: string) {
-                  return { content: "review context", key }
-                },
-              },
-            },
-          },
-        }),
-      ],
-    }, runtime(), {}, emptyWorkspace() as never, "read", {
-      workspaceDefinition: {
-        name: "review",
-        sources: {},
-      },
-    })
-
-    expect(resolved.workspaceDefinition?.sources).toHaveProperty("pullRequest")
-  })
-
-  it("derives grants for scoped capability workspace contribution sources", async () => {
-    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { access } = await import("../src/capabilities.ts")
+    const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
+    const invocationContext = createAgentInvocationContextStore()
 
     const resolved = await resolveAgentCapabilities({
       capabilities: [
@@ -890,7 +822,7 @@ describe("agent capability runtime", () => {
           workspace: {
             defaultScope: "review",
             scopes: {
-              review: {},
+              review: { sources: ["pullRequest"] },
             },
           },
         }),
@@ -900,7 +832,6 @@ describe("agent capability runtime", () => {
             sources: {
               pullRequest: {
                 mount: "pull-request",
-                scopes: ["review"],
                 async getKeys() {
                   return ["summary.md"]
                 },
@@ -913,6 +844,7 @@ describe("agent capability runtime", () => {
         }),
       ],
     }, runtime(), {}, emptyWorkspace() as never, "read", {
+      context: invocationContext,
       workspaceDefinition: {
         name: "review",
         sources: {},
@@ -920,9 +852,13 @@ describe("agent capability runtime", () => {
     })
 
     await expect(resolved.workspace?.fs.readFile("pull-request/summary.md")).resolves.toBe("review context")
+    expect(invocationContext.get("access")?.workspaceScope).toMatchObject({
+      paths: ["pull-request", ".vitehub/sources/pullRequest.json"],
+      sources: ["pullRequest"],
+    })
   })
 
-  it("rejects scoped capability workspace sources that shadow unscoped base paths", async () => {
+  it("rejects authorized capability workspace sources that shadow base paths", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
 
@@ -932,7 +868,7 @@ describe("agent capability runtime", () => {
           workspace: {
             defaultScope: "review",
             scopes: {
-              review: {},
+              review: { paths: ["pull-request"] },
             },
           },
         }),
@@ -942,7 +878,6 @@ describe("agent capability runtime", () => {
             sources: {
               pullRequest: {
                 mount: "pull-request",
-                scopes: ["review"],
                 async getKeys() {
                   return ["summary.md"]
                 },
@@ -1437,6 +1372,8 @@ describe("agent capability runtime", () => {
   it("resolves capability workspace sources after access selects Workspace Scope", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
+    const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
+    const invocationContext = createAgentInvocationContextStore()
     const resolveSource = vi.fn(({ selectedWorkspaceScope }) => {
       if (!selectedWorkspaceScope?.name) return false
       return {
@@ -1457,7 +1394,7 @@ describe("agent capability runtime", () => {
           workspace: {
             defaultScope: "acme",
             scopes: {
-              acme: { paths: ["ingestion/acme"] },
+              acme: { sources: ["pullRequest"] },
             },
           },
         }),
@@ -1481,6 +1418,7 @@ describe("agent capability runtime", () => {
         }),
       ],
     }, runtime(), {}, emptyWorkspace() as never, "read", {
+      context: invocationContext,
       workspaceDefinition: {
         name: "review",
         sources: {},
@@ -1488,9 +1426,13 @@ describe("agent capability runtime", () => {
     })
 
     expect(resolveSource).toHaveBeenCalledWith(expect.objectContaining({
-      selectedWorkspaceScope: expect.objectContaining({ name: "acme" }),
+      selectedWorkspaceScope: expect.objectContaining({ name: "acme", sources: ["pullRequest"] }),
     }))
     await expect(resolved.workspace?.fs.readFile("ingestion/acme/orders.sql")).resolves.toBe("select * from acme_orders\n")
+    expect(invocationContext.get("access")?.workspaceScope).toMatchObject({
+      paths: ["ingestion/acme", ".vitehub/sources/pullRequest.json"],
+      sources: ["pullRequest"],
+    })
   })
 
   it("rejects static capability workspace sources outside the selected Workspace Scope", async () => {
@@ -1562,6 +1504,7 @@ describe("agent capability runtime", () => {
             paths: ["customers/acme"],
             role: "viewer",
             scope: "acme",
+            sources: [],
           },
         },
       },

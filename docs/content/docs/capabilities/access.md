@@ -52,7 +52,7 @@ export default defineAgent({
 The Capability records the selected Workspace Scope in invocation context and replaces the active Workspace facade with a scoped facade.
 Put model-facing guidance for each Access scope in Agent Driver Instructions or an imported instruction file, and cover the Access Capability with an explicit `::capability{key="access"}` block when that guidance depends on Access.
 
-A Workspace Source without `scopes` is available in every selected Workspace Scope. Adding `scopes` restricts that Source to matching names. `resolve` and `defaultScope` may select those names without duplicating empty entries in `workspace.scopes`; declare a named scope only when it needs explicit paths, Source grants, `all`, or a role.
+Workspace Sources do not own authorization. Grant a Source by key from each Access scope that may use it, or grant its concrete Workspace path. Invocation-aware Source Resolution can then narrow the Source's repository, root, or Mount; Access recalculates a Source grant against that resolved shape before exposing the scoped Workspace.
 
 ## Requirements
 

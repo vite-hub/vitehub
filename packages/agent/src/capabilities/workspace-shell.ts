@@ -16,10 +16,6 @@ import type {
 } from "../types.ts"
 import type { WorkspaceDefinition, WorkspaceName } from "@vite-hub/workspace"
 
-type WorkspaceShellCapabilityTypeContract = {
-  workspaceScopes: never
-}
-
 export interface WorkspaceShellOptions {
   commands?: string[] | "trusted-host"
   mode?: AgentCapabilityMode
@@ -32,7 +28,7 @@ function isTrustedHostRuntime(definition: WorkspaceDefinition | undefined): bool
     || typeof runtime === "object" && runtime !== null && runtime.type === "trusted-host"
 }
 
-export function workspaceShell(options: WorkspaceShellOptions = {}): AgentCapabilityDefinition<AgentRuntimeConfig, WorkspaceName, WorkspaceShellCapabilityTypeContract> {
+export function workspaceShell(options: WorkspaceShellOptions = {}): AgentCapabilityDefinition<AgentRuntimeConfig, WorkspaceName> {
   const mode = normalizeMode(options.mode, "Workspace Shell")
   const commands = options.commands === undefined
     ? undefined

@@ -83,7 +83,6 @@ import {
   workspaceModeFromOptions,
   workspaceNameFromOptions,
 } from "./workspace-agent.ts"
-import { workspaceSourceScopeNames } from "./workspace-source-metadata.ts"
 
 import type {
   AgentAdapter,
@@ -422,37 +421,73 @@ type WorkspaceSourceNames<TWorkspace> =
   TWorkspace extends { sources: infer TSources }
     ? Extract<keyof NonNullable<TSources>, string>
     : string
-type WorkspaceSourceScopeOptionNames<TSource> =
-  TSource extends { __vitehubWorkspaceSourceScopeNames?: infer TScopes }
-    ? NonNullable<TScopes> extends readonly (infer TScope)[]
-      ? string extends TScope ? never : Extract<TScope, string>
-      : never
-    : "scopes" extends keyof TSource
-    ? TSource extends { scopes?: infer TScopes }
-      ? NonNullable<TScopes> extends readonly (infer TScope)[]
-        ? string extends TScope ? never : Extract<TScope, string>
-        : never
-      : never
+type WorkspaceContribution<TWorkspace> =
+  TWorkspace extends (...args: any[]) => infer TResult
+    ? NonNullable<Awaited<TResult>>
+    : NonNullable<TWorkspace>
+type WorkspaceContributionSourceNames<TWorkspace> =
+  WorkspaceContribution<TWorkspace> extends { sources?: infer TSources }
+    ? Extract<keyof NonNullable<TSources>, string>
     : never
-type WorkspaceSourceInputScopeNames<TSource> =
-  TSource extends { source: infer TInnerSource }
-    ? "scopes" extends keyof TSource
-      ? WorkspaceSourceScopeOptionNames<TSource>
-      : WorkspaceSourceInputScopeNames<TInnerSource>
-    : WorkspaceSourceScopeOptionNames<TSource>
-type WorkspaceSourceScopeNames<TWorkspace> =
-  TWorkspace extends { sources: infer TSources }
-    ? { [Key in keyof NonNullable<TSources>]: WorkspaceSourceInputScopeNames<NonNullable<TSources>[Key]> }[keyof NonNullable<TSources>]
+type CapabilityWorkspaceSourceNames<TCapability> =
+  (TCapability extends { workspaceSources: infer TSources }
+    ? Extract<keyof NonNullable<TSources>, string>
+    : never)
+  | (TCapability extends { workspace: infer TWorkspace }
+    ? WorkspaceContributionSourceNames<TWorkspace>
+    : never)
+  | (TCapability extends { capabilities: infer TCapabilities }
+    ? AgentCapabilitiesWorkspaceSourceNames<TCapabilities>
+    : never)
+type AgentCapabilitiesWorkspaceSourceNames<TCapabilities> =
+  TCapabilities extends readonly (infer TCapability)[]
+    ? CapabilityWorkspaceSourceNames<TCapability>
+    : never
+type WorkspaceSourceHasRemovedScopes<TSource, TDepth extends readonly unknown[] = []> =
+  TDepth["length"] extends 8
+    ? false
+    : TSource extends object
+      ? "scopes" extends keyof TSource
+        ? true
+        : TSource extends { source: infer TWrappedSource }
+          ? WorkspaceSourceHasRemovedScopes<TWrappedSource, [...TDepth, unknown]>
+          : false
+      : false
+type WorkspaceSourceNamesWithRemovedScopes<TSources> =
+  {
+    [TSourceName in keyof NonNullable<TSources>]:
+    true extends WorkspaceSourceHasRemovedScopes<NonNullable<TSources>[TSourceName]>
+      ? TSourceName
+      : never
+  }[keyof NonNullable<TSources>]
+type WorkspaceSourcesWithRemovedScopes<TWorkspace> =
+  WorkspaceContribution<TWorkspace> extends { sources?: infer TSources }
+    ? WorkspaceSourceNamesWithRemovedScopes<TSources>
+    : never
+type CapabilityWorkspaceSourcesWithRemovedScopes<TCapability> =
+  (TCapability extends { workspaceSources: infer TSources }
+    ? WorkspaceSourceNamesWithRemovedScopes<TSources>
+    : never)
+  | (TCapability extends { workspace: infer TWorkspace }
+    ? WorkspaceSourcesWithRemovedScopes<TWorkspace>
+    : never)
+  | (TCapability extends { capabilities: infer TCapabilities }
+    ? AgentCapabilitiesWorkspaceSourcesWithRemovedScopes<TCapabilities>
+    : never)
+type AgentCapabilitiesWorkspaceSourcesWithRemovedScopes<TCapabilities> =
+  TCapabilities extends readonly (infer TCapability)[]
+    ? CapabilityWorkspaceSourcesWithRemovedScopes<TCapability>
     : never
 type InvalidWorkspaceSourceGrant<TSourceName> = {
   readonly __vitehubInvalidWorkspaceSourceGrant: TSourceName
 }
-type InvalidWorkspaceSourceScope<TScopeName> = {
-  readonly __vitehubInvalidWorkspaceSourceScope: TScopeName
+type InvalidWorkspaceSourceOption<TSourceName> = {
+  readonly __vitehubInvalidWorkspaceSourceOption: TSourceName
 }
 type ValidateCapabilityWorkspaceSources<
   TSourceName,
   TWorkspace,
+  TCapabilities,
   TCapability,
 > =
   [TSourceName] extends [never]
@@ -460,44 +495,22 @@ type ValidateCapabilityWorkspaceSources<
     : TSourceName extends string
     ? string extends TSourceName
       ? TCapability
-      : Exclude<TSourceName, WorkspaceSourceNames<TWorkspace>> extends never
+      : Exclude<TSourceName, WorkspaceSourceNames<TWorkspace> | AgentCapabilitiesWorkspaceSourceNames<TCapabilities>> extends never
         ? TCapability
-        : TCapability & InvalidWorkspaceSourceGrant<Exclude<TSourceName, WorkspaceSourceNames<TWorkspace>>>
+        : TCapability & InvalidWorkspaceSourceGrant<Exclude<TSourceName, WorkspaceSourceNames<TWorkspace> | AgentCapabilitiesWorkspaceSourceNames<TCapabilities>>>
     : TCapability
-type ValidateAgentCapability<TCapability, TWorkspace> =
+type ValidateAgentCapability<TCapability, TWorkspace, TCapabilities> =
   TCapability extends AgentCapabilityDefinition<any, any, infer TTypeContract>
     ? TTypeContract extends { workspaceSources: infer TSourceName }
-      ? ValidateCapabilityWorkspaceSources<TSourceName, TWorkspace, TCapability>
+      ? ValidateCapabilityWorkspaceSources<TSourceName, TWorkspace, TCapabilities, TCapability>
       : TCapability
     : TCapability
 type ValidateAgentCapabilities<TCapabilities, TWorkspace> =
   TCapabilities extends readonly [unknown, ...unknown[]] | readonly []
-    ? { [Index in keyof TCapabilities]: ValidateAgentCapability<TCapabilities[Index], TWorkspace> }
+    ? { [Index in keyof TCapabilities]: ValidateAgentCapability<TCapabilities[Index], TWorkspace, TCapabilities> }
     : TCapabilities extends readonly (infer TCapability)[]
-      ? ValidateAgentCapability<TCapability, TWorkspace>[]
+      ? ValidateAgentCapability<TCapability, TWorkspace, TCapabilities>[]
       : TCapabilities
-type CapabilityWorkspaceScopeNames<TCapability> =
-  TCapability extends AgentCapabilityDefinition<any, any, infer TTypeContract>
-    ? (TTypeContract extends { workspaceScopes: infer TScopeName }
-          ? Extract<TScopeName, string>
-          : never)
-        | (TCapability extends { capabilities: infer TNestedCapabilities }
-            ? AgentCapabilitiesWorkspaceScopeNames<TNestedCapabilities>
-            : never)
-    : never
-type AgentCapabilitiesWorkspaceScopeNames<TCapabilities> =
-  TCapabilities extends readonly [unknown, ...unknown[]] | readonly []
-    ? CapabilityWorkspaceScopeNames<TCapabilities[number]>
-  : TCapabilities extends readonly (infer TCapability)[]
-    ? AgentCapabilityDefinition extends TCapability ? string : CapabilityWorkspaceScopeNames<TCapability>
-    : never
-type ValidateWorkspaceSourceScopes<TCapabilities, TWorkspace> =
-  [WorkspaceSourceScopeNames<TWorkspace>] extends [never]
-    ? unknown
-    : Exclude<WorkspaceSourceScopeNames<TWorkspace>, AgentCapabilitiesWorkspaceScopeNames<TCapabilities>> extends never
-        ? unknown
-        : InvalidWorkspaceSourceScope<Exclude<WorkspaceSourceScopeNames<TWorkspace>, AgentCapabilitiesWorkspaceScopeNames<TCapabilities>>>
-
 type UnionToIntersection<T> =
   (T extends unknown ? (value: T) => void : never) extends (value: infer TIntersection) => void
     ? TIntersection
@@ -520,7 +533,10 @@ type AgentCapabilitiesInvocationContextValues<TCapabilities> =
   >
 type ValidateWorkspaceAgentOptions<TOptions> =
   TOptions extends { capabilities?: infer TCapabilities, workspace: infer TWorkspace }
-    ? { capabilities?: ValidateAgentCapabilities<TCapabilities, TWorkspace> } & ValidateWorkspaceSourceScopes<TCapabilities, TWorkspace>
+    ? { capabilities?: ValidateAgentCapabilities<TCapabilities, TWorkspace> }
+      & ([WorkspaceSourcesWithRemovedScopes<TWorkspace> | AgentCapabilitiesWorkspaceSourcesWithRemovedScopes<TCapabilities>] extends [never]
+        ? unknown
+        : InvalidWorkspaceSourceOption<WorkspaceSourcesWithRemovedScopes<TWorkspace> | AgentCapabilitiesWorkspaceSourcesWithRemovedScopes<TCapabilities>>)
     : unknown
 type BaseAgentResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown> =
   (context: AgentRuntimeContext<TRuntimeConfig>) => Promise<AgentAdapter<CALL_OPTIONS>>
@@ -899,12 +915,9 @@ function validateSandboxCommands(commands: unknown): string[] | undefined {
   return commands
 }
 
-function validateWorkspaceCapabilities<Name extends WorkspaceName>(options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>, workspaceDefinition: Pick<WorkspaceDefinition, "sources">): void {
+function validateWorkspaceCapabilities<Name extends WorkspaceName>(options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>): void {
   const capabilities = normalizeCapabilities(options.capabilities)
   const workspaceMode = workspaceModeFromOptions(options)
-  if (workspaceSourceScopeNames(workspaceDefinition.sources).length && !capabilities.some(accessCapabilityRequiresWorkspace)) {
-    throw new Error("[vitehub] Workspace Source scopes require access({ workspace }).")
-  }
   for (const capability of capabilities) {
     if (capability.id === "workspace-shell") {
       const metadata = capability.metadata as { commands?: unknown } | undefined
@@ -1136,7 +1149,7 @@ function createWorkspaceAgentDefinition<
   options: WorkspaceAgentOptions<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile>,
 ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS> {
   const workspaceDefinition = workspaceDefinitionFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
-  validateWorkspaceCapabilities(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>, workspaceDefinition)
+  validateWorkspaceCapabilities(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
   const definition = defineBaseAgent<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>({
     ...options,
     description: options.description,

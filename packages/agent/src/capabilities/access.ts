@@ -1,7 +1,7 @@
 import { markTrustedWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { agentInvocationSourceContext } from "../invocation-context.ts"
-import { workspaceSourceKeysForScope, workspaceSourceScopePaths } from "../workspace-source-metadata.ts"
+import { workspaceSourceGrantPaths } from "../workspace-source-metadata.ts"
 import type { AccessCapabilityMetadata } from "./access-metadata.ts"
 
 import type {
@@ -61,13 +61,11 @@ export type AccessCapabilityTypeContract<
   TSourceName extends string = string,
   TInputContext extends object = Record<string, unknown>,
   TScopeName extends string = string,
-  TWorkspaceScopeName extends string = string,
 > = AgentCapabilityTypeContract & {
   inputContext: TInputContext
   invocationContext: {
     access: AccessInvocationContextValue<TScopeName>
   }
-  workspaceScopes: TWorkspaceScopeName
   workspaceSources: TSourceName
 }
 
@@ -247,6 +245,7 @@ interface ResolvedWorkspaceScope {
   paths: string[]
   role: AccessRoleName
   scope: string
+  sources: string[]
 }
 
 interface ResolvedWorkspaceMaterializeGrant {
@@ -286,7 +285,7 @@ export function access<
   Name extends WorkspaceName = WorkspaceName,
   TInputContext extends object = Record<string, unknown>,
   const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext> = AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext>,
->(options: { chat?: AccessChatOptions<TRuntimeConfig>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, TInputContext, AccessWorkspaceScopeNameOrString<TWorkspace>, AccessWorkspaceScopeName<TWorkspace>>>
+>(options: { chat?: AccessChatOptions<TRuntimeConfig>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, TInputContext, AccessWorkspaceScopeNameOrString<TWorkspace>>>
 export function access<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -351,6 +350,7 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
           paths: finalScope.paths,
           role: finalScope.role,
           scope: finalScope.scope,
+          sources: finalScope.sources,
         },
       })
       markTrustedWorkspaceAccessScope(context.context)
@@ -373,6 +373,7 @@ function toWorkspaceSelectedScope(scope: ResolvedWorkspaceScope) {
     name: scope.scope,
     paths: scope.paths,
     role: scope.role,
+    sources: scope.sources,
   }
 }
 
@@ -393,21 +394,20 @@ async function resolveWorkspaceScope<
 
   const definition = selection.definition || options.scopes?.[selection.scope] || {}
   assertNoLegacyWorkspaceScopeInstructions(definition, `Workspace Scope "${selection.scope}"`)
-  const scopedDefinition = withWorkspaceSourceScopeGrants(definition, selection.scope, context.workspaceDefinition)
-
   const role = selection.role || "viewer"
-  const all = scopedDefinition.all === true
+  const all = definition.all === true
   if (all && role !== "admin") {
     throw new Error(`[vitehub] Workspace Scope "${selection.scope}" requires the admin role.`)
   }
 
   return {
     all,
-    definition: scopedDefinition,
-    materializeGrants: all ? [{ path: "" }] : scopeMaterializeGrants(scopedDefinition, context.workspaceDefinition, workspaceRuntime),
-    paths: all ? [""] : scopePaths(scopedDefinition, context.workspaceDefinition, workspaceRuntime),
+    definition,
+    materializeGrants: all ? [{ path: "" }] : scopeMaterializeGrants(definition, context.workspaceDefinition, workspaceRuntime),
+    paths: all ? [""] : scopePaths(definition, context.workspaceDefinition, workspaceRuntime),
     role,
     scope: selection.scope,
+    sources: scopeSources(definition),
   }
 }
 
@@ -420,19 +420,6 @@ function validateNoLegacyWorkspaceScopeInstructions(options: { scopes?: Record<s
 function assertNoLegacyWorkspaceScopeInstructions(value: unknown, label: string): void {
   if (isRecord(value) && "instructions" in value) {
     throw new TypeError(`[vitehub] ${label} instructions were removed. Put scope guidance in Agent Driver Instructions with ::capability{key="access"} coverage.`)
-  }
-}
-
-function withWorkspaceSourceScopeGrants(
-  definition: AccessWorkspaceScopeDefinition,
-  scope: string,
-  workspaceDefinition: WorkspaceDefinition | undefined,
-): AccessWorkspaceScopeDefinition {
-  const sources = workspaceSourceKeysForScope(workspaceDefinition?.sources, scope)
-  if (!sources.length) return definition
-  return {
-    ...definition,
-    sources: [...new Set([...normalizeStringList(definition.source, definition.sources), ...sources])],
   }
 }
 
@@ -533,6 +520,14 @@ function scopePaths(
   return normalized.sort((left, right) => left.length - right.length || left.localeCompare(right))
 }
 
+function scopeSources(definition: AccessWorkspaceScopeDefinition): string[] {
+  const sources = normalizeStringList(definition.source, definition.sources)
+  for (const grant of definition.grants || []) {
+    sources.push(...normalizeStringList(grant.source, grant.sources))
+  }
+  return [...new Set(sources)].sort()
+}
+
 function scopeMaterializeGrants(
   definition: AccessWorkspaceScopeDefinition,
   workspaceDefinition: WorkspaceDefinition | undefined,
@@ -581,7 +576,7 @@ function sourcePaths(
   workspaceDefinition: WorkspaceDefinition | undefined,
   workspaceRuntime: WorkspaceAccessRuntime,
 ): string[] {
-  return sources.flatMap(source => sourceScopePaths(source, workspaceDefinition, workspaceRuntime))
+  return sources.flatMap(source => sourceGrantPaths(source, workspaceDefinition, workspaceRuntime))
 }
 
 function sourceMaterializePaths(
@@ -589,10 +584,10 @@ function sourceMaterializePaths(
   workspaceDefinition: WorkspaceDefinition | undefined,
   workspaceRuntime: WorkspaceAccessRuntime,
 ): string[] {
-  return sourceScopePaths(source, workspaceDefinition, workspaceRuntime).filter(path => !path.startsWith(".vitehub/sources/"))
+  return sourceGrantPaths(source, workspaceDefinition, workspaceRuntime).filter(path => !path.startsWith(".vitehub/sources/"))
 }
 
-function sourceScopePaths(
+function sourceGrantPaths(
   source: string,
   workspaceDefinition: WorkspaceDefinition | undefined,
   workspaceRuntime: WorkspaceAccessRuntime,
@@ -601,10 +596,8 @@ function sourceScopePaths(
     throw new Error(`[vitehub] Workspace Scope source grant "${source}" requires a Workspace Definition.`)
   }
   const definition = workspaceDefinition?.sources?.[source]
-  if (!definition) {
-    throw new Error(`[vitehub] Workspace Scope source grant references unknown source "${source}".`)
-  }
-  return workspaceSourceScopePaths(source, definition, workspaceRuntime)
+  if (!definition) return []
+  return workspaceSourceGrantPaths(source, definition, workspaceRuntime)
 }
 
 function normalizeScopePath(path = ""): string {
