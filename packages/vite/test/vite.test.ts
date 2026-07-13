@@ -100,6 +100,7 @@ describe("vitehub", () => {
 
     expect(await resolver.resolveId.call({} as never, "@vite-hub/kv", "/app/server.ts", {} as never)).toBeUndefined()
     expect(await resolver.resolveId.call({} as never, "@vite-hub/blob/runtime/state", "/app/server.ts", {} as never)).toBeUndefined()
+    expect(await resolver.resolveId.call({} as never, "@vite-hub/kv", "/app/.vitehub/agent/route.ts", {} as never)).toBeUndefined()
 
     const resolved = await resolver.resolveId.call(
       {} as never,
