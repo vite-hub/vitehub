@@ -691,7 +691,6 @@ async function writeNetlifyScheduleFunctions(options: {
   registryFile: string
 }) {
   const functionRoot = resolve(options.outputRoot, "functions")
-  await mkdir(functionRoot, { recursive: true })
   const existingFiles = await readdir(functionRoot).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return []
     throw error
@@ -705,6 +704,9 @@ async function writeNetlifyScheduleFunctions(options: {
     functionRoot,
     registryFile: options.registryFile,
   })
+  if (outputs.length === 0) return
+
+  await mkdir(functionRoot, { recursive: true })
   await Promise.all(outputs.map(async output => writeFile(output.file, output.source, "utf8")))
 }
 

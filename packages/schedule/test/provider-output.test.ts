@@ -182,6 +182,23 @@ describe("schedule provider output", () => {
     expect(JSON.parse(await readFile(join(cloudflareRoot, "wrangler.json"), "utf8")).triggers.crons).toEqual(["0 1 * * *", "0 0 * * *"])
   })
 
+  it("avoids empty Netlify output and cleans stale files without static schedules", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-empty-netlify-")
+    const functionRoot = join(createDefaultNetlifyOutputRoot(rootDir), "functions")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    expect(existsSync(createDefaultNetlifyOutputRoot(rootDir))).toBe(false)
+
+    await mkdir(functionRoot, { recursive: true })
+    await writeFile(join(functionRoot, "other.mjs"), "keep\n", "utf8")
+    await writeFile(join(functionRoot, "vitehub-schedule-stale.mjs"), "stale\n", "utf8")
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    await expect(readFile(join(functionRoot, "other.mjs"), "utf8")).resolves.toBe("keep\n")
+    await expect(readFile(join(functionRoot, "vitehub-schedule-stale.mjs"), "utf8")).rejects.toThrow()
+  })
+
   it("removes stale Deno and Cloudflare output when no static schedules remain", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-empty-cleanup-")
     const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
