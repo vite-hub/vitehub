@@ -445,7 +445,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         rootDir: roots.viteRoot,
         serverRootDir: roots.projectRoot,
       })
-      emitStandaloneProviderOutput = shouldEmitStandaloneProviderOutput(definitions, options)
+      emitStandaloneProviderOutput = options.runtime === undefined && shouldEmitStandaloneProviderOutput(definitions, options)
       standaloneProviderSource = selectStandaloneProviderSource(definitions, options)
       if (!shouldInstallNitroSchedulePlugin(definitions, options)) {
         return null

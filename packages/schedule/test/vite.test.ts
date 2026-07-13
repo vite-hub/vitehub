@@ -219,6 +219,7 @@ describe("Vite schedule integration", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-process-static-"))
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await mkdir(join(root, "src"), { recursive: true })
+    await mkdir(join(root, "dist", "client"), { recursive: true })
     await writeFile(join(root, "server", "schedules", "report.ts"), [
       "import { defineSchedule } from '@vite-hub/schedule'",
       "export default defineSchedule({ cron: '*/10 * * * *', allowRuntimeSchedules: true, handler: () => {} })",
@@ -261,6 +262,15 @@ describe("Vite schedule integration", () => {
     expect(generatedStaticRegistry).toContain("server/schedules/report.ts")
     expect(generatedStaticRegistry).toContain("src/cleanup.schedule.ts")
     expect(generatedStaticRegistry).not.toContain("server/schedules/agent-turn.ts")
+    ;(plugin.configResolved as (config: Record<string, unknown>) => void)({
+      build: { outDir: "dist/client" },
+      command: "build",
+      resolve: { alias: [] },
+      root,
+    })
+    await (plugin.closeBundle as () => Promise<void>)()
+    expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"))).toBe(false)
+    await expect(readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-cleanup.mjs"), "utf8")).rejects.toThrow()
   })
 
   it("writes a resolvable Process Runtime registry for direct Nitro config integration", async () => {
