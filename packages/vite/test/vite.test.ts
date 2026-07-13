@@ -29,7 +29,6 @@ function pluginNames(plugins: PluginOption[]): string[] {
 describe("vitehub", () => {
   it("composes ViteHub primitive integrations explicitly", () => {
     expect(pluginNames(vitehub())).toEqual([
-      "@vite-hub/vite/dependencies",
       "@vite-hub/env/vite",
       "@vite-hub/agent/vite",
       "@vite-hub/database/vite",
@@ -40,9 +39,9 @@ describe("vitehub", () => {
       "@vite-hub/workflow/vite",
       "@vite-hub/workspace/vite",
       "@vite-hub/devtools",
+      "@vite-hub/vite/dependencies",
     ])
     expect(pluginNames(vitehub({ database: false, devtools: false, kv: false }))).toEqual([
-      "@vite-hub/vite/dependencies",
       "@vite-hub/env/vite",
       "@vite-hub/agent/vite",
       "@vite-hub/blob/vite",
@@ -50,6 +49,7 @@ describe("vitehub", () => {
       "@vite-hub/schedule/vite",
       "@vite-hub/workflow/vite",
       "@vite-hub/workspace/vite",
+      "@vite-hub/vite/dependencies",
     ])
     integrationMocks.hubQueue.mockClear()
     expect(pluginNames(vitehub({ queue: true }))).toContain("@vite-hub/queue/vite")
@@ -95,14 +95,22 @@ describe("vitehub", () => {
   })
 
   it("resolves package-owned generated imports from preset dependencies", async () => {
-    const resolver = vitehub()[0] as Plugin
+    const resolver = vitehub().find(plugin => (plugin as Plugin).name === "@vite-hub/vite/dependencies") as Plugin | undefined
+    if (!resolver) throw new TypeError("Expected a dependency resolver.")
     if (typeof resolver.resolveId !== "function") throw new TypeError("Expected a dependency resolver.")
 
     expect(await resolver.resolveId.call({} as never, "@vite-hub/kv", "/app/server.ts", {} as never)).toBeUndefined()
     expect(await resolver.resolveId.call({} as never, "@vite-hub/blob/runtime/state", "/app/server.ts", {} as never)).toBeUndefined()
-    expect(await resolver.resolveId.call({} as never, "@vite-hub/kv", "/app/.vitehub/agent/route.ts", {} as never)).toBeUndefined()
+    expect(await resolver.resolveId.call({} as never, "@vite-hub/kv", "/app/.vitehub/agent/runtime-capabilities.js", {} as never))
+      .toMatch(/\/kv\/dist\/index\.js$/)
     expect(await resolver.resolveId.call({} as never, "@vite-hub/blob", "/app/.vitehub/blob/serve-route.ts", {} as never))
       .toMatch(/\/blob\/dist\/index\.js$/)
+    expect(await resolver.resolveId.call(
+      {} as never,
+      "@vite-hub/agent/cloudflare/state",
+      "\0vitehub-agent-cloudflare-state-exports:ViteHubAgentStateDO",
+      {} as never,
+    )).toMatch(/\/agent\/dist\/cloudflare\/state\.js$/)
 
     const resolved = await resolver.resolveId.call(
       {} as never,

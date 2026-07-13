@@ -45,8 +45,14 @@ const presetDependencyResolver = {
   name: "@vite-hub/vite/dependencies",
   enforce: "pre" as const,
   resolveId(id: string, importer?: string) {
-    if (!importer?.replace(/\\/g, "/").includes("/.vitehub/")) return
-    if (!presetDependencyNames.some(name => id.startsWith(`${name}/`) || (id === name && name !== "@vite-hub/kv"))) return
+    const normalizedImporter = importer?.replace(/\\/g, "/")
+    if (
+      !normalizedImporter?.includes("/.vitehub/")
+      && !normalizedImporter?.includes("vitehub-agent-cloudflare-state-exports:")
+    ) {
+      return
+    }
+    if (!presetDependencyNames.some(name => id.startsWith(`${name}/`) || id === name)) return
     return fileURLToPath(import.meta.resolve(id))
   },
 }
@@ -66,7 +72,7 @@ export interface ViteHubPresetOptions {
 }
 
 export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
-  const plugins: unknown[] = [presetDependencyResolver]
+  const plugins: unknown[] = []
   if (options.env !== false) {
     const envOptions = options.env ?? {}
     plugins.push(hubEnv({
@@ -88,5 +94,6 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
   if (options.workflow !== false) plugins.push(hubWorkflow(options.workflow))
   if (options.workspace !== false) plugins.push(hubWorkspace(options.workspace))
   if (options.devtools !== false) plugins.push(hubDevtools(options.devtools))
+  plugins.push(presetDependencyResolver)
   return plugins as PluginOption[]
 }
