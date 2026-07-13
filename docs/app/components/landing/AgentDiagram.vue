@@ -1,213 +1,227 @@
 <script setup lang="ts">
-const files = [
-  { label: "config.ts", icon: "i-lucide-file-code-2", kind: "Definition" },
-  { label: "instructions.md", icon: "i-lucide-file-text", kind: "Instructions" },
-  { label: "skills/review/", icon: "i-lucide-folder", kind: "Skill" },
-] as const;
-
-const attachments = [
-  { label: "Pull request checkout", icon: "i-lucide-folder-git-2", kind: "Workspace" },
-  { label: "workspaceShell()", icon: "i-lucide-square-terminal", kind: "Capability" },
+const parts = [
+  { label: "Instructions", value: "instructions.md", icon: "i-lucide-file-text" },
+  { label: "Skill", value: "review", icon: "i-lucide-folder" },
+  { label: "Workspace", value: "PR checkout", icon: "i-lucide-folder-git-2" },
+  { label: "Capability", value: "workspaceShell()", icon: "i-lucide-square-terminal" },
 ] as const;
 </script>
 
 <template>
   <figure
-    class="agent-diagram overflow-hidden border border-default bg-default"
+    class="agent-diagram overflow-hidden border border-default bg-default p-5 sm:p-7 lg:p-9"
     role="img"
-    aria-label="A review Agent Definition combines instructions and a review Skill with a pull request Workspace and workspace shell Capability, then handles a pull request invocation."
+    aria-label="Pull request 574 enters a Review Agent composed of instructions, a review Skill, a pull request Workspace, and a workspace shell Capability. The Agent returns three findings."
   >
-    <figcaption
-      class="flex min-h-11 items-center justify-between gap-4 border-b border-default bg-muted/40 px-4 font-mono text-xs text-muted"
-    >
-      <span>server/agents/review/</span>
-      <span class="hidden sm:inline">Agent Definition</span>
-    </figcaption>
-
-    <div class="relative p-4 sm:p-7 lg:p-9">
-      <div class="grid items-center gap-4 sm:grid-cols-[minmax(0,1fr)_3.5rem_minmax(8rem,.72fr)]">
-        <div class="agent-files border border-default bg-default p-3 sm:p-4">
-          <div
-            class="flex items-center gap-2 border-b border-default pb-3 font-mono text-xs font-medium text-highlighted"
-          >
-            <UIcon name="i-lucide-folder-open" class="size-4" aria-hidden="true" />
-            review/
-          </div>
-          <ul class="mt-2" role="list">
-            <li
-              v-for="(file, index) in files"
-              :key="file.label"
-              class="agent-file flex items-center gap-2.5 py-2"
-              :style="{ '--file-delay': `${index * 900}ms` }"
-            >
-              <UIcon :name="file.icon" class="size-4 shrink-0 text-muted" aria-hidden="true" />
-              <span class="font-mono text-xs text-highlighted sm:text-sm">{{ file.label }}</span>
-              <span
-                class="ml-auto hidden text-[0.625rem] uppercase tracking-[0.12em] text-dimmed sm:block"
-                >{{ file.kind }}</span
-              >
-            </li>
-          </ul>
-
-          <div class="mt-2 border-t border-default pt-2">
-            <p class="px-1 font-mono text-[0.625rem] uppercase tracking-[0.12em] text-dimmed">
-              Attached
-            </p>
-            <ul class="mt-1" role="list">
-              <li
-                v-for="(attachment, index) in attachments"
-                :key="attachment.label"
-                class="agent-file flex items-center gap-2.5 py-2"
-                :style="{ '--file-delay': `${(files.length + index) * 900}ms` }"
-              >
-                <UIcon
-                  :name="attachment.icon"
-                  class="size-4 shrink-0 text-muted"
-                  aria-hidden="true"
-                />
-                <span class="font-mono text-xs text-highlighted sm:text-sm">{{
-                  attachment.label
-                }}</span>
-                <span
-                  class="ml-auto hidden text-[0.625rem] uppercase tracking-[0.12em] text-dimmed sm:block"
-                  >{{ attachment.kind }}</span
-                >
-              </li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="agent-connector hidden sm:block" aria-hidden="true"><span /></div>
-
-        <div
-          class="agent-invocation relative isolate flex min-h-28 flex-col justify-between overflow-hidden border border-default bg-default p-4"
-        >
-          <div class="flex items-center gap-2 text-muted">
-            <UIcon name="i-lucide-message-square-code" class="size-4" aria-hidden="true" />
-            <span class="font-mono text-[0.6875rem] uppercase tracking-[0.12em]"
-              >Agent Invocation</span
-            >
-          </div>
-          <div>
-            <p class="text-sm font-medium text-highlighted">Review pull request #574</p>
-            <p class="mt-1 font-mono text-xs text-muted">→ review Agent</p>
-          </div>
+    <div class="agent-flow">
+      <div class="agent-endpoint agent-input">
+        <UIcon name="i-lucide-git-pull-request" class="size-5 text-muted" aria-hidden="true" />
+        <div>
+          <p class="font-mono text-sm font-medium text-highlighted">PR #574</p>
+          <p class="mt-0.5 text-xs text-muted">GitHub</p>
         </div>
       </div>
 
-      <div
-        class="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-default pt-4 font-mono text-[0.6875rem] text-muted sm:mt-8"
-      >
-        <span class="uppercase tracking-[0.12em] text-dimmed">Choose a driver</span>
-        <span>Model</span>
-        <span>Harness</span>
-        <span>Custom</span>
+      <div class="agent-rail agent-rail-in" aria-hidden="true"><span /></div>
+
+      <div class="agent-definition">
+        <div class="flex items-center gap-2.5 border-b border-default px-4 py-3.5">
+          <UIcon name="i-lucide-bot" class="size-4 text-muted" aria-hidden="true" />
+          <span class="font-mono text-sm font-medium text-highlighted">Review Agent</span>
+        </div>
+
+        <ul class="p-2" role="list">
+          <li
+            v-for="(part, index) in parts"
+            :key="part.label"
+            class="agent-part grid grid-cols-1 items-center gap-1 px-2 py-2.5 sm:grid-cols-[1fr_auto] sm:gap-3"
+            :style="{ '--part-index': index }"
+          >
+            <span class="flex min-w-0 items-center gap-2 text-xs text-muted">
+              <UIcon :name="part.icon" class="size-3.5 shrink-0" aria-hidden="true" />
+              {{ part.label }}
+            </span>
+            <span class="pl-[1.375rem] font-mono text-xs text-highlighted sm:pl-0">{{
+              part.value
+            }}</span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="agent-rail agent-rail-out" aria-hidden="true"><span /></div>
+
+      <div class="agent-endpoint agent-output">
+        <UIcon name="i-lucide-circle-check" class="size-5 text-muted" aria-hidden="true" />
+        <div>
+          <p class="font-mono text-sm font-medium text-highlighted">3 findings</p>
+          <p class="mt-0.5 text-xs text-muted">Review posted</p>
+        </div>
       </div>
     </div>
   </figure>
 </template>
 
 <style scoped>
-.agent-diagram {
-  background-image:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--ui-border) 42%, transparent) 1px,
-      transparent 1px
-    ),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--ui-border) 34%, transparent) 1px,
-      transparent 1px
-    );
-  background-position: center;
-  background-size: 4rem 4rem;
+.agent-flow {
+  display: grid;
+  align-items: center;
 }
 
-.agent-file::before {
-  width: 0.25rem;
-  height: 0.25rem;
-  border-radius: 999px;
-  background: var(--ui-text-highlighted);
-  content: "";
-  opacity: 0.18;
-  animation: agent-file-read 4.8s cubic-bezier(0.23, 1, 0.32, 1) infinite;
-  animation-delay: var(--file-delay);
+.agent-endpoint {
+  display: flex;
+  min-height: 5rem;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid var(--ui-border);
+  background: var(--ui-bg);
+  padding: 1rem;
 }
 
-.agent-connector {
+.agent-definition {
+  border: 1px solid var(--ui-border);
+  background: var(--ui-bg);
+}
+
+.agent-part {
   position: relative;
-  height: 1px;
+  isolation: isolate;
+}
+
+.agent-part::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: color-mix(in srgb, var(--ui-text-highlighted) 6%, transparent);
+  content: "";
+  opacity: 0;
+  animation: agent-read 7.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  animation-delay: calc(var(--part-index) * 320ms);
+}
+
+.agent-rail {
+  --flow-from: translateY(-130%);
+  --flow-to: translateY(390%);
+
+  position: relative;
+  width: 1px;
+  height: 2rem;
+  justify-self: center;
   overflow: hidden;
   background: var(--ui-border-accented);
 }
-.agent-connector span {
+
+.agent-rail span {
   position: absolute;
-  inset-block: -1px;
-  left: 0;
-  width: 35%;
+  top: 0;
+  left: -1px;
+  width: 3px;
+  height: 35%;
   background: var(--ui-text-highlighted);
-  animation: agent-connect 3.6s cubic-bezier(0.77, 0, 0.175, 1) infinite;
-}
-.agent-invocation::before {
-  position: absolute;
-  z-index: 0;
-  inset: 0;
-  background: color-mix(in srgb, var(--ui-text-highlighted) 5%, var(--ui-bg));
-  content: "";
-  opacity: 0;
-  animation: agent-invoke 3.6s cubic-bezier(0.23, 1, 0.32, 1) infinite;
-}
-.agent-invocation > * {
-  position: relative;
-  z-index: 1;
 }
 
-@keyframes agent-file-read {
-  0%,
-  14%,
-  100% {
-    opacity: 0.18;
-    transform: scale(0.95);
+.agent-rail-in span {
+  animation: agent-flow-in 7.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.agent-rail-out span {
+  animation: agent-flow-out 7.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.agent-output {
+  animation: agent-output 7.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+@media (min-width: 40rem) {
+  .agent-flow {
+    grid-template-columns:
+      minmax(7rem, 0.72fr) minmax(1.5rem, 0.22fr) minmax(14rem, 1.5fr)
+      minmax(1.5rem, 0.22fr) minmax(7rem, 0.72fr);
   }
-  5%,
-  9% {
-    opacity: 0.9;
-    transform: scale(1);
+
+  .agent-rail {
+    --flow-from: translateX(-130%);
+    --flow-to: translateX(390%);
+
+    width: auto;
+    height: 1px;
+    justify-self: stretch;
+  }
+
+  .agent-rail span {
+    top: -1px;
+    left: 0;
+    width: 35%;
+    height: 3px;
   }
 }
-@keyframes agent-connect {
-  0% {
+
+@keyframes agent-read {
+  0%,
+  20%,
+  32%,
+  100% {
     opacity: 0;
-    transform: translateX(-110%);
   }
-  22%,
-  72% {
+  24%,
+  29% {
     opacity: 1;
   }
+}
+
+@keyframes agent-output {
+  0%,
+  61%,
   100% {
-    opacity: 0;
-    transform: translateX(390%);
+    background: var(--ui-bg);
+  }
+  69%,
+  88% {
+    background: color-mix(in srgb, var(--ui-text-highlighted) 6%, var(--ui-bg));
   }
 }
-@keyframes agent-invoke {
+
+@keyframes agent-flow-in {
   0%,
-  42%,
-  100% {
+  8% {
     opacity: 0;
+    transform: var(--flow-from);
   }
-  55%,
-  74% {
+  12%,
+  20% {
     opacity: 1;
   }
+  24%,
+  100% {
+    opacity: 0;
+    transform: var(--flow-to);
+  }
 }
+
+@keyframes agent-flow-out {
+  0%,
+  56% {
+    opacity: 0;
+    transform: var(--flow-from);
+  }
+  61%,
+  69% {
+    opacity: 1;
+  }
+  74%,
+  100% {
+    opacity: 0;
+    transform: var(--flow-to);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .agent-file::before,
-  .agent-connector span,
-  .agent-invocation::before {
+  .agent-part::before,
+  .agent-rail span,
+  .agent-output {
     animation: none;
   }
-  .agent-connector span {
+
+  .agent-rail span {
     display: none;
   }
 }
