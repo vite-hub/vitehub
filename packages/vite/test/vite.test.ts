@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 const integrationMocks = vi.hoisted(() => ({
+  env: vi.fn(),
   hubAgent: vi.fn(() => ({ name: "@vite-hub/agent/vite" })),
   hubEnv: vi.fn(() => ({ name: "@vite-hub/env/vite" })),
   hubQueue: vi.fn(() => ({ name: "@vite-hub/queue/vite" })),
@@ -13,7 +14,7 @@ vi.mock("@vite-hub/agent/vite", () => ({ hubAgent: integrationMocks.hubAgent }))
 vi.mock("@vite-hub/blob/vite", () => ({ hubBlob: () => ({ name: "@vite-hub/blob/vite" }) }))
 vi.mock("@vite-hub/database/vite", () => ({ hubDb: () => ({ name: "@vite-hub/database/vite" }) }))
 vi.mock("@vite-hub/devtools", () => ({ hubDevtools: () => ({ name: "@vite-hub/devtools" }) }))
-vi.mock("@vite-hub/env/vite", () => ({ hubEnv: integrationMocks.hubEnv }))
+vi.mock("@vite-hub/env/vite", () => ({ env: integrationMocks.env, hubEnv: integrationMocks.hubEnv }))
 vi.mock("@vite-hub/kv/vite", () => ({ hubKv: () => ({ name: "@vite-hub/kv/vite" }) }))
 vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue }))
 vi.mock("@vite-hub/sandbox/vite", () => ({ hubSandbox: integrationMocks.hubSandbox }))
@@ -22,13 +23,17 @@ vi.mock("@vite-hub/workflow/vite", () => ({ hubWorkflow: integrationMocks.hubWor
 vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: () => ({ name: "@vite-hub/workspace/vite" }) }))
 
 import type { Plugin, PluginOption } from "vite"
-import { vitehub } from "../src/index.ts"
+import { env, vitehub } from "../src/index.ts"
 
 function pluginNames(plugins: PluginOption[]): string[] {
   return plugins.map(plugin => (plugin as Plugin).name)
 }
 
 describe("vitehub", () => {
+  it("re-exports the Env helper", () => {
+    expect(env).toBe(integrationMocks.env)
+  })
+
   it("composes ViteHub primitive integrations explicitly", () => {
     expect(pluginNames(vitehub())).toEqual([
       "@vite-hub/env/vite",
