@@ -1026,7 +1026,7 @@ type AgentSharedSettings<
   TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined = AgentCapabilitiesList<TRuntimeConfig> | undefined,
 > = {
   capabilities?: TCapabilities
-  channels?: AgentChannels<TRuntimeConfig>
+  channels?: AgentChannelInputs<TRuntimeConfig>
   cli?: AgentDefinitionCliOptions
   description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues>
@@ -1304,6 +1304,15 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
   triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, any, any, AgentChannelTriggerContext<TRuntimeConfig>>>
   webhooks?: boolean | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig> | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>[]
 }
+
+export type AgentChannelFactory<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  () => AgentChannelDefinition<TRuntimeConfig>
+
+export type AgentChannelInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  AgentChannelDefinition<TRuntimeConfig> | AgentChannelFactory<TRuntimeConfig>
+
+export type AgentChannelInputs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  Record<string, AgentChannelInput<TRuntimeConfig>>
 
 export type AgentChannels<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Record<string, AgentChannelDefinition<TRuntimeConfig>>
