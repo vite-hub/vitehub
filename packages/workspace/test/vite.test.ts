@@ -31,6 +31,10 @@ vi.mock("../src/server.ts", async (importOriginal) => {
 
 const tempDirs: string[] = []
 
+async function markViteHubTestRoot(root: string) {
+  await writeFile(join(root, "package.json"), JSON.stringify({ name: "workspace-test", type: "module" }), "utf8")
+}
+
 function responseChunkText(chunk: unknown) {
   if (typeof chunk === "string") return chunk
   if (Buffer.isBuffer(chunk)) return chunk.toString("utf8")
@@ -97,6 +101,7 @@ async function invokeMiddleware(
 async function createViteRoot() {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-"))
   tempDirs.push(rootDir)
+  await markViteHubTestRoot(rootDir)
   await mkdir(join(rootDir, "src"), { recursive: true })
   await mkdir(join(rootDir, "workspaces"), { recursive: true })
   await mkdir(join(rootDir, "node_modules", "@vite-hub", "workspace"), { recursive: true })
@@ -124,6 +129,7 @@ async function createViteRoot() {
 async function createViteRootWithoutSrc() {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-root-"))
   tempDirs.push(rootDir)
+  await markViteHubTestRoot(rootDir)
   await writeFile(join(rootDir, "docs.workspace.ts"), [
     `import { defineWorkspace } from "@vite-hub/workspace"`,
     `export default defineWorkspace({})`,
@@ -136,6 +142,7 @@ async function createViteRootWithoutSrc() {
 async function createViteAssetRoot() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-assets-"))
   tempDirs.push(root)
+  await markViteHubTestRoot(root)
   await mkdir(join(root, "src"), { recursive: true })
   for (const name of ["docs", "notes"]) {
     await writeFile(join(root, "src", `${name}.workspace.mjs`), [
@@ -423,6 +430,7 @@ describe("hubWorkspace", () => {
   it("discovers documented server workspace config files in the Vite integration", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-server-"))
     tempDirs.push(root)
+    await markViteHubTestRoot(root)
     await mkdir(join(root, "server", "workspaces", "tasks"), { recursive: true })
     await writeFile(join(root, "server", "workspaces", "tasks", "config.ts"), [
       `import { defineWorkspace } from "@vite-hub/workspace"`,
@@ -448,6 +456,7 @@ describe("hubWorkspace", () => {
     await mkdir(testRoot, { recursive: true })
     const root = await mkdtemp(join(testRoot, "vitehub-workspace-vite-env-"))
     tempDirs.push(root)
+    await markViteHubTestRoot(root)
     await mkdir(join(root, "server", "workspaces", "tasks"), { recursive: true })
     await writeFile(join(root, "server", "workspaces", "tasks", "config.ts"), [
       `import { useServerEnv } from "#vitehub/env/server"`,
@@ -485,6 +494,7 @@ describe("hubWorkspace", () => {
   it("uses the ViteHub project root for Nuxt app roots", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-nuxt-root-"))
     tempDirs.push(root)
+    await markViteHubTestRoot(root)
     const appRoot = join(root, "app")
     await mkdir(join(root, "server", "workspaces", "mirror"), { recursive: true })
     await mkdir(appRoot, { recursive: true })
@@ -585,9 +595,9 @@ describe("hubWorkspace", () => {
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain("import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
-    expect(pluginSource).toContain("import { installHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'")
-    expect(pluginSource).toContain("import { setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
+    expect(pluginSource).toMatch(/import \{ installHostedWorkspaceRuntime \} from ["']@vite-hub\/workspace\/internal\/runtime\/hosted["']/)
+    expect(pluginSource).toMatch(/import \{ installHostedVercelBlobWorkspaceRuntime \} from ["']@vite-hub\/workspace\/internal\/runtime\/hosted-vercel-blob["']/)
+    expect(pluginSource).toMatch(/import \{ setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry \} from ["']@vite-hub\/workspace\/runtime["']/)
     expect(pluginSource).toContain("installHostedWorkspaceRuntime()")
     expect(pluginSource).toContain("installHostedVercelBlobWorkspaceRuntime()")
     expect(pluginSource).toContain("setWorkspaceRuntimeConfig")
@@ -597,6 +607,7 @@ describe("hubWorkspace", () => {
   it("keeps Vite workspace names relative to nested Vite roots while writing project state", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-suffix-root-"))
     tempDirs.push(root)
+    await markViteHubTestRoot(root)
     await mkdir(join(root, "frontend", "src"), { recursive: true })
     await mkdir(join(root, "server", "workspaces", "mirror"), { recursive: true })
     await writeFile(join(root, "frontend", "src", "docs.workspace.ts"), [
@@ -651,9 +662,9 @@ describe("hubWorkspace", () => {
     expect(userConfig.nitro).toMatchObject({ plugins: [".vitehub/nitro/workspace/plugin.ts"] })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
-    expect(pluginSource).toContain("import { configureHostedWorkspaceRuntime, installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
-    expect(pluginSource).toContain("import { installHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'")
+    expect(pluginSource).toMatch(/import \{ setWorkspaceRuntimeRegistry \} from ["']@vite-hub\/workspace\/runtime["']/)
+    expect(pluginSource).toMatch(/import \{ configureHostedWorkspaceRuntime, installHostedWorkspaceRuntime \} from ["']@vite-hub\/workspace\/internal\/runtime\/hosted["']/)
+    expect(pluginSource).toMatch(/import \{ installHostedVercelBlobWorkspaceRuntime \} from ["']@vite-hub\/workspace\/internal\/runtime\/hosted-vercel-blob["']/)
     expect(pluginSource).toContain("setWorkspaceRuntimeRegistry")
     expect(pluginSource).toContain("installHostedVercelBlobWorkspaceRuntime()")
     expect(pluginSource).toContain("import registry from \"./registry.js\"")
@@ -720,9 +731,9 @@ describe("hubWorkspace", () => {
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain("import { configureHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'")
-    expect(pluginSource).toContain("import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
-    expect(pluginSource).toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
+    expect(pluginSource).toMatch(/import \{ configureHostedVercelBlobWorkspaceRuntime \} from ["']@vite-hub\/workspace\/internal\/runtime\/hosted-vercel-blob["']/)
+    expect(pluginSource).toMatch(/import \{ installHostedWorkspaceRuntime \} from ["']@vite-hub\/workspace\/internal\/runtime\/hosted["']/)
+    expect(pluginSource).toMatch(/import \{ setWorkspaceRuntimeRegistry \} from ["']@vite-hub\/workspace\/runtime["']/)
     expect(pluginSource).toContain("configureHostedVercelBlobWorkspaceRuntime")
     expect(pluginSource).toContain("installHostedWorkspaceRuntime()")
     expect(pluginSource).toContain('"provider": "vercel-blob"')
@@ -749,9 +760,9 @@ describe("hubWorkspace", () => {
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain("import { configureHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'")
-    expect(pluginSource).toContain("import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
-    expect(pluginSource).toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
+    expect(pluginSource).toMatch(/import \{ configureHostedVercelBlobWorkspaceRuntime \} from ["']@vite-hub\/workspace\/internal\/runtime\/hosted-vercel-blob["']/)
+    expect(pluginSource).toMatch(/import \{ installHostedWorkspaceRuntime \} from ["']@vite-hub\/workspace\/internal\/runtime\/hosted["']/)
+    expect(pluginSource).toMatch(/import \{ setWorkspaceRuntimeRegistry \} from ["']@vite-hub\/workspace\/runtime["']/)
     expect(pluginSource).toContain("configureHostedVercelBlobWorkspaceRuntime")
     expect(pluginSource).toContain("installHostedWorkspaceRuntime()")
     expect(pluginSource).toContain("setWorkspaceRuntimeRegistry")
@@ -846,6 +857,7 @@ describe("hubWorkspace", () => {
     await mkdir(testRoot, { recursive: true })
     const root = await mkdtemp(join(testRoot, "vitehub-workspace-nitro-source-root-"))
     tempDirs.push(root)
+    await markViteHubTestRoot(root)
     await mkdir(join(root, "server", "workspaces", "sync"), { recursive: true })
     await writeFile(join(root, "source.md"), "PROJECT_ROOT_FALLBACK_SHOULD_NOT_BE_READ\n")
     await writeFile(join(root, "server", "workspaces", "sync", "source.md"), "COLOCATED_SOURCE_SYNC_OK\n")
@@ -882,6 +894,7 @@ describe("hubWorkspace", () => {
   it("keeps generated workspace files in project ViteHub state when Vite root is app", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-app-root-"))
     tempDirs.push(root)
+    await markViteHubTestRoot(root)
     await mkdir(join(root, "app"), { recursive: true })
     await mkdir(join(root, "server", "workspaces", "mirror"), { recursive: true })
     await writeFile(join(root, "server", "workspaces", "mirror", "config.ts"), [
@@ -920,6 +933,7 @@ describe("hubWorkspace", () => {
   it("keeps generated workspace files in project ViteHub state when Vite root is nested", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-nested-root-"))
     tempDirs.push(root)
+    await markViteHubTestRoot(root)
     await mkdir(join(root, "frontend"), { recursive: true })
     await mkdir(join(root, "server", "workspaces", "mirror"), { recursive: true })
     await writeFile(join(root, "server", "workspaces", "mirror", "config.ts"), [
