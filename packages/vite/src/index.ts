@@ -34,16 +34,25 @@ type InternalAgentPresetOptions = AgentModuleOptions & {
   workspaceImportBase?: string
 }
 
+type InternalBlobPresetOptions = BlobModuleOptions & {
+  importBase?: string
+}
+
 type InternalSandboxPresetOptions = Extract<SandboxPublicOptions, object> & {
   typeImportBase?: string
 }
 
 type InternalSchedulePresetOptions = ScheduleVitePluginOptions & {
+  importBase?: string
   runtimeImport?: string
 }
 
 type InternalWorkflowPresetOptions = Extract<WorkflowModuleOptions, object> & {
   agentImportBase?: string
+  importBase?: string
+}
+
+type InternalWorkspacePresetOptions = Extract<WorkspaceModuleOptions, object> & {
   importBase?: string
 }
 
@@ -115,7 +124,13 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
     plugins.push(hubAgent(agentOptions))
   }
   if (options.database !== false) plugins.push(hubDb(options.database))
-  if (options.blob !== false) plugins.push(hubBlob(options.blob))
+  if (options.blob !== false) {
+    const blobOptions: InternalBlobPresetOptions = {
+      ...(options.blob ?? {}),
+      importBase: "@vite-hub/vite/blob",
+    }
+    plugins.push(hubBlob(blobOptions))
+  }
   if (options.kv !== false) plugins.push(hubKv(options.kv))
   if (options.queue) plugins.push(hubQueue(options.queue === true ? {} : options.queue))
   if (options.sandbox !== false) {
@@ -128,6 +143,7 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
   if (options.schedule !== false) {
     const scheduleOptions: InternalSchedulePresetOptions = {
       ...(options.schedule ?? {}),
+      importBase: "@vite-hub/vite/schedule",
       runtimeImport: "@vite-hub/vite/schedule/runtime/static",
     }
     plugins.push(hubSchedule(scheduleOptions))
@@ -140,7 +156,13 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
     }
     plugins.push(hubWorkflow(workflowOptions))
   }
-  if (options.workspace !== false) plugins.push(hubWorkspace(options.workspace))
+  if (options.workspace !== false) {
+    const workspaceOptions: InternalWorkspacePresetOptions = {
+      ...(options.workspace ?? {}),
+      importBase: "@vite-hub/vite/workspace",
+    }
+    plugins.push(hubWorkspace(workspaceOptions))
+  }
   if (options.devtools !== false) plugins.push(hubDevtools(options.devtools))
   plugins.push(presetDependencyResolver)
   return plugins as PluginOption[]

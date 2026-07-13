@@ -68,6 +68,10 @@ async function readSourceModule(file: string): Promise<{ file: string, source: s
 
 type SourceModuleResolver = (id: string, importer: string) => Promise<string | undefined>
 
+interface InternalWorkspaceModuleOptions extends WorkspaceModuleOptions {
+  importBase?: string
+}
+
 async function sourceModuleUsesCloudflareArtifacts(
   file: string,
   resolveModule?: SourceModuleResolver,
@@ -525,23 +529,29 @@ function runtimeWorkspaceConfig(config: false | ResolvedWorkspaceModuleOptions, 
   return { ...config, store: runtimeStore }
 }
 
-function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptions, registryImport: string, installHostedRuntime: boolean): string {
+function getWorkspaceImportBase(options: false | WorkspaceModuleOptions | undefined): string {
+  if (!options || typeof options !== "object") return WORKSPACE_PACKAGE_NAME
+  const importBase = (options as InternalWorkspaceModuleOptions).importBase
+  return typeof importBase === "string" ? importBase : WORKSPACE_PACKAGE_NAME
+}
+
+function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptions, registryImport: string, installHostedRuntime: boolean, importBase = WORKSPACE_PACKAGE_NAME): string {
   const hostedConfig = config && isHostedWorkspaceStore(config.store) ? config : undefined
   const isVercelBlobStore = hostedConfig?.store.provider === "vercel-blob"
   const runtimeImports = hostedConfig
     ? [
         isVercelBlobStore
-          ? "import { configureHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'"
-          : "import { configureHostedWorkspaceRuntime, installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'",
+          ? `import { configureHostedVercelBlobWorkspaceRuntime } from ${JSON.stringify(`${importBase}/internal/runtime/hosted-vercel-blob`)}`
+          : `import { configureHostedWorkspaceRuntime, installHostedWorkspaceRuntime } from ${JSON.stringify(`${importBase}/internal/runtime/hosted`)}`,
         isVercelBlobStore
-          ? "import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'"
-          : "import { installHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'",
-        "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
+          ? `import { installHostedWorkspaceRuntime } from ${JSON.stringify(`${importBase}/internal/runtime/hosted`)}`
+          : `import { installHostedVercelBlobWorkspaceRuntime } from ${JSON.stringify(`${importBase}/internal/runtime/hosted-vercel-blob`)}`,
+        `import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(`${importBase}/runtime`)}`,
       ]
     : [
-        ...(installHostedRuntime ? ["import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'"] : []),
-        ...(installHostedRuntime ? ["import { installHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'"] : []),
-        `import { ${config ? "setWorkspaceRuntimeConfig, " : ""}setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'`,
+        ...(installHostedRuntime ? [`import { installHostedWorkspaceRuntime } from ${JSON.stringify(`${importBase}/internal/runtime/hosted`)}`] : []),
+        ...(installHostedRuntime ? [`import { installHostedVercelBlobWorkspaceRuntime } from ${JSON.stringify(`${importBase}/internal/runtime/hosted-vercel-blob`)}`] : []),
+        `import { ${config ? "setWorkspaceRuntimeConfig, " : ""}setWorkspaceRuntimeRegistry } from ${JSON.stringify(`${importBase}/runtime`)}`,
       ]
   const runtimeSetup = hostedConfig
     ? [
@@ -566,7 +576,13 @@ function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptio
   ].join("\n")
 }
 
-async function writeNitroWorkspacePlugin(root: string, config: false | ResolvedWorkspaceModuleOptions, options: false | WorkspaceModuleOptions | undefined, definitions: DiscoveredWorkspaceDefinition[]): Promise<void> {
+async function writeNitroWorkspacePlugin(
+  root: string,
+  config: false | ResolvedWorkspaceModuleOptions,
+  options: false | WorkspaceModuleOptions | undefined,
+  definitions: DiscoveredWorkspaceDefinition[],
+  importBase = getWorkspaceImportBase(options),
+): Promise<void> {
   const pluginFile = resolve(root, generatedNitroWorkspacePlugin)
   const registryFile = resolve(root, generatedNitroWorkspaceRegistry)
   const runtimeConfig = runtimeWorkspaceConfig(config, options)
@@ -577,7 +593,7 @@ async function writeNitroWorkspacePlugin(root: string, config: false | ResolvedW
   await writeFile(registryFile, createWorkspaceRegistryContents(registryFile, definitions), "utf8")
   await writeFile(
     pluginFile,
-    renderNitroWorkspacePlugin(runtimeConfig, moduleImportSpecifier(pluginFile, registryFile), definitions.length > 0 && !(runtimeConfig && isHostedWorkspaceStore(runtimeConfig.store))),
+    renderNitroWorkspacePlugin(runtimeConfig, moduleImportSpecifier(pluginFile, registryFile), definitions.length > 0 && !(runtimeConfig && isHostedWorkspaceStore(runtimeConfig.store)), importBase),
     "utf8",
   )
 }
@@ -612,6 +628,7 @@ interface WorkspaceCliContributingPlugin {
 export type WorkspaceVitePlugin = Plugin & WorkspaceCliContributingPlugin & { api: WorkspaceVitePluginAPI }
 
 export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlugin {
+  const importBase = getWorkspaceImportBase(options)
   let resolved: ResolvedConfig | undefined
   let resolvedOptions: ReturnType<typeof normalizeWorkspaceOptions> = false
   let projectRoot: string | undefined
@@ -669,7 +686,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       const definitions = normalized ? discoverDefinitions(roots) : []
       if (normalized && shouldInstallNitroWorkspacePlugin(config, workspaceOptions, normalized, definitions)) {
         const runtimeConfig = shouldConfigureRuntime(workspaceOptions, normalized) ? normalized : false
-        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions)
+        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions, importBase)
         const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
         ;(config as ViteConfigWithWorkspaceNitro).nitro = nitro
         viteConfig.nitro = nitro

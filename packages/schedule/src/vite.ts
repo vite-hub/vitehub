@@ -44,6 +44,7 @@ export interface ScheduleNitroConfigOptions extends ScheduleVitePluginOptions {
 }
 
 interface InternalScheduleVitePluginOptions extends ScheduleVitePluginOptions {
+  importBase?: string
   runtimeImport?: string
 }
 
@@ -164,6 +165,7 @@ function mergeNitroScheduleConfig(value: unknown, options: { crons: string[], pl
 }
 
 interface RenderNitroSchedulePluginOptions {
+  importBase?: string
   pluginFile: string
   processRuntime?: ScheduleProcessRuntimeOptions
   providerDefinitions: DiscoveredScheduleDefinition[]
@@ -175,6 +177,7 @@ interface RenderNitroSchedulePluginOptions {
 function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): string {
   const providerWake = options.providerDefinitions.length > 0
   const processRuntime = options.processRuntime
+  const importBase = options.importBase ?? schedulePackageName
   const processDriverOptions = processRuntime
     ? {
         ...(processRuntime.concurrency !== undefined ? { concurrency: processRuntime.concurrency } : {}),
@@ -192,9 +195,9 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
       : []),
     ...(processRuntime
       ? [
-          "import { createKVRuntimeScheduleStore, createKVScheduleRunStore } from '@vite-hub/schedule'",
-          "import { installScheduleRuntime } from '@vite-hub/schedule/runtime/driver'",
-          "import { createProcessScheduleWakeDriver } from '@vite-hub/schedule/runtime/process'",
+          `import { createKVRuntimeScheduleStore, createKVScheduleRunStore } from ${JSON.stringify(importBase)}`,
+          `import { installScheduleRuntime } from ${JSON.stringify(`${importBase}/runtime/driver`)}`,
+          `import { createProcessScheduleWakeDriver } from ${JSON.stringify(`${importBase}/runtime/process`)}`,
           `import runtimeScheduleRegistry from ${JSON.stringify(moduleImportSpecifier(options.pluginFile, options.runtimeRegistryFile))}`,
         ]
       : []),
@@ -276,9 +279,9 @@ function renderNitroCloudflareModule(crons: string[]): string {
   ].join("\n")
 }
 
-function renderScheduleRegistryTypes(): string {
+function renderScheduleRegistryTypes(importBase = schedulePackageName): string {
   return [
-    "import type { ScheduleRegistryDefinition } from '@vite-hub/schedule'",
+    `import type { ScheduleRegistryDefinition } from ${JSON.stringify(importBase)}`,
     "",
     "declare const registry: Record<string, () => Promise<ScheduleRegistryDefinition | { default?: ScheduleRegistryDefinition }>>",
     "export default registry",
@@ -288,6 +291,7 @@ function renderScheduleRegistryTypes(): string {
 
 interface WriteNitroSchedulePluginOptions {
   crons: string[]
+  importBase?: string
   processRuntime?: ScheduleProcessRuntimeOptions
   providerDefinitions: DiscoveredScheduleDefinition[]
   runtimeDefinitions: DiscoveredScheduleDefinition[]
@@ -302,6 +306,7 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
   await mkdir(dirname(pluginFile), { recursive: true })
   const writes: Array<Promise<void>> = [
     writeFile(pluginFile, renderNitroSchedulePlugin({
+      importBase: options.importBase,
       pluginFile,
       processRuntime: options.processRuntime,
       providerDefinitions: options.providerDefinitions,
@@ -312,12 +317,12 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
   ]
   if (options.processRuntime) {
     writes.push(writeFile(runtimeRegistryFile, createRuntimeRegistryContents(runtimeRegistryFile, options.runtimeDefinitions), "utf8"))
-    writes.push(writeFile(runtimeRegistryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(), "utf8"))
+    writes.push(writeFile(runtimeRegistryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(options.importBase), "utf8"))
   }
   if (options.providerDefinitions.length > 0) {
     await mkdir(dirname(providerRegistryFile), { recursive: true })
     writes.push(writeFile(providerRegistryFile, createRuntimeRegistryContents(providerRegistryFile, options.providerDefinitions), "utf8"))
-    writes.push(writeFile(providerRegistryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(), "utf8"))
+    writes.push(writeFile(providerRegistryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(options.importBase), "utf8"))
     writes.push(writeFile(moduleFile, renderNitroCloudflareModule(options.crons), "utf8"))
   }
   await Promise.all(writes)
@@ -373,6 +378,7 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
     : []
   const plugin = await writeNitroSchedulePlugin(roots.projectRoot, {
     crons,
+    importBase: (options as InternalScheduleVitePluginOptions).importBase,
     processRuntime,
     providerDefinitions: nitroDefinitions,
     runtimeDefinitions: definitions,

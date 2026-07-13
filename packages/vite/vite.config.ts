@@ -26,6 +26,7 @@ export default defineConfig({
       "src/agent/state/sqlite.ts",
       "src/agent/test.ts",
       "src/blob.ts",
+      "src/blob/runtime/state.ts",
       "src/cli.ts",
       "src/database.ts",
       "src/database/drizzle.ts",

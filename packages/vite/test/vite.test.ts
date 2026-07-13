@@ -3,15 +3,17 @@ import { describe, expect, it, vi } from "vitest"
 const integrationMocks = vi.hoisted(() => ({
   env: vi.fn(),
   hubAgent: vi.fn(() => ({ name: "@vite-hub/agent/vite" })),
+  hubBlob: vi.fn(() => ({ name: "@vite-hub/blob/vite" })),
   hubEnv: vi.fn(() => ({ name: "@vite-hub/env/vite" })),
   hubQueue: vi.fn(() => ({ name: "@vite-hub/queue/vite" })),
   hubSandbox: vi.fn(() => ({ name: "@vite-hub/sandbox/vite" })),
   hubSchedule: vi.fn(() => ({ name: "@vite-hub/schedule/vite" })),
   hubWorkflow: vi.fn(() => ({ name: "@vite-hub/workflow/vite" })),
+  hubWorkspace: vi.fn(() => ({ name: "@vite-hub/workspace/vite" })),
 }))
 
 vi.mock("@vite-hub/agent/vite", () => ({ hubAgent: integrationMocks.hubAgent }))
-vi.mock("@vite-hub/blob/vite", () => ({ hubBlob: () => ({ name: "@vite-hub/blob/vite" }) }))
+vi.mock("@vite-hub/blob/vite", () => ({ hubBlob: integrationMocks.hubBlob }))
 vi.mock("@vite-hub/database/vite", () => ({ hubDb: () => ({ name: "@vite-hub/database/vite" }) }))
 vi.mock("@vite-hub/devtools", () => ({ hubDevtools: () => ({ name: "@vite-hub/devtools" }) }))
 vi.mock("@vite-hub/env/vite", () => ({ env: integrationMocks.env, hubEnv: integrationMocks.hubEnv }))
@@ -20,7 +22,7 @@ vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue }))
 vi.mock("@vite-hub/sandbox/vite", () => ({ hubSandbox: integrationMocks.hubSandbox }))
 vi.mock("@vite-hub/schedule/vite", () => ({ hubSchedule: integrationMocks.hubSchedule }))
 vi.mock("@vite-hub/workflow/vite", () => ({ hubWorkflow: integrationMocks.hubWorkflow }))
-vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: () => ({ name: "@vite-hub/workspace/vite" }) }))
+vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: integrationMocks.hubWorkspace }))
 
 import type { Plugin, PluginOption } from "vite"
 import { env, vitehub } from "../src/index.ts"
@@ -80,7 +82,11 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith({
       ...schedule,
+      importBase: "@vite-hub/vite/schedule",
       runtimeImport: "@vite-hub/vite/schedule/runtime/static",
+    })
+    expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith({
+      importBase: "@vite-hub/vite/blob",
     })
     expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith({
       typeImportBase: "@vite-hub/vite/sandbox",
@@ -88,6 +94,9 @@ describe("vitehub", () => {
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({
       agentImportBase: "@vite-hub/vite/agent",
       importBase: "@vite-hub/vite/workflow",
+    })
+    expect(integrationMocks.hubWorkspace).toHaveBeenLastCalledWith({
+      importBase: "@vite-hub/vite/workspace",
     })
   })
 

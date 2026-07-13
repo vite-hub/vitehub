@@ -42,6 +42,7 @@
     "./agent/state/sqlite": "./dist/agent/state/sqlite.js",
     "./agent/test": "./dist/agent/test.js",
     "./blob": "./dist/blob.js",
+    "./blob/runtime/state": "./dist/blob/runtime/state.js",
     "./cli": "./dist/cli.js",
     "./database": "./dist/database.js",
     "./database/drizzle": "./dist/database/drizzle.js",

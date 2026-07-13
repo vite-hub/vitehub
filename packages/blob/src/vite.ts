@@ -29,6 +29,10 @@ export interface BlobVitePluginAPI {
   getConfig: () => BlobViteRuntimeConfig
 }
 
+type InternalBlobModuleOptions = Extract<BlobModuleOptions, object> & {
+  importBase?: string
+}
+
 interface BlobProvisionContributingPlugin {
   vitehub?: { cli?: () => Promise<ViteHubCliContributor> }
 }
@@ -73,9 +77,15 @@ function mergeNitroBlobConfig(value: unknown, serve?: BlobServeConfig): Record<s
   }
 }
 
-function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"]): string {
+function getBlobImportBase(options: BlobModuleOptions | undefined): string {
+  if (!options || typeof options !== "object") return blobPackageName
+  const importBase = (options as InternalBlobModuleOptions).importBase
+  return typeof importBase === "string" ? importBase : blobPackageName
+}
+
+function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], importBase = blobPackageName): string {
   return [
-    "import { setBlobRuntimeConfig } from '@vite-hub/blob/runtime/state'",
+    `import { setBlobRuntimeConfig } from ${JSON.stringify(`${importBase}/runtime/state`)}`,
     "",
     `const blobConfig = ${JSON.stringify(blob)}`,
     "",
@@ -86,9 +96,9 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"]): string {
   ].join("\n")
 }
 
-function renderBlobServeRouteHandler(serve: BlobServeConfig): string {
+function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPackageName): string {
   return [
-    "import { blob } from '@vite-hub/blob'",
+    `import { blob } from ${JSON.stringify(importBase)}`,
     "import { createError, defineEventHandler, getRouterParam } from 'h3'",
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
@@ -102,16 +112,17 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig): string {
   ].join("\n")
 }
 
-async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConfig["blob"]): Promise<void> {
-  await writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob))
+async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConfig["blob"], importBase = blobPackageName): Promise<void> {
+  await writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, importBase))
   const serve = blob ? blob.serve : undefined
   if (!serve) return
   const file = resolve(root, generatedBlobServeRouteHandler)
-  await writeFileIfChanged(file, renderBlobServeRouteHandler(serve))
+  await writeFileIfChanged(file, renderBlobServeRouteHandler(serve, importBase))
 }
 
 export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
   let blob: BlobModuleOptions | undefined = options
+  const importBase = getBlobImportBase(options)
   let clientOutDir = "dist"
   let command: "build" | "serve" = "serve"
   let providerArtifacts: Awaited<ReturnType<typeof prepareProviderOutputs>> | undefined
@@ -148,7 +159,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       blob = config.blob ?? blob
       providerOutput = useComposedProviderOutput(config)
       runtimeConfig = resolveBlobViteConfig(blob)
-      await refreshBlobGeneratedFiles(config.root, runtimeConfig.blob)
+      await refreshBlobGeneratedFiles(config.root, runtimeConfig.blob, importBase)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
