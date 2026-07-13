@@ -560,6 +560,7 @@ async function resolveWorkspaceSource(
               name: options.selectedWorkspaceScope.name,
               paths: options.selectedWorkspaceScope.paths,
               role: options.selectedWorkspaceScope.role,
+              sources: options.selectedWorkspaceScope.sources,
             }
           : undefined,
       },
@@ -572,19 +573,17 @@ function applyResolvedWorkspaceSourceBinding(input: WorkspaceSourceInput, source
   const next: WorkspaceSource = { ...source }
   copyWorkspaceSourceMetadata(source, next)
   if (!("source" in input)) {
-    copyDefinedWorkspaceBindingOption(next, input, "scopes")
     return next
   }
   copyDefinedWorkspaceBindingOption(next, input, "cache")
   copyDefinedWorkspaceBindingOption(next, input, "materialize")
   copyDefinedWorkspaceBindingOption(next, input, "mount")
-  copyDefinedWorkspaceBindingOption(next, input, "scopes")
   copyDefinedWorkspaceBindingOption(next, input, "sync")
   copyDefinedWorkspaceBindingOption(next, input, "validate")
   return next
 }
 
-function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" | "mount" | "scopes" | "sync" | "validate">(
+function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" | "mount" | "sync" | "validate">(
   target: WorkspaceSource,
   input: Record<string, unknown>,
   key: TKey,
@@ -799,11 +798,11 @@ function selectedScopeIntersectsSource(
   source: ReturnType<typeof normalizeWorkspaceSources>[number],
 ): boolean {
   if (!scope || scope.all) return true
-  if (source.scopes?.length) return Boolean(scope.name && source.scopes.includes(scope.name))
-  if (source.requestOnly) {
-    return Boolean(scope.paths?.some(path => pathIntersects(path, workspaceSourceRequestDescriptorPath(source.key))))
-  }
-  return true
+  if (scope.sources?.includes(source.key)) return true
+  const sourcePath = source.requestOnly
+    ? workspaceSourceRequestDescriptorPath(source.key)
+    : source.mountPath
+  return Boolean(scope.paths?.some(path => pathIntersects(path, sourcePath)))
 }
 
 function pathContains(container: string, path: string): boolean {

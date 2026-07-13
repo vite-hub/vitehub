@@ -42,7 +42,6 @@ export interface ResolvedWorkspaceSource {
   readonly: true
   requestDescriptor?: WorkspaceSourceRequestDescriptor
   requestOnly?: boolean
-  scopes?: readonly string[]
 }
 
 export {
@@ -120,7 +119,6 @@ export function normalizeWorkspaceSource(key: string, input: WorkspaceSourceInpu
   const sync = normalizeSourceSync(source.sync)
   const mountPath = typeof mount.path === "string" ? mount.path : defaultSourceMountPath(key, source)
   const requestDescriptor = getWorkspaceSourceRequestDescriptor(source)
-  const scopes = normalizeSourceScopes(key, source.scopes)
   if (requestDescriptor) assertWorkspaceSourceRequestDescriptorKey(key)
   return {
     key,
@@ -134,7 +132,6 @@ export function normalizeWorkspaceSource(key: string, input: WorkspaceSourceInpu
     readonly: true,
     requestDescriptor,
     requestOnly: isWorkspaceSourceRequestOnly(source),
-    ...(scopes.length ? { scopes } : {}),
   }
 }
 
@@ -165,14 +162,6 @@ function normalizeSourceSync(sync: WorkspaceSource["sync"]): false | WorkspaceSo
     concurrency: sync.concurrency,
     stale: sync.stale || "keep",
   }
-}
-
-function normalizeSourceScopes(key: string, scopes: unknown): readonly string[] {
-  if (scopes === undefined) return []
-  if (!Array.isArray(scopes) || scopes.some(scope => typeof scope !== "string")) {
-    throw new TypeError(`[vitehub] Workspace source "${key}" scopes must be an array of strings.`)
-  }
-  return scopes.map(scope => scope.trim()).filter(Boolean)
 }
 
 function toWorkspaceSource(input: WorkspaceSourceInput): WorkspaceSource {
@@ -325,7 +314,6 @@ function copySourceRuntimeOptions(input: Record<string, unknown>, defaults: Part
     cache: input.cache as WorkspaceSource["cache"] ?? defaults.cache,
     materialize: input.materialize as WorkspaceSource["materialize"] ?? defaults.materialize,
     mount: input.mount as WorkspaceSource["mount"] ?? defaults.mount,
-    scopes: input.scopes as WorkspaceSource["scopes"] ?? defaults.scopes,
     sync: input.sync as WorkspaceSource["sync"] ?? defaults.sync,
     validate: input.validate as WorkspaceSource["validate"] ?? defaults.validate,
   }
@@ -398,13 +386,12 @@ function applyWorkspaceBinding(source: WorkspaceSource, input: WorkspaceSourceIn
   copyDefinedWorkspaceBindingOption(next, input, "cache")
   copyDefinedWorkspaceBindingOption(next, input, "materialize")
   copyDefinedWorkspaceBindingOption(next, input, "mount")
-  copyDefinedWorkspaceBindingOption(next, input, "scopes")
   copyDefinedWorkspaceBindingOption(next, input, "sync")
   copyDefinedWorkspaceBindingOption(next, input, "validate")
   return next
 }
 
-function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" | "mount" | "scopes" | "sync" | "validate">(
+function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" | "mount" | "sync" | "validate">(
   target: WorkspaceSource,
   input: Record<string, unknown>,
   key: TKey,

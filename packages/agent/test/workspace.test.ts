@@ -1793,7 +1793,7 @@ describe("defineAgent workspace option", () => {
       },
       workspace: {
         sources: {
-          private: { mount: "private", name: "private", scopes: ["private"] } as never,
+          private: { mount: "private", name: "private" } as never,
           public: { mount: "public", name: "public" } as never,
         },
       },
@@ -1907,7 +1907,7 @@ describe("defineAgent workspace option", () => {
     }))
   })
 
-  it("does not pass other scoped file sources into Harness Workspace Sessions", async () => {
+  it("does not pass file sources outside Access Source grants into Harness Workspace Sessions", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { access } = await import("../src/capabilities.ts")
     const { file } = await import("@vite-hub/workspace")
@@ -1923,8 +1923,8 @@ describe("defineAgent workspace option", () => {
           workspace: {
             defaultScope: "public",
             scopes: {
-              admin: {},
-              public: {},
+              admin: { source: "secretDocs" },
+              public: { source: "publicDocs" },
             },
           },
         }),
@@ -1934,8 +1934,8 @@ describe("defineAgent workspace option", () => {
       },
       workspace: {
         sources: {
-          publicDocs: file({ path: "public.md", scopes: ["public"] }),
-          secretDocs: file({ path: "secret.md", scopes: ["admin"] }),
+          publicDocs: file({ path: "public.md" }),
+          secretDocs: file({ path: "secret.md" }),
         },
       },
     }), { workspace: "docs" })
@@ -4405,8 +4405,8 @@ describe("defineAgent workspace option", () => {
       },
       workspace: {
         sources: {
-          customers: { mount: "customers", name: "customers", scopes: ["support"] } as never,
-          portal: { mount: "portal", name: "portal", scopes: ["support"] } as never,
+          customers: { mount: "customers", name: "customers" } as never,
+          portal: { mount: "portal", name: "portal" } as never,
         },
       },
       capabilities: [

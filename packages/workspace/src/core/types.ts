@@ -322,6 +322,7 @@ export interface WorkspaceSelectedScope<TScopeName extends string = string> {
   name: TScopeName
   paths?: readonly string[]
   role?: string
+  sources?: readonly string[]
 }
 
 export interface WorkspaceSourceResolutionInvocation<TContextMap extends object = WorkspaceSourceResolutionContextMap> {
@@ -433,7 +434,6 @@ export interface WorkspaceSource {
   cache?: false | WorkspaceCacheOptions
   validate?: WorkspaceValidateMode
   sync?: WorkspaceSourceSyncConfig
-  scopes?: readonly string[]
   probeKeys?: string[]
   fingerprint?: unknown
   resolve?: WorkspaceSourceResolver
@@ -457,7 +457,7 @@ export type WorkspaceSourceDefinition = WorkspaceSource | SourcePackageSource
 
 type WorkspaceSourceBindingOptions = Pick<
   WorkspaceSource,
-  "cache" | "materialize" | "mount" | "probeKeys" | "scopes" | "sync" | "validate"
+  "cache" | "materialize" | "mount" | "probeKeys" | "sync" | "validate"
 >
 
 export interface WorkspaceSourceBindingInput extends WorkspaceSourceBindingOptions {
