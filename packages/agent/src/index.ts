@@ -173,6 +173,7 @@ import type {
   WorkspaceName,
 } from "@vite-hub/workspace"
 import type { WorkflowHandle } from "@vite-hub/workflow"
+import type { BoxRequirement, ResolvedBox } from "@vite-hub/box"
 
 export type {
   AgentAccessInvocationContextValue,
@@ -413,6 +414,7 @@ const syntheticWorkspaceRun = Symbol.for("vitehub.syntheticWorkspaceRun")
 const baseAgentResolve = Symbol.for("vitehub.baseAgentResolve")
 const baseAgentModel = Symbol.for("vitehub.baseAgentModel")
 const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
+const baseAgentBoxRequirements = Symbol.for("vitehub.baseAgentBoxRequirements")
 const workflowSpecifier = "@vite-hub/workflow"
 const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
 
@@ -544,6 +546,7 @@ type AgentDefinitionWithBaseResolve<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > = AgentDefinition<TRuntimeConfig, CALL_OPTIONS> & {
+  [baseAgentBoxRequirements]?: readonly BoxRequirement[]
   [baseAgentDriverKind]?: AgentDriverKind
   [baseAgentResolve]?: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS>
   [baseAgentModel]?: AgentModelResolver<TRuntimeConfig>
@@ -1003,8 +1006,14 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   const driver = normalizeAgentDriver(options)
-  const { capabilities, cli, description, hooks, messages, name, runtime, version, workspace } = options
+  const { box, capabilities, cli, description, hooks, messages, name, runtime, version, workspace } = options
   const channels = normalizeAgentChannels(options.channels)
+  if (box && driver.kind !== "harness") {
+    throw new Error("[vitehub] defineAgent({ box }) currently requires a harness Agent Driver.")
+  }
+  if (box && driver.kind === "harness" && (driver.sandbox !== undefined || driver.workDir !== undefined)) {
+    throw new Error("[vitehub] defineAgent({ box }) owns harness execution. Move driver.sandbox and driver.workDir to the Box.")
+  }
   const run = driver.kind === "run" ? driver.run : undefined
   const baseCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
@@ -1039,9 +1048,11 @@ function defineBaseAgent<
   }
 
   const definition = {
+    ...(driver.kind === "harness" && driver.requires?.length ? { [baseAgentBoxRequirements]: driver.requires } : {}),
     ...(driver.kind === "model" ? { [baseAgentModel]: driver.model } : {}),
     [baseAgentDriverKind]: driver.kind,
     [baseAgentResolve]: resolveBaseAgent,
+    box,
     channels,
     chat,
     cli,
@@ -1296,6 +1307,7 @@ type AgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 > = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
+  box?: ResolvedBox
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
@@ -1306,7 +1318,8 @@ type AgentInvocationContext<
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finishHook?: (event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   hasCapabilityCleanup: boolean
-  harnessSandboxProvider?: unknown
+  harnessSandboxProvider?: object
+  harnessWorkDir?: string
   hooks?: AgentHookObserverHooks
   modelExecutionInstrumentation: AgentCapabilityRegistries["modelExecutionInstrumentation"]
   outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
@@ -1334,6 +1347,7 @@ function toAgentAdapterRunContext<
 ): AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig> {
   return {
     ...context,
+    box: context.box,
     instructions: context.instructions,
     modelExecutionInstrumentation: context.modelExecutionInstrumentation as never,
     runtime: context.runtimeContext,
@@ -1432,8 +1446,30 @@ async function createAgentInvocationContext<
       context.run,
       invocationContext.get<boolean>(scheduledAgentTurnContextKey) === true,
     )
+    const boxDefinition = definition?.box
+    const box = boxDefinition
+      ? await (await import("@vite-hub/box")).resolveBox(boxDefinition, {
+          ...callbackContext,
+          actor: invoker,
+          context: invocationContext,
+          input,
+          invoker,
+          run: context.run,
+        }, {
+          requires: (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentBoxRequirements],
+        })
+      : undefined
     const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
     const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
+    if (box?.workspace.path && workspaceOptions) {
+      throw new Error("[vitehub] defineAgent({ box.cwd, workspace }) is not supported because an authoritative Box workspace must not be reset by Workspace materialization.")
+    }
+    const harnessSandboxProvider = box
+      ? (await import("./harness/local-sandbox.ts")).createTrustedHostHarnessSandbox({
+          env: box.environment.env,
+          ...(box.workspace.path ? { workspaceDir: box.workspace.path } : {}),
+        })
+      : undefined
     const workspaceName = workspaceOptions
       ? workspaceNameFromOptions(workspaceOptions, {}, context.agentIdentity)
       : undefined
@@ -1532,6 +1568,7 @@ async function createAgentInvocationContext<
     const invocation = {
       ...callbackContext,
       actor: invoker,
+      box,
       channels: definition?.channels,
       close: capabilities.close,
       context: invocationContext,
@@ -1544,6 +1581,8 @@ async function createAgentInvocationContext<
       finishHook: definition?.hooks?.["agent:finish"] as never,
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
       handledResponse: capabilities.response,
+      harnessSandboxProvider,
+      harnessWorkDir: box?.workspace.path ? "workspace" : undefined,
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
       instructions,

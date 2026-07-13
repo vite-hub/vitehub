@@ -11,17 +11,18 @@ vi.mock("@ai-sdk/harness-codex", () => ({
 }))
 
 describe("codexDriver", () => {
-  it("defaults to direct OpenAI auth and local sandbox credentials", async () => {
+  it("defaults to direct OpenAI auth and contributes its Box requirement", async () => {
     const { codexDriver } = await import("../src/harness/codex.ts")
 
     const driver = codexDriver()
 
-    expect(createCodex).toHaveBeenLastCalledWith({ auth: { openai: {} } })
+    expect(createCodex).toHaveBeenLastCalledWith({ auth: { openai: {} }, model: "" })
     expect(driver).toMatchObject({
       credentials: { label: "Codex", source: "ambient" },
       harness: { provider: "codex" },
-      sandbox: { providerId: "local" },
+      requires: ["codex"],
     })
+    expect(driver.sandbox).toBeUndefined()
   })
 
   it("keeps host AI Gateway env out of the default local Codex sandbox", async () => {
@@ -72,7 +73,7 @@ describe("codexDriver", () => {
 
     try {
       const { codexDriver } = await import("../src/harness/codex.ts")
-      const driver = codexDriver() as { sandbox?: { createSession: () => Promise<{ destroy: () => Promise<void>, env: Record<string, string> }> } }
+      const driver = codexDriver({ sandbox: {} }) as { sandbox?: { createSession: () => Promise<{ destroy: () => Promise<void>, env: Record<string, string> }> } }
       const session = await driver.sandbox?.createSession()
 
       try {
@@ -91,7 +92,7 @@ describe("codexDriver", () => {
 
   it("creates isolated default local sandbox sessions", async () => {
     const { codexDriver } = await import("../src/harness/codex.ts")
-    const driver = codexDriver() as { sandbox?: { createSession: () => Promise<{ defaultWorkingDirectory: string, destroy: () => Promise<void> }> } }
+    const driver = codexDriver({ sandbox: {} }) as { sandbox?: { createSession: () => Promise<{ defaultWorkingDirectory: string, destroy: () => Promise<void> }> } }
     const first = await driver.sandbox?.createSession()
     const second = await driver.sandbox?.createSession()
 
@@ -138,7 +139,7 @@ describe("codexDriver", () => {
 
     const driver = codexDriver({ auth: { gateway: { apiKey: "gateway-key" } }, sandbox: false })
 
-    expect(createCodex).toHaveBeenLastCalledWith({ auth: { gateway: { apiKey: "gateway-key" } } })
+    expect(createCodex).toHaveBeenLastCalledWith({ auth: { gateway: { apiKey: "gateway-key" } }, model: "" })
     expect(driver.sandbox).toBeUndefined()
   })
 
@@ -155,7 +156,7 @@ describe("codexDriver", () => {
 
     expect(driver.instructions).toBe(instructions)
     expect(driver.workDir).toBe(workDir)
-    expect(createCodex).toHaveBeenLastCalledWith({ auth: { openai: {} } })
+    expect(createCodex).toHaveBeenLastCalledWith({ auth: { openai: {} }, model: "" })
   })
 
   it("preserves an empty work directory for harness validation", async () => {

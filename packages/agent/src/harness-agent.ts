@@ -69,6 +69,7 @@ type HarnessAgentConstructor = new (settings: Record<string, unknown>) => Harnes
 const harnessResumeStates = new WeakMap<object, Map<string, unknown>>()
 const harnessGeneratedFiles = ["harness-tool.mjs"] as const
 const harnessInstructionFiles = ["AGENTS.md", "CLAUDE.md"] as const
+const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
 
 interface HarnessAgentAdapterOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -416,7 +417,7 @@ async function resolveHarnessWorkDir<
   return resolved
 }
 
-async function createDefaultHarnessSandbox(context: AgentAdapterRunContext) {
+async function createDefaultHarnessSandbox(context: AgentAdapterRunContext): Promise<object> {
   if (context.workspace && context.runtime.runtime === "vite") {
     const { createLocalHarnessSandbox } = await import("./harness/local-sandbox.ts")
     return createLocalHarnessSandbox()
@@ -433,7 +434,7 @@ async function createDefaultHarnessSandbox(context: AgentAdapterRunContext) {
   return sandboxModule.createVercelSandbox({
     ports: [4000],
     runtime: "node24",
-  })
+  }) as object
 }
 
 function hasHarnessInstructionDocument(context: AgentAdapterRunContext): boolean {
@@ -510,10 +511,14 @@ async function createHarnessAgent<
 ): Promise<{ agent: HarnessAgentLike, instructions?: string, workDir?: string }> {
   assertSupportedHarnessDriverContributions(context)
   const { HarnessAgent } = await import("@ai-sdk/harness/agent") as unknown as { HarnessAgent: HarnessAgentConstructor }
-  const sandbox = context.harnessSandboxProvider ?? await resolveHarnessSandboxProvider(options.sandbox, context) ?? await createDefaultHarnessSandbox(context)
   const harness = await resolveHarness(options.harness, context)
+  const baseSandbox = context.harnessSandboxProvider ?? await resolveHarnessSandboxProvider(options.sandbox, context) ?? await createDefaultHarnessSandbox(context)
+  const adaptSandbox = (harness as Record<PropertyKey, unknown>)[harnessSandboxAdapter]
+  const sandbox = typeof adaptSandbox === "function"
+    ? (adaptSandbox as (provider: object) => object)(baseSandbox)
+    : baseSandbox
   const instructions = await resolveHarnessDriverInstructions(options.instructions, context)
-  const workDir = await resolveHarnessWorkDir(options.workDir, context)
+  const workDir = await resolveHarnessWorkDir(options.workDir, context) ?? context.harnessWorkDir
   const tools = toHarnessTools(context)
   const agent = new HarnessAgent({
     harness,

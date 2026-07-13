@@ -5,7 +5,7 @@ navigation.order: 21
 icon: i-lucide-file-user
 ---
 
-An Agent Definition is the code declaration that names one Agent and configures how it runs. It owns the Agent Driver, attached Capabilities, Workspace context, Agent Invoker options, and lifecycle hooks.
+An Agent Definition is the code declaration that names one Agent and configures how it runs. It owns the Agent Driver, optional Box, attached Capabilities, Workspace context, Agent Invoker options, and lifecycle hooks.
 
 ViteHub discovers Agent Definitions from `server/agents`. The Agent File Name or folder name provides the discovered identity, so `server/agents/support.ts` and `server/agents/support/config.ts` both create a `support` Agent.
 
@@ -118,5 +118,6 @@ Agent Invokers are not Channels, Auth Users, or Access roles. They carry trusted
 ## Next steps
 
 - Read [Agent Drivers](/docs/agents/agent-drivers) for the driver variants.
+- Read [Boxes](/docs/agents/boxes) when a harness Agent needs an explicit execution environment.
 - Read [Workspace context](/docs/agents/workspace-context) before exposing files.
 - Read [Capabilities](/docs/capabilities) for official and custom ability pages.

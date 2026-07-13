@@ -1,4 +1,5 @@
 import type { Message, StreamEvent } from "./messages.ts"
+import type { BoxDefinition, BoxRequirement, ResolvedBox } from "@vite-hub/box"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { JSONSchema7 } from "json-schema"
 import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
@@ -981,6 +982,7 @@ export interface AgentHarnessDriver<
   model?: never
   permissionMode?: never
   permissions?: never
+  requires?: readonly BoxRequirement[]
   run?: never
   sandbox?: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS, TContextValues>
@@ -1025,6 +1027,7 @@ type AgentSharedSettings<
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined = AgentCapabilitiesList<TRuntimeConfig> | undefined,
 > = {
+  box?: BoxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
   capabilities?: TCapabilities
   channels?: AgentChannelInputs<TRuntimeConfig>
   cli?: AgentDefinitionCliOptions
@@ -1054,6 +1057,7 @@ export interface AgentDefinition<
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
   TContextValues extends object = AgentInvocationContextValues,
 > {
+  box?: BoxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
   channels?: AgentChannels<TRuntimeConfig>
   chat?: AgentChatOptions<TRuntimeConfig>
@@ -1532,12 +1536,14 @@ export interface AgentAdapterRunContext<
   Name extends WorkspaceName = WorkspaceName,
 > {
   actor: AgentActor
+  box?: ResolvedBox
   close?: () => Promise<void>
   context: AgentInvocationContextStore
   devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
   driverContributions?: AgentDriverContribution[]
   hasCapabilityCleanup?: boolean
-  harnessSandboxProvider?: unknown
+  harnessSandboxProvider?: object
+  harnessWorkDir?: string
   input: AgentRunInput<TOptions>
   instructions?: string
   invoker: AgentInvoker

@@ -139,6 +139,7 @@
     "@types/json-schema": "catalog:ai",
     "@vercel/functions": "catalog:vercel",
     "@vercel/nft": "catalog:vercel",
+    "@vite-hub/box": "workspace:*",
     "@vite-hub/devtools": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",

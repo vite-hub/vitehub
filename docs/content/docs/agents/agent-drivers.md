@@ -88,6 +88,8 @@ export default defineAgent({
 
 `sandbox({ commands })` remains the Capability shape for model-facing command execution authority.
 
+Use a [Box](/docs/agents/boxes) instead of `driver.sandbox` and `driver.workDir` when the harness should receive an explicit execution environment, Home, working checkout, and boot requirements. `codexDriver()` contributes its Codex requirement automatically.
+
 `driver.harness`, `driver.instructions`, `driver.sessionKey`, `driver.sandbox`, and `driver.workDir` can also be callbacks. Each callback receives the invocation `input`, `context`, `invoker`, and run metadata. Use callbacks when one Agent Definition needs invocation-scoped harness auth, instructions, sandbox setup, working directory, or session reuse.
 
 ViteHub resolves `driver.instructions` before constructing the AI SDK `HarnessAgent`, so stock harness adapters receive the invocation-specific instructions for generated and streamed turns. Session reuse keeps the harness adapter's normal instruction lifecycle. `driver.workDir` must resolve to a non-empty relative POSIX path inside the sandbox default working directory.
@@ -145,5 +147,6 @@ Workspace-backed harness execution depends on Harness Workspace Session support 
 ## Next steps
 
 - Read [Instructions](/docs/agents/instructions) for model-backed instruction composition.
+- Read [Boxes](/docs/agents/boxes) for trusted-host harness execution.
 - Read [Invocations](/docs/agents/invocations) for `runAgent` and `streamAgent`.
 - Read [DevTools](/docs/agents/devtools) to inspect resolved driver metadata.

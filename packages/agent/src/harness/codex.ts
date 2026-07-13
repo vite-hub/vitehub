@@ -23,6 +23,8 @@ type CodexDriverSandboxOptions<CALL_OPTIONS = unknown> =
   | LocalHarnessSandboxOptions
   | AgentHarnessSandboxProviderInput<AgentRuntimeConfig, CALL_OPTIONS>
 
+const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
+
 export interface CodexDriverOptions<CALL_OPTIONS = unknown> extends CodexHarnessSettings {
   authJson?: string
   authJsonPath?: string
@@ -46,6 +48,8 @@ export function codexDriver<CALL_OPTIONS = unknown>(options: CodexDriverOptions<
   } = options
   const defaultOpenAIAuth = settings.auth === undefined
   const auth = settings.auth ?? { openai: {} }
+  // The upstream harness pins a model when this is undefined, which bypasses the operator's Codex profile.
+  const model = settings.model ?? ""
   const sandboxProvider = codexSandboxProvider({
     authJson,
     authJsonPath,
@@ -56,8 +60,9 @@ export function codexDriver<CALL_OPTIONS = unknown>(options: CodexDriverOptions<
 
   return {
     credentials: credentials ?? { label: "Codex", source: "ambient" },
-    harness: createViteHubCodex({ ...settings, auth }),
+    harness: createViteHubCodex({ ...settings, auth, model }, defaultOpenAIAuth),
     ...(instructions !== undefined ? { instructions } : {}),
+    requires: ["codex"],
     ...(sandboxProvider ? { sandbox: sandboxProvider } : {}),
     ...(workDir !== undefined ? { workDir } : {}),
   }
@@ -78,10 +83,11 @@ const codexBridgeLockReplacements = {
   "sha512-FzMznm7fr5/nbjZgOujZ9Y9AbdGm7ji1FOoWiY3U+srqauvZaTgn6o6aCheSL7kuymu7nTLOO/cAyWV6NuesqQ==": "sha512-qv2HOp6v/nVP31p5I5GxYyL0wa79PMzim1+W9CKSV0UldjFV9AMbualA8PeXcYhbvvh9Y1UASXxwjuQdlyfAvw==",
 } as const
 
-function createViteHubCodex(settings: CodexHarnessSettings) {
+function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolean) {
   const harness = createCodex(settings)
   return {
     ...harness,
+    [harnessSandboxAdapter]: (provider: AgentHarnessSandboxProviderInput) => relativeCodexSandboxProvider(provider, { preferOpenAI }),
     async getBootstrap() {
       const [pkg, lock, bridge, hostToolMcp] = await Promise.all([
         readCodexBridgeAsset("package.json"),
@@ -100,7 +106,7 @@ function createViteHubCodex(settings: CodexHarnessSettings) {
         files: [
           { content: `${JSON.stringify(packageJson, null, 2)}\n`, path: `${codexBootstrapDir}/package.json` },
           { content: replaceCodexBridgeLock(lock), path: `${codexBootstrapDir}/pnpm-lock.yaml` },
-          { content: bridge, path: `${codexBootstrapDir}/bridge.mjs` },
+          { content: patchCodexBridge(bridge), path: `${codexBootstrapDir}/bridge.mjs` },
           { content: hostToolMcp, path: `${codexBootstrapDir}/host-tool-mcp.mjs` },
         ],
         harnessId: "codex",
@@ -118,6 +124,19 @@ function replaceCodexBridgeLock(lock: string): string {
   let result = lock
   for (const [from, to] of Object.entries(codexBridgeLockReplacements)) result = result.replaceAll(from, to)
   return result
+}
+
+function patchCodexBridge(bridge: string): string {
+  const errorItemHandler = `  if (item.type === "error" && event.type === "item.completed") {
+    ctx.send({
+      type: "error",
+      error: item.message ?? "codex item error"
+    });
+    return;
+  }`
+  const patched = bridge.replace(errorItemHandler, `  if (item.type === "error" && event.type === "item.completed") return;`)
+  if (patched === bridge) throw new Error("[vitehub] The pinned Codex bridge error-item patch no longer applies.")
+  return patched
 }
 
 function relativeCodexSandboxSession<T extends object>(session: T, bootstrapDir?: string): T {
@@ -149,9 +168,10 @@ function codexSandboxProvider(options: {
   const { sandbox } = options
   if (sandbox === false) return
   if (typeof sandbox === "function" || isHarnessSandboxProvider(sandbox)) return sandbox
+  if (sandbox === undefined && options.authJson === undefined && options.authJsonPath === undefined && options.env === undefined) return
 
   const localOptions = sandbox as LocalHarnessSandboxOptions | undefined
-  const provider = createLocalHarnessSandbox({
+  return relativeCodexSandboxProvider(createLocalHarnessSandbox({
     ...localOptions,
     env: codexLocalEnv({
       authJson: options.authJson,
@@ -162,22 +182,34 @@ function codexSandboxProvider(options: {
       },
       preferOpenAI: options.preferOpenAI,
     }),
-  })
+  }))
+}
+
+function relativeCodexSandboxProvider(
+  provider: AgentHarnessSandboxProviderInput,
+  options: { preferOpenAI?: boolean } = {},
+): AgentHarnessDriver["sandbox"] {
+  const adaptSession = (session: object) => {
+    if (options.preferOpenAI && "env" in session && session.env && typeof session.env === "object") {
+      stripGatewaySecrets(session.env as Record<string, string | undefined>)
+    }
+    return relativeCodexSandboxSession(session)
+  }
   return {
     ...provider,
-    async createSession(createOptions: Parameters<typeof provider.createSession>[0]) {
+    async createSession(createOptions: { onFirstCreate?: (session: object, context: { abortSignal?: AbortSignal }) => Promise<void> } = {}) {
       const onFirstCreate = createOptions?.onFirstCreate
-      const session = await provider.createSession({
+      const session = await (provider as { createSession(options: object): Promise<object> }).createSession({
         ...createOptions,
         ...(onFirstCreate
           ? {
-              onFirstCreate: async (session, context) => {
-                await onFirstCreate(relativeCodexSandboxSession(session), context)
+              onFirstCreate: async (session: object, context: { abortSignal?: AbortSignal }) => {
+                await onFirstCreate(adaptSession(session), context)
               },
             }
           : {}),
       })
-      return relativeCodexSandboxSession(session)
+      return adaptSession(session)
     },
   }
 }
@@ -201,8 +233,7 @@ function codexLocalEnv(options: {
   stripGitHubSecrets(env)
 
   if (options.preferOpenAI) {
-    delete env.AI_GATEWAY_API_KEY
-    delete env.AI_GATEWAY_BASE_URL
+    stripGatewaySecrets(env)
   }
 
   const codexHome = codexHomeFromAuth({
@@ -216,6 +247,11 @@ function codexLocalEnv(options: {
     env.PATH,
   ].filter(Boolean).join(":")
   return env
+}
+
+function stripGatewaySecrets(env: Record<string, string | undefined>): void {
+  delete env.AI_GATEWAY_API_KEY
+  delete env.AI_GATEWAY_BASE_URL
 }
 
 function stripGitHubSecrets(env: Record<string, string | undefined>): void {
