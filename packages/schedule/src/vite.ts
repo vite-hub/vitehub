@@ -376,17 +376,16 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
     return null
   }
 
-  const nitroDefinitions = selectNitroScheduleDefinitions(definitions, options)
+  const nitroDefinitions = processRuntime ? [] : selectNitroScheduleDefinitions(definitions, options)
   const crons = options.command === "build"
     ? [...new Set((await readDefinitionCrons(nitroDefinitions)).values())]
     : []
-  const providerDefinitionNames = new Set(nitroDefinitions.map(definition => definition.name))
   const plugin = await writeNitroSchedulePlugin(roots.projectRoot, {
     crons,
     processRuntime,
     providerDefinitions: nitroDefinitions,
     runtimeDefinitions: definitions,
-    staticDefinitions: definitions.filter(definition => definition.runtimeOnly !== true && !providerDefinitionNames.has(definition.name)),
+    staticDefinitions: definitions.filter(definition => definition.runtimeOnly !== true),
     runtimeImport: (options as InternalScheduleVitePluginOptions).runtimeImport,
   })
   return mergeNitroScheduleConfig(options.nitro, {
