@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   custom,
   fetch,
+  file,
   github,
   mcpResources,
   type WorkspaceShellResult,
@@ -834,6 +835,21 @@ describe("Workspace Source Resolution", () => {
     await expect(workspace.fs.readFile("public/README.md")).resolves.toBe("public\n")
     await expect(workspace.fs.exists("private/secret.md")).resolves.toBe(false)
     await expect(workspace.fs.readFile("public/restricted/secret.md")).resolves.toBe("restricted\n")
+  })
+
+  it("filters root-mounted finite sources by probe paths", async () => {
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        privateReadme: file("private.md"),
+        publicReadme: file("public.md"),
+      },
+    }
+
+    const resolved = await resolveWorkspaceSources(definition, scope("public", ["public.md"]))
+
+    expect(resolved.sources).toHaveProperty("publicReadme")
+    expect(resolved.sources).not.toHaveProperty("privateReadme")
   })
 
   it("keeps scoped-out source subpaths hidden in overlays", async () => {

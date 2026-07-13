@@ -39,6 +39,7 @@ export interface ResolvedWorkspaceSource {
   sync: false | WorkspaceSourceSyncPolicy
   validate: WorkspaceValidateMode
   livePaths?: Record<string, string>
+  probeKeys?: string[]
   readonly: true
   requestDescriptor?: WorkspaceSourceRequestDescriptor
   requestOnly?: boolean
@@ -129,6 +130,7 @@ export function normalizeWorkspaceSource(key: string, input: WorkspaceSourceInpu
     sync,
     validate: mount.validate ?? source.validate ?? false,
     livePaths: getLiveWorkspaceSourcePaths(source),
+    ...(source.probeKeys?.length ? { probeKeys: source.probeKeys } : {}),
     readonly: true,
     requestDescriptor,
     requestOnly: isWorkspaceSourceRequestOnly(source),

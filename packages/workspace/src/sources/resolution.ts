@@ -799,10 +799,12 @@ function selectedScopeIntersectsSource(
 ): boolean {
   if (!scope || scope.all) return true
   if (scope.sources?.includes(source.key)) return true
-  const sourcePath = source.requestOnly
-    ? workspaceSourceRequestDescriptorPath(source.key)
-    : source.mountPath
-  return Boolean(scope.paths?.some(path => pathIntersects(path, sourcePath)))
+  const sourcePaths = source.requestOnly
+    ? [workspaceSourceRequestDescriptorPath(source.key)]
+    : source.probeKeys?.length
+      ? source.probeKeys.map(key => [source.mountPath, key].filter(Boolean).join("/"))
+      : [source.mountPath]
+  return Boolean(scope.paths?.some(path => sourcePaths.some(sourcePath => pathIntersects(path, sourcePath))))
 }
 
 function pathContains(container: string, path: string): boolean {
