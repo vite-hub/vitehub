@@ -5,11 +5,11 @@
     >
       <div class="vh-landing-reveal min-w-0">
         <h1 class="vh-hero-title max-w-[9ch] font-semibold text-highlighted text-balance">
-          Agents for any host.
+          Any agent, anywhere.
         </h1>
         <p class="mt-7 max-w-[44ch] text-lg/8 text-muted text-pretty sm:text-xl/8">
-          Build Agents in Vite with any model, harness, or custom Agent Driver. Add portable Server
-          Primitives when you need them, without rewriting your application for each provider.
+          Build any Agent in Vite, compose it with any Capability, and deploy the same application
+          to any host.
         </p>
 
         <LandingInstallCommand class="mt-9" />
