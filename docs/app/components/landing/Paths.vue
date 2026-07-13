@@ -42,7 +42,7 @@ import { landingPaths } from "./content";
               {{ path.action }}
               <UIcon
                 name="i-lucide-arrow-right"
-                class="size-4 shrink-0 transition-transform duration-200 group-hover:translate-x-1 motion-reduce:transition-none"
+                class="landing-cta-arrow size-4 shrink-0 transition-transform duration-200 motion-reduce:transition-none"
                 aria-hidden="true"
               />
             </NuxtLink>
@@ -64,3 +64,11 @@ import { landingPaths } from "./content";
     </div>
   </section>
 </template>
+
+<style scoped>
+@media (hover: hover) and (pointer: fine) {
+  .group:hover .landing-cta-arrow {
+    transform: translateX(0.25rem);
+  }
+}
+</style>
