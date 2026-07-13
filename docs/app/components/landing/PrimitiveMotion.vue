@@ -66,7 +66,7 @@ const delay = `${Math.max(0, primitives.indexOf(props.name)) * 60}ms`;
       <g class="shell-output"><path d="M25 37h38M25 42h27" class="accent" /></g>
     </template>
     <template v-else-if="name === 'blob'">
-      <g class="stored-card back">
+      <g class="back">
         <rect x="31" y="13" width="30" height="32" rx="2" class="outline" />
       </g>
       <g class="stored-card front">
@@ -129,6 +129,12 @@ const delay = `${Math.max(0, primitives.indexOf(props.name)) * 60}ms`;
 .fill {
   fill: currentColor;
   opacity: 0.22;
+}
+.write,
+.queue-item,
+.workflow-token {
+  fill: currentColor;
+  stroke: none;
 }
 .dashed {
   stroke-dasharray: 3 4;
@@ -208,9 +214,6 @@ const delay = `${Math.max(0, primitives.indexOf(props.name)) * 60}ms`;
   animation-name: store-card;
   animation-timing-function: var(--motion-out);
 }
-.stored-card.back {
-  animation-delay: calc(var(--scene-delay) - 80ms);
-}
 .shackle {
   transform-origin: 57px 26px;
   transform-box: view-box;
@@ -233,9 +236,18 @@ const delay = `${Math.max(0, primitives.indexOf(props.name)) * 60}ms`;
     transform: translateX(-12px);
   }
   15%,
-  100% {
+  88% {
     opacity: 0.75;
     transform: translateX(32px);
+  }
+  92% {
+    opacity: 0;
+    transform: translateX(32px);
+  }
+  96%,
+  100% {
+    opacity: 0;
+    transform: translateX(-12px);
   }
 }
 @keyframes confirm {
@@ -244,8 +256,12 @@ const delay = `${Math.max(0, primitives.indexOf(props.name)) * 60}ms`;
     opacity: 0.15;
   }
   18%,
-  100% {
+  88% {
     opacity: 0.55;
+  }
+  92%,
+  100% {
+    opacity: 0.15;
   }
 }
 @keyframes scan-down {
@@ -255,44 +271,85 @@ const delay = `${Math.max(0, primitives.indexOf(props.name)) * 60}ms`;
     transform: translateY(-5px);
   }
   17%,
-  100% {
+  88% {
     opacity: 0.5;
     transform: translateY(17px);
+  }
+  92% {
+    opacity: 0;
+    transform: translateY(17px);
+  }
+  96%,
+  100% {
+    opacity: 0;
+    transform: translateY(-5px);
   }
 }
 @keyframes queue-forward {
   0%,
   3% {
-    transform: translateX(0);
-    opacity: 0.72;
+    opacity: 0;
+    transform: translateX(-18px);
   }
   17%,
-  100% {
-    transform: translateX(18px);
+  88% {
     opacity: 0.72;
+    transform: translateX(0);
+  }
+  92% {
+    opacity: 0;
+    transform: translateX(0);
+  }
+  96%,
+  100% {
+    opacity: 0;
+    transform: translateX(-18px);
   }
 }
 @keyframes workflow-handoff {
   0%,
   3% {
+    opacity: 0;
     transform: translateX(0);
   }
   10% {
+    opacity: 0.72;
     transform: translateX(28px);
   }
   17%,
-  100% {
+  88% {
+    opacity: 0.72;
     transform: translateX(56px);
+  }
+  92% {
+    opacity: 0;
+    transform: translateX(56px);
+  }
+  96%,
+  100% {
+    opacity: 0;
+    transform: translateX(0);
   }
 }
 @keyframes clock-trigger {
   0%,
   3% {
+    opacity: 0;
     transform: rotate(0);
   }
   17%,
-  100% {
+  88% {
+    opacity: 0.72;
     transform: rotate(90deg);
+  }
+  92% {
+    opacity: 0;
+    transform: rotate(90deg);
+  }
+  96%,
+  100% {
+    opacity: 0;
+    transform: rotate(0);
   }
 }
 @keyframes confirm-ring {
@@ -333,9 +390,18 @@ const delay = `${Math.max(0, primitives.indexOf(props.name)) * 60}ms`;
     transform: translateY(8px);
   }
   17%,
-  100% {
+  88% {
     opacity: 1;
     transform: translateY(0);
+  }
+  92% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  96%,
+  100% {
+    opacity: 0;
+    transform: translateY(8px);
   }
 }
 @keyframes store-card {
@@ -345,31 +411,60 @@ const delay = `${Math.max(0, primitives.indexOf(props.name)) * 60}ms`;
     transform: translateX(18px) rotate(8deg);
   }
   17%,
-  100% {
+  88% {
     opacity: 1;
     transform: translateX(0) rotate(0);
+  }
+  92% {
+    opacity: 0;
+    transform: translateX(0) rotate(0);
+  }
+  96%,
+  100% {
+    opacity: 0;
+    transform: translateX(18px) rotate(8deg);
   }
 }
 @keyframes unlock {
   0%,
   3% {
+    opacity: 0;
     transform: rotate(0);
   }
   17%,
-  100% {
+  88% {
+    opacity: 0.72;
     transform: rotate(-28deg);
+  }
+  92% {
+    opacity: 0;
+    transform: rotate(-28deg);
+  }
+  96%,
+  100% {
+    opacity: 0;
+    transform: rotate(0);
   }
 }
 @keyframes validate {
   0%,
   3% {
-    opacity: 0.35;
+    opacity: 0;
     transform: translateX(0);
   }
   17%,
-  100% {
+  88% {
     opacity: 0.72;
     transform: translateX(18px);
+  }
+  92% {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  96%,
+  100% {
+    opacity: 0;
+    transform: translateX(0);
   }
 }
 @keyframes cursor-result {
@@ -378,8 +473,12 @@ const delay = `${Math.max(0, primitives.indexOf(props.name)) * 60}ms`;
     opacity: 0;
   }
   14%,
-  100% {
+  88% {
     opacity: 0.7;
+  }
+  92%,
+  100% {
+    opacity: 0;
   }
 }
 
@@ -407,7 +506,7 @@ const delay = `${Math.max(0, primitives.indexOf(props.name)) * 60}ms`;
     transform: translateX(32px);
   }
   .queue-item {
-    transform: translateX(18px);
+    transform: none;
   }
   .workflow-token {
     transform: translateX(56px);
