@@ -215,7 +215,7 @@ describe("Vite schedule integration", () => {
     await expect(loadScheduleRegistry(plugin)).resolves.toContain("const registry = {")
   })
 
-  it("keeps static Provider Wake output separate from the canonical runtime registry", async () => {
+  it("keeps Provider Wake schedules out of the Process Runtime static registry", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-process-static-"))
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await mkdir(join(root, "src"), { recursive: true })
@@ -261,7 +261,7 @@ describe("Vite schedule integration", () => {
     expect(generatedRuntimeRegistry).toContain("server/schedules/report.ts")
     expect(generatedRuntimeRegistry).toContain("src/cleanup.schedule.ts")
     expect(generatedRuntimeRegistry).toContain("server/schedules/agent-turn.ts")
-    expect(generatedStaticRegistry).toContain("server/schedules/report.ts")
+    expect(generatedStaticRegistry).not.toContain("server/schedules/report.ts")
     expect(generatedStaticRegistry).toContain("src/cleanup.schedule.ts")
     expect(generatedStaticRegistry).not.toContain("server/schedules/agent-turn.ts")
   })
