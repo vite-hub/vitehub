@@ -107,4 +107,40 @@ export const landingPrimitives = [
     description: "Isolated execution",
     to: "/docs/server-primitives/sandbox",
   },
+  {
+    id: "database",
+    name: "Database",
+    description: "Relational data",
+    to: "/docs/server-primitives/database",
+  },
+  {
+    id: "blob",
+    name: "Blob",
+    description: "Files and uploads",
+    to: "/docs/server-primitives/blob",
+  },
+  {
+    id: "auth",
+    name: "Auth",
+    description: "Users and sessions",
+    to: "/docs/server-primitives/auth",
+  },
+  {
+    id: "env",
+    name: "Env",
+    description: "Typed configuration",
+    to: "/docs/server-primitives/env",
+  },
+  {
+    id: "source",
+    name: "Source",
+    description: "Read-only content",
+    to: "/docs/server-primitives/source",
+  },
+  {
+    id: "shell",
+    name: "Shell",
+    description: "Command execution",
+    to: "/docs/server-primitives/shell",
+  },
 ] as const;

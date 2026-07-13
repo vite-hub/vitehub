@@ -24,7 +24,7 @@ import { landingPrimitives } from "./content";
             Explore Server Primitives
             <UIcon
               name="i-lucide-arrow-right"
-              class="size-4 shrink-0 transition-transform duration-200 group-hover:translate-x-1 motion-reduce:transition-none"
+              class="landing-cta-arrow size-4 shrink-0 transition-transform duration-200 motion-reduce:transition-none"
               aria-hidden="true"
             />
           </NuxtLink>
@@ -32,7 +32,7 @@ import { landingPrimitives } from "./content";
       </div>
 
       <ul
-        class="mt-12 grid gap-px border border-default bg-[var(--ui-border)] sm:grid-cols-2 lg:mt-16 lg:grid-cols-3"
+        class="mt-12 grid gap-px border border-default bg-[var(--ui-border)] sm:grid-cols-2 lg:mt-16 lg:grid-cols-4"
         role="list"
       >
         <li v-for="primitive in landingPrimitives" :key="primitive.id" class="min-w-0 bg-default">
@@ -59,3 +59,11 @@ import { landingPrimitives } from "./content";
     </div>
   </section>
 </template>
+
+<style scoped>
+@media (hover: hover) and (pointer: fine) {
+  .group:hover .landing-cta-arrow {
+    transform: translateX(0.25rem);
+  }
+}
+</style>

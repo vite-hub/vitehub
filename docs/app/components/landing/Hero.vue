@@ -5,11 +5,11 @@
     >
       <div class="vh-landing-reveal min-w-0">
         <h1 class="vh-hero-title max-w-[9ch] font-semibold text-highlighted text-balance">
-          The server layer for Vite.
+          Any agent, anywhere.
         </h1>
         <p class="mt-7 max-w-[44ch] text-lg/8 text-muted text-pretty sm:text-xl/8">
-          Define inspectable Agents with explicit drivers, Capabilities, Workspaces, and
-          instructions—then run them on any host, backed by portable Server Primitives.
+          Bring any model or harness, compose your own Capabilities around a persistent Workspace,
+          and deploy the same Agent to any host.
         </p>
 
         <LandingInstallCommand class="mt-9" />
@@ -22,7 +22,7 @@
             Start building
             <UIcon
               name="i-lucide-arrow-right"
-              class="size-4 shrink-0 transition-transform duration-200 group-hover:translate-x-1 motion-reduce:transition-none"
+              class="landing-cta-arrow size-4 shrink-0 transition-transform duration-200 motion-reduce:transition-none"
               aria-hidden="true"
             />
           </NuxtLink>
@@ -45,5 +45,11 @@
   font-size: clamp(3.75rem, 5.8vw, 6.25rem);
   letter-spacing: -0.06em;
   line-height: 0.92;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .group:hover .landing-cta-arrow {
+    transform: translateX(0.25rem);
+  }
 }
 </style>

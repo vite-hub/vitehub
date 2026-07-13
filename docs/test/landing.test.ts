@@ -52,10 +52,23 @@ describe("landing page", () => {
     ).join("\n");
     const normalizedSource = source.replace(/\s+/g, " ");
 
-    expect(source).toContain("The server layer for Vite.");
+    expect(source).toContain("Any agent, anywhere.");
     expect(normalizedSource).toContain(
-      "Define inspectable Agents with explicit drivers, Capabilities, Workspaces, and instructions",
+      "Bring any model or harness, compose your own Capabilities around a persistent Workspace",
     );
+    for (const term of [
+      "driver.model",
+      "driver.harness",
+      "driver.run",
+      "instructions.md",
+      "workspace.sources",
+      "capabilities[]",
+      "runAgent()",
+      "invoker",
+      "runtime",
+    ]) {
+      expect(source).toContain(term);
+    }
     expect(source).toContain("Build your first Agent");
     expect(source).toContain("prefers-reduced-motion");
     expect(source).toMatch(/<pre|<code/);
@@ -69,7 +82,7 @@ describe("landing page", () => {
     expect(source).not.toMatch(/role="(?:tab|tablist|radio|radiogroup)"/);
   });
 
-  it("ends with a compact set of animated primitives", () => {
+  it("ends with the full set of animated primitives", () => {
     expect(landingPrimitives.map((primitive) => primitive.id)).toEqual([
       "workspace",
       "kv",
@@ -77,7 +90,34 @@ describe("landing page", () => {
       "workflow",
       "schedule",
       "sandbox",
+      "database",
+      "blob",
+      "auth",
+      "env",
+      "source",
+      "shell",
     ]);
+  });
+
+  it("keeps reduced-motion and hidden install controls static", async () => {
+    const primitiveMotion = await readFile(
+      new URL("../app/components/landing/PrimitiveMotion.vue", import.meta.url),
+      "utf8",
+    );
+    const reducedMotion = primitiveMotion.slice(
+      primitiveMotion.indexOf("@media (prefers-reduced-motion: reduce)"),
+    );
+    const installCommand = await readFile(
+      new URL("../app/components/landing/InstallCommand.vue", import.meta.url),
+      "utf8",
+    );
+
+    expect(reducedMotion).toContain("animation: none;");
+    expect(reducedMotion).not.toMatch(/animation:[^;]*infinite/);
+    expect(installCommand).toContain(
+      `:class="activeTab === 'package' ? 'w-[17.25rem]' : 'w-0'"`,
+    );
+    expect(installCommand).toContain("transition: none;");
   });
 
   it("wires landing-page metadata through Docus", async () => {
