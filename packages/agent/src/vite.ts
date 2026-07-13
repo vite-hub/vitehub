@@ -1361,6 +1361,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               chatRoute: normalized.routes.chat,
               runtimeCapabilities,
               schedule,
+              scheduleRuntimeImport: getScheduleRuntimeImport(agent),
               workspaceImportBase: getWorkspaceImportBase(agent),
               webhookRoute: normalized.routes.webhooks,
             })
@@ -1376,6 +1377,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
               runtimeCapabilities,
               schedule,
+              scheduleRuntimeImport: getScheduleRuntimeImport(agent),
               workspaceImportBase: getWorkspaceImportBase(agent),
               webhookRoute: normalized.routes.webhooks,
             })
@@ -1398,6 +1400,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               runtime: "vite",
               runtimeCapabilities,
               schedule,
+              scheduleRuntimeImport: getScheduleRuntimeImport(agent),
               workspaceImportBase: getWorkspaceImportBase(agent),
             })
           }
@@ -1438,6 +1441,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             libsqlState: resolveWebhookLibsqlAgentState(normalized),
             runtimeCapabilities,
             schedule: hasScheduleVitePlugin(resolved),
+            scheduleRuntimeImport: getScheduleRuntimeImport(agent),
             workspaceImportBase: getWorkspaceImportBase(agent),
           })
         } else if (isNetlifyHosting(resolved)) {
