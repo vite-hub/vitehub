@@ -12,12 +12,17 @@ interface RuntimeController {
   close: () => Promise<void> | void
 }
 
+interface RuntimeInstallOptions {
+  [key: string]: unknown
+  onError: (error: unknown) => void
+}
+
 interface PluginHarness {
   createKVRuntimeScheduleStore: () => object
   createKVScheduleRunStore: () => object
   createProcessScheduleWakeDriver: () => () => void
   definePlugin: <T>(plugin: T) => T
-  installScheduleRuntime: (options: Record<string, unknown>) => Promise<RuntimeController>
+  installScheduleRuntime: (options: RuntimeInstallOptions) => Promise<RuntimeController>
 }
 
 interface NitroAppHarness {
@@ -97,7 +102,7 @@ function createNitroApp(localFetch = vi.fn()) {
 
 describe("generated Nitro Process Runtime plugin", () => {
   it("passes separate Static and Runtime Schedule registries to execution", async () => {
-    const installScheduleRuntime = vi.fn(async (_options: Record<string, unknown>) => ({ close: vi.fn() }))
+    const installScheduleRuntime = vi.fn(async (_options: RuntimeInstallOptions) => ({ close: vi.fn() }))
     const plugin = await loadProcessPlugin(installScheduleRuntime)
     const { app } = createNitroApp()
 
@@ -108,6 +113,51 @@ describe("generated Nitro Process Runtime plugin", () => {
     }))
     const options = installScheduleRuntime.mock.calls[0]![0]
     expect(options.staticRegistry).not.toBe(options.registry)
+  })
+
+  it("logs reported runtime failures while preserving Nitro error capture", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const plugin = await loadProcessPlugin(async ({ onError }) => {
+      onError("scheduled handler failed")
+      return { close: vi.fn() }
+    })
+    const { app } = createNitroApp()
+    app.captureError.mockImplementation(() => {
+      throw new Error("Nitro capture failed")
+    })
+
+    try {
+      expect(() => plugin(app)).not.toThrow()
+
+      const runtimeError = consoleError.mock.calls[0]?.[1]
+      expect(runtimeError).toBeInstanceOf(Error)
+      expect(runtimeError).toMatchObject({ message: "scheduled handler failed" })
+      expect(consoleError).toHaveBeenCalledWith("[vitehub:schedule]", runtimeError)
+      expect(app.captureError).toHaveBeenCalledWith(runtimeError, { tags: ["vitehub-schedule"] })
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it("preserves Nitro error capture when stderr logging fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {
+      throw new Error("stderr unavailable")
+    })
+    const runtimeFailure = new Error("scheduled handler failed")
+    const plugin = await loadProcessPlugin(async ({ onError }) => {
+      onError(runtimeFailure)
+      return { close: vi.fn() }
+    })
+    const { app } = createNitroApp()
+
+    try {
+      expect(() => plugin(app)).not.toThrow()
+      expect(app.captureError).toHaveBeenCalledWith(runtimeFailure, { tags: ["vitehub-schedule"] })
+    }
+    finally {
+      consoleError.mockRestore()
+    }
   })
 
   it("installs without a fetch method on the Nitro app", async () => {
@@ -148,6 +198,20 @@ describe("generated Nitro Process Runtime plugin", () => {
     plugin(app)
     await expect(hooks.get("request")!()).rejects.toBe(installationError)
     expect(app.captureError).toHaveBeenCalledWith(installationError, { tags: ["vitehub-schedule"] })
+  })
+
+  it("does not replace installation failures when runtime error coercion fails", async () => {
+    const thrownValue = {
+      toString() {
+        throw new Error("runtime error coercion failed")
+      },
+    }
+    const plugin = await loadProcessPlugin(() => Promise.reject(thrownValue))
+    const { app, hooks } = createNitroApp()
+
+    expect(() => plugin(app)).not.toThrow()
+    await expect(hooks.get("request")!()).rejects.toBe(thrownValue)
+    expect(app.captureError).not.toHaveBeenCalled()
   })
 
   it("does not replace Nitro's local fetch entrypoint", async () => {
