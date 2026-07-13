@@ -8,8 +8,8 @@
           Any agent, anywhere.
         </h1>
         <p class="mt-7 max-w-[44ch] text-lg/8 text-muted text-pretty sm:text-xl/8">
-          Build any Agent in Vite, compose it with any Capability, and deploy the same application
-          to any host.
+          Bring any model or harness, compose your own Capabilities around a persistent Workspace,
+          and deploy the same Agent to any host.
         </p>
 
         <LandingInstallCommand class="mt-9" />

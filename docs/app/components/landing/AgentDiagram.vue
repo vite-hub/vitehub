@@ -1,14 +1,14 @@
 <script setup lang="ts">
 const stages = [
   {
-    label: "Build any Agent",
-    icon: "i-lucide-bot",
-    items: ["Review", "Support", "Research"],
+    label: "Model or harness",
+    icon: "i-lucide-cpu",
+    items: ["AI SDK", "Codex", "Claude Code"],
   },
   {
-    label: "Use any Capability",
+    label: "Compose your Agent",
     icon: "i-lucide-blocks",
-    items: ["browser()", "workspaceShell()", "db()"],
+    items: ["yourCapability()", "Workspace", "instructions.md"],
   },
   {
     label: "Deploy anywhere",
@@ -22,7 +22,7 @@ const stages = [
   <figure
     class="overflow-hidden border border-default bg-default p-5 sm:p-7 lg:p-9"
     role="img"
-    aria-label="ViteHub lets developers build any Agent, compose it with any Capability, and deploy it to any host. Examples include Review, Support, and Research Agents; browser, workspace shell, and database Capabilities; and Cloudflare, Vercel, and Node hosts."
+    aria-label="ViteHub lets developers bring any model or harness, compose an Agent with their own Capabilities and a Workspace, and deploy it to any host. Examples include AI SDK models, Codex and Claude Code harnesses, custom Capabilities, and Cloudflare, Vercel, and Node hosts."
   >
     <div class="power-flow">
       <template v-for="(stage, index) in stages" :key="stage.label">
