@@ -176,9 +176,11 @@ describe("Vite schedule integration", () => {
     expect(pluginSource).toContain("export default definePlugin((nitroApp) => {")
     expect(pluginSource).not.toContain("definePlugin(async")
     expect(pluginSource).toContain("runtimeScheduleRegistry from \"./runtime-registry.js\"")
-    expect(pluginSource).toContain("staticRegistry: runtimeScheduleRegistry")
+    expect(pluginSource).toContain("staticScheduleRegistry from \"./static-registry.js\"")
+    expect(pluginSource).toContain("staticRegistry: staticScheduleRegistry")
     expect(pluginSource).not.toContain("cloudflare:scheduled")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "runtime-registry.js"), "utf8")).resolves.toContain("server/schedules/report.ts")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "static-registry.js"), "utf8")).resolves.toContain("server/schedules/report.ts")
     resolvePluginConfig(plugin, root)
     expect(resolveScheduleRegistry(plugin)).toBe("\0#vitehub/schedule/registry")
     await expect(loadScheduleRegistry(plugin)).resolves.toContain("server/schedules/report.ts")
@@ -205,7 +207,9 @@ describe("Vite schedule integration", () => {
     })
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
     expect(pluginSource).toContain("runtimeScheduleRegistry from \"./runtime-registry.js\"")
+    expect(pluginSource).toContain("staticScheduleRegistry from \"./static-registry.js\"")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "runtime-registry.js"), "utf8")).resolves.toContain("const registry = {")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "static-registry.js"), "utf8")).resolves.toContain("const registry = {")
     resolvePluginConfig(plugin, root)
     expect(resolveScheduleRegistry(plugin)).toBe("\0#vitehub/schedule/registry")
     await expect(loadScheduleRegistry(plugin)).resolves.toContain("const registry = {")
@@ -225,6 +229,11 @@ describe("Vite schedule integration", () => {
       "export default defineSchedule({ cron: '0 0 * * *', allowRuntimeSchedules: true, handler: () => {} })",
       "",
     ].join("\n"), "utf8")
+    await writeFile(join(root, "server", "schedules", "agent-turn.ts"), [
+      "import { defineScheduleTarget } from '@vite-hub/schedule'",
+      "export default defineScheduleTarget({ handler: () => {} })",
+      "",
+    ].join("\n"), "utf8")
 
     const userConfig: Record<string, unknown> = { root }
     const plugin = hubSchedule({ runtime: { driver: "process" } })
@@ -237,16 +246,24 @@ describe("Vite schedule integration", () => {
     expect(pluginSource).toContain("cloudflare:scheduled")
     expect(pluginSource).toContain("installScheduleRuntime")
     expect(pluginSource).toContain("runtimeScheduleRegistry from \"./runtime-registry.js\"")
+    expect(pluginSource).toContain("staticScheduleRegistry from \"./static-registry.js\"")
     const providerRegistry = await readFile(join(root, ".vitehub", "schedule", "registry.js"), "utf8")
     const generatedRuntimeRegistry = await readFile(join(root, ".vitehub", "nitro", "schedule", "runtime-registry.js"), "utf8")
+    const generatedStaticRegistry = await readFile(join(root, ".vitehub", "nitro", "schedule", "static-registry.js"), "utf8")
     resolvePluginConfig(plugin, root)
     const runtimeRegistry = await loadScheduleRegistry(plugin)
     expect(providerRegistry).toContain("server/schedules/report.ts")
     expect(providerRegistry).not.toContain("src/cleanup.schedule.ts")
+    expect(providerRegistry).not.toContain("server/schedules/agent-turn.ts")
     expect(runtimeRegistry).toContain("server/schedules/report.ts")
     expect(runtimeRegistry).toContain("src/cleanup.schedule.ts")
+    expect(runtimeRegistry).toContain("server/schedules/agent-turn.ts")
     expect(generatedRuntimeRegistry).toContain("server/schedules/report.ts")
     expect(generatedRuntimeRegistry).toContain("src/cleanup.schedule.ts")
+    expect(generatedRuntimeRegistry).toContain("server/schedules/agent-turn.ts")
+    expect(generatedStaticRegistry).toContain("server/schedules/report.ts")
+    expect(generatedStaticRegistry).toContain("src/cleanup.schedule.ts")
+    expect(generatedStaticRegistry).not.toContain("server/schedules/agent-turn.ts")
   })
 
   it("writes a resolvable Process Runtime registry for direct Nitro config integration", async () => {
@@ -269,7 +286,9 @@ describe("Vite schedule integration", () => {
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
     expect(pluginSource).toContain("runtimeScheduleRegistry from \"./runtime-registry.js\"")
+    expect(pluginSource).toContain("staticScheduleRegistry from \"./static-registry.js\"")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "runtime-registry.js"), "utf8")).resolves.toContain("server/schedules/report.ts")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "static-registry.js"), "utf8")).resolves.toContain("server/schedules/report.ts")
   })
 
   it("does not infer a Process Runtime from Nitro or discovered definitions", async () => {

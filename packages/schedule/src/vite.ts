@@ -20,6 +20,7 @@ const RESOLVED_SCHEDULE_TARGETS_ID = `\0${SCHEDULE_TARGETS_ID}`
 const registryImportAnchor = ".vitehub/schedule/registry.js"
 const generatedNitroSchedulePlugin = ".vitehub/nitro/schedule/plugin.ts"
 const generatedNitroRuntimeRegistry = ".vitehub/nitro/schedule/runtime-registry.js"
+const generatedNitroStaticRegistry = ".vitehub/nitro/schedule/static-registry.js"
 const generatedNitroCloudflareModule = "./.vitehub/nitro/schedule/module.ts"
 const scheduleStaticRuntimeImport = "@vite-hub/schedule/runtime/static"
 const mergeNoExternal = createNoExternalMerger(schedulePackageName)
@@ -169,6 +170,7 @@ interface RenderNitroSchedulePluginOptions {
   providerDefinitions: DiscoveredScheduleDefinition[]
   providerRegistryFile: string
   runtimeRegistryFile: string
+  staticRegistryFile: string
   runtimeImport?: string
 }
 
@@ -196,6 +198,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
           "import { installScheduleRuntime } from '@vite-hub/schedule/runtime/driver'",
           "import { createProcessScheduleWakeDriver } from '@vite-hub/schedule/runtime/process'",
           `import runtimeScheduleRegistry from ${JSON.stringify(moduleImportSpecifier(options.pluginFile, options.runtimeRegistryFile))}`,
+          `import staticScheduleRegistry from ${JSON.stringify(moduleImportSpecifier(options.pluginFile, options.staticRegistryFile))}`,
         ]
       : []),
     "",
@@ -228,7 +231,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
           "    registry: runtimeScheduleRegistry,",
           "    runtimeScheduleStore: createKVRuntimeScheduleStore(scheduleStoreOptions),",
           "    scheduleRunStore: createKVScheduleRunStore(scheduleStoreOptions),",
-          "    staticRegistry: runtimeScheduleRegistry,",
+          "    staticRegistry: staticScheduleRegistry,",
           "  }).then(",
           "    controller => ({ controller }),",
           "    error => {",
@@ -292,6 +295,7 @@ interface WriteNitroSchedulePluginOptions {
   processRuntime?: ScheduleProcessRuntimeOptions
   providerDefinitions: DiscoveredScheduleDefinition[]
   runtimeDefinitions: DiscoveredScheduleDefinition[]
+  staticDefinitions: DiscoveredScheduleDefinition[]
   runtimeImport?: string
 }
 
@@ -300,6 +304,7 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
   const moduleFile = resolve(root, generatedNitroCloudflareModule)
   const providerRegistryFile = resolve(root, registryImportAnchor)
   const runtimeRegistryFile = resolve(root, generatedNitroRuntimeRegistry)
+  const staticRegistryFile = resolve(root, generatedNitroStaticRegistry)
   await mkdir(dirname(pluginFile), { recursive: true })
   const writes: Array<Promise<void>> = [
     writeFile(pluginFile, renderNitroSchedulePlugin({
@@ -308,12 +313,15 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
       providerDefinitions: options.providerDefinitions,
       providerRegistryFile,
       runtimeRegistryFile,
+      staticRegistryFile,
       runtimeImport: options.runtimeImport,
     }), "utf8"),
   ]
   if (options.processRuntime) {
     writes.push(writeFile(runtimeRegistryFile, createRuntimeRegistryContents(runtimeRegistryFile, options.runtimeDefinitions), "utf8"))
     writes.push(writeFile(runtimeRegistryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(), "utf8"))
+    writes.push(writeFile(staticRegistryFile, createRuntimeRegistryContents(staticRegistryFile, options.staticDefinitions), "utf8"))
+    writes.push(writeFile(staticRegistryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(), "utf8"))
   }
   if (options.providerDefinitions.length > 0) {
     await mkdir(dirname(providerRegistryFile), { recursive: true })
@@ -377,6 +385,7 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
     processRuntime,
     providerDefinitions: nitroDefinitions,
     runtimeDefinitions: definitions,
+    staticDefinitions: definitions.filter(definition => definition.runtimeOnly !== true),
     runtimeImport: (options as InternalScheduleVitePluginOptions).runtimeImport,
   })
   return mergeNitroScheduleConfig(options.nitro, {

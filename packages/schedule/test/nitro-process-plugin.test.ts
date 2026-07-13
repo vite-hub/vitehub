@@ -57,6 +57,7 @@ async function loadProcessPlugin(installScheduleRuntime: PluginHarness["installS
   const imports = [
     "const { createKVRuntimeScheduleStore, createKVScheduleRunStore, createProcessScheduleWakeDriver, definePlugin, installScheduleRuntime } = globalThis.__vitehubSchedulePluginHarness",
     "const runtimeScheduleRegistry = {}",
+    "const staticScheduleRegistry = {}",
   ].join("\n")
   const executable = await transform(`${imports}\n${generated.replace(/^import .*$/gm, "")}`, {
     format: "esm",
@@ -95,7 +96,7 @@ function createNitroApp(localFetch = vi.fn()) {
 }
 
 describe("generated Nitro Process Runtime plugin", () => {
-  it("passes the discovered registry to Static and Runtime Schedule execution", async () => {
+  it("passes separate Static and Runtime Schedule registries to execution", async () => {
     const installScheduleRuntime = vi.fn(async (_options: Record<string, unknown>) => ({ close: vi.fn() }))
     const plugin = await loadProcessPlugin(installScheduleRuntime)
     const { app } = createNitroApp()
@@ -106,7 +107,7 @@ describe("generated Nitro Process Runtime plugin", () => {
       staticRegistry: expect.any(Object),
     }))
     const options = installScheduleRuntime.mock.calls[0]![0]
-    expect(options.staticRegistry).toBe(options.registry)
+    expect(options.staticRegistry).not.toBe(options.registry)
   })
 
   it("installs without a fetch method on the Nitro app", async () => {
