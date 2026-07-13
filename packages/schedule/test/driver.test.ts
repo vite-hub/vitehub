@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { schedules } from "../src/runtime/client.ts"
 import { installScheduleRuntime } from "../src/runtime/driver.ts"
+import { createProcessScheduleWakeDriver } from "../src/runtime/process.ts"
 import {
   getRuntimeScheduleStore,
   getScheduleRunStore,
@@ -39,6 +40,172 @@ afterEach(() => {
 })
 
 describe("Runtime Schedule Wake Driver", () => {
+  it("runs a due Static Schedule during the Process Driver startup reconciliation", async () => {
+    const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
+    const handler = vi.fn()
+    const controller = await installScheduleRuntime({
+      createDriver: createProcessScheduleWakeDriver({ now: () => scheduledAt }),
+      registry: {},
+      runtimeScheduleStore: createMemoryRuntimeScheduleStore(),
+      scheduleRunStore: createMemoryScheduleRunStore(),
+      staticRegistry: {
+        "daily-report": async () => ({ cron: "0 9 * * *", handler }),
+      },
+    })
+
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduleId: "daily-report", scheduledAt }))
+    await controller.close()
+  })
+
+  it("reconciles and dispatches Static and Runtime Schedules through one driver", async () => {
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-07-11T08:00:00.000Z")
+    const staticHandler = vi.fn()
+    const runtimeHandler = vi.fn()
+    let context: RuntimeScheduleWakeDriverContext | undefined
+    let reconciled: RuntimeScheduleRecord[] = []
+    await runtimeScheduleStore.create({ createdAt: now, cron: "30 9 * * *", enabled: true, id: "weekday-report", target: "runtime-report", updatedAt: now })
+
+    await installScheduleRuntime({
+      createDriver(driverContext) {
+        context = driverContext
+        return {
+          async reconcile(records) {
+            reconciled = [...records]
+          },
+        }
+      },
+      registry: {
+        "runtime-report": async () => ({ handler: runtimeHandler, options: { allowRuntimeSchedules: true } }),
+      },
+      runtimeScheduleStore,
+      scheduleRunStore,
+      staticRegistry: {
+        "daily-report": async () => ({ cron: "0 9 * * *", handler: staticHandler }),
+        "runtime-report": async () => ({ handler: runtimeHandler, options: { allowRuntimeSchedules: true } }),
+      },
+    })
+
+    expect(reconciled).toHaveLength(2)
+    const staticSchedule = reconciled.find(schedule => schedule.target === "daily-report")!
+    expect(staticSchedule).toMatchObject({ cron: "0 9 * * *", enabled: true, target: "daily-report" })
+    await context!.wake({ scheduleId: staticSchedule.id, scheduledAt: new Date("2026-07-11T09:00:00.000Z") })
+    await context!.wake({ scheduleId: "weekday-report", scheduledAt: new Date("2026-07-11T09:30:00.000Z") })
+
+    expect(staticHandler).toHaveBeenCalledWith(expect.objectContaining({
+      scheduleId: "daily-report",
+      scheduledAt: new Date("2026-07-11T09:00:00.000Z"),
+    }))
+    expect(runtimeHandler).toHaveBeenCalledWith(expect.objectContaining({
+      scheduleId: "weekday-report",
+      scheduledAt: new Date("2026-07-11T09:30:00.000Z"),
+    }))
+    expect(await scheduleRunStore.listRuns()).toHaveLength(2)
+  })
+
+  it("rejects Static Schedule wakes that are not due", async () => {
+    const staticHandler = vi.fn()
+    let context: RuntimeScheduleWakeDriverContext | undefined
+    let reconciled: RuntimeScheduleRecord[] = []
+
+    await installScheduleRuntime({
+      createDriver(driverContext) {
+        context = driverContext
+        return {
+          async reconcile(records) {
+            reconciled = [...records]
+          },
+        }
+      },
+      registry: {},
+      runtimeScheduleStore: createMemoryRuntimeScheduleStore(),
+      scheduleRunStore: createMemoryScheduleRunStore(),
+      staticRegistry: {
+        "daily-report": async () => ({ cron: "0 9 * * *", handler: staticHandler }),
+      },
+    })
+
+    const staticSchedule = reconciled.find(schedule => schedule.target === "daily-report")!
+    await expect(context!.wake({ scheduleId: staticSchedule.id, scheduledAt: new Date("2026-07-11T09:30:00.000Z") })).rejects.toMatchObject({
+      code: "SCHEDULE_NOT_DUE",
+    })
+    expect(staticHandler).not.toHaveBeenCalled()
+  })
+
+  it("loads Static Schedule definitions from module default exports before named exports", async () => {
+    const defaultHandler = vi.fn()
+    const namedHandler = vi.fn()
+    let reconciled: RuntimeScheduleRecord[] = []
+
+    await installScheduleRuntime({
+      createDriver: () => ({
+        async reconcile(records) {
+          reconciled = [...records]
+        },
+      }),
+      registry: {},
+      runtimeScheduleStore: createMemoryRuntimeScheduleStore(),
+      scheduleRunStore: createMemoryScheduleRunStore(),
+      staticRegistry: {
+        "daily-report": async () => ({
+          default: { cron: "0 9 * * *", handler: defaultHandler },
+          handler: namedHandler,
+        }),
+      },
+    })
+
+    expect(reconciled).toHaveLength(1)
+    expect(reconciled[0]).toMatchObject({ cron: "0 9 * * *", target: "daily-report" })
+  })
+
+  it("keeps Static Schedule driver identities distinct from persisted ids", async () => {
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const now = new Date("2026-07-11T08:00:00.000Z")
+    const staticHandler = vi.fn()
+    let context: RuntimeScheduleWakeDriverContext | undefined
+    let reconciled: RuntimeScheduleRecord[] = []
+    await runtimeScheduleStore.create({
+      createdAt: now,
+      cron: "30 9 * * *",
+      enabled: true,
+      id: "\0vitehub:static:daily-report",
+      target: "runtime-report",
+      updatedAt: now,
+    })
+
+    await installScheduleRuntime({
+      createDriver(driverContext) {
+        context = driverContext
+        return {
+          async reconcile(records) {
+            reconciled = [...records]
+          },
+        }
+      },
+      registry: {
+        "runtime-report": async () => ({ handler: async () => {}, options: { allowRuntimeSchedules: true } }),
+      },
+      runtimeScheduleStore,
+      scheduleRunStore: createMemoryScheduleRunStore(),
+      staticRegistry: {
+        "daily-report": async () => ({ cron: "0 9 * * *", handler: staticHandler }),
+      },
+    })
+
+    expect(new Set(reconciled.map(schedule => schedule.id)).size).toBe(2)
+    const staticSchedule = reconciled.find(schedule => schedule.target === "daily-report")!
+    expect(staticSchedule.id).not.toBe("\0vitehub:static:daily-report")
+    await expect(schedules.create({
+      cron: "0 10 * * *",
+      id: staticSchedule.id,
+      target: "runtime-report",
+    })).rejects.toThrow("conflicts with a Static Schedule driver identity")
+    expect(await runtimeScheduleStore.get(staticSchedule.id)).toBeUndefined()
+    await context!.wake({ scheduleId: staticSchedule.id, scheduledAt: new Date("2026-07-11T09:00:00.000Z") })
+    expect(staticHandler).toHaveBeenCalledOnce()
+  })
+
   it("reconciles the complete stored snapshot before installation succeeds", async () => {
     const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
     const scheduleRunStore = createMemoryScheduleRunStore()

@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
-import { executeRuntimeScheduleWake } from "./execute.ts"
+import { executeRuntimeScheduleWake, executeStaticSchedule } from "./execute.ts"
+import { isRuntimeScheduleDue } from "./due.ts"
 import {
   getRuntimeScheduleStore,
   getScheduleRunStore,
@@ -9,8 +10,9 @@ import {
   setScheduleRunStore,
   setScheduleRuntimeRegistry,
 } from "./state.ts"
+import { ScheduleError } from "../errors.ts"
 
-import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinitionRegistry, ScheduleRunStore } from "../types.ts"
+import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunStore } from "../types.ts"
 
 export type { RuntimeScheduleWake } from "../types.ts"
 
@@ -32,6 +34,7 @@ export interface InstallScheduleRuntimeOptions {
   registry: ScheduleDefinitionRegistry
   runtimeScheduleStore: RuntimeScheduleStore
   scheduleRunStore: ScheduleRunStore
+  staticRegistry?: ScheduleDefinitionRegistry
 }
 
 export interface ScheduleRuntimeController {
@@ -43,6 +46,65 @@ interface SerializeOperation {
   defer(operation: () => Promise<void>): void
   isReentrant(): boolean
   runWake(operation: () => Promise<void>): Promise<void>
+}
+
+interface StaticScheduleDefinitionEntry {
+  definition: ScheduleDefinition
+  name: string
+}
+
+interface StaticScheduleEntry extends StaticScheduleDefinitionEntry {
+  record: RuntimeScheduleRecord
+}
+
+interface StaticSchedules {
+  byId: Map<string, StaticScheduleEntry>
+  records: RuntimeScheduleRecord[]
+}
+
+const staticScheduleIdPrefix = "\0vitehub:static:"
+
+function isScheduleRegistryDefinition(value: unknown): value is ScheduleRegistryDefinition {
+  return !!value && typeof value === "object" && "handler" in value
+}
+
+function unwrapDefinition(loaded: ScheduleRegistryDefinition | { default?: ScheduleRegistryDefinition }): ScheduleRegistryDefinition | undefined {
+  if ("default" in loaded && isScheduleRegistryDefinition(loaded.default)) return loaded.default
+  if (isScheduleRegistryDefinition(loaded)) return loaded
+  return undefined
+}
+
+async function loadStaticDefinitions(registry: ScheduleDefinitionRegistry | undefined): Promise<StaticScheduleDefinitionEntry[]> {
+  if (!registry) return []
+  const definitions = await Promise.all(Object.entries(registry).map(async ([name, load]) => {
+    const definition = unwrapDefinition(await load())
+    return definition && "cron" in definition ? { definition, name } : undefined
+  }))
+  return definitions.filter((definition): definition is StaticScheduleDefinitionEntry => definition !== undefined)
+}
+
+function createStaticSchedules(definitions: readonly StaticScheduleDefinitionEntry[], runtimeSchedules: readonly RuntimeScheduleRecord[]): StaticSchedules {
+  const occupiedIds = new Set(runtimeSchedules.map(schedule => schedule.id))
+  const byId = new Map<string, StaticScheduleEntry>()
+  const timestamp = new Date(0)
+  const records = definitions.map((entry) => {
+    const baseId = `${staticScheduleIdPrefix}${encodeURIComponent(entry.name)}`
+    let id = baseId
+    let suffix = 2
+    while (occupiedIds.has(id)) id = `${baseId}:${suffix++}`
+    occupiedIds.add(id)
+    const record = {
+      createdAt: timestamp,
+      cron: entry.definition.cron,
+      enabled: true,
+      id,
+      target: entry.name,
+      updatedAt: timestamp,
+    }
+    byId.set(id, { ...entry, record })
+    return record
+  })
+  return { byId, records }
 }
 
 function createSerializer(): SerializeOperation {
@@ -293,6 +355,8 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
   const reportError = createErrorReporter(options.onError)
   const serialize = createSerializer()
   let driver: RuntimeScheduleWakeDriver | undefined
+  let reconciledDriver: RuntimeScheduleWakeDriver | undefined
+  let staticSchedules: StaticSchedules = { byId: new Map(), records: [] }
   let aborted = false
 
   setScheduleRuntimeRegistry(options.registry)
@@ -300,14 +364,46 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
 
   const initializing = serialize(async () => {
     try {
+      const runtimeSchedules = await options.runtimeScheduleStore.list()
+      staticSchedules = createStaticSchedules(await loadStaticDefinitions(options.staticRegistry), runtimeSchedules)
       driver = await options.createDriver({
         reportError,
-        wake: input => serialize.runWake(() => executeRuntimeScheduleWake(input, {
-          runtimeScheduleStore: options.runtimeScheduleStore,
-          scheduleRunStore: options.scheduleRunStore,
-        })),
+        wake: input => serialize.runWake(async () => {
+          const staticSchedule = staticSchedules.byId.get(input.scheduleId)
+          if (staticSchedule) {
+            if (!isRuntimeScheduleDue(staticSchedule.record, input.scheduledAt)) {
+              throw new ScheduleError(`Static Schedule is not due: ${staticSchedule.name}`, {
+                code: "SCHEDULE_NOT_DUE",
+                details: { id: input.scheduleId, scheduledAt: input.scheduledAt },
+                httpStatus: 409,
+              })
+            }
+            await executeStaticSchedule({
+              cron: staticSchedule.definition.cron,
+              definition: staticSchedule.definition,
+              name: staticSchedule.name,
+              scheduledAt: input.scheduledAt,
+            })
+            return
+          }
+          await executeRuntimeScheduleWake(input, {
+            runtimeScheduleStore: options.runtimeScheduleStore,
+            scheduleRunStore: options.scheduleRunStore,
+          })
+        }),
       })
-      await driver.reconcile(await options.runtimeScheduleStore.list())
+      const installedDriver = driver
+      reconciledDriver = {
+        close: () => installedDriver.close?.(),
+        async reconcile(records) {
+          const conflictingId = records.find(record => staticSchedules.byId.has(record.id))?.id
+          if (conflictingId) {
+            throw new Error(`Runtime Schedule id conflicts with a Static Schedule driver identity: ${JSON.stringify(conflictingId)}`)
+          }
+          await installedDriver.reconcile([...staticSchedules.records, ...records])
+        },
+      }
+      await reconciledDriver.reconcile(runtimeSchedules)
     }
     catch (error) {
       aborted = true
@@ -315,10 +411,10 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
     }
   })
   const runtimeScheduleStore = createReconciledStore(options.runtimeScheduleStore, () => {
-    if (!driver || aborted) {
+    if (!reconciledDriver || aborted) {
       throw new Error("Runtime Schedule wake driver installation did not complete.")
     }
-    return driver
+    return reconciledDriver
   }, reportError, serialize)
   setRuntimeScheduleStore(runtimeScheduleStore)
 
@@ -338,10 +434,10 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
     throw error
   }
 
-  if (!driver) {
+  if (!reconciledDriver) {
     throw new Error("Runtime Schedule wake driver installation did not produce a driver.")
   }
-  const installedDriver = driver
+  const installedDriver = reconciledDriver
 
   let closePromise: Promise<void> | undefined
   return {

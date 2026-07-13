@@ -101,6 +101,7 @@ it("types the Runtime Schedule Wake Driver boundary", () => {
     registry: ScheduleDefinitionRegistry
     runtimeScheduleStore: RuntimeScheduleStore
     scheduleRunStore: ScheduleRunStore
+    staticRegistry?: ScheduleDefinitionRegistry
   }>()
   expectTypeOf(installScheduleRuntime).parameter(0).toEqualTypeOf<InstallScheduleRuntimeOptions>()
   expectTypeOf(installScheduleRuntime).returns.toEqualTypeOf<Promise<ScheduleRuntimeController>>()
