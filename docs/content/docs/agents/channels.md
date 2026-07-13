@@ -18,14 +18,14 @@ import { github, stream, webChat } from '@vite-hub/agent/channels'
 export default defineAgent({
   channels: {
     github: github({ pullRequest: true }),
-    portal: stream({ route: true }),
+    portal: stream,
     web: webChat(),
   },
   run: () => 'ok',
 })
 ```
 
-Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`, `telegram()`, `stream()`, and `webChat()`. Use `defineChannel(kind, options)` for an app-owned Channel Kind.
+Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`, `telegram()`, `stream()`, and `webChat()`. A synchronous Channel factory that needs no options can be registered directly, so `channels: { stream }` is equivalent to `channels: { stream: stream() }` and resolves once when `defineAgent()` runs. Call the helper when passing options, such as `stream({ messages: { sessions: false } })`. Use `defineChannel(kind, options)` for an app-owned Channel Kind.
 
 ## Discord
 

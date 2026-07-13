@@ -4799,6 +4799,68 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("resolves zero-argument Channel factories once per Agent definition", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChannel, stream } = await import("../src/channels.ts")
+    const factory = vi.fn(() => stream())
+    const existing = defineChannel("custom")
+    const workspace = { sources: {} }
+
+    const first = defineAgent({
+      channels: { existing, portal: factory },
+      driver: { run: () => "ok" },
+      workspace,
+    })
+    const second = defineAgent({
+      channels: { portal: factory },
+      driver: { run: () => "ok" },
+    })
+
+    expect(factory).toHaveBeenCalledTimes(2)
+    expect(first.channels?.existing).toBe(existing)
+    expect(first.channels?.portal).not.toBe(second.channels?.portal)
+    expect(first.workspace).toMatchObject(workspace)
+    expect(Object.values(first.channels || {}).every(channel => typeof channel === "object")).toBe(true)
+  })
+
+  it("rejects invalid Channel factory results with the Channel id", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    expect(() => defineAgent({
+      channels: { broken: (() => undefined) as never },
+      driver: { run: () => "ok" },
+    })).toThrowError(new TypeError('[vitehub] Channel factory "broken" must return an Agent Channel definition.'))
+  })
+
+  it("keeps shorthand and explicit Stream Channels equivalent on generated routes", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { stream } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const shorthandRun = vi.fn(({ run }) => `${run.channelId}:${run.origin}`)
+    const explicitRun = vi.fn(({ run }) => `${run.channelId}:${run.origin}`)
+    const request = () => new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
+      }),
+      method: "POST",
+    })
+
+    const shorthand = defineAgent({ channels: { portal: stream }, driver: { run: shorthandRun } })
+    const explicit = defineAgent({ channels: { portal: stream() }, driver: { run: explicitRun } })
+    const shorthandResponse = await createChannelChatRouteHandler(shorthand as never)(request(), { agentName: "support" })
+    const explicitResponse = await createChannelChatRouteHandler(explicit as never)(request(), { agentName: "support" })
+
+    expect(shorthandResponse.status).toBe(200)
+    expect(explicitResponse.status).toBe(200)
+    expect(shorthandRun).toHaveBeenCalledWith(expect.objectContaining({ run: expect.objectContaining({ channelId: "portal", origin: "stream" }) }))
+    expect(explicitRun).toHaveBeenCalledWith(expect.objectContaining({ run: expect.objectContaining({ channelId: "portal", origin: "stream" }) }))
+
+    expect(() => createChannelChatRouteHandler(defineAgent({
+      channels: { first: stream, second: stream },
+      driver: { run: () => "ok" },
+    }) as never)).toThrow("multiple route-enabled Channels")
+  })
+
   it("applies channel-local message settings for one message-shaped channel", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")

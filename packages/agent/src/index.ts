@@ -93,6 +93,7 @@ import type {
   AgentAdapterResult,
   AgentCapabilitiesList,
   AgentChannelDefinition,
+  AgentChannelInputs,
   AgentChannelTriggerContext,
   AgentChannels,
   AgentCapabilityHooks,
@@ -242,6 +243,9 @@ export type {
   AgentChatSessionOptions,
   AgentChatTriggerHistory,
   AgentChannelDefinition,
+  AgentChannelFactory,
+  AgentChannelInput,
+  AgentChannelInputs,
   AgentChannelTriggerContext,
   AgentChannels,
   AgentDeliveryArtifact,
@@ -961,6 +965,23 @@ function validateNonWorkspaceCapabilities(capabilities: NormalizedCapability[], 
   }
 }
 
+function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
+  inputs: AgentChannelInputs<TRuntimeConfig> | undefined,
+): AgentChannels<TRuntimeConfig> | undefined {
+  if (!inputs) return inputs
+  let channels: AgentChannels<TRuntimeConfig> | undefined
+  for (const [id, input] of Object.entries(inputs)) {
+    if (typeof input !== "function") continue
+    const channel = input()
+    if (!channel || typeof channel !== "object" || typeof channel.kind !== "string") {
+      throw new TypeError(`[vitehub] Channel factory "${id}" must return an Agent Channel definition.`)
+    }
+    channels ||= { ...inputs } as AgentChannels<TRuntimeConfig>
+    channels[id] = channel
+  }
+  return channels || (inputs as AgentChannels<TRuntimeConfig>)
+}
+
 function defineBaseAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -969,7 +990,8 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   const driver = normalizeAgentDriver(options)
-  const { capabilities, channels, cli, description, hooks, messages, name, runtime, version, workspace } = options
+  const { capabilities, cli, description, hooks, messages, name, runtime, version, workspace } = options
+  const channels = normalizeAgentChannels(options.channels)
   const run = driver.kind === "run" ? driver.run : undefined
   const baseCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
@@ -1034,7 +1056,9 @@ function defineBaseAgent<
         : adapterInstance
     },
   } as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS>
-  Object.defineProperty(definition, "__vitehubAgentSettings", { value: options })
+  Object.defineProperty(definition, "__vitehubAgentSettings", {
+    value: channels === options.channels ? options : { ...options, channels },
+  })
   return definition
 }
 

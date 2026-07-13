@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, type AgentActor, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentDeliveryArtifact, type AgentDriver, type AgentFinishEvent, type AgentHarnessDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, type AgentActor, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentFinishEvent, type AgentHarnessDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
 import { access, blob, browser, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, observability, openapi, pullRequestContext, repositoryHost, repositoryHostContext, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type SubagentToolInput, type UsageTelemetryRecord } from "../src/capabilities.ts"
 import { defineChannel, github, http, pullRequest, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
@@ -26,6 +26,48 @@ declare global {
 }
 
 describe("agent public types", () => {
+  it("accepts zero-argument Channel factories and keeps configured Channels explicit", () => {
+    interface RuntimeConfig extends AgentRuntimeConfig {
+      token: string
+    }
+    const factory: AgentChannelFactory = stream
+    const runtimeFactory: AgentChannelFactory<RuntimeConfig> = stream
+    const input: AgentChannelInput = factory
+    const inputs: AgentChannelInputs = { portal: input }
+
+    defineAgent({ channels: inputs, driver: { run: () => "ok" } })
+    const runtimeAgent = defineAgent<RuntimeConfig>({ channels: { stream: runtimeFactory }, driver: { run: () => "ok" } })
+    expectTypeOf(runtimeAgent.channels?.stream).toEqualTypeOf<AgentChannelDefinition<RuntimeConfig> | undefined>()
+    defineAgent({ channels: { portal: stream }, driver: { run: () => "ok" } })
+    defineAgent({ channels: { portal: stream() }, driver: { run: () => "ok" } })
+    defineAgent({ channels: { portal: stream({ messages: { sessions: false } }) }, driver: { run: () => "ok" } })
+
+    const requiresOptions = (_options: { route: boolean }) => stream()
+    defineAgent({
+      channels: {
+        // @ts-expect-error Channel factories cannot require arguments.
+        portal: requiresOptions,
+      },
+      driver: { run: () => "ok" },
+    })
+
+    defineAgent({
+      channels: {
+        // @ts-expect-error Channel factories must return Channel definitions.
+        portal: () => ({ route: true }),
+      },
+      driver: { run: () => "ok" },
+    })
+
+    defineAgent({
+      channels: {
+        // @ts-expect-error Channel factories must resolve synchronously.
+        portal: async () => stream(),
+      },
+      driver: { run: () => "ok" },
+    })
+  })
+
   it("accepts portable and raw JSON tool schemas", () => {
     const portableSchema = {
       "~standard": {
