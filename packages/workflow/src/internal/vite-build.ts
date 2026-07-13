@@ -62,6 +62,8 @@ interface GeneratedWorkflowArtifacts {
 
 interface GenerateProviderOutputsOptions {
   clientOutDir: string
+  importBase?: string
+  agentImportBase?: string
   rootDir: string
   workflow: WorkflowModuleOptions | undefined
 }
@@ -136,21 +138,27 @@ function renderWorkflowRegistryEntry(registryFile: string, definition: Discovere
   ].filter(Boolean).join("\n")
 }
 
-function createWorkflowRegistryContents(registryFile: string, definitions: DiscoveredWorkflowDefinition[]): string {
+function createWorkflowRegistryContents(
+  registryFile: string,
+  definitions: DiscoveredWorkflowDefinition[],
+  options: { agentImportBase?: string, importBase?: string } = {},
+): string {
+  const agentImportBase = options.agentImportBase ?? "@vite-hub/agent"
+  const workflowImportBase = options.importBase ?? "@vite-hub/workflow"
   const needsWorkflowRuntime = definitions.some(definition => definition.steps?.length)
   const needsAgentRuntime = definitions.some(definition => definition.source === "agent-workflow")
   const needsRegistryEntryCache = needsWorkflowRuntime || needsAgentRuntime
   const imports = [
     ...(needsAgentRuntime
       ? [
-          `import { runAgentInline } from "@vite-hub/agent"`,
-          `import { runAgentWorkflowDefinition } from "@vite-hub/agent/runtime/workflow"`,
+          `import { runAgentInline } from ${JSON.stringify(agentImportBase)}`,
+          `import { runAgentWorkflowDefinition } from ${JSON.stringify(`${agentImportBase}/runtime/workflow`)}`,
         ]
       : []),
     ...(needsWorkflowRuntime
       ? [
-          `import { createWorkflowSteps } from "@vite-hub/workflow/runtime/execute"`,
-          `import { takeInlineWorkflowDefinitionForModule } from "@vite-hub/workflow/runtime/state"`,
+          `import { createWorkflowSteps } from ${JSON.stringify(`${workflowImportBase}/runtime/execute`)}`,
+          `import { takeInlineWorkflowDefinitionForModule } from ${JSON.stringify(`${workflowImportBase}/runtime/state`)}`,
         ]
       : []),
   ]
@@ -237,7 +245,11 @@ function renderProviderEntry(
   ].filter(Boolean).join("\n")
 }
 
-async function writeProviderEntries(rootDir: string, workflow: WorkflowModuleOptions | undefined) {
+async function writeProviderEntries(
+  rootDir: string,
+  workflow: WorkflowModuleOptions | undefined,
+  options: { agentImportBase?: string, importBase?: string } = {},
+) {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
@@ -247,7 +259,7 @@ async function writeProviderEntries(rootDir: string, workflow: WorkflowModuleOpt
   const userAppEntry = resolveWorkflowUserAppEntry(rootDir)
   const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
 
-  await writeFile(registryFile, createWorkflowRegistryContents(registryFile, definitions), "utf8")
+  await writeFile(registryFile, createWorkflowRegistryContents(registryFile, definitions, options), "utf8")
 
   const entryFiles: Record<WorkflowProvider, string> = { cloudflare: "", openworkflow: "", vercel: "" }
   await Promise.all(providerEntrySpecs.map(async (spec) => {
@@ -334,7 +346,10 @@ function createVercelOutput(artifacts: GeneratedWorkflowArtifacts): VercelProvid
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedWorkflowArtifacts> {
-  const artifacts = await writeProviderEntries(options.rootDir, options.workflow)
+  const artifacts = await writeProviderEntries(options.rootDir, options.workflow, {
+    agentImportBase: options.agentImportBase,
+    importBase: options.importBase,
+  })
   const cloudflareWorkflowConfig = resolveWorkflowConfig(options.workflow, "cloudflare")
   const vercelWorkflowConfig = resolveWorkflowConfig(options.workflow, "vercel")
   await writeProviderDeploymentOutputs({

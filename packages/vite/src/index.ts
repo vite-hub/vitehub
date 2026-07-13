@@ -42,6 +42,11 @@ type InternalSchedulePresetOptions = ScheduleVitePluginOptions & {
   runtimeImport?: string
 }
 
+type InternalWorkflowPresetOptions = Extract<WorkflowModuleOptions, object> & {
+  agentImportBase?: string
+  importBase?: string
+}
+
 const presetDependencyNames = [
   "@vite-hub/agent",
   "@vite-hub/blob",
@@ -127,7 +132,14 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
     }
     plugins.push(hubSchedule(scheduleOptions))
   }
-  if (options.workflow !== false) plugins.push(hubWorkflow(options.workflow))
+  if (options.workflow !== false) {
+    const workflowOptions: InternalWorkflowPresetOptions = {
+      ...(options.workflow ?? {}),
+      agentImportBase: "@vite-hub/vite/agent",
+      importBase: "@vite-hub/vite/workflow",
+    }
+    plugins.push(hubWorkflow(workflowOptions))
+  }
   if (options.workspace !== false) plugins.push(hubWorkspace(options.workspace))
   if (options.devtools !== false) plugins.push(hubDevtools(options.devtools))
   plugins.push(presetDependencyResolver)

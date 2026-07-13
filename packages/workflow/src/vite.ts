@@ -9,7 +9,24 @@ import type { Plugin, ResolvedConfig } from "vite"
 
 export type WorkflowVitePlugin = Plugin
 
+type InternalWorkflowModuleOptions = Extract<WorkflowModuleOptions, object> & {
+  agentImportBase?: string
+  importBase?: string
+}
+
 const mergeNoExternal = createNoExternalMerger(workflowPackageName)
+
+function getInternalWorkflowOptions(options: WorkflowModuleOptions | undefined): InternalWorkflowModuleOptions | undefined {
+  return typeof options === "object" && options
+    ? options as InternalWorkflowModuleOptions
+    : undefined
+}
+
+function toPublicWorkflowOptions(options: WorkflowModuleOptions | undefined): WorkflowModuleOptions | undefined {
+  if (typeof options !== "object" || !options) return options
+  const { agentImportBase: _agentImportBase, importBase: _importBase, ...publicOptions } = options as InternalWorkflowModuleOptions
+  return publicOptions
+}
 
 export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin {
   let resolved: ResolvedConfig | undefined
@@ -37,9 +54,11 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
         return
       }
       await generateProviderOutputs({
+        agentImportBase: getInternalWorkflowOptions(workflow)?.agentImportBase,
         clientOutDir: resolved.build.outDir,
+        importBase: getInternalWorkflowOptions(workflow)?.importBase,
         rootDir: resolved.root,
-        workflow,
+        workflow: toPublicWorkflowOptions(workflow),
       })
     },
   }

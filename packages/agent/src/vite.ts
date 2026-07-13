@@ -153,7 +153,7 @@ function generatedAgentRouteCapabilities(options: AgentGeneratedImportOptions) {
       ...(options.schedule
         ? [
             `import vitehubAgentScheduleRegistry from ${JSON.stringify(options.scheduleRegistryImport ?? scheduleRegistryId)}`,
-            `import { schedules as vitehubSchedules, setScheduleRuntimeRegistry as vitehubSetScheduleRuntimeRegistry } from ${JSON.stringify(scheduleRuntimeImport)}`,
+            `import { schedules as vitehubSchedules, setScheduleRuntimeRegistry as vitehubSetScheduleRuntimeRegistry } from ${JSON.stringify(options.scheduleRuntimeImport ?? scheduleRuntimeImport)}`,
           ]
         : []),
     ],
