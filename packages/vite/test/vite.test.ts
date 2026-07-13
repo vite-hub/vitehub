@@ -64,7 +64,10 @@ describe("vitehub", () => {
 
     vitehub({ agent, schedule })
 
-    expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(agent)
+    expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith({
+      ...agent,
+      runtimeCapabilityImportBase: "@vite-hub/vite",
+    })
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(schedule)
   })
 
@@ -108,7 +111,7 @@ describe("vitehub", () => {
     expect(await resolver.resolveId.call(
       {} as never,
       "@vite-hub/agent/cloudflare/state",
-      "\0vitehub-agent-cloudflare-state-exports:ViteHubAgentStateDO",
+      "\0virtual:vitehub-agent-cloudflare-state-exports",
       {} as never,
     )).toMatch(/\/agent\/dist\/cloudflare\/state\.js$/)
 

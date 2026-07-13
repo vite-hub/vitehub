@@ -71,6 +71,7 @@ const optionalNetlifyAgentBundleExternals = [
 
 interface InternalAgentModuleOptions extends AgentModuleOptions {
   importBase?: string
+  runtimeCapabilityImportBase?: string
   workspaceImportBase?: string
 }
 
@@ -96,9 +97,15 @@ const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapabilit
 
 function resolveGeneratedAgentRuntimeCapabilities(
   config: Pick<ResolvedConfig, "plugins">,
+  importBase?: string,
 ): GeneratedAgentRuntimeCapability[] {
   const pluginNames = new Set(config.plugins?.map(plugin => plugin.name))
-  return generatedAgentRuntimeCapabilityDefinitions.filter(capability => pluginNames.has(capability.pluginName))
+  return generatedAgentRuntimeCapabilityDefinitions
+    .filter(capability => pluginNames.has(capability.pluginName))
+    .map(capability => ({
+      ...capability,
+      packageName: importBase ? `${importBase}/${capability.name}` : capability.packageName,
+    }))
 }
 
 function generatedAgentRuntimeCapabilityAlias(capability: GeneratedAgentRuntimeCapability): string {
@@ -125,6 +132,10 @@ function getAgentImportBase(options: AgentModuleOptions | false | undefined): st
 
 function getWorkspaceImportBase(options: AgentModuleOptions | false | undefined): string {
   return getInternalAgentOptions(options)?.workspaceImportBase ?? workspacePackageName
+}
+
+function getRuntimeCapabilityImportBase(options: AgentModuleOptions | false | undefined): string | undefined {
+  return getInternalAgentOptions(options)?.runtimeCapabilityImportBase
 }
 
 function generatedAgentRouteCapabilities(options: AgentGeneratedImportOptions) {
@@ -1333,7 +1344,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       agent = config.agent ?? agent
       const normalized = normalizeAgentOptions(agent)
       const schedule = hasScheduleVitePlugin(config)
-      runtimeCapabilities = resolveGeneratedAgentRuntimeCapabilities(config)
+      runtimeCapabilities = resolveGeneratedAgentRuntimeCapabilities(config, getRuntimeCapabilityImportBase(agent))
       if (normalized && (normalized.routes.chat || normalized.routes.webhooks || normalized.routes.discordGateway)) {
         if (normalized.runtime === "deno") {
           if (normalized.routes.chat || normalized.routes.webhooks) {

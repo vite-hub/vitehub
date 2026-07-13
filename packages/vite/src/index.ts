@@ -27,6 +27,10 @@ import type { PluginOption } from "vite"
 
 export { env } from "@vite-hub/env/vite"
 
+type InternalAgentPresetOptions = AgentModuleOptions & {
+  runtimeCapabilityImportBase?: string
+}
+
 const presetDependencyNames = [
   "@vite-hub/agent",
   "@vite-hub/blob",
@@ -48,7 +52,7 @@ const presetDependencyResolver = {
     const normalizedImporter = importer?.replace(/\\/g, "/")
     if (
       !normalizedImporter?.includes("/.vitehub/")
-      && !normalizedImporter?.includes("vitehub-agent-cloudflare-state-exports:")
+      && !normalizedImporter?.includes("virtual:vitehub-agent-cloudflare-state-exports")
     ) {
       return
     }
@@ -84,7 +88,13 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
       },
     }))
   }
-  if (options.agent !== false) plugins.push(hubAgent(options.agent))
+  if (options.agent !== false) {
+    const agentOptions: InternalAgentPresetOptions = {
+      ...(options.agent ?? {}),
+      runtimeCapabilityImportBase: "@vite-hub/vite",
+    }
+    plugins.push(hubAgent(agentOptions))
+  }
   if (options.database !== false) plugins.push(hubDb(options.database))
   if (options.blob !== false) plugins.push(hubBlob(options.blob))
   if (options.kv !== false) plugins.push(hubKv(options.kv))
