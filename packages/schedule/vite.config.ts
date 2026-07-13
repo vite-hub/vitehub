@@ -9,6 +9,17 @@ export default defineConfig({
       neverBundle: ["vite", "esbuild"],
       onlyBundle: false,
     },
+    plugins: [{
+      name: "schedule-registry-declarations",
+      generateBundle(_options, bundle) {
+        for (const fileName of ["index.d.ts", "runtime.d.ts"]) {
+          const chunk = bundle[fileName]
+          if (chunk?.type === "chunk") {
+            chunk.code = `/// <reference path="./registry-module.d.ts" />\n${chunk.code}`
+          }
+        }
+      },
+    }],
     entry: [
       "src/definition.ts",
       "src/index.ts",
