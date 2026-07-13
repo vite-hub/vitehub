@@ -136,6 +136,22 @@ describe("provider deployment outputs", () => {
     })
   })
 
+  it("does not create Cloudflare output while cleaning absent owned config", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeCloudflareWranglerConfig,
+    } = await import("../src/build/cloudflare.ts")
+
+    await writeCloudflareWranglerConfig({
+      rootDir,
+      wranglerArrayMergeKeys: { kv_namespaces: "binding" },
+      wranglerArrayOwnedValues: { kv_namespaces: ["SETTINGS"] },
+    })
+
+    expect(existsSync(createDefaultCloudflareOutputRoot(rootDir))).toBe(false)
+  })
+
   it("merges keyed Cloudflare config arrays without dropping unrelated entries", async () => {
     const rootDir = await createTempProject()
     const {

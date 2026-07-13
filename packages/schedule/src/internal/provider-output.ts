@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs"
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
-import { dirname, resolve } from "node:path"
+import { mkdir, readFile, readdir, rm, rmdir, writeFile } from "node:fs/promises"
+import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { isDeepStrictEqual } from "node:util"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot } from "@vite-hub/internal/build/deployment-output"
@@ -74,6 +75,29 @@ interface GenerateProviderOutputsOptions {
   rootDir: string
   runtimeImport?: string
   source?: DiscoveredScheduleDefinition["source"]
+}
+
+async function removeEmptyDirectories(directory: string, rootDir: string): Promise<void> {
+  const root = resolve(rootDir)
+  let current = resolve(directory)
+  const pathFromRoot = relative(root, current)
+  if (!pathFromRoot || pathFromRoot.startsWith("..") || isAbsolute(pathFromRoot)) return
+
+  while (current !== root) {
+    try {
+      await rmdir(current)
+    }
+    catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === "ENOENT") {
+        current = dirname(current)
+        continue
+      }
+      if (code === "ENOTEMPTY" || code === "EEXIST") return
+      throw error
+    }
+    current = dirname(current)
+  }
 }
 
 export interface NetlifyScheduleFunctionOutput {
@@ -643,20 +667,44 @@ export async function writeVercelScheduleFunctions(options: {
   }
 
   const configFile = resolve(outputRoot, "config.json")
-  await mkdir(outputRoot, { recursive: true })
-  let vercelConfig = createVercelConfigJson() as ReturnType<typeof createVercelConfigJson> & { crons?: Array<{ path: string, schedule: string }> }
+  let vercelConfig: ReturnType<typeof createVercelConfigJson> & { crons?: Array<{ path: string, schedule: string }> }
   try {
     vercelConfig = JSON.parse(await readFile(configFile, "utf8"))
   }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    if (!definitions.length) {
+      await removeEmptyDirectories(functionRoot, options.rootDir)
+      return
+    }
+    vercelConfig = createVercelConfigJson()
   }
   const schedulePathPrefix = "/api/vitehub/schedules/vercel/"
-  const existingCrons = vercelConfig.crons?.filter(cron => !cron.path.startsWith(schedulePathPrefix)) ?? []
-  vercelConfig.crons = [...existingCrons, ...definitions.map(definition => ({
+  const previousCrons = vercelConfig.crons ?? []
+  const existingCrons = previousCrons.filter(cron => !cron.path.startsWith(schedulePathPrefix))
+  if (!definitions.length && existingCrons.length === previousCrons.length) {
+    await removeEmptyDirectories(functionRoot, options.rootDir)
+    return
+  }
+  const nextCrons = [...existingCrons, ...definitions.map(definition => ({
     path: getVercelSchedulePath(definition.name),
     schedule: crons.get(definition.name)!,
   }))]
+  if (nextCrons.length) {
+    vercelConfig.crons = nextCrons
+  }
+  else {
+    delete vercelConfig.crons
+  }
+  if (!definitions.length) {
+    await removeEmptyDirectories(functionRoot, options.rootDir)
+    const outputFiles = await readdir(outputRoot)
+    if (outputFiles.length === 1 && outputFiles[0] === "config.json" && isDeepStrictEqual(vercelConfig, createVercelConfigJson())) {
+      await rm(configFile, { force: true })
+      await removeEmptyDirectories(outputRoot, options.rootDir)
+      return
+    }
+  }
   await writeFile(configFile, `${JSON.stringify(vercelConfig, null, 2)}\n`, "utf8")
 }
 
@@ -689,6 +737,7 @@ async function writeNetlifyScheduleFunctions(options: {
   definitions: DiscoveredScheduleDefinition[]
   outputRoot: string
   registryFile: string
+  rootDir: string
 }) {
   const functionRoot = resolve(options.outputRoot, "functions")
   const existingFiles = await readdir(functionRoot).catch((error: NodeJS.ErrnoException) => {
@@ -704,7 +753,10 @@ async function writeNetlifyScheduleFunctions(options: {
     functionRoot,
     registryFile: options.registryFile,
   })
-  if (outputs.length === 0) return
+  if (outputs.length === 0) {
+    await removeEmptyDirectories(functionRoot, options.rootDir)
+    return
+  }
 
   await mkdir(functionRoot, { recursive: true })
   await Promise.all(outputs.map(async output => writeFile(output.file, output.source, "utf8")))
@@ -838,6 +890,8 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     await Promise.all([
       rm(artifacts.cloudflareWorkerFile, { force: true }),
       rm(artifacts.denoCronFile, { force: true }),
+      rm(artifacts.registryFile, { force: true }),
+      rm(artifacts.vercelServerFile, { force: true }),
       cleanCloudflareScheduleOutput(options.rootDir, cloudflareStateFile),
     ])
   }
@@ -852,6 +906,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     definitions: artifacts.definitions,
     outputRoot: createDefaultNetlifyOutputRoot(options.rootDir),
     registryFile: artifacts.registryFile,
+    rootDir: options.rootDir,
   })
   return artifacts
 }

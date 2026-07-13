@@ -128,7 +128,6 @@ export async function writeCloudflareWranglerConfig(options: CloudflareWranglerC
   const configFile = resolve(outputRoot, "wrangler.json")
   if (!options.wranglerConfig) {
     if (options.wranglerArrayOwnedValues && options.wranglerArrayMergeKeys) {
-      await mkdir(outputRoot, { recursive: true })
       await writeMergedJsonObject(configFile, {}, options.wranglerConfigKeys, options.wranglerArrayMergeKeys, options.wranglerArrayOwnedValues)
       return
     }
