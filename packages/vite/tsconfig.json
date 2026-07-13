@@ -17,6 +17,9 @@
       "@vite-hub/blob/*": [
         "packages/blob/src/*"
       ],
+      "@vite-hub/cli": [
+        "packages/cli/src/index.ts"
+      ],
       "@vite-hub/database": [
         "packages/database/src/index.ts"
       ],

@@ -40,7 +40,7 @@ They may resolve to Runtime Registries, generated files, virtual modules, or pac
 
 | Import path | Use |
 | --- | --- |
-| `@vite-hub/vite` | Register the preset Vite Integration with `vitehub()`. It composes package-owned integrations but does not re-export their application APIs. |
+| `@vite-hub/vite` | Register the preset Vite Integration with `vitehub()` and declare Env values with `env()`. |
 | `@vite-hub/agent/vite` | Register the Agent Vite Integration. |
 | `@vite-hub/auth/vite` | Register the Auth Vite Integration. |
 | `@vite-hub/blob/vite` | Register the Blob Vite Integration. |
@@ -52,6 +52,31 @@ They may resolve to Runtime Registries, generated files, virtual modules, or pac
 | `@vite-hub/schedule/vite` | Register the Schedule Vite Integration. |
 | `@vite-hub/workflow/vite` | Register the Workflow Vite Integration. |
 | `@vite-hub/workspace/vite` | Register the Workspace Vite Integration. |
+
+## Preset facade imports
+
+Applications that install `@vite-hub/vite` use its feature subpaths instead of
+declaring each ViteHub package separately.
+
+| Import path | Forwards |
+| --- | --- |
+| `@vite-hub/vite/agent` | Agent Definition and invocation APIs. |
+| `@vite-hub/vite/agent/capabilities` | Official Agent Capabilities. |
+| `@vite-hub/vite/agent/channels` | Official Agent Channels. |
+| `@vite-hub/vite/agent/eval` | Agent Eval authoring APIs. |
+| `@vite-hub/vite/database` | Database Definition APIs. |
+| `@vite-hub/vite/database/drizzle` | Generated Drizzle database access. |
+| `@vite-hub/vite/env` | Env Declaration APIs. |
+| `@vite-hub/vite/kv` | KV Runtime Helper. |
+| `@vite-hub/vite/queue` | Queue Definition and Runtime Helper. |
+| `@vite-hub/vite/sandbox` | Sandbox Definition and Runtime Helper. |
+| `@vite-hub/vite/schedule` | Static Schedule Definition APIs. |
+| `@vite-hub/vite/workflow` | Workflow Definition and Runtime Helper. |
+| `@vite-hub/vite/workspace` | Workspace Definition, Source, and facade APIs. |
+
+The facade preserves feature boundaries in the import path while the application
+has one ViteHub dependency. Direct package imports remain stable for libraries
+that intentionally depend on one feature package.
 
 ## Generated and internal paths
 

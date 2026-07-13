@@ -70,14 +70,16 @@ describe("launch documentation trust boundaries", () => {
     }
   });
 
-  it("documents the composition-only preset and its public import boundary", () => {
+  it("documents the one-package application facade and its public import boundary", () => {
     const readme = readFileSync(resolve(repoRoot, "packages/vite/README.md"), "utf8");
 
     expect(readme).toMatch(/import \{ vitehub \} from ["']@vite-hub\/vite["']/);
-    expect(readme).toMatch(/composition preset/i);
+    expect(readme).toMatch(/application package/i);
+    expect(readme).toContain('from "@vite-hub/vite/agent"');
+    expect(readme).toMatch(/vitehub.*CLI/i);
     expect(readme).toMatch(/Queue is opt-in/i);
     expect(readme).toContain("queue: true");
-    expect(readme).toMatch(/does not re-export/i);
+    expect(readme).toMatch(/Third-party choices remain explicit dependencies/i);
   });
 
   it("records current preset and discovery defaults", () => {

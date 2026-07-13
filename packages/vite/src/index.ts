@@ -25,6 +25,8 @@ import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
 import type { PluginOption } from "vite"
 
+export { env } from "@vite-hub/env/vite"
+
 const presetDependencyNames = [
   "@vite-hub/agent",
   "@vite-hub/blob",

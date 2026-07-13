@@ -34,7 +34,7 @@ Host support remains package-specific. A host can support one primitive without 
 
 ## Compose integrations
 
-Use `@vite-hub/vite` when the application wants one composition preset. Queue remains opt-in, and every package keeps ownership of its public application imports.
+Use `@vite-hub/vite` when the application wants one ViteHub dependency. Queue remains opt-in, and application code imports ViteHub-owned APIs from `@vite-hub/vite/*` feature subpaths.
 
 ```ts [vite.config.ts]
 import { vitehub } from '@vite-hub/vite'

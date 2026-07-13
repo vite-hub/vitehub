@@ -39,7 +39,7 @@ Agents may compose Server Primitives. Server Primitives never require Agents.
 The current full-platform setup starts with the Vite preset. Focused guides use the package that owns the Agent or Server Primitive surface.
 
 ```bash
-pnpm add @vite-hub/vite @vite-hub/agent
+pnpm add @vite-hub/vite
 ```
 
 Register the Vite Integration.
@@ -69,7 +69,7 @@ Create an Agent Definition.
 
 ```ts
 import { gateway } from "@ai-sdk/gateway";
-import { defineAgent } from "@vite-hub/agent";
+import { defineAgent } from "@vite-hub/vite/agent";
 
 export default defineAgent({
   driver: {
@@ -82,7 +82,7 @@ export default defineAgent({
 Run it from server code.
 
 ```ts
-import { runAgent } from "@vite-hub/agent";
+import { runAgent } from "@vite-hub/vite/agent";
 import support from "../agents/support";
 
 export default defineEventHandler(async (event) => {

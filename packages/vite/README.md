@@ -1,6 +1,6 @@
 # @vite-hub/vite
 
-`@vite-hub/vite` is the composition preset for package-owned ViteHub integrations. It provides one `vitehub()` plugin entry while each ViteHub package continues to own its configuration, Runtime Helpers, generated files, and Provider Output.
+`@vite-hub/vite` is the application package for ViteHub. It provides one install, the `vitehub()` Vite preset, the `vitehub` CLI, and stable facade imports for ViteHub-owned application APIs.
 
 Use the preset when an application needs several ViteHub integrations and does not need to register each `hubX()` plugin separately.
 
@@ -75,27 +75,32 @@ export default defineConfig({
 })
 ```
 
-## Public import boundary
+## Application imports
 
-`@vite-hub/vite` exports `vitehub()` and the `ViteHubPresetOptions` type. It does not re-export Runtime Helpers, Definition helpers, Capabilities, or package-specific integration functions.
-
-The preset resolves package-owned generated imports from its own dependencies. Applications only need direct dependencies for the ViteHub APIs their source code imports.
-
-Import application APIs from the package that owns them:
+Applications using the preset import ViteHub APIs through its feature subpaths. The feature name remains visible without requiring a separate package dependency.
 
 ```ts
-// server/settings.ts
-import { kv } from "@vite-hub/kv"
+import { defineAgent } from "@vite-hub/vite/agent"
+import { access } from "@vite-hub/vite/agent/capabilities"
+import { defineWorkspace } from "@vite-hub/vite/workspace"
 ```
 
-Import an individual integration directly when the application does not use the preset:
+The root entry also exports the Env declaration helper used by Vite config.
+
+```ts
+import { env, vitehub } from "@vite-hub/vite"
+```
+
+Third-party choices remain explicit dependencies. Install the model provider, chat adapter, database driver, or harness that the application selects.
+
+Individual ViteHub packages remain available for libraries and focused applications that do not use the preset:
 
 ```ts
 // vite.config.ts
 import { hubKv } from "@vite-hub/kv/vite"
 ```
 
-The preset does not change package defaults. Each package still resolves its own provider, generated output, runtime environment, and validation rules.
+The facade does not change package defaults. Each feature still resolves its own provider, generated output, runtime environment, and validation rules.
 
 ## Reference
 

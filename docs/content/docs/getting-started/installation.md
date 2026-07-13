@@ -37,8 +37,9 @@ example, Blob uses `@vite-hub/blob` with `hubBlob()`, while Queue uses
 
 ## Use the preset
 
-Install `@vite-hub/vite` when one application needs several ViteHub packages
-and you prefer one integration entry point.
+Install `@vite-hub/vite` when one application needs several ViteHub features.
+It supplies the preset, CLI, and ViteHub-owned application imports as one
+dependency.
 
 ```bash [Terminal]
 pnpm add @vite-hub/vite vite
@@ -57,12 +58,21 @@ export default defineConfig({
 })
 ```
 
-The preset composes package integrations. Product code still imports Runtime
-Helpers from the package that owns the feature.
+Import product APIs from feature subpaths of the preset package.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from "@vite-hub/vite/agent"
+import { access } from "@vite-hub/vite/agent/capabilities"
+import { defineWorkspace } from "@vite-hub/vite/workspace"
+```
+
+Provider, adapter, harness, and database-driver packages remain explicit
+because the application chooses them. Individual ViteHub packages remain
+available for libraries and focused integrations that do not use the preset.
 
 ::tip
-Prefer a direct package for the first proof. Add the preset when it removes
-real integration repetition from an application that uses several packages.
+Prefer a direct package for a focused library. Use the preset for an application
+that wants one ViteHub install and several features.
 ::
 
 ## Add generated types

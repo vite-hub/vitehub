@@ -12,7 +12,7 @@ Provider Selection belongs in Integration Options when it changes generated outp
 
 | Import | Public type | Placement | Defaults |
 | --- | --- | --- | --- |
-| `@vite-hub/vite` | `ViteHubPresetOptions` | `vitehub(options)` in Vite `plugins` | Composes Agent, Blob, Database, DevTools, Env, KV, Sandbox, Schedule, Workflow, and Workspace unless a key is `false`. Queue is opt-in with `queue: true` or Queue options. Auth is not included. The preset does not re-export package APIs. |
+| `@vite-hub/vite` | `ViteHubPresetOptions` | `vitehub(options)` in Vite `plugins` | Composes Agent, Blob, Database, DevTools, Env, KV, Sandbox, Schedule, Workflow, and Workspace unless a key is `false`. Queue is opt-in with `queue: true` or Queue options. Auth is not included. Applications import ViteHub-owned APIs from `@vite-hub/vite/*` feature subpaths. |
 
 ## Vite Integration options
 
