@@ -237,9 +237,10 @@ describe("agent Vite plugin", () => {
       const plugin = hubAgent({ routes: { chat: false, discordGateway: false, webhooks: false } })
       const configResolved = plugin.configResolved as unknown as (config: { agent?: unknown, command: "serve", createResolver: () => (id: string) => Promise<string | undefined>, plugins: Array<{ name: string }>, root: string }) => Promise<void>
       const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
+      const resolveImport = vi.fn(async () => undefined)
       await configResolved({
         command: "serve",
-        createResolver: () => async id => `/app/node_modules/${id}`,
+        createResolver: () => resolveImport,
         plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/kv/vite" }],
         root,
       })
@@ -264,14 +265,15 @@ describe("agent Vite plugin", () => {
       expect(registry).not.toContain("cron:")
       expect(targets).toContain('scheduleTargetNames.push("agent/digest")')
       expect(targets).toContain('scheduleTargetNames.push("agent/support")')
+      expect(resolveImport).not.toHaveBeenCalled()
 
       const filteredPlugin = hubAgent({ routes: { chat: false, discordGateway: false, webhooks: false } })
       const filteredConfigResolved = filteredPlugin.configResolved as unknown as typeof configResolved
       const filteredTransform = filteredPlugin.transform as typeof transform
       await filteredConfigResolved({
         command: "serve",
-        createResolver: () => async id => id === "@vite-hub/kv" ? `/app/node_modules/${id}` : undefined,
-        plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/kv/vite" }],
+        createResolver: () => resolveImport,
+        plugins: [{ name: "@vite-hub/kv/vite" }],
         root,
       })
       const filteredRegistry = await filteredTransform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")

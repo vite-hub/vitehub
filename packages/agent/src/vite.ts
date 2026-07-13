@@ -94,16 +94,11 @@ const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapabilit
   { importName: "kv", name: "kv", packageName: "@vite-hub/kv", pluginName: "@vite-hub/kv/vite" },
 ]
 
-async function resolveGeneratedAgentRuntimeCapabilities(
-  config: Pick<ResolvedConfig, "plugins" | "root"> & Partial<Pick<ResolvedConfig, "createResolver">>,
-): Promise<GeneratedAgentRuntimeCapability[]> {
+function resolveGeneratedAgentRuntimeCapabilities(
+  config: Pick<ResolvedConfig, "plugins">,
+): GeneratedAgentRuntimeCapability[] {
   const pluginNames = new Set(config.plugins?.map(plugin => plugin.name))
-  const candidates = generatedAgentRuntimeCapabilityDefinitions.filter(capability => pluginNames.has(capability.pluginName))
-  const resolveImport = config.createResolver?.()
-  if (!resolveImport) return candidates
-  const importer = join(config.root, ".vitehub", "agent", "runtime-capabilities.js")
-  const resolved = await Promise.all(candidates.map(async capability => await resolveImport(capability.packageName, importer) ? capability : undefined))
-  return resolved.filter((capability): capability is GeneratedAgentRuntimeCapability => capability !== undefined)
+  return generatedAgentRuntimeCapabilityDefinitions.filter(capability => pluginNames.has(capability.pluginName))
 }
 
 function generatedAgentRuntimeCapabilityAlias(capability: GeneratedAgentRuntimeCapability): string {
@@ -1338,7 +1333,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       agent = config.agent ?? agent
       const normalized = normalizeAgentOptions(agent)
       const schedule = hasScheduleVitePlugin(config)
-      runtimeCapabilities = await resolveGeneratedAgentRuntimeCapabilities(config)
+      runtimeCapabilities = resolveGeneratedAgentRuntimeCapabilities(config)
       if (normalized && (normalized.routes.chat || normalized.routes.webhooks || normalized.routes.discordGateway)) {
         if (normalized.runtime === "deno") {
           if (normalized.routes.chat || normalized.routes.webhooks) {
