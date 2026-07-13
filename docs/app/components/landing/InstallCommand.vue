@@ -267,7 +267,7 @@ onBeforeUnmount(() => {
   .command-swap-leave-active,
   .copy-icon-enter-active,
   .copy-icon-leave-active {
-    transition: opacity 200ms cubic-bezier(0.23, 1, 0.32, 1);
+    transition: none;
   }
 
   .command-swap-enter-from,

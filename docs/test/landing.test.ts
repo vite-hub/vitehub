@@ -117,6 +117,7 @@ describe("landing page", () => {
     expect(installCommand).toContain(
       `:class="activeTab === 'package' ? 'w-[17.25rem]' : 'w-0'"`,
     );
+    expect(installCommand).toContain("transition: none;");
   });
 
   it("wires landing-page metadata through Docus", async () => {
