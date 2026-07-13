@@ -79,6 +79,8 @@ export default defineConfig({
 
 `@vite-hub/vite` exports `vitehub()` and the `ViteHubPresetOptions` type. It does not re-export Runtime Helpers, Definition helpers, Capabilities, or package-specific integration functions.
 
+The preset resolves package-owned generated imports from its own dependencies. Applications only need direct dependencies for the ViteHub APIs their source code imports.
+
 Import application APIs from the package that owns them:
 
 ```ts

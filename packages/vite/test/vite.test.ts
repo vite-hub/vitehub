@@ -28,6 +28,7 @@ function pluginNames(plugins: PluginOption[]): string[] {
 describe("vitehub", () => {
   it("composes ViteHub primitive integrations explicitly", () => {
     expect(pluginNames(vitehub())).toEqual([
+      "@vite-hub/vite/dependencies",
       "@vite-hub/env/vite",
       "@vite-hub/agent/vite",
       "@vite-hub/database/vite",
@@ -40,6 +41,7 @@ describe("vitehub", () => {
       "@vite-hub/devtools",
     ])
     expect(pluginNames(vitehub({ database: false, devtools: false, kv: false }))).toEqual([
+      "@vite-hub/vite/dependencies",
       "@vite-hub/env/vite",
       "@vite-hub/agent/vite",
       "@vite-hub/blob/vite",
@@ -63,6 +65,15 @@ describe("vitehub", () => {
 
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(agent)
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(schedule)
+  })
+
+  it("resolves package-owned generated imports from preset dependencies", async () => {
+    const resolver = vitehub()[0] as Plugin
+    if (typeof resolver.resolveId !== "function") throw new TypeError("Expected a dependency resolver.")
+
+    const resolved = await resolver.resolveId.call({} as never, "@vite-hub/blob/runtime/state", undefined, {} as never)
+
+    expect(resolved).toMatch(/\/blob\/dist\/runtime\/state\.js$/)
   })
 
   it("can be used as one nested Vite plugin entry", () => {

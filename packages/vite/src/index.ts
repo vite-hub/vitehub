@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url"
+
 import { hubAgent } from "@vite-hub/agent/vite"
 import { hubBlob } from "@vite-hub/blob/vite"
 import { hubDb } from "@vite-hub/database/vite"
@@ -23,6 +25,29 @@ import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
 import type { PluginOption } from "vite"
 
+const presetDependencyNames = [
+  "@vite-hub/agent",
+  "@vite-hub/blob",
+  "@vite-hub/database",
+  "@vite-hub/devtools",
+  "@vite-hub/env",
+  "@vite-hub/kv",
+  "@vite-hub/queue",
+  "@vite-hub/sandbox",
+  "@vite-hub/schedule",
+  "@vite-hub/workflow",
+  "@vite-hub/workspace",
+] as const
+
+const presetDependencyResolver = {
+  name: "@vite-hub/vite/dependencies",
+  enforce: "pre" as const,
+  resolveId(id: string) {
+    if (!presetDependencyNames.some(name => id === name || id.startsWith(`${name}/`))) return
+    return fileURLToPath(import.meta.resolve(id))
+  },
+}
+
 export interface ViteHubPresetOptions {
   agent?: false | AgentModuleOptions
   blob?: false | BlobModuleOptions
@@ -38,7 +63,7 @@ export interface ViteHubPresetOptions {
 }
 
 export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
-  const plugins: unknown[] = []
+  const plugins: unknown[] = [presetDependencyResolver]
   if (options.env !== false) plugins.push(hubEnv(options.env))
   if (options.agent !== false) plugins.push(hubAgent(options.agent))
   if (options.database !== false) plugins.push(hubDb(options.database))
