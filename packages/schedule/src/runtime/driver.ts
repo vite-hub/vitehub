@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
 import { executeRuntimeScheduleWake, executeStaticSchedule } from "./execute.ts"
+import { isRuntimeScheduleDue } from "./due.ts"
 import {
   getRuntimeScheduleStore,
   getScheduleRunStore,
@@ -9,6 +10,7 @@ import {
   setScheduleRunStore,
   setScheduleRuntimeRegistry,
 } from "./state.ts"
+import { ScheduleError } from "../errors.ts"
 
 import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunStore } from "../types.ts"
 
@@ -49,6 +51,7 @@ interface SerializeOperation {
 interface StaticScheduleEntry {
   definition: ScheduleDefinition
   name: string
+  record: RuntimeScheduleRecord
 }
 
 interface StaticSchedules {
@@ -87,8 +90,7 @@ function createStaticSchedules(definitions: readonly StaticScheduleEntry[], runt
     let suffix = 2
     while (occupiedIds.has(id)) id = `${baseId}:${suffix++}`
     occupiedIds.add(id)
-    byId.set(id, entry)
-    return {
+    const record = {
       createdAt: timestamp,
       cron: entry.definition.cron,
       enabled: true,
@@ -96,6 +98,8 @@ function createStaticSchedules(definitions: readonly StaticScheduleEntry[], runt
       target: entry.name,
       updatedAt: timestamp,
     }
+    byId.set(id, { ...entry, record })
+    return record
   })
   return { byId, records }
 }
@@ -364,6 +368,13 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
         wake: input => serialize.runWake(async () => {
           const staticSchedule = staticSchedules.byId.get(input.scheduleId)
           if (staticSchedule) {
+            if (!isRuntimeScheduleDue(staticSchedule.record, input.scheduledAt)) {
+              throw new ScheduleError(`Static Schedule is not due: ${staticSchedule.name}`, {
+                code: "SCHEDULE_NOT_DUE",
+                details: { id: input.scheduleId, scheduledAt: input.scheduledAt },
+                httpStatus: 409,
+              })
+            }
             await executeStaticSchedule({
               cron: staticSchedule.definition.cron,
               definition: staticSchedule.definition,

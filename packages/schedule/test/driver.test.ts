@@ -104,6 +104,35 @@ describe("Runtime Schedule Wake Driver", () => {
     expect(await scheduleRunStore.listRuns()).toHaveLength(2)
   })
 
+  it("rejects Static Schedule wakes that are not due", async () => {
+    const staticHandler = vi.fn()
+    let context: RuntimeScheduleWakeDriverContext | undefined
+    let reconciled: RuntimeScheduleRecord[] = []
+
+    await installScheduleRuntime({
+      createDriver(driverContext) {
+        context = driverContext
+        return {
+          async reconcile(records) {
+            reconciled = [...records]
+          },
+        }
+      },
+      registry: {},
+      runtimeScheduleStore: createMemoryRuntimeScheduleStore(),
+      scheduleRunStore: createMemoryScheduleRunStore(),
+      staticRegistry: {
+        "daily-report": async () => ({ cron: "0 9 * * *", handler: staticHandler }),
+      },
+    })
+
+    const staticSchedule = reconciled.find(schedule => schedule.target === "daily-report")!
+    await expect(context!.wake({ scheduleId: staticSchedule.id, scheduledAt: new Date("2026-07-11T09:30:00.000Z") })).rejects.toMatchObject({
+      code: "SCHEDULE_NOT_DUE",
+    })
+    expect(staticHandler).not.toHaveBeenCalled()
+  })
+
   it("loads Static Schedule definitions from module default exports before named exports", async () => {
     const defaultHandler = vi.fn()
     const namedHandler = vi.fn()
