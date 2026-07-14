@@ -462,8 +462,8 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
   return {
     close() {
       return closePromise ??= serialize(async () => {}).then(async () => {
-        await installedDriver.close?.()
         await flushWaitUntil()
+        await installedDriver.close?.()
       })
     },
   }

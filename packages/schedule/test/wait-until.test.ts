@@ -127,6 +127,7 @@ describe("Schedule waitUntil", () => {
     const releases: Array<() => void> = []
     const completed: string[] = []
     const onError = vi.fn()
+    let driverClosed = false
     let context: RuntimeScheduleWakeDriverContext | undefined
     let reconciled: RuntimeScheduleRecord[] = []
     await runtimeScheduleStore.create({
@@ -147,6 +148,9 @@ describe("Schedule waitUntil", () => {
       createDriver(driverContext) {
         context = driverContext
         return {
+          async close() {
+            driverClosed = true
+          },
           async reconcile(records) {
             reconciled = [...records]
           },
@@ -184,10 +188,12 @@ describe("Schedule waitUntil", () => {
     const closing = controller.close().then(() => { closed = true })
     await flushAsyncWork()
     expect(closed).toBe(false)
+    expect(driverClosed).toBe(false)
 
     for (const release of releases) release()
     await closing
 
     expect(completed).toEqual(["static", "runtime"])
+    expect(driverClosed).toBe(true)
   })
 })
