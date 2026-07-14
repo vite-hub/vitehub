@@ -791,6 +791,9 @@ describe("defineAgent workspace option", () => {
       session: harnessFileSession,
       sessionWorkDir: "tmp/harness/codex-home/skills",
     }))
+    expect(harnessFileSession.run).toHaveBeenCalledWith(expect.objectContaining({
+      command: "rm -rf -- 'tmp/harness/codex-home/skills/ponytail' 'tmp/harness/codex-home/skills/code-review'",
+    }))
   })
 
   it("materializes colocated skills into the harness workspace and supported global profile", async () => {

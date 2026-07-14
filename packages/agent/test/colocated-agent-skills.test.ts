@@ -65,5 +65,7 @@ describe("colocated Agent Skills", () => {
     await writeFile(join(root, "review", "skills", "review", "SKILL.md"), "# Review\n", "utf8")
 
     expect(readColocatedAgentSkills(join(root, "review.ts"))).toBeUndefined()
+    await writeFile(join(root, "review", "index.ts"), "export default {}\n", "utf8")
+    expect(readColocatedAgentSkills(join(root, "review", "index.ts"))).toBeDefined()
   })
 })

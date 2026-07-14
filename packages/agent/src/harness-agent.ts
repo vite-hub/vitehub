@@ -695,6 +695,14 @@ async function prepareHarnessGlobalSkills(
     throw new Error(`[vitehub] Failed to prepare global Skill directory: ${ensure.stderr || "sandbox command failed"}`)
   }
   if (!resolved) return
+  const skillDirectories = resolved.paths.map(path => `'${`${directory}/${path}`.replace(/'/g, "'\\''")}'`).join(" ")
+  const clean = await (session as HarnessGlobalSkillsSandbox).run({
+    abortSignal,
+    command: `rm -rf -- ${skillDirectories}`,
+  })
+  if (clean.exitCode !== 0) {
+    throw new Error(`[vitehub] Failed to refresh global Skills: ${clean.stderr || "sandbox command failed"}`)
+  }
   const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
   const prepared = await prepareHarnessWorkspaceSession(resolved.workspace, {
     abortSignal,

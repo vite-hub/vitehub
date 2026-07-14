@@ -186,6 +186,19 @@ describe("agent discovery", () => {
     ])
   })
 
+  it("allows a top-level folder Agent named skills", async () => {
+    const root = await createTempRoot("vitehub-agent-server-skills-name-")
+    await mkdir(join(root, "server", "agents", "skills"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "skills", "config.ts"), "export default {}", "utf8")
+
+    expect(discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })).toEqual([
+      expect.objectContaining({ name: "skills", source: "server-agents" }),
+    ])
+  })
+
   it("ignores eval definitions during server agent discovery", async () => {
     const root = await createTempRoot("vitehub-agent-server-eval-")
     await mkdir(join(root, "server", "agents", "support"), { recursive: true })
