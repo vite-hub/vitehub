@@ -76,9 +76,9 @@ function workspacePathInsideMount(path: string, mountPath: string) {
   return normalized.startsWith(`${mountPath}/`) ? normalized.slice(mountPath.length + 1) : undefined
 }
 
-function sourceBinding(source: WorkspaceSourceInput, mountPath: string): WorkspaceSourceInput {
+function sourceBinding(source: WorkspaceSourceInput, mountPath: string, sourceMountPath = mountPath): WorkspaceSourceInput {
   return {
-    source: rebaseMountedFileSource(source, mountPath),
+    source: rebaseMountedFileSource(source, sourceMountPath),
     mount: mountPath,
   }
 }
@@ -153,7 +153,7 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
     return Object.assign(capability, {
       [globalSkillsSymbol]: {
         path,
-        source: sourceBinding(options.source!, path),
+        source: sourceBinding(options.source!, path, directoryPath),
         sourceKey,
       },
     })

@@ -727,6 +727,17 @@ describe("defineAgent workspace option", () => {
     })
     expect(capability.requires).toBeUndefined()
     expect(capability.workspaceSources).toBeUndefined()
+    expect((skills({
+      path: "skills/ponytail/SKILL.md",
+      scope: "global",
+      source: { path: "skills/ponytail/SKILL.md" },
+    }) as unknown as Record<PropertyKey, unknown>)[Symbol.for("vitehub.agent.globalSkills")]).toMatchObject({
+      path: "ponytail",
+      source: {
+        mount: "ponytail",
+        source: { path: "skills/ponytail/SKILL.md", workspacePath: "SKILL.md" },
+      },
+    })
     expect(() => skills({ scope: "global", source: { path: "/opt/skills/ponytail" } })).toThrow("requires path")
     expect(() => skills({ path: "skills/ponytail", scope: "global" })).toThrow("requires source")
     expect(() => skills({ path: "skills/ponytail", scope: "global", shellExecution: "read", source: { path: "/opt/skills/ponytail" } })).toThrow("does not support shellExecution")
@@ -754,6 +765,7 @@ describe("defineAgent workspace option", () => {
     await expect(runAgent(agent, context(), { prompt: "review" })).resolves.toMatchObject({ text: "ok" })
     expect(useWorkspace).toHaveBeenCalledWith("__vitehub_global_skills", expect.objectContaining({
       definition: expect.objectContaining({
+        runtime: { allowProduction: true, type: "trusted-host" },
         sources: {
           "skill.code-review": { mount: "code-review", source: { path: "/opt/skills/code-review" } },
           "skill.ponytail": { mount: "ponytail", source: { path: "/opt/skills/ponytail" } },

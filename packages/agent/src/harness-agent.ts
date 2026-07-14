@@ -572,7 +572,7 @@ async function prepareHarnessGlobalSkills(
   const workspaceOptions = {
     definition: {
       name: "__vitehub_global_skills",
-      runtime: "trusted-host",
+      runtime: { allowProduction: true, type: "trusted-host" },
       sources: Object.fromEntries(skills.map(skill => [skill.sourceKey, skill.source])),
       store: { provider: "memory" },
     },
