@@ -6,7 +6,7 @@ describe("agent config", () => {
   it("defaults Agent Definitions to workflows with an inline opt-out", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
-    expect(defineAgent({ driver: { run: () => "queued" } }).runtime).toEqual({ kind: "workflow" })
+    expect(defineAgent({ driver: { run: () => "queued" } }).runtime).toEqual({ discoveryDefault: true, kind: "workflow" })
     expect(defineAgent({ driver: { run: () => "inline" }, runtime: false }).runtime).toBe(false)
   })
 

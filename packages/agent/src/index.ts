@@ -575,7 +575,10 @@ interface ScheduleRunContextLike {
 
 const agentWorkflowHandles = new WeakMap<object, Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>>()
 const agentWorkflowNames = new Set<string>()
-const defaultAgentWorkflowRuntimeBindings = new WeakSet<AgentWorkflowRuntimeBinding>()
+
+interface DefaultAgentWorkflowRuntimeBinding extends AgentWorkflowRuntimeBinding {
+  discoveryDefault: true
+}
 
 function hasAgentMethods(value: unknown): value is AgentAdapter {
   return typeof value === "object"
@@ -633,7 +636,7 @@ function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): string {
   const definition = hasAgentDefinition(agent) ? agent : undefined
-  const name = binding.name || definition?.name || context.agentIdentity?.name
+  const name = binding.name || ("discoveryDefault" in binding ? context.agentIdentity?.name : definition?.name || context.agentIdentity?.name)
   if (name) return name
   throw new Error("[vitehub] Agent runtime workflow() requires a name when invoked directly. A stable Workflow Definition target requires workflow(\"name\").")
 }
@@ -672,7 +675,7 @@ async function runAgentAsWorkflow<
   input: AgentRunInput<CALL_OPTIONS>,
 ) {
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
-  if (!binding || (defaultAgentWorkflowRuntimeBindings.has(binding) && !context.agentIdentity)) return undefined
+  if (!binding || ("discoveryDefault" in binding && !context.agentIdentity)) return undefined
 
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS>(agent, resolveAgentWorkflowName(agent, binding, context))
   const resolvedContext = createResolvedRuntimeContext(context)
@@ -1100,10 +1103,8 @@ export function workflow(name?: string): AgentWorkflowRuntimeBinding {
   }
 }
 
-function defaultAgentWorkflowRuntime(): AgentWorkflowRuntimeBinding {
-  const binding = workflow()
-  defaultAgentWorkflowRuntimeBindings.add(binding)
-  return binding
+function defaultAgentWorkflowRuntime(): DefaultAgentWorkflowRuntimeBinding {
+  return { discoveryDefault: true, kind: "workflow" }
 }
 
 function createSyntheticWorkspaceRun<

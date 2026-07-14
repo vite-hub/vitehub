@@ -8381,6 +8381,27 @@ describe("agent message protocol", () => {
       }, { prompt: "hello" })).resolves.toBe("received hello")
     })
 
+    it("uses discovered identity ahead of the Agent Definition name for the default binding", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const run = await runAgent(defineAgent({
+        name: "configured-name",
+        driver: { run: context => `received ${context.prompt}` },
+      }), {
+        agentIdentity: { name: "discovered-name" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      expect(await getWorkflowRun("discovered-name", run.id)).toMatchObject({ status: "completed" })
+    })
+
     it("runs direct agent calls inline when runtime is false", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const agent = defineAgent({

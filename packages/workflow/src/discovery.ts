@@ -51,18 +51,74 @@ function isSourceFile(file: string) {
   return sourceFilePattern.test(file) && !declarationFilePattern.test(file)
 }
 
-function stripSourceComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1")
+function maskSourceLiterals(source: string): string {
+  let masked = ""
+  for (let index = 0; index < source.length;) {
+    const quote = source[index]
+    if (quote === "/" && source[index + 1] === "/") {
+      const end = source.indexOf("\n", index)
+      const length = (end < 0 ? source.length : end) - index
+      masked += " ".repeat(length)
+      index += length
+    }
+    else if (quote === "/" && source[index + 1] === "*") {
+      const end = source.indexOf("*/", index + 2)
+      const length = (end < 0 ? source.length : end + 2) - index
+      masked += source.slice(index, index + length).replace(/[^\n]/g, " ")
+      index += length
+    }
+    else if (quote === "\"" || quote === "'" || quote === "`") {
+      let end = index + 1
+      while (end < source.length) {
+        if (source[end] === "\\") end += 2
+        else if (source[end++] === quote) break
+      }
+      masked += source.slice(index, end).replace(/[^\n]/g, " ")
+      index = end
+    }
+    else {
+      masked += quote
+      index++
+    }
+  }
+  return masked
+}
+
+function extractAgentRuntime(source: string): string | undefined {
+  const masked = maskSourceLiterals(source)
+  const definition = /\bdefineAgent\s*\(\s*\{/.exec(masked)
+  if (!definition) return undefined
+  const start = definition.index + definition[0].lastIndexOf("{")
+  let depth = 0
+  for (let index = start; index < masked.length; index++) {
+    if (masked[index] === "{") depth++
+    else if (masked[index] === "}" && --depth === 0) return undefined
+    else if (depth === 1 && /^runtime\s*:/.test(masked.slice(index))) {
+      const colon = masked.indexOf(":", index + 7)
+      let end = colon + 1
+      let nested = 0
+      for (; end < masked.length; end++) {
+        if ("([{".includes(masked[end] || "")) nested++
+        else if (")]}".includes(masked[end] || "")) {
+          if (nested === 0) break
+          nested--
+        }
+        else if (masked[end] === "," && nested === 0) break
+      }
+      return source.slice(colon + 1, end).trim()
+    }
+  }
+  return undefined
 }
 
 function extractAgentWorkflowName(file: string, fallbackName: string): string | undefined {
-  const source = stripSourceComments(readFileSync(file, "utf8"))
-  const match = /\bruntime\s*:\s*workflow\s*\(([^)]*)\)/m.exec(source)
+  const runtime = extractAgentRuntime(readFileSync(file, "utf8"))
+  const match = /^workflow\s*\(([^)]*)\)$/.exec(runtime || "")
   if (match) {
     const literal = /^\s*(["'`])([^"'`]+)\1\s*$/.exec(match[1] || "")
     return literal?.[2] || fallbackName
   }
-  return /\bruntime\s*:\s*false\b/m.test(source) ? undefined : fallbackName
+  return runtime === "false" ? undefined : fallbackName
 }
 
 function toAgentWorkflowDefinition(file: string, fallbackName: string): DiscoveredWorkflowDefinition | undefined {
