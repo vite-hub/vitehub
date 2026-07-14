@@ -151,6 +151,21 @@ describe("crabbox", () => {
     await expect(readFile(join(workspace, "entry", "nested.txt"), "utf8")).resolves.toBe("nested")
   })
 
+  it("removes directories replaced by archived symlinks", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const source = join(root, "source")
+    const archive = join(root, "workspace.tar")
+    await Promise.all([mkdir(join(workspace, "entry"), { recursive: true }), mkdir(source)])
+    await writeFile(join(workspace, "entry", "file.txt"), "local")
+    await symlink("target", join(source, "entry"))
+    await execFileAsync("tar", ["-cf", archive, "-C", source, "entry"])
+
+    await pruneWorkspaceForArchive(workspace, archive, ["entry", "entry/file.txt"])
+
+    await expect(stat(join(workspace, "entry"))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("rejects deleted paths beneath local symlinks", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")
@@ -295,6 +310,46 @@ describe("crabbox", () => {
     })
   }, 30_000)
 
+  it("aborts while waiting for an authoritative workspace", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const bin = join(root, "bin")
+    await Promise.all([mkdir(workspace), mkdir(bin)])
+    await fakeCrabbox(bin)
+
+    await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
+      const sandbox = box.sandbox as HarnessV1SandboxProvider
+      const first = await sandbox.createSession()
+      const controller = new AbortController()
+      const second = sandbox.createSession({ abortSignal: controller.signal })
+      controller.abort(new Error("cancelled"))
+
+      await expect(second).rejects.toThrow("cancelled")
+      await first.destroy?.()
+      await (await sandbox.createSession()).destroy?.()
+    })
+  }, 30_000)
+
+  it("removes the disposable cache when workspace sync fails", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const bin = join(root, "bin")
+    const log = join(root, "crabbox.log")
+    await Promise.all([mkdir(workspace), mkdir(bin)])
+    await fakeCrabbox(bin)
+
+    await withEnvironment({ CRABBOX_TEST_FAIL_SYNC: "1", CRABBOX_TEST_LOG: log, PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
+      const session = await (box.sandbox as HarnessV1SandboxProvider).createSession()
+
+      await expect(session.destroy?.()).rejects.toThrow()
+      const cleanup = (await readFile(log, "utf8")).trim().split("\n").at(-1)
+      expect(cleanup).toContain("rm -rf --")
+      expect(cleanup).toContain("/tmp/vitehub-box.")
+    })
+  }, 30_000)
+
   it("isolates Crabbox state across concurrent session bootstrap", async () => {
     const root = await temporaryRoot()
     const workspaces = [join(root, "pr-1"), join(root, "pr-2")]
@@ -395,7 +450,10 @@ case "$verb" in
     script=
     while [ "$#" -gt 0 ]; do
       if [ "$1" = --shell ]; then shift; script="$1"; break; fi
-      if [ "$1" = --script-stdin ]; then exec /bin/sh; fi
+      if [ "$1" = --script-stdin ]; then
+        test -z "$CRABBOX_TEST_FAIL_SYNC" || exit 24
+        exec /bin/sh
+      fi
       shift
     done
     /bin/sh -c "$script"

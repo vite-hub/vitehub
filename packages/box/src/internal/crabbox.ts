@@ -115,8 +115,9 @@ function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxP
         ...options,
         stateHome: await mkdtemp(join(tmpdir(), "vitehub-crabbox-state-")),
       }
-      const releaseWorkspace = await acquireWorkspace(options.workspace)
+      let releaseWorkspace = () => {}
       try {
+        releaseWorkspace = await acquireWorkspace(options.workspace, createOptions.abortSignal)
         const leaseId = await warmup(sessionOptions, createOptions.abortSignal)
         const setup = await runCrabbox(sessionOptions, leaseId, {
           abortSignal: createOptions.abortSignal,
@@ -167,16 +168,25 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
     id: sessionId || randomUUID(),
     ports: [0],
     async destroy() {
+      let failure: unknown
       try {
         await this.stop()
         await syncWorkspaceBack(state)
-        const result = await runCrabbox(state.options, state.leaseId, { command: `rm -rf -- ${shellQuote(state.root)}` })
-        if (result.exitCode !== 0) throw crabboxError("remove disposable Box cache", result)
+      }
+      catch (error) {
+        failure = error
       }
       finally {
-        await rm(state.options.stateHome, { force: true, recursive: true })
+        let cleanupFailure: unknown
+        const result = await runCrabbox(state.options, state.leaseId, { command: `rm -rf -- ${shellQuote(state.root)}` }).catch((error) => {
+          cleanupFailure = error
+          return undefined
+        })
+        await rm(state.options.stateHome, { force: true, recursive: true }).catch(error => cleanupFailure ||= error)
         state.releaseWorkspace()
+        if (!failure) failure = cleanupFailure || (result && result.exitCode !== 0 ? crabboxError("remove disposable Box cache", result) : undefined)
       }
+      if (failure) throw failure
     },
     async getPortUrl({ port, protocol = "http" }: { port: number, protocol?: "http" | "https" | "ws" }) {
       if (state.options.network !== "direct") throw new Error("[vitehub] Crabbox Static SSH does not support port forwarding. Set network: \"direct\" only when the target shares the ViteHub process loopback network namespace.")
@@ -412,18 +422,43 @@ async function withTemporaryFile<T>(run: (path: string) => Promise<T>) {
   }
 }
 
-async function acquireWorkspace(workspace: string) {
+async function acquireWorkspace(workspace: string, abortSignal?: AbortSignal) {
+  abortSignal?.throwIfAborted()
   const previous = workspaceSessions.get(workspace) || Promise.resolve()
   let unlock = () => {}
-  const current = new Promise<void>(resolve => unlock = resolve)
+  const gate = new Promise<void>(resolve => unlock = resolve)
+  const current = previous.catch(() => undefined).then(() => gate)
   workspaceSessions.set(workspace, current)
-  await previous.catch(() => undefined)
+  let rejectAbort = (_reason?: unknown) => {}
+  const onAbort = () => rejectAbort(abortSignal?.reason)
+  try {
+    await Promise.race([
+      previous.catch(() => undefined),
+      new Promise<never>((_, reject) => {
+        rejectAbort = reject
+        abortSignal?.addEventListener("abort", onAbort, { once: true })
+      }),
+    ])
+    abortSignal?.throwIfAborted()
+  }
+  catch (error) {
+    unlock()
+    void current.finally(() => {
+      if (workspaceSessions.get(workspace) === current) workspaceSessions.delete(workspace)
+    })
+    throw error
+  }
+  finally {
+    abortSignal?.removeEventListener("abort", onAbort)
+  }
   let released = false
   return () => {
     if (released) return
     released = true
     unlock()
-    if (workspaceSessions.get(workspace) === current) workspaceSessions.delete(workspace)
+    void current.finally(() => {
+      if (workspaceSessions.get(workspace) === current) workspaceSessions.delete(workspace)
+    })
   }
 }
 
@@ -432,6 +467,7 @@ async function syncWorkspaceBack(state: CrabboxSessionState) {
   const result = await runCrabboxScript(state.options, state.leaseId, {
     script: `archive=$(mktemp /tmp/vitehub-workspace.XXXXXX.tar) && manifest=$(mktemp /tmp/vitehub-workspace.XXXXXX.manifest) && trap 'rm -f -- "$archive" "$manifest"' EXIT && if git -C ${shellQuote(state.remoteWorkspace)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then printf %s ${shellQuote(initialManifest)} | base64 -d > "$manifest" && git -C ${shellQuote(state.remoteWorkspace)} ls-files -z --cached --others --exclude-standard >> "$manifest" && tar --ignore-failed-read --no-recursion --null -C ${shellQuote(state.remoteWorkspace)} -cf "$archive" -T "$manifest"; else tar -C ${shellQuote(state.remoteWorkspace)} --exclude ./.git --exclude .git -cf "$archive" .; fi && base64 < "$archive"`,
   })
+  if (result.exitCode !== 0) throw crabboxError("archive Crabbox workspace", result)
   const archive = Buffer.from(result.stdout.replace(/\s+/g, ""), "base64")
   const transactionRoot = await mkdtemp(join(dirname(state.options.workspace), ".vitehub-workspace-"))
   const stagedWorkspace = join(transactionRoot, "workspace")
@@ -442,7 +478,7 @@ async function syncWorkspaceBack(state: CrabboxSessionState) {
       await cp(state.options.workspace, stagedWorkspace, { recursive: true })
       await rejectSymlinkedArchiveParents(stagedWorkspace, localPath)
       await pruneWorkspaceForArchive(stagedWorkspace, localPath, state.syncedWorkspacePaths)
-      const extract = await runProcess(spawnChildProcess("tar", ["-xf", localPath, "-C", stagedWorkspace]))
+      const extract = await runProcess(spawnChildProcess("tar", ["--no-same-owner", "--no-same-permissions", "-xf", localPath, "-C", stagedWorkspace]))
       if (extract.exitCode !== 0) throw crabboxError("extract Crabbox workspace", extract)
       await rename(state.options.workspace, backupWorkspace)
       try {
@@ -464,10 +500,14 @@ async function listRemoteWorkspacePaths(options: CrabboxSessionOptions, leaseId:
     command: `if git -C ${shellQuote(workspace)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then git -C ${shellQuote(workspace)} ls-files -z --cached --others --exclude-standard; else cd ${shellQuote(workspace)} && find . -mindepth 1 \\( -name .git -o -path '*/.git/*' \\) -prune -o \\( -type d -o -type f -o -type l \\) -exec printf '%s\\0' {} +; fi`,
   })
   if (result.exitCode !== 0) throw crabboxError("inspect Crabbox workspace", result)
-  return result.stdout
+  const paths = result.stdout
     .split("\0")
     .map(path => normalizeRelativeArchivePath(path))
     .filter((path): path is string => Boolean(path))
+  return [...new Set(paths.flatMap((path) => {
+    const parts = path.split("/")
+    return [path, ...parts.slice(1).map((_, index) => parts.slice(0, index + 1).join("/"))]
+  }))]
 }
 
 export async function rejectSymlinkedArchiveParents(workspace: string, archivePath: string): Promise<void> {
