@@ -182,7 +182,7 @@ Capability `cli` can be a static command tree or an invocation resolver that ret
 
 ## Chat state
 
-Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. Hosted Node deployments use memory state by default outside Cloudflare, so they should configure a durable provider explicitly.
+Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. The default `provider: "auto"` wires Cloudflare state only when the Agent host or runtime resolves to Cloudflare; Vercel, Netlify, and unknown hosted Node deployments use memory state, so they should configure a durable provider explicitly.
 
 ```ts
 // vite.config.ts
