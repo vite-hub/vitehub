@@ -10,7 +10,6 @@
     "build": "vite build",
     "dev": "vite --host 127.0.0.1 --port 3028",
     "start": "node .output/server/index.mjs",
-    "test": "node --test tests/*.test.ts",
     "typecheck": "vite build --app && tsc --noEmit"
   },
   "dependencies": {

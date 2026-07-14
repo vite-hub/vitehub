@@ -20,7 +20,6 @@
   "include": [
     ".vitehub/types/**/*.d.ts",
     "server/**/*.ts",
-    "tests/**/*.ts",
     "vite.config.ts"
   ]
 }
