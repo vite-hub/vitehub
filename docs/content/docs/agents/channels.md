@@ -27,6 +27,8 @@ export default defineAgent({
 
 Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`, `telegram()`, `stream()`, and `webChat()`. A synchronous Channel factory that needs no options can be registered directly, so `channels: { stream }` is equivalent to `channels: { stream: stream() }` and resolves once when `defineAgent()` runs. Call the helper when passing options, such as `stream({ messages: { sessions: false } })`. Use `defineChannel(kind, options)` for an app-owned Channel Kind.
 
+Adapter-backed Channels deliver only the completed response by default. Set `messages: { stream: true }` on the Channel to opt into draft and edit updates. Route-backed Stream and Web Chat Channels continue to return streaming responses.
+
 ## Scope capabilities to a Channel
 
 Put a Capability on a Channel when only invocations from that Channel should receive the ability. Agent-level Capabilities remain active for every invocation; ViteHub appends the active Channel's Capabilities when `run.channelId` or the Agent Trigger identifies that Channel.

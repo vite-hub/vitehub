@@ -2521,7 +2521,7 @@ describe("server helpers", () => {
   it("defaults adapter-backed Channels to final-only delivery", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { stream, telegram } = await import("../src/channels.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createChannelChatRouteHandler, createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const agent = defineAgent({
       channels: {
@@ -2553,6 +2553,17 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenCalledOnce()
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "final answer" })
     expect(adapter.editMessage).not.toHaveBeenCalled()
+
+    const streamResponse = await createChannelChatRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        id: "portal-thread",
+        messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+    expect(streamResponse.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
+    await expect(streamResponse.text()).resolves.toContain("final answer")
   })
 
   it("splits long Discord chat output after stream finalization", async () => {
