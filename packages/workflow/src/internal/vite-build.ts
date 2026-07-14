@@ -92,11 +92,21 @@ function resolveInstructionFile(file: string, seen: Set<string>): string {
   if (seen.has(file)) throw new Error(`[vitehub] Circular instruction import: ${file}.`)
   seen.add(file)
   try {
-    return readFileSync(file, "utf8").replace(/@(\.\.?\/\S+)/g, (_token, rawSpecifier: string) => {
+    const replaceImports = (content: string) => content.replace(/@(\.\.?\/\S+)/g, (_token, rawSpecifier: string) => {
       const trailing = rawSpecifier.match(/[.,;:!?)]*$/)?.[0] || ""
       const specifier = rawSpecifier.slice(0, rawSpecifier.length - trailing.length)
       return `${resolveInstructionFile(resolve(dirname(file), specifier), seen)}${trailing}`
     })
+    let fence: string | undefined
+    return readFileSync(file, "utf8").split(/(?<=\n)/).map((line) => {
+      const marker = line.match(/^\s*(```|~~~)/)?.[1]
+      if (marker) {
+        fence = fence === marker ? undefined : fence || marker
+        return line
+      }
+      if (fence) return line
+      return line.split(/(`+[^`]*`+)/g).map((segment, index) => index % 2 ? segment : replaceImports(segment)).join("")
+    }).join("")
   }
   finally {
     seen.delete(file)

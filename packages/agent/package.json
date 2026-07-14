@@ -176,6 +176,7 @@
     "@ai-sdk/sandbox-vercel": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@vite-hub/schedule": "workspace:*",
+    "@vite-hub/workflow": "workspace:*",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite-compat"
   },
