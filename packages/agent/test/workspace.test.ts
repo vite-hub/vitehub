@@ -794,6 +794,18 @@ describe("defineAgent workspace option", () => {
 
     await expect(runAgent(agent, context(), { prompt: "review" })).rejects.toThrow("does not support skills({ scope: \"global\" })")
     expect(harnessCreateSession).not.toHaveBeenCalled()
+
+    const unsafeAgent = defineAgent({
+      capabilities: [skills({ path: "skills/review", scope: "global", source: { path: "/opt/skills/review" } })],
+      driver: {
+        harness: {
+          provider: "custom",
+          [Symbol.for("vitehub.harnessGlobalSkillsDirectory")]: "/home/agent/.codex/skills",
+        },
+      },
+    })
+    await expect(runAgent(unsafeAgent, context(), { prompt: "review" })).rejects.toThrow("does not support skills({ scope: \"global\" })")
+    expect(harnessCreateSession).not.toHaveBeenCalled()
   })
 
   it("rejects global sources without a Skill file before opening a harness session", async () => {

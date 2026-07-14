@@ -77,6 +77,14 @@ const harnessInstructionFiles = ["AGENTS.md", "CLAUDE.md"] as const
 const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
 const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDirectory")
 
+function isHarnessRelativeDirectory(value: unknown): value is string {
+  return typeof value === "string"
+    && value !== "."
+    && posix.normalize(value) === value
+    && !posix.isAbsolute(value)
+    && !value.split("/").includes("..")
+}
+
 interface HarnessAgentAdapterOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -535,7 +543,7 @@ async function createHarnessAgent<
   const { HarnessAgent } = await import("@ai-sdk/harness/agent") as unknown as { HarnessAgent: HarnessAgentConstructor }
   const harness = await resolveHarness(options.harness, context)
   const globalSkillsDirectory = (harness as Record<PropertyKey, unknown>)[harnessGlobalSkillsDirectory]
-  if (context.globalSkills?.length && (typeof globalSkillsDirectory !== "string" || !globalSkillsDirectory)) {
+  if (context.globalSkills?.length && !isHarnessRelativeDirectory(globalSkillsDirectory)) {
     throw new Error("[vitehub] This Harness Agent Driver does not support skills({ scope: \"global\" }).")
   }
   const globalSkillsWorkspace = await resolveHarnessGlobalSkills(context)
@@ -605,7 +613,7 @@ async function prepareHarnessGlobalSkills(
   directory: unknown,
   abortSignal?: AbortSignal,
 ): Promise<{ close: (error?: unknown) => MaybePromise<void> } | undefined> {
-  if (typeof directory !== "string" || !directory) {
+  if (!isHarnessRelativeDirectory(directory)) {
     if (!resolved) return
     throw new Error("[vitehub] This Harness Agent Driver does not support skills({ scope: \"global\" }).")
   }
@@ -985,3 +993,4 @@ export function createHarnessAgentAdapter<
     },
   }
 }
+import { posix } from "node:path"
