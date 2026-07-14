@@ -411,7 +411,7 @@ async function createCloudflareWorkflowCleanup(rootDir: string) {
   return {
     fileNames: ownsWrapper ? ["index.js", "worker.mjs"] : ["worker.mjs"],
     outputRoot,
-    wranglerConfigKeys: ["workflows"],
+    wranglerConfigKeys: ownsWrapper ? cloudflareWorkflowWranglerConfigKeys : ["workflows"],
   }
 }
 

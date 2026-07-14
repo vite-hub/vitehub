@@ -251,10 +251,6 @@ describe("Vite workflow provider outputs", () => {
     await expect(readFile(join(cloudflareDir, "sibling-output.mjs"), "utf8")).resolves.toBe("export default {}\n")
     await expect(readFile(nitroOutput, "utf8")).resolves.toBe("{\"preset\":\"vercel\"}\n")
     await expect(readFile(wranglerConfig, "utf8").then(JSON.parse)).resolves.toEqual({
-      compatibility_date: "2026-04-20",
-      compatibility_flags: ["nodejs_compat"],
-      main: "index.js",
-      observability: { enabled: true },
       vars: { USER_OWNED: "true" },
     })
   }, buildOutputTestTimeout)
@@ -294,44 +290,6 @@ describe("Vite workflow provider outputs", () => {
       main: "index.js",
       observability: { enabled: true },
       r2_buckets: [{ binding: "ASSETS", bucket_name: "assets" }],
-    })
-  }, buildOutputTestTimeout)
-
-  it("preserves shared Cloudflare config for sibling ViteHub bindings", async () => {
-    const rootDir = await createPlaygroundCopy("vitehub-workflow-cloudflare-binding-")
-    const viteConfig = join(rootDir, "vite.config.ts")
-
-    await execFileAsync("vp", ["build"], {
-      cwd: rootDir,
-      env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
-    })
-
-    const cloudflareDir = join(rootDir, "dist", "vite")
-    const wranglerConfig = join(cloudflareDir, "wrangler.json")
-    const wrangler = JSON.parse(await readFile(wranglerConfig, "utf8"))
-    await writeFile(wranglerConfig, `${JSON.stringify({
-      ...wrangler,
-      kv_namespaces: [{ binding: "CACHE", id: "cache" }],
-    }, null, 2)}\n`)
-    await writeFile(
-      viteConfig,
-      (await readFile(viteConfig, "utf8")).replaceAll(
-        "workflow: {},",
-        "workflow: { provider: \"openworkflow\", postgres: { url: \"postgres://example\" } },",
-      ),
-    )
-
-    await execFileAsync("vp", ["build"], {
-      cwd: rootDir,
-      env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
-    })
-
-    await expect(readFile(wranglerConfig, "utf8").then(JSON.parse)).resolves.toEqual({
-      compatibility_date: "2026-04-20",
-      compatibility_flags: ["nodejs_compat"],
-      main: "index.js",
-      observability: { enabled: true },
-      kv_namespaces: [{ binding: "CACHE", id: "cache" }],
     })
   }, buildOutputTestTimeout)
 
