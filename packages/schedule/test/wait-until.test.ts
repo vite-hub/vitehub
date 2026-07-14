@@ -83,6 +83,44 @@ describe("Schedule waitUntil", () => {
     await controller.close()
   })
 
+  it("drains locally deferred work before recording a handler failure", async () => {
+    let releaseDeferred: (() => void) | undefined
+    let deferredCompleted = false
+    const execution = executeStaticSchedule({
+      cron: "0 10 * * *",
+      definition: {
+        cron: "0 10 * * *",
+        handler: async ({ waitUntil }) => {
+          waitUntil(new Promise<void>((resolve) => {
+            releaseDeferred = () => {
+              deferredCompleted = true
+              resolve()
+            }
+          }))
+          throw new Error("handler failed")
+        },
+      },
+      name: "static-report",
+      scheduledAt: new Date("2026-05-23T10:00:00.000Z"),
+    })
+
+    await vi.waitFor(() => expect(releaseDeferred).toBeTypeOf("function"))
+    expect(await schedules.listRuns()).toEqual([
+      expect.objectContaining({ status: "running" }),
+    ])
+
+    releaseDeferred!()
+
+    await expect(execution).rejects.toThrow("handler failed")
+    expect(deferredCompleted).toBe(true)
+    expect(await schedules.listRuns()).toEqual([
+      expect.objectContaining({
+        error: expect.objectContaining({ message: "handler failed" }),
+        status: "failed",
+      }),
+    ])
+  })
+
   it("propagates driver-owned work, reports rejections, and drains on close", async () => {
     const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
     const runtimeScheduleStore = createMemoryRuntimeScheduleStore()

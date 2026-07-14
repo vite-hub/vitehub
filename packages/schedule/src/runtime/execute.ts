@@ -219,6 +219,14 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
     return await completeRun(run, attempt, runStore)
   }
   catch (error) {
+    if (!options.waitUntil) {
+      try {
+        await localWaitUntil.flush()
+      }
+      catch {
+        // Preserve the handler error after all locally owned work settles.
+      }
+    }
     await failRun(run, attempt, error, runStore)
     throw error
   }
