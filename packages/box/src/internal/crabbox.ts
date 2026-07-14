@@ -57,6 +57,7 @@ export function crabbox(options: CrabboxOptions = {}): BoxRuntime {
     name: "crabbox",
     async resolve(input: ResolvedBoxInput) {
       if (!input.cwd) throw new Error("[vitehub] crabbox() requires box.cwd.")
+      if (input.home) throw new Error("[vitehub] crabbox() does not support box.home; configure the remote user Home through Crabbox.")
       const workspace = resolve(input.cwd)
       const item = await stat(workspace).catch(() => undefined)
       if (!item?.isDirectory()) throw new Error(`[vitehub] Box workspace directory does not exist: ${workspace}`)
@@ -448,8 +449,12 @@ async function listRemoteWorkspacePaths(options: CrabboxSessionOptions, leaseId:
 }
 
 export async function rejectSymlinkedArchiveParents(workspace: string, archivePath: string): Promise<void> {
+  await rejectSymlinkedParents(workspace, await listArchiveEntries(archivePath))
+}
+
+async function rejectSymlinkedParents(workspace: string, entries: readonly string[]) {
   const checked = new Set<string>()
-  for (const entry of await listArchiveEntries(archivePath)) {
+  for (const entry of entries) {
     const parts = entry.split("/")
     for (let length = 1; length < parts.length; length++) {
       const path = parts.slice(0, length).join("/")
@@ -466,6 +471,7 @@ export async function pruneWorkspaceForArchive(workspace: string, archivePath: s
   const archive = await listArchiveEntries(archivePath)
   const archived = new Set(archive)
   const removed = manifest.filter(path => !archived.has(path))
+  await rejectSymlinkedParents(workspace, removed)
   await Promise.all(removed.map(async (path) => {
     await rm(join(workspace, path), { force: true, recursive: true })
   }))

@@ -63,6 +63,14 @@ describe("crabbox", () => {
     }, {})).rejects.toThrow("Box requirements must be non-empty names")
   })
 
+  it("rejects unsupported Box Home configuration", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    await mkdir(workspace)
+
+    await expect(resolveBox({ runtime: crabbox(), cwd: workspace, home: "/remote/home" }, {})).rejects.toThrow("crabbox() does not support box.home")
+  })
+
   it("rejects archive entries beneath local symlinks", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")
@@ -89,6 +97,20 @@ describe("crabbox", () => {
     await pruneWorkspaceForArchive(workspace, archive, ["dir/sub/file.txt"])
 
     await expect(stat(join(workspace, "dir"))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("rejects deleted paths beneath local symlinks", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const source = join(root, "source")
+    const archive = join(root, "workspace.tar")
+    await Promise.all([mkdir(workspace), mkdir(source)])
+    await symlink(root, join(workspace, "linked"))
+    await writeFile(join(root, "outside.txt"), "keep")
+    await execFileAsync("tar", ["-cf", archive, "-C", source, "."])
+
+    await expect(pruneWorkspaceForArchive(workspace, archive, ["linked/outside.txt"])).rejects.toThrow("conflicts with local symlink: linked")
+    await expect(readFile(join(root, "outside.txt"), "utf8")).resolves.toBe("keep")
   })
 
   it("boots through Crabbox, validates requirements there, and preserves workspace mutations", async () => {
