@@ -1035,7 +1035,7 @@ async function resolveWorkspaceMetadataInstructions<
   const composed = await composeInstructions(baseInstructions.join("\n\n"), compositionContext, workspaceBindings, coverage)
   return {
     instructions: composed ? [composed] : [],
-    warnings: instructionCoverageWarnings(coverage, sourceDefinition, options.capabilities),
+    warnings: instructionCoverageWarnings(coverage, sourceDefinition, options.capabilities, workspaceAgentDriverKind(options)),
   }
 }
 
@@ -1043,11 +1043,12 @@ function instructionCoverageWarnings(
   coverage: ReturnType<typeof createInstructionCoverage>,
   definition: WorkspaceDefinition | undefined,
   capabilities: readonly AgentCapabilityDefinition[] | undefined,
+  driverKind: AgentDriverKind,
 ): AgentDevtoolsWarning[] {
   return [
     ...sourceCoverageWarnings(coverage, definition),
     ...capabilityCoverageWarnings(coverage, capabilities),
-    ...skillCoverageWarnings(coverage, capabilities),
+    ...(driverKind === "model" ? skillCoverageWarnings(coverage, capabilities) : []),
   ]
 }
 

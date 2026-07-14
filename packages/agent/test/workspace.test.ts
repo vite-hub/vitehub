@@ -4354,7 +4354,7 @@ describe("defineAgent workspace option", () => {
     expect(readInstructions).toHaveBeenCalledOnce()
   })
 
-  it("warns when configured primitives lack explicit instruction coverage", async () => {
+  it("warns model drivers when configured primitives lack explicit instruction coverage", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const { skills, workspaceShell } = await import("../src/capabilities.ts")
     exists.mockResolvedValue(true)
@@ -4379,6 +4379,24 @@ describe("defineAgent workspace option", () => {
       expect.objectContaining({ id: "instruction-coverage:capability:workspace-shell", primitive: "capability" }),
       expect.objectContaining({ id: "instruction-coverage:skill:skills/review-browser-evidence", primitive: "skill" }),
     ]))
+  })
+
+  it("does not require explicit instruction coverage for harness-native skills", async () => {
+    const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const agent = withExplicitWorkspaceName(defineAgent({
+      workspace: {},
+      driver: {
+        harness: { provider: "codex" },
+      },
+      capabilities: [skills({
+        path: "skills/review-browser-evidence",
+        scope: "global",
+        source: { path: "/opt/skills/review-browser-evidence" },
+      })],
+    }), { workspace: "support" })
+
+    expect(await resolveAgentDevtoolsMetadata(agent)).not.toHaveProperty("warnings")
   })
 
   it("clears instruction coverage warnings with explicit coverage blocks", async () => {
