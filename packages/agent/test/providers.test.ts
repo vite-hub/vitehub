@@ -317,9 +317,9 @@ describe("agent Vite plugin", () => {
     ])
     const getModuleById = vi.fn((id: string) => modules.get(id))
     const invalidateModule = vi.fn()
-    const handleHotUpdate = plugin.handleHotUpdate as (context: unknown) => void
+    const handleHotUpdate = plugin.handleHotUpdate as (context: unknown) => Promise<void>
 
-    handleHotUpdate({
+    await handleHotUpdate({
       file: "/app/server/agents/digest.ts",
       server: { moduleGraph: { getModuleById, invalidateModule } },
     })
@@ -329,7 +329,7 @@ describe("agent Vite plugin", () => {
     expect(invalidateModule).toHaveBeenCalledWith(nitroRegistryModule)
 
     invalidateModule.mockClear()
-    handleHotUpdate({
+    await handleHotUpdate({
       file: "/app/server/agents/digest/skills/review/SKILL.md",
       server: { moduleGraph: { getModuleById, invalidateModule } },
     })

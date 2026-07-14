@@ -1208,6 +1208,61 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   let runtimeCapabilities: GeneratedAgentRuntimeCapability[] = []
   let resolved: ResolvedConfig | undefined
 
+  async function writeGeneratedAgentOutputs(config: ResolvedConfig) {
+    const normalized = normalizeAgentOptions(agent)
+    const schedule = hasScheduleVitePlugin(config)
+    const hasHostedAgents = hasHostedAgentDefinitions(config.root)
+    if (normalized && hasHostedAgents) {
+      if (normalized.runtime === "deno") {
+        await writeAgentDenoServer(config.root, {
+          agentImportBase: getAgentImportBase(agent),
+          chatRoute: normalized.routes.chat,
+          runtimeCapabilities,
+          schedule,
+          workspaceImportBase: getWorkspaceImportBase(agent),
+          webhookRoute: normalized.routes.webhooks,
+        })
+      }
+      else {
+        await writeAgentWebhookRouteHandler(config.root, {
+          agentImportBase: getAgentImportBase(agent),
+          chatRoute: normalized.routes.chat,
+          cloudflareState: shouldInstallCloudflareAgentState(normalized),
+          libsqlState: resolveLibsqlAgentState(normalized),
+          ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
+          runtimeCapabilities,
+          schedule,
+          workspaceImportBase: getWorkspaceImportBase(agent),
+          webhookRoute: normalized.routes.webhooks,
+        })
+        if (normalized.routes.discordGateway) {
+          await writeAgentDiscordGatewayRouteHandler(config.root, {
+            agentImportBase: getAgentImportBase(agent),
+            discordGatewayRoute: normalized.routes.discordGateway,
+            ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
+            runtimeCapabilities,
+            schedule,
+            workspaceImportBase: getWorkspaceImportBase(agent),
+            webhookRoute: normalized.routes.webhooks,
+          })
+        }
+        if (config.command === "serve" && isNetlifyHosting(config)) {
+          await writeNetlifyAgentProviderOutput(config, normalized, {
+            agentImportBase: getAgentImportBase(agent),
+            libsqlState: resolveLibsqlAgentState(normalized),
+            runtime: "vite",
+            runtimeCapabilities,
+            schedule,
+            workspaceImportBase: getWorkspaceImportBase(agent),
+          })
+        }
+      }
+    }
+    else if (config.command === "serve" && isNetlifyHosting(config)) {
+      await cleanupNetlifyAgentProviderOutput(config)
+    }
+  }
+
   return {
     name: "@vite-hub/agent/vite",
     devtools: {
@@ -1225,9 +1280,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         await registerAgentInvocationStreamEndpoint(server)
       }
     },
-    handleHotUpdate(context) {
+    async handleHotUpdate(context) {
       const file = context.file.replace(/\\/g, "/")
       if (!/\.agent\.(?:c|m)?[jt]s$/i.test(file) && !/\/server\/agents\/.*(?:\.(?:c|m)?[jt]s|\/skills\/.*)$/i.test(file)) return
+      if (resolved && /\/server\/agents\/.*\/skills\/.*$/i.test(file)) {
+        await writeGeneratedAgentOutputs(resolved)
+      }
       const scheduleModuleIds = [resolvedScheduleRegistryId, resolvedScheduleTargetsId]
       if (resolved?.root) {
         scheduleModuleIds.push(join(resolved.root, generatedScheduleRuntimeRegistrySuffix).replace(/\\/g, "/"))
@@ -1304,58 +1362,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     async configResolved(config) {
       resolved = config
       agent = config.agent ?? agent
-      const normalized = normalizeAgentOptions(agent)
-      const schedule = hasScheduleVitePlugin(config)
-      const hasHostedAgents = hasHostedAgentDefinitions(config.root)
       runtimeCapabilities = await resolveGeneratedAgentRuntimeCapabilities(config)
-      if (normalized && hasHostedAgents) {
-        if (normalized.runtime === "deno") {
-          await writeAgentDenoServer(config.root, {
-            agentImportBase: getAgentImportBase(agent),
-            chatRoute: normalized.routes.chat,
-            runtimeCapabilities,
-            schedule,
-            workspaceImportBase: getWorkspaceImportBase(agent),
-            webhookRoute: normalized.routes.webhooks,
-          })
-        }
-        else {
-          await writeAgentWebhookRouteHandler(config.root, {
-            agentImportBase: getAgentImportBase(agent),
-            chatRoute: normalized.routes.chat,
-            cloudflareState: shouldInstallCloudflareAgentState(normalized),
-            libsqlState: resolveLibsqlAgentState(normalized),
-            ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
-            runtimeCapabilities,
-            schedule,
-            workspaceImportBase: getWorkspaceImportBase(agent),
-            webhookRoute: normalized.routes.webhooks,
-          })
-          if (normalized.routes.discordGateway) {
-            await writeAgentDiscordGatewayRouteHandler(config.root, {
-              agentImportBase: getAgentImportBase(agent),
-              discordGatewayRoute: normalized.routes.discordGateway,
-              ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
-              runtimeCapabilities,
-              schedule,
-              workspaceImportBase: getWorkspaceImportBase(agent),
-              webhookRoute: normalized.routes.webhooks,
-            })
-          }
-          if (config.command === "serve" && isNetlifyHosting(config)) {
-            await writeNetlifyAgentProviderOutput(config, normalized, {
-              agentImportBase: getAgentImportBase(agent),
-              libsqlState: resolveLibsqlAgentState(normalized),
-              runtime: "vite",
-              runtimeCapabilities,
-              schedule,
-              workspaceImportBase: getWorkspaceImportBase(agent),
-            })
-          }
-        }
-      } else if (config.command === "serve" && isNetlifyHosting(config)) {
-        await cleanupNetlifyAgentProviderOutput(config)
-      }
+      await writeGeneratedAgentOutputs(config)
       if (agent === false || agent?.eval === false) {
         return
       }

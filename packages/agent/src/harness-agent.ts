@@ -368,9 +368,15 @@ function toHarnessTools(context: AgentAdapterRunContext): AgentToolSet | undefin
 }
 
 function harnessWriteBackIgnorePaths(context: AgentAdapterRunContext, instructions: string | undefined): string[] {
+  const colocatedSkills = context.context.get<ColocatedAgentSkills>(colocatedAgentSkillsContextKey)
   return [
     ...(hasEntries(context.tools) ? harnessGeneratedFiles : []),
     ...(instructions ? harnessInstructionFiles : []),
+    ...Object.values(colocatedSkills || {}).flatMap(source =>
+      source && typeof source === "object" && "workspacePath" in source && typeof source.workspacePath === "string"
+        ? [source.workspacePath]
+        : [],
+    ),
   ]
 }
 
@@ -1003,12 +1009,12 @@ export function createHarnessAgentAdapter<
           await writeHarnessInstructionFiles(session as HarnessInstructionSandbox, sessionWorkDir, abortSignal, harnessInstructions)
           if (harnessInstructions) await workspaceSession.refreshGitBaseline?.()
         }
+        globalSkillsSession = await prepareHarnessGlobalSkills(globalSkillsWorkspace, session, globalSkillsDirectory, abortSignal)
         const installedWorkspaceSkills = await prepareHarnessColocatedSkills(colocatedSkillsWorkspace, session, sessionWorkDir, "skills", abortSignal)
         if (isHarnessRelativeDirectory(globalSkillsDirectory)) {
           await prepareHarnessColocatedSkills(colocatedSkillsWorkspace, session, globalSkillsDirectory, ".", abortSignal)
         }
         if (installedWorkspaceSkills) await workspaceSession?.refreshGitBaseline?.()
-        globalSkillsSession = await prepareHarnessGlobalSkills(globalSkillsWorkspace, session, globalSkillsDirectory, abortSignal)
         if (typeof sessionPrepare === "function") {
           await (sessionPrepare as (session: unknown) => MaybePromise<void>)(session)
         }
