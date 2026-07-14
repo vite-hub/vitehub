@@ -382,7 +382,9 @@ function hasExplicitNonStreamingMessages(agent: unknown): boolean {
   if (!isRecord(agent)) return false
   if (isRecord(agent.messages) && agent.messages.stream === false) return true
   if (!isRecord(agent.channels)) return true
-  return Object.values(agent.channels).some(
+  const channels = Object.values(agent.channels)
+  if (!channels.some(channel => isRecord(channel) && channel.adapter && channel.messages !== false)) return true
+  return channels.some(
     channel => isRecord(channel) && isRecord(channel.messages) && channel.messages.stream === false,
   )
 }

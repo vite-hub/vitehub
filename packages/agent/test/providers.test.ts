@@ -6101,6 +6101,7 @@ describe("server helpers", () => {
   it("flushes deferred non-streaming chat webhook work before returning", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { usageTelemetry } = await import("../src/capabilities.ts")
+    const { github } = await import("../src/channels.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter({ deferMessageProcessing: true })
@@ -6144,6 +6145,7 @@ describe("server helpers", () => {
           },
         }),
       ],
+      channels: { github: github() },
       hooks: {
         "agent:finish": finish,
       },
