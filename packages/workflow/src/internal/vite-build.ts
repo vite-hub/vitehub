@@ -437,7 +437,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     clientOutDir: options.clientOutDir,
     cloudflare: cloudflareOutput,
     cleanup: {
-      cloudflare: cloudflareOutput ? undefined : await createCloudflareWorkflowCleanup(options.rootDir),
+      cloudflare: cloudflareOutput ? undefined : () => createCloudflareWorkflowCleanup(options.rootDir),
     },
     rootDir: options.rootDir,
     ...(vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"

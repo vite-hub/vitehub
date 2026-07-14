@@ -479,6 +479,38 @@ describe("provider deployment outputs", () => {
     expect(existsSync(cloudflareDir)).toBe(false)
   })
 
+  it("resolves cleanup ownership after preceding provider writes", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    const providerWrite = writeProviderDeploymentOutputs({
+      cloudflare: {
+        wranglerConfig: { main: "index.js" },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+    let observedConfig: string | undefined
+    const cleanup = writeProviderDeploymentOutputs({
+      cleanup: {
+        cloudflare: async () => {
+          observedConfig = await readFile(join(cloudflareDir, "wrangler.json"), "utf8")
+          return { wranglerConfigKeys: ["main"] }
+        },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    await Promise.all([providerWrite, cleanup])
+
+    expect(observedConfig && JSON.parse(observedConfig)).toEqual({ main: "index.js" })
+    expect(existsSync(cloudflareDir)).toBe(false)
+  })
+
   it("copies Vercel function runtime package dependency closures", async () => {
     const rootDir = await createTempProject()
     const {
