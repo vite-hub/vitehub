@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
@@ -56,7 +56,7 @@ type NetlifyProviderDeploymentOutput = Omit<NetlifyDeploymentOutputOptions, keyo
 export type VercelProviderDeploymentOutput = Omit<VercelDeploymentOutputOptions, keyof SharedDeploymentOptions>
 
 interface CloudflareProviderDeploymentCleanup {
-  bundleOutfileName?: string
+  fileNames?: string[]
   outputRoot?: string
   wranglerConfigKeys?: string[]
 }
@@ -276,16 +276,20 @@ async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOpti
 
 async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanup: CloudflareProviderDeploymentCleanup): Promise<void> {
   const outputRoot = cleanup.outputRoot ?? createDefaultCloudflareOutputRoot(rootDir)
-  const writes: Array<Promise<void>> = []
-  if (cleanup.bundleOutfileName) {
-    writes.push(rm(resolve(outputRoot, cleanup.bundleOutfileName), { force: true, recursive: true }))
-  }
+  const writes = (cleanup.fileNames ?? []).map(fileName => rm(resolve(outputRoot, fileName), { force: true, recursive: true }))
   writes.push(writeCloudflareWranglerConfig({
     outputRoot,
     rootDir,
     wranglerConfigKeys: cleanup.wranglerConfigKeys,
   }))
   await Promise.all(writes)
+  try {
+    await rmdir(outputRoot)
+  }
+  catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code !== "ENOENT" && code !== "ENOTEMPTY") throw error
+  }
 }
 
 async function cleanupVercelDeploymentOutput(rootDir: string, cleanup: VercelProviderDeploymentCleanup): Promise<void> {

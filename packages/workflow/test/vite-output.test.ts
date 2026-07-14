@@ -217,4 +217,80 @@ describe("Vite workflow provider outputs", () => {
     expect(existsSync(join(rootDir, "dist", "vite"))).toBe(false)
   }, buildOutputTestTimeout)
 
+  it("cleans Cloudflare workflow output when switching to OpenWorkflow", async () => {
+    const rootDir = await createPlaygroundCopy("vitehub-workflow-cloudflare-to-openworkflow-")
+    const viteConfig = join(rootDir, "vite.config.ts")
+
+    await execFileAsync("vp", ["build"], {
+      cwd: rootDir,
+      env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
+    })
+
+    const cloudflareDir = join(rootDir, "dist", "vite")
+    const nitroOutput = join(rootDir, ".vercel", "output", "nitro.json")
+    const wranglerConfig = join(cloudflareDir, "wrangler.json")
+    const wrangler = JSON.parse(await readFile(wranglerConfig, "utf8"))
+    await writeFile(nitroOutput, "{\"preset\":\"vercel\"}\n")
+    await writeFile(join(cloudflareDir, "sibling-output.mjs"), "export default {}\n")
+    await writeFile(wranglerConfig, `${JSON.stringify({ ...wrangler, vars: { USER_OWNED: "true" } }, null, 2)}\n`)
+    await writeFile(
+      viteConfig,
+      (await readFile(viteConfig, "utf8")).replaceAll(
+        "workflow: {},",
+        "workflow: { provider: \"openworkflow\", postgres: { url: \"postgres://example\" } },",
+      ),
+    )
+
+    await execFileAsync("vp", ["build"], {
+      cwd: rootDir,
+      env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
+    })
+
+    expect(existsSync(join(cloudflareDir, "index.js"))).toBe(false)
+    expect(existsSync(join(cloudflareDir, "worker.mjs"))).toBe(false)
+    await expect(readFile(join(cloudflareDir, "sibling-output.mjs"), "utf8")).resolves.toBe("export default {}\n")
+    await expect(readFile(nitroOutput, "utf8")).resolves.toBe("{\"preset\":\"vercel\"}\n")
+    await expect(readFile(wranglerConfig, "utf8").then(JSON.parse)).resolves.toEqual({
+      vars: { USER_OWNED: "true" },
+    })
+  }, buildOutputTestTimeout)
+
+  it("preserves sibling Cloudflare output when switching to OpenWorkflow", async () => {
+    const rootDir = await createPlaygroundCopy("vitehub-workflow-cloudflare-sibling-")
+    const viteConfig = join(rootDir, "vite.config.ts")
+
+    await execFileAsync("vp", ["build"], {
+      cwd: rootDir,
+      env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
+    })
+
+    const cloudflareDir = join(rootDir, "dist", "vite")
+    const wranglerConfig = join(cloudflareDir, "wrangler.json")
+    const wrangler = JSON.parse(await readFile(wranglerConfig, "utf8"))
+    await writeFile(join(cloudflareDir, "index.js"), "export default { fetch() {} }\n")
+    await writeFile(wranglerConfig, `${JSON.stringify({ ...wrangler, r2_buckets: [{ binding: "ASSETS", bucket_name: "assets" }] }, null, 2)}\n`)
+    await writeFile(
+      viteConfig,
+      (await readFile(viteConfig, "utf8")).replaceAll(
+        "workflow: {},",
+        "workflow: { provider: \"openworkflow\", postgres: { url: \"postgres://example\" } },",
+      ),
+    )
+
+    await execFileAsync("vp", ["build"], {
+      cwd: rootDir,
+      env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
+    })
+
+    expect(existsSync(join(cloudflareDir, "worker.mjs"))).toBe(false)
+    await expect(readFile(join(cloudflareDir, "index.js"), "utf8")).resolves.toBe("export default { fetch() {} }\n")
+    await expect(readFile(wranglerConfig, "utf8").then(JSON.parse)).resolves.toEqual({
+      compatibility_date: "2026-04-20",
+      compatibility_flags: ["nodejs_compat"],
+      main: "index.js",
+      observability: { enabled: true },
+      r2_buckets: [{ binding: "ASSETS", bucket_name: "assets" }],
+    })
+  }, buildOutputTestTimeout)
+
 })

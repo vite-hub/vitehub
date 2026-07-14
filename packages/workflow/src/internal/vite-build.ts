@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { builtinModules } from "node:module"
 import { basename, dirname, join, relative, resolve } from "node:path"
 
@@ -20,6 +20,8 @@ export const workflowPackageName = "@vite-hub/workflow"
 const productName = "workflow"
 
 const generatedRegistryFileName = "registry.mjs"
+const cloudflareWorkflowWranglerConfigKeys = ["compatibility_date", "compatibility_flags", "main", "observability", "workflows"]
+const cloudflareWorkflowWrapperImport = `import worker, { runViteHubWorkflowDefinition } from "./worker.mjs"`
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
 const nodeBuiltinExternals = [...new Set(["node:*", ...builtinModules, ...builtinModules.map(module => `node:${module}`)])]
@@ -246,7 +248,7 @@ function createWorkflowRegistryContents(registryFile: string, definitions: Disco
 function renderCloudflareWorkerWrapper(definitions: DiscoveredWorkflowDefinition[]) {
   return [
     definitions.length ? `import { WorkflowEntrypoint, waitUntil as viteHubWaitUntil } from "cloudflare:workers"` : `import { waitUntil as viteHubWaitUntil } from "cloudflare:workers"`,
-    `import worker, { runViteHubWorkflowDefinition } from "./worker.mjs"`,
+    cloudflareWorkflowWrapperImport,
     "",
     ...definitions.map((definition) => {
       const className = getCloudflareWorkflowClassName(definition.name)
@@ -383,7 +385,7 @@ function createCloudflareOutput(rootDir: string, artifacts: GeneratedWorkflowArt
     },
     bundleOutfileName: "worker.mjs",
     outputRoot: createDefaultCloudflareOutputRoot(rootDir),
-    wranglerConfigKeys: ["workflows"],
+    wranglerConfigKeys: cloudflareWorkflowWranglerConfigKeys,
     wranglerConfig,
   }
 }
@@ -395,6 +397,22 @@ async function writeCloudflareWorkflowWrapper(rootDir: string, artifacts: Genera
     : false
   const workflowDefinitions = workflowConfig ? artifacts.providerDefinitions : []
   await writeFile(resolve(outputRoot, "index.js"), renderCloudflareWorkerWrapper(workflowDefinitions), "utf8")
+}
+
+async function createCloudflareWorkflowCleanup(rootDir: string) {
+  const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+  let ownsWrapper = false
+  try {
+    ownsWrapper = (await readFile(resolve(outputRoot, "index.js"), "utf8")).includes(cloudflareWorkflowWrapperImport)
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  return {
+    fileNames: ownsWrapper ? ["index.js", "worker.mjs"] : ["worker.mjs"],
+    outputRoot,
+    wranglerConfigKeys: ownsWrapper ? cloudflareWorkflowWranglerConfigKeys : ["workflows"],
+  }
 }
 
 function createVercelOutput(artifacts: GeneratedWorkflowArtifacts): VercelProviderDeploymentOutput {
@@ -412,24 +430,21 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const artifacts = await writeProviderEntries(options.rootDir, options.workflow)
   const cloudflareWorkflowConfig = resolveWorkflowConfig(options.workflow, "cloudflare")
   const vercelWorkflowConfig = resolveWorkflowConfig(options.workflow, "vercel")
+  const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"
+    ? createCloudflareOutput(options.rootDir, artifacts)
+    : undefined
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
-    ...(cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"
-      ? { cloudflare: createCloudflareOutput(options.rootDir, artifacts) }
-      : {}),
+    cloudflare: cloudflareOutput,
     cleanup: {
-      cloudflare: {
-        bundleOutfileName: "worker.mjs",
-        outputRoot: createDefaultCloudflareOutputRoot(options.rootDir),
-        wranglerConfigKeys: ["workflows"],
-      },
+      cloudflare: cloudflareOutput ? undefined : await createCloudflareWorkflowCleanup(options.rootDir),
     },
     rootDir: options.rootDir,
     ...(vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
       ? { vercel: createVercelOutput(artifacts) }
       : {}),
   })
-  if (cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare") {
+  if (cloudflareOutput) {
     await writeCloudflareWorkflowWrapper(options.rootDir, artifacts)
   }
   return artifacts

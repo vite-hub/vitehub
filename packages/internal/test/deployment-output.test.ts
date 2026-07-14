@@ -440,7 +440,7 @@ describe("provider deployment outputs", () => {
     await writeProviderDeploymentOutputs({
       cleanup: {
         cloudflare: {
-          bundleOutfileName: "worker.mjs",
+          fileNames: ["worker.mjs"],
           wranglerConfigKeys: ["workflows"],
         },
       },
@@ -452,6 +452,31 @@ describe("provider deployment outputs", () => {
     await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       triggers: { crons: ["0 0 * * *"] },
     })
+  })
+
+  it("removes empty Cloudflare output roots after cleanup", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(join(cloudflareDir, "index.js"), "export default {}")
+    await writeFile(join(cloudflareDir, "wrangler.json"), "{\"main\":\"index.js\"}\n")
+
+    await writeProviderDeploymentOutputs({
+      cleanup: {
+        cloudflare: {
+          fileNames: ["index.js"],
+          wranglerConfigKeys: ["main"],
+        },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    expect(existsSync(cloudflareDir)).toBe(false)
   })
 
   it("copies Vercel function runtime package dependency closures", async () => {
