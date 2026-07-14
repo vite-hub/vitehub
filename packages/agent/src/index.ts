@@ -586,7 +586,7 @@ function withAgentIdentityOwner<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): AgentRuntimeContext<TRuntimeConfig> {
   if (!context.agentIdentity || (context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]) return context
-  return { ...context, [agentIdentityOwner]: agent as object }
+  return { ...context, [agentIdentityOwner]: agent as object } as AgentRuntimeContext<TRuntimeConfig>
 }
 
 function hasAgentMethods(value: unknown): value is AgentAdapter {
