@@ -791,6 +791,7 @@ describe("defineAgent workspace option", () => {
     })
 
     await expect(runAgent(agent, context(), { prompt: "review" })).rejects.toThrow("does not support skills({ scope: \"global\" })")
+    expect(harnessCreateSession).not.toHaveBeenCalled()
   })
 
   it("rejects global skills for non-harness Agent Drivers", async () => {

@@ -529,6 +529,10 @@ async function createHarnessAgent<
   assertSupportedHarnessDriverContributions(context)
   const { HarnessAgent } = await import("@ai-sdk/harness/agent") as unknown as { HarnessAgent: HarnessAgentConstructor }
   const harness = await resolveHarness(options.harness, context)
+  const globalSkillsDirectory = (harness as Record<PropertyKey, unknown>)[harnessGlobalSkillsDirectory]
+  if (context.globalSkills?.length && (typeof globalSkillsDirectory !== "string" || !globalSkillsDirectory)) {
+    throw new Error("[vitehub] This Harness Agent Driver does not support skills({ scope: \"global\" }).")
+  }
   const driverSandbox = context.harnessSandboxProvider === undefined
     ? await resolveHarnessSandboxProvider(options.sandbox, context)
     : undefined
@@ -548,7 +552,7 @@ async function createHarnessAgent<
       ...(workDir !== undefined ? { workDir } : {}),
       onSession: async ({ abortSignal, session, sessionWorkDir }: { abortSignal?: AbortSignal, session: unknown, sessionWorkDir: string }) => {
         setActiveHarnessWorkspaceFiles(context.context, activeHarnessWorkspaceFiles(session as HarnessFileSandbox, sessionWorkDir, abortSignal))
-        await prepareWorkspaceSession(session, sessionWorkDir, abortSignal, (harness as Record<PropertyKey, unknown>)[harnessGlobalSkillsDirectory])
+        await prepareWorkspaceSession(session, sessionWorkDir, abortSignal, globalSkillsDirectory)
       },
     },
     permissionMode: defaultHarnessPermissionMode(harness),
