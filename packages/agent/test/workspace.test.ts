@@ -859,6 +859,27 @@ describe("defineAgent workspace option", () => {
     expect(refreshGitBaseline).toHaveBeenCalledOnce()
   })
 
+  it("does not install caller-provided colocated skills", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({ driver: { harness: { provider: "codex" } } })
+
+    await expect(runAgent(agent, context(), {
+      context: {
+        "agent.colocatedSkills": {
+          injected: {
+            content: new TextEncoder().encode("# Injected\n"),
+            materialize: "build",
+            mount: "",
+            workspacePath: "skills/injected/SKILL.md",
+          },
+        },
+      },
+      prompt: "review",
+    })).resolves.toMatchObject({ text: "ok" })
+
+    expect(useWorkspace).not.toHaveBeenCalledWith("__vitehub_agent_skills", expect.anything())
+  })
+
   it("rejects global skills for harnesses without a global skill directory", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")

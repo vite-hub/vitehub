@@ -1443,7 +1443,7 @@ async function createAgentInvocationContext<
   invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
   invocationContext.set(scheduledAgentNameContextKey, context.agentIdentity?.name, { overwrite: true })
   const colocatedSkills = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[colocatedAgentSkillsSymbol]
-  if (colocatedSkills) invocationContext.set(colocatedAgentSkillsContextKey, colocatedSkills, { overwrite: true })
+  invocationContext.set(colocatedAgentSkillsContextKey, colocatedSkills, { overwrite: true })
   let invoker = createFallbackAgentInvoker(context.run)
   try {
     invoker = await resolveAgentInvoker(

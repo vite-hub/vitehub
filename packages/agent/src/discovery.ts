@@ -82,7 +82,7 @@ function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefin
         continue
       }
 
-      if (!entry.isFile() || !configPattern.test(basename(file))) continue
+      if (!entry.isFile() || (!configPattern.test(basename(file)) && !indexDefinitionPattern.test(basename(file)))) continue
       const source = readFileSync(file, "utf8")
       const agent = relative(agentsRoot, dirname(file)).replace(/\\/g, "/")
       if (!agent || agent === ".") continue
@@ -122,7 +122,7 @@ export function discoverAgentDefinitions(options:
     const directoryDefinitions = discoverDefinitions("agent", [
       createDirectoryDefinitionSource<DiscoveredAgentDefinition>("server-agents", options.scanDirs, "agents", {
         normalizeName(directory, file) {
-          if (configPattern.test(basename(file)) || isEvalDefinitionFile(file)) return
+          if (configPattern.test(basename(file)) || indexDefinitionPattern.test(basename(file)) || isEvalDefinitionFile(file)) return
           for (const agentDir of configuredAgentDirs) {
             const path = relative(agentDir, file).replace(/\\/g, "/")
             if (path === "skills" || path.startsWith("skills/")) return

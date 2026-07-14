@@ -338,6 +338,20 @@ describe("agent discovery", () => {
     })).toThrow("Duplicate agent name")
   })
 
+  it("keeps skill scripts out of index-based Agent discovery", async () => {
+    const root = await createTempRoot("vitehub-agent-index-skills-")
+    await mkdir(join(root, "server", "agents", "review", "skills", "helper", "scripts"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "review", "index.ts"), "export default defineAgent({ driver: { model } })", "utf8")
+    await writeFile(join(root, "server", "agents", "review", "skills", "helper", "scripts", "run.ts"), "export default {}", "utf8")
+
+    expect(discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })).toEqual([
+      expect.objectContaining({ name: "review", source: "server-agents" }),
+    ])
+  })
+
   it("throws when a nested configured server agent also has an index definition", async () => {
     const root = await createTempRoot("vitehub-agent-nested-config-index-duplicate-")
     await mkdir(join(root, "server", "agents", "team", "review"), { recursive: true })
