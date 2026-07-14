@@ -70,6 +70,7 @@ describe("agent CLI", () => {
       instructions: ["docs/AGENTS.md"],
       invokerProfiles: [{ id: "technical" }],
       metadataStatus: "ready",
+      root: "/repo",
       selected: "support",
       tools: [{ name: "search" }, { name: "shell" }],
       warnings: [],
@@ -174,6 +175,20 @@ describe("agent CLI", () => {
 
     expect(exitCode).toBe(1)
     expect(stderr.output()).toBe("Agent inspection returned an invalid response from http://localhost:5173.\n")
+  })
+
+  it("rejects an Agent inspection server for a different project root", async () => {
+    const stderr = stream()
+    const exitCode = await runAgentInfoCli([], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, { fetch: vi.fn(async () => Response.json({ root: "/other-repo" })) as never })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toBe("Compatible Vite Development Server root mismatch: /other-repo\n")
   })
 
   it("streams a one-shot Agent Dev Loop message through the Vite endpoint", async () => {

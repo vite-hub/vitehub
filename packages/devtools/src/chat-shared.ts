@@ -143,6 +143,7 @@ export interface ChatDevtoolsStateResult {
   meta?: Record<string, unknown>
   metadataError?: string
   metadataStatus?: ChatDevtoolsMetadataStatus
+  root?: string
   selected: string
   thinkingFallback?: string | null
   title?: string

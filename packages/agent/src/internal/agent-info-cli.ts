@@ -2,6 +2,7 @@ import { chatDevtoolsBridgeRoute, type ChatDevtoolsMetadata, type ChatDevtoolsSt
 
 interface AgentInfoCliContext {
   env: NodeJS.ProcessEnv
+  rootDir: string
   stderr: { write: (chunk: string | Uint8Array) => unknown }
   stdout: { write: (chunk: string | Uint8Array) => unknown }
 }
@@ -204,6 +205,10 @@ export async function runAgentInfoCli<TContext extends AgentInfoCliContext>(
     }
     catch {
       context.stderr.write(`Agent inspection returned an invalid response from ${parsed.url}.\n`)
+      return 1
+    }
+    if (typeof state.root === "string" && state.root !== context.rootDir) {
+      context.stderr.write(`Compatible Vite Development Server root mismatch: ${state.root}\n`)
       return 1
     }
 

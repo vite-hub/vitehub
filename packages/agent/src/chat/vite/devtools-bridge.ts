@@ -106,6 +106,7 @@ interface ChatDevtoolsAgentEntry {
 
 interface ChatDevtoolsBridgeState {
   entries: Map<string, ChatDevtoolsAgentEntry>
+  root: string
   sessions: Map<string, ChatDevtoolsSession>
   selected?: string
 }
@@ -536,6 +537,7 @@ async function serializeState(
     ...(requestedSelection.meta ? { meta: requestedSelection.meta } : {}),
     ...(entry?.metadataError ? { metadataError: entry.metadataError } : {}),
     ...(entry?.metadataStatus ? { metadataStatus: entry.metadataStatus } : {}),
+    root: state.root,
     selected: nextSelected,
     thinkingFallback: selectedSession?.thinkingFallback ?? null,
     ...(title ? { title } : {}),
@@ -932,6 +934,7 @@ function errorResponse(error: unknown): Response {
 export function registerChatDevtoolsBridge(server: ViteDevServer): void {
   const state: ChatDevtoolsBridgeState = {
     entries: new Map(),
+    root: server.config.root,
     sessions: new Map(),
   }
   installChatDevtoolsInvalidation(server, state)
