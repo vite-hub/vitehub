@@ -183,6 +183,7 @@ describe("defineAgent workspace option", () => {
     })
     harnessFileSession.readBinaryFile.mockReset()
     harnessFileSession.run.mockReset()
+    harnessFileSession.run.mockResolvedValue({ exitCode: 0, stderr: "", stdout: "" })
     harnessFileSession.writeBinaryFile.mockReset()
     prepareHarnessWorkspaceSession.mockReset()
     agentGenerate.mockReset()
@@ -705,6 +706,183 @@ describe("defineAgent workspace option", () => {
     expect(skills({ shellExecution: "read" }).metadata).toMatchObject({ shellExecution: "read" })
     expect(skills({ shellExecution: "write" }).metadata).toMatchObject({ shellExecution: "write" })
     expect(() => skills({ shellExecution: "execute" as never })).toThrow("skills({ shellExecution })")
+  })
+
+  it("defines harness-global skill sources without requiring a Workspace", async () => {
+    const { skills } = await import("../src/capabilities.ts")
+
+    const capability = skills({
+      path: "skills/ponytail",
+      scope: "global",
+      source: { path: "/opt/skills/ponytail" },
+    })
+
+    expect(capability).toMatchObject({
+      id: "skills.skill.ponytail",
+      metadata: {
+        path: "skills/ponytail",
+        scope: "global",
+        skillPath: "skills/ponytail/SKILL.md",
+        sourceKey: "skill.ponytail",
+      },
+    })
+    expect(capability.requires).toBeUndefined()
+    expect(capability.workspaceSources).toBeUndefined()
+    expect(skills({
+      path: "skills/browser",
+      scope: "global",
+      source: { path: "/opt/skills/browser" },
+      sourceKey: "review/browser",
+    })).toMatchObject({
+      id: "skills.review.browser",
+      metadata: { sourceKey: "review/browser" },
+    })
+    expect((skills({
+      path: "skills/ponytail/SKILL.md",
+      scope: "global",
+      source: { path: "skills/ponytail/SKILL.md" },
+    }) as unknown as Record<PropertyKey, unknown>)[Symbol.for("vitehub.agent.globalSkills")]).toMatchObject({
+      path: "ponytail",
+      source: {
+        mount: "ponytail",
+        source: { path: "skills/ponytail/SKILL.md", workspacePath: "SKILL.md" },
+      },
+    })
+    expect(() => skills({ scope: "global", source: { path: "/opt/skills/ponytail" } })).toThrow("requires path")
+    expect(() => skills({ path: "skills/ponytail", scope: "global" })).toThrow("requires source")
+    expect(() => skills({ path: "skills/ponytail", scope: "global", shellExecution: "read", source: { path: "/opt/skills/ponytail" } })).toThrow("does not support shellExecution")
+    expect(() => skills({ scope: "profile" as never })).toThrow("skills({ scope })")
+  })
+
+  it("materializes multiple global skills into a supported harness profile", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const harness = {
+      provider: "codex",
+      [Symbol.for("vitehub.harnessGlobalSkillsDirectory")]: "tmp/harness/codex-home/skills",
+    }
+    const resolvePonytail = vi.fn(() => ({ path: "/opt/skills/ponytail" }))
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce({ close: vi.fn() })
+    useWorkspace.mockClear()
+    exists.mockResolvedValue(true)
+
+    const agent = defineAgent({
+      capabilities: [
+        skills({ path: "skills/ponytail", scope: "global", source: { resolve: resolvePonytail } as never }),
+        skills({ path: "skills/code-review", scope: "global", source: { path: "/opt/skills/code-review" } }),
+      ],
+      driver: { harness },
+    })
+
+    await expect(runAgent(agent, context(), { prompt: "review" })).resolves.toMatchObject({ text: "ok" })
+    expect(useWorkspace).toHaveBeenCalledWith("__vitehub_global_skills", expect.objectContaining({
+      definition: expect.objectContaining({
+        runtime: { allowProduction: true, type: "trusted-host" },
+        sources: {
+          "skill.code-review": { mount: "code-review", source: { path: "/opt/skills/code-review" } },
+          "skill.ponytail": expect.objectContaining({ mount: "ponytail", path: "/opt/skills/ponytail" }),
+        },
+      }),
+      mode: "read",
+    }))
+    expect(resolvePonytail).toHaveBeenCalledOnce()
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      paths: ["ponytail", "code-review"],
+      session: harnessFileSession,
+      sessionWorkDir: "tmp/harness/codex-home/skills",
+    }))
+  })
+
+  it("rejects global skills for harnesses without a global skill directory", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      capabilities: [skills({ path: "skills/review", scope: "global", source: { path: "/opt/skills/review" } })],
+      driver: { harness: { provider: "custom" } },
+    })
+
+    await expect(runAgent(agent, context(), { prompt: "review" })).rejects.toThrow("does not support skills({ scope: \"global\" })")
+    expect(harnessCreateSession).not.toHaveBeenCalled()
+
+    const unsafeAgent = defineAgent({
+      capabilities: [skills({ path: "skills/review", scope: "global", source: { path: "/opt/skills/review" } })],
+      driver: {
+        harness: {
+          provider: "custom",
+          [Symbol.for("vitehub.harnessGlobalSkillsDirectory")]: "/home/agent/.codex/skills",
+        },
+      },
+    })
+    await expect(runAgent(unsafeAgent, context(), { prompt: "review" })).rejects.toThrow("does not support skills({ scope: \"global\" })")
+    expect(harnessCreateSession).not.toHaveBeenCalled()
+  })
+
+  it("rejects global sources without a Skill file before opening a harness session", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      capabilities: [skills({ path: "skills/review", scope: "global", source: { path: "/opt/skills/review" } })],
+      driver: {
+        harness: {
+          provider: "codex",
+          [Symbol.for("vitehub.harnessGlobalSkillsDirectory")]: "tmp/harness/codex-home/skills",
+        },
+      },
+    })
+
+    await expect(runAgent(agent, context(), { prompt: "review" })).rejects.toThrow("review/SKILL.md")
+    expect(harnessCreateSession).not.toHaveBeenCalled()
+  })
+
+  it("clears a reused harness profile when no global Skills are configured", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: {
+        harness: {
+          provider: "codex",
+          [Symbol.for("vitehub.harnessGlobalSkillsDirectory")]: "tmp/harness/codex-home/skills",
+        },
+      },
+    })
+
+    await expect(runAgent(agent, context(), { prompt: "review" })).resolves.toMatchObject({ text: "ok" })
+    expect(harnessFileSession.run).toHaveBeenCalledWith(expect.objectContaining({
+      command: expect.stringContaining("rm -rf -- 'tmp/harness/codex-home/skills'"),
+    }))
+  })
+
+  it("closes global Skill preparation when harness session setup fails", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const close = vi.fn()
+    exists.mockResolvedValue(true)
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce({ close })
+    const agent = defineAgent({
+      capabilities: [skills({ path: "skills/review", scope: "global", source: { path: "/opt/skills/review" } })],
+      driver: {
+        harness: {
+          provider: "codex",
+          [Symbol.for("vitehub.harnessGlobalSkillsDirectory")]: "tmp/harness/codex-home/skills",
+          [Symbol.for("vitehub.harnessSessionPrepare")]: () => {
+            throw new Error("profile setup failed")
+          },
+        },
+      },
+    })
+
+    await expect(runAgent(agent, context(), { prompt: "review" })).rejects.toThrow("profile setup failed")
+    expect(close).toHaveBeenCalledWith(expect.any(Error))
+  })
+
+  it("rejects global skills for non-harness Agent Drivers", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      capabilities: [skills({ path: "skills/review", scope: "global", source: { path: "/opt/skills/review" } })],
+      driver: { model: {} as never },
+    })
+
+    await expect(runAgent(agent, context(), { prompt: "review" })).rejects.toThrow("requires a Harness Agent Driver")
   })
 
   it("lets skills() contribute a mounted workspace source", async () => {
@@ -4199,7 +4377,7 @@ describe("defineAgent workspace option", () => {
     expect(readInstructions).toHaveBeenCalledOnce()
   })
 
-  it("warns when configured primitives lack explicit instruction coverage", async () => {
+  it("warns model drivers when configured primitives lack explicit instruction coverage", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const { skills, workspaceShell } = await import("../src/capabilities.ts")
     exists.mockResolvedValue(true)
@@ -4224,6 +4402,39 @@ describe("defineAgent workspace option", () => {
       expect.objectContaining({ id: "instruction-coverage:capability:workspace-shell", primitive: "capability" }),
       expect.objectContaining({ id: "instruction-coverage:skill:skills/review-browser-evidence", primitive: "skill" }),
     ]))
+  })
+
+  it("does not require explicit instruction coverage for harness-native skills", async () => {
+    const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const agent = withExplicitWorkspaceName(defineAgent({
+      workspace: {},
+      driver: {
+        harness: { provider: "codex" },
+      },
+      capabilities: [skills({
+        path: "skills/review-browser-evidence",
+        scope: "global",
+        source: { path: "/opt/skills/review-browser-evidence" },
+      })],
+    }), { workspace: "support" })
+
+    expect(await resolveAgentDevtoolsMetadata(agent)).not.toHaveProperty("warnings")
+  })
+
+  it("warns run drivers when configured skills lack explicit instruction coverage", async () => {
+    const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    exists.mockResolvedValue(true)
+    const agent = withExplicitWorkspaceName(defineAgent({
+      workspace: {},
+      driver: { run: () => "done" },
+      capabilities: [skills({ path: "skills/review-browser-evidence" })],
+    }), { workspace: "support" })
+
+    expect(await resolveAgentDevtoolsMetadata(agent)).toMatchObject({
+      warnings: [expect.objectContaining({ id: "instruction-coverage:skill:skills/review-browser-evidence", primitive: "skill" })],
+    })
   })
 
   it("clears instruction coverage warnings with explicit coverage blocks", async () => {

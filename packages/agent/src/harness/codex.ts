@@ -24,6 +24,8 @@ type CodexDriverSandboxOptions<CALL_OPTIONS = unknown> =
   | AgentHarnessSandboxProviderInput<AgentRuntimeConfig, CALL_OPTIONS>
 
 const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
+const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDirectory")
+const harnessSessionPrepare = Symbol.for("vitehub.harnessSessionPrepare")
 const codexSandboxAdapterApplied = Symbol("vitehub.codexSandboxAdapterApplied")
 
 export interface CodexDriverOptions<CALL_OPTIONS = unknown> extends CodexHarnessSettings {
@@ -93,6 +95,13 @@ function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolea
   const harness = createCodex(settings)
   return {
     ...harness,
+    [harnessGlobalSkillsDirectory]: "tmp/harness/codex-home/skills",
+    [harnessSessionPrepare]: async (session: object) => {
+      const authHome = "env" in session && session.env && typeof session.env === "object"
+        ? (session.env as Record<string, string | undefined>).CODEX_HOME
+        : undefined
+      await prepareCodexHome(session, authHome)
+    },
     [harnessSandboxAdapter]: (provider: AgentHarnessSandboxProviderInput, options?: { defaultSandbox?: boolean }) => (provider as Record<PropertyKey, unknown>)[codexSandboxAdapterApplied]
       ? provider
       : relativeCodexSandboxProvider(provider, { preferOpenAI, stripGitHubSecrets: options?.defaultSandbox }),
@@ -147,23 +156,41 @@ function patchCodexBridge(bridge: string): string {
   return patched
 }
 
-function relativeCodexSandboxSession<T extends object>(session: T, bootstrapDir?: string): T {
-  const anchoredBootstrapDir = bootstrapDir ?? `${(session as T & { defaultWorkingDirectory: string }).defaultWorkingDirectory.replace(/\/+$/, "")}/${localCodexBootstrapDir}`
+function relativeCodexSandboxSession<T extends object>(session: T, bootstrapDir?: string, codexHome?: string): T {
+  const defaultWorkingDirectory = bootstrapDir && codexHome
+    ? undefined
+    : (session as T & { defaultWorkingDirectory: string }).defaultWorkingDirectory.replace(/\/+$/, "")
+  const anchoredBootstrapDir = bootstrapDir ?? `${defaultWorkingDirectory}/${localCodexBootstrapDir}`
+  const anchoredCodexHome = codexHome ?? `${defaultWorkingDirectory}/tmp/harness/codex-home`
   return new Proxy(session, {
     get(target, property, receiver) {
       if (property === "restricted") {
-        return () => relativeCodexSandboxSession((target as T & { restricted(): object }).restricted(), anchoredBootstrapDir)
+        return () => relativeCodexSandboxSession((target as T & { restricted(): object }).restricted(), anchoredBootstrapDir, anchoredCodexHome)
       }
       if (property === "run" || property === "spawn") {
-        return (options: { command: string }) => (target as T & Record<"run" | "spawn", (options: never) => unknown>)[property]({
+        return (options: { command: string, env?: Record<string, string | undefined> }) => (target as T & Record<"run" | "spawn", (options: never) => unknown>)[property]({
           ...options,
           command: options.command.replaceAll("/tmp/harness/codex", anchoredBootstrapDir),
+          env: {
+            ...options.env,
+            CODEX_HOME: anchoredCodexHome,
+          },
         } as never)
       }
       const value = Reflect.get(target, property, receiver)
       return typeof value === "function" ? value.bind(target) : value
     },
   })
+}
+
+async function prepareCodexHome(session: object, authHome?: string): Promise<void> {
+  const result = await (session as { run(options: { command: string, env?: Record<string, string | undefined> }): Promise<{ exitCode: number, stderr?: string }> }).run({
+    command: 'mkdir -p "$CODEX_HOME" && chmod 700 "$CODEX_HOME" && : > "$CODEX_HOME/config.toml" && chmod 600 "$CODEX_HOME/config.toml" && rm -f "$CODEX_HOME/auth.json" && if [ -n "$VITEHUB_CODEX_AUTH_HOME" ] && [ -f "$VITEHUB_CODEX_AUTH_HOME/auth.json" ]; then ln -sfn "$VITEHUB_CODEX_AUTH_HOME/auth.json" "$CODEX_HOME/auth.json"; elif [ -f "$HOME/.codex/auth.json" ]; then ln -sfn "$HOME/.codex/auth.json" "$CODEX_HOME/auth.json"; fi',
+    ...(authHome ? { env: { VITEHUB_CODEX_AUTH_HOME: authHome } } : {}),
+  })
+  if (result.exitCode !== 0) {
+    throw new Error(`[vitehub] Failed to prepare isolated Codex home: ${result.stderr || "sandbox command failed"}`)
+  }
 }
 
 function codexSandboxProvider(options: {
