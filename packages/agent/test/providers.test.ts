@@ -1213,7 +1213,7 @@ describe("agent Vite plugin", () => {
     expect(pkg.peerDependenciesMeta?.["@vite-hub/schedule"]).toEqual({ optional: true })
   })
 
-  it("does not publish subpath-only integrations as root peers", async () => {
+  it("publishes only required root runtime peers", async () => {
     const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
       dependencies?: Record<string, string>
       peerDependencies?: Record<string, string>
@@ -1227,7 +1227,7 @@ describe("agent Vite plugin", () => {
       + await readFile(new URL("../dist/runtime/workflow.js", import.meta.url), "utf8")
 
     expect(pkg.peerDependencies?.agents).toBeUndefined()
-    expect(pkg.peerDependencies?.["@vite-hub/workflow"]).toBeUndefined()
+    expect(pkg.peerDependencies?.["@vite-hub/workflow"]).toBe("workspace:*")
     expect(pkg.peerDependencies?.evalite).toBeUndefined()
     expect(pkg.peerDependenciesMeta?.agents).toBeUndefined()
     expect(pkg.peerDependenciesMeta?.["@vite-hub/workflow"]).toBeUndefined()
