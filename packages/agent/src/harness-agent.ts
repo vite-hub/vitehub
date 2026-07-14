@@ -656,7 +656,7 @@ async function prepareHarnessColocatedSkills(
   try {
     const result = await (session as HarnessGlobalSkillsSandbox).run({
       abortSignal,
-      command: `mkdir -p ${target} && cp -R .vitehub-agent-skills/skills/. ${target} && rm -rf .vitehub-agent-skills && find ${target} -type f -path "*/scripts/*" -exec chmod +x {} +`,
+      command: `find .vitehub-agent-skills/skills -type f -path "*/scripts/*" -exec chmod +x {} + && mkdir -p ${target} && cp -Rn .vitehub-agent-skills/skills/. ${target} && rm -rf .vitehub-agent-skills`,
       workingDirectory: destination,
     })
     if (result.exitCode !== 0) throw new Error(result.stderr || "sandbox command failed")

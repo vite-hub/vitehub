@@ -841,11 +841,11 @@ describe("defineAgent workspace option", () => {
       sessionWorkDir: "tmp/harness/codex-home/skills/.vitehub-agent-skills",
     }))
     expect(harnessFileSession.run).toHaveBeenCalledWith(expect.objectContaining({
-      command: expect.stringContaining("cp -R .vitehub-agent-skills/skills/. skills"),
+      command: expect.stringContaining("cp -Rn .vitehub-agent-skills/skills/. skills"),
       workingDirectory: "/workspace/codex-session",
     }))
     expect(harnessFileSession.run).toHaveBeenCalledWith(expect.objectContaining({
-      command: expect.stringContaining("cp -R .vitehub-agent-skills/skills/. ."),
+      command: expect.stringContaining("cp -Rn .vitehub-agent-skills/skills/. ."),
       workingDirectory: "tmp/harness/codex-home/skills",
     }))
     expect(workspaceClose).toHaveBeenCalledWith()
