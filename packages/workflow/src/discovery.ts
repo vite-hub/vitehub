@@ -114,6 +114,13 @@ function findAgentObjectStart(masked: string): number | undefined {
   return undefined
 }
 
+function hasExportedDefineAgent(masked: string): boolean {
+  if (/\bexport\s+default\s+defineAgent\b/.test(masked)) return true
+  const exported = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\b/.exec(masked)
+  return Boolean(exported
+    && new RegExp(`\\b(?:const|let|var)\\s+${exported[1]}\\s*(?::[^=]*?)?=\\s*defineAgent\\b`).test(masked))
+}
+
 function resolveAgentReExport(file: string, source: string, masked: string): string | undefined {
   const direct = /\bexport\s+\{\s*default\s*\}\s+from\s*(["'])([^"']+)\1/.exec(source)
   const exported = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\b/.exec(masked)
@@ -121,7 +128,8 @@ function resolveAgentReExport(file: string, source: string, masked: string): str
   const specifier = direct?.[2] || imported?.[2]
   if (!specifier?.startsWith(".")) return undefined
   const target = resolve(file, "..", specifier)
-  for (const candidate of [target, ...[".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"].map(extension => `${target}${extension}`)]) {
+  const extensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"]
+  for (const candidate of [target, ...extensions.map(extension => `${target}${extension}`), ...extensions.map(extension => resolve(target, `index${extension}`))]) {
     if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
   }
   return undefined
@@ -136,6 +144,7 @@ function extractAgentRuntime(file: string, seen = new Set<string>()): { masked?:
   if (start === undefined) {
     const target = resolveAgentReExport(file, source, masked)
     if (target) return extractAgentRuntime(target, seen)
+    if (hasExportedDefineAgent(masked)) return {}
     return /\bexport\s+default\s+[A-Za-z_$][\w$]*Agent\b/.test(masked) ? {} : undefined
   }
   let depth = 0

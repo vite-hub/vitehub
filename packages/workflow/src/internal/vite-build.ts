@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
 import { builtinModules } from "node:module"
-import { dirname, join, relative, resolve } from "node:path"
+import { basename, dirname, join, relative, resolve } from "node:path"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { createDefaultCloudflareOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
@@ -26,6 +26,14 @@ const nodeBuiltinExternals = [...new Set(["node:*", ...builtinModules, ...builti
 const optionalAgentRuntimeExternals = ["@vite-hub/workspace", "@vite-hub/workspace/*"]
 const WORKFLOW_ENTRY_BASE_NAMES = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
 const WORKFLOW_PRIORITY_NAMES = ["server-workflow.ts", "server-workflow.mts", "server-workflow.js", "server-workflow.mjs"] as const
+const folderAgentEntryPattern = /^(?:agent|index)\.(?:c|m)?[jt]s$/i
+
+function isFolderAgentEntry(file: string): boolean {
+  if (!folderAgentEntryPattern.test(basename(file))) return false
+  return !(basename(file).toLowerCase().startsWith("agent.")
+    && basename(dirname(file)) === "agents"
+    && basename(dirname(dirname(file))) === "server")
+}
 
 function resolveWorkflowUserAppEntry(rootDir: string) {
   const names = getViteMode() === VITEHUB_MODES.workflow
@@ -82,6 +90,7 @@ function renderRegistryImport(registryFile: string, file: string): string {
 }
 
 function resolveAgentWorkspaceSourceRoot(file: string): string {
+  if (!isFolderAgentEntry(file)) return dirname(file)
   const workspaceDirectory = join(dirname(file), "workspace")
   return existsSync(workspaceDirectory) && statSync(workspaceDirectory).isDirectory()
     ? workspaceDirectory
@@ -105,6 +114,7 @@ function resolveInstructionFile(file: string, seen: Set<string>): string {
         return line
       }
       if (fence) return line
+      if (/^(?: {4}|\t)/.test(line)) return line
       return line.split(/(`+[^`]*`+)/g).map((segment, index) => index % 2 ? segment : replaceImports(segment)).join("")
     }).join("")
   }
@@ -114,6 +124,7 @@ function resolveInstructionFile(file: string, seen: Set<string>): string {
 }
 
 function readAgentInstructions(file: string): string | undefined {
+  if (!isFolderAgentEntry(file)) return undefined
   const instructions = join(dirname(file), "instructions.md")
   return existsSync(instructions) && statSync(instructions).isFile()
     ? resolveInstructionFile(instructions, new Set())
@@ -121,6 +132,7 @@ function readAgentInstructions(file: string): string | undefined {
 }
 
 function readAgentSkills(file: string): Record<string, { content: string, encoding: "base64", materialize: "build", mount: "", workspacePath: string }> | undefined {
+  if (!isFolderAgentEntry(file)) return undefined
   const root = dirname(file)
   const skillsRoot = join(root, "skills")
   if (!existsSync(skillsRoot) || !statSync(skillsRoot).isDirectory()) return undefined
@@ -152,7 +164,7 @@ function renderAgentWorkflowRegistryEntry(registryFile: string, definition: Disc
     "    if (cached) return cached",
     `    const loaded = await ${renderRegistryImport(registryFile, definition.handler)}`,
     `    const agent = agentWithColocatedSkills(workspaceAgentWithSourceRoot("default" in loaded ? loaded.default : loaded, ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(readAgentInstructions(definition.handler))}), ${JSON.stringify(readAgentSkills(definition.handler))})`,
-    "    const entry = { handler: async (context) => await runAgentWorkflowDefinition(agent, context, runAgentInline) }",
+    `    const entry = { handler: async (context) => await runAgentWorkflowDefinition(agent, { ...context, payload: { ...context.payload, agentIdentity: context.payload?.agentIdentity || { name: ${JSON.stringify(definition.name)} } } }, runAgentInline) }`,
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
     "    return entry",
     "  },",
