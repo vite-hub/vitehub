@@ -467,7 +467,6 @@ async function syncWorkspaceBack(state: CrabboxSessionState) {
   const result = await runCrabboxScript(state.options, state.leaseId, {
     script: `archive=$(mktemp /tmp/vitehub-workspace.XXXXXX.tar) && manifest=$(mktemp /tmp/vitehub-workspace.XXXXXX.manifest) && trap 'rm -f -- "$archive" "$manifest"' EXIT && if git -C ${shellQuote(state.remoteWorkspace)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then printf %s ${shellQuote(initialManifest)} | base64 -d > "$manifest" && git -C ${shellQuote(state.remoteWorkspace)} ls-files -z --cached --others --exclude-standard >> "$manifest" && tar --ignore-failed-read --no-recursion --null -C ${shellQuote(state.remoteWorkspace)} -cf "$archive" -T "$manifest"; else tar -C ${shellQuote(state.remoteWorkspace)} --exclude ./.git --exclude .git -cf "$archive" .; fi && base64 < "$archive"`,
   })
-  if (result.exitCode !== 0) throw crabboxError("archive Crabbox workspace", result)
   const archive = Buffer.from(result.stdout.replace(/\s+/g, ""), "base64")
   const transactionRoot = await mkdtemp(join(dirname(state.options.workspace), ".vitehub-workspace-"))
   const stagedWorkspace = join(transactionRoot, "workspace")
