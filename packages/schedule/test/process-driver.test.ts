@@ -83,27 +83,18 @@ describe("Process Schedule Wake Driver", () => {
     const now = new Date("2026-07-11T09:00:20.000Z")
     const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
     await runtimeScheduleStore.create(record("daily"))
-    let markCloseStarted: (() => void) | undefined
-    const closeStarted = new Promise<void>(resolve => { markCloseStarted = resolve })
+    let releaseHandler: (() => void) | undefined
     const processDriverFactory = createProcessScheduleWakeDriver({ now: () => now })
 
     const controller = await installScheduleRuntime({
       async createDriver(context) {
-        const driver = await processDriverFactory(context)
-        return {
-          async close() {
-            const closing = Promise.resolve(driver.close?.())
-            markCloseStarted?.()
-            await closing
-          },
-          reconcile: records => driver.reconcile(records),
-        }
+        return await processDriverFactory(context)
       },
       registry: {
         report: async () => ({
           cron: "* * * * *",
           handler: async () => {
-            await closeStarted
+            await new Promise<void>(resolve => { releaseHandler = resolve })
             await schedules.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
           },
           options: { allowRuntimeSchedules: true },
@@ -113,7 +104,10 @@ describe("Process Schedule Wake Driver", () => {
       scheduleRunStore: createMemoryScheduleRunStore(),
     })
 
-    await controller.close()
+    await vi.waitFor(() => expect(releaseHandler).toBeTypeOf("function"))
+    const closing = controller.close()
+    releaseHandler!()
+    await closing
 
     await expect(schedules.get("follow-up")).resolves.toMatchObject({ id: "follow-up" })
   })

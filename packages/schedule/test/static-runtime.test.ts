@@ -84,6 +84,23 @@ describe("Static Schedule runtime", () => {
     expect((globalThis as { __env__?: Record<string, unknown> }).__env__).toBeUndefined()
   })
 
+  it("accepts Cloudflare waitUntil separately from the scheduled event", async () => {
+    const deferred: Promise<unknown>[] = []
+    await executeCloudflareStaticSchedules({
+      controller: { cron: "0 4 * * *", scheduledTime: "2026-06-12T04:00:00.000Z" },
+    }, {
+      registry: {
+        report: async () => ({
+          cron: "0 4 * * *",
+          handler: async ({ waitUntil }) => waitUntil(Promise.resolve("recorded")),
+        }),
+      },
+      waitUntil: promise => deferred.push(Promise.resolve(promise)),
+    })
+
+    await expect(Promise.all(deferred)).resolves.toEqual(["recorded"])
+  })
+
   it("drains deferred work before returning a handler failure", async () => {
     let releaseDeferred: (() => void) | undefined
     let deferredCompleted = false

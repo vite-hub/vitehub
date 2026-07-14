@@ -198,4 +198,52 @@ describe("Schedule waitUntil", () => {
     expect(completed).toEqual(["static", "runtime"])
     expect(driverClosed).toBe(true)
   })
+
+  it("waits for active wakes to register deferred work before closing", async () => {
+    const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    let context: RuntimeScheduleWakeDriverContext | undefined
+    let releaseHandler: (() => void) | undefined
+    let releaseDeferred: (() => void) | undefined
+    let driverClosed = false
+    await runtimeScheduleStore.create({
+      createdAt: scheduledAt,
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "report",
+      target: "report",
+      updatedAt: scheduledAt,
+    })
+    const controller = await installScheduleRuntime({
+      createDriver(driverContext) {
+        context = driverContext
+        return {
+          async close() { driverClosed = true },
+          async reconcile() {},
+        }
+      },
+      registry: {
+        report: async () => defineScheduleTarget({
+          handler: async ({ waitUntil }) => {
+            await new Promise<void>(resolve => { releaseHandler = resolve })
+            waitUntil(new Promise<void>(resolve => { releaseDeferred = resolve }))
+          },
+        }),
+      },
+      runtimeScheduleStore,
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+
+    const wake = context!.wake({ scheduleId: "report", scheduledAt })
+    await vi.waitFor(() => expect(releaseHandler).toBeTypeOf("function"))
+    let closed = false
+    const closing = controller.close().then(() => { closed = true })
+    releaseHandler!()
+    await vi.waitFor(() => expect(releaseDeferred).toBeTypeOf("function"))
+    expect(closed).toBe(false)
+    expect(driverClosed).toBe(false)
+    releaseDeferred!()
+    await Promise.all([wake, closing])
+    expect(driverClosed).toBe(true)
+  })
 })

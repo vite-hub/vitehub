@@ -18,6 +18,7 @@ export interface ExecuteMatchingStaticSchedulesOptions {
 
 export interface ExecuteCloudflareStaticSchedulesOptions {
   registry: ScheduleDefinitionRegistry
+  waitUntil?: (promise: PromiseLike<unknown>) => void
 }
 
 interface CloudflareScheduledEventLike {
@@ -89,7 +90,7 @@ export async function executeCloudflareStaticSchedules(
   options: ExecuteCloudflareStaticSchedulesOptions,
 ): Promise<unknown[]> {
   const scheduled = readCloudflareScheduledEvent(event)
-  const hostWaitUntil = readCloudflareWaitUntil(event)
+  const hostWaitUntil = options.waitUntil ?? readCloudflareWaitUntil(event)
   return await runWithCloudflareServerEnv(event, async (waitUntil) => {
     return await executeMatchingStaticSchedules({
       cron: scheduled.cron,
