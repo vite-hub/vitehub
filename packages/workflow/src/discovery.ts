@@ -117,7 +117,10 @@ function extractAgentRuntime(source: string): { masked?: string, raw?: string } 
   const masked = maskSourceLiterals(source)
   const start = findAgentObjectStart(masked)
   if (start === undefined) {
-    return /\bexport\s+\{\s*default\s*\}\s+from\b/.test(masked) ? {} : undefined
+    return /\bexport\s+\{\s*default\s*\}\s+from\b/.test(masked)
+      || /\bexport\s+default\s+[A-Za-z_$][\w$]*Agent\b/.test(masked)
+      ? {}
+      : undefined
   }
   let depth = 0
   for (let index = start; index < masked.length; index++) {
@@ -127,7 +130,11 @@ function extractAgentRuntime(source: string): { masked?: string, raw?: string } 
     else if (masked[index] === "}" && --depth === 0) {
       return {}
     }
-    else if (depth === 1 && /^(?:runtime|["']runtime["'])\s*:/.test(source.slice(index))) {
+    else if (depth === 1) {
+      const previous = masked.slice(0, index).trimEnd().at(-1)
+      const runtimeProperty = /^runtime\s*:/.test(masked.slice(index))
+        || ((previous === "{" || previous === ",") && /^["']runtime["']\s*:/.test(source.slice(index)))
+      if (!runtimeProperty) continue
       const colon = source.indexOf(":", index + 7)
       let end = colon + 1
       let nested = 0

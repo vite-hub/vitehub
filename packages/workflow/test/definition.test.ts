@@ -105,6 +105,7 @@ describe("workflow definitions", () => {
     await mkdir(join(rootDir, "server", "agents", "typed-inline"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "typed-named"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "wrapped"), { recursive: true })
+    await mkdir(join(rootDir, "server", "agents", "imported"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "team"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "variable-inline"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "variable-typed"), { recursive: true })
@@ -118,6 +119,7 @@ describe("workflow definitions", () => {
     await writeFile(join(rootDir, "server", "agents", "typed-inline", "agent.ts"), "export default defineAgent<Runtime>({ runtime: /* inline */ false as const, driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "typed-named", "agent.ts"), "import { defineAgent } from '@vite-hub/agent'\nexport default defineAgent<{ handler: () => string }, Options>({ runtime: /* provider */ workflow(/* stable */ 'typed-custom'), driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "wrapped", "agent.ts"), "export { default } from './definition'\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "imported", "agent.ts"), "import reviewAgent from './definition'\nexport default reviewAgent\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "team", "agent.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "team", "index.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "team", "review.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
@@ -128,6 +130,7 @@ describe("workflow definitions", () => {
 
     expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
       expect.objectContaining({ name: "custom-name", source: "agent-workflow" }),
+      expect.objectContaining({ name: "imported", source: "agent-workflow" }),
       expect.objectContaining({ name: "mentioned", source: "agent-workflow" }),
       expect.objectContaining({ name: "support", source: "agent-workflow" }),
       expect.objectContaining({ name: "team", source: "agent-workflow" }),
@@ -145,6 +148,7 @@ describe("workflow definitions", () => {
     await mkdir(join(rootDir, "server", "agents"), { recursive: true })
     await writeFile(join(rootDir, "server", "agents", "inline.ts"), `export default defineAgent({ "runtime": false, driver: { run } })\n`, "utf8")
     await writeFile(join(rootDir, "server", "agents", "named.ts"), `export default defineAgent({ 'runtime': workflow('quoted-name'), driver: { run } })\n`, "utf8")
+    await writeFile(join(rootDir, "server", "agents", "described.ts"), `export default defineAgent({ description: 'use runtime: false', runtime: false, driver: { run } })\n`, "utf8")
 
     expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
       expect.objectContaining({ name: "quoted-name", source: "agent-workflow" }),
