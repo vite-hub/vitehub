@@ -83,6 +83,16 @@ interface HarnessAgentAdapterOptions<
   workDir?: AgentHarnessWorkDir<TRuntimeConfig, CALL_OPTIONS>
 }
 
+interface HarnessSessionIdentity {
+  box?: {
+    home?: string
+    runtime: string
+    workspace?: string
+  }
+  instructions?: string
+  workDir?: string
+}
+
 function hasEntries(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && Object.keys(value).length > 0
 }
@@ -512,10 +522,14 @@ async function createHarnessAgent<
   assertSupportedHarnessDriverContributions(context)
   const { HarnessAgent } = await import("@ai-sdk/harness/agent") as unknown as { HarnessAgent: HarnessAgentConstructor }
   const harness = await resolveHarness(options.harness, context)
-  const baseSandbox = context.harnessSandboxProvider ?? await resolveHarnessSandboxProvider(options.sandbox, context) ?? await createDefaultHarnessSandbox(context)
+  const driverSandbox = context.harnessSandboxProvider === undefined
+    ? await resolveHarnessSandboxProvider(options.sandbox, context)
+    : undefined
+  const defaultSandbox = context.harnessSandboxProvider === undefined && driverSandbox === undefined
+  const baseSandbox = context.harnessSandboxProvider ?? driverSandbox ?? await createDefaultHarnessSandbox(context)
   const adaptSandbox = (harness as Record<PropertyKey, unknown>)[harnessSandboxAdapter]
   const sandbox = typeof adaptSandbox === "function"
-    ? (adaptSandbox as (provider: object) => object)(baseSandbox)
+    ? (adaptSandbox as (provider: object, options: { defaultSandbox: boolean }) => object)(baseSandbox, { defaultSandbox })
     : baseSandbox
   const instructions = await resolveHarnessDriverInstructions(options.instructions, context)
   const workDir = await resolveHarnessWorkDir(options.workDir, context) ?? context.harnessWorkDir
@@ -724,12 +738,12 @@ function getResumeStates(options: object): Map<string, unknown> {
 async function resolveHarnessProviderSessionId(
   sessionId: string,
   resumeKey: string,
-  identity: { instructions?: string, workDir?: string },
+  identity: HarnessSessionIdentity,
 ): Promise<string> {
-  if (identity.instructions === undefined && identity.workDir === undefined) return sessionId
+  if (identity.box === undefined && identity.instructions === undefined && identity.workDir === undefined) return sessionId
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(resumeKey))
   const fingerprint = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")
-  return `vitehub:${fingerprint}`
+  return `vitehub-${fingerprint}`
 }
 
 export function createHarnessAgentAdapter<
@@ -745,10 +759,22 @@ export function createHarnessAgentAdapter<
     agent: HarnessAgentLike,
     context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
     getWorkspaceSession: () => { close: (error?: unknown) => MaybePromise<void> } | undefined,
-    identity: { instructions?: string, workDir?: string },
+    agentIdentity: Omit<HarnessSessionIdentity, "box">,
   ) {
+    const identity: HarnessSessionIdentity = {
+      ...agentIdentity,
+      ...(context.box
+        ? {
+            box: {
+              home: context.box.environment.home,
+              runtime: context.box.runtime,
+              workspace: context.box.workspace.path,
+            },
+          }
+        : {}),
+    }
     const sessionId = await resolveHarnessSessionKey(options.sessionKey, context)
-    const resumeKey = sessionId ? JSON.stringify([sessionId, identity.instructions, identity.workDir]) : undefined
+    const resumeKey = sessionId ? JSON.stringify([sessionId, identity.instructions, identity.workDir, identity.box]) : undefined
     const providerSessionId = sessionId && resumeKey
       ? await resolveHarnessProviderSessionId(sessionId, resumeKey, identity)
       : undefined

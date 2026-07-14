@@ -113,7 +113,7 @@ export default defineAgent<any, { worktreePath: string }>({
 })
 ```
 
-`codexDriver()` contributes the `codex` requirement automatically. `trustedHost()` checks required tools and named authentication before execution, inherits the ambient Home when `home` is omitted, and provides no filesystem, credential, or process isolation. Set `box.home` to use a managed portable Home. Do not combine an explicit `box.cwd` with Agent Workspace materialization in this first slice.
+`codexDriver()` contributes an authenticated `codex` requirement for ambient auth and an executable-only `codex-cli` requirement for explicit auth. `trustedHost()` checks required tools and named authentication before execution, inherits the ambient Home when `home` is omitted, and provides no filesystem, credential, or process isolation. Set `box.home` to use a managed portable Home. Do not combine an explicit `box.cwd` with Agent Workspace materialization in this first slice.
 
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
 

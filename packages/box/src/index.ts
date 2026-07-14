@@ -5,7 +5,7 @@ import { homedir } from "node:os"
 import { delimiter, isAbsolute, join, resolve } from "node:path"
 import { promisify } from "node:util"
 
-export type BoxRequirement = "codex" | "github" | (string & {})
+export type BoxRequirement = "codex" | "codex-cli" | "github" | (string & {})
 
 export type BoxValue<T, Context> = T | ((context: Context) => T | undefined | Promise<T | undefined>)
 
@@ -123,6 +123,7 @@ async function assertDirectory(path: string, label: string) {
 
 const requirementCommands: Record<string, { args: string[], command: string }> = {
   codex: { args: ["login", "status"], command: "codex" },
+  "codex-cli": { args: [], command: "codex" },
   github: { args: ["auth", "status"], command: "gh" },
 }
 
@@ -133,12 +134,13 @@ async function resolveRequirement(
 ): Promise<ResolvedBoxRequirement> {
   if (!name.trim()) throw new Error("[vitehub] Box requirements must be non-empty names.")
   const check = requirementCommands[name] || { args: [], command: name }
-  if (!await findExecutable(check.command, env.PATH)) {
+  const executable = await findExecutable(check.command, env.PATH, env.PATHEXT)
+  if (!executable) {
     throw new Error(`[vitehub] Box requirement "${name}" is unavailable: ${check.command} is not on PATH.`)
   }
   if (check.args.length) {
     try {
-      await promisify(execFile)(check.command, check.args, { cwd, env, timeout: 10_000 })
+      await promisify(execFile)(executable, check.args, { cwd, env, shell: isWindowsCommandShim(executable), timeout: 10_000 })
     }
     catch (error) {
       const detail = typeof error === "object" && error && "stderr" in error
@@ -150,11 +152,21 @@ async function resolveRequirement(
   return { command: check.command, name }
 }
 
-async function findExecutable(command: string, path: string | undefined) {
-  const candidates = command.includes("/") || isAbsolute(command)
-    ? [resolve(command)]
-    : (path || "").split(delimiter).filter(Boolean).map(directory => join(directory, command))
+async function findExecutable(command: string, path: string | undefined, pathExt: string | undefined) {
+  const names = [
+    command,
+    ...(pathExt || "").split(";").map(extension => extension.trim()).filter(Boolean).flatMap((extension) => {
+      return command.toLowerCase().endsWith(extension.toLowerCase()) ? [] : [`${command}${extension}`]
+    }),
+  ]
+  const candidates = command.includes("/") || command.includes("\\") || isAbsolute(command)
+    ? names.map(name => resolve(name))
+    : (path || "").split(delimiter).filter(Boolean).flatMap(directory => names.map(name => join(directory, name)))
   for (const candidate of candidates) {
     if (await access(candidate, constants.X_OK).then(() => true, () => false)) return candidate
   }
+}
+
+function isWindowsCommandShim(path: string) {
+  return process.platform === "win32" && /\.(?:bat|cmd)$/i.test(path)
 }

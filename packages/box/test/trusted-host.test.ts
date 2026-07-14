@@ -78,6 +78,34 @@ describe("trustedHost", () => {
         runtime: trustedHost(),
       }, {}))).rejects.toThrow('Box requirement "github" failed: not logged in')
   })
+
+  it("uses PATHEXT when resolving Windows command shims", async () => {
+    const root = await temporaryRoot()
+    const bin = join(root, "bin")
+    await mkdir(bin)
+    await executable(bin, "codex.cmd", "exit 0")
+
+    await expect(withEnv({ PATH: bin, PATHEXT: ".cmd" }, () => resolveBox({
+      requires: ["codex"],
+      runtime: trustedHost(),
+    }, {}))).resolves.toMatchObject({
+      requirements: [{ command: "codex", name: "codex" }],
+    })
+  })
+
+  it("checks only the Codex executable for explicit-auth requirements", async () => {
+    const root = await temporaryRoot()
+    const bin = join(root, "bin")
+    await mkdir(bin)
+    await executable(bin, "codex", "exit 1")
+
+    await expect(withPath(bin, () => resolveBox({
+      requires: ["codex-cli"],
+      runtime: trustedHost(),
+    }, {}))).resolves.toMatchObject({
+      requirements: [{ command: "codex", name: "codex-cli" }],
+    })
+  })
 })
 
 async function temporaryRoot() {
@@ -101,5 +129,19 @@ async function withPath<T>(path: string, run: () => Promise<T>) {
   finally {
     if (original === undefined) delete process.env.PATH
     else process.env.PATH = original
+  }
+}
+
+async function withEnv<T>(env: Record<string, string>, run: () => Promise<T>) {
+  const original = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]))
+  Object.assign(process.env, env)
+  try {
+    return await run()
+  }
+  finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
   }
 }

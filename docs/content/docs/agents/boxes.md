@@ -40,7 +40,7 @@ export default defineAgent<any, BabysitterRunOptions>({
 
 The Box boots in `worktreePath`, preserves mutations in that checkout, and inherits the host Home. Codex therefore reads the repository's `AGENTS.md` and skills from the checkout while using the host's existing Codex configuration, selected model, authentication, and global skills. Harness bootstrap packages and resume data live in a disposable temporary root, so they do not dirty the authoritative checkout.
 
-`codexDriver()` contributes its `codex` requirement automatically. The Agent Definition only lists additional requirements used by its own workflow.
+`codexDriver()` contributes its Codex requirement automatically. With ambient authentication it requires `codex login status`; with explicit driver authentication it checks only that the Codex CLI is installed. The Agent Definition only lists additional requirements used by its own workflow.
 
 ## Use a portable Home
 
@@ -64,6 +64,7 @@ Keep the Home outside the project checkout and protect it as a credential bundle
 | Requirement | Boot check |
 | --- | --- |
 | `codex` | Finds `codex` on `PATH` and runs `codex login status`. |
+| `codex-cli` | Finds `codex` on `PATH` without requiring ambient authentication. |
 | `github` | Finds `gh` on `PATH` and runs `gh auth status`. |
 | Any other name | Finds an executable with that name on `PATH`. |
 
