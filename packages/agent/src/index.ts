@@ -581,6 +581,14 @@ interface DefaultAgentWorkflowRuntimeBinding extends AgentWorkflowRuntimeBinding
   discoveryDefault: true
 }
 
+function withAgentIdentityOwner<TRuntimeConfig extends AgentRuntimeConfig>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+): AgentRuntimeContext<TRuntimeConfig> {
+  if (!context.agentIdentity || (context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]) return context
+  return { ...context, [agentIdentityOwner]: agent as object }
+}
+
 function hasAgentMethods(value: unknown): value is AgentAdapter {
   return typeof value === "object"
     && value !== null
@@ -685,7 +693,6 @@ async function runAgentAsWorkflow<
   if ("discoveryDefault" in binding && context.agentIdentity) {
     const owner = (context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]
     if (owner && owner !== agent) return undefined
-    ;(context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner] = agent as object
   }
   const capabilityNames = Object.keys(context.capabilities || {})
   // ponytail: Host capability handles and registries cannot cross a Workflow payload without losing identity.
@@ -1091,9 +1098,7 @@ function defineBaseAgent<
     workspace,
     ...(normalizedCapabilities.length ? { capabilities: normalizedCapabilities } : {}),
     async resolve(context) {
-      if (context.agentIdentity && !(context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]) {
-        ;(context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner] = definition as object
-      }
+      context = withAgentIdentityOwner(definition, context)
       const adapterInstance = await resolveBaseAgent(context)
       const resolvedContext = createResolvedRuntimeContext(context)
       const resolvedTools = driver.kind === "model" && normalizedCapabilities.length && !workspace
@@ -2301,9 +2306,7 @@ export async function runAgentInline<
   input: AgentRunInput<CALL_OPTIONS>,
   options: RunAgentInlineOptions = {},
 ): Promise<Response | AgentRunResult | unknown> {
-  if (context.agentIdentity && !(context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]) {
-    ;(context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner] = agent as object
-  }
+  context = withAgentIdentityOwner(agent, context)
   const renderOutput = options.output !== "raw"
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const runContext = await createAgentInvocationContext(agent, context, input)
@@ -2382,9 +2385,10 @@ export async function runAgent<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
 ): Promise<Response | AgentRunResult | unknown> {
-  const workflowRun = await runAgentAsWorkflow(agent, context, input)
+  const invocationContext = withAgentIdentityOwner(agent, context)
+  const workflowRun = await runAgentAsWorkflow(agent, invocationContext, input)
   if (workflowRun) return workflowRun
-  return await runAgentInline(agent, context, input)
+  return await runAgentInline(agent, invocationContext, input)
 }
 
 export async function runScheduledAgent(

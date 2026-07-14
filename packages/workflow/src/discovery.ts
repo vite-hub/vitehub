@@ -169,7 +169,8 @@ function resolveAgentReExport(file: string, source: string, masked: string): str
   if (!specifier?.startsWith(".")) return undefined
   const target = resolve(file, "..", specifier)
   const extensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"]
-  for (const candidate of [target, ...extensions.map(extension => `${target}${extension}`), ...extensions.map(extension => resolve(target, `index${extension}`))]) {
+  const sourceTarget = target.replace(/\.(?:c|m)?js$/i, "")
+  for (const candidate of [target, ...extensions.map(extension => `${target}${extension}`), ...extensions.map(extension => `${sourceTarget}${extension}`), ...extensions.map(extension => resolve(target, `index${extension}`))]) {
     if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
   }
   return undefined
@@ -204,6 +205,9 @@ function extractAgentRuntime(file: string, seen = new Set<string>()): { masked?:
     }
     else if (depth === 1) {
       const previous = masked.slice(0, index).trimEnd().at(-1)
+      if ((previous === "{" || previous === ",") && /^runtime\s*(?:,|})/.test(masked.slice(index))) {
+        return { masked: "runtime", raw: "runtime" }
+      }
       const runtimeProperty = /^runtime\s*:/.test(masked.slice(index))
         || ((previous === "{" || previous === ",") && /^["']runtime["']\s*:/.test(source.slice(index)))
       if (!runtimeProperty) continue
@@ -234,7 +238,13 @@ function extractAgentWorkflowName(file: string, fallbackName: string): string | 
   if (match) {
     return match[2] || fallbackName
   }
-  return /^false(?:\s+as\s+const)?$/.test(runtime.masked || "") ? undefined : fallbackName
+  if (/^false(?:\s+as\s+const)?$/.test(runtime.masked || "")) return undefined
+  const shorthand = /^([A-Za-z_$][\w$]*)$/.exec(runtime.masked || "")?.[1]
+  if (shorthand) {
+    const masked = maskSourceLiterals(readFileSync(file, "utf8"))
+    if (new RegExp(`\\b(?:const|let|var)\\s+${shorthand}\\s*(?::[^=]+)?=\\s*false(?:\\s+as\\s+const)?\\b`).test(masked)) return undefined
+  }
+  return fallbackName
 }
 
 function toAgentWorkflowDefinition(file: string, fallbackName: string): DiscoveredWorkflowDefinition | undefined {

@@ -90,7 +90,6 @@ function renderRegistryImport(registryFile: string, file: string): string {
 }
 
 function resolveAgentWorkspaceSourceRoot(file: string): string {
-  if (!isFolderAgentEntry(file)) return dirname(file)
   const workspaceDirectory = join(dirname(file), "workspace")
   return existsSync(workspaceDirectory) && statSync(workspaceDirectory).isDirectory()
     ? workspaceDirectory

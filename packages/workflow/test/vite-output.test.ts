@@ -87,6 +87,7 @@ describe("Vite workflow provider outputs", () => {
     await mkdir(join(agentDir, "workspace"), { recursive: true })
     await mkdir(join(agentDir, "skills", "review"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "skills", "shared"), { recursive: true })
+    await mkdir(join(rootDir, "server", "agents", "workspace"), { recursive: true })
     await mkdir(inlineAgentDir, { recursive: true })
     await writeFile(join(agentDir, "agent.ts"), [
       `import { defineAgent } from "@vite-hub/agent"`,
@@ -172,6 +173,7 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).toContain("Keep answers concise")
     expect(registry).toContain("Use shared policy")
     expect(registry).toContain("Use flat Agent instructions.")
+    expect(registry).toContain(JSON.stringify(join(rootDir, "server", "agents", "workspace")))
     expect(registry).not.toContain("@./shared.md")
     expect(registry).toContain("@./inline-example.md")
     expect(registry).toContain("@./fenced-example.md")

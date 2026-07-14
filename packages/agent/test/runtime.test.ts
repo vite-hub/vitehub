@@ -8491,6 +8491,19 @@ describe("agent message protocol", () => {
       }, {})).resolves.toBe("child")
     })
 
+    it("does not persist discovered identity ownership on caller contexts", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const context = {
+        agentIdentity: { name: "reusable" },
+        memo: vi.fn(),
+        runtime: "vercel" as const,
+        waitUntil: vi.fn(),
+      }
+
+      await expect(runAgent(defineAgent({ runtime: false, driver: { run: () => "inline" } }), context, {})).resolves.toBe("inline")
+      expect(Object.getOwnPropertySymbols(context)).toEqual([])
+    })
+
     it("keeps child Agents inline when copied contexts recreate the parent identity", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
