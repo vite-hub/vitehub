@@ -687,8 +687,11 @@ export async function writeVercelScheduleFunctions(options: {
     if (previousCrons.length === 0) {
       delete vercelConfig.crons
       if (isDeepStrictEqual(vercelConfig, createVercelConfigJson())) {
-        await rm(configFile, { force: true })
-        await removeEmptyDirectories(outputRoot, options.rootDir)
+        const outputFiles = await readdir(outputRoot)
+        if (outputFiles.length === 1 && outputFiles[0] === "config.json") {
+          await rm(configFile, { force: true })
+          await removeEmptyDirectories(outputRoot, options.rootDir)
+        }
       }
     }
     return
