@@ -754,6 +754,7 @@ describe("defineAgent workspace option", () => {
     const resolvePonytail = vi.fn(() => ({ path: "/opt/skills/ponytail" }))
     prepareHarnessWorkspaceSession.mockResolvedValueOnce({ close: vi.fn() })
     useWorkspace.mockClear()
+    exists.mockResolvedValue(true)
 
     const agent = defineAgent({
       capabilities: [
@@ -791,6 +792,23 @@ describe("defineAgent workspace option", () => {
     })
 
     await expect(runAgent(agent, context(), { prompt: "review" })).rejects.toThrow("does not support skills({ scope: \"global\" })")
+    expect(harnessCreateSession).not.toHaveBeenCalled()
+  })
+
+  it("rejects global sources without a Skill file before opening a harness session", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      capabilities: [skills({ path: "skills/review", scope: "global", source: { path: "/opt/skills/review" } })],
+      driver: {
+        harness: {
+          provider: "codex",
+          [Symbol.for("vitehub.harnessGlobalSkillsDirectory")]: "tmp/harness/codex-home/skills",
+        },
+      },
+    })
+
+    await expect(runAgent(agent, context(), { prompt: "review" })).rejects.toThrow("review/SKILL.md")
     expect(harnessCreateSession).not.toHaveBeenCalled()
   })
 

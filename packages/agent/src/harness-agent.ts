@@ -524,6 +524,7 @@ async function createHarnessAgent<
     sessionWorkDir: string,
     abortSignal: AbortSignal | undefined,
     globalSkillsDirectory: unknown,
+    globalSkillsWorkspace: Awaited<ReturnType<typeof resolveHarnessGlobalSkills>>,
   ) => Promise<void>,
 ): Promise<{ agent: HarnessAgentLike, instructions?: string, workDir?: string }> {
   assertSupportedHarnessDriverContributions(context)
@@ -533,6 +534,7 @@ async function createHarnessAgent<
   if (context.globalSkills?.length && (typeof globalSkillsDirectory !== "string" || !globalSkillsDirectory)) {
     throw new Error("[vitehub] This Harness Agent Driver does not support skills({ scope: \"global\" }).")
   }
+  const globalSkillsWorkspace = await resolveHarnessGlobalSkills(context)
   const driverSandbox = context.harnessSandboxProvider === undefined
     ? await resolveHarnessSandboxProvider(options.sandbox, context)
     : undefined
@@ -552,7 +554,7 @@ async function createHarnessAgent<
       ...(workDir !== undefined ? { workDir } : {}),
       onSession: async ({ abortSignal, session, sessionWorkDir }: { abortSignal?: AbortSignal, session: unknown, sessionWorkDir: string }) => {
         setActiveHarnessWorkspaceFiles(context.context, activeHarnessWorkspaceFiles(session as HarnessFileSandbox, sessionWorkDir, abortSignal))
-        await prepareWorkspaceSession(session, sessionWorkDir, abortSignal, globalSkillsDirectory)
+        await prepareWorkspaceSession(session, sessionWorkDir, abortSignal, globalSkillsDirectory, globalSkillsWorkspace)
       },
     },
     permissionMode: defaultHarnessPermissionMode(harness),
@@ -562,18 +564,12 @@ async function createHarnessAgent<
   return { agent, instructions, workDir }
 }
 
-async function prepareHarnessGlobalSkills(
+async function resolveHarnessGlobalSkills(
   context: AgentAdapterRunContext,
-  session: unknown,
-  directory: unknown,
-  abortSignal?: AbortSignal,
-): Promise<{ close: (error?: unknown) => MaybePromise<void> } | undefined> {
+) {
   const skills = context.globalSkills || []
   if (!skills.length) return
-  if (typeof directory !== "string" || !directory) {
-    throw new Error("[vitehub] This Harness Agent Driver does not support skills({ scope: \"global\" }).")
-  }
-  const { prepareHarnessWorkspaceSession, useWorkspace } = await import("@vite-hub/workspace")
+  const { useWorkspace } = await import("@vite-hub/workspace")
   const { resolveWorkspaceSources } = await import("@vite-hub/workspace/runtime")
   const definition = await resolveWorkspaceSources({
     name: "__vitehub_global_skills",
@@ -591,9 +587,28 @@ async function prepareHarnessGlobalSkills(
     mode: "write" as const,
   }
   const workspace = useWorkspace("__vitehub_global_skills", workspaceOptions)
-  return await prepareHarnessWorkspaceSession(workspace, {
+  for (const skill of skills) {
+    if (!await workspace.fs.exists(`${skill.path}/SKILL.md`)) {
+      throw new Error(`[vitehub] Global Skill source must contain ${skill.path}/SKILL.md.`)
+    }
+  }
+  return { paths: skills.map(skill => skill.path), workspace }
+}
+
+async function prepareHarnessGlobalSkills(
+  resolved: Awaited<ReturnType<typeof resolveHarnessGlobalSkills>>,
+  session: unknown,
+  directory: unknown,
+  abortSignal?: AbortSignal,
+): Promise<{ close: (error?: unknown) => MaybePromise<void> } | undefined> {
+  if (!resolved) return
+  if (typeof directory !== "string" || !directory) {
+    throw new Error("[vitehub] This Harness Agent Driver does not support skills({ scope: \"global\" }).")
+  }
+  const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
+  return await prepareHarnessWorkspaceSession(resolved.workspace, {
     abortSignal,
-    paths: skills.map(skill => skill.path),
+    paths: resolved.paths,
     session: session as never,
     sessionWorkDir: directory,
   })
@@ -874,7 +889,7 @@ export function createHarnessAgentAdapter<
   async function createAgentAndSession(context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>) {
     let workspaceSession: { close: (error?: unknown) => MaybePromise<void>, refreshGitBaseline?: () => MaybePromise<void> } | undefined
     let globalSkillsSession: { close: (error?: unknown) => MaybePromise<void> } | undefined
-    const resolved = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal, globalSkillsDirectory) => {
+    const resolved = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal, globalSkillsDirectory, globalSkillsWorkspace) => {
       const harnessInstructions = context.workspace ? await resolveHarnessInstructions(context) : undefined
       try {
         if (context.workspace) {
@@ -894,7 +909,7 @@ export function createHarnessAgentAdapter<
           await writeHarnessInstructionFiles(session as HarnessInstructionSandbox, sessionWorkDir, abortSignal, harnessInstructions)
           if (harnessInstructions) await workspaceSession.refreshGitBaseline?.()
         }
-        globalSkillsSession = await prepareHarnessGlobalSkills(context, session, globalSkillsDirectory, abortSignal)
+        globalSkillsSession = await prepareHarnessGlobalSkills(globalSkillsWorkspace, session, globalSkillsDirectory, abortSignal)
       }
       catch (error) {
         try {
