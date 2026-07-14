@@ -1,0 +1,2 @@
+patchedDependencies:
+  '@vite-hub/schedule@0.0.1': patches/@vite-hub__schedule@0.0.1.patch

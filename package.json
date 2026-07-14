@@ -1,0 +1,38 @@
+{
+  "name": "babysitter",
+  "type": "module",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "vite build && tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/harness": "1.0.0",
+    "@ai-sdk/harness-codex": "1.0.0",
+    "@vite-hub/agent": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@9eaa47ebf966379ad1c07c917f5e7e259c4f6330",
+    "@vite-hub/box": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/box@9eaa47ebf966379ad1c07c917f5e7e259c4f6330",
+    "@vite-hub/env": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/env@34ce82c2b3ac83468fda5467857923eb2443f83e",
+    "@vite-hub/kv": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@34ce82c2b3ac83468fda5467857923eb2443f83e",
+    "@vite-hub/schedule": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@d120811e1063b479b20129193075ddf8f9e2d7e7",
+    "ai": "7.0.0",
+    "vite": "^8.0.11"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3"
+  },
+  "imports": {
+    "#vitehub/env/public": {
+      "types": "./.vitehub/env/public.d.ts",
+      "default": "./.vitehub/env/public.mjs"
+    },
+    "#vitehub/env/server": {
+      "types": "./.vitehub/env/server.d.ts",
+      "default": "./.vitehub/env/server.mjs"
+    }
+  }
+}

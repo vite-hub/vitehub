@@ -1,0 +1,4 @@
+.nitro/
+.output/
+.vitehub/
+node_modules/
