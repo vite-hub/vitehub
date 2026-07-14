@@ -1,10 +1,10 @@
 import { defineAgent } from '@vite-hub/agent'
 import { codexDriver } from '@vite-hub/agent/harness/codex'
-import { crabbox } from '@vite-hub/box/crabbox'
+import { trustedHost } from '@vite-hub/box'
 
 export default defineAgent({
   box: {
-    runtime: crabbox({ network: 'direct', profile: 'babysitter', reclaim: true }),
+    runtime: trustedHost(),
     cwd: ({ input }) => {
       if (!input.options) throw new Error('Babysitter requires run options.')
       return input.options.worktreePath
