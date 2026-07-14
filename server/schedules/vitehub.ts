@@ -39,6 +39,7 @@ const owners = createAgentOwnerPool<Job>({
       .replaceAll('{{ context.pullRequestTitle }}', job.title)
       .replaceAll('{{ context.pullRequestUrl }}', job.url)
     await runAgent(babysitter, agentContext, {
+      abortSignal: AbortSignal.timeout(60 * 60 * 1000),
       context: {
         pullRequestHead: job.headRefOid,
         pullRequestNumber: job.number,
@@ -49,7 +50,6 @@ const owners = createAgentOwnerPool<Job>({
       },
       options: { worktreePath: job.worktreePath },
       prompt,
-      timeout: 60 * 60 * 1000,
     })
     const pullRequest = await readPullRequest(job.repository, job.number)
     if (pullRequest.state === 'OPEN' && blockerMarkers.every(marker => pullRequest.body.includes(marker))) {
