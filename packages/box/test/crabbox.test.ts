@@ -96,6 +96,18 @@ describe("crabbox", () => {
     await expect(rejectSymlinkedArchiveParents(workspace, archive)).rejects.toThrow("conflicts with local symlink: linked")
   })
 
+  it("rejects unsafe workspace archive paths", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const source = join(root, "source")
+    const archive = join(root, "workspace.tar")
+    await Promise.all([mkdir(workspace), mkdir(source)])
+    await writeFile(join(source, "file.txt"), "remote")
+    await execFileAsync("tar", ["-cf", archive, "--transform=s|file.txt|../outside.txt|", "-C", source, "file.txt"])
+
+    await expect(rejectSymlinkedArchiveParents(workspace, archive)).rejects.toThrow("archive contains an invalid path")
+  })
+
   it("removes empty parents before extracting replacement entries", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")

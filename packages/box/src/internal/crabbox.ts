@@ -430,9 +430,6 @@ async function syncWorkspaceBack(state: CrabboxSessionState) {
         throw error
       }
     }
-    catch (error) {
-      throw error
-    }
     finally {
       await rm(transactionRoot, { force: true, recursive: true })
     }
@@ -491,10 +488,14 @@ export async function pruneWorkspaceForArchive(workspace: string, archivePath: s
 async function listArchiveEntries(archivePath: string) {
   const result = await runProcess(spawnChildProcess("tar", ["-tf", archivePath]))
   if (result.exitCode !== 0) throw crabboxError("inspect Crabbox workspace", result)
-  return result.stdout
-    .split(/\r?\n/)
-    .map(path => normalizeRelativeArchivePath(path))
-    .filter((path): path is string => Boolean(path))
+  return result.stdout.split(/\r?\n/).flatMap((path) => {
+    if (!path) return []
+    const normalized = normalizeRelativeArchivePath(path)
+    if (!normalized && path !== "." && path !== "./") {
+      throw new Error(`[vitehub] Crabbox workspace archive contains an invalid path: ${path}`)
+    }
+    return normalized ? [normalized] : []
+  })
 }
 
 function normalizeRelativeArchivePath(path: string) {
