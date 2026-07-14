@@ -515,6 +515,22 @@ describe("provider deployment outputs", () => {
     expect(existsSync(cloudflareDir)).toBe(false)
   })
 
+  it("rejects Cloudflare companion files that conflict with the bundle outfile", async () => {
+    const rootDir = await createTempProject()
+    const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
+
+    await expect(writeProviderDeploymentOutputs({
+      cloudflare: {
+        bundleEntry: join(rootDir, "worker.ts"),
+        bundleOptions: {},
+        files: { "index.js": "export default {}\n" },
+        wranglerConfig: {},
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })).rejects.toThrow("Cloudflare output file conflicts with bundle outfile")
+  })
+
   it("copies Vercel function runtime package dependency closures", async () => {
     const rootDir = await createTempProject()
     const {

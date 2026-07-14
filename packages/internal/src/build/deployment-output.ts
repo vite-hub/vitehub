@@ -212,6 +212,13 @@ async function appendNetlifyFunctionConfig(outfile: string, config: object | und
 async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutputOptions): Promise<void> {
   const { clientDir, staticIndex } = resolveClientOutput(options.rootDir, options.clientOutDir)
   const outputRoot = options.outputRoot ?? createDefaultCloudflareOutputRoot(options.rootDir)
+  const files = Object.entries(options.files ?? {})
+  const workerOutfile = options.bundleEntry
+    ? resolve(outputRoot, options.bundleOutfileName ?? "index.js")
+    : undefined
+  if (workerOutfile && files.some(([fileName]) => resolve(outputRoot, fileName) === workerOutfile)) {
+    throw new Error(`Cloudflare output file conflicts with bundle outfile: ${workerOutfile}`)
+  }
 
   await mkdir(outputRoot, { recursive: true })
 
@@ -225,12 +232,11 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
     options.bundleEntry && staticIndex
       ? copyClientOutput(clientDir, options.staticOutputDir ?? createDefaultCloudflareStaticOutputDir(options.rootDir))
       : Promise.resolve(),
-    ...Object.entries(options.files ?? {}).map(([fileName, contents]) =>
+    ...files.map(([fileName, contents]) =>
       writeFile(resolve(outputRoot, fileName), contents, "utf8")),
   ]
 
-  if (options.bundleEntry) {
-    const workerOutfile = resolve(outputRoot, options.bundleOutfileName ?? "index.js")
+  if (options.bundleEntry && workerOutfile) {
     await rm(workerOutfile, { force: true, recursive: true })
     writes.push(bundleEsmEntry(options.bundleEntry, workerOutfile, options.bundleOptions))
   }
