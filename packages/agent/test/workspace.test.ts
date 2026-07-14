@@ -789,11 +789,38 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       paths: ["ponytail", "code-review"],
       session: harnessFileSession,
-      sessionWorkDir: "tmp/harness/codex-home/skills",
+      sessionWorkDir: expect.stringMatching(/^tmp\/harness\/codex-home\/skills\.vitehub-global-skills-/),
     }))
     expect(harnessFileSession.run).toHaveBeenCalledWith(expect.objectContaining({
-      command: "rm -rf -- 'tmp/harness/codex-home/skills/ponytail' 'tmp/harness/codex-home/skills/code-review'",
+      command: expect.stringContaining("rm -rf -- 'tmp/harness/codex-home/skills/ponytail' 'tmp/harness/codex-home/skills/code-review' && cp -R 'tmp/harness/codex-home/skills.vitehub-global-skills-"),
     }))
+  })
+
+  it("cleans staged global skills after an install failure", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const close = vi.fn()
+    exists.mockResolvedValue(true)
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce({ close })
+    harnessFileSession.run
+      .mockResolvedValueOnce({ exitCode: 0, stderr: "", stdout: "" })
+      .mockResolvedValueOnce({ exitCode: 1, stderr: "copy failed", stdout: "" })
+      .mockRejectedValueOnce(new Error("cleanup failed"))
+    const agent = defineAgent({
+      capabilities: [skills({ path: "skills/review", scope: "global", source: { path: "/opt/skills/review" } })],
+      driver: {
+        harness: {
+          provider: "codex",
+          [Symbol.for("vitehub.harnessGlobalSkillsDirectory")]: "tmp/harness/codex-home/skills",
+        },
+      },
+    })
+
+    await expect(runAgent(agent, context(), { prompt: "review" })).rejects.toThrow("copy failed")
+    expect(harnessFileSession.run).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      command: expect.stringMatching(/^rm -rf -- 'tmp\/harness\/codex-home\/skills\.vitehub-global-skills-/),
+    }))
+    expect(close).toHaveBeenCalledWith(expect.any(Error))
   })
 
   it("materializes colocated skills into the harness workspace and supported global profile", async () => {

@@ -696,26 +696,28 @@ async function prepareHarnessGlobalSkills(
   }
   if (!resolved) return
   const skillDirectories = resolved.paths.map(path => `'${`${directory}/${path}`.replace(/'/g, "'\\''")}'`).join(" ")
-  const clean = await (session as HarnessGlobalSkillsSandbox).run({
-    abortSignal,
-    command: `rm -rf -- ${skillDirectories}`,
-  })
-  if (clean.exitCode !== 0) {
-    throw new Error(`[vitehub] Failed to refresh global Skills: ${clean.stderr || "sandbox command failed"}`)
-  }
   const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
+  const stagingDirectory = `${directory}.vitehub-global-skills-${globalThis.crypto.randomUUID()}`
+  const quotedStagingDirectory = `'${stagingDirectory.replace(/'/g, "'\\''")}'`
   const prepared = await prepareHarnessWorkspaceSession(resolved.workspace, {
     abortSignal,
     paths: resolved.paths,
     session: session as never,
-    sessionWorkDir: directory,
+    sessionWorkDir: stagingDirectory,
   })
-  const executable = await (session as HarnessGlobalSkillsSandbox).run({
+  const install = await (session as HarnessGlobalSkillsSandbox).run({
     abortSignal,
-    command: `find ${quotedDirectory} -type f -path "*/scripts/*" -exec chmod +x {} +`,
+    command: `rm -rf -- ${skillDirectories} && cp -R ${quotedStagingDirectory}/. ${quotedDirectory} && rm -rf -- ${quotedStagingDirectory} && find ${skillDirectories} -type f -path "*/scripts/*" -exec chmod +x {} +`,
   })
-  if (executable.exitCode !== 0) {
-    const error = new Error(`[vitehub] Failed to prepare global Skill scripts: ${executable.stderr || "sandbox command failed"}`)
+  if (install.exitCode !== 0) {
+    const error = new Error(`[vitehub] Failed to refresh global Skills: ${install.stderr || "sandbox command failed"}`)
+    try {
+      await (session as HarnessGlobalSkillsSandbox).run({
+        abortSignal,
+        command: `rm -rf -- ${quotedStagingDirectory}`,
+      })
+    }
+    catch {}
     await prepared.close(error)
     throw error
   }
