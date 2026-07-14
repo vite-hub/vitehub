@@ -160,11 +160,14 @@ function hasExportedDefineAgent(source: string, masked: string): boolean {
     && agentFactoryNames(source).some(factory => new RegExp(`\\b(?:const|let|var)\\s+${exported[1]}\\s*(?::(?:=>|[^=])*?)?=\\s*${factory}\\b`).test(masked)))
 }
 
+function findUnmaskedSourceMatch(source: string, masked: string, pattern: RegExp, prefix: RegExp): RegExpMatchArray | undefined {
+  return [...source.matchAll(pattern)].find(match => prefix.test(masked.slice(match.index)))
+}
+
 function resolveAgentReExport(file: string, source: string, masked: string): string | undefined {
-  const directCandidate = /\bexport\s+\{\s*default\s*\}\s+from\s*(["'])([^"']+)\1/.exec(source)
-  const direct = directCandidate && /^export\s+\{\s*default\s*\}\s+from\b/.test(masked.slice(directCandidate.index)) ? directCandidate : undefined
+  const direct = findUnmaskedSourceMatch(source, masked, /\bexport\s+\{\s*default\s*\}\s+from\s*(["'])([^"']+)\1/g, /^export\s+\{\s*default\s*\}\s+from\b/)
   const exported = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\b/.exec(masked)
-  const imported = exported && new RegExp(`\\bimport\\s+${exported[1]}\\s+from\\s*(["'])([^"']+)\\1`).exec(source)
+  const imported = exported && findUnmaskedSourceMatch(source, masked, new RegExp(`\\bimport\\s+${exported[1]}\\s+from\\s*(["'])([^"']+)\\1`, "g"), /^import\b/)
   const specifier = direct?.[2] || imported?.[2]
   if (!specifier?.startsWith(".")) return undefined
   const target = resolve(file, "..", specifier)

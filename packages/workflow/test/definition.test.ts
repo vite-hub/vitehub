@@ -108,6 +108,7 @@ describe("workflow definitions", () => {
     await mkdir(join(rootDir, "server", "agents", "wrapped-index", "definition"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "dynamic"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "imported"), { recursive: true })
+    await mkdir(join(rootDir, "server", "agents", "imported-comment"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "wrapped-inline"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "index-folder", "workspace", "src"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "team"), { recursive: true })
@@ -138,6 +139,9 @@ describe("workflow definitions", () => {
     await writeFile(join(rootDir, "server", "agents", "dynamic", "agent.ts"), "export default defineAgent(createOptions())\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "imported", "agent.ts"), "import reviewAgent from './definition'\nexport default reviewAgent\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "imported", "definition.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "imported-comment", "agent.ts"), "// import reviewAgent from './old'\nimport reviewAgent from './definition'\nexport default reviewAgent\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "imported-comment", "old.ts"), "export default defineAgent({ runtime: false, driver: { run } })\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "imported-comment", "definition.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "wrapped-inline", "agent.ts"), "export { default } from './definition'\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "wrapped-inline", "definition.ts"), "export default defineAgent({ runtime: false, driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "index-folder", "index.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
@@ -171,6 +175,7 @@ describe("workflow definitions", () => {
       expect.objectContaining({ name: "external", source: "agent-workflow" }),
       expect.objectContaining({ name: "external-wrapper", source: "agent-workflow" }),
       expect.objectContaining({ name: "imported", source: "agent-workflow" }),
+      expect.objectContaining({ name: "imported-comment", source: "agent-workflow" }),
       expect.objectContaining({ name: "index-folder", source: "agent-workflow" }),
       expect.objectContaining({ name: "js-wrapper", source: "agent-workflow" }),
       expect.objectContaining({ name: "mentioned", source: "agent-workflow" }),

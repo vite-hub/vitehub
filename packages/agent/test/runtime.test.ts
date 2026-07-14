@@ -1055,7 +1055,6 @@ describe("agent message protocol", () => {
 
     try {
       const { defineAgent, runAgent } = await import("../src/index.ts")
-      const { getWorkflowRun } = await import("@vite-hub/workflow")
       const traceLog = createTraceEventLog()
       const agent = defineAgent({       driver: {
         model: {} as never
@@ -8457,7 +8456,6 @@ describe("agent message protocol", () => {
 
     it("does not reuse discovered registry entries for explicit Agent workflows", async () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
-      const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
       setWorkflowRuntimeConfig({ provider: "vercel" })
@@ -8473,6 +8471,30 @@ describe("agent message protocol", () => {
         runtime: "vercel",
         waitUntil: promise => waitUntilTasks.push(promise),
       }, {})).rejects.toThrow('Duplicate workflow name "explicit-registry-collision"')
+    })
+
+    it("reuses a discovered Workflow registry entry for named discovered Agent runs", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeRegistry({
+        "named-discovered": async () => ({ handler: async () => "registry" }),
+      })
+
+      const run = await runAgent(defineAgent({
+        runtime: workflow("named-discovered"),
+        driver: { run: () => "inline" },
+      }), {
+        agentIdentity: { name: "support" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("named-discovered", run.id)).resolves.toMatchObject({ result: "registry" })
     })
 
     it("keeps manually composed child Agents inline with inherited parent identity", async () => {

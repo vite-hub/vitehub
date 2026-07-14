@@ -172,10 +172,9 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
   if (typeof workspace !== "object" || workspace === null || isWorkspaceReference(workspace)) return agent
 
   const resolvedSourceRootDir = workspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
-  const existingSources = workspaceAgent.sources && typeof workspaceAgent.sources === "object" ? workspaceAgent.sources : undefined
   const sources = colocatedInstructions
-    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: "build", mount: "", workspacePath: "AGENTS.md" }, ...workspace.sources, ...existingSources }
-    : { ...workspace.sources, ...existingSources }
+    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: "build", mount: "", workspacePath: "AGENTS.md" }, ...workspace.sources }
+    : { ...workspace.sources }
   const workspaceOptions = {
     ...options,
     workspace: {

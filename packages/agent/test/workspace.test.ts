@@ -2794,6 +2794,21 @@ describe("defineAgent workspace option", () => {
       .toBe(sourceRootDir)
   })
 
+  it("does not replay capability workspace sources when applying discovered roots", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const { workspaceAgentWithSourceRoot } = await import("../src/workspace-agent.ts")
+
+    const agent = defineAgent({
+      workspace: {},
+      capabilities: [skills({ path: "skills/review", source: { path: "/opt/skills/review" } })],
+      driver: { model: {} as never },
+    })
+
+    const discoveredAgent = workspaceAgentWithSourceRoot(agent, "/workspace") as { sources?: unknown }
+    expect(discoveredAgent.sources).toHaveProperty("skill.review")
+  })
+
   it("keeps colocated default model instructions without source config prose", async () => {
     const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
     tempRoots.push(sourceRootDir)
