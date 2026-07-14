@@ -4422,6 +4422,20 @@ describe("defineAgent workspace option", () => {
     expect(await resolveAgentDevtoolsMetadata(agent)).not.toHaveProperty("warnings")
   })
 
+  it("warns run drivers when configured skills lack explicit instruction coverage", async () => {
+    const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const agent = withExplicitWorkspaceName(defineAgent({
+      workspace: {},
+      driver: { run: () => "done" },
+      capabilities: [skills({ path: "skills/review-browser-evidence" })],
+    }), { workspace: "support" })
+
+    expect(await resolveAgentDevtoolsMetadata(agent)).toMatchObject({
+      warnings: [expect.objectContaining({ id: "instruction-coverage:skill:skills/review-browser-evidence", primitive: "skill" })],
+    })
+  })
+
   it("clears instruction coverage warnings with explicit coverage blocks", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const { skills, workspaceShell } = await import("../src/capabilities.ts")

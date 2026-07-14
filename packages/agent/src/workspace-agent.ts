@@ -1048,7 +1048,7 @@ function instructionCoverageWarnings(
   return [
     ...sourceCoverageWarnings(coverage, definition),
     ...capabilityCoverageWarnings(coverage, capabilities),
-    ...(driverKind === "model" ? skillCoverageWarnings(coverage, capabilities) : []),
+    ...(driverKind === "harness" ? [] : skillCoverageWarnings(coverage, capabilities)),
   ]
 }
 
