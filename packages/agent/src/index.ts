@@ -683,7 +683,7 @@ async function runAgentAsWorkflow<
     agentIdentityOwners.set(context.agentIdentity, agent as object)
   }
   const capabilityNames = Object.keys(context.capabilities || {})
-  if (capabilityNames.length) return undefined
+  if ("discoveryDefault" in binding && capabilityNames.length) return undefined
 
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS>(agent, resolveAgentWorkflowName(agent, binding, context))
   const resolvedContext = createResolvedRuntimeContext(context)

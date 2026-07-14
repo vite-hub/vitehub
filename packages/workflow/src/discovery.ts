@@ -108,7 +108,7 @@ function findAgentObjectStart(masked: string): number | undefined {
 
   const exported = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\b/.exec(masked)
   if (!exported) return undefined
-  const declaration = new RegExp(`\\b(?:const|let|var)\\s+${exported[1]}\\s*=\\s*defineAgent\\b`).exec(masked)
+  const declaration = new RegExp(`\\b(?:const|let|var)\\s+${exported[1]}\\s*(?::[^;]*?)?=\\s*defineAgent\\b`).exec(masked)
   if (declaration) return findDefineAgentObjectStart(masked, declaration.index + declaration[0].length)
   return undefined
 }

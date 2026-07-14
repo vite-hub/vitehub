@@ -8152,7 +8152,7 @@ describe("agent message protocol", () => {
     const { defineAgent } = await import("../src/index.ts")
     const browserAgent = {
       async resolve(context) {
-        expect(context.agentIdentity).toBeUndefined()
+        expect(context.agentIdentity).toEqual({ name: "reviewer" })
         return {
           async generate({ runtime }) {
             return {
@@ -8460,6 +8460,7 @@ describe("agent message protocol", () => {
       })
       const run = await runAgent(agent, {
         agentIdentity: { name: "browser" },
+        capabilities: { custom: {} },
         memo: vi.fn(),
         runtime: "vercel",
         waitUntil: promise => waitUntilTasks.push(promise),

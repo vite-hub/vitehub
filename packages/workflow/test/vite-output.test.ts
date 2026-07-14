@@ -94,7 +94,8 @@ describe("Vite workflow provider outputs", () => {
       "})",
       "",
     ].join("\n"))
-    await writeFile(join(agentDir, "instructions.md"), "Keep answers concise.\n")
+    await writeFile(join(agentDir, "instructions.md"), "Keep answers concise.\n@./shared.md\n")
+    await writeFile(join(agentDir, "shared.md"), "Use shared policy.\n")
     await writeFile(join(inlineAgentDir, "agent.ts"), [
       `import { defineAgent } from "@vite-hub/agent"`,
       "",
@@ -152,6 +153,8 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).toContain("workspaceAgentWithSourceRoot")
     expect(registry).toContain(JSON.stringify(join(agentDir, "workspace")))
     expect(registry).toContain("Keep answers concise")
+    expect(registry).toContain("Use shared policy")
+    expect(registry).not.toContain("@./shared.md")
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
   }, buildOutputTestTimeout)

@@ -106,6 +106,7 @@ describe("workflow definitions", () => {
     await mkdir(join(rootDir, "server", "agents", "wrapped"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "team"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "variable-inline"), { recursive: true })
+    await mkdir(join(rootDir, "server", "agents", "variable-typed"), { recursive: true })
     await writeFile(join(rootDir, "src", "support.agent.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "inline", "agent.ts"), "export default defineAgent({ runtime: false, driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "inline", "workspace", "source.ts"), "export const runtime = false\n", "utf8")
@@ -118,6 +119,7 @@ describe("workflow definitions", () => {
     await writeFile(join(rootDir, "server", "agents", "team", "review.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "team", "helper.ts"), "export default { driver: { run } }\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "variable-inline", "agent.ts"), "const supportAgent = defineAgent({ runtime: false, driver: { run } })\nexport default supportAgent\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "variable-typed", "agent.ts"), "const jobsAgent: AgentDefinition = defineAgent({ runtime: workflow('typed-variable'), driver: { run } })\nexport default jobsAgent\n", "utf8")
 
     expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
       expect.objectContaining({ name: "custom-name", source: "agent-workflow" }),
@@ -126,6 +128,7 @@ describe("workflow definitions", () => {
       expect.objectContaining({ name: "team", source: "agent-workflow" }),
       expect.objectContaining({ name: "team/review", source: "agent-workflow" }),
       expect.objectContaining({ name: "typed-custom", source: "agent-workflow" }),
+      expect.objectContaining({ name: "typed-variable", source: "agent-workflow" }),
       expect.objectContaining({ name: "wrapped", source: "agent-workflow" }),
     ])
   })
