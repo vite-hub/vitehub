@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, type AgentActor, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentFinishEvent, type AgentHarnessDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
-import { access, blob, browser, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, observability, openapi, pullRequestContext, repositoryHost, repositoryHostContext, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type SubagentToolInput, type UsageTelemetryRecord } from "../src/capabilities.ts"
+import { access, blob, browser, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, observability, openapi, pullRequestContext, repositoryHost, repositoryHostContext, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type AgentObservabilityFinishExtension, type SubagentToolInput, type UsageTelemetryRecord } from "../src/capabilities.ts"
 import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -495,13 +495,17 @@ describe("agent public types", () => {
     })
 
     defineAgent({
-      capabilities: [usageTelemetry()],
+      capabilities: [observability(), usageTelemetry()],
       driver: { model: {} as never },
       hooks: {
         "agent:finish"(event) {
           expectTypeOf(event.extensions.get<AgentChatFinishExtension>("chat")).toEqualTypeOf<AgentChatFinishExtension | undefined>()
           expectTypeOf(event.extensions.get<TranscriptionResult[]>("transcribe")).toEqualTypeOf<TranscriptionResult[] | undefined>()
+          expectTypeOf(event.extensions.get("observability")).toEqualTypeOf<AgentObservabilityFinishExtension | undefined>()
+          expectTypeOf(event.extensions.get("observability", "usage")).toEqualTypeOf<AgentObservabilityFinishExtension["usage"]>()
           expectTypeOf(event.extensions.get("usage-telemetry")).toEqualTypeOf<UsageTelemetryRecord | undefined>()
+          expectTypeOf(event.extensions.get("observability", "missing")).toEqualTypeOf<unknown>()
+          expectTypeOf(event.extensions.get("missing")).toEqualTypeOf<unknown>()
           expectTypeOf(event.errorMessage).toEqualTypeOf<string | undefined>()
         },
       },
