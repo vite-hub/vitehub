@@ -1,6 +1,6 @@
 import { spawn as spawnChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { lstat, mkdir, mkdtemp, rm, rmdir, stat, writeFile } from "node:fs/promises"
+import { cp, lstat, mkdir, mkdtemp, rename, rm, rmdir, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, posix, resolve } from "node:path"
 import { Readable } from "node:stream"
@@ -407,22 +407,31 @@ async function syncWorkspaceBack(state: CrabboxSessionState) {
   })
   if (result.exitCode !== 0) throw crabboxError("sync Crabbox workspace", result)
   const archive = Buffer.from(result.stdout.replace(/\s+/g, ""), "base64")
-  const validationWorkspace = await mkdtemp(join(dirname(state.options.workspace), ".vitehub-workspace-"))
+  const transactionRoot = await mkdtemp(join(dirname(state.options.workspace), ".vitehub-workspace-"))
+  const stagedWorkspace = join(transactionRoot, "workspace")
+  const backupWorkspace = join(transactionRoot, "backup")
   await withTemporaryFile(async (localPath) => {
     try {
       await writeFile(localPath, archive)
-      const validate = await runProcess(spawnChildProcess("tar", ["-xf", localPath, "-C", validationWorkspace]))
-      if (validate.exitCode !== 0) throw crabboxError("extract Crabbox workspace", validate)
-      await rejectSymlinkedArchiveParents(state.options.workspace, localPath)
-      await pruneWorkspaceForArchive(state.options.workspace, localPath, state.syncedWorkspacePaths)
-      const extract = await runProcess(spawnChildProcess("tar", ["-xf", localPath, "-C", state.options.workspace]))
+      await cp(state.options.workspace, stagedWorkspace, { recursive: true })
+      await rejectSymlinkedArchiveParents(stagedWorkspace, localPath)
+      await pruneWorkspaceForArchive(stagedWorkspace, localPath, state.syncedWorkspacePaths)
+      const extract = await runProcess(spawnChildProcess("tar", ["-xf", localPath, "-C", stagedWorkspace]))
       if (extract.exitCode !== 0) throw crabboxError("extract Crabbox workspace", extract)
+      await rename(state.options.workspace, backupWorkspace)
+      try {
+        await rename(stagedWorkspace, state.options.workspace)
+      }
+      catch (error) {
+        await rename(backupWorkspace, state.options.workspace)
+        throw error
+      }
     }
     catch (error) {
       throw error
     }
     finally {
-      await rm(validationWorkspace, { force: true, recursive: true })
+      await rm(transactionRoot, { force: true, recursive: true })
     }
   })
 }
