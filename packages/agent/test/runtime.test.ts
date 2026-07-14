@@ -8383,6 +8383,62 @@ describe("agent message protocol", () => {
       }, { prompt: "hello" })).resolves.toBe("received hello")
     })
 
+    it("keeps manually composed child Agents inline with inherited parent identity", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const child = defineAgent({ driver: { run: () => "child" } })
+      const parent = defineAgent({
+        runtime: false,
+        driver: { run: context => runAgent(child, context, {}) },
+      })
+
+      await expect(runAgent(parent, {
+        agentIdentity: { name: "parent" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: vi.fn(),
+      }, {})).resolves.toBe("child")
+    })
+
+    it("keeps discovered Agents inline for custom host capabilities", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const agent = defineAgent({ driver: { run: () => "custom" } })
+
+      await expect(runAgent(agent, {
+        agentIdentity: { name: "custom" },
+        capabilities: { custom: {} },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: vi.fn(),
+      }, {})).resolves.toBe("custom")
+    })
+
+    it("reconstructs the schedule capability inside Workflow Runs", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      const agent = defineAgent({
+        driver: { run: context => [
+          typeof (context.capabilities?.schedule as { schedules?: unknown })?.schedules,
+        ] },
+      })
+
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "capabilities" },
+        capabilities: { schedule: {} },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("capabilities", run.id)).resolves.toMatchObject({
+        result: ["object"],
+        status: "completed",
+      })
+    })
+
     it("uses discovered identity ahead of the Agent Definition name for the default binding", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")

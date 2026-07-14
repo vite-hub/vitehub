@@ -85,7 +85,7 @@ function maskSourceLiterals(source: string): string {
 }
 
 function findAgentObjectStart(masked: string): number | undefined {
-  const definitions = /\bdefineAgent\b/g
+  const definitions = /\bexport\s+default\s+defineAgent\b/g
   for (const definition of masked.matchAll(definitions)) {
     let index = definition.index + definition[0].length
     while (/\s/.test(masked[index] || "")) index++
@@ -108,7 +108,9 @@ function findAgentObjectStart(masked: string): number | undefined {
 function extractAgentRuntime(source: string): { masked?: string, raw?: string } | undefined {
   const masked = maskSourceLiterals(source)
   const start = findAgentObjectStart(masked)
-  if (start === undefined) return undefined
+  if (start === undefined) {
+    return /\bexport\s+(?:default\b|\{\s*default\s*\}\s+from\b)/.test(masked) ? {} : undefined
+  }
   let depth = 0
   for (let index = start; index < masked.length; index++) {
     if (masked[index] === "{") {
