@@ -851,6 +851,29 @@ describe("defineAgent workspace option", () => {
     }))
   })
 
+  it("closes global Skill preparation when harness session setup fails", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const close = vi.fn()
+    exists.mockResolvedValue(true)
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce({ close })
+    const agent = defineAgent({
+      capabilities: [skills({ path: "skills/review", scope: "global", source: { path: "/opt/skills/review" } })],
+      driver: {
+        harness: {
+          provider: "codex",
+          [Symbol.for("vitehub.harnessGlobalSkillsDirectory")]: "tmp/harness/codex-home/skills",
+          [Symbol.for("vitehub.harnessSessionPrepare")]: () => {
+            throw new Error("profile setup failed")
+          },
+        },
+      },
+    })
+
+    await expect(runAgent(agent, context(), { prompt: "review" })).rejects.toThrow("profile setup failed")
+    expect(close).toHaveBeenCalledWith(expect.any(Error))
+  })
+
   it("rejects global skills for non-harness Agent Drivers", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")

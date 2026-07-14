@@ -538,6 +538,7 @@ async function createHarnessAgent<
     abortSignal: AbortSignal | undefined,
     globalSkillsDirectory: unknown,
     globalSkillsWorkspace: Awaited<ReturnType<typeof resolveHarnessGlobalSkills>>,
+    sessionPrepare: unknown,
   ) => Promise<void>,
 ): Promise<{ agent: HarnessAgentLike, instructions?: string, workDir?: string }> {
   assertSupportedHarnessDriverContributions(context)
@@ -567,11 +568,14 @@ async function createHarnessAgent<
       ...(workDir !== undefined ? { workDir } : {}),
       onSession: async ({ abortSignal, session, sessionWorkDir }: { abortSignal?: AbortSignal, session: unknown, sessionWorkDir: string }) => {
         setActiveHarnessWorkspaceFiles(context.context, activeHarnessWorkspaceFiles(session as HarnessFileSandbox, sessionWorkDir, abortSignal))
-        await prepareWorkspaceSession(session, sessionWorkDir, abortSignal, globalSkillsDirectory, globalSkillsWorkspace)
-        const prepareSession = (harness as Record<PropertyKey, unknown>)[harnessSessionPrepare]
-        if (typeof prepareSession === "function") {
-          await (prepareSession as (session: unknown) => MaybePromise<void>)(session)
-        }
+        await prepareWorkspaceSession(
+          session,
+          sessionWorkDir,
+          abortSignal,
+          globalSkillsDirectory,
+          globalSkillsWorkspace,
+          (harness as Record<PropertyKey, unknown>)[harnessSessionPrepare],
+        )
       },
     },
     permissionMode: defaultHarnessPermissionMode(harness),
@@ -915,7 +919,7 @@ export function createHarnessAgentAdapter<
   async function createAgentAndSession(context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>) {
     let workspaceSession: { close: (error?: unknown) => MaybePromise<void>, refreshGitBaseline?: () => MaybePromise<void> } | undefined
     let globalSkillsSession: { close: (error?: unknown) => MaybePromise<void> } | undefined
-    const resolved = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal, globalSkillsDirectory, globalSkillsWorkspace) => {
+    const resolved = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal, globalSkillsDirectory, globalSkillsWorkspace, sessionPrepare) => {
       const harnessInstructions = context.workspace ? await resolveHarnessInstructions(context) : undefined
       try {
         if (context.workspace) {
@@ -936,6 +940,9 @@ export function createHarnessAgentAdapter<
           if (harnessInstructions) await workspaceSession.refreshGitBaseline?.()
         }
         globalSkillsSession = await prepareHarnessGlobalSkills(globalSkillsWorkspace, session, globalSkillsDirectory, abortSignal)
+        if (typeof sessionPrepare === "function") {
+          await (sessionPrepare as (session: unknown) => MaybePromise<void>)(session)
+        }
       }
       catch (error) {
         try {
