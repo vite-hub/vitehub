@@ -199,7 +199,13 @@ export async function runAgentInfoCli<TContext extends AgentInfoCliContext>(
       context.stderr.write(`Agent inspection is unavailable at ${parsed.url}. Start the Vite Development Server with Agent DevTools enabled.\n`)
       return 1
     }
-    state = await response.json() as ChatDevtoolsStateResult
+    try {
+      state = await response.json() as ChatDevtoolsStateResult
+    }
+    catch {
+      context.stderr.write(`Agent inspection returned an invalid response from ${parsed.url}.\n`)
+      return 1
+    }
 
     const agents = state.chats?.map(chat => chat.name) || []
     if (!agents.length) {

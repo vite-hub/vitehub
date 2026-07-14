@@ -162,6 +162,20 @@ describe("agent CLI", () => {
     expect(stderr.output()).toBe("Multiple Agents discovered. Pass --agent review|support.\n")
   })
 
+  it("reports an invalid Agent inspection response", async () => {
+    const stderr = stream()
+    const exitCode = await runAgentInfoCli([], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, { fetch: vi.fn(async () => new Response("not json")) as never })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toBe("Agent inspection returned an invalid response from http://localhost:5173.\n")
+  })
+
   it("streams a one-shot Agent Dev Loop message through the Vite endpoint", async () => {
     const stdout = stream()
     const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {

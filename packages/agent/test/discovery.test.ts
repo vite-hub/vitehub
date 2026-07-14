@@ -592,6 +592,40 @@ describe("agent chat capability discovery", () => {
     expect(textFromUiMessage(fallbackFinalState.uiMessages[1])).toBe("answered as devtools:maximo@quiver.dk with workspace")
   })
 
+  it("forwards double-slash input through the normal Agent input path", async () => {
+    const root = await createTempRoot("vitehub-agent-devtools-double-slash-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const run = vi.fn(({ messages }) => `received ${getMessageText(messages.at(-1))}`)
+    const agent = defineAgent({
+      capabilities: [chat()],
+      driver: { run },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      action: "send",
+      chat: "support",
+      stream: true,
+      text: "//inspect",
+    })
+    const events = response.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+    const finalState = events.filter(event => event.type === "state").at(-1)?.state
+
+    expect(events.at(-1)).toEqual({ type: "done" })
+    expect(run).toHaveBeenCalledOnce()
+    expect(textFromUiMessage(finalState.uiMessages[1])).toBe("received //inspect")
+  })
+
   it("serves Agent Invocation Stream events from the Vite endpoint", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
