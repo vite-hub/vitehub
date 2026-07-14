@@ -281,9 +281,27 @@ index 14ea8cf191d10e529551bfe9c25863c67d454939..d9f7a3f9a2aa76be17c5114e00318be2
  			handledResponse: capabilities.response,
  			harnessSandboxProvider,
 diff --git a/dist/workspace-agent-RiBUhfgs.js b/dist/workspace-agent-RiBUhfgs.js
-index f30d2a07606d68f7c77cc579077dc13706465d4b..f486c9a25e8e0bdba768aa30e7bdb07582f59df8 100644
+index f30d2a07606d68f7c77cc579077dc13706465d4b..0d94c24582143133757a1cb0b8920deac9d07d7d 100644
 --- a/dist/workspace-agent-RiBUhfgs.js
 +++ b/dist/workspace-agent-RiBUhfgs.js
+@@ -653,14 +653,14 @@ async function resolveWorkspaceMetadataInstructions(options, workspace, resoluti
+ 	const composed = await composeInstructions(baseInstructions.join("\n\n"), compositionContext, workspaceBindings, coverage);
+ 	return {
+ 		instructions: composed ? [composed] : [],
+-		warnings: instructionCoverageWarnings(coverage, sourceDefinition, options.capabilities)
++		warnings: instructionCoverageWarnings(coverage, sourceDefinition, options.capabilities, workspaceAgentDriverKind(options))
+ 	};
+ }
+-function instructionCoverageWarnings(coverage, definition, capabilities) {
++function instructionCoverageWarnings(coverage, definition, capabilities, driverKind) {
+ 	return [
+ 		...sourceCoverageWarnings(coverage, definition),
+ 		...capabilityCoverageWarnings(coverage, capabilities),
+-		...skillCoverageWarnings(coverage, capabilities)
++		...driverKind === "model" ? skillCoverageWarnings(coverage, capabilities) : []
+ 	];
+ }
+ function warning(id, primitive, message) {
 @@ -679,14 +679,14 @@ function capabilityCoverageKeys(id) {
  	return [...new Set([id, id.replace(/-([a-z])/g, (_, value) => value.toUpperCase())])];
  }

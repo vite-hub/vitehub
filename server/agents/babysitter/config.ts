@@ -2,6 +2,7 @@ import { defineAgent } from '@vite-hub/agent'
 import { skills } from '@vite-hub/agent/capabilities'
 import { codexDriver } from '@vite-hub/agent/harness/codex'
 import { crabbox } from '@vite-hub/box/crabbox'
+import validateDirectionSkill from './skills/validate-direction/SKILL.md?raw'
 
 export default defineAgent({
   box: {
@@ -20,6 +21,14 @@ export default defineAgent({
         ref: 'f1d406e7411bd98966f7987e4bf76610b037a182',
         repo: 'onmax/skills',
         root: 'skills/pr-comment-sentinel',
+      },
+    }),
+    skills({
+      path: 'skills/validate-direction',
+      scope: 'global',
+      source: {
+        content: validateDirectionSkill,
+        workspacePath: 'SKILL.md',
       },
     }),
     skills({
