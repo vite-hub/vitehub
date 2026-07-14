@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { resolveBox } from "../src/index.ts"
 import { crabbox } from "../src/crabbox.ts"
+import { rejectSymlinkedArchiveParents } from "../src/internal/crabbox.ts"
 
 const roots: string[] = []
 const execFileAsync = promisify(execFile)
@@ -60,6 +61,19 @@ describe("crabbox", () => {
       requires: [null as never],
       cwd: workspace,
     }, {})).rejects.toThrow("Box requirements must be non-empty names")
+  })
+
+  it("rejects archive entries beneath local symlinks", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const source = join(root, "source")
+    const archive = join(root, "workspace.tar")
+    await Promise.all([mkdir(workspace), mkdir(join(source, "linked"), { recursive: true })])
+    await writeFile(join(source, "linked", "file.txt"), "remote")
+    await execFileAsync("tar", ["-cf", archive, "-C", source, "linked/file.txt"])
+    await symlink(root, join(workspace, "linked"))
+
+    await expect(rejectSymlinkedArchiveParents(workspace, archive)).rejects.toThrow("conflicts with local symlink: linked")
   })
 
   it("boots through Crabbox, validates requirements there, and preserves workspace mutations", async () => {

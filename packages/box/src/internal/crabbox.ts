@@ -1,6 +1,6 @@
 import { spawn as spawnChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, posix, resolve } from "node:path"
 import { Readable } from "node:stream"
@@ -470,6 +470,7 @@ async function syncWorkspaceBack(state: CrabboxSessionState) {
       await writeFile(localPath, archive)
       const validate = await runProcess(spawnChildProcess("tar", ["-xf", localPath, "-C", validationWorkspace]))
       if (validate.exitCode !== 0) throw crabboxError("extract Crabbox workspace", validate)
+      await rejectSymlinkedArchiveParents(state.options.workspace, localPath)
       await pruneWorkspaceForArchive(state.options.workspace, localPath, state.syncedWorkspacePaths)
       const extract = await runProcess(spawnChildProcess("tar", ["-xf", localPath, "-C", state.options.workspace]))
       if (extract.exitCode !== 0) throw crabboxError("extract Crabbox workspace", extract)
@@ -485,13 +486,27 @@ async function syncWorkspaceBack(state: CrabboxSessionState) {
 
 async function listRemoteWorkspacePaths(options: CrabboxSessionOptions, leaseId: string, workspace: string) {
   const result = await runCrabbox(options, leaseId, {
-    command: `if git -C ${shellQuote(workspace)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then git -C ${shellQuote(workspace)} ls-files -z --cached --others --exclude-standard; else find ${shellQuote(workspace)} -mindepth 1 \\( -name .git -o -path '*/.git/*' \\) -prune -o \\( -type f -o -type l \\) -printf '%P\\0'; fi`,
+    command: `if git -C ${shellQuote(workspace)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then git -C ${shellQuote(workspace)} ls-files -z --cached --others --exclude-standard; else cd ${shellQuote(workspace)} && find . -mindepth 1 \\( -name .git -o -path '*/.git/*' \\) -prune -o \\( -type f -o -type l \\) -exec printf '%s\\0' {} +; fi`,
   })
-  if (result.exitCode !== 0) return []
+  if (result.exitCode !== 0) throw crabboxError("inspect Crabbox workspace", result)
   return result.stdout
     .split("\0")
     .map(path => normalizeRelativeArchivePath(path))
     .filter((path): path is string => Boolean(path))
+}
+
+export async function rejectSymlinkedArchiveParents(workspace: string, archivePath: string): Promise<void> {
+  const checked = new Set<string>()
+  for (const entry of await listArchiveEntries(archivePath)) {
+    const parts = entry.split("/")
+    for (let length = 1; length < parts.length; length++) {
+      const path = parts.slice(0, length).join("/")
+      if (checked.has(path)) continue
+      checked.add(path)
+      const item = await lstat(join(workspace, path)).catch(() => undefined)
+      if (item?.isSymbolicLink()) throw new Error(`[vitehub] Crabbox workspace archive conflicts with local symlink: ${path}`)
+    }
+  }
 }
 
 async function pruneWorkspaceForArchive(workspace: string, archivePath: string, manifest: readonly string[]) {
