@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
@@ -20,6 +20,7 @@ interface CloudflareDeploymentOutputOptions extends SharedDeploymentOptions {
   bundleEntry?: string
   bundleOptions?: BundleOptions
   bundleOutfileName?: string
+  files?: Record<string, string>
   outputRoot?: string
   staticOutputDir?: string
   wranglerConfigKeys?: string[]
@@ -56,7 +57,7 @@ type NetlifyProviderDeploymentOutput = Omit<NetlifyDeploymentOutputOptions, keyo
 export type VercelProviderDeploymentOutput = Omit<VercelDeploymentOutputOptions, keyof SharedDeploymentOptions>
 
 interface CloudflareProviderDeploymentCleanup {
-  bundleOutfileName?: string
+  fileNames?: string[]
   outputRoot?: string
   wranglerConfigKeys?: string[]
 }
@@ -76,7 +77,7 @@ interface NetlifyProviderDeploymentCleanup {
 interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions {
   cloudflare?: CloudflareProviderDeploymentOutput
   cleanup?: {
-    cloudflare?: CloudflareProviderDeploymentCleanup
+    cloudflare?: CloudflareProviderDeploymentCleanup | (() => CloudflareProviderDeploymentCleanup | Promise<CloudflareProviderDeploymentCleanup>)
     netlify?: NetlifyProviderDeploymentCleanup
     vercel?: VercelProviderDeploymentCleanup
   }
@@ -209,6 +210,13 @@ async function appendNetlifyFunctionConfig(outfile: string, config: object | und
 async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutputOptions): Promise<void> {
   const { clientDir, staticIndex } = resolveClientOutput(options.rootDir, options.clientOutDir)
   const outputRoot = options.outputRoot ?? createDefaultCloudflareOutputRoot(options.rootDir)
+  const files = Object.entries(options.files ?? {})
+  const workerOutfile = options.bundleEntry
+    ? resolve(outputRoot, options.bundleOutfileName ?? "index.js")
+    : undefined
+  if (workerOutfile && files.some(([fileName]) => resolve(outputRoot, fileName) === workerOutfile)) {
+    throw new Error(`Cloudflare output file conflicts with bundle outfile: ${workerOutfile}`)
+  }
 
   await mkdir(outputRoot, { recursive: true })
 
@@ -222,10 +230,11 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
     options.bundleEntry && staticIndex
       ? copyClientOutput(clientDir, options.staticOutputDir ?? createDefaultCloudflareStaticOutputDir(options.rootDir))
       : Promise.resolve(),
+    ...files.map(([fileName, contents]) =>
+      writeFile(resolve(outputRoot, fileName), contents, "utf8")),
   ]
 
-  if (options.bundleEntry) {
-    const workerOutfile = resolve(outputRoot, options.bundleOutfileName ?? "index.js")
+  if (options.bundleEntry && workerOutfile) {
     await rm(workerOutfile, { force: true, recursive: true })
     writes.push(bundleEsmEntry(options.bundleEntry, workerOutfile, options.bundleOptions))
   }
@@ -274,18 +283,23 @@ async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOpti
   ])
 }
 
-async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanup: CloudflareProviderDeploymentCleanup): Promise<void> {
+async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanupInput: CloudflareProviderDeploymentCleanup | (() => CloudflareProviderDeploymentCleanup | Promise<CloudflareProviderDeploymentCleanup>)): Promise<void> {
+  const cleanup = typeof cleanupInput === "function" ? await cleanupInput() : cleanupInput
   const outputRoot = cleanup.outputRoot ?? createDefaultCloudflareOutputRoot(rootDir)
-  const writes: Array<Promise<void>> = []
-  if (cleanup.bundleOutfileName) {
-    writes.push(rm(resolve(outputRoot, cleanup.bundleOutfileName), { force: true, recursive: true }))
-  }
+  const writes = (cleanup.fileNames ?? []).map(fileName => rm(resolve(outputRoot, fileName), { force: true, recursive: true }))
   writes.push(writeCloudflareWranglerConfig({
     outputRoot,
     rootDir,
     wranglerConfigKeys: cleanup.wranglerConfigKeys,
   }))
   await Promise.all(writes)
+  try {
+    await rmdir(outputRoot)
+  }
+  catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code !== "ENOENT" && code !== "ENOTEMPTY") throw error
+  }
 }
 
 async function cleanupVercelDeploymentOutput(rootDir: string, cleanup: VercelProviderDeploymentCleanup): Promise<void> {

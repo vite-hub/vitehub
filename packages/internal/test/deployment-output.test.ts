@@ -440,7 +440,7 @@ describe("provider deployment outputs", () => {
     await writeProviderDeploymentOutputs({
       cleanup: {
         cloudflare: {
-          bundleOutfileName: "worker.mjs",
+          fileNames: ["worker.mjs"],
           wranglerConfigKeys: ["workflows"],
         },
       },
@@ -452,6 +452,83 @@ describe("provider deployment outputs", () => {
     await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       triggers: { crons: ["0 0 * * *"] },
     })
+  })
+
+  it("removes empty Cloudflare output roots after cleanup", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(join(cloudflareDir, "index.js"), "export default {}")
+    await writeFile(join(cloudflareDir, "wrangler.json"), "{\"main\":\"index.js\"}\n")
+
+    await writeProviderDeploymentOutputs({
+      cleanup: {
+        cloudflare: {
+          fileNames: ["index.js"],
+          wranglerConfigKeys: ["main"],
+        },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    expect(existsSync(cloudflareDir)).toBe(false)
+  })
+
+  it("resolves cleanup ownership after preceding provider writes", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    const providerWrite = writeProviderDeploymentOutputs({
+      cloudflare: {
+        files: { "index.js": "export default {}\n" },
+        wranglerConfig: { main: "index.js" },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+    let observedConfig: string | undefined
+    let observedWrapper: string | undefined
+    const cleanup = writeProviderDeploymentOutputs({
+      cleanup: {
+        cloudflare: async () => {
+          observedConfig = await readFile(join(cloudflareDir, "wrangler.json"), "utf8")
+          observedWrapper = await readFile(join(cloudflareDir, "index.js"), "utf8")
+          return { fileNames: ["index.js"], wranglerConfigKeys: ["main"] }
+        },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    await Promise.all([providerWrite, cleanup])
+
+    expect(observedConfig && JSON.parse(observedConfig)).toEqual({ main: "index.js" })
+    expect(observedWrapper).toBe("export default {}\n")
+    expect(existsSync(cloudflareDir)).toBe(false)
+  })
+
+  it("rejects Cloudflare companion files that conflict with the bundle outfile", async () => {
+    const rootDir = await createTempProject()
+    const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
+
+    await expect(writeProviderDeploymentOutputs({
+      cloudflare: {
+        bundleEntry: join(rootDir, "worker.ts"),
+        bundleOptions: {},
+        files: { "index.js": "export default {}\n" },
+        wranglerConfig: {},
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })).rejects.toThrow("Cloudflare output file conflicts with bundle outfile")
   })
 
   it("copies Vercel function runtime package dependency closures", async () => {
