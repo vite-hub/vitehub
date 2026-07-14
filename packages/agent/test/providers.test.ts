@@ -2518,6 +2518,56 @@ describe("server helpers", () => {
     }))
   })
 
+  it("defaults adapter-backed Channels to final-only delivery", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { stream, telegram } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler, createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        stream,
+        telegram: telegram({ adapter: () => adapter as never }),
+      },
+      driver: { run: () => ({ text: "final answer" }) },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntilTasks: Promise<unknown>[] = []
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 2043,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 2008,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram", { waitUntil: task => waitUntilTasks.push(task) })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    await Promise.all(waitUntilTasks)
+    expect(agent.chat).toMatchObject({ stream: false })
+    expect(adapter.startTyping).not.toHaveBeenCalled()
+    expect(adapter.postMessage).toHaveBeenCalledOnce()
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "final answer" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+
+    const streamResponse = await createChannelChatRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        id: "portal-thread",
+        messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+    expect(streamResponse.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
+    await expect(streamResponse.text()).resolves.toContain("final answer")
+  })
+
   it("splits long Discord chat output after stream finalization", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")
@@ -2539,7 +2589,10 @@ describe("server helpers", () => {
     let replyText = "short reply"
     const agent = defineAgent({
       channels: {
-        discord: discord({ adapter: () => adapter as never }),
+        discord: discord({
+          adapter: () => adapter as never,
+          messages: { stream: true },
+        }),
       },
       driver: {
         run: () => ({ text: replyText }),
@@ -3009,8 +3062,8 @@ describe("server helpers", () => {
         ]),
       })],
     }))
-    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "...")
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "ok: reenviado\naudio transcript" })
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "ok: reenviado\naudio transcript" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
   it("routes channel webhook custom ids through the channel adapter", async () => {
@@ -3057,8 +3110,8 @@ describe("server helpers", () => {
         runId: "support:7",
       }),
     }))
-    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "...")
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "echo: hello" })
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "echo: hello" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
   it("forwards Discord Gateway events to the registered webhook id", async () => {
@@ -5732,9 +5785,9 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:988", "...")
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:988", { markdown: "Preparing assets." })
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:988", "sent-1", { markdown: "agent answer" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:988", { markdown: "Preparing assets." })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:988", { markdown: "agent answer" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
   it("posts finish channel delivery replies after input replacement and appends link artifacts", async () => {
@@ -5786,8 +5839,8 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:987", "...")
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:987", "sent-1", { markdown: "agent answer" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:987", { markdown: "agent answer" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:987", {
       markdown: "See the report.\n\n[Result report](<https://assets.example/reports/result.md>)",
     })
@@ -5852,8 +5905,8 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:989", "...")
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:989", "sent-1", { markdown: "agent answer" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:989", { markdown: "agent answer" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
     const deliveryMessage = adapter.postMessage.mock.calls[1]?.[1] as {
       attachments?: Array<{ mimeType?: string, name?: string, type?: string, url?: string }>
       files?: Array<{ data: ArrayBuffer, filename: string, mimeType?: string }>
@@ -6048,6 +6101,7 @@ describe("server helpers", () => {
   it("flushes deferred non-streaming chat webhook work before returning", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { usageTelemetry } = await import("../src/capabilities.ts")
+    const { github } = await import("../src/channels.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter({ deferMessageProcessing: true })
@@ -6091,6 +6145,7 @@ describe("server helpers", () => {
           },
         }),
       ],
+      channels: { github: github() },
       hooks: {
         "agent:finish": finish,
       },

@@ -207,7 +207,10 @@ export function resolveAgentChannelChatOptions<TRuntimeConfig extends AgentRunti
     }
     Object.assign(options, channelMessageOverrides[0])
   }
-  if (Object.keys(platforms).length) options.platforms = platforms
+  if (Object.keys(platforms).length) {
+    options.platforms = platforms
+    options.stream ??= false
+  }
   if (Object.keys(webhooks).length) options.webhooks = webhooks
   return options
 }
