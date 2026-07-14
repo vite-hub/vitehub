@@ -74,14 +74,12 @@ interface NetlifyProviderDeploymentCleanup {
   outputRoot?: string
 }
 
-type ProviderDeploymentCleanup<T extends object> = T | (() => T | Promise<T>)
-
 interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions {
   cloudflare?: CloudflareProviderDeploymentOutput
   cleanup?: {
-    cloudflare?: ProviderDeploymentCleanup<CloudflareProviderDeploymentCleanup>
-    netlify?: ProviderDeploymentCleanup<NetlifyProviderDeploymentCleanup>
-    vercel?: ProviderDeploymentCleanup<VercelProviderDeploymentCleanup>
+    cloudflare?: CloudflareProviderDeploymentCleanup | (() => CloudflareProviderDeploymentCleanup | Promise<CloudflareProviderDeploymentCleanup>)
+    netlify?: NetlifyProviderDeploymentCleanup
+    vercel?: VercelProviderDeploymentCleanup
   }
   netlify?: NetlifyProviderDeploymentOutput
   vercel?: VercelProviderDeploymentOutput
@@ -285,12 +283,8 @@ async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOpti
   ])
 }
 
-async function resolveProviderDeploymentCleanup<T extends object>(cleanup: ProviderDeploymentCleanup<T>): Promise<T> {
-  return typeof cleanup === "function" ? await cleanup() : cleanup
-}
-
-async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanupInput: ProviderDeploymentCleanup<CloudflareProviderDeploymentCleanup>): Promise<void> {
-  const cleanup = await resolveProviderDeploymentCleanup(cleanupInput)
+async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanupInput: CloudflareProviderDeploymentCleanup | (() => CloudflareProviderDeploymentCleanup | Promise<CloudflareProviderDeploymentCleanup>)): Promise<void> {
+  const cleanup = typeof cleanupInput === "function" ? await cleanupInput() : cleanupInput
   const outputRoot = cleanup.outputRoot ?? createDefaultCloudflareOutputRoot(rootDir)
   const writes = (cleanup.fileNames ?? []).map(fileName => rm(resolve(outputRoot, fileName), { force: true, recursive: true }))
   writes.push(writeCloudflareWranglerConfig({
@@ -308,8 +302,7 @@ async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanupInput: 
   }
 }
 
-async function cleanupVercelDeploymentOutput(rootDir: string, cleanupInput: ProviderDeploymentCleanup<VercelProviderDeploymentCleanup>): Promise<void> {
-  const cleanup = await resolveProviderDeploymentCleanup(cleanupInput)
+async function cleanupVercelDeploymentOutput(rootDir: string, cleanup: VercelProviderDeploymentCleanup): Promise<void> {
   const outputRoot = cleanup.outputRoot ?? createDefaultVercelOutputRoot(rootDir)
   const writes: Array<Promise<void>> = []
   if (cleanup.serverFunctionName) {
@@ -319,8 +312,7 @@ async function cleanupVercelDeploymentOutput(rootDir: string, cleanupInput: Prov
   await Promise.all(writes)
 }
 
-async function cleanupNetlifyDeploymentOutput(rootDir: string, cleanupInput: ProviderDeploymentCleanup<NetlifyProviderDeploymentCleanup>): Promise<void> {
-  const cleanup = await resolveProviderDeploymentCleanup(cleanupInput)
+async function cleanupNetlifyDeploymentOutput(rootDir: string, cleanup: NetlifyProviderDeploymentCleanup): Promise<void> {
   const outputRoot = cleanup.outputRoot ?? createDefaultNetlifyOutputRoot(rootDir)
   const functionsRoot = resolve(outputRoot, "functions")
   const writes = (cleanup.functionNames ?? []).map(functionName =>
