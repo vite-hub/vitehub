@@ -3,6 +3,7 @@ export {
   createChannelDevtoolsRouteHandler,
   createChannelWebhookRouteHandler,
   createDiscordGatewayRouteHandler,
+  hasChannelChatRoute,
 } from "./routes.ts"
 export { defineScheduledAgentTarget } from "./scheduled-turn.ts"
 

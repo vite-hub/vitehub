@@ -2142,6 +2142,13 @@ function agentChannelRouteOptions(channelId: string, channel: AgentChannelDefini
   throw new TypeError(`[vitehub] Channel "${channelId}" route must be true or an agent chat route options object.`)
 }
 
+export function hasChannelChatRoute(agent: AgentInput<ViteAgentRouteRuntimeContext>): boolean {
+  if (!isRecord(agent) || !isRecord(agent.channels) || Array.isArray(agent.channels)) return false
+  return Object.values(agent.channels).some(
+    (channel) => isRecord(channel) && channel.route !== undefined && channel.route !== false,
+  )
+}
+
 function resolveAgentChannelChatRouteHandlerOptions(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   options: AgentChannelChatRouteHandlerOptions = {},
