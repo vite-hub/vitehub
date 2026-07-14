@@ -5,6 +5,7 @@ import { dirname, join, relative, resolve } from "node:path"
 import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored } from "@vite-hub/internal/build/vite"
+import { getHostingProvider } from "@vite-hub/internal/feature-bridge/hosting"
 
 import { chatDevTools } from "./chat/devtools.ts"
 import { registerChatDevtoolsBridge } from "./chat/vite/devtools-bridge.ts"
@@ -277,10 +278,39 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
-function shouldInstallCloudflareAgentState(options: false | ResolvedAgentModuleOptions): options is ResolvedAgentModuleOptions {
+function readHostingPreset(value: unknown): string | undefined {
+  return isRecord(value) && typeof value.preset === "string" ? value.preset : undefined
+}
+
+function resolveAgentHosting(config: unknown): "cloudflare" | "netlify" | "vercel" | undefined {
+  const target = isRecord(config) ? config : {}
+  const values = [
+    readHostingPreset(target.vitehub),
+    typeof target.preset === "string" ? target.preset : undefined,
+    readHostingPreset(target.nitro),
+    process.env.VITEHUB_HOSTING,
+  ]
+  for (const value of values) {
+    const provider = getHostingProvider(value)
+    if (provider) return provider
+  }
+
+  if (process.env.CLOUDFLARE_WORKER || process.env.CF_PAGES) return "cloudflare"
+  if (process.env.VERCEL || process.env.VERCEL_ENV) return "vercel"
+  if (process.env.NETLIFY || process.env.NETLIFY_DEV || process.env.NETLIFY_LOCAL) return "netlify"
+}
+
+function shouldInstallCloudflareAgentState(
+  options: false | ResolvedAgentModuleOptions,
+  config: unknown,
+): options is ResolvedAgentModuleOptions {
   if (!options) return false
   const provider = options.providers.state.provider
-  return provider === "auto" || provider === "cloudflare" || provider === "cloudflare-agents"
+  if (provider === "cloudflare" || provider === "cloudflare-agents") return true
+  if (provider !== "auto") return false
+  if (options.runtime === "cloudflare-agents") return true
+  if (options.runtime === "vercel" || options.runtime === "deno") return false
+  return resolveAgentHosting(config) === "cloudflare"
 }
 
 function resolveEnvNameForValue(value: string | undefined): string | undefined {
@@ -435,17 +465,7 @@ function generatedWebhookRoute(route: false | string | undefined): string {
 }
 
 function isNetlifyHosting(config: ResolvedConfig): boolean {
-  const target = config as ResolvedConfig & { preset?: unknown, vitehub?: { preset?: unknown } }
-  const hosting = [
-    target.vitehub?.preset,
-    target.preset,
-    process.env.VITEHUB_HOSTING,
-    process.env.NETLIFY ? "netlify" : undefined,
-    process.env.NETLIFY_DEV ? "netlify" : undefined,
-    process.env.NETLIFY_LOCAL ? "netlify" : undefined,
-  ]
-  return hosting.some(value =>
-    typeof value === "string" && value.trim().toLowerCase().replaceAll("_", "-").includes("netlify"))
+  return resolveAgentHosting(config) === "netlify"
 }
 
 function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
@@ -1228,7 +1248,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         await writeAgentWebhookRouteHandler(config.root, {
           agentImportBase: getAgentImportBase(agent),
           chatRoute: normalized.routes.chat,
-          cloudflareState: shouldInstallCloudflareAgentState(normalized),
+          cloudflareState: shouldInstallCloudflareAgentState(normalized, config),
           libsqlState: resolveLibsqlAgentState(normalized),
           ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
           runtimeCapabilities,
@@ -1326,7 +1346,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const resolved = normalizeAgentOptions(agent)
       const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(resolve(config.root || process.cwd())))
       const denoOutput = resolved && resolved.runtime === "deno"
-      const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved)
+      const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config)
       const nitroHandlers = [
         ...(resolved && hasHostedAgents && !denoOutput
           ? [{
