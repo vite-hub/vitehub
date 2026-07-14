@@ -81,13 +81,23 @@ describe("Vite workflow provider outputs", () => {
   it("builds the playground and emits cloudflare and vercel workflow outputs", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vite-playground-")
     const agentDir = join(rootDir, "server", "agents", "nuxt")
+    const inlineAgentDir = join(rootDir, "server", "agents", "inline")
     await mkdir(agentDir, { recursive: true })
+    await mkdir(inlineAgentDir, { recursive: true })
     await writeFile(join(agentDir, "agent.ts"), [
-      `import { defineAgent, workflow } from "@vite-hub/agent"`,
+      `import { defineAgent } from "@vite-hub/agent"`,
       "",
       "export default defineAgent({",
-      "  runtime: workflow(),",
       `  run: () => "nuxt agent",`,
+      "})",
+      "",
+    ].join("\n"))
+    await writeFile(join(inlineAgentDir, "agent.ts"), [
+      `import { defineAgent } from "@vite-hub/agent"`,
+      "",
+      "export default defineAgent({",
+      `  runtime: false,`,
+      `  run: () => "inline agent",`,
       "})",
       "",
     ].join("\n"))
@@ -105,6 +115,7 @@ describe("Vite workflow provider outputs", () => {
     const wrangler = JSON.parse(await readFile(cloudflareConfig, "utf8"))
     const className = getCloudflareWorkflowClassName("welcome")
     const agentClassName = getCloudflareWorkflowClassName("nuxt")
+    const devtoolsAgentClassName = getCloudflareWorkflowClassName("devtools-demo")
 
     expect(existsSync(cloudflareWorker)).toBe(true)
     expect(existsSync(cloudflareWorkerBundle)).toBe(true)
@@ -118,13 +129,20 @@ describe("Vite workflow provider outputs", () => {
       class_name: agentClassName,
       name: getCloudflareWorkflowName("nuxt"),
     })
-    expect(wrangler.workflows).toHaveLength(2)
+    expect(wrangler.workflows).toContainEqual({
+      binding: getCloudflareWorkflowBindingName("devtools-demo"),
+      class_name: devtoolsAgentClassName,
+      name: getCloudflareWorkflowName("devtools-demo"),
+    })
+    expect(wrangler.workflows).toHaveLength(3)
     const cloudflareWorkerContents = await readFile(cloudflareWorker, "utf8")
     expect(cloudflareWorkerContents).toContain("waitUntil as viteHubWaitUntil")
     expect(cloudflareWorkerContents).toContain(`export class ${className} extends WorkflowEntrypoint`)
     expect(cloudflareWorkerContents).toContain(`export class ${agentClassName} extends WorkflowEntrypoint`)
+    expect(cloudflareWorkerContents).toContain(`export class ${devtoolsAgentClassName} extends WorkflowEntrypoint`)
     expect(cloudflareWorkerContents).toContain('runViteHubWorkflowDefinition("welcome"')
     expect(cloudflareWorkerContents).toContain('runViteHubWorkflowDefinition("nuxt"')
+    expect(cloudflareWorkerContents).not.toContain('runViteHubWorkflowDefinition("inline"')
     expect(await readFile(cloudflareWorkerBundle, "utf8")).toContain("runViteHubWorkflowDefinition")
     expect(await readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8")).toContain("runAgentWorkflowDefinition")
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")

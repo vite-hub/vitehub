@@ -26,6 +26,20 @@ declare global {
 }
 
 describe("agent public types", () => {
+  it("accepts literal false as the inline runtime opt-out", () => {
+    const agent = defineAgent({
+      driver: { run: () => "ok" },
+      runtime: false,
+    })
+
+    expectTypeOf(agent.runtime).toEqualTypeOf<false | import("../src/index.ts").AgentWorkflowRuntimeBinding | undefined>()
+    defineAgent({
+      driver: { run: () => "ok" },
+      // @ts-expect-error true is not an Agent runtime binding.
+      runtime: true,
+    })
+  })
+
   it("accepts zero-argument Channel factories and keeps configured Channels explicit", () => {
     interface RuntimeConfig extends AgentRuntimeConfig {
       token: string

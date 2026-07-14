@@ -575,6 +575,7 @@ interface ScheduleRunContextLike {
 
 const agentWorkflowHandles = new WeakMap<object, Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>>()
 const agentWorkflowNames = new Set<string>()
+const defaultAgentWorkflowRuntimeBindings = new WeakSet<AgentWorkflowRuntimeBinding>()
 
 function hasAgentMethods(value: unknown): value is AgentAdapter {
   return typeof value === "object"
@@ -623,7 +624,7 @@ function resolveAgentWorkflowRuntimeBinding<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
 ): AgentWorkflowRuntimeBinding | undefined {
   if (!hasAgentDefinition(agent)) return undefined
-  return agent.runtime?.kind === "workflow" ? agent.runtime : undefined
+  return agent.runtime && agent.runtime.kind === "workflow" ? agent.runtime : undefined
 }
 
 function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -671,7 +672,7 @@ async function runAgentAsWorkflow<
   input: AgentRunInput<CALL_OPTIONS>,
 ) {
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
-  if (!binding) return undefined
+  if (!binding || (defaultAgentWorkflowRuntimeBindings.has(binding) && !context.agentIdentity)) return undefined
 
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS>(agent, resolveAgentWorkflowName(agent, binding, context))
   const resolvedContext = createResolvedRuntimeContext(context)
@@ -1012,7 +1013,7 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   const driver = normalizeAgentDriver(options)
-  const { box, capabilities, cli, description, hooks, messages, name, runtime, version, workspace } = options
+  const { box, capabilities, cli, description, hooks, messages, name, runtime = defaultAgentWorkflowRuntime(), version, workspace } = options
   const channels = normalizeAgentChannels(options.channels)
   if (box && driver.kind !== "harness") {
     throw new Error("[vitehub] defineAgent({ box }) currently requires a harness Agent Driver.")
@@ -1097,6 +1098,12 @@ export function workflow(name?: string): AgentWorkflowRuntimeBinding {
     kind: "workflow",
     ...(name ? { name } : {}),
   }
+}
+
+function defaultAgentWorkflowRuntime(): AgentWorkflowRuntimeBinding {
+  const binding = workflow()
+  defaultAgentWorkflowRuntimeBindings.add(binding)
+  return binding
 }
 
 function createSyntheticWorkspaceRun<

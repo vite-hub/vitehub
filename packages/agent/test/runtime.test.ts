@@ -1185,6 +1185,7 @@ describe("agent message protocol", () => {
     const { registerWorkspaceAgent } = await import("../src/server/workspace.ts")
     const workspaceName = `shared-agent-workspace-${Math.random().toString(36).slice(2)}`
     const summaryAgent = defineAgent({
+      runtime: false,
       workspace: { name: workspaceName, mode: "write" },
       driver: { async run({ workspace }) {
           await (workspace as WritableWorkspaceFacade).fs.writeFile("summary.md", "summary")
@@ -1192,6 +1193,7 @@ describe("agent message protocol", () => {
         } },
     })
     const reviewerAgent = registerWorkspaceAgent(defineAgent({
+      runtime: false,
       workspace: {
         mode: "write",
         store: { provider: "memory" },
@@ -8338,18 +8340,18 @@ describe("agent message protocol", () => {
       ])
     })
 
-    it("queues direct agent runs as Workflow Runs", async () => {
-      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+    it("queues discovered agent runs as Workflow Runs by default", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
       const agent = defineAgent({
-        runtime: workflow("support-agent"),
         driver: { run: context => `received ${context.prompt}` },
       })
       const run = await runAgent(agent, {
+        agentIdentity: { name: "support-agent" },
         memo: vi.fn(),
         runtime: "vercel",
         waitUntil: promise => waitUntilTasks.push(promise),
@@ -8364,6 +8366,33 @@ describe("agent message protocol", () => {
         result: "received hello",
         status: "completed",
       })
+    })
+
+    it("keeps programmatic agent runs inline without a discovered identity", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const agent = defineAgent({
+        driver: { run: context => `received ${context.prompt}` },
+      })
+
+      await expect(runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: vi.fn(),
+      }, { prompt: "hello" })).resolves.toBe("received hello")
+    })
+
+    it("runs direct agent calls inline when runtime is false", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const agent = defineAgent({
+        driver: { run: context => `received ${context.prompt}` },
+        runtime: false,
+      })
+
+      await expect(runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: vi.fn(),
+      }, { prompt: "hello" })).resolves.toBe("received hello")
     })
 
     it("uses discovered Agent identity for unnamed workflow runtime bindings", async () => {

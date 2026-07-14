@@ -93,6 +93,22 @@ describe("workflow definitions", () => {
     ])
   })
 
+  it("discovers Agent Definitions as workflows by default and honors runtime overrides", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-discovery-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "server", "agents", "inline"), { recursive: true })
+    await mkdir(join(rootDir, "server", "agents", "named"), { recursive: true })
+    await writeFile(join(rootDir, "src", "support.agent.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "inline", "agent.ts"), "export default defineAgent({ runtime: false, driver: { run } })\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "named", "agent.ts"), "export default defineAgent({ runtime: workflow('custom-name'), driver: { run } })\n", "utf8")
+
+    expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
+      expect.objectContaining({ name: "custom-name", source: "agent-workflow" }),
+      expect.objectContaining({ name: "support", source: "agent-workflow" }),
+    ])
+  })
+
   it("keeps root workflow files when the workflows directory has folder markers", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-root-flat-"))
     tempDirs.push(rootDir)

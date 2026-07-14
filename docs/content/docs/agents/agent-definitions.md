@@ -9,6 +9,8 @@ An Agent Definition is the code declaration that names one Agent and configures 
 
 ViteHub discovers Agent Definitions from `server/agents`. The Agent File Name or folder name provides the discovered identity, so `server/agents/support.ts` and `server/agents/support/agent.ts` both create a `support` Agent.
 
+Discovered Agent Definitions run as Workflows by default, and ViteHub selects the Workflow provider from the active host integration. Direct `runAgent()` calls without a discovered host identity remain inline. Use `runtime: false` when a hosted Agent must also complete inline, or `runtime: workflow('name')` when it needs a Workflow identity that differs from its discovered Agent identity.
+
 ## Define the Agent
 
 Start with one Agent Driver. A model-backed Agent uses `defineAgent({ driver: { model } })` and keeps model-facing instructions inside the driver object.

@@ -58,9 +58,11 @@ function stripSourceComments(source: string): string {
 function extractAgentWorkflowName(file: string, fallbackName: string): string | undefined {
   const source = stripSourceComments(readFileSync(file, "utf8"))
   const match = /\bruntime\s*:\s*workflow\s*\(([^)]*)\)/m.exec(source)
-  if (!match) return undefined
-  const literal = /^\s*(["'`])([^"'`]+)\1\s*$/.exec(match[1] || "")
-  return literal?.[2] || fallbackName
+  if (match) {
+    const literal = /^\s*(["'`])([^"'`]+)\1\s*$/.exec(match[1] || "")
+    return literal?.[2] || fallbackName
+  }
+  return /\bruntime\s*:\s*false\b/m.test(source) ? undefined : fallbackName
 }
 
 function toAgentWorkflowDefinition(file: string, fallbackName: string): DiscoveredWorkflowDefinition | undefined {
