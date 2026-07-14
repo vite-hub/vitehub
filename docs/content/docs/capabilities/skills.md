@@ -1,14 +1,13 @@
 ---
 title: Skills
-description: Require a Workspace skill file for an Agent Invocation.
+description: Mount skill files into an Agent Workspace or harness profile.
 navigation.title: Skills
 navigation.order: 60
 navigation.group: Workspace
 icon: i-lucide-scroll-text
 ---
 
-`skills()` makes a Workspace Skill file available to an Agent Invocation.
-Use it when an Agent must have a `SKILL.md` file, and any files beside it, before it runs.
+`skills()` makes a Skill file available to an Agent Invocation. Workspace scope is the default; global scope mounts a source into the harness profile so Codex can discover it as an installed Skill.
 
 ## Installation
 
@@ -20,6 +19,7 @@ Use the configuration example below as the starting point, then tighten modes, p
 The Capability records the configured Skill path in metadata and requires the Workspace path to exist.
 When `shellExecution` is set, model-backed Agents receive the normal Workspace Shell tools in the requested mode.
 When `source` is set, ViteHub adds that source to the Agent Workspace at definition time and mounts it at the skill path.
+With `scope: 'global'`, ViteHub mounts the source into the harness's global Skill directory instead. Global scope requires a source and does not require an Agent Workspace.
 
 Model-facing guidance for a Skill belongs in Agent Driver Instructions or deterministic imported instruction Markdown. Agent DevTools metadata warns when `skills()` makes a Skill available but no explicit instruction coverage names it.
 
@@ -37,6 +37,26 @@ export default defineAgent({
   workspace,
   capabilities: [
     skills(),
+  ],
+})
+```
+
+Install a Skill into the isolated Codex profile when Codex should discover it globally without adding it to the project Workspace:
+
+```ts [server/agents/review.ts]
+import { defineAgent } from '@vite-hub/agent'
+import { skills } from '@vite-hub/agent/capabilities'
+import { codexDriver } from '@vite-hub/agent/harness/codex'
+import { github } from '@vite-hub/workspace'
+
+export default defineAgent({
+  driver: codexDriver(),
+  capabilities: [
+    skills({
+      path: 'skills/ponytail',
+      scope: 'global',
+      source: github({ repo: 'onmax/ponytail', root: 'skills/ponytail' }),
+    }),
   ],
 })
 ```
@@ -74,19 +94,21 @@ Model-facing Skill guidance belongs in Agent Driver Instructions or deterministi
 For harness-backed drivers, `skills()` contributes the skill directory to the Harness Workspace Session instead of adding model-facing instructions or tools.
 With `shellExecution: 'write'`, model-backed Workspace Shell writes commit Workspace Session changes back into the Workspace.
 With `source`, ViteHub still uses normal Workspace Source materialization, visibility, and DevTools metadata. `skills()` does not fetch source files at invocation time.
+Global sources are materialized into an ephemeral harness profile for the session. Codex receives an isolated `CODEX_HOME` containing those Skills, an empty `config.toml`, and only the available authentication file from the configured Box or host profile.
 
 ## Requirements
 
-`skills()` requires an explicit Workspace with read access to the configured skill file.
+Workspace-scoped `skills()` requires an explicit Workspace with read access to the configured skill file.
 The path can point to a directory or directly to a `SKILL.md` file.
 When `source` is configured, `path` is the canonical mount. ViteHub mounts the source at the configured skill directory even when the source helper has its own default mount.
+With `scope: 'global'`, `path` and `source` are required, `shellExecution` is unsupported, and the selected Harness Agent Driver must expose a global Skill directory.
 
 ## Driver support
 
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Validates the skill file requirement and can read the mounted Skill through Workspace tools when tools are available. |
-| Harness-backed | Validates the skill file requirement and mounts the skill directory into the Harness Workspace Session. It does not receive generated skill instructions or Workspace Shell tools from `skills()`. |
+| Harness-backed | Mounts workspace-scoped Skills into the Harness Workspace Session and global-scoped Skills into the harness profile when the driver supports it. Codex supports both scopes. |
 | Custom-run-backed | Validates the skill file requirement before `driver.run`. |
 
 ## Inspect and verify
@@ -102,7 +124,8 @@ The warning clears when Agent Driver Instructions or a deterministic imported in
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `path` | `string` | `"skills"` | Directory or `SKILL.md` path required in the Workspace. |
+| `path` | `string` | `"skills"` | Directory or `SKILL.md` path required in the Workspace. Required with global scope. |
+| `scope` | `"global" \| "workspace"` | `"workspace"` | Mount the Skill into the Agent Workspace or the harness's isolated global profile. |
 | `shellExecution` | `"read" \| "write"` | none | Optional Workspace Shell mode for model-backed Agents. Harness-backed Agents still receive the skill files, not Workspace Shell tools. |
 | `source` | `WorkspaceSourceInput` | none | Workspace Source to mount at the skill directory. |
 | `sourceKey` | `string` | derived from `path` | Workspace source key used when `source` is configured. |

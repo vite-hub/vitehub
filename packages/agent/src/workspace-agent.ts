@@ -1035,7 +1035,7 @@ async function resolveWorkspaceMetadataInstructions<
   const composed = await composeInstructions(baseInstructions.join("\n\n"), compositionContext, workspaceBindings, coverage)
   return {
     instructions: composed ? [composed] : [],
-    warnings: instructionCoverageWarnings(coverage, sourceDefinition, options.capabilities),
+    warnings: instructionCoverageWarnings(coverage, sourceDefinition, options.capabilities, workspaceAgentDriverKind(options)),
   }
 }
 
@@ -1043,11 +1043,12 @@ function instructionCoverageWarnings(
   coverage: ReturnType<typeof createInstructionCoverage>,
   definition: WorkspaceDefinition | undefined,
   capabilities: readonly AgentCapabilityDefinition[] | undefined,
+  driverKind: AgentDriverKind,
 ): AgentDevtoolsWarning[] {
   return [
     ...sourceCoverageWarnings(coverage, definition),
     ...capabilityCoverageWarnings(coverage, capabilities),
-    ...skillCoverageWarnings(coverage, capabilities),
+    ...(driverKind === "harness" ? [] : skillCoverageWarnings(coverage, capabilities)),
   ]
 }
 
@@ -1078,7 +1079,7 @@ function capabilityCoverageWarnings(
   capabilities: readonly AgentCapabilityDefinition[] | undefined,
 ): AgentDevtoolsWarning[] {
   return normalizeCapabilities(capabilities as AgentCapabilityDefinition[] | undefined)
-    .filter(capability => capability.id !== "skills")
+    .filter(capability => capability.id !== "skills" && !capability.id.startsWith("skills."))
     .filter(capability => !capabilityCoverageKeys(capability.id).some(key => coverage.capabilities.has(key)))
     .map(capability => warning(
       `instruction-coverage:capability:${capability.id}`,
@@ -1097,7 +1098,7 @@ function skillCoverageWarnings(
   capabilities: readonly AgentCapabilityDefinition[] | undefined,
 ): AgentDevtoolsWarning[] {
   return normalizeCapabilities(capabilities as AgentCapabilityDefinition[] | undefined)
-    .filter(capability => capability.id === "skills")
+    .filter(capability => capability.id === "skills" || capability.id.startsWith("skills."))
     .flatMap((capability) => {
       const metadata = capability.metadata || {}
       const path = skillCoveragePath(metadata.path) || skillCoveragePath(metadata.skillPath)

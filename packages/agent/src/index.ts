@@ -1586,6 +1586,7 @@ async function createAgentInvocationContext<
       finishDeliveryEffectProviders: capabilities.registries.finishDeliveryEffectProviders,
       finishExtensionProviders: capabilities.registries.finishExtensionProviders,
       finishHook: definition?.hooks?.["agent:finish"] as never,
+      globalSkills: capabilities.globalSkills,
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
       handledResponse: capabilities.response,
       harnessSandboxProvider,
