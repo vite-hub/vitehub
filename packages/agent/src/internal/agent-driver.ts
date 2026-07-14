@@ -15,6 +15,7 @@ import type {
   AgentRuntimeConfig,
   AgentSettings,
 } from "../types.ts"
+import type { BoxRequirement } from "@vite-hub/box"
 
 type NormalizedAgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -31,6 +32,7 @@ type NormalizedAgentDriver<
     harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
     instructions?: AgentHarnessInstructions<TRuntimeConfig, CALL_OPTIONS>
     kind: "harness"
+    requires?: readonly BoxRequirement[]
     sandbox?: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS>
     sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
     workDir?: AgentHarnessWorkDir<TRuntimeConfig, CALL_OPTIONS>
@@ -86,7 +88,7 @@ function normalizeHarnessCredentialSource(value: unknown): AgentHarnessCredentia
 }
 
 const modelDriverKeys = new Set(["execution", "instructions", "model"])
-const harnessDriverKeys = new Set(["credentials", "harness", "instructions", "sandbox", "sessionKey", "workDir"])
+const harnessDriverKeys = new Set(["credentials", "harness", "instructions", "requires", "sandbox", "sessionKey", "workDir"])
 const runDriverKeys = new Set(["run"])
 
 function validateHarnessSandboxProviderInput(value: unknown): void {
@@ -132,6 +134,7 @@ function normalizeExplicitAgentDriver<
       harness: driver.harness as AgentHarnessDriverInput,
       instructions: driver.instructions as AgentHarnessInstructions<TRuntimeConfig, CALL_OPTIONS> | undefined,
       kind: "harness",
+      requires: driver.requires as readonly BoxRequirement[] | undefined,
       sandbox: driver.sandbox as AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS> | undefined,
       sessionKey: driver.sessionKey as AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS> | undefined,
       workDir: driver.workDir as AgentHarnessWorkDir<TRuntimeConfig, CALL_OPTIONS> | undefined,

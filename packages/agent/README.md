@@ -96,6 +96,25 @@ For Claude Code, use `claudeCodeDriver()` from `@vite-hub/agent/harness/claude-c
 
 `driver.harness` is the AI SDK harness adapter instance. Workspace-backed harness drivers in Vite dev use ViteHub's local harness sandbox by default and receive a Harness Workspace Session prepared from the selected Workspace. The local sandbox is a tempdir-backed shell convenience, not OS/process isolation; pass a real harness sandbox provider through `driver.sandbox` when isolation matters. Outside the local workspace path, ViteHub uses the AI SDK Vercel Sandbox default when `@ai-sdk/sandbox-vercel` is installed. Harness sandbox provider setup is Agent Package runtime plumbing; use `driver.sandbox` when an Agent needs a specific harness process or session provider. `driver.workDir` selects a relative directory inside the sandbox default working directory. Add `sandbox({ commands })` only when the model should receive `sandbox_exec`. `driver.harness`, `driver.instructions`, `driver.sessionKey`, `driver.sandbox`, and `driver.workDir` can be callbacks when one Agent Definition needs invocation-scoped harness setup. ViteHub resolves harness instructions before constructing the AI SDK `HarnessAgent`, so stock harness adapters receive the selected instructions for both generated and streamed turns. When `access()` narrows Workspace Scope, ViteHub materializes only that selected scope plus generated source descriptors. Read mode materializes files and discards sandbox changes; write mode syncs additions, updates, and deletions back through Workspace rules. V1 configures built-in harness permissions internally with the no-approval policy and does not expose a public permission option. Skills stay a Capability through `skills()` rather than becoming a root Agent Definition field. For harness drivers, `skills()` relies on mounted Workspace files and does not inject model instructions or Workspace Shell tools. Put repository-wide guidance in Workspace files such as `AGENTS.md`; use `driver.instructions` for invocation-specific harness policy.
 
+## Boxes
+
+Use a Box when a harness Agent should boot in an explicit execution environment. A trusted-host Box can run Codex in an existing checkout with the host's tools and Home:
+
+```ts
+import { trustedHost } from "@vite-hub/box"
+
+export default defineAgent<any, { worktreePath: string }>({
+  box: {
+    runtime: trustedHost(),
+    cwd: ({ input }) => input.options?.worktreePath,
+    requires: ["github", "pnpm"],
+  },
+  driver: codexDriver(),
+})
+```
+
+`codexDriver()` contributes the `codex` requirement automatically. `trustedHost()` checks required tools and named authentication before execution, inherits the ambient Home when `home` is omitted, and provides no filesystem, credential, or process isolation. Set `box.home` to use a managed portable Home. Do not combine an explicit `box.cwd` with Agent Workspace materialization in this first slice.
+
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
 
 ```ts

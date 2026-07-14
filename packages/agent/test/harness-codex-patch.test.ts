@@ -8,6 +8,7 @@ import { promisify } from "node:util"
 import { describe, expect, it } from "vitest"
 
 import { codexDriver } from "../src/harness/codex.ts"
+import { createLocalHarnessSandbox } from "../src/harness/local-sandbox.ts"
 
 import type { HarnessV1SandboxProvider } from "@ai-sdk/harness"
 
@@ -18,6 +19,7 @@ describe("ViteHub Codex harness", () => {
     const harness = codexDriver({ sandbox: false }).harness as ReturnType<typeof createCodex>
     const bootstrap = await harness.getBootstrap!()
     const bridgePackage = bootstrap.files.find(file => file.path.endsWith("package.json"))
+    const bridge = bootstrap.files.find(file => file.path.endsWith("bridge.mjs"))
 
     expect(bootstrap.bootstrapDir).toBe("/tmp/harness/codex")
     expect(bootstrap.commands).toContainEqual({
@@ -26,6 +28,7 @@ describe("ViteHub Codex harness", () => {
     expect(JSON.parse(bridgePackage!.content)).toMatchObject({
       dependencies: { "@openai/codex-sdk": "0.144.1" },
     })
+    expect(bridge!.content).not.toContain("codex item error")
   })
 
   it("loads bridge assets after the adapter is bundled into another directory", async () => {
@@ -97,6 +100,33 @@ describe("ViteHub Codex harness", () => {
         },
       })
       expect(output).toBe("ready")
+      await session.destroy?.()
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("adapts a Box sandbox for Codex paths and direct OpenAI auth", async () => {
+    const root = await mkdtemp(join(import.meta.dirname, ".codex-box-"))
+    const harness = codexDriver({ sandbox: false }).harness as Record<PropertyKey, unknown>
+    const adapt = harness[Symbol.for("vitehub.harnessSandboxAdapter")] as (provider: HarnessV1SandboxProvider) => HarnessV1SandboxProvider
+    const provider = adapt(createLocalHarnessSandbox({
+      env: {
+        AI_GATEWAY_API_KEY: "host-key",
+        AI_GATEWAY_BASE_URL: "https://gateway.example",
+        PATH: process.env.PATH,
+      },
+      rootDir: root,
+    }))
+
+    try {
+      const session = await provider.createSession()
+      await session.writeTextFile({ content: "ready", path: "/tmp/harness/codex/marker" })
+
+      expect((session as unknown as { env: Record<string, string> }).env.AI_GATEWAY_API_KEY).toBeUndefined()
+      expect((session as unknown as { env: Record<string, string> }).env.AI_GATEWAY_BASE_URL).toBeUndefined()
+      await expect(session.run({ command: "cat /tmp/harness/codex/marker" })).resolves.toMatchObject({ stdout: "ready" })
       await session.destroy?.()
     }
     finally {
