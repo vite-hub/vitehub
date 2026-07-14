@@ -121,89 +121,33 @@ describe("crabbox", () => {
       await expect(stat(join(workspace, "deleted.txt"))).rejects.toMatchObject({ code: "ENOENT" })
       await expect(readdir(workspace)).resolves.toEqual([".env", ".git", ".gitignore", "changed.txt"])
 
-      const workRoot = join(root, ".crabbox")
-      const workRootCwd = await realpath(workRoot)
+      const workspaceCwd = await realpath(workspace)
       const invocations = (await readFile(log, "utf8")).trim().split("\n")
       expect(invocations).not.toContain(expect.stringContaining("|tunnel|"))
-      expect(invocations.filter(invocation => invocation.includes("|warmup|")).every(invocation => invocation.startsWith(`${workRootCwd}|`))).toBe(true)
+      expect(invocations.every(invocation => invocation.startsWith(`${workspaceCwd}|`))).toBe(true)
       expect(invocations.every(invocation => !invocation.includes("--static-work-root"))).toBe(true)
       expect(invocations.find(invocation => invocation.includes("|warmup|"))).toContain("--reclaim")
     })
   }, 30_000)
 
-  it("tunnels ports by default", async () => {
+  it("rejects unsupported Static SSH port forwarding", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")
     const bin = join(root, "bin")
-    const log = join(root, "crabbox.log")
     await Promise.all([mkdir(workspace), mkdir(bin)])
     await fakeCrabbox(bin)
 
-    await withEnvironment({ CRABBOX_TEST_LOG: log, PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+    await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
       const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
       const sandbox = box.sandbox as { createSession(): Promise<any> }
       const session = await sandbox.createSession()
 
-      await expect(session.getPortUrl({ port: 3000, protocol: "ws" })).resolves.toMatch(/^ws:\/\/127\.0\.0\.1:\d+$/)
+      await expect(session.getPortUrl({ port: 3000 })).rejects.toThrow("Crabbox Static SSH does not support port forwarding")
       await session.destroy()
-
-      await expect(readFile(log, "utf8")).resolves.toContain("|tunnel|--provider ssh --target linux --id static_test --port 3000")
     })
   }, 30_000)
 
-  it("reuses one pending tunnel for concurrent port URL requests", async () => {
-    const root = await temporaryRoot()
-    const workspace = join(root, "workspace")
-    const bin = join(root, "bin")
-    const log = join(root, "crabbox.log")
-    await Promise.all([mkdir(workspace), mkdir(bin)])
-    await fakeCrabbox(bin)
-
-    await withEnvironment({ CRABBOX_TEST_LOG: log, PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
-      const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
-      const sandbox = box.sandbox as { createSession(): Promise<any> }
-      const session = await sandbox.createSession()
-
-      const urls = await Promise.all([
-        session.getPortUrl({ port: 3000 }),
-        session.getPortUrl({ port: 3000 }),
-      ])
-      expect(urls[0]).toBe(urls[1])
-      await session.destroy()
-
-      const invocations = (await readFile(log, "utf8")).trim().split("\n")
-      expect(invocations.filter(invocation => invocation.includes("|tunnel|"))).toHaveLength(1)
-    })
-  }, 30_000)
-
-  it("stops a tunnel that is still waiting for readiness", async () => {
-    const root = await temporaryRoot()
-    const workspace = join(root, "workspace")
-    const bin = join(root, "bin")
-    const tunnelPid = join(root, "tunnel.pid")
-    await Promise.all([mkdir(workspace), mkdir(bin)])
-    await fakeCrabbox(bin)
-
-    await withEnvironment({
-      CRABBOX_TEST_TUNNEL_DELAY: "1",
-      CRABBOX_TEST_TUNNEL_PID: tunnelPid,
-      PATH: `${bin}:${process.env.PATH || ""}`,
-    }, async () => {
-      const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
-      const sandbox = box.sandbox as { createSession(): Promise<any> }
-      const session = await sandbox.createSession()
-      const url = session.getPortUrl({ port: 3000 })
-      url.catch(() => undefined)
-
-      await waitForFile(tunnelPid)
-      const pid = Number(await readFile(tunnelPid, "utf8"))
-      await session.destroy()
-      await expect(url).rejects.toThrow("Crabbox tunnel exited before readiness")
-      expect(isAlive(pid)).toBe(false)
-    })
-  }, 30_000)
-
-  it("shares one static lease root across concurrent sibling workspaces", async () => {
+  it("claims each sibling workspace consistently", async () => {
     const root = await temporaryRoot()
     const workspaces = [join(root, "pr-1"), join(root, "pr-2")]
     const bin = join(root, "bin")
@@ -227,12 +171,10 @@ describe("crabbox", () => {
 
       await Promise.all(sessions.map(session => session.destroy()))
 
-      const workRoot = join(root, ".crabbox")
-      const workRootCwd = await realpath(workRoot)
       const invocations = (await readFile(log, "utf8")).trim().split("\n")
       const warmups = invocations.filter(invocation => invocation.includes("|warmup|"))
       expect(warmups).toHaveLength(2)
-      expect(warmups.every(invocation => invocation.startsWith(`${workRootCwd}|`))).toBe(true)
+      expect(warmups.map(invocation => invocation.split("|", 1)[0]).sort()).toEqual((await Promise.all(workspaces.map(workspace => realpath(workspace)))).sort())
       expect(invocations.every(invocation => !invocation.includes("--static-work-root"))).toBe(true)
       expect(warmups.every(invocation => invocation.endsWith("--reclaim --timing-json"))).toBe(true)
     })
@@ -367,12 +309,6 @@ case "$verb" in
     destination="\${destination#SANDBOX:}"
     /bin/cp "$source" "$destination"
     ;;
-  tunnel)
-    if [ -n "$CRABBOX_TEST_TUNNEL_DELAY" ]; then
-      exec node -e 'require("node:fs").writeFileSync(process.env.CRABBOX_TEST_TUNNEL_PID, String(process.pid)); setTimeout(() => console.log(JSON.stringify({ port: 49152 })), 10000)'
-    fi
-    exec node -e 'const net=require("node:net");const server=net.createServer(socket=>socket.end());server.listen(0,"127.0.0.1",()=>console.log(JSON.stringify({port:server.address().port,remotePort:3000})))'
-    ;;
   *) exit 21 ;;
 esac
 `)
@@ -400,23 +336,5 @@ async function withEnvironment<T>(environment: Record<string, string>, run: () =
       if (value === undefined) delete process.env[name]
       else process.env[name] = value
     }
-  }
-}
-
-async function waitForFile(path: string) {
-  for (let attempt = 0; attempt < 100; attempt++) {
-    if (await stat(path).then(() => true, () => false)) return
-    await new Promise(resolve => setTimeout(resolve, 10))
-  }
-  throw new Error(`Timed out waiting for ${path}`)
-}
-
-function isAlive(pid: number) {
-  try {
-    process.kill(pid, 0)
-    return true
-  }
-  catch {
-    return false
   }
 }

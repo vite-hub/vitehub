@@ -14,8 +14,8 @@ import type {
 } from "../index.ts"
 
 export interface CrabboxOptions {
-  /** How ViteHub reaches target ports. Defaults to tunnels; direct access requires a shared loopback network namespace. */
-  network?: "direct" | "tunnel"
+  /** Enables loopback port URLs when the target shares the ViteHub process network namespace. */
+  network?: "direct"
   profile?: string
   /** Replaces an existing static lease for the shared sibling-workspace root. */
   reclaim?: boolean
@@ -24,7 +24,6 @@ export interface CrabboxOptions {
 interface CrabboxSandboxOptions extends CrabboxOptions {
   requirements: readonly CrabboxRequirement[]
   workspace: string
-  workRoot: string
 }
 
 interface CrabboxRequirement extends ResolvedBoxRequirement {
@@ -48,11 +47,9 @@ interface CrabboxSessionState {
   leaseId: string
   options: CrabboxSessionOptions
   processes: Set<ChildProcessWithoutNullStreams>
-  pendingTunnels: Map<number, { child: ChildProcessWithoutNullStreams, promise: Promise<{ child: ChildProcessWithoutNullStreams, localPort: number }> }>
   remoteWorkspace: string
   root: string
   syncedWorkspacePaths: readonly string[]
-  tunnels: Map<number, { child: ChildProcessWithoutNullStreams, localPort: number }>
 }
 
 export function crabbox(options: CrabboxOptions = {}): BoxRuntime {
@@ -76,7 +73,6 @@ export function crabbox(options: CrabboxOptions = {}): BoxRuntime {
           ...options,
           requirements,
           workspace,
-          workRoot: join(dirname(workspace), ".crabbox"),
         }),
         workspace: { path: workspace, state: "authoritative" },
       } as const
@@ -109,7 +105,6 @@ function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxP
       onFirstCreate?: (session: HarnessV1NetworkSandboxSession, context: { abortSignal?: AbortSignal }) => Promise<void>
       sessionId?: string
     } = {}) {
-      await mkdir(options.workRoot, { recursive: true })
       const sessionOptions: CrabboxSessionOptions = {
         ...options,
         stateHome: await mkdtemp(join(tmpdir(), "vitehub-crabbox-state-")),
@@ -130,12 +125,10 @@ function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxP
         const session = createCrabboxSession({
           leaseId,
           options: sessionOptions,
-          pendingTunnels: new Map(),
           processes: new Set(),
           remoteWorkspace,
           root,
           syncedWorkspacePaths,
-          tunnels: new Map(),
         }, createOptions.sessionId)
         try {
           await validateRequirements(session, options.requirements, createOptions.abortSignal)
@@ -176,13 +169,8 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       }
     },
     async getPortUrl({ port, protocol = "http" }: { port: number, protocol?: "http" | "https" | "ws" }) {
-      if (state.options.network === "direct") return `${protocol}://127.0.0.1:${port}`
-      const existing = state.tunnels.get(port)
-      if (existing) return `${protocol}://127.0.0.1:${existing.localPort}`
-      const pending = state.pendingTunnels.get(port) || startTunnel(state, port)
-      state.pendingTunnels.set(port, pending)
-      const tunnel = await pending.promise
-      return `${protocol}://127.0.0.1:${tunnel.localPort}`
+      if (state.options.network !== "direct") throw new Error("[vitehub] Crabbox Static SSH does not support port forwarding. Set network: \"direct\" only when the target shares the ViteHub process loopback network namespace.")
+      return `${protocol}://127.0.0.1:${port}`
     },
     async readBinaryFile({ abortSignal, path }: { abortSignal?: AbortSignal, path: string }) {
       const remotePath = resolveSessionPath(state.root, path)
@@ -223,16 +211,8 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       return spawnCrabboxRun(state, runOptions)
     },
     async stop() {
-      for (const { child } of state.pendingTunnels.values()) child.kill()
-      for (const { child } of state.tunnels.values()) child.kill()
       for (const child of state.processes) child.kill()
-      await Promise.all([
-        ...state.pendingTunnels.values(),
-        ...state.tunnels.values(),
-        ...[...state.processes].map(child => ({ child })),
-      ].map(({ child }) => waitForExit(child)))
-      state.tunnels.clear()
-      state.pendingTunnels.clear()
+      await Promise.all([...state.processes].map(child => waitForExit(child)))
       state.processes.clear()
     },
     async writeBinaryFile({ abortSignal, content, path }: { abortSignal?: AbortSignal, content: Uint8Array, path: string }) {
@@ -262,7 +242,7 @@ async function warmup(options: CrabboxSessionOptions, abortSignal: AbortSignal |
     "--target", "linux",
     ...(options.reclaim ? ["--reclaim"] : []),
     "--timing-json",
-  ], abortSignal))
+  ], abortSignal, options.workspace))
   if (result.exitCode !== 0) throw crabboxError("warm Crabbox", result)
   const timing = result.stderr.trim().split(/\r?\n/).reverse().find(line => line.trim().startsWith("{"))
   try {
@@ -314,43 +294,6 @@ async function runCrabboxScript(options: CrabboxSessionOptions, leaseId: string,
   if (result.exitCode !== 0) throw crabboxError("run Crabbox script", result)
 }
 
-function startTunnel(state: CrabboxSessionState, remotePort: number) {
-  const child = spawnCrabbox(state.options, [
-    "tunnel",
-    "--provider", "ssh",
-    "--target", "linux",
-    "--id", state.leaseId,
-    "--port", String(remotePort),
-    "--json",
-  ])
-  let stderr = ""
-  child.stderr.setEncoding("utf8")
-  child.stderr.on("data", chunk => stderr += chunk)
-  const ready = (async () => {
-    const line = await firstLine(child.stdout, child)
-    let localPort: unknown
-    try {
-      localPort = (JSON.parse(line) as { port?: unknown }).port
-    }
-    catch {}
-    if (!Number.isInteger(localPort)) {
-      child.kill()
-      await waitForExit(child)
-      throw new Error(`[vitehub] Crabbox tunnel failed${stderr.trim() ? `: ${stderr.trim()}` : "."}`)
-    }
-    const tunnel = { child, localPort: localPort as number }
-    state.tunnels.set(remotePort, tunnel)
-    child.once("close", () => {
-      if (state.tunnels.get(remotePort)?.child === child) state.tunnels.delete(remotePort)
-    })
-    return tunnel
-  })()
-  ready.catch(() => undefined)
-  const promise = ready.finally(() => state.pendingTunnels.delete(remotePort))
-  promise.catch(() => undefined)
-  return { child, promise }
-}
-
 async function validateRequirements(session: HarnessV1NetworkSandboxSession, requirements: readonly CrabboxRequirement[], abortSignal: AbortSignal | undefined) {
   for (const requirement of requirements) {
     const command = ["command -v", shellQuote(requirement.command), ">/dev/null"]
@@ -367,7 +310,7 @@ async function validateRequirements(session: HarnessV1NetworkSandboxSession, req
   }
 }
 
-function spawnCrabbox(options: CrabboxSessionOptions, args: string[], abortSignal?: AbortSignal, cwd = options.workRoot) {
+function spawnCrabbox(options: CrabboxSessionOptions, args: string[], abortSignal?: AbortSignal, cwd = options.workspace) {
   return spawnChildProcess("crabbox", args, {
     cwd,
     env: {
@@ -545,35 +488,6 @@ function lastLines(value: string, count: number) {
 function crabboxError(action: string, result: { stderr: string, stdout: string }) {
   const detail = result.stderr.trim() || result.stdout.trim()
   return new Error(`[vitehub] Failed to ${action}${detail ? `: ${detail}` : "."}`)
-}
-
-function firstLine(stream: NodeJS.ReadableStream, child: ChildProcessWithoutNullStreams): Promise<string> {
-  return new Promise((resolvePromise, reject) => {
-    let value = ""
-    const data = (chunk: Buffer | string) => {
-      value += chunk.toString()
-      const index = value.indexOf("\n")
-      if (index < 0) return
-      cleanup()
-      resolvePromise(value.slice(0, index))
-    }
-    const close = () => {
-      cleanup()
-      reject(new Error("[vitehub] Crabbox tunnel exited before readiness."))
-    }
-    const error = (cause: Error) => {
-      cleanup()
-      reject(cause)
-    }
-    const cleanup = () => {
-      stream.off("data", data)
-      child.off("close", close)
-      child.off("error", error)
-    }
-    stream.on("data", data)
-    child.once("close", close)
-    child.once("error", error)
-  })
 }
 
 function waitForExit(child: ChildProcessWithoutNullStreams) {
