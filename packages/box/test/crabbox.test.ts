@@ -123,6 +123,19 @@ describe("crabbox", () => {
     await expect(stat(join(workspace, "dir"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it("removes deleted empty directories", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const source = join(root, "source")
+    const archive = join(root, "workspace.tar")
+    await Promise.all([mkdir(join(workspace, "empty"), { recursive: true }), mkdir(source)])
+    await execFileAsync("tar", ["-cf", archive, "-C", source, "."])
+
+    await pruneWorkspaceForArchive(workspace, archive, ["empty"])
+
+    await expect(stat(join(workspace, "empty"))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("rejects deleted paths beneath local symlinks", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")
@@ -147,6 +160,7 @@ describe("crabbox", () => {
       writeFile(join(workspace, ".env"), "local"),
       writeFile(join(workspace, ".gitignore"), ".env\n"),
       writeFile(join(workspace, "deleted.txt"), "delete me"),
+      writeFile(join(workspace, "newly-ignored.txt"), "keep me"),
     ])
     await runGit(workspace, ["init"])
     await runGit(workspace, ["add", ".gitignore", "deleted.txt"])
@@ -170,7 +184,7 @@ describe("crabbox", () => {
       await session.writeTextFile({ content: "cache", path: "cache.txt" })
       await expect(session.readTextFile({ path: "cache.txt" })).resolves.toBe("cache")
       await expect(session.run({
-        command: "printf changed > changed.txt && rm deleted.txt",
+        command: "printf changed > changed.txt && printf 'newly-ignored.txt\\n' >> .gitignore && rm deleted.txt",
         workingDirectory: join(cacheRoot, "workspace"),
       })).resolves.toMatchObject({ exitCode: 0 })
       await expect(readFile(join(workspace, "changed.txt"), "utf8")).resolves.toBe("changed")
@@ -179,8 +193,9 @@ describe("crabbox", () => {
       await session.destroy()
       await expect(readFile(join(cacheRoot, "cache.txt"))).rejects.toMatchObject({ code: "ENOENT" })
       await expect(readFile(join(workspace, ".env"), "utf8")).resolves.toBe("local")
+      await expect(readFile(join(workspace, "newly-ignored.txt"), "utf8")).resolves.toBe("keep me")
       await expect(stat(join(workspace, "deleted.txt"))).rejects.toMatchObject({ code: "ENOENT" })
-      await expect(readdir(workspace)).resolves.toEqual([".env", ".git", ".gitignore", "changed.txt"])
+      await expect(readdir(workspace)).resolves.toEqual([".env", ".git", ".gitignore", "changed.txt", "newly-ignored.txt"])
 
       const workspaceCwd = await realpath(workspace)
       const invocations = (await readFile(log, "utf8")).trim().split("\n")

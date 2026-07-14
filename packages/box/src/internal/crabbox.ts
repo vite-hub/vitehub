@@ -405,8 +405,9 @@ async function withTemporaryFile<T>(run: (path: string) => Promise<T>) {
 }
 
 async function syncWorkspaceBack(state: CrabboxSessionState) {
+  const initialManifest = Buffer.from(state.syncedWorkspacePaths.map(path => `${path}\0`).join("")).toString("base64")
   const result = await runCrabbox(state.options, state.leaseId, {
-    command: `archive=$(mktemp /tmp/vitehub-workspace.XXXXXX.tar) && manifest=$(mktemp /tmp/vitehub-workspace.XXXXXX.manifest) && trap 'rm -f -- "$archive" "$manifest"' EXIT && if git -C ${shellQuote(state.remoteWorkspace)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then git -C ${shellQuote(state.remoteWorkspace)} ls-files -z --cached --others --exclude-standard > "$manifest" && tar --ignore-failed-read --null -C ${shellQuote(state.remoteWorkspace)} -cf "$archive" -T "$manifest"; else tar -C ${shellQuote(state.remoteWorkspace)} --exclude ./.git --exclude .git -cf "$archive" .; fi && base64 < "$archive"`,
+    command: `archive=$(mktemp /tmp/vitehub-workspace.XXXXXX.tar) && manifest=$(mktemp /tmp/vitehub-workspace.XXXXXX.manifest) && trap 'rm -f -- "$archive" "$manifest"' EXIT && if git -C ${shellQuote(state.remoteWorkspace)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then printf %s ${shellQuote(initialManifest)} | base64 -d > "$manifest" && git -C ${shellQuote(state.remoteWorkspace)} ls-files -z --cached --others --exclude-standard >> "$manifest" && tar --ignore-failed-read --no-recursion --null -C ${shellQuote(state.remoteWorkspace)} -cf "$archive" -T "$manifest"; else tar -C ${shellQuote(state.remoteWorkspace)} --exclude ./.git --exclude .git -cf "$archive" .; fi && base64 < "$archive"`,
   })
   if (result.exitCode !== 0) throw crabboxError("sync Crabbox workspace", result)
   const archive = Buffer.from(result.stdout.replace(/\s+/g, ""), "base64")
@@ -438,7 +439,7 @@ async function syncWorkspaceBack(state: CrabboxSessionState) {
 
 async function listRemoteWorkspacePaths(options: CrabboxSessionOptions, leaseId: string, workspace: string) {
   const result = await runCrabbox(options, leaseId, {
-    command: `if git -C ${shellQuote(workspace)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then git -C ${shellQuote(workspace)} ls-files -z --cached --others --exclude-standard; else cd ${shellQuote(workspace)} && find . -mindepth 1 \\( -name .git -o -path '*/.git/*' \\) -prune -o \\( -type f -o -type l \\) -exec printf '%s\\0' {} +; fi`,
+    command: `if git -C ${shellQuote(workspace)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then git -C ${shellQuote(workspace)} ls-files -z --cached --others --exclude-standard; else cd ${shellQuote(workspace)} && find . -mindepth 1 \\( -name .git -o -path '*/.git/*' \\) -prune -o \\( -type d -o -type f -o -type l \\) -exec printf '%s\\0' {} +; fi`,
   })
   if (result.exitCode !== 0) throw crabboxError("inspect Crabbox workspace", result)
   return result.stdout
