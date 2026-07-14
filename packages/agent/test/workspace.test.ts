@@ -4425,6 +4425,7 @@ describe("defineAgent workspace option", () => {
   it("warns run drivers when configured skills lack explicit instruction coverage", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
+    exists.mockResolvedValue(true)
     const agent = withExplicitWorkspaceName(defineAgent({
       workspace: {},
       driver: { run: () => "done" },
