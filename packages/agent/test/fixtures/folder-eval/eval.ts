@@ -4,6 +4,6 @@ export default defineEval({
   scenarios: [{
     input: { prompt: "hello" },
     name: "hello",
-    scorers: [textContains("folder config")],
+    scorers: [textContains("folder agent")],
   }],
 })

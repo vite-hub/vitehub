@@ -21,7 +21,7 @@ Generated Agent hosts carry that discovery identity as `context.agentIdentity`, 
 
 ```txt [Definition paths]
 server/agents/support.ts          -> support
-server/agents/docs/config.ts      -> docs
+server/agents/docs/agent.ts      -> docs
 src/triager.agent.ts              -> triager
 server/auth.ts                    -> Primary Auth Definition
 server.auth.ts                    -> Primary Auth Definition alias

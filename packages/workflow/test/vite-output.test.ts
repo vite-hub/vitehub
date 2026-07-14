@@ -82,11 +82,11 @@ describe("Vite workflow provider outputs", () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vite-playground-")
     const agentDir = join(rootDir, "server", "agents", "nuxt")
     await mkdir(agentDir, { recursive: true })
-    await writeFile(join(agentDir, "config.ts"), [
+    await writeFile(join(agentDir, "agent.ts"), [
       `import { defineAgent, workflow } from "@vite-hub/agent"`,
       "",
       "export default defineAgent({",
-      `  runtime: workflow("nuxt-agent"),`,
+      "  runtime: workflow(),",
       `  run: () => "nuxt agent",`,
       "})",
       "",
@@ -104,7 +104,7 @@ describe("Vite workflow provider outputs", () => {
     const vercelServer = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
     const wrangler = JSON.parse(await readFile(cloudflareConfig, "utf8"))
     const className = getCloudflareWorkflowClassName("welcome")
-    const agentClassName = getCloudflareWorkflowClassName("nuxt-agent")
+    const agentClassName = getCloudflareWorkflowClassName("nuxt")
 
     expect(existsSync(cloudflareWorker)).toBe(true)
     expect(existsSync(cloudflareWorkerBundle)).toBe(true)
@@ -114,9 +114,9 @@ describe("Vite workflow provider outputs", () => {
       name: "workflow--77656c636f6d65",
     })
     expect(wrangler.workflows).toContainEqual({
-      binding: getCloudflareWorkflowBindingName("nuxt-agent"),
+      binding: getCloudflareWorkflowBindingName("nuxt"),
       class_name: agentClassName,
-      name: getCloudflareWorkflowName("nuxt-agent"),
+      name: getCloudflareWorkflowName("nuxt"),
     })
     expect(wrangler.workflows).toHaveLength(2)
     const cloudflareWorkerContents = await readFile(cloudflareWorker, "utf8")
@@ -124,7 +124,7 @@ describe("Vite workflow provider outputs", () => {
     expect(cloudflareWorkerContents).toContain(`export class ${className} extends WorkflowEntrypoint`)
     expect(cloudflareWorkerContents).toContain(`export class ${agentClassName} extends WorkflowEntrypoint`)
     expect(cloudflareWorkerContents).toContain('runViteHubWorkflowDefinition("welcome"')
-    expect(cloudflareWorkerContents).toContain('runViteHubWorkflowDefinition("nuxt-agent"')
+    expect(cloudflareWorkerContents).toContain('runViteHubWorkflowDefinition("nuxt"')
     expect(await readFile(cloudflareWorkerBundle, "utf8")).toContain("runViteHubWorkflowDefinition")
     expect(await readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8")).toContain("runAgentWorkflowDefinition")
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")

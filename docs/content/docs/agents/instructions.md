@@ -27,7 +27,7 @@ Answer from inspected workspace evidence before using outside knowledge.
 When sources do not answer the question, say that directly.
 ```
 
-```ts [server/agents/support/config.ts]
+```ts [server/agents/support/agent.ts]
 import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 
@@ -93,7 +93,7 @@ The value must already exist in invocation context. Missing `context.*` bindings
 
 Use Workspace bindings when instruction text should read explicit Workspace-owned values. Bind scalar values with `{{ workspace.<name> }}`.
 
-```ts [server/agents/support/config.ts]
+```ts [server/agents/support/agent.ts]
 import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 
@@ -185,7 +185,7 @@ Coverage warnings clear only when Agent Driver Instructions, or a deterministic 
 
 Harness-backed drivers have two instruction surfaces with different lifetimes. A colocated `instructions.md` is durable repository guidance that ViteHub renders into the Harness Workspace Session as `AGENTS.md` and `CLAUDE.md`. `driver.instructions` is resolved for each invocation and passed to the AI SDK `HarnessAgent` constructor, which fits runtime policy derived from call options or invocation context.
 
-```ts [server/agents/review/config.ts]
+```ts [server/agents/review/agent.ts]
 import { defineAgent } from '@vite-hub/agent'
 import { codexDriver } from '@vite-hub/agent/harness/codex'
 

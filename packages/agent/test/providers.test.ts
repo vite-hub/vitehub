@@ -234,7 +234,7 @@ describe("agent Vite plugin", () => {
     try {
       await mkdir(join(root, "server", "agents", "support", "workspace"), { recursive: true })
       await writeFile(join(root, "server", "agents", "digest.ts"), "export default {}", "utf8")
-      await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {} })", "utf8")
+      await writeFile(join(root, "server", "agents", "support", "agent.ts"), "export default defineAgent({ workspace: {} })", "utf8")
       await writeFile(join(root, "server", "agents", "support", "instructions.md"), "Use support instructions.\n", "utf8")
       const plugin = hubAgent()
       const configResolved = plugin.configResolved as unknown as (config: { agent?: unknown, command: "serve", createResolver: () => (id: string) => Promise<string | undefined>, plugins: Array<{ name: string }>, root: string }) => Promise<void>
@@ -722,7 +722,7 @@ describe("agent Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-github-workspace-route-"))
     try {
       await mkdir(join(root, "server", "agents", "support"), { recursive: true })
-      await writeFile(join(root, "server", "agents", "support", "config.ts"), [
+      await writeFile(join(root, "server", "agents", "support", "agent.ts"), [
         "import { defineAgent } from '@vite-hub/agent'",
         "export default defineAgent({",
         "  driver: { async run() { return 'ok' } },",
@@ -989,7 +989,7 @@ describe("agent Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-hosted-workspace-route-"))
     try {
       await mkdir(join(root, "server", "agents", "audio-bitacora"), { recursive: true })
-      await writeFile(join(root, "server", "agents", "audio-bitacora", "config.ts"), [
+      await writeFile(join(root, "server", "agents", "audio-bitacora", "agent.ts"), [
         "import { defineAgent } from '@vite-hub/agent'",
         "export default defineAgent({",
         "  workspace: {",
@@ -1034,7 +1034,7 @@ describe("agent Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-implicit-vercel-blob-workspace-route-"))
     try {
       await mkdir(join(root, "server", "agents", "audio-bitacora"), { recursive: true })
-      await writeFile(join(root, "server", "agents", "audio-bitacora", "config.ts"), [
+      await writeFile(join(root, "server", "agents", "audio-bitacora", "agent.ts"), [
         "import { defineAgent } from '@vite-hub/agent'",
         "export default defineAgent({",
         "  workspace: {",
@@ -1103,7 +1103,7 @@ describe("agent Vite plugin", () => {
     try {
       await mkdir(join(root, "server", "agents", "support", "workspace"), { recursive: true })
       await mkdir(join(root, "server", "agents", "support", "skills", "review", "scripts"), { recursive: true })
-      await writeFile(join(root, "server", "agents", "support", "config.ts"), [
+      await writeFile(join(root, "server", "agents", "support", "agent.ts"), [
         "import { defineAgent } from '@vite-hub/agent'",
         "export default defineAgent({",
         "  workspace: {},",

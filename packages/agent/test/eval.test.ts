@@ -93,7 +93,7 @@ describe("agent eval", () => {
     expect(evaliteCalls[0]?.variants).toBeUndefined()
   })
 
-  it("infers config.ts and the folder name from folder-level eval.ts files", async () => {
+  it("infers agent.ts and the folder name from folder-level eval.ts files", async () => {
     await import("./fixtures/folder-eval/eval.ts")
 
     expect(evaliteCalls[0]?.name).toBe("folder-eval")
@@ -101,7 +101,7 @@ describe("agent eval", () => {
     const output = await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input)
     const score = await evaliteCalls[0]!.opts.scorers[0].scorer({ output })
 
-    expect(output.text).toBe("folder config")
+    expect(output.text).toBe("folder agent")
     expect(score.score).toBe(1)
   })
 

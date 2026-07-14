@@ -13,7 +13,7 @@ Keep the harness adapter, credentials, session key, harness sandbox provider, an
 
 ## Define an eval
 
-Create eval files beside the Agent they protect. A sibling `support.eval.ts` can import `./support`, and a folder-level `eval.ts` can infer `./config`.
+Create eval files beside the Agent they protect. A sibling `support.eval.ts` can import `./support`, and a folder-level `eval.ts` can infer `./agent`.
 
 ```ts [server/agents/support.eval.ts]
 import { defineEval } from '@vite-hub/agent/eval'

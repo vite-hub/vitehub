@@ -7,7 +7,7 @@ icon: i-lucide-file-user
 
 An Agent Definition is the code declaration that names one Agent and configures how it runs. It owns the Agent Driver, optional Box, attached Capabilities, Workspace context, Agent Invoker options, and lifecycle hooks.
 
-ViteHub discovers Agent Definitions from `server/agents`. The Agent File Name or folder name provides the discovered identity, so `server/agents/support.ts` and `server/agents/support/config.ts` both create a `support` Agent.
+ViteHub discovers Agent Definitions from `server/agents`. The Agent File Name or folder name provides the discovered identity, so `server/agents/support.ts` and `server/agents/support/agent.ts` both create a `support` Agent.
 
 ## Define the Agent
 
@@ -57,7 +57,7 @@ Tools are contributed by Capabilities. They are not top-level Agent Definition f
 
 Workspace context gives the Agent a file tree and Sources. The Workspace owns file visibility, while Capabilities decide whether the active Agent Driver receives model-facing tools or other driver-compatible inputs.
 
-```ts [server/agents/docs/config.ts]
+```ts [server/agents/docs/agent.ts]
 import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 import { workspaceShell } from '@vite-hub/agent/capabilities'

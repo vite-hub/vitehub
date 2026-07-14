@@ -33,7 +33,7 @@ An Agent Definition keeps the execution boundary visible in one file. The Agent 
 
 Define the driver first, then attach the abilities and context the Agent needs.
 
-```ts [server/agents/support/config.ts]
+```ts [server/agents/support/agent.ts]
 import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 import { workspaceShell } from '@vite-hub/agent/capabilities'
@@ -61,7 +61,7 @@ export default defineAgent({
 })
 ```
 
-The discovered Agent identity comes from the file or folder name under `server/agents`. `server/agents/support/config.ts` creates the `support` Agent.
+The discovered Agent identity comes from the file or folder name under `server/agents`. `server/agents/support/agent.ts` creates the `support` Agent.
 
 ## Reach product surfaces
 

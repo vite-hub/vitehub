@@ -11,7 +11,8 @@ import {
 import type { DiscoveredAgentDefinition } from "./types.ts"
 
 const agentSuffixPattern = /\.agent\.(?:c|m)?[jt]s$/i
-const configPattern = /^config\.(?:c|m)?[jt]s$/i
+const folderAgentPattern = /^agent\.(?:c|m)?[jt]s$/i
+const legacyFolderAgentPattern = /^config\.(?:c|m)?[jt]s$/i
 const evalDefinitionPattern = /^(?:.+\.)?eval\.(?:c|m)?[jt]s$/i
 const indexDefinitionPattern = /^index\.(?:c|m)?[jt]s$/i
 
@@ -30,7 +31,7 @@ function stripComments(source: string) {
     .replace(/(^|[^:])\/\/.*$/gm, "$1")
 }
 
-function isWorkspaceAgentConfig(source: string): boolean {
+function isWorkspaceAgentDefinition(source: string): boolean {
   return /\bdefineAgent\s*\(\s*\{[\s\S]*?\bworkspace\s*:/.test(stripComments(source))
 }
 
@@ -41,20 +42,20 @@ function isAgentDefinitionSource(source: string): boolean {
     || /\bexport\s+default\s+\w*Agent\b/.test(stripped)
 }
 
-function isInsideConfiguredAgent(file: string, configuredAgentDirs: Set<string>): boolean {
+function isInsideFolderAgent(file: string, folderAgentDirs: Set<string>): boolean {
   const directory = dirname(file)
-  if (configuredAgentDirs.has(directory) && indexDefinitionPattern.test(basename(file))) return false
+  if (folderAgentDirs.has(directory) && indexDefinitionPattern.test(basename(file))) return false
   if (isAgentDefinitionSource(readFileSync(file, "utf8"))) return false
-  for (const agentDir of configuredAgentDirs) {
+  for (const agentDir of folderAgentDirs) {
     const path = relative(agentDir, directory)
     if (path === "" || (!path.startsWith("..") && path !== "..")) return true
   }
   return false
 }
 
-function isWorkspaceSourceConfig(file: string, configuredAgentDirs: Set<string>): boolean {
+function isWorkspaceSourceConfig(file: string, folderAgentDirs: Set<string>): boolean {
   const directory = dirname(file)
-  for (const agentDir of configuredAgentDirs) {
+  for (const agentDir of folderAgentDirs) {
     const path = relative(agentDir, directory).replace(/\\/g, "/")
     if (!path || path.startsWith("../") || path === "..") continue
     if (path.split("/")[0] === "workspace") return true
@@ -62,7 +63,7 @@ function isWorkspaceSourceConfig(file: string, configuredAgentDirs: Set<string>)
   return false
 }
 
-function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefinition[] {
+function discoverFolderAgentDefinitions(scanDirs: string[]): DiscoveredAgentDefinition[] {
   const candidates: DiscoveredAgentDefinition[] = []
 
   const walk = (agentsRoot: string, current: string) => {
@@ -82,11 +83,11 @@ function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefin
         continue
       }
 
-      if (!entry.isFile() || (!configPattern.test(basename(file)) && !indexDefinitionPattern.test(basename(file)))) continue
+      if (!entry.isFile() || (!folderAgentPattern.test(basename(file)) && !indexDefinitionPattern.test(basename(file)))) continue
       const source = readFileSync(file, "utf8")
       const agent = relative(agentsRoot, dirname(file)).replace(/\\/g, "/")
       if (!agent || agent === ".") continue
-      const workspace = isWorkspaceAgentConfig(source)
+      const workspace = isWorkspaceAgentDefinition(source)
       candidates.push({
         handler: file,
         name: agent,
@@ -100,7 +101,7 @@ function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefin
     walk(resolve(scanDir, "agents"), resolve(scanDir, "agents"))
   }
 
-  const ownedSkillConfigs = new Set(candidates.flatMap(definition => candidates.some(parent => {
+  const ownedSkillEntries = new Set(candidates.flatMap(definition => candidates.some(parent => {
     if (parent === definition) return false
     const path = relative(dirname(parent.handler), dirname(definition.handler)).replace(/\\/g, "/")
     return path === "skills" || path.startsWith("skills/")
@@ -114,11 +115,11 @@ function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefin
     })
     ? [definition.handler]
     : []))
-  const discoveredCandidates = candidates.filter(definition => !ownedSkillConfigs.has(definition.handler) && !nestedHelperIndexes.has(definition.handler))
-  const configuredAgentDirs = new Set(discoveredCandidates
+  const discoveredCandidates = candidates.filter(definition => !ownedSkillEntries.has(definition.handler) && !nestedHelperIndexes.has(definition.handler))
+  const folderAgentDirs = new Set(discoveredCandidates
     .filter(definition => definition.source === "server-agent-workspace")
     .map(definition => dirname(definition.handler)))
-  return discoveredCandidates.filter(definition => !isWorkspaceSourceConfig(definition.handler, configuredAgentDirs))
+  return discoveredCandidates.filter(definition => !isWorkspaceSourceConfig(definition.handler, folderAgentDirs))
 }
 
 export function discoverAgentDefinitions(options:
@@ -126,17 +127,19 @@ export function discoverAgentDefinitions(options:
   | { mode: "server-agents", scanDirs: string[] }
 ): DiscoveredAgentDefinition[] {
   if (options.mode === "server-agents") {
-    const configDefinitions = discoverDirectoryAgentConfigs(options.scanDirs)
-    const configuredAgentDirs = new Set(configDefinitions.map(definition => dirname(definition.handler)))
+    const folderDefinitions = discoverFolderAgentDefinitions(options.scanDirs)
+    const folderAgentDirs = new Set(folderDefinitions.map(definition => dirname(definition.handler)))
     const directoryDefinitions = discoverDefinitions("agent", [
       createDirectoryDefinitionSource<DiscoveredAgentDefinition>("server-agents", options.scanDirs, "agents", {
         normalizeName(directory, file) {
-          if (configPattern.test(basename(file)) || indexDefinitionPattern.test(basename(file)) || isEvalDefinitionFile(file)) return
-          for (const agentDir of configuredAgentDirs) {
+          const fileName = basename(file)
+          if (folderAgentPattern.test(fileName) && dirname(file) !== directory) return
+          if (legacyFolderAgentPattern.test(fileName) || indexDefinitionPattern.test(fileName) || isEvalDefinitionFile(file)) return
+          for (const agentDir of folderAgentDirs) {
             const path = relative(agentDir, file).replace(/\\/g, "/")
             if (path === "skills" || path.startsWith("skills/")) return
           }
-          if (isInsideConfiguredAgent(file, configuredAgentDirs)) return
+          if (isInsideFolderAgent(file, folderAgentDirs)) return
           return relative(directory, file).replace(/\.(?:c|m)?[jt]s$/i, "").replace(/\/index$/i, "")
         },
         createDefinition({ file, name }) {
@@ -149,7 +152,7 @@ export function discoverAgentDefinitions(options:
       }),
     ])
 
-    return mergeDefinitions("agent", directoryDefinitions, configDefinitions)
+    return mergeDefinitions("agent", directoryDefinitions, folderDefinitions)
   }
 
   const roots = new Set([options.rootDir, ...(options.scanDirs || [])].filter(Boolean))

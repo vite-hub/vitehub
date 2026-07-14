@@ -1,5 +1,5 @@
 export default {
-  generate: async () => ({ text: "folder config" }),
+  generate: async () => ({ text: "folder agent" }),
   stream: async () => {
     throw new Error("stream is not used by this eval fixture.")
   },
