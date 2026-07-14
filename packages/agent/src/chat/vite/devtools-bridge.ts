@@ -110,11 +110,6 @@ interface ChatDevtoolsBridgeState {
   selected?: string
 }
 
-interface ChatDevtoolsHostCommand {
-  name: string
-  text: string
-}
-
 function normalizeChatDevtoolsAction(action: string): ChatDevtoolsAction | undefined {
   if (action === "get-state" || action === chatDevtoolsGetStateRpc) return "get-state"
   if (action === "send" || action === chatDevtoolsSendRpc) return "send"
@@ -587,10 +582,6 @@ function uiMessageMetadata(message: UIMessage): Record<string, unknown> | undefi
   return isRecord(message.metadata) ? message.metadata : undefined
 }
 
-function isHostCommandUIMessage(message: UIMessage): boolean {
-  return isRecord(uiMessageMetadata(message)?.hostCommand)
-}
-
 function hasCompletedMetadata(message: UIMessage): boolean {
   const completedAt = uiMessageMetadata(message)?.completedAt
   return typeof completedAt === "string" && completedAt.trim().length > 0
@@ -646,106 +637,13 @@ function createChatDevtoolsVisibleHistory(messages: UIMessage[]): UIMessage[] {
 }
 
 export function createChatDevtoolsPromptHistory(messages: UIMessage[]): UIMessage[] {
-  return createChatDevtoolsVisibleHistory(messages).filter(message => !isHostCommandUIMessage(message))
+  return createChatDevtoolsVisibleHistory(messages)
 }
 
 function readableStreamFromResult(value: unknown): ReadableStream<never> {
   if (value instanceof ReadableStream) return value as ReadableStream<never>
   if (value instanceof Response && value.body) return value.body as ReadableStream<never>
   throw new Error("[vitehub] Chat DevTools expected a UI message stream.")
-}
-
-function parseChatDevtoolsHostCommand(text: string): ChatDevtoolsHostCommand | undefined {
-  if (!text.startsWith("//")) return
-  const raw = text.slice(2).trim()
-  const name = raw.split(/\s+/, 1)[0] || ""
-  return {
-    name,
-    text,
-  }
-}
-
-function plural(count: number, singular: string, pluralLabel = `${singular}s`): string {
-  return `${count} ${count === 1 ? singular : pluralLabel}`
-}
-
-function countDevtoolsFiles(files: NonNullable<ChatDevtoolsStateResult["files"]>): { directories: number, files: number, sources: number } {
-  const sources = new Set<string>()
-  let fileCount = 0
-  let directoryCount = 0
-  const pending = [...files]
-  while (pending.length) {
-    const file = pending.shift()!
-    if (file.kind === "directory") directoryCount += 1
-    else fileCount += 1
-    if (file.source) sources.add(file.source)
-    pending.push(...(file.children || []))
-  }
-  return { directories: directoryCount, files: fileCount, sources: sources.size }
-}
-
-function driverSummary(config: ChatDevtoolsStateResult["config"]): string {
-  const driver = config?.driver
-  if (!driver) return "unavailable"
-  if (driver.kind === "model") return driver.model?.id ? `Model-backed Agent Driver (${driver.model.id})` : "Model-backed Agent Driver"
-  if (driver.kind === "harness") return driver.harness?.provider ? `Harness-backed Agent Driver (${driver.harness.provider})` : "Harness-backed Agent Driver"
-  return "Custom-run Agent Driver"
-}
-
-function namesSummary(values: Array<{ name: string }>, fallback: string): string {
-  if (!values.length) return fallback
-  const names = values.slice(0, 5).map(value => value.name)
-  return values.length > names.length ? `${names.join(", ")}, +${values.length - names.length} more` : names.join(", ")
-}
-
-function inspectSummary(state: ChatDevtoolsStateResult): string {
-  const files = countDevtoolsFiles(state.files || [])
-  const metadata = state.metadataError
-    ? `${state.metadataStatus || "error"} (${state.metadataError})`
-    : state.metadataStatus || "ready"
-  return [
-    "### Agent inspection",
-    `- Agent: ${state.title || state.selected || "unknown"}`,
-    `- Metadata: ${metadata}`,
-    `- Driver: ${driverSummary(state.config)}`,
-    `- Tools: ${plural(state.tools?.length || 0, "tool")} (${namesSummary(state.tools || [], "none")})`,
-    `- Workspace files: ${plural(files.files, "file")}, ${plural(files.directories, "directory", "directories")}, ${plural(files.sources, "source")}`,
-    `- Instructions: ${plural(state.instructions?.length || 0, "document")}`,
-    `- Invoker profiles: ${plural(state.invokerProfiles?.length || 0, "profile")}`,
-    `- Warnings: ${plural(state.warnings?.length || 0, "warning")}`,
-    "",
-    "Use the side panel for full config, files, tools, instructions, and metadata.",
-  ].join("\n")
-}
-
-async function handleDevtoolsHostCommand(
-  state: ChatDevtoolsBridgeState,
-  selected: string,
-  entry: ChatDevtoolsAgentEntry,
-  session: ChatDevtoolsSession,
-  command: ChatDevtoolsHostCommand,
-  userMessage: UIMessage,
-  requestedSelection: ChatDevtoolsInvokerSelection,
-): Promise<ChatDevtoolsStateResult> {
-  if (command.name === "inspect" && entry.metadataTask) {
-    await entry.metadataTask.catch(() => {})
-  }
-  const now = new Date().toISOString()
-  const status = command.name === "inspect" ? "handled" : "unknown"
-  const assistantText = command.name === "inspect"
-    ? inspectSummary(await serializeState(state, selected, requestedSelection))
-    : `Unknown Host Command: \`${command.text}\`.\n\nAvailable Host Commands: \`//inspect\`.`
-  const metadata = {
-    completedAt: now,
-    createdAt: now,
-    hostCommand: { name: command.name || command.text, status },
-  }
-  session.uiMessages = [
-    ...createChatDevtoolsVisibleHistory(session.uiMessages),
-    { ...userMessage, metadata },
-    createAssistantUIMessage(assistantText, metadata),
-  ]
-  return await serializeState(state, selected, requestedSelection)
 }
 
 async function sendDevtoolsUIMessage(
@@ -794,11 +692,6 @@ async function sendDevtoolsUIMessage(
       : requestedProfileId || selectedEntry.metadata.invokerProfiles?.[0]?.id
   }
   const userMessage = createUserUIMessage(text)
-  const hostCommand = parseChatDevtoolsHostCommand(text)
-  if (hostCommand) {
-    return await handleDevtoolsHostCommand(state, selected, selectedEntry, session, hostCommand, userMessage, requestedSelection)
-  }
-
   const visibleBaseMessages = [...createChatDevtoolsVisibleHistory(session.uiMessages), userMessage]
   const promptMessages = [...createChatDevtoolsPromptHistory(session.uiMessages), userMessage]
   const run = createRunMetadata(session, userMessage.id)
