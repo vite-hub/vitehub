@@ -58,10 +58,6 @@ const owners = createAgentOwnerPool<Job>({
   },
 })
 
-export async function waitForBabysitterOwners() {
-  await owners.settle()
-}
-
 export default defineSchedule({
   cron: '*/5 * * * *',
   async handler(schedule) {
@@ -70,5 +66,6 @@ export default defineSchedule({
       ...job,
       runId: `${schedule.runId || schedule.id}:pr-${job.number}:${job.fingerprint}`,
     })))
+    schedule.waitUntil(owners.settle())
   },
 })

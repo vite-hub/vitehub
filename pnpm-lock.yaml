@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   '@vite-hub/schedule@0.0.1':
-    hash: ffa1ad2aea327b130413d185316d4158522c0d2152806617a4c6e517fa122327
+    hash: ee6a5901a2cb2de626be0a1873c3777dfc87639adb3af33002157b1b8c31813d
     path: patches/@vite-hub__schedule@0.0.1.patch
 
 importers:
@@ -21,7 +21,7 @@ importers:
         version: 1.0.0
       '@vite-hub/agent':
         specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@9eaa47ebf966379ad1c07c917f5e7e259c4f6330
-        version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@9eaa47ebf966379ad1c07c917f5e7e259c4f6330(@ai-sdk/harness-codex@1.0.0)(@ai-sdk/harness@1.0.0(ws@8.21.0)(zod@4.1.11))(@modelcontextprotocol/sdk@1.29.0(zod@4.1.11))(@types/node@25.9.5)(@vite-hub/schedule@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@d120811e1063b479b20129193075ddf8f9e2d7e7(patch_hash=ffa1ad2aea327b130413d185316d4158522c0d2152806617a4c6e517fa122327)(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0)))(ai@7.0.0(zod@4.1.11))(crossws@0.4.10(srvx@0.11.22))(rolldown@1.1.5)(typescript@6.0.3)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))(ws@8.21.0)(zod@4.1.11)
+        version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@9eaa47ebf966379ad1c07c917f5e7e259c4f6330(@ai-sdk/harness-codex@1.0.0)(@ai-sdk/harness@1.0.0(ws@8.21.0)(zod@4.1.11))(@modelcontextprotocol/sdk@1.29.0(zod@4.1.11))(@types/node@25.9.5)(@vite-hub/schedule@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@d120811e1063b479b20129193075ddf8f9e2d7e7(patch_hash=ee6a5901a2cb2de626be0a1873c3777dfc87639adb3af33002157b1b8c31813d)(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0)))(ai@7.0.0(zod@4.1.11))(crossws@0.4.10(srvx@0.11.22))(rolldown@1.1.5)(typescript@6.0.3)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))(ws@8.21.0)(zod@4.1.11)
       '@vite-hub/box':
         specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/box@9eaa47ebf966379ad1c07c917f5e7e259c4f6330
         version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/box@9eaa47ebf966379ad1c07c917f5e7e259c4f6330
@@ -30,13 +30,16 @@ importers:
         version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/env@34ce82c2b3ac83468fda5467857923eb2443f83e(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))
       '@vite-hub/kv':
         specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@34ce82c2b3ac83468fda5467857923eb2443f83e
-        version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@34ce82c2b3ac83468fda5467857923eb2443f83e(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))
+        version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@34ce82c2b3ac83468fda5467857923eb2443f83e(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))
       '@vite-hub/schedule':
         specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@d120811e1063b479b20129193075ddf8f9e2d7e7
-        version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@d120811e1063b479b20129193075ddf8f9e2d7e7(patch_hash=ffa1ad2aea327b130413d185316d4158522c0d2152806617a4c6e517fa122327)(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))
+        version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@d120811e1063b479b20129193075ddf8f9e2d7e7(patch_hash=ee6a5901a2cb2de626be0a1873c3777dfc87639adb3af33002157b1b8c31813d)(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))
       ai:
         specifier: 7.0.0
         version: 7.0.0(zod@4.1.11)
+      nitro:
+        specifier: 3.0.260429-beta
+        version: 3.0.260429-beta(@libsql/client@0.15.15)(@vercel/functions@3.7.5(ws@8.21.0))(dotenv@16.6.1)(jiti@2.7.0)(lru-cache@11.5.2)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))
       vite:
         specifier: ^8.0.11
         version: 8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0)
@@ -1423,6 +1426,24 @@ packages:
     resolution: {integrity: sha512-zwfzJecQ/Uej6tusMqwAqU/6KL2XaB2VZ2Jg54Je6ahNBGNH6Ek6g3jjNCF0fG9EWQKGZNddNjU5F1ZQn/sBnA==}
     engines: {node: '>=20.19.0'}
 
+  env-runner@0.1.16:
+    resolution: {integrity: sha512-2LRJM4P2KLX6J83QZZrMqvgCDt/D5ea7wPcI3yYiy5cG/9rX5QwdwZFx0D7ktWnjdRyZxYjttGGorb5nFqb1CA==}
+    hasBin: true
+    peerDependencies:
+      '@netlify/runtime': ^4.1.23
+      '@vercel/queue': '>=0.2.0'
+      miniflare: ^4.20260515.0
+      wrangler: ^4.0.0
+    peerDependenciesMeta:
+      '@netlify/runtime':
+        optional: true
+      '@vercel/queue':
+        optional: true
+      miniflare:
+        optional: true
+      wrangler:
+        optional: true
+
   es-define-property@1.0.1:
     resolution: {integrity: sha512-e3nRfgfUZ4rNGL232gUgX06QNyyez04KdjFrF+LTRoOXmrOgFKDg4BCdsjW8EnT69eqdYGmRpJwiPVYNrCaW3g==}
     engines: {node: '>= 0.4'}
@@ -1690,6 +1711,9 @@ packages:
   https-proxy-agent@7.0.6:
     resolution: {integrity: sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw==}
     engines: {node: '>= 14'}
+
+  httpxy@0.5.5:
+    resolution: {integrity: sha512-uDjmnPyp1q4Sgzf3w+J/Fc6UqcCEj0x4Wjp7OqK5dGhNeDgpyrAmnS6ey8QWrX3SWDon2DMKf9sBa5X9+CVyMA==}
 
   human-signals@2.1.0:
     resolution: {integrity: sha512-B4FFZ6q/T2jhhksgkbEW3HBvWIfDW85snkQgawt07S7J5QXTk6BkNV+0yAeZrM5QpMAdYlocGoljn0sJ/WQkFw==}
@@ -2093,6 +2117,40 @@ packages:
     resolution: {integrity: sha512-8Ofs/AUQh8MaEcrlq5xOX0CQ9ypTF5dl78mjlMNfOK08fzpgTHQRQPBxcPlEtIw0yRpws+Zo/3r+5WRby7u3Gg==}
     engines: {node: '>= 0.6'}
 
+  nf3@0.3.22:
+    resolution: {integrity: sha512-NOcqlHu22X1rUakd0SrqllP8kb3LWFmSAi1svTxaKxz+yB604xlaOmUfI3oO+RkODvaocKDDy8bgthnZL8hrkw==}
+
+  nitro@3.0.260429-beta:
+    resolution: {integrity: sha512-KweLVCUN5X9v9g+4yxAyRcz3FcOlnjmt9FyrAIWDxJETJmNT7I0JV0clgsONjo2nI0U5gwedXYA3RaNtF5XWzg==}
+    engines: {node: ^20.19.0 || >=22.12.0}
+    hasBin: true
+    peerDependencies:
+      '@vercel/queue': ^0.1.6
+      dotenv: '*'
+      giget: '*'
+      jiti: ^2.6.1
+      rollup: ^4.60.2
+      vite: ^7 || ^8
+      xml2js: ^0.6.2
+      zephyr-agent: ^0.2.0
+    peerDependenciesMeta:
+      '@vercel/queue':
+        optional: true
+      dotenv:
+        optional: true
+      giget:
+        optional: true
+      jiti:
+        optional: true
+      rollup:
+        optional: true
+      vite:
+        optional: true
+      xml2js:
+        optional: true
+      zephyr-agent:
+        optional: true
+
   node-domexception@1.0.0:
     resolution: {integrity: sha512-/jKZoMpw0F8GRwl4/eLROPA3cfcXtLApP0QzLmUT/HuPCZWyB7IY9ZrMeKw2O/nFIqPQB3PVM9aYm0F312AXDQ==}
     engines: {node: '>=10.5.0'}
@@ -2141,6 +2199,9 @@ packages:
 
   ocache@0.1.5:
     resolution: {integrity: sha512-kNNnkkVQup/QDvmTz8Q84wc2ntiyoVHDxa6eHWKt5qdGAmFRBIxy83rxgCYEjW0x06UJ9E3P6VgM2yY4rOBH4w==}
+
+  ofetch@2.0.0-alpha.3:
+    resolution: {integrity: sha512-zpYTCs2byOuft65vI3z43Dd6iSdFbOZZLb9/d21aCpx2rGastVU9dOCv0lu4ykc1Ur1anAYjDi3SUvR0vq50JA==}
 
   ohash@2.0.11:
     resolution: {integrity: sha512-RdR9FQrFwNBNXAr4GixM8YaRZRJ5PUWbKYbE5eOsrwAjJW0q2REGcf79oYPsLyskQCZG1PLN+S/K1V00joZAoQ==}
@@ -2546,6 +2607,9 @@ packages:
 
   undici-types@7.24.6:
     resolution: {integrity: sha512-WRNW+sJgj5OBN4/0JpHFqtqzhpbnV0GuB+OozA9gCL7a993SmU+1JBZCzLNxYsbMfIeDL+lTsphD5jN5N+n0zg==}
+
+  unenv@2.0.0-rc.24:
+    resolution: {integrity: sha512-i7qRCmY42zmCwnYlh9H2SvLEypEFGye5iRmEMKjcGi7zk9UquigRjFtTLz0TYqr0ZGLZhaMHl/foy1bZR+Cwlw==}
 
   unified@11.0.5:
     resolution: {integrity: sha512-xKvGhPWw3k84Qjh8bI3ZeJjqnyadK+GEFtazSfZv/rKeTkTjOJho6mFqh2SM96iIcZokxiOpg78GazTSg8+KHA==}
@@ -3522,7 +3586,7 @@ snapshots:
       '@vercel/cli-exec': 1.0.0
       jose: 5.10.0
 
-  '@vite-hub/agent@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@9eaa47ebf966379ad1c07c917f5e7e259c4f6330(@ai-sdk/harness-codex@1.0.0)(@ai-sdk/harness@1.0.0(ws@8.21.0)(zod@4.1.11))(@modelcontextprotocol/sdk@1.29.0(zod@4.1.11))(@types/node@25.9.5)(@vite-hub/schedule@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@d120811e1063b479b20129193075ddf8f9e2d7e7(patch_hash=ffa1ad2aea327b130413d185316d4158522c0d2152806617a4c6e517fa122327)(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0)))(ai@7.0.0(zod@4.1.11))(crossws@0.4.10(srvx@0.11.22))(rolldown@1.1.5)(typescript@6.0.3)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))(ws@8.21.0)(zod@4.1.11)':
+  '@vite-hub/agent@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@9eaa47ebf966379ad1c07c917f5e7e259c4f6330(@ai-sdk/harness-codex@1.0.0)(@ai-sdk/harness@1.0.0(ws@8.21.0)(zod@4.1.11))(@modelcontextprotocol/sdk@1.29.0(zod@4.1.11))(@types/node@25.9.5)(@vite-hub/schedule@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@d120811e1063b479b20129193075ddf8f9e2d7e7(patch_hash=ee6a5901a2cb2de626be0a1873c3777dfc87639adb3af33002157b1b8c31813d)(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0)))(ai@7.0.0(zod@4.1.11))(crossws@0.4.10(srvx@0.11.22))(rolldown@1.1.5)(typescript@6.0.3)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))(ws@8.21.0)(zod@4.1.11)':
     dependencies:
       '@libsql/client': 0.15.15
       '@standard-schema/spec': 1.1.0
@@ -3543,7 +3607,7 @@ snapshots:
     optionalDependencies:
       '@ai-sdk/harness': 1.0.0(ws@8.21.0)(zod@4.1.11)
       '@ai-sdk/harness-codex': 1.0.0
-      '@vite-hub/schedule': https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@d120811e1063b479b20129193075ddf8f9e2d7e7(patch_hash=ffa1ad2aea327b130413d185316d4158522c0d2152806617a4c6e517fa122327)(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))
+      '@vite-hub/schedule': https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@d120811e1063b479b20129193075ddf8f9e2d7e7(patch_hash=ee6a5901a2cb2de626be0a1873c3777dfc87639adb3af33002157b1b8c31813d)(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))
       ai: 7.0.0(zod@4.1.11)
       vite: 8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0)
     transitivePeerDependencies:
@@ -3595,11 +3659,11 @@ snapshots:
     optionalDependencies:
       vite: 8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0)
 
-  '@vite-hub/kv@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@34ce82c2b3ac83468fda5467857923eb2443f83e(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))':
+  '@vite-hub/kv@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@34ce82c2b3ac83468fda5467857923eb2443f83e(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))':
     dependencies:
       defu: 6.1.7
       exsolve: 1.1.0
-      unstorage: 2.0.0-alpha.7(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)
+      unstorage: 2.0.0-alpha.7(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)
     optionalDependencies:
       vite: 8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0)
     transitivePeerDependencies:
@@ -3626,11 +3690,11 @@ snapshots:
       - ofetch
       - uploadthing
 
-  '@vite-hub/kv@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@d120811e1063b479b20129193075ddf8f9e2d7e7(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))':
+  '@vite-hub/kv@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@d120811e1063b479b20129193075ddf8f9e2d7e7(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))':
     dependencies:
       defu: 6.1.7
       exsolve: 1.1.0
-      unstorage: 2.0.0-alpha.7(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)
+      unstorage: 2.0.0-alpha.7(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)
     optionalDependencies:
       vite: 8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0)
     transitivePeerDependencies:
@@ -3659,9 +3723,9 @@ snapshots:
 
   '@vite-hub/runtime@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@9eaa47ebf966379ad1c07c917f5e7e259c4f6330': {}
 
-  '@vite-hub/schedule@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@d120811e1063b479b20129193075ddf8f9e2d7e7(patch_hash=ffa1ad2aea327b130413d185316d4158522c0d2152806617a4c6e517fa122327)(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))':
+  '@vite-hub/schedule@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@d120811e1063b479b20129193075ddf8f9e2d7e7(patch_hash=ee6a5901a2cb2de626be0a1873c3777dfc87639adb3af33002157b1b8c31813d)(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))':
     dependencies:
-      '@vite-hub/kv': https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@d120811e1063b479b20129193075ddf8f9e2d7e7(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))
+      '@vite-hub/kv': https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@d120811e1063b479b20129193075ddf8f9e2d7e7(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))
       cron-schedule: 6.0.0
       esbuild: 0.28.1
     optionalDependencies:
@@ -4003,14 +4067,12 @@ snapshots:
   crossws@0.4.10(srvx@0.11.22):
     optionalDependencies:
       srvx: 0.11.22
-    optional: true
 
   data-uri-to-buffer@4.0.1: {}
 
   db0@0.3.4(@libsql/client@0.15.15):
     optionalDependencies:
       '@libsql/client': 0.15.15
-    optional: true
 
   debug@4.4.3:
     dependencies:
@@ -4120,6 +4182,13 @@ snapshots:
   entities@7.0.1: {}
 
   entities@8.0.0: {}
+
+  env-runner@0.1.16:
+    dependencies:
+      crossws: 0.4.10(srvx@0.11.22)
+      exsolve: 1.1.0
+      httpxy: 0.5.5
+      srvx: 0.11.22
 
   es-define-property@1.0.1: {}
 
@@ -4490,6 +4559,8 @@ snapshots:
       debug: 4.4.3
     transitivePeerDependencies:
       - supports-color
+
+  httpxy@0.5.5: {}
 
   human-signals@2.1.0: {}
 
@@ -5013,6 +5084,60 @@ snapshots:
 
   negotiator@1.0.0: {}
 
+  nf3@0.3.22: {}
+
+  nitro@3.0.260429-beta(@libsql/client@0.15.15)(@vercel/functions@3.7.5(ws@8.21.0))(dotenv@16.6.1)(jiti@2.7.0)(lru-cache@11.5.2)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0)):
+    dependencies:
+      consola: 3.4.2
+      crossws: 0.4.10(srvx@0.11.22)
+      db0: 0.3.4(@libsql/client@0.15.15)
+      env-runner: 0.1.16
+      h3: 2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22))
+      hookable: 6.1.1
+      nf3: 0.3.22
+      ocache: 0.1.5
+      ofetch: 2.0.0-alpha.3
+      ohash: 2.0.11
+      rolldown: 1.1.5
+      srvx: 0.11.22
+      unenv: 2.0.0-rc.24
+      unstorage: 2.0.0-alpha.7(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)
+    optionalDependencies:
+      dotenv: 16.6.1
+      jiti: 2.7.0
+      vite: 8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0)
+    transitivePeerDependencies:
+      - '@azure/app-configuration'
+      - '@azure/cosmos'
+      - '@azure/data-tables'
+      - '@azure/identity'
+      - '@azure/keyvault-secrets'
+      - '@azure/storage-blob'
+      - '@capacitor/preferences'
+      - '@deno/kv'
+      - '@electric-sql/pglite'
+      - '@libsql/client'
+      - '@netlify/blobs'
+      - '@netlify/runtime'
+      - '@planetscale/database'
+      - '@upstash/redis'
+      - '@vercel/blob'
+      - '@vercel/functions'
+      - '@vercel/kv'
+      - aws4fetch
+      - better-sqlite3
+      - chokidar
+      - drizzle-orm
+      - idb-keyval
+      - ioredis
+      - lru-cache
+      - miniflare
+      - mongodb
+      - mysql2
+      - sqlite3
+      - uploadthing
+      - wrangler
+
   node-domexception@1.0.0: {}
 
   node-fetch@2.7.0:
@@ -5060,6 +5185,8 @@ snapshots:
   ocache@0.1.5:
     dependencies:
       ohash: 2.0.11
+
+  ofetch@2.0.0-alpha.3: {}
 
   ohash@2.0.11: {}
 
@@ -5516,6 +5643,10 @@ snapshots:
 
   undici-types@7.24.6: {}
 
+  unenv@2.0.0-rc.24:
+    dependencies:
+      pathe: 2.0.3
+
   unified@11.0.5:
     dependencies:
       '@types/unist': 3.0.3
@@ -5557,11 +5688,12 @@ snapshots:
       rolldown: 1.1.5
       vite: 8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0)
 
-  unstorage@2.0.0-alpha.7(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2):
+  unstorage@2.0.0-alpha.7(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3):
     optionalDependencies:
       '@vercel/functions': 3.7.5(ws@8.21.0)
       db0: 0.3.4(@libsql/client@0.15.15)
       lru-cache: 11.5.2
+      ofetch: 2.0.0-alpha.3
 
   util-deprecate@1.0.2: {}
 

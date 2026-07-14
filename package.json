@@ -8,7 +8,10 @@
   },
   "scripts": {
     "build": "vite build",
-    "typecheck": "vite build && tsc --noEmit"
+    "dev": "vite --host 127.0.0.1 --port 3028",
+    "start": "node .output/server/index.mjs",
+    "test": "node --test tests/*.test.ts",
+    "typecheck": "vite build --app && tsc --noEmit"
   },
   "dependencies": {
     "@ai-sdk/harness": "1.0.0",
@@ -19,6 +22,7 @@
     "@vite-hub/kv": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@34ce82c2b3ac83468fda5467857923eb2443f83e",
     "@vite-hub/schedule": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@d120811e1063b479b20129193075ddf8f9e2d7e7",
     "ai": "7.0.0",
+    "nitro": "3.0.260429-beta",
     "vite": "^8.0.11"
   },
   "devDependencies": {
