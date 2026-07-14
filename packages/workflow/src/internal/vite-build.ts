@@ -1,6 +1,7 @@
+import { existsSync, readFileSync, statSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
 import { builtinModules } from "node:module"
-import { dirname, relative, resolve } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { createDefaultCloudflareOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
@@ -80,13 +81,25 @@ function renderRegistryImport(registryFile: string, file: string): string {
   return `import(${JSON.stringify(createImportPath(registryFile, file))})`
 }
 
+function resolveAgentWorkspaceSourceRoot(file: string): string {
+  const workspaceDirectory = join(dirname(file), "workspace")
+  return existsSync(workspaceDirectory) && statSync(workspaceDirectory).isDirectory()
+    ? workspaceDirectory
+    : dirname(file)
+}
+
+function readAgentInstructions(file: string): string | undefined {
+  const instructions = join(dirname(file), "instructions.md")
+  return existsSync(instructions) && statSync(instructions).isFile() ? readFileSync(instructions, "utf8") : undefined
+}
+
 function renderAgentWorkflowRegistryEntry(registryFile: string, definition: DiscoveredWorkflowDefinition) {
   return [
     `  ${JSON.stringify(definition.name)}: async () => {`,
     `    const cached = registryEntryCache.get(${JSON.stringify(definition.name)})`,
     "    if (cached) return cached",
     `    const loaded = await ${renderRegistryImport(registryFile, definition.handler)}`,
-    "    const agent = \"default\" in loaded ? loaded.default : loaded",
+    `    const agent = workspaceAgentWithSourceRoot("default" in loaded ? loaded.default : loaded, ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(readAgentInstructions(definition.handler))})`,
     "    const entry = { handler: async (context) => await runAgentWorkflowDefinition(agent, context, runAgentInline) }",
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
     "    return entry",
@@ -144,7 +157,7 @@ function createWorkflowRegistryContents(registryFile: string, definitions: Disco
     ...(needsAgentRuntime
       ? [
           `import { runAgentInline } from "@vite-hub/agent"`,
-          `import { runAgentWorkflowDefinition } from "@vite-hub/agent/runtime/workflow"`,
+          `import { runAgentWorkflowDefinition, workspaceAgentWithSourceRoot } from "@vite-hub/agent/runtime/workflow"`,
         ]
       : []),
     ...(needsWorkflowRuntime

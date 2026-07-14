@@ -83,15 +83,18 @@ describe("Vite workflow provider outputs", () => {
     const agentDir = join(rootDir, "server", "agents", "nuxt")
     const inlineAgentDir = join(rootDir, "server", "agents", "inline")
     await mkdir(agentDir, { recursive: true })
+    await mkdir(join(agentDir, "workspace"), { recursive: true })
     await mkdir(inlineAgentDir, { recursive: true })
     await writeFile(join(agentDir, "agent.ts"), [
       `import { defineAgent } from "@vite-hub/agent"`,
       "",
       "export default defineAgent({",
+      "  workspace: {},",
       `  run: () => "nuxt agent",`,
       "})",
       "",
     ].join("\n"))
+    await writeFile(join(agentDir, "instructions.md"), "Keep answers concise.\n")
     await writeFile(join(inlineAgentDir, "agent.ts"), [
       `import { defineAgent } from "@vite-hub/agent"`,
       "",
@@ -144,7 +147,11 @@ describe("Vite workflow provider outputs", () => {
     expect(cloudflareWorkerContents).toContain('runViteHubWorkflowDefinition("nuxt"')
     expect(cloudflareWorkerContents).not.toContain('runViteHubWorkflowDefinition("inline"')
     expect(await readFile(cloudflareWorkerBundle, "utf8")).toContain("runViteHubWorkflowDefinition")
-    expect(await readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8")).toContain("runAgentWorkflowDefinition")
+    const registry = await readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8")
+    expect(registry).toContain("runAgentWorkflowDefinition")
+    expect(registry).toContain("workspaceAgentWithSourceRoot")
+    expect(registry).toContain(JSON.stringify(join(agentDir, "workspace")))
+    expect(registry).toContain("Keep answers concise")
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
   }, buildOutputTestTimeout)

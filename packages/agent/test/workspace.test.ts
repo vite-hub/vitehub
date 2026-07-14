@@ -2779,13 +2779,14 @@ describe("defineAgent workspace option", () => {
     const agent = workspaceAgentWithSourceRoot(defineAgent({
       workspace: {},
       driver: { model: {} as never },
-    }), sourceRootDir)
+    }), sourceRootDir, "Use generated instructions.\n")
 
     expect((agent as { sourceRootDir?: string }).sourceRootDir).toBe(sourceRootDir)
     expect((agent as { sources?: unknown }).sources).toMatchObject({
       __vitehubAgentInstructions: {
+        content: "Use generated instructions.\n",
+        materialize: "build",
         mount: "",
-        path: "instructions.md",
         workspacePath: "AGENTS.md",
       },
     })

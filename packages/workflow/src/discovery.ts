@@ -84,24 +84,32 @@ function maskSourceLiterals(source: string): string {
   return masked
 }
 
-function findAgentObjectStart(masked: string): number | undefined {
-  const definitions = /\bexport\s+default\s+defineAgent\b/g
-  for (const definition of masked.matchAll(definitions)) {
-    let index = definition.index + definition[0].length
-    while (/\s/.test(masked[index] || "")) index++
-    if (masked[index] === "<") {
-      let depth = 0
-      do {
-        if (masked[index] === "<") depth++
-        else if (masked[index] === ">" && masked[index - 1] !== "=") depth--
-        index++
-      } while (index < masked.length && depth > 0)
-    }
-    while (/\s/.test(masked[index] || "")) index++
-    if (masked[index++] !== "(") continue
-    while (/\s/.test(masked[index] || "")) index++
-    if (masked[index] === "{") return index
+function findDefineAgentObjectStart(masked: string, start: number): number | undefined {
+  let index = start
+  while (/\s/.test(masked[index] || "")) index++
+  if (masked[index] === "<") {
+    let depth = 0
+    do {
+      if (masked[index] === "<") depth++
+      else if (masked[index] === ">" && masked[index - 1] !== "=") depth--
+      index++
+    } while (index < masked.length && depth > 0)
   }
+  while (/\s/.test(masked[index] || "")) index++
+  if (masked[index++] !== "(") return undefined
+  while (/\s/.test(masked[index] || "")) index++
+  if (masked[index] === "{") return index
+  return undefined
+}
+
+function findAgentObjectStart(masked: string): number | undefined {
+  const inline = /\bexport\s+default\s+defineAgent\b/.exec(masked)
+  if (inline) return findDefineAgentObjectStart(masked, inline.index + inline[0].length)
+
+  const exported = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\b/.exec(masked)
+  if (!exported) return undefined
+  const declaration = new RegExp(`\\b(?:const|let|var)\\s+${exported[1]}\\s*=\\s*defineAgent\\b`).exec(masked)
+  if (declaration) return findDefineAgentObjectStart(masked, declaration.index + declaration[0].length)
   return undefined
 }
 
@@ -109,7 +117,7 @@ function extractAgentRuntime(source: string): { masked?: string, raw?: string } 
   const masked = maskSourceLiterals(source)
   const start = findAgentObjectStart(masked)
   if (start === undefined) {
-    return /\bexport\s+(?:default\b|\{\s*default\s*\}\s+from\b)/.test(masked) ? {} : undefined
+    return /\bexport\s+\{\s*default\s*\}\s+from\b/.test(masked) ? {} : undefined
   }
   let depth = 0
   for (let index = start; index < masked.length; index++) {

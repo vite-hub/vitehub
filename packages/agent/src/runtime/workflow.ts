@@ -1,6 +1,7 @@
 import { getActiveCloudflareEnv, getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { createAgentRuntimeContext } from "./context.ts"
+import { workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
 
 import type {
   AgentHostIdentity,
@@ -13,6 +14,8 @@ import type {
   AgentRuntimeName,
 } from "../types.ts"
 import type { WorkflowExecutionContext, WorkflowProvider } from "@vite-hub/workflow"
+
+export { workspaceAgentWithSourceRoot }
 
 const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
 
