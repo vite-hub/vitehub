@@ -1425,6 +1425,29 @@ describe("agent message protocol", () => {
     expect((harnessAgentSettings.at(-1)?.tools as Record<string, unknown> | undefined)?.sandbox_exec).toBeUndefined()
   })
 
+  it("identifies fallback sandboxes for harness adapters", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const adaptSandbox = vi.fn(provider => provider)
+    const harness = {
+      [Symbol.for("vitehub.harnessSandboxAdapter")]: adaptSandbox,
+      provider: "codex",
+    }
+    const provider = { providerId: "local-test", specificationVersion: "harness-sandbox-v1" }
+    harnessCreateSession
+      .mockResolvedValueOnce({ destroy: vi.fn() })
+      .mockResolvedValueOnce({ destroy: vi.fn() })
+    harnessGenerate.mockResolvedValue({ text: "ok" })
+
+    const defaultAgent = defineAgent({ driver: { harness } })
+    const configuredAgent = defineAgent({ driver: { harness, sandbox: provider } })
+
+    await runAgent(defaultAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "default" })
+    await runAgent(configuredAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "configured" })
+
+    expect(adaptSandbox).toHaveBeenNthCalledWith(1, expect.any(Object), { defaultSandbox: true })
+    expect(adaptSandbox).toHaveBeenNthCalledWith(2, provider, { defaultSandbox: false })
+  })
+
   it("resolves function-valued driver.sandbox for each invocation", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const session = { destroy: vi.fn() }
@@ -1635,8 +1658,8 @@ describe("agent message protocol", () => {
     expect(harnessGenerate).toHaveBeenCalledWith(expect.not.objectContaining({ instructions: expect.anything() }))
     const firstSessionOptions = harnessCreateSession.mock.calls[0]?.[0] as { resumeFrom?: unknown, sessionId: string }
     const secondSessionOptions = harnessCreateSession.mock.calls[1]?.[0] as { resumeFrom?: unknown, sessionId: string }
-    expect(firstSessionOptions.sessionId).toMatch(/^vitehub:[a-f0-9]{64}$/)
-    expect(secondSessionOptions.sessionId).toMatch(/^vitehub:[a-f0-9]{64}$/)
+    expect(firstSessionOptions.sessionId).toMatch(/^vitehub-[a-f0-9]{64}$/)
+    expect(secondSessionOptions.sessionId).toMatch(/^vitehub-[a-f0-9]{64}$/)
     expect(secondSessionOptions.sessionId).not.toBe(firstSessionOptions.sessionId)
     expect(firstSessionOptions).not.toHaveProperty("resumeFrom")
     expect(secondSessionOptions).not.toHaveProperty("resumeFrom")
@@ -2188,6 +2211,54 @@ describe("agent message protocol", () => {
     }))
     expect(firstSession.detach).toHaveBeenCalledTimes(1)
     expect(secondSession.detach).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not resume harness sessions across different Box identities", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const firstSession = { detach: vi.fn(async () => ({ token: "resume" })), destroy: vi.fn() }
+    const secondSession = { detach: vi.fn(async () => ({ token: "next" })), destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(firstSession).mockResolvedValueOnce(secondSession)
+    harnessGenerate.mockResolvedValue({ text: "ok" })
+
+    const agent = defineAgent<any, { home: string, workspace: string }>({
+      box: {
+        cwd: ({ input }) => input.options?.workspace,
+        home: ({ input }) => input.options?.home,
+        runtime: {
+          name: "test",
+          async resolve({ cwd, home }) {
+            return {
+              cache: { state: "disposable" },
+              environment: { env: {}, home },
+              isolation: "none",
+              requirements: [],
+              runtime: "test",
+              workspace: { path: cwd, state: "authoritative" },
+            }
+          },
+        },
+      },
+      driver: {
+        harness: { provider: "codex" },
+        sessionKey: "pull-request-577",
+      },
+    })
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      options: { home: "/home/one", workspace: "/worktrees/one" },
+      prompt: "repair",
+    })
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      options: { home: "/home/two", workspace: "/worktrees/two" },
+      prompt: "repair",
+    })
+
+    const firstOptions = harnessCreateSession.mock.calls[0]?.[0] as { resumeFrom?: unknown, sessionId: string }
+    const secondOptions = harnessCreateSession.mock.calls[1]?.[0] as { resumeFrom?: unknown, sessionId: string }
+    expect(firstOptions.sessionId).toMatch(/^vitehub-[a-f0-9]{64}$/)
+    expect(secondOptions.sessionId).toMatch(/^vitehub-[a-f0-9]{64}$/)
+    expect(secondOptions.sessionId).not.toBe(firstOptions.sessionId)
+    expect(secondOptions).not.toHaveProperty("resumeFrom")
   })
 
   it("treats undefined harness detach state as a resumed session", async () => {

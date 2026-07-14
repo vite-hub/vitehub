@@ -25,6 +25,49 @@ describe("codexDriver", () => {
     expect(driver.sandbox).toBeUndefined()
   })
 
+  it("scrubs GitHub secrets when the default local sandbox is adapted", async () => {
+    const originalGitHubToken = process.env.GITHUB_TOKEN
+    const originalGitHubPrivateKey = process.env.GITHUB_APP_PRIVATE_KEY
+    process.env.GITHUB_TOKEN = "github-token"
+    process.env.GITHUB_APP_PRIVATE_KEY = "github-private-key"
+
+    try {
+      const { codexDriver } = await import("../src/harness/codex.ts")
+      const { createLocalHarnessSandbox } = await import("../src/harness/local-sandbox.ts")
+      const driver = codexDriver()
+      const adaptSandbox = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSandboxAdapter")] as (provider: object, options: { defaultSandbox: boolean }) => { createSession: () => Promise<{ destroy: () => Promise<void>, env: Record<string, string> }> }
+      const session = await adaptSandbox(createLocalHarnessSandbox(), { defaultSandbox: true }).createSession()
+
+      try {
+        expect(session.env.GITHUB_TOKEN).toBeUndefined()
+        expect(session.env.GITHUB_APP_PRIVATE_KEY).toBeUndefined()
+      }
+      finally {
+        await session.destroy()
+      }
+    }
+    finally {
+      restoreEnv("GITHUB_TOKEN", originalGitHubToken)
+      restoreEnv("GITHUB_APP_PRIVATE_KEY", originalGitHubPrivateKey)
+    }
+  })
+
+  it("preserves GitHub credentials in explicitly supplied sandboxes", async () => {
+    const { codexDriver } = await import("../src/harness/codex.ts")
+    const { createLocalHarnessSandbox } = await import("../src/harness/local-sandbox.ts")
+    const driver = codexDriver()
+    const adaptSandbox = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSandboxAdapter")] as (provider: object, options: { defaultSandbox: boolean }) => { createSession: () => Promise<{ destroy: () => Promise<void>, env: Record<string, string> }> }
+    const provider = createLocalHarnessSandbox({ env: { GH_TOKEN: "box-token" } })
+    const session = await adaptSandbox(provider, { defaultSandbox: false }).createSession()
+
+    try {
+      expect(session.env.GH_TOKEN).toBe("box-token")
+    }
+    finally {
+      await session.destroy()
+    }
+  })
+
   it("keeps host AI Gateway env out of the default local Codex sandbox", async () => {
     const originalGatewayKey = process.env.AI_GATEWAY_API_KEY
     const originalGatewayBaseUrl = process.env.AI_GATEWAY_BASE_URL
@@ -141,6 +184,15 @@ describe("codexDriver", () => {
 
     expect(createCodex).toHaveBeenLastCalledWith({ auth: { gateway: { apiKey: "gateway-key" } }, model: "" })
     expect(driver.sandbox).toBeUndefined()
+    expect(driver.requires).toEqual(["codex-cli"])
+  })
+
+  it("does not adapt explicit local Codex sandboxes twice", async () => {
+    const { codexDriver } = await import("../src/harness/codex.ts")
+    const driver = codexDriver({ sandbox: {} })
+    const adaptSandbox = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSandboxAdapter")] as (provider: object) => object
+
+    expect(adaptSandbox(driver.sandbox! as object)).toBe(driver.sandbox)
   })
 
   it("forwards invocation-scoped harness configuration without treating it as Codex settings", async () => {

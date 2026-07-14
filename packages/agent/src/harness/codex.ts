@@ -24,6 +24,7 @@ type CodexDriverSandboxOptions<CALL_OPTIONS = unknown> =
   | AgentHarnessSandboxProviderInput<AgentRuntimeConfig, CALL_OPTIONS>
 
 const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
+const codexSandboxAdapterApplied = Symbol("vitehub.codexSandboxAdapterApplied")
 
 export interface CodexDriverOptions<CALL_OPTIONS = unknown> extends CodexHarnessSettings {
   authJson?: string
@@ -47,6 +48,11 @@ export function codexDriver<CALL_OPTIONS = unknown>(options: CodexDriverOptions<
     ...settings
   } = options
   const defaultOpenAIAuth = settings.auth === undefined
+  const usesAmbientCodexAuth = settings.auth === undefined
+    && authJson === undefined
+    && authJsonPath === undefined
+    && env?.CODEX_AUTH_JSON === undefined
+    && env?.CODEX_AUTH_JSON_PATH === undefined
   const auth = settings.auth ?? { openai: {} }
   // The upstream harness pins a model when this is undefined, which bypasses the operator's Codex profile.
   const model = settings.model ?? ""
@@ -62,7 +68,7 @@ export function codexDriver<CALL_OPTIONS = unknown>(options: CodexDriverOptions<
     credentials: credentials ?? { label: "Codex", source: "ambient" },
     harness: createViteHubCodex({ ...settings, auth, model }, defaultOpenAIAuth),
     ...(instructions !== undefined ? { instructions } : {}),
-    requires: ["codex"],
+    requires: [usesAmbientCodexAuth ? "codex" : "codex-cli"],
     ...(sandboxProvider ? { sandbox: sandboxProvider } : {}),
     ...(workDir !== undefined ? { workDir } : {}),
   }
@@ -87,7 +93,9 @@ function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolea
   const harness = createCodex(settings)
   return {
     ...harness,
-    [harnessSandboxAdapter]: (provider: AgentHarnessSandboxProviderInput) => relativeCodexSandboxProvider(provider, { preferOpenAI }),
+    [harnessSandboxAdapter]: (provider: AgentHarnessSandboxProviderInput, options?: { defaultSandbox?: boolean }) => (provider as Record<PropertyKey, unknown>)[codexSandboxAdapterApplied]
+      ? provider
+      : relativeCodexSandboxProvider(provider, { preferOpenAI, stripGitHubSecrets: options?.defaultSandbox }),
     async getBootstrap() {
       const [pkg, lock, bridge, hostToolMcp] = await Promise.all([
         readCodexBridgeAsset("package.json"),
@@ -187,16 +195,19 @@ function codexSandboxProvider(options: {
 
 function relativeCodexSandboxProvider(
   provider: AgentHarnessSandboxProviderInput,
-  options: { preferOpenAI?: boolean } = {},
+  options: { preferOpenAI?: boolean, stripGitHubSecrets?: boolean } = {},
 ): AgentHarnessDriver["sandbox"] {
   const adaptSession = (session: object) => {
-    if (options.preferOpenAI && "env" in session && session.env && typeof session.env === "object") {
-      stripGatewaySecrets(session.env as Record<string, string | undefined>)
+    if ("env" in session && session.env && typeof session.env === "object") {
+      const env = session.env as Record<string, string | undefined>
+      if (options.stripGitHubSecrets) stripGitHubSecrets(env)
+      if (options.preferOpenAI) stripGatewaySecrets(env)
     }
     return relativeCodexSandboxSession(session)
   }
   return {
     ...provider,
+    [codexSandboxAdapterApplied]: true,
     async createSession(createOptions: { onFirstCreate?: (session: object, context: { abortSignal?: AbortSignal }) => Promise<void> } = {}) {
       const onFirstCreate = createOptions?.onFirstCreate
       const session = await (provider as { createSession(options: object): Promise<object> }).createSession({

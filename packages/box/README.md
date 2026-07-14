@@ -32,7 +32,7 @@ export default defineAgent<any, { worktreePath: string }>({
 
 The Agent mounts the checkout into a disposable harness root. Project mutations remain in `cwd`, while harness bootstrap packages and resume data are removed with the session.
 
-`codexDriver()` contributes the `codex` requirement automatically. At Box boot, `trustedHost()` checks `codex login status`, checks `gh auth status` for the `github` requirement, and verifies other requirement names on `PATH`.
+`codexDriver()` contributes `codex` for ambient authentication and `codex-cli` for explicit authentication. At Box boot, `trustedHost()` runs `codex login status` for `codex`, checks only the executable for `codex-cli`, checks `gh auth status` for `github`, and verifies other requirement names on `PATH`.
 
 Authentication values remain runtime-owned. A Box stores requirement names and an optional Home path, while its resolved environment is deliberately excluded from JSON serialization.
 
