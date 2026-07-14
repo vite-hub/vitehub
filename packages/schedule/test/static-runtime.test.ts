@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules } from "../src/runtime/static.ts"
+import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule } from "../src/runtime/static.ts"
 
 import type { ScheduleDefinitionRegistry } from "../src/types.ts"
 
@@ -44,12 +44,21 @@ describe("Static Schedule runtime", () => {
 
   it("executes Cloudflare scheduled events with runtime env active", async () => {
     const seen: Array<string | undefined> = []
+    const deferred: Promise<unknown>[] = []
+    let deferredEnv: string | undefined
+    let releaseDeferred: (() => void) | undefined
     const registry: ScheduleDefinitionRegistry = {
       sync: async () => ({
         default: {
           cron: "0 4 * * *",
-          handler: async () => {
+          handler: async ({ waitUntil }) => {
             seen.push((globalThis as { __env__?: Record<string, unknown> }).__env__?.AIRTABLE_TOKEN as string | undefined)
+            waitUntil(new Promise<string>((resolve) => {
+              releaseDeferred = () => {
+                deferredEnv = (globalThis as { __env__?: Record<string, unknown> }).__env__?.AIRTABLE_TOKEN as string | undefined
+                resolve("recorded")
+              }
+            }))
           },
         },
       }),
@@ -63,9 +72,59 @@ describe("Static Schedule runtime", () => {
       env: {
         AIRTABLE_TOKEN: "airtable-secret",
       },
+      waitUntil: (promise: Promise<unknown>) => deferred.push(promise),
     }, { registry })
 
     expect(seen).toEqual(["airtable-secret"])
+    expect(releaseDeferred).toBeTypeOf("function")
+    expect((globalThis as { __env__?: Record<string, unknown> }).__env__?.AIRTABLE_TOKEN).toBe("airtable-secret")
+    releaseDeferred!()
+    await expect(Promise.all(deferred)).resolves.toEqual(["recorded", undefined])
+    expect(deferredEnv).toBe("airtable-secret")
     expect((globalThis as { __env__?: Record<string, unknown> }).__env__).toBeUndefined()
+  })
+
+  it("accepts Cloudflare waitUntil separately from the scheduled event", async () => {
+    const deferred: Promise<unknown>[] = []
+    await executeCloudflareStaticSchedules({
+      controller: { cron: "0 4 * * *", scheduledTime: "2026-06-12T04:00:00.000Z" },
+    }, {
+      registry: {
+        report: async () => ({
+          cron: "0 4 * * *",
+          handler: async ({ waitUntil }) => waitUntil(Promise.resolve("recorded")),
+        }),
+      },
+      waitUntil: promise => deferred.push(Promise.resolve(promise)),
+    })
+
+    await expect(Promise.all(deferred)).resolves.toEqual(["recorded"])
+  })
+
+  it("drains deferred work before returning a handler failure", async () => {
+    let releaseDeferred: (() => void) | undefined
+    let deferredCompleted = false
+    const execution = executeStaticSchedule({
+      cron: "0 4 * * *",
+      definition: {
+        cron: "0 4 * * *",
+        handler: async ({ waitUntil }) => {
+          waitUntil(new Promise<void>((resolve) => {
+            releaseDeferred = () => {
+              deferredCompleted = true
+              resolve()
+            }
+          }))
+          throw new Error("handler failed")
+        },
+      },
+      name: "report",
+    })
+
+    await expect.poll(() => releaseDeferred).toBeTypeOf("function")
+    releaseDeferred!()
+
+    await expect(execution).rejects.toThrow("handler failed")
+    expect(deferredCompleted).toBe(true)
   })
 })

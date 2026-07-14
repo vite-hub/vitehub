@@ -37,8 +37,9 @@ import { defineSchedule } from '@vite-hub/schedule'
 
 export default defineSchedule({
   cron: '0 8 * * *',
-  async handler(context) {
-    await sendDailyReport(context.scheduledAt)
+  async handler({ scheduledAt, waitUntil }) {
+    await sendDailyReport(scheduledAt)
+    waitUntil(recordDelivery())
   },
 })
 ```
@@ -139,7 +140,9 @@ Cron expressions use the Schedule Time Base, currently UTC. The discovered file 
 | `handler` | `ScheduleHandler` | Yes | Function called with Schedule Run Context. |
 | `allowRuntimeSchedules` | `boolean` | No | Allows Runtime Schedules to target this definition. |
 
-`ScheduleRunContext` includes `id`, `scheduledAt`, optional `attemptId`, optional `runId`, optional Runtime Schedule id, optional Runtime Schedule target, and optional Runtime Schedule `input`.
+`ScheduleRunContext` includes `id`, `scheduledAt`, `waitUntil`, optional `attemptId`, optional `runId`, optional Runtime Schedule id, optional Runtime Schedule target, and optional Runtime Schedule `input`.
+
+Use `waitUntil(promise)` for consequential work that can outlive the handler body. Direct and local execution settles registered work before recording the Schedule Run result; a rejection fails the run with the same diagnostics as a handler rejection. An installed wake runtime instead retains registered work after the handler returns, reports rejection through its `onError` hook, and drains outstanding work when the runtime closes.
 
 ## Create recurring Runtime Schedules
 

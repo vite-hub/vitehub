@@ -1,6 +1,6 @@
 import { expectTypeOf, it } from "vitest"
 
-import { defineSchedule, defineScheduleTarget, schedules } from "../src/index.ts"
+import { defineSchedule, defineScheduleTarget, executeRuntimeSchedule, executeStaticSchedule, schedules } from "../src/index.ts"
 import { installScheduleRuntime } from "../src/runtime/driver.ts"
 import { createProcessScheduleWakeDriver } from "../src/runtime/process.ts"
 import { hubSchedule } from "../src/vite.ts"
@@ -25,6 +25,8 @@ it("types the defineSchedule helper signature", () => {
     cron: "0 9 * * *",
     handler: async (context) => {
       expectTypeOf(context.scheduledAt).toEqualTypeOf<Date>()
+      expectTypeOf(context.waitUntil).toEqualTypeOf<(promise: PromiseLike<unknown>) => void>()
+      context.waitUntil(Promise.resolve())
     },
   })
 
@@ -59,6 +61,18 @@ it("types cronless Runtime Schedule targets", () => {
 
   // @ts-expect-error cron belongs to defineSchedule, not defineScheduleTarget.
   defineScheduleTarget({ cron: "0 9 * * *", handler: () => {} })
+})
+
+it("types host waitUntil for Static and Runtime Schedule execution", async () => {
+  const waitUntil = (promise: PromiseLike<unknown>) => { void promise }
+
+  await executeStaticSchedule({
+    cron: "0 9 * * *",
+    definition: defineSchedule({ cron: "0 9 * * *", handler: async () => {} }),
+    name: "daily-report",
+    waitUntil,
+  })
+  await executeRuntimeSchedule({ id: "daily-report", waitUntil })
 })
 
 it("types Runtime Schedule helper inputs", async () => {

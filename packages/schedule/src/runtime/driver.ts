@@ -353,11 +353,30 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
   const previousRuntimeScheduleStore = getRuntimeScheduleStore()
   const previousScheduleRunStore = getScheduleRunStore()
   const reportError = createErrorReporter(options.onError)
+  const pendingWork = new Set<Promise<unknown>>()
+  function waitUntil(value: PromiseLike<unknown>): void {
+    const promise = Promise.resolve(value)
+    pendingWork.add(promise)
+    void promise.then(
+      () => pendingWork.delete(promise),
+      (error) => {
+        pendingWork.delete(promise)
+        reportError(error)
+      },
+    )
+  }
+  async function flushWaitUntil(): Promise<void> {
+    while (pendingWork.size > 0) {
+      await Promise.allSettled([...pendingWork])
+    }
+  }
   const serialize = createSerializer()
+  const activeWakes = new Set<Promise<void>>()
   let driver: RuntimeScheduleWakeDriver | undefined
   let reconciledDriver: RuntimeScheduleWakeDriver | undefined
   let staticSchedules: StaticSchedules = { byId: new Map(), records: [] }
   let aborted = false
+  let closing = false
 
   setScheduleRuntimeRegistry(options.registry)
   setScheduleRunStore(options.scheduleRunStore)
@@ -368,29 +387,37 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
       staticSchedules = createStaticSchedules(await loadStaticDefinitions(options.staticRegistry), runtimeSchedules)
       driver = await options.createDriver({
         reportError,
-        wake: input => serialize.runWake(async () => {
-          const staticSchedule = staticSchedules.byId.get(input.scheduleId)
-          if (staticSchedule) {
-            if (!isRuntimeScheduleDue(staticSchedule.record, input.scheduledAt)) {
-              throw new ScheduleError(`Static Schedule is not due: ${staticSchedule.name}`, {
-                code: "SCHEDULE_NOT_DUE",
-                details: { id: input.scheduleId, scheduledAt: input.scheduledAt },
-                httpStatus: 409,
+        wake(input) {
+          if (closing) return Promise.resolve()
+          const wake = serialize.runWake(async () => {
+            const staticSchedule = staticSchedules.byId.get(input.scheduleId)
+            if (staticSchedule) {
+              if (!isRuntimeScheduleDue(staticSchedule.record, input.scheduledAt)) {
+                throw new ScheduleError(`Static Schedule is not due: ${staticSchedule.name}`, {
+                  code: "SCHEDULE_NOT_DUE",
+                  details: { id: input.scheduleId, scheduledAt: input.scheduledAt },
+                  httpStatus: 409,
+                })
+              }
+              await executeStaticSchedule({
+                cron: staticSchedule.definition.cron,
+                definition: staticSchedule.definition,
+                name: staticSchedule.name,
+                scheduledAt: input.scheduledAt,
+                waitUntil,
               })
+              return
             }
-            await executeStaticSchedule({
-              cron: staticSchedule.definition.cron,
-              definition: staticSchedule.definition,
-              name: staticSchedule.name,
-              scheduledAt: input.scheduledAt,
+            await executeRuntimeScheduleWake(input, {
+              runtimeScheduleStore: options.runtimeScheduleStore,
+              scheduleRunStore: options.scheduleRunStore,
+              waitUntil,
             })
-            return
-          }
-          await executeRuntimeScheduleWake(input, {
-            runtimeScheduleStore: options.runtimeScheduleStore,
-            scheduleRunStore: options.scheduleRunStore,
           })
-        }),
+          activeWakes.add(wake)
+          void wake.finally(() => activeWakes.delete(wake)).catch(() => {})
+          return wake
+        },
       })
       const installedDriver = driver
       reconciledDriver = {
@@ -442,9 +469,16 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
   let closePromise: Promise<void> | undefined
   return {
     close() {
-      return closePromise ??= serialize(async () => {}).then(async () => {
+      if (closePromise) return closePromise
+      closing = true
+      return closePromise = (async () => {
+        while (activeWakes.size > 0) {
+          await Promise.allSettled([...activeWakes])
+        }
+        await serialize(async () => {})
+        await flushWaitUntil()
         await installedDriver.close?.()
-      })
+      })()
     },
   }
 }

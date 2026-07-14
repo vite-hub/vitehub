@@ -2377,8 +2377,10 @@ describe("agent message protocol", () => {
   it("runs scheduled agents with schedule-owned input metadata and no synthetic messages", async () => {
     const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
     const seen: unknown[] = []
+    const waitUntil = vi.fn()
     const agent = defineAgent({
       driver: { run: context => {
+          context.waitUntil(Promise.resolve())
           seen.push({ input: context.input, messages: context.messages })
           return "ok"
         } },
@@ -2391,7 +2393,10 @@ describe("agent message protocol", () => {
       scheduleId: "schedule-0-9",
       scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
       target: "support",
+      waitUntil,
     })).resolves.toBe("ok")
+
+    expect(waitUntil).toHaveBeenCalledOnce()
 
     expect(seen).toEqual([{
       input: {

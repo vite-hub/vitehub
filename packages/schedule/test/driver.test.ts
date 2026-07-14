@@ -870,13 +870,41 @@ describe("Runtime Schedule Wake Driver", () => {
     expect(await loadScheduleDefinition("report")).toBeDefined()
   })
 
+  it("waits for queued Runtime Schedule mutations before closing the driver", async () => {
+    let releaseReconcile: (() => void) | undefined
+    let driverClosed = false
+    const controller = await installScheduleRuntime({
+      createDriver: () => ({
+        async close() { driverClosed = true },
+        async reconcile(records) {
+          if (records.some(record => record.id === "daily")) {
+            await new Promise<void>(resolve => { releaseReconcile = resolve })
+          }
+        },
+      }),
+      registry,
+      runtimeScheduleStore: createMemoryRuntimeScheduleStore(),
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+
+    const mutation = schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
+    await vi.waitFor(() => expect(releaseReconcile).toBeTypeOf("function"))
+    let closed = false
+    const closing = controller.close().then(() => { closed = true })
+    await Promise.resolve()
+    expect(driverClosed).toBe(false)
+    expect(closed).toBe(false)
+    releaseReconcile!()
+    await Promise.all([mutation, closing])
+    expect(driverClosed).toBe(true)
+  })
+
   it("lets active wake handlers mutate Runtime Schedules while closing", async () => {
     const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
     const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
     let context: RuntimeScheduleWakeDriverContext | undefined
     let activeWake: Promise<void> | undefined
-    let markCloseStarted: (() => void) | undefined
-    const closeStarted = new Promise<void>(resolve => { markCloseStarted = resolve })
+    let releaseHandler: (() => void) | undefined
     await runtimeScheduleStore.create({
       createdAt: scheduledAt,
       cron: "0 9 * * *",
@@ -889,10 +917,7 @@ describe("Runtime Schedule Wake Driver", () => {
       createDriver(driverContext) {
         context = driverContext
         return {
-          async close() {
-            markCloseStarted?.()
-            await activeWake
-          },
+          async close() {},
           async reconcile() {},
         }
       },
@@ -900,7 +925,7 @@ describe("Runtime Schedule Wake Driver", () => {
         report: async () => ({
           cron: "0 9 * * *",
           handler: async () => {
-            await closeStarted
+            await new Promise<void>(resolve => { releaseHandler = resolve })
             await schedules.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
           },
           options: { allowRuntimeSchedules: true },
@@ -911,7 +936,9 @@ describe("Runtime Schedule Wake Driver", () => {
     })
 
     activeWake = context!.wake({ scheduleId: "daily", scheduledAt })
+    await vi.waitFor(() => expect(releaseHandler).toBeTypeOf("function"))
     const closing = controller.close()
+    releaseHandler!()
 
     await vi.waitFor(() => expect(runtimeScheduleStore.get("follow-up")).toBeDefined(), {
       interval: 1,
