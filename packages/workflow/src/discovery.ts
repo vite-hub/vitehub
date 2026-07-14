@@ -230,7 +230,7 @@ function extractAgentRuntime(file: string, seen = new Set<string>()): { masked?:
 function extractAgentWorkflowName(file: string, fallbackName: string): string | undefined {
   const runtime = extractAgentRuntime(file)
   if (!runtime) return undefined
-  const match = /^(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*workflow\s*\(\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*(["'`])([^"'`]+)\1\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*\)\s*(?:\/\/[^\n]*)?$/.exec(runtime.raw || "")
+  const match = /^(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*workflow\s*\(\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*(["'`])([^"'`]+)\1\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*\)(?:\s*(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$)))*\s*$/.exec(runtime.raw || "")
   if (match) {
     return match[2] || fallbackName
   }
