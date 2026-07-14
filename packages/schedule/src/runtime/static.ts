@@ -13,6 +13,7 @@ export interface ExecuteMatchingStaticSchedulesOptions {
   cron: string
   registry: ScheduleDefinitionRegistry
   scheduledAt?: Date
+  waitUntil?: (promise: PromiseLike<unknown>) => void
 }
 
 export interface ExecuteCloudflareStaticSchedulesOptions {
@@ -78,7 +79,7 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
   for (const [name, load] of Object.entries(options.registry)) {
     const definition = unwrapScheduleDefinition(await load())
     if (!definition || definition.cron !== options.cron) continue
-    runs.push(executeStaticSchedule({ cron: options.cron, definition, name, scheduledAt }))
+    runs.push(executeStaticSchedule({ cron: options.cron, definition, name, scheduledAt, waitUntil: options.waitUntil }))
   }
   return await Promise.all(runs)
 }
@@ -88,11 +89,13 @@ export async function executeCloudflareStaticSchedules(
   options: ExecuteCloudflareStaticSchedulesOptions,
 ): Promise<unknown[]> {
   const scheduled = readCloudflareScheduledEvent(event)
+  const hostWaitUntil = readCloudflareWaitUntil(event)
   return await runWithCloudflareServerEnv(event, async () => {
     return await executeMatchingStaticSchedules({
       cron: scheduled.cron,
       registry: options.registry,
       scheduledAt: scheduled.scheduledAt,
+      waitUntil: hostWaitUntil ? promise => hostWaitUntil(Promise.resolve(promise)) : undefined,
     })
   })
 }
@@ -152,6 +155,33 @@ function isPromiseLike(value: unknown): value is Promise<unknown> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+// ponytail: Keep this provider entry free of the Node-backed shared Cloudflare runtime module.
+function readCloudflareWaitUntil(event: CloudflareScheduledEventLike): ((promise: Promise<unknown>) => void) | undefined {
+  const context = isRecord(event.context) ? event.context : undefined
+  const cloudflareContext = isRecord(context?.cloudflare) ? context.cloudflare : undefined
+  const platformContext = isRecord(context?._platform) ? context._platform : undefined
+  const platformCloudflareContext = isRecord(platformContext?.cloudflare) ? platformContext.cloudflare : undefined
+  const request = isRecord(event.req) ? event.req : undefined
+  const runtime = isRecord(request?.runtime) ? request.runtime : undefined
+  const runtimeCloudflare = isRecord(runtime?.cloudflare) ? runtime.cloudflare : undefined
+  const owners = [
+    event,
+    context,
+    cloudflareContext,
+    isRecord(cloudflareContext?.context) ? cloudflareContext.context : undefined,
+    platformCloudflareContext,
+    isRecord(platformCloudflareContext?.context) ? platformCloudflareContext.context : undefined,
+    request,
+    runtimeCloudflare,
+    isRecord(runtimeCloudflare?.context) ? runtimeCloudflare.context : undefined,
+  ]
+  for (const owner of owners) {
+    if (typeof owner?.waitUntil === "function") {
+      return (owner.waitUntil as (promise: Promise<unknown>) => void).bind(owner)
+    }
+  }
 }
 
 function readCloudflareEventEnv(event: CloudflareScheduledEventLike): Record<string, unknown> | undefined {

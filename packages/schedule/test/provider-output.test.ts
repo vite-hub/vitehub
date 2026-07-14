@@ -71,6 +71,7 @@ describe("schedule provider output", () => {
     const netlifyFunction = join(createDefaultNetlifyOutputRoot(rootDir), "functions", "vitehub-schedule-cleanup.mjs")
 
     expect(existsSync(cloudflareWorker)).toBe(true)
+    await expect(readFile(cloudflareWorker, "utf8")).resolves.toContain("waitUntil: (promise) => ctx.waitUntil(promise)")
     expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 0 * * *"])
     expect(JSON.parse(await readFile(vercelConfig, "utf8")).crons).toEqual([{
       path: "/api/vitehub/schedules/vercel/cleanup",

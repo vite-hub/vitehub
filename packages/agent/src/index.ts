@@ -571,6 +571,7 @@ interface ScheduleRunContextLike {
   scheduleId?: string
   scheduledAt: Date
   target?: string
+  waitUntil?: (promise: PromiseLike<unknown>) => void
 }
 
 const agentWorkflowHandles = new WeakMap<object, Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>>()
@@ -2378,7 +2379,7 @@ export async function runScheduledAgent(
     },
     run: { ...runtimeContext.run, ...turn?.delivery, runId },
     runtime: runtimeContext.runtime ?? "unknown",
-    waitUntil: runtimeContext.waitUntil ?? (() => {}),
+    waitUntil: runtimeContext.waitUntil ?? context.waitUntil ?? (() => {}),
   }, {
     context: {
       ...(turn

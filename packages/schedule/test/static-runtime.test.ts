@@ -44,12 +44,14 @@ describe("Static Schedule runtime", () => {
 
   it("executes Cloudflare scheduled events with runtime env active", async () => {
     const seen: Array<string | undefined> = []
+    const deferred: Promise<unknown>[] = []
     const registry: ScheduleDefinitionRegistry = {
       sync: async () => ({
         default: {
           cron: "0 4 * * *",
-          handler: async () => {
+          handler: async ({ waitUntil }) => {
             seen.push((globalThis as { __env__?: Record<string, unknown> }).__env__?.AIRTABLE_TOKEN as string | undefined)
+            waitUntil(Promise.resolve("recorded"))
           },
         },
       }),
@@ -63,9 +65,11 @@ describe("Static Schedule runtime", () => {
       env: {
         AIRTABLE_TOKEN: "airtable-secret",
       },
+      waitUntil: (promise: Promise<unknown>) => deferred.push(promise),
     }, { registry })
 
     expect(seen).toEqual(["airtable-secret"])
+    await expect(Promise.all(deferred)).resolves.toEqual(["recorded"])
     expect((globalThis as { __env__?: Record<string, unknown> }).__env__).toBeUndefined()
   })
 
