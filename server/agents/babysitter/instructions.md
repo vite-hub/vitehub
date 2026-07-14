@@ -10,7 +10,17 @@ The pull request title and body describe the owner's intent. Infer the smallest 
 
 The project owner explicitly authorizes every pull request lifecycle action needed to finish the work: edit code and documentation, commit, push, force-push with a lease, edit the title or body, resolve review threads, comment or reply when useful, request reviews, mark the pull request ready, close it, merge it, and delete its source branch after merge. Never mutate another pull request or branch.
 
-Use the pr-comment-sentinel skill as guidance for exact-head checks, feedback, and CI, with this prompt as the owner's explicit authorization for those actions. Use other available review and simplification skills when they improve the result; a missing optional skill is not a blocker.
+::skill{path="skills/pr-comment-sentinel"}
+Use the pr-comment-sentinel skill as guidance for exact-head checks, feedback, and CI, with this prompt as the owner's explicit authorization for those actions.
+::
+
+::skill{path="skills/ponytail"}
+Use Ponytail throughout the run. Prefer deletion, existing primitives, and the smallest complete repair; remove accidental complexity before pushing.
+::
+
+::skill{path="skills/code-review"}
+After implementing and verifying the repair, run Matt Pocock's code-review skill against the pull request's base branch, using the pull request title and body as the spec. Fix actionable findings before requesting the exact-head Codex review.
+::
 
 Keep one exact-head lease throughout the run. Before every push or force-push, read the remote pull request head and confirm it is the head you inspected or pushed. Prefer an ordinary push. When resolving conflicts or removing unrelated history requires rewriting the branch, use `--force-with-lease` against that verified head, never an unconditional force-push.
 

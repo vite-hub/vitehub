@@ -1,0 +1,303 @@
+diff --git a/dist/capabilities.d.ts b/dist/capabilities.d.ts
+index 5ff219ecb9f3f715192b9532268e455709984f00..80b4590d2c633f6ed5e2cbaf5852b5e6b4d05555 100644
+--- a/dist/capabilities.d.ts
++++ b/dist/capabilities.d.ts
+@@ -615,6 +615,7 @@ declare function subagents<TRuntimeConfig extends AgentRuntimeConfig = AgentRunt
+ //#region src/capabilities/skills.d.ts
+ interface SkillsCapabilityOptions {
+   path?: string;
++  scope?: "global" | "workspace";
+   shellExecution?: AgentCapabilityMode;
+   source?: WorkspaceSourceInput;
+   sourceKey?: string;
+diff --git a/dist/capabilities.js b/dist/capabilities.js
+index f7160dacd4a648bda0cb736e0640d1819604dc44..4b3fdea304a3fc29e5983f99241105210beaea37 100644
+--- a/dist/capabilities.js
++++ b/dist/capabilities.js
+@@ -3429,11 +3429,17 @@ function subagents(options) {
+ //#endregion
+ //#region src/capabilities/skills.ts
+ const skillFilename = "SKILL.md";
++const globalSkillsSymbol = Symbol.for("vitehub.agent.globalSkills");
+ function normalizeShellExecution(value) {
+ 	if (value === void 0) return void 0;
+ 	if (value === "read" || value === "write") return value;
+ 	throw new TypeError("[vitehub] skills({ shellExecution }) must be \"read\" or \"write\".");
+ }
++function normalizeSkillScope(value) {
++	if (value === void 0 || value === "workspace") return "workspace";
++	if (value === "global") return value;
++	throw new TypeError('[vitehub] skills({ scope }) must be "workspace" or "global".');
++}
+ function normalizeSkillPath(path) {
+ 	return path.replace(/\/+$/, "");
+ }
+@@ -3481,31 +3487,44 @@ function workspaceShellTools(mode, workspace) {
+ }
+ function skills(options = {}) {
+ 	const normalizedPath = normalizeSkillPath(options.path || "skills");
++	const scope = normalizeSkillScope(options.scope);
++	if (scope === "global" && !options.source) throw new TypeError('[vitehub] skills({ scope: "global" }) requires source.');
+ 	const shellExecution = normalizeShellExecution(options.shellExecution);
+ 	const workspaceRequirementMode = shellExecution ?? "read";
+ 	const skillPath = normalizedPath === skillFilename || normalizedPath.endsWith("/SKILL.md") ? normalizedPath : `${normalizedPath}/SKILL.md`;
+ 	const directoryPath = skillDirectory(skillPath);
+ 	const harnessWorkspacePath = directoryPath || skillPath;
+-	const workspaceSources = options.source ? { [options.sourceKey || skillSourceKey(directoryPath)]: sourceBinding(options.source, directoryPath) } : void 0;
+-	return Object.assign(defineCapability({
+-		id: "skills",
++	const sourceKey = options.sourceKey || skillSourceKey(directoryPath);
++	const workspaceSources = options.source ? { [sourceKey]: sourceBinding(options.source, directoryPath) } : void 0;
++	const capability = defineCapability({
++		id: scope === "global" ? `skills.${sourceKey}` : "skills",
+ 		metadata: {
+ 			path: normalizedPath,
++			scope,
+ 			skillPath,
+ 			...shellExecution ? { shellExecution } : {},
+ 			...workspaceSources ? { sourceKey: Object.keys(workspaceSources)[0] } : {}
+ 		},
+-		requires: [{
++		...scope === "workspace" ? { requires: [{
+ 			primitive: "workspace",
+ 			workspace: {
+ 				mode: workspaceRequirementMode,
+ 				paths: [skillPath],
+ 				required: true
+ 			}
+-		}],
+-		...workspaceSources ? { workspaceSources } : {},
++		}] } : {},
++		...scope === "workspace" && workspaceSources ? { workspaceSources } : {},
+ 		...shellExecution ? { tools: (context) => context.driver?.kind === "harness" ? void 0 : workspaceShellTools(shellExecution, context.workspace) } : {}
+-	}), { [workspaceMaterializationPathsSymbol]: [harnessWorkspacePath] });
++	});
++	if (scope === "global") {
++		const globalPath = directoryPath.replace(/^skills(?:\/|$)/, "");
++		return Object.assign(capability, { [globalSkillsSymbol]: {
++			path: globalPath,
++			source: sourceBinding(options.source, globalPath),
++			sourceKey
++		} });
++	}
++	return Object.assign(capability, { [workspaceMaterializationPathsSymbol]: [harnessWorkspacePath] });
+ }
+ //#endregion
+ //#region src/capabilities/transcribe.ts
+diff --git a/dist/harness/codex.js b/dist/harness/codex.js
+index cd6382032df1a5d5d1a054a129499f98e41c0d89..cf5a73b2123b0e9e3aeef16775e3f8c6d10b1cb4 100644
+--- a/dist/harness/codex.js
++++ b/dist/harness/codex.js
+@@ -8,6 +8,7 @@ import { homedir, tmpdir } from "node:os";
+ import { createCodex } from "@ai-sdk/harness-codex";
+ //#region src/harness/codex.ts
+ const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter");
++const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDirectory");
+ function codexDriver(options = {}) {
+ 	const { authJson, authJsonPath, credentials, env, instructions, sandbox, workDir, ...settings } = options;
+ 	const defaultOpenAIAuth = settings.auth === void 0;
+@@ -53,6 +54,7 @@ const codexBridgeLockReplacements = {
+ function createViteHubCodex(settings, preferOpenAI) {
+ 	return {
+ 		...createCodex(settings),
++		[harnessGlobalSkillsDirectory]: "tmp/harness/codex-home/skills",
+ 		[harnessSandboxAdapter]: (provider) => relativeCodexSandboxProvider(provider, { preferOpenAI }),
+ 		async getBootstrap() {
+ 			const [pkg, lock, bridge, hostToolMcp] = await Promise.all([
+@@ -111,12 +113,17 @@ function patchCodexBridge(bridge) {
+ }
+ function relativeCodexSandboxSession(session, bootstrapDir) {
+ 	const anchoredBootstrapDir = bootstrapDir ?? `${session.defaultWorkingDirectory.replace(/\/+$/, "")}/${localCodexBootstrapDir}`;
++	const codexHome = `${session.defaultWorkingDirectory.replace(/\/+$/, "")}/tmp/harness/codex-home`;
+ 	const rewriteCodexBootstrapPath = (value) => value.replaceAll(codexBootstrapDir, anchoredBootstrapDir);
+ 	return new Proxy(session, { get(target, property, receiver) {
+ 		if (property === "restricted") return () => relativeCodexSandboxSession(target.restricted(), anchoredBootstrapDir);
+ 		if (property === "run" || property === "spawn") return (options) => target[property]({
+ 			...options,
+-			command: rewriteCodexBootstrapPath(options.command)
++			command: rewriteCodexBootstrapPath(options.command),
++			env: {
++				...options.env,
++				CODEX_HOME: codexHome
++			}
+ 		});
+ 		if (property === "readBinaryFile" || property === "readFile" || property === "readTextFile" || property === "writeBinaryFile" || property === "writeFile" || property === "writeTextFile") {
+ 			const method = target[property];
+@@ -130,6 +137,10 @@ function relativeCodexSandboxSession(session, bootstrapDir) {
+ 		return typeof value === "function" ? value.bind(target) : value;
+ 	} });
+ }
++async function prepareCodexHome(session) {
++	const result = await session.run({ command: 'mkdir -p "$CODEX_HOME" && chmod 700 "$CODEX_HOME" && : > "$CODEX_HOME/config.toml" && if [ -f "$HOME/.codex/auth.json" ]; then ln -sfn "$HOME/.codex/auth.json" "$CODEX_HOME/auth.json"; fi' });
++	if (result.exitCode !== 0) throw new Error(`[vitehub] Failed to prepare isolated Codex home: ${result.stderr || "sandbox command failed"}`);
++}
+ function codexSandboxProvider(options) {
+ 	const { sandbox } = options;
+ 	if (sandbox === false) return;
+@@ -160,9 +171,11 @@ function relativeCodexSandboxProvider(provider, options = {}) {
+ 			const onFirstCreate = createOptions?.onFirstCreate;
+ 			return adaptSession(await provider.createSession({
+ 				...createOptions,
+-				...onFirstCreate ? { onFirstCreate: async (session, context) => {
+-					await onFirstCreate(adaptSession(session), context);
+-				} } : {}
++				onFirstCreate: async (session, context) => {
++					const adapted = adaptSession(session);
++					await prepareCodexHome(adapted);
++					await onFirstCreate?.(adapted, context);
++				}
+ 			}));
+ 		}
+ 	};
+diff --git a/dist/harness-agent-C_ZqPqpj.js b/dist/harness-agent-C_ZqPqpj.js
+index 3a749a030208271aa70779b05bba972b29f11f2e..afba1a2510955059ec4015a0a6ee448ba744920e 100644
+--- a/dist/harness-agent-C_ZqPqpj.js
++++ b/dist/harness-agent-C_ZqPqpj.js
+@@ -11,6 +11,7 @@ const harnessResumeStates = /* @__PURE__ */ new WeakMap();
+ const harnessGeneratedFiles = ["harness-tool.mjs"];
+ const harnessInstructionFiles = ["AGENTS.md", "CLAUDE.md"];
+ const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter");
++const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDirectory");
+ function hasEntries(value) {
+ 	return typeof value === "object" && value !== null && Object.keys(value).length > 0;
+ }
+@@ -289,7 +290,7 @@ async function createHarnessAgent(options, context, prepareWorkspaceSession) {
+ 				...workDir !== void 0 ? { workDir } : {},
+ 				onSession: async ({ abortSignal, session, sessionWorkDir }) => {
+ 					setActiveHarnessWorkspaceFiles(context.context, activeHarnessWorkspaceFiles(session, sessionWorkDir, abortSignal));
+-					await prepareWorkspaceSession(session, sessionWorkDir, abortSignal);
++					await prepareWorkspaceSession(session, sessionWorkDir, abortSignal, harness[harnessGlobalSkillsDirectory]);
+ 				}
+ 			},
+ 			permissionMode: defaultHarnessPermissionMode(harness),
+@@ -300,6 +301,31 @@ async function createHarnessAgent(options, context, prepareWorkspaceSession) {
+ 		workDir
+ 	};
+ }
++function globalSkills(context) {
++	return context.globalSkills || [];
++}
++async function prepareHarnessGlobalSkills(context, session, directory, abortSignal) {
++	const configured = globalSkills(context);
++	if (!configured.length) return;
++	if (typeof directory !== "string" || !directory) throw new Error("[vitehub] This Harness Agent Driver does not support skills({ scope: \"global\" }).");
++	const sources = Object.fromEntries(configured.map((skill) => [skill.sourceKey, skill.source]));
++	const { prepareHarnessWorkspaceSession, useWorkspace } = await import("@vite-hub/workspace");
++	const workspace = useWorkspace("__vitehub_global_skills", {
++		definition: {
++			name: "__vitehub_global_skills",
++			runtime: "trusted-host",
++			sources,
++			store: { provider: "memory" }
++		},
++		mode: "write"
++	});
++	return await prepareHarnessWorkspaceSession(workspace, {
++		abortSignal,
++		paths: configured.map((skill) => skill.path),
++		session,
++		sessionWorkDir: directory
++	});
++}
+ function hasDetach(session) {
+ 	return typeof session.detach === "function";
+ }
+@@ -520,32 +546,47 @@ function createHarnessAgentAdapter(options) {
+ 	}
+ 	async function createAgentAndSession(context) {
+ 		let workspaceSession;
+-		const resolved = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal) => {
+-			if (!context.workspace) return;
+-			const harnessInstructions = await resolveHarnessInstructions(context);
+-			const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace");
+-			const commitDefinition = context.workspaceDefinition && context.workspaceAutoCommit !== void 0 ? workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit) : context.workspaceDefinition;
+-			workspaceSession = await prepareHarnessWorkspaceSession(context.workspace, {
+-				abortSignal,
+-				...hasWorkspaceCommitRules(commitDefinition) ? { definition: commitDefinition } : {},
+-				ignoreWriteBackPaths: harnessWriteBackIgnorePaths(context, harnessInstructions),
+-				onWriteBack: (diff) => setHarnessWorkspaceDiff(context.context, diff),
+-				paths: selectedWorkspaceScopePaths(context, commitDefinition),
+-				session,
+-				sessionWorkDir
+-			});
++		let globalSkillsSession;
++		const resolved = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal, globalSkillsDirectory) => {
++			const harnessInstructions = context.workspace ? await resolveHarnessInstructions(context) : void 0;
+ 			try {
+-				await writeHarnessInstructionFiles(session, sessionWorkDir, abortSignal, harnessInstructions);
+-				if (harnessInstructions) await workspaceSession.refreshGitBaseline?.();
++				if (context.workspace) {
++					const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace");
++					const commitDefinition = context.workspaceDefinition && context.workspaceAutoCommit !== void 0 ? workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit) : context.workspaceDefinition;
++					workspaceSession = await prepareHarnessWorkspaceSession(context.workspace, {
++						abortSignal,
++						...hasWorkspaceCommitRules(commitDefinition) ? { definition: commitDefinition } : {},
++						ignoreWriteBackPaths: harnessWriteBackIgnorePaths(context, harnessInstructions),
++						onWriteBack: (diff) => setHarnessWorkspaceDiff(context.context, diff),
++						paths: selectedWorkspaceScopePaths(context, commitDefinition),
++						session,
++						sessionWorkDir
++					});
++					await writeHarnessInstructionFiles(session, sessionWorkDir, abortSignal, harnessInstructions);
++					if (harnessInstructions) await workspaceSession.refreshGitBaseline?.();
++				}
++				globalSkillsSession = await prepareHarnessGlobalSkills(context, session, globalSkillsDirectory, abortSignal);
+ 			} catch (error) {
+-				await workspaceSession.close(error);
++				try {
++					await globalSkillsSession?.close(error);
++				} finally {
++					await workspaceSession?.close(error);
++				}
+ 				workspaceSession = void 0;
++				globalSkillsSession = void 0;
+ 				throw error;
+ 			}
+ 		});
++		const preparationSession = workspaceSession || globalSkillsSession ? { close: async (error) => {
++			try {
++				await globalSkillsSession?.close(error);
++			} finally {
++				await workspaceSession?.close(error);
++			}
++		} } : void 0;
+ 		return {
+ 			agent: resolved.agent,
+-			...await createSession(resolved.agent, context, () => workspaceSession, resolved)
++			...await createSession(resolved.agent, context, () => preparationSession, resolved)
+ 		};
+ 	}
+ 	return {
+diff --git a/dist/src-DTxcX3QT.js b/dist/src-DTxcX3QT.js
+index 14ea8cf191d10e529551bfe9c25863c67d454939..d9f7a3f9a2aa76be17c5114e00318be2443edf75 100644
+--- a/dist/src-DTxcX3QT.js
++++ b/dist/src-DTxcX3QT.js
+@@ -1161,6 +1161,7 @@ async function createAgentInvocationContext(definition, context, input) {
+ 			finishDeliveryEffectProviders: capabilities.registries.finishDeliveryEffectProviders,
+ 			finishExtensionProviders: capabilities.registries.finishExtensionProviders,
+ 			finishHook: definition?.hooks?.["agent:finish"],
++			globalSkills: normalizeCapabilities(capabilityOptions?.capabilities).map((capability) => capability[Symbol.for("vitehub.agent.globalSkills")]).filter(Boolean),
+ 			hasCapabilityCleanup: capabilities.hasCloseCallbacks,
+ 			handledResponse: capabilities.response,
+ 			harnessSandboxProvider,
+diff --git a/dist/workspace-agent-RiBUhfgs.js b/dist/workspace-agent-RiBUhfgs.js
+index f30d2a07606d68f7c77cc579077dc13706465d4b..f486c9a25e8e0bdba768aa30e7bdb07582f59df8 100644
+--- a/dist/workspace-agent-RiBUhfgs.js
++++ b/dist/workspace-agent-RiBUhfgs.js
+@@ -679,14 +679,14 @@ function capabilityCoverageKeys(id) {
+ 	return [...new Set([id, id.replace(/-([a-z])/g, (_, value) => value.toUpperCase())])];
+ }
+ function capabilityCoverageWarnings(coverage, capabilities) {
+-	return normalizeCapabilities(capabilities).filter((capability) => capability.id !== "skills").filter((capability) => !capabilityCoverageKeys(capability.id).some((key) => coverage.capabilities.has(key))).map((capability) => warning(`instruction-coverage:capability:${capability.id}`, "capability", `Capability "${capability.id}" is configured but not covered by Agent Driver Instructions. Add ::capability{key="${capabilityCoverageKeys(capability.id).at(-1)}"} around the relevant instruction section.`));
++	return normalizeCapabilities(capabilities).filter((capability) => !capability.id.startsWith("skills.") && capability.id !== "skills").filter((capability) => !capabilityCoverageKeys(capability.id).some((key) => coverage.capabilities.has(key))).map((capability) => warning(`instruction-coverage:capability:${capability.id}`, "capability", `Capability "${capability.id}" is configured but not covered by Agent Driver Instructions. Add ::capability{key="${capabilityCoverageKeys(capability.id).at(-1)}"} around the relevant instruction section.`));
+ }
+ function skillCoveragePath(value) {
+ 	if (typeof value !== "string" || !value.trim()) return;
+ 	return value.trim().replace(/\/+$/, "").replace(/\/SKILL\.md$/, "") || ".";
+ }
+ function skillCoverageWarnings(coverage, capabilities) {
+-	return normalizeCapabilities(capabilities).filter((capability) => capability.id === "skills").flatMap((capability) => {
++	return normalizeCapabilities(capabilities).filter((capability) => capability.id === "skills" || capability.id.startsWith("skills.")).flatMap((capability) => {
+ 		const metadata = capability.metadata || {};
+ 		const path = skillCoveragePath(metadata.path) || skillCoveragePath(metadata.skillPath);
+ 		if (!path) return [];
