@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { refreshWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 import { describe, expect, it, vi } from "vitest"
 
-import { createAgentCliContributor, runAgentDevCli, runAgentEvalCli } from "../src/cli.ts"
+import { createAgentCliContributor, runAgentDevCli, runAgentEvalCli, runAgentInfoCli } from "../src/cli.ts"
 import { createAgentEvaliteConfigPath, writeAgentEvaliteConfig } from "../src/internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue } from "../src/invocation-stream.ts"
 
@@ -33,6 +33,7 @@ describe("agent CLI", () => {
         description: "Agent development workflows.",
         features: [
           expect.objectContaining({ name: "eval" }),
+          expect.objectContaining({ name: "info" }),
           expect.objectContaining({ name: "dev" }),
         ],
         name: "agent",
@@ -44,10 +45,150 @@ describe("agent CLI", () => {
     expect(createAgentCliContributor({ eval: false })).toEqual({
       namespaces: [{
         description: "Agent development workflows.",
-        features: [expect.objectContaining({ name: "dev" })],
+        features: [
+          expect.objectContaining({ name: "info" }),
+          expect.objectContaining({ name: "dev" }),
+        ],
         name: "agent",
       }],
     })
+  })
+
+  it("prints concise resolved Agent information from the running Vite server", async () => {
+    const stdout = stream()
+    const fetchAgentInfo = vi.fn(async () => Response.json({
+      chats: [{ messages: [], name: "support" }],
+      config: { driver: { kind: "model", model: { id: "openai/gpt-5" } } },
+      files: [
+        {
+          children: [{ kind: "file", path: "docs/AGENTS.md", source: "docs" }],
+          kind: "directory",
+          path: "docs",
+          source: "docs",
+        },
+      ],
+      instructions: ["docs/AGENTS.md"],
+      invokerProfiles: [{ id: "technical" }],
+      metadataStatus: "ready",
+      root: "/repo",
+      selected: "support",
+      tools: [{ name: "search" }, { name: "shell" }],
+      warnings: [],
+    }))
+
+    const exitCode = await runAgentInfoCli([], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr: stream(),
+      stdout,
+    }, { fetch: fetchAgentInfo as never })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).toBe([
+      "Agent: support",
+      "Metadata: ready",
+      "Driver: Model-backed Agent Driver (openai/gpt-5)",
+      "Tools: 2 tools (search, shell)",
+      "Workspace files: 1 file, 1 directory, 1 source",
+      "Instructions: 1 document",
+      "Invoker profiles: 1 profile",
+      "Warnings: 0 warnings",
+      "",
+    ].join("\n"))
+    expect(fetchAgentInfo).toHaveBeenCalledWith("http://localhost:5173/__vitehub/agent/chat/devtools", expect.objectContaining({
+      body: JSON.stringify({ action: "get-state" }),
+      method: "POST",
+    }))
+  })
+
+  it("prints the existing Agent inspection contract as JSON", async () => {
+    const stdout = stream()
+    const fetchAgentInfo = vi.fn(async () => Response.json({
+      chats: [{ messages: [], name: "support" }],
+      config: { driver: { kind: "run" } },
+      files: [],
+      instructions: [],
+      invokerProfiles: [],
+      metadataStatus: "ready",
+      selected: "support",
+      tools: [{ name: "shell" }],
+      uiMessages: [{ id: "private-history", parts: [], role: "user" }],
+      version: "1",
+      warnings: [],
+    }))
+
+    const exitCode = await runAgentInfoCli(["--agent", "support", "--json"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr: stream(),
+      stdout,
+    }, { fetch: fetchAgentInfo as never })
+
+    expect(exitCode).toBe(0)
+    expect(JSON.parse(stdout.output())).toEqual({
+      config: { driver: { kind: "run" } },
+      files: [],
+      instructions: [],
+      invokerProfiles: [],
+      name: "support",
+      tools: [{ name: "shell" }],
+      version: "1",
+      warnings: [],
+    })
+    expect(JSON.parse(stdout.output())).not.toHaveProperty("uiMessages")
+  })
+
+  it("requires an Agent target when multiple chat-capable Agents are discovered", async () => {
+    const stderr = stream()
+    const fetchAgentInfo = vi.fn(async () => Response.json({
+      chats: [
+        { messages: [], name: "review" },
+        { messages: [], name: "support" },
+      ],
+      metadataStatus: "ready",
+      selected: "review",
+    }))
+
+    const exitCode = await runAgentInfoCli([], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, { fetch: fetchAgentInfo as never })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toBe("Multiple Agents discovered. Pass --agent review|support.\n")
+  })
+
+  it("reports an invalid Agent inspection response", async () => {
+    const stderr = stream()
+    const exitCode = await runAgentInfoCli([], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, { fetch: vi.fn(async () => new Response("not json")) as never })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toBe("Agent inspection returned an invalid response from http://localhost:5173.\n")
+  })
+
+  it("rejects an Agent inspection server for a different project root", async () => {
+    const stderr = stream()
+    const exitCode = await runAgentInfoCli([], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      stderr,
+      stdout: stream(),
+    }, { fetch: vi.fn(async () => Response.json({ root: "/other-repo" })) as never })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toBe("Compatible Vite Development Server root mismatch: /other-repo\n")
   })
 
   it("streams a one-shot Agent Dev Loop message through the Vite endpoint", async () => {

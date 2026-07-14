@@ -4,6 +4,7 @@ import { resolve } from "node:path"
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 
 import { formatAgentError } from "./agent-error.ts"
+import { runAgentInfoCli } from "./internal/agent-info-cli.ts"
 import { vercelAiGatewayPricing, type AgentUsagePricing } from "./internal/usage-pricing.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
@@ -1285,6 +1286,12 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
   const evalOptions = resolveAgentEvalOptions(options?.eval)
   const features: AgentCliContributor["namespaces"][number]["features"] = [
     {
+      description: "Inspect a discovered Agent through a running Vite Development Server.",
+      name: "info",
+      run: async (args, context) => await runAgentInfoCli(args, context),
+      usage: "vitehub agent info [--agent <name>] [--json]",
+    },
+    {
       description: "Talk to a discovered Agent through a running Vite Development Server.",
       name: "dev",
       run: async (args, context) => await runAgentDevCli(args, context),
@@ -1307,3 +1314,5 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
     }],
   }
 }
+
+export { runAgentInfoCli }

@@ -38,14 +38,17 @@ Use the Agent DevTools Feature to answer the basic discovery questions before de
 
 If discovery is wrong, fix the Agent Definition before inspecting model output.
 
-## Inspect from chat
+## Inspect from the CLI
 
-Type `//inspect` in the Agent DevTools chat composer to add a local inspection summary to the transcript.
-It is a Host Command, so DevTools handles it before Agent Invocation and does not send it to the Agent.
-The summary points at the resolved Agent Definition surface: driver metadata, tool count, visible Workspace files and Sources, instruction documents, Agent Invoker Profiles, warnings, and metadata status.
-Use the side panel for the full config, files, tools, instructions, and metadata.
+Start the app's Vite Development Server, then inspect one chat-capable Agent Definition without invoking its Agent Driver.
 
-Other `//...` Host Commands are handled locally and are not forwarded to the Agent.
+```bash [Terminal]
+pnpm vitehub agent info --agent support
+```
+
+The command reads the same resolved metadata as the Agent DevTools side panel: Driver metadata, tools, visible Workspace files and Sources, instruction documents, Agent Invoker Profiles, warnings, and metadata status.
+Pass `--json` when another agent or script needs the structured inspection contract, and use `--url` when Vite is not listening on `http://localhost:5173`.
+Agent DevTools must be enabled because the command inspects resolved runtime metadata from its running Vite bridge.
 
 ## Inspect an invocation
 

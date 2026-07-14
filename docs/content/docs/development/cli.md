@@ -34,6 +34,7 @@ Available namespaces:
 | Command | Status | Owner | Use it for |
 | --- | --- | --- | --- |
 | `vitehub agent eval` | Available | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
+| `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
 | `vitehub workspace dev` | Available | Workspace Package | Run commands through a Workspace Session exposed by a Compatible Vite Development Server. |
 | `vitehub provision run` | Available | ViteHub CLI plus package Provision Steps | Create missing provider resources idempotently. |
@@ -50,6 +51,21 @@ pnpm vitehub agent eval --output .vitehub/evals/support.json --hide-table
 ```
 
 Set `agent.eval.testTimeout` in `vite.config.ts` for long-running model or harness evals.
+
+## Inspect an Agent Definition
+
+Start the app's Vite Development Server, then inspect the resolved metadata for one chat-capable Agent Definition.
+The command does not invoke the Agent Driver.
+
+```bash [Terminal]
+pnpm vitehub agent info --agent support
+pnpm vitehub agent info --agent support --json
+```
+
+The default output summarizes the selected Driver, tools, visible Workspace files and Sources, instructions, Agent Invoker Profiles, warnings, and metadata status.
+Use `--json` for the structured inspection contract and `--url` when Vite is not listening on `http://localhost:5173`.
+When multiple chat-capable Agents are discovered, `--agent` is required.
+Agent DevTools must be enabled because `agent info` reads resolved runtime metadata from its running Vite bridge.
 
 ## Talk to an Agent during development
 
