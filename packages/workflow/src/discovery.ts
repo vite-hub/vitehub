@@ -22,7 +22,7 @@ const agentSuffixPattern = /\.agent\.(?:c|m)?[jt]s$/i
 const sourceFilePattern = /\.(?:c|m)?[jt]s$/i
 const declarationFilePattern = /\.d\.(?:c|m)?[jt]s$/i
 const stepFilePattern = /^\d+[.-].*\.(?:c|m)?[jt]s$/i
-const agentConfigFilePattern = /^config\.(?:c|m)?[jt]s$/i
+const folderAgentFilePattern = /^agent\.(?:c|m)?[jt]s$/i
 const agentEvalFilePattern = /\.eval\.(?:c|m)?[jt]s$/i
 
 function normalizeSuffixWorkflowName(rootDir: string, file: string) {
@@ -90,11 +90,11 @@ function findWorkflowFolders(workflowsDir: string): string[] {
   return folders.sort()
 }
 
-function hasConfigAgentDefinition(directory: string): boolean {
-  return readDirEntries(directory).some(entry => entry.isFile() && agentConfigFilePattern.test(entry.name) && isSourceFile(entry.name))
+function hasFolderAgentDefinition(directory: string): boolean {
+  return readDirEntries(directory).some(entry => entry.isFile() && folderAgentFilePattern.test(entry.name) && isSourceFile(entry.name))
 }
 
-function findAgentConfigFiles(agentsDir: string): string[] {
+function findFolderAgentFiles(agentsDir: string): string[] {
   const files: string[] = []
   for (const entry of readDirEntries(agentsDir)) {
     if (entry.name.startsWith(".")) {
@@ -102,10 +102,10 @@ function findAgentConfigFiles(agentsDir: string): string[] {
     }
     const absolute = resolve(agentsDir, entry.name)
     if (entry.isDirectory() && !entry.isSymbolicLink()) {
-      files.push(...findAgentConfigFiles(absolute))
+      files.push(...findFolderAgentFiles(absolute))
       continue
     }
-    if (entry.isFile() && agentConfigFilePattern.test(entry.name) && isSourceFile(entry.name)) {
+    if (entry.isFile() && folderAgentFilePattern.test(entry.name) && isSourceFile(entry.name)) {
       files.push(absolute)
     }
   }
@@ -128,11 +128,11 @@ function discoverFlatServerAgentWorkflowDefinitions(scanDirs: string[]): Discove
     createDirectoryDefinitionSource<DiscoveredWorkflowDefinition>("agent-workflow", scanDirs, "agents", {
       normalizeName(directory, file) {
         const fileName = normalize(file).split("/").pop()!
-        if (agentConfigFilePattern.test(fileName) || agentEvalFilePattern.test(fileName)) {
+        const parent = normalize(resolve(file, ".."))
+        if ((folderAgentFilePattern.test(fileName) && parent !== normalize(directory)) || agentEvalFilePattern.test(fileName)) {
           return undefined
         }
-        const parent = normalize(resolve(file, ".."))
-        if (parent !== normalize(directory) && hasConfigAgentDefinition(parent)) {
+        if (parent !== normalize(directory) && hasFolderAgentDefinition(parent)) {
           return undefined
         }
         return normalizePathDefinitionName(directory, file)
@@ -150,7 +150,7 @@ function discoverConfiguredServerAgentWorkflowDefinitions(scanDirs: string[]): D
 
   for (const scanDir of scanDirs) {
     const agentsDir = resolve(scanDir, "agents")
-    for (const file of findAgentConfigFiles(agentsDir)) {
+    for (const file of findFolderAgentFiles(agentsDir)) {
       const name = normalize(relative(agentsDir, resolve(file, "..")))
       if (!name || name === ".") {
         continue
