@@ -8203,6 +8203,8 @@ describe("agent message protocol", () => {
 
   it("keeps default subagents inline when static tools resolve with a discovered identity", async () => {
     const { defineAgent } = await import("../src/index.ts")
+    const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    setWorkflowRuntimeConfig({ provider: "vercel" })
     const reviewerAgent = defineAgent({
       capabilities: [subagents({
         agents: {
