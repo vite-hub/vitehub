@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 
 import { afterAll, describe, expect, it } from "vitest"
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 
 import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, resolveScheduleDefinitionEntry, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
 import { discoverScheduleDefinitions } from "../src/discovery.ts"
@@ -182,6 +183,104 @@ describe("schedule provider output", () => {
     expect(JSON.parse(await readFile(join(cloudflareRoot, "wrangler.json"), "utf8")).triggers.crons).toEqual(["0 1 * * *", "0 0 * * *"])
   })
 
+  it("avoids empty Netlify output and cleans stale files without static schedules", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-empty-netlify-")
+    const outputRoot = createDefaultNetlifyOutputRoot(rootDir)
+    const functionRoot = join(outputRoot, "functions")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    expect(existsSync(outputRoot)).toBe(false)
+
+    await mkdir(functionRoot, { recursive: true })
+    await writeFile(join(functionRoot, "other.mjs"), "keep\n", "utf8")
+    await writeFile(join(functionRoot, "vitehub-schedule-stale.mjs"), "stale\n", "utf8")
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    await expect(readFile(join(functionRoot, "other.mjs"), "utf8")).resolves.toBe("keep\n")
+    await expect(readFile(join(functionRoot, "vitehub-schedule-stale.mjs"), "utf8")).rejects.toThrow()
+
+    await rm(join(functionRoot, "other.mjs"))
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    expect(existsSync(join(rootDir, ".netlify"))).toBe(false)
+  })
+
+  it("avoids empty Vercel output and cleans stale files without static schedules", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-empty-vercel-")
+    const outputRoot = join(rootDir, ".vercel", "output")
+    const functionRoot = join(outputRoot, "functions", "api", "vitehub", "schedules", "vercel")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    expect(existsSync(join(rootDir, ".vercel"))).toBe(false)
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    expect(existsSync(join(outputRoot, "config.json"))).toBe(true)
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    expect(existsSync(join(rootDir, ".vercel"))).toBe(false)
+
+    await mkdir(outputRoot, { recursive: true })
+    await writeFile(join(outputRoot, "config.json"), JSON.stringify({ ...createVercelConfigJson(), crons: [] }), "utf8")
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    expect(existsSync(join(rootDir, ".vercel"))).toBe(false)
+
+    await mkdir(outputRoot, { recursive: true })
+    await writeFile(join(outputRoot, "config.json"), JSON.stringify(createVercelConfigJson()), "utf8")
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    expect(existsSync(join(rootDir, ".vercel"))).toBe(false)
+
+    await mkdir(join(functionRoot, "stale.func"), { recursive: true })
+    await writeFile(join(functionRoot, "stale.func", "index.mjs"), "stale\n", "utf8")
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    expect(existsSync(join(rootDir, ".vercel"))).toBe(false)
+
+    await mkdir(outputRoot, { recursive: true })
+    const siblingFunction = join(outputRoot, "functions", "__server.func", "index.mjs")
+    await mkdir(dirname(siblingFunction), { recursive: true })
+    await writeFile(siblingFunction, "keep\n", "utf8")
+    await writeFile(join(outputRoot, "config.json"), JSON.stringify(createVercelConfigJson()), "utf8")
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    await expect(readFile(siblingFunction, "utf8")).resolves.toBe("keep\n")
+    await expect(readFile(join(outputRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual(createVercelConfigJson())
+
+    await mkdir(join(functionRoot, "stale.func"), { recursive: true })
+    await writeFile(join(functionRoot, "stale.func", "index.mjs"), "stale\n", "utf8")
+    const userFunction = join(outputRoot, "functions", "api", "user.func", "index.mjs")
+    await mkdir(dirname(userFunction), { recursive: true })
+    await writeFile(userFunction, "keep\n", "utf8")
+    await writeFile(join(outputRoot, "existing.txt"), "keep\n", "utf8")
+    await writeFile(join(outputRoot, "config.json"), JSON.stringify({
+      crons: [
+        { path: "/api/user-cron", schedule: "0 1 * * *" },
+        { path: "/api/vitehub/schedules/vercel/stale", schedule: "0 2 * * *" },
+      ],
+      routes: [{ handle: "filesystem" }],
+      version: 3,
+    }), "utf8")
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    expect(existsSync(functionRoot)).toBe(false)
+    await expect(readFile(userFunction, "utf8")).resolves.toBe("keep\n")
+    await expect(readFile(join(outputRoot, "existing.txt"), "utf8")).resolves.toBe("keep\n")
+    await expect(readFile(join(outputRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      crons: [{ path: "/api/user-cron", schedule: "0 1 * * *" }],
+      routes: [{ handle: "filesystem" }],
+      version: 3,
+    })
+
+    const unrelatedConfig = "{\n  \"version\": 3,\n  \"custom\": \"keep exact bytes\"\n}\n"
+    await writeFile(join(outputRoot, "config.json"), unrelatedConfig, "utf8")
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    await expect(readFile(join(outputRoot, "config.json"), "utf8")).resolves.toBe(unrelatedConfig)
+  })
+
   it("removes stale Deno and Cloudflare output when no static schedules remain", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-empty-cleanup-")
     const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
@@ -198,6 +297,8 @@ describe("schedule provider output", () => {
 
     expect(existsSync(join(rootDir, ".vitehub", "schedule", "deno-cron.mjs"))).toBe(false)
     expect(existsSync(join(rootDir, ".vitehub", "schedule", "cloudflare-worker.mjs"))).toBe(false)
+    expect(existsSync(join(rootDir, ".vitehub", "schedule", "registry.mjs"))).toBe(false)
+    expect(existsSync(join(rootDir, ".vitehub", "schedule", "vercel-server.mjs"))).toBe(false)
     expect(existsSync(join(cloudflareRoot, "index.js"))).toBe(false)
     await expect(readFile(configFile, "utf8")).resolves.toContain('"custom": "keep"')
     expect(JSON.parse(await readFile(configFile, "utf8")).triggers.crons).toEqual(["0 1 * * *"])
