@@ -26,7 +26,7 @@ export default defineConfig({
       providerOutput: false,
       runtime: { driver: 'process', intervalMs: 1_000 },
     }),
-    hubAgent(),
+    hubAgent({ providers: { state: { provider: 'sqlite', url: 'file:.vitehub/agent-state.db' } } }),
     nitro(),
   ],
 })

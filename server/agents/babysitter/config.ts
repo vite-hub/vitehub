@@ -4,8 +4,8 @@ import { crabbox } from '@vite-hub/box/crabbox'
 
 export default defineAgent({
   box: {
-    provider: crabbox({ network: 'direct', profile: 'babysitter', reclaim: true }),
-    workspace: ({ input }) => {
+    runtime: crabbox({ network: 'direct', profile: 'babysitter', reclaim: true }),
+    cwd: ({ input }) => {
       if (!input.options) throw new Error('Babysitter requires run options.')
       return input.options.worktreePath
     },
