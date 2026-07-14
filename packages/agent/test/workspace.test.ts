@@ -728,6 +728,15 @@ describe("defineAgent workspace option", () => {
     })
     expect(capability.requires).toBeUndefined()
     expect(capability.workspaceSources).toBeUndefined()
+    expect(skills({
+      path: "skills/browser",
+      scope: "global",
+      source: { path: "/opt/skills/browser" },
+      sourceKey: "review/browser",
+    })).toMatchObject({
+      id: "skills.review.browser",
+      metadata: { sourceKey: "review/browser" },
+    })
     expect((skills({
       path: "skills/ponytail/SKILL.md",
       scope: "global",

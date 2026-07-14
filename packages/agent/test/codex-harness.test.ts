@@ -225,6 +225,9 @@ describe("codexDriver", () => {
     const adaptSandbox = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSandboxAdapter")] as (provider: object, options: { defaultSandbox: boolean }) => { createSession: () => Promise<typeof rawSession> }
     const session = await adaptSandbox(provider, { defaultSandbox: false }).createSession()
 
+    const prepareSession = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSessionPrepare")] as (session: object) => Promise<void>
+    await prepareSession(session)
+
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       command: expect.stringContaining('rm -f "$CODEX_HOME/auth.json"'),
       env: {

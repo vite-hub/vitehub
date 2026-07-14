@@ -47,6 +47,11 @@ function skillSourceKey(path: string): string {
   return `skill.${suffix}`
 }
 
+function skillCapabilityId(sourceKey: string): string {
+  const suffix = sourceKey.replace(/[^A-Za-z0-9_.-]+/g, ".").replace(/^\.+|\.+$/g, "") || "global"
+  return `skills.${suffix}`
+}
+
 function rebaseMountedFileSource(source: WorkspaceSourceInput, mountPath: string): WorkspaceSourceInput {
   const normalizedMount = normalizeSkillPath(mountPath)
   if (!normalizedMount) return source
@@ -120,7 +125,7 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
     : undefined
 
   const capability = defineCapability({
-    id: scope === "global" ? `skills.${sourceKey}` : "skills",
+    id: scope === "global" ? skillCapabilityId(sourceKey) : "skills",
     metadata: {
       path: normalizedPath,
       scope,

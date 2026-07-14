@@ -25,6 +25,7 @@ type CodexDriverSandboxOptions<CALL_OPTIONS = unknown> =
 
 const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
 const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDirectory")
+const harnessSessionPrepare = Symbol.for("vitehub.harnessSessionPrepare")
 const codexSandboxAdapterApplied = Symbol("vitehub.codexSandboxAdapterApplied")
 
 export interface CodexDriverOptions<CALL_OPTIONS = unknown> extends CodexHarnessSettings {
@@ -95,6 +96,12 @@ function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolea
   return {
     ...harness,
     [harnessGlobalSkillsDirectory]: "tmp/harness/codex-home/skills",
+    [harnessSessionPrepare]: async (session: object) => {
+      const authHome = "env" in session && session.env && typeof session.env === "object"
+        ? (session.env as Record<string, string | undefined>).CODEX_HOME
+        : undefined
+      await prepareCodexHome(session, authHome)
+    },
     [harnessSandboxAdapter]: (provider: AgentHarnessSandboxProviderInput, options?: { defaultSandbox?: boolean }) => (provider as Record<PropertyKey, unknown>)[codexSandboxAdapterApplied]
       ? provider
       : relativeCodexSandboxProvider(provider, { preferOpenAI, stripGitHubSecrets: options?.defaultSandbox }),
@@ -232,14 +239,13 @@ function relativeCodexSandboxProvider(
       const onFirstCreate = createOptions?.onFirstCreate
       const session = await (provider as { createSession(options: object): Promise<object> }).createSession({
         ...createOptions,
-        onFirstCreate: async (session: object, context: { abortSignal?: AbortSignal }) => {
-          const authHome = "env" in session && session.env && typeof session.env === "object"
-            ? (session.env as Record<string, string | undefined>).CODEX_HOME
-            : undefined
-          const adapted = adaptSession(session)
-          await prepareCodexHome(adapted, authHome)
-          await onFirstCreate?.(adapted, context)
-        },
+        ...(onFirstCreate
+          ? {
+              onFirstCreate: async (session: object, context: { abortSignal?: AbortSignal }) => {
+                await onFirstCreate(adaptSession(session), context)
+              },
+            }
+          : {}),
       })
       return adaptSession(session)
     },
