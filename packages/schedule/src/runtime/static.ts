@@ -51,12 +51,25 @@ export function createStaticScheduleRun(
 
 export async function executeStaticSchedule(options: ExecuteStaticScheduleOptions): Promise<unknown> {
   const localWaitUntil = createLocalWaitUntil()
-  const result = await options.definition.handler(createStaticScheduleRun({
-    ...options,
-    waitUntil: options.waitUntil ?? localWaitUntil.waitUntil,
-  }))
-  if (!options.waitUntil) await localWaitUntil.flush()
-  return result
+  try {
+    const result = await options.definition.handler(createStaticScheduleRun({
+      ...options,
+      waitUntil: options.waitUntil ?? localWaitUntil.waitUntil,
+    }))
+    if (!options.waitUntil) await localWaitUntil.flush()
+    return result
+  }
+  catch (error) {
+    if (!options.waitUntil) {
+      try {
+        await localWaitUntil.flush()
+      }
+      catch {
+        // Preserve the handler error after all locally owned work settles.
+      }
+    }
+    throw error
+  }
 }
 
 export async function executeMatchingStaticSchedules(options: ExecuteMatchingStaticSchedulesOptions): Promise<unknown[]> {

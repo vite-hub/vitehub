@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules } from "../src/runtime/static.ts"
+import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule } from "../src/runtime/static.ts"
 
 import type { ScheduleDefinitionRegistry } from "../src/types.ts"
 
@@ -67,5 +67,32 @@ describe("Static Schedule runtime", () => {
 
     expect(seen).toEqual(["airtable-secret"])
     expect((globalThis as { __env__?: Record<string, unknown> }).__env__).toBeUndefined()
+  })
+
+  it("drains deferred work before returning a handler failure", async () => {
+    let releaseDeferred: (() => void) | undefined
+    let deferredCompleted = false
+    const execution = executeStaticSchedule({
+      cron: "0 4 * * *",
+      definition: {
+        cron: "0 4 * * *",
+        handler: async ({ waitUntil }) => {
+          waitUntil(new Promise<void>((resolve) => {
+            releaseDeferred = () => {
+              deferredCompleted = true
+              resolve()
+            }
+          }))
+          throw new Error("handler failed")
+        },
+      },
+      name: "report",
+    })
+
+    await expect.poll(() => releaseDeferred).toBeTypeOf("function")
+    releaseDeferred!()
+
+    await expect(execution).rejects.toThrow("handler failed")
+    expect(deferredCompleted).toBe(true)
   })
 })
