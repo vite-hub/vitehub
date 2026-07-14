@@ -127,8 +127,8 @@ function extractAgentRuntime(source: string): { masked?: string, raw?: string } 
     else if (masked[index] === "}" && --depth === 0) {
       return {}
     }
-    else if (depth === 1 && /^runtime\s*:/.test(masked.slice(index))) {
-      const colon = masked.indexOf(":", index + 7)
+    else if (depth === 1 && /^(?:runtime|["']runtime["'])\s*:/.test(source.slice(index))) {
+      const colon = source.indexOf(":", index + 7)
       let end = colon + 1
       let nested = 0
       for (; end < masked.length; end++) {
@@ -221,13 +221,17 @@ function discoverSuffixAgentWorkflowDefinitions(roots: string[]): DiscoveredWork
 }
 
 function discoverFlatServerAgentWorkflowDefinitions(scanDirs: string[]): DiscoveredWorkflowDefinition[] {
+  const folderAgentDirs = new Set(scanDirs.flatMap(scanDir => findFolderAgentFiles(resolve(scanDir, "agents")).map(file => normalize(resolve(file, "..")))))
   return discoverDefinitions("agent workflow", [
     createDirectoryDefinitionSource<DiscoveredWorkflowDefinition>("agent-workflow", scanDirs, "agents", {
       normalizeName(directory, file) {
         const fileName = normalize(file).split("/").pop()!
         const parent = normalize(resolve(file, ".."))
         const name = normalizePathDefinitionName(directory, file)
-        if (name.split("/").slice(0, -1).includes("workspace")) return undefined
+        if ([...folderAgentDirs].some((agentDir) => {
+          const path = normalize(relative(agentDir, file))
+          return path === "workspace" || path.startsWith("workspace/")
+        })) return undefined
         if ((folderAgentFilePattern.test(fileName) && parent !== normalize(directory))
           || legacyFolderAgentFilePattern.test(fileName)
           || agentEvalFilePattern.test(fileName)) {
