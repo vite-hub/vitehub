@@ -65,6 +65,7 @@ describe("crabbox", () => {
     const bin = join(root, "bin")
     const log = join(root, "crabbox.log")
     await Promise.all([mkdir(workspace), mkdir(bin)])
+    await writeFile(join(workspace, ".env"), "local")
     await fakeCrabbox(bin)
     await Promise.all([
       executable(bin, "codex", "exit 0"),
@@ -93,7 +94,8 @@ describe("crabbox", () => {
 
       await session.destroy()
       await expect(readFile(join(cacheRoot, "cache.txt"))).rejects.toMatchObject({ code: "ENOENT" })
-      await expect(readdir(workspace)).resolves.toEqual(["changed.txt"])
+      await expect(readFile(join(workspace, ".env"), "utf8")).resolves.toBe("local")
+      await expect(readdir(workspace)).resolves.toEqual([".env", "changed.txt"])
 
       const workRoot = join(root, ".crabbox")
       const workRootCwd = await realpath(workRoot)

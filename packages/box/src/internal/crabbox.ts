@@ -1,6 +1,6 @@
 import { spawn as spawnChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { mkdir, mkdtemp, rename, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, posix, resolve } from "node:path"
 import { Readable } from "node:stream"
@@ -51,6 +51,7 @@ interface CrabboxSessionState {
   pendingTunnels: Map<number, { child: ChildProcessWithoutNullStreams, promise: Promise<{ child: ChildProcessWithoutNullStreams, localPort: number }> }>
   remoteWorkspace: string
   root: string
+  syncedWorkspacePaths: readonly string[]
   tunnels: Map<number, { child: ChildProcessWithoutNullStreams, localPort: number }>
 }
 
@@ -125,6 +126,7 @@ function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxP
         const [root, remoteWorkspace] = lastLines(setup.stdout, 2)
         if (!/^\/tmp\/vitehub-box\.[A-Za-z0-9]+$/.test(root)) throw new Error(`[vitehub] Crabbox returned an invalid session root: ${root || "<empty>"}`)
         if (!posix.isAbsolute(remoteWorkspace)) throw new Error(`[vitehub] Crabbox returned an invalid workspace path: ${remoteWorkspace || "<empty>"}`)
+        const syncedWorkspacePaths = await listRemoteWorkspacePaths(sessionOptions, leaseId, remoteWorkspace)
         const session = createCrabboxSession({
           leaseId,
           options: sessionOptions,
@@ -132,6 +134,7 @@ function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxP
           processes: new Set(),
           remoteWorkspace,
           root,
+          syncedWorkspacePaths,
           tunnels: new Map(),
         }, createOptions.sessionId)
         try {
@@ -461,24 +464,63 @@ async function withTemporaryFile<T>(run: (path: string) => Promise<T>) {
 
 async function syncWorkspaceBack(state: CrabboxSessionState) {
   const result = await runCrabbox(state.options, state.leaseId, {
-    command: `archive=$(mktemp /tmp/vitehub-workspace.XXXXXX.tar) && trap 'rm -f -- "$archive"' EXIT && tar -C ${shellQuote(state.remoteWorkspace)} -cf "$archive" . && base64 < "$archive"`,
+    command: `archive=$(mktemp /tmp/vitehub-workspace.XXXXXX.tar) && manifest=$(mktemp /tmp/vitehub-workspace.XXXXXX.manifest) && trap 'rm -f -- "$archive" "$manifest"' EXIT && if git -C ${shellQuote(state.remoteWorkspace)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then git -C ${shellQuote(state.remoteWorkspace)} ls-files -z --cached --others --exclude-standard > "$manifest" && tar --null -C ${shellQuote(state.remoteWorkspace)} -cf "$archive" -T "$manifest"; else tar -C ${shellQuote(state.remoteWorkspace)} --exclude ./.git --exclude .git -cf "$archive" .; fi && base64 < "$archive"`,
   })
   if (result.exitCode !== 0) throw crabboxError("sync Crabbox workspace", result)
   const archive = Buffer.from(result.stdout.replace(/\s+/g, ""), "base64")
-  const extractedWorkspace = await mkdtemp(join(dirname(state.options.workspace), ".vitehub-workspace-"))
+  const validationWorkspace = await mkdtemp(join(dirname(state.options.workspace), ".vitehub-workspace-"))
   await withTemporaryFile(async (localPath) => {
     try {
       await writeFile(localPath, archive)
-      const extract = await runProcess(spawnChildProcess("tar", ["-xf", localPath, "-C", extractedWorkspace]))
+      const validate = await runProcess(spawnChildProcess("tar", ["-xf", localPath, "-C", validationWorkspace]))
+      if (validate.exitCode !== 0) throw crabboxError("extract Crabbox workspace", validate)
+      await pruneWorkspaceForArchive(state.options.workspace, localPath, state.syncedWorkspacePaths)
+      const extract = await runProcess(spawnChildProcess("tar", ["-xf", localPath, "-C", state.options.workspace]))
       if (extract.exitCode !== 0) throw crabboxError("extract Crabbox workspace", extract)
-      await rm(state.options.workspace, { force: true, recursive: true })
-      await rename(extractedWorkspace, state.options.workspace)
     }
     catch (error) {
-      await rm(extractedWorkspace, { force: true, recursive: true })
       throw error
     }
+    finally {
+      await rm(validationWorkspace, { force: true, recursive: true })
+    }
   })
+}
+
+async function listRemoteWorkspacePaths(options: CrabboxSessionOptions, leaseId: string, workspace: string) {
+  const result = await runCrabbox(options, leaseId, {
+    command: `if git -C ${shellQuote(workspace)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then git -C ${shellQuote(workspace)} ls-files -z --cached --others --exclude-standard; else find ${shellQuote(workspace)} -mindepth 1 \\( -name .git -o -path '*/.git/*' \\) -prune -o \\( -type f -o -type l \\) -printf '%P\\0'; fi`,
+  })
+  if (result.exitCode !== 0) return []
+  return result.stdout
+    .split("\0")
+    .map(path => normalizeRelativeArchivePath(path))
+    .filter((path): path is string => Boolean(path))
+}
+
+async function pruneWorkspaceForArchive(workspace: string, archivePath: string, manifest: readonly string[]) {
+  if (!manifest.length) return
+  const archive = await listArchiveEntries(archivePath)
+  const archived = new Set(archive)
+  await Promise.all(manifest.map(async (path) => {
+    if (archived.has(path)) return
+    await rm(join(workspace, path), { force: true, recursive: true })
+  }))
+}
+
+async function listArchiveEntries(archivePath: string) {
+  const result = await runProcess(spawnChildProcess("tar", ["-tf", archivePath]))
+  if (result.exitCode !== 0) throw crabboxError("inspect Crabbox workspace", result)
+  return result.stdout
+    .split(/\r?\n/)
+    .map(path => normalizeRelativeArchivePath(path))
+    .filter((path): path is string => Boolean(path))
+}
+
+function normalizeRelativeArchivePath(path: string) {
+  const normalized = posix.normalize(path.replace(/^\.\//, "").replace(/\/$/, ""))
+  if (!normalized || normalized === "." || normalized.startsWith("../") || posix.isAbsolute(normalized)) return undefined
+  return normalized
 }
 
 function shellQuote(value: string) {
