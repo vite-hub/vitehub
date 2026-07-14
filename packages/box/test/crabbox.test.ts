@@ -136,6 +136,21 @@ describe("crabbox", () => {
     await expect(stat(join(workspace, "empty"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it("replaces files with archived directories", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const source = join(root, "source")
+    const archive = join(root, "workspace.tar")
+    await Promise.all([mkdir(workspace), mkdir(join(source, "entry"), { recursive: true })])
+    await Promise.all([writeFile(join(workspace, "entry"), "file"), writeFile(join(source, "entry", "nested.txt"), "nested")])
+    await execFileAsync("tar", ["-cf", archive, "-C", source, "."])
+
+    await pruneWorkspaceForArchive(workspace, archive, ["entry"])
+    await execFileAsync("tar", ["-xf", archive, "-C", workspace])
+
+    await expect(readFile(join(workspace, "entry", "nested.txt"), "utf8")).resolves.toBe("nested")
+  })
+
   it("rejects deleted paths beneath local symlinks", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")

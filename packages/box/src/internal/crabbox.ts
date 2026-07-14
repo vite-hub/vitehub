@@ -52,6 +52,8 @@ interface CrabboxSessionState {
   syncedWorkspacePaths: readonly string[]
 }
 
+const workspaceSyncs = new Map<string, Promise<void>>()
+
 export function crabbox(options: CrabboxOptions = {}): BoxRuntime {
   return {
     name: "crabbox",
@@ -295,6 +297,7 @@ async function runCrabboxScript(options: CrabboxSessionOptions, leaseId: string,
   child.stdin.end(run.script)
   const result = await runProcess(child)
   if (result.exitCode !== 0) throw crabboxError("run Crabbox script", result)
+  return result
 }
 
 async function validateRequirements(session: HarnessV1NetworkSandboxSession, requirements: readonly CrabboxRequirement[], abortSignal: AbortSignal | undefined) {
@@ -405,11 +408,23 @@ async function withTemporaryFile<T>(run: (path: string) => Promise<T>) {
 }
 
 async function syncWorkspaceBack(state: CrabboxSessionState) {
+  const workspace = state.options.workspace
+  const previous = workspaceSyncs.get(workspace) || Promise.resolve()
+  const current = previous.catch(() => undefined).then(() => syncWorkspaceBackUnlocked(state))
+  workspaceSyncs.set(workspace, current)
+  try {
+    await current
+  }
+  finally {
+    if (workspaceSyncs.get(workspace) === current) workspaceSyncs.delete(workspace)
+  }
+}
+
+async function syncWorkspaceBackUnlocked(state: CrabboxSessionState) {
   const initialManifest = Buffer.from(state.syncedWorkspacePaths.map(path => `${path}\0`).join("")).toString("base64")
-  const result = await runCrabbox(state.options, state.leaseId, {
-    command: `archive=$(mktemp /tmp/vitehub-workspace.XXXXXX.tar) && manifest=$(mktemp /tmp/vitehub-workspace.XXXXXX.manifest) && trap 'rm -f -- "$archive" "$manifest"' EXIT && if git -C ${shellQuote(state.remoteWorkspace)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then printf %s ${shellQuote(initialManifest)} | base64 -d > "$manifest" && git -C ${shellQuote(state.remoteWorkspace)} ls-files -z --cached --others --exclude-standard >> "$manifest" && tar --ignore-failed-read --no-recursion --null -C ${shellQuote(state.remoteWorkspace)} -cf "$archive" -T "$manifest"; else tar -C ${shellQuote(state.remoteWorkspace)} --exclude ./.git --exclude .git -cf "$archive" .; fi && base64 < "$archive"`,
+  const result = await runCrabboxScript(state.options, state.leaseId, {
+    script: `archive=$(mktemp /tmp/vitehub-workspace.XXXXXX.tar) && manifest=$(mktemp /tmp/vitehub-workspace.XXXXXX.manifest) && trap 'rm -f -- "$archive" "$manifest"' EXIT && if git -C ${shellQuote(state.remoteWorkspace)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then printf %s ${shellQuote(initialManifest)} | base64 -d > "$manifest" && git -C ${shellQuote(state.remoteWorkspace)} ls-files -z --cached --others --exclude-standard >> "$manifest" && tar --ignore-failed-read --no-recursion --null -C ${shellQuote(state.remoteWorkspace)} -cf "$archive" -T "$manifest"; else tar -C ${shellQuote(state.remoteWorkspace)} --exclude ./.git --exclude .git -cf "$archive" .; fi && base64 < "$archive"`,
   })
-  if (result.exitCode !== 0) throw crabboxError("sync Crabbox workspace", result)
   const archive = Buffer.from(result.stdout.replace(/\s+/g, ""), "base64")
   const transactionRoot = await mkdtemp(join(dirname(state.options.workspace), ".vitehub-workspace-"))
   const stagedWorkspace = join(transactionRoot, "workspace")
@@ -449,7 +464,7 @@ async function listRemoteWorkspacePaths(options: CrabboxSessionOptions, leaseId:
 }
 
 export async function rejectSymlinkedArchiveParents(workspace: string, archivePath: string): Promise<void> {
-  await rejectSymlinkedParents(workspace, await listArchiveEntries(archivePath))
+  await rejectSymlinkedParents(workspace, (await listArchiveEntries(archivePath)).map(entry => entry.path))
 }
 
 async function rejectSymlinkedParents(workspace: string, entries: readonly string[]) {
@@ -469,8 +484,13 @@ async function rejectSymlinkedParents(workspace: string, entries: readonly strin
 export async function pruneWorkspaceForArchive(workspace: string, archivePath: string, manifest: readonly string[]): Promise<void> {
   if (!manifest.length) return
   const archive = await listArchiveEntries(archivePath)
-  const archived = new Set(archive)
-  const removed = manifest.filter(path => !archived.has(path))
+  const archived = new Map(archive.map(entry => [entry.path, entry.directory]))
+  const removed = (await Promise.all(manifest.map(async (path) => {
+    const archivedDirectory = archived.get(path)
+    if (archivedDirectory === undefined) return path
+    const item = await lstat(join(workspace, path)).catch(() => undefined)
+    return item && item.isDirectory() !== archivedDirectory ? path : undefined
+  }))).filter((path): path is string => Boolean(path))
   await rejectSymlinkedParents(workspace, removed)
   await Promise.all(removed.map(async (path) => {
     await rm(join(workspace, path), { force: true, recursive: true })
@@ -495,7 +515,7 @@ async function listArchiveEntries(archivePath: string) {
     if (!normalized && path !== "." && path !== "./") {
       throw new Error(`[vitehub] Crabbox workspace archive contains an invalid path: ${path}`)
     }
-    return normalized ? [normalized] : []
+    return normalized ? [{ directory: path.endsWith("/"), path: normalized }] : []
   })
 }
 
