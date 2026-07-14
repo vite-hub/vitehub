@@ -124,7 +124,6 @@ function resolveInstructionFile(file: string, seen: Set<string>): string {
 }
 
 function readAgentInstructions(file: string): string | undefined {
-  if (!isFolderAgentEntry(file)) return undefined
   const instructions = join(dirname(file), "instructions.md")
   return existsSync(instructions) && statSync(instructions).isFile()
     ? resolveInstructionFile(instructions, new Set())

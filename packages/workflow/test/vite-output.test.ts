@@ -82,6 +82,7 @@ describe("Vite workflow provider outputs", () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vite-playground-")
     const agentDir = join(rootDir, "server", "agents", "nuxt")
     const inlineAgentDir = join(rootDir, "server", "agents", "inline")
+    const flatAgent = join(rootDir, "server", "agents", "flat.ts")
     await mkdir(agentDir, { recursive: true })
     await mkdir(join(agentDir, "workspace"), { recursive: true })
     await mkdir(join(agentDir, "skills", "review"), { recursive: true })
@@ -100,6 +101,8 @@ describe("Vite workflow provider outputs", () => {
     await writeFile(join(agentDir, "shared.md"), "Use shared policy.\n")
     await writeFile(join(agentDir, "skills", "review", "SKILL.md"), "# Review skill\n")
     await writeFile(join(rootDir, "server", "agents", "skills", "shared", "SKILL.md"), "# Shared directory must not leak\n")
+    await writeFile(flatAgent, `export default defineAgent({ workspace: {}, run: () => "flat agent" })\n`)
+    await writeFile(join(rootDir, "server", "agents", "instructions.md"), "Use flat Agent instructions.\n")
     await writeFile(join(inlineAgentDir, "agent.ts"), [
       `import { defineAgent } from "@vite-hub/agent"`,
       "",
@@ -124,6 +127,7 @@ describe("Vite workflow provider outputs", () => {
     const className = getCloudflareWorkflowClassName("welcome")
     const agentClassName = getCloudflareWorkflowClassName("nuxt")
     const devtoolsAgentClassName = getCloudflareWorkflowClassName("devtools-demo")
+    const flatAgentClassName = getCloudflareWorkflowClassName("flat")
 
     expect(existsSync(cloudflareWorker)).toBe(true)
     expect(existsSync(cloudflareWorkerBundle)).toBe(true)
@@ -142,12 +146,18 @@ describe("Vite workflow provider outputs", () => {
       class_name: devtoolsAgentClassName,
       name: getCloudflareWorkflowName("devtools-demo"),
     })
-    expect(wrangler.workflows).toHaveLength(3)
+    expect(wrangler.workflows).toContainEqual({
+      binding: getCloudflareWorkflowBindingName("flat"),
+      class_name: flatAgentClassName,
+      name: getCloudflareWorkflowName("flat"),
+    })
+    expect(wrangler.workflows).toHaveLength(4)
     const cloudflareWorkerContents = await readFile(cloudflareWorker, "utf8")
     expect(cloudflareWorkerContents).toContain("waitUntil as viteHubWaitUntil")
     expect(cloudflareWorkerContents).toContain(`export class ${className} extends WorkflowEntrypoint`)
     expect(cloudflareWorkerContents).toContain(`export class ${agentClassName} extends WorkflowEntrypoint`)
     expect(cloudflareWorkerContents).toContain(`export class ${devtoolsAgentClassName} extends WorkflowEntrypoint`)
+    expect(cloudflareWorkerContents).toContain(`export class ${flatAgentClassName} extends WorkflowEntrypoint`)
     expect(cloudflareWorkerContents).toContain('runViteHubWorkflowDefinition("welcome"')
     expect(cloudflareWorkerContents).toContain('runViteHubWorkflowDefinition("nuxt"')
     expect(cloudflareWorkerContents).not.toContain('runViteHubWorkflowDefinition("inline"')
@@ -161,6 +171,7 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).toContain(JSON.stringify(join(agentDir, "workspace")))
     expect(registry).toContain("Keep answers concise")
     expect(registry).toContain("Use shared policy")
+    expect(registry).toContain("Use flat Agent instructions.")
     expect(registry).not.toContain("@./shared.md")
     expect(registry).toContain("@./inline-example.md")
     expect(registry).toContain("@./fenced-example.md")

@@ -139,7 +139,7 @@ describe("workflow definitions", () => {
     await writeFile(join(rootDir, "server", "agents", "wrapped-inline", "definition.ts"), "export default defineAgent({ runtime: false, driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "index-folder", "index.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "index-folder", "workspace", "src", "agent.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
-    await writeFile(join(rootDir, "server", "agents", "team", "agent.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "team", "agent.ts"), "export { default } from './review'\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "team", "index.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "team", "review.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "team", "helper.ts"), "export default { driver: { run } }\n", "utf8")
@@ -187,6 +187,15 @@ describe("workflow definitions", () => {
     expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
       expect.objectContaining({ name: "quoted-name", source: "agent-workflow" }),
     ])
+  })
+
+  it("honors runtime opt-outs after regexp literals", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-regexp-runtime-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "server", "agents"), { recursive: true })
+    await writeFile(join(rootDir, "server", "agents", "inline.ts"), "export default defineAgent({ pattern: /[{}]/, runtime: false, driver: { run } })\n", "utf8")
+
+    expect(discoverWorkflowDefinitions({ rootDir })).toEqual([])
   })
 
   it("keeps root workflow files when the workflows directory has folder markers", async () => {

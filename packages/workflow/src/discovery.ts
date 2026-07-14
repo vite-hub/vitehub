@@ -68,6 +68,25 @@ function maskSourceLiterals(source: string): string {
       masked += source.slice(index, index + length).replace(/[^\n]/g, " ")
       index += length
     }
+    else if (quote === "/" && /[([{,:;=!?&|+*%^~<>-]/.test(masked.trimEnd().at(-1) || "")) {
+      let end = index + 1
+      let inCharacterClass = false
+      while (end < source.length) {
+        if (source[end] === "\\") end += 2
+        else if (source[end] === "[") {
+          inCharacterClass = true
+          end++
+        }
+        else if (source[end] === "]") {
+          inCharacterClass = false
+          end++
+        }
+        else if (source[end++] === "/" && !inCharacterClass) break
+      }
+      while (/[A-Za-z]/.test(source[end] || "")) end++
+      masked += source.slice(index, end).replace(/[^\n]/g, " ")
+      index = end
+    }
     else if (quote === "\"" || quote === "'" || quote === "`") {
       let end = index + 1
       while (end < source.length) {
@@ -154,6 +173,13 @@ function resolveAgentReExport(file: string, source: string, masked: string): str
     if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
   }
   return undefined
+}
+
+function isFolderAgentImplementationTarget(file: string): boolean {
+  const fileName = normalize(file).split("/").pop()!
+  if (/^definition\.(?:c|m)?[jt]s$/i.test(fileName)) return true
+  return /^index\.(?:c|m)?[jt]s$/i.test(fileName)
+    && normalize(resolve(file, "../..")).split("/").pop() === "definition"
 }
 
 function extractAgentRuntime(file: string, seen = new Set<string>()): { masked?: string, raw?: string } | undefined {
@@ -283,7 +309,9 @@ function discoverFlatServerAgentWorkflowDefinitions(scanDirs: string[]): Discove
     const source = readFileSync(file, "utf8")
     const target = resolveAgentReExport(file, source, maskSourceLiterals(source))
     const relativeTarget = target && normalize(relative(resolve(file, ".."), target))
-    return target && relativeTarget && relativeTarget !== ".." && !relativeTarget.startsWith("../") ? [normalize(target)] : []
+    return target && relativeTarget && relativeTarget !== ".." && !relativeTarget.startsWith("../") && isFolderAgentImplementationTarget(target)
+      ? [normalize(target)]
+      : []
   }))
   return discoverDefinitions("agent workflow", [
     createDirectoryDefinitionSource<DiscoveredWorkflowDefinition>("agent-workflow", scanDirs, "agents", {
