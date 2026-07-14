@@ -20,6 +20,7 @@ interface CloudflareDeploymentOutputOptions extends SharedDeploymentOptions {
   bundleEntry?: string
   bundleOptions?: BundleOptions
   bundleOutfileName?: string
+  files?: Record<string, string>
   outputRoot?: string
   staticOutputDir?: string
   wranglerConfigKeys?: string[]
@@ -224,6 +225,8 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
     options.bundleEntry && staticIndex
       ? copyClientOutput(clientDir, options.staticOutputDir ?? createDefaultCloudflareStaticOutputDir(options.rootDir))
       : Promise.resolve(),
+    ...Object.entries(options.files ?? {}).map(([fileName, contents]) =>
+      writeFile(resolve(outputRoot, fileName), contents, "utf8")),
   ]
 
   if (options.bundleEntry) {

@@ -488,17 +488,20 @@ describe("provider deployment outputs", () => {
     const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
     const providerWrite = writeProviderDeploymentOutputs({
       cloudflare: {
+        files: { "index.js": "export default {}\n" },
         wranglerConfig: { main: "index.js" },
       },
       clientOutDir: "dist/client",
       rootDir,
     })
     let observedConfig: string | undefined
+    let observedWrapper: string | undefined
     const cleanup = writeProviderDeploymentOutputs({
       cleanup: {
         cloudflare: async () => {
           observedConfig = await readFile(join(cloudflareDir, "wrangler.json"), "utf8")
-          return { wranglerConfigKeys: ["main"] }
+          observedWrapper = await readFile(join(cloudflareDir, "index.js"), "utf8")
+          return { fileNames: ["index.js"], wranglerConfigKeys: ["main"] }
         },
       },
       clientOutDir: "dist/client",
@@ -508,6 +511,7 @@ describe("provider deployment outputs", () => {
     await Promise.all([providerWrite, cleanup])
 
     expect(observedConfig && JSON.parse(observedConfig)).toEqual({ main: "index.js" })
+    expect(observedWrapper).toBe("export default {}\n")
     expect(existsSync(cloudflareDir)).toBe(false)
   })
 

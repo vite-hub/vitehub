@@ -384,19 +384,19 @@ function createCloudflareOutput(rootDir: string, artifacts: GeneratedWorkflowArt
       platform: "neutral",
     },
     bundleOutfileName: "worker.mjs",
+    files: { "index.js": createCloudflareWorkflowWrapper(artifacts) },
     outputRoot: createDefaultCloudflareOutputRoot(rootDir),
     wranglerConfigKeys: cloudflareWorkflowWranglerConfigKeys,
     wranglerConfig,
   }
 }
 
-async function writeCloudflareWorkflowWrapper(rootDir: string, artifacts: GeneratedWorkflowArtifacts) {
-  const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+function createCloudflareWorkflowWrapper(artifacts: GeneratedWorkflowArtifacts): string {
   const workflowConfig = artifacts.cloudflareWorkflowConfig && artifacts.cloudflareWorkflowConfig.provider === "cloudflare"
     ? artifacts.cloudflareWorkflowConfig
     : false
   const workflowDefinitions = workflowConfig ? artifacts.providerDefinitions : []
-  await writeFile(resolve(outputRoot, "index.js"), renderCloudflareWorkerWrapper(workflowDefinitions), "utf8")
+  return renderCloudflareWorkerWrapper(workflowDefinitions)
 }
 
 async function createCloudflareWorkflowCleanup(rootDir: string) {
@@ -444,8 +444,5 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
       ? { vercel: createVercelOutput(artifacts) }
       : {}),
   })
-  if (cloudflareOutput) {
-    await writeCloudflareWorkflowWrapper(options.rootDir, artifacts)
-  }
   return artifacts
 }
