@@ -75,8 +75,11 @@ describe("launch documentation trust boundaries", () => {
 
     expect(readme).toMatch(/import \{ vitehub \} from ["']@vite-hub\/vite["']/);
     expect(readme).toMatch(/composition preset/i);
-    expect(readme).toMatch(/Queue is opt-in/i);
+    expect(readme).toMatch(/KV, Queue, Sandbox, and Schedule are opt-in/i);
+    expect(readme).toContain("kv: true");
     expect(readme).toContain("queue: true");
+    expect(readme).toContain("sandbox: true");
+    expect(readme).toContain("schedule: true");
     expect(readme).toMatch(/does not re-export/i);
   });
 
@@ -84,7 +87,7 @@ describe("launch documentation trust boundaries", () => {
     const config = readFileSync(resolve(docsRoot, "reference/config-options.md"), "utf8");
     const conventions = readFileSync(resolve(docsRoot, "reference/file-conventions.md"), "utf8");
 
-    expect(config).toContain("Queue is opt-in");
+    expect(config).toContain("KV, Queue, Sandbox, and Schedule are enabled with `true`");
     expect(config).toContain("Netlify does not infer a provider");
     expect(conventions).toContain("`server/databases/<name>/config.ts`");
     expect(conventions).toContain("`<path>.agent.ts`");

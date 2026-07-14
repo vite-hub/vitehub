@@ -29,10 +29,10 @@ export interface ViteHubPresetOptions {
   database?: false | DBModulePublicOptions
   devtools?: false | HubDevtoolsOptions
   env?: false | EnvIntegrationOptions
-  kv?: false | KVModuleOptions
+  kv?: boolean | KVModuleOptions
   queue?: boolean | QueueModuleOptions
-  sandbox?: false | SandboxPublicOptions
-  schedule?: false | ScheduleVitePluginOptions
+  sandbox?: boolean | SandboxPublicOptions
+  schedule?: boolean | ScheduleVitePluginOptions
   workflow?: false | WorkflowModuleOptions
   workspace?: false | WorkspaceModuleOptions
 }
@@ -43,10 +43,10 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
   if (options.agent !== false) plugins.push(hubAgent(options.agent))
   if (options.database !== false) plugins.push(hubDb(options.database))
   if (options.blob !== false) plugins.push(hubBlob(options.blob))
-  if (options.kv !== false) plugins.push(hubKv(options.kv))
+  if (options.kv) plugins.push(hubKv(options.kv === true ? undefined : options.kv))
   if (options.queue) plugins.push(hubQueue(options.queue === true ? {} : options.queue))
-  if (options.sandbox !== false) plugins.push(hubSandbox(options.sandbox))
-  if (options.schedule !== false) plugins.push(hubSchedule(options.schedule))
+  if (options.sandbox) plugins.push(hubSandbox(options.sandbox === true ? undefined : options.sandbox))
+  if (options.schedule) plugins.push(hubSchedule(options.schedule === true ? undefined : options.schedule))
   if (options.workflow !== false) plugins.push(hubWorkflow(options.workflow))
   if (options.workspace !== false) plugins.push(hubWorkspace(options.workspace))
   if (options.devtools !== false) plugins.push(hubDevtools(options.devtools))

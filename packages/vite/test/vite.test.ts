@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest"
 
 const integrationMocks = vi.hoisted(() => ({
   hubAgent: vi.fn(() => ({ name: "@vite-hub/agent/vite" })),
+  hubKv: vi.fn(() => ({ name: "@vite-hub/kv/vite" })),
   hubQueue: vi.fn(() => ({ name: "@vite-hub/queue/vite" })),
+  hubSandbox: vi.fn(() => ({ name: "@vite-hub/sandbox/vite" })),
   hubSchedule: vi.fn(() => ({ name: "@vite-hub/schedule/vite" })),
 }))
 
@@ -11,9 +13,9 @@ vi.mock("@vite-hub/blob/vite", () => ({ hubBlob: () => ({ name: "@vite-hub/blob/
 vi.mock("@vite-hub/database/vite", () => ({ hubDb: () => ({ name: "@vite-hub/database/vite" }) }))
 vi.mock("@vite-hub/devtools", () => ({ hubDevtools: () => ({ name: "@vite-hub/devtools" }) }))
 vi.mock("@vite-hub/env/vite", () => ({ hubEnv: () => ({ name: "@vite-hub/env/vite" }) }))
-vi.mock("@vite-hub/kv/vite", () => ({ hubKv: () => ({ name: "@vite-hub/kv/vite" }) }))
+vi.mock("@vite-hub/kv/vite", () => ({ hubKv: integrationMocks.hubKv }))
 vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue }))
-vi.mock("@vite-hub/sandbox/vite", () => ({ hubSandbox: () => ({ name: "@vite-hub/sandbox/vite" }) }))
+vi.mock("@vite-hub/sandbox/vite", () => ({ hubSandbox: integrationMocks.hubSandbox }))
 vi.mock("@vite-hub/schedule/vite", () => ({ hubSchedule: integrationMocks.hubSchedule }))
 vi.mock("@vite-hub/workflow/vite", () => ({ hubWorkflow: () => ({ name: "@vite-hub/workflow/vite" }) }))
 vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: () => ({ name: "@vite-hub/workspace/vite" }) }))
@@ -26,8 +28,18 @@ function pluginNames(plugins: PluginOption[]): string[] {
 }
 
 describe("vitehub", () => {
-  it("composes ViteHub primitive integrations explicitly", () => {
+  it("keeps optional integrations inactive until configured", () => {
     expect(pluginNames(vitehub())).toEqual([
+      "@vite-hub/env/vite",
+      "@vite-hub/agent/vite",
+      "@vite-hub/database/vite",
+      "@vite-hub/blob/vite",
+      "@vite-hub/workflow/vite",
+      "@vite-hub/workspace/vite",
+      "@vite-hub/devtools",
+    ])
+
+    expect(pluginNames(vitehub({ kv: true, sandbox: true, schedule: true }))).toEqual([
       "@vite-hub/env/vite",
       "@vite-hub/agent/vite",
       "@vite-hub/database/vite",
@@ -39,15 +51,11 @@ describe("vitehub", () => {
       "@vite-hub/workspace/vite",
       "@vite-hub/devtools",
     ])
-    expect(pluginNames(vitehub({ database: false, devtools: false, kv: false }))).toEqual([
-      "@vite-hub/env/vite",
-      "@vite-hub/agent/vite",
-      "@vite-hub/blob/vite",
-      "@vite-hub/sandbox/vite",
-      "@vite-hub/schedule/vite",
-      "@vite-hub/workflow/vite",
-      "@vite-hub/workspace/vite",
-    ])
+
+    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined)
+    expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith(undefined)
+    expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(undefined)
+
     integrationMocks.hubQueue.mockClear()
     expect(pluginNames(vitehub({ queue: true }))).toContain("@vite-hub/queue/vite")
     expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({})
