@@ -133,9 +133,10 @@ function createTool<TRuntimeConfig extends AgentRuntimeConfig>(
       const { runId, ...agentInput } = input as SubagentToolInput
       const runtimeContext = (parentContext.runtimeContext || parentContext) as AgentRuntimeContext<TRuntimeConfig>
       const nextRunId = childRunId(runtimeContext.run?.runId, name, runId)
-      return await runAgent(definition.agent, nextRunId
-        ? { ...runtimeContext, run: { ...runtimeContext.run, runId: nextRunId } }
-        : runtimeContext, withResolvedAgentInvokerInput(agentInput as AgentRunInput, parentContext.invoker))
+      return await runAgent(definition.agent, {
+        ...runtimeContext,
+        ...(nextRunId ? { run: { ...runtimeContext.run, runId: nextRunId } } : {}),
+      }, withResolvedAgentInvokerInput(agentInput as AgentRunInput, parentContext.invoker))
     },
     inputSchema: inputSchema(definition.description),
     name,

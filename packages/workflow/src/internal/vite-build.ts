@@ -1,6 +1,7 @@
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
 import { builtinModules } from "node:module"
-import { dirname, relative, resolve } from "node:path"
+import { basename, dirname, join, relative, resolve } from "node:path"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { createDefaultCloudflareOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
@@ -25,6 +26,14 @@ const nodeBuiltinExternals = [...new Set(["node:*", ...builtinModules, ...builti
 const optionalAgentRuntimeExternals = ["@vite-hub/workspace", "@vite-hub/workspace/*"]
 const WORKFLOW_ENTRY_BASE_NAMES = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
 const WORKFLOW_PRIORITY_NAMES = ["server-workflow.ts", "server-workflow.mts", "server-workflow.js", "server-workflow.mjs"] as const
+const folderAgentEntryPattern = /^(?:agent|index)\.(?:c|m)?[jt]s$/i
+
+function isFolderAgentEntry(file: string): boolean {
+  if (!folderAgentEntryPattern.test(basename(file))) return false
+  return !(basename(file).toLowerCase().startsWith("agent.")
+    && basename(dirname(file)) === "agents"
+    && basename(dirname(dirname(file))) === "server")
+}
 
 function resolveWorkflowUserAppEntry(rootDir: string) {
   const names = getViteMode() === VITEHUB_MODES.workflow
@@ -80,14 +89,80 @@ function renderRegistryImport(registryFile: string, file: string): string {
   return `import(${JSON.stringify(createImportPath(registryFile, file))})`
 }
 
+function resolveAgentWorkspaceSourceRoot(file: string): string {
+  const workspaceDirectory = join(dirname(file), "workspace")
+  return existsSync(workspaceDirectory) && statSync(workspaceDirectory).isDirectory()
+    ? workspaceDirectory
+    : dirname(file)
+}
+
+function resolveInstructionFile(file: string, seen: Set<string>): string {
+  if (seen.has(file)) throw new Error(`[vitehub] Circular instruction import: ${file}.`)
+  seen.add(file)
+  try {
+    const replaceImports = (content: string) => content.replace(/@(\.\.?\/\S+)/g, (_token, rawSpecifier: string) => {
+      const trailing = rawSpecifier.match(/[.,;:!?)]*$/)?.[0] || ""
+      const specifier = rawSpecifier.slice(0, rawSpecifier.length - trailing.length)
+      return `${resolveInstructionFile(resolve(dirname(file), specifier), seen)}${trailing}`
+    })
+    let fence: string | undefined
+    return readFileSync(file, "utf8").split(/(?<=\n)/).map((line) => {
+      const marker = line.match(/^\s*(```|~~~)/)?.[1]
+      if (marker) {
+        fence = fence === marker ? undefined : fence || marker
+        return line
+      }
+      if (fence) return line
+      if (/^(?: {4}|\t)/.test(line)) return line
+      return line.split(/(`+[^`]*`+)/g).map((segment, index) => index % 2 ? segment : replaceImports(segment)).join("")
+    }).join("")
+  }
+  finally {
+    seen.delete(file)
+  }
+}
+
+function readAgentInstructions(file: string): string | undefined {
+  const instructions = join(dirname(file), "instructions.md")
+  return existsSync(instructions) && statSync(instructions).isFile()
+    ? resolveInstructionFile(instructions, new Set())
+    : undefined
+}
+
+function readAgentSkills(file: string): Record<string, { content: string, encoding: "base64", materialize: "build", mount: "", workspacePath: string }> | undefined {
+  if (!isFolderAgentEntry(file)) return undefined
+  const root = dirname(file)
+  const skillsRoot = join(root, "skills")
+  if (!existsSync(skillsRoot) || !statSync(skillsRoot).isDirectory()) return undefined
+  const sources: Record<string, { content: string, encoding: "base64", materialize: "build", mount: "", workspacePath: string }> = {}
+  const visit = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+      const target = join(directory, entry.name)
+      if (entry.isDirectory()) visit(target)
+      else if (entry.isFile()) {
+        const workspacePath = relative(root, target).replace(/\\/g, "/")
+        sources[`__vitehubAgentSkill:${workspacePath}`] = {
+          content: readFileSync(target).toString("base64"),
+          encoding: "base64",
+          materialize: "build",
+          mount: "",
+          workspacePath,
+        }
+      }
+    }
+  }
+  visit(skillsRoot)
+  return Object.keys(sources).length ? sources : undefined
+}
+
 function renderAgentWorkflowRegistryEntry(registryFile: string, definition: DiscoveredWorkflowDefinition) {
   return [
     `  ${JSON.stringify(definition.name)}: async () => {`,
     `    const cached = registryEntryCache.get(${JSON.stringify(definition.name)})`,
     "    if (cached) return cached",
     `    const loaded = await ${renderRegistryImport(registryFile, definition.handler)}`,
-    "    const agent = \"default\" in loaded ? loaded.default : loaded",
-    "    const entry = { handler: async (context) => await runAgentWorkflowDefinition(agent, context, runAgentInline) }",
+    `    const agent = agentWithColocatedSkills(workspaceAgentWithSourceRoot("default" in loaded ? loaded.default : loaded, ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(readAgentInstructions(definition.handler))}), ${JSON.stringify(readAgentSkills(definition.handler))})`,
+    `    const entry = { handler: async (context) => await runAgentWorkflowDefinition(agent, { ...context, payload: { ...context.payload, agentIdentity: context.payload?.agentIdentity || { name: ${JSON.stringify(definition.agentIdentity || definition.name)} } } }, runAgentInline) }`,
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
     "    return entry",
     "  },",
@@ -144,7 +219,7 @@ function createWorkflowRegistryContents(registryFile: string, definitions: Disco
     ...(needsAgentRuntime
       ? [
           `import { runAgentInline } from "@vite-hub/agent"`,
-          `import { runAgentWorkflowDefinition } from "@vite-hub/agent/runtime/workflow"`,
+          `import { agentWithColocatedSkills, runAgentWorkflowDefinition, workspaceAgentWithSourceRoot } from "@vite-hub/agent/runtime/workflow"`,
         ]
       : []),
     ...(needsWorkflowRuntime

@@ -163,7 +163,7 @@ export function workspaceAgentOwnsWorkspaceDefinition(agent: unknown): boolean {
     && !isWorkspaceReference(workspace as WorkspaceAgentWorkspaceConfig)
 }
 
-export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir: string): Agent {
+export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir: string, colocatedInstructions?: string): Agent {
   if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return agent
 
   const workspaceAgent = agent as WorkspaceAgentDefinition
@@ -172,10 +172,14 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
   if (typeof workspace !== "object" || workspace === null || isWorkspaceReference(workspace)) return agent
 
   const resolvedSourceRootDir = workspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
+  const sources = colocatedInstructions
+    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: "build", mount: "", workspacePath: "AGENTS.md" }, ...workspace.sources }
+    : { ...workspace.sources }
   const workspaceOptions = {
     ...options,
     workspace: {
       ...workspace,
+      ...(Object.keys(sources).length ? { sources } : {}),
       sourceRootDir: resolvedSourceRootDir,
     },
   }

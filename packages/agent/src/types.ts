@@ -31,8 +31,7 @@ export type {
 export type AgentRuntimeName = "cloudflare-agents" | "deno" | "unknown" | "vercel" | "vite"
 export type AgentRuntime = "auto" | AgentRuntimeName
 export type AgentExecution = "inline" | "sandbox" | "workflow"
-export type AgentRuntimeBinding =
-  | AgentWorkflowRuntimeBinding
+export type AgentRuntimeBinding = false | AgentWorkflowRuntimeBinding
 
 export interface AgentWorkflowRuntimeBinding {
   kind: "workflow"

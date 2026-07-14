@@ -3,6 +3,13 @@ import { describe, expect, it, vi } from "vitest"
 import { normalizeAgentOptions } from "../src/config.ts"
 
 describe("agent config", () => {
+  it("defaults Agent Definitions to workflows with an inline opt-out", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    expect(defineAgent({ driver: { run: () => "queued" } }).runtime).toEqual({ discoveryDefault: true, kind: "workflow" })
+    expect(defineAgent({ driver: { run: () => "inline" }, runtime: false }).runtime).toBe(false)
+  })
+
   it("normalizes defaults", () => {
     expect(normalizeAgentOptions(undefined)).toEqual({
       execution: "inline",

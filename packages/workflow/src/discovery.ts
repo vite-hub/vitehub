@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { relative } from "node:path"
 
 import { normalize, resolve } from "pathe"
@@ -23,6 +23,7 @@ const sourceFilePattern = /\.(?:c|m)?[jt]s$/i
 const declarationFilePattern = /\.d\.(?:c|m)?[jt]s$/i
 const stepFilePattern = /^\d+[.-].*\.(?:c|m)?[jt]s$/i
 const folderAgentFilePattern = /^agent\.(?:c|m)?[jt]s$/i
+const folderAgentIndexFilePattern = /^index\.(?:c|m)?[jt]s$/i
 const legacyFolderAgentFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const agentEvalFilePattern = /\.eval\.(?:c|m)?[jt]s$/i
 
@@ -51,21 +52,223 @@ function isSourceFile(file: string) {
   return sourceFilePattern.test(file) && !declarationFilePattern.test(file)
 }
 
-function stripSourceComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1")
+function maskSourceLiterals(source: string): string {
+  let masked = ""
+  for (let index = 0; index < source.length;) {
+    const quote = source[index]
+    if (quote === "/" && source[index + 1] === "/") {
+      const end = source.indexOf("\n", index)
+      const length = (end < 0 ? source.length : end) - index
+      masked += " ".repeat(length)
+      index += length
+    }
+    else if (quote === "/" && source[index + 1] === "*") {
+      const end = source.indexOf("*/", index + 2)
+      const length = (end < 0 ? source.length : end + 2) - index
+      masked += source.slice(index, index + length).replace(/[^\n]/g, " ")
+      index += length
+    }
+    else if (quote === "/" && /[([{,:;=!?&|+*%^~<>-]/.test(masked.trimEnd().at(-1) || "")) {
+      let end = index + 1
+      let inCharacterClass = false
+      while (end < source.length) {
+        if (source[end] === "\\") end += 2
+        else if (source[end] === "[") {
+          inCharacterClass = true
+          end++
+        }
+        else if (source[end] === "]") {
+          inCharacterClass = false
+          end++
+        }
+        else if (source[end++] === "/" && !inCharacterClass) break
+      }
+      while (/[A-Za-z]/.test(source[end] || "")) end++
+      masked += source.slice(index, end).replace(/[^\n]/g, " ")
+      index = end
+    }
+    else if (quote === "\"" || quote === "'" || quote === "`") {
+      let end = index + 1
+      while (end < source.length) {
+        if (source[end] === "\\") end += 2
+        else if (source[end++] === quote) break
+      }
+      masked += source.slice(index, end).replace(/[^\n]/g, " ")
+      index = end
+    }
+    else {
+      masked += quote
+      index++
+    }
+  }
+  return masked
+}
+
+function findDefineAgentObjectStart(masked: string, start: number): number | undefined {
+  let index = start
+  while (/\s/.test(masked[index] || "")) index++
+  if (masked[index] === "<") {
+    let depth = 0
+    do {
+      if (masked[index] === "<") depth++
+      else if (masked[index] === ">" && masked[index - 1] !== "=") depth--
+      index++
+    } while (index < masked.length && depth > 0)
+  }
+  while (/\s/.test(masked[index] || "")) index++
+  if (masked[index++] !== "(") return undefined
+  while (/\s/.test(masked[index] || "")) index++
+  if (masked[index] === "{") return index
+  const options = /^([A-Za-z_$][\w$]*)\b/.exec(masked.slice(index))?.[1]
+  if (options) {
+    const declaration = new RegExp(`\\b(?:const|let|var)\\s+${options}\\s*(?::(?:=>|[^=])*?)?=\\s*\\{`).exec(masked)
+    if (declaration) return declaration.index + declaration[0].lastIndexOf("{")
+  }
+  return undefined
+}
+
+function agentFactoryNames(source: string): string[] {
+  const names = new Set(["defineAgent"])
+  for (const match of source.matchAll(/\bimport\s*\{([^}]+)\}\s*from\s*["']@vite-hub\/agent["']/g)) {
+    for (const specifier of match[1]!.split(",")) {
+      const alias = /^\s*defineAgent\s+as\s+([A-Za-z_$][\w$]*)\s*$/.exec(specifier)?.[1]
+      if (alias) names.add(alias)
+    }
+  }
+  return [...names]
+}
+
+function findAgentObjectStart(source: string, masked: string): number | undefined {
+  for (const factory of agentFactoryNames(source)) {
+    const inline = new RegExp(`\\bexport\\s+default\\s+${factory}\\b`).exec(masked)
+    if (inline) return findDefineAgentObjectStart(masked, inline.index + inline[0].length)
+  }
+
+  const exported = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\b/.exec(masked)
+  if (!exported) return undefined
+  for (const factory of agentFactoryNames(source)) {
+    const declaration = new RegExp(`\\b(?:const|let|var)\\s+${exported[1]}\\s*(?::(?:=>|[^=])*?)?=\\s*${factory}\\b`).exec(masked)
+    if (declaration) return findDefineAgentObjectStart(masked, declaration.index + declaration[0].length)
+  }
+  return undefined
+}
+
+function hasExportedDefineAgent(source: string, masked: string): boolean {
+  if (agentFactoryNames(source).some(factory => new RegExp(`\\bexport\\s+default\\s+${factory}\\b`).test(masked))) return true
+  const exported = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\b/.exec(masked)
+  return Boolean(exported
+    && agentFactoryNames(source).some(factory => new RegExp(`\\b(?:const|let|var)\\s+${exported[1]}\\s*(?::(?:=>|[^=])*?)?=\\s*${factory}\\b`).test(masked)))
+}
+
+function findUnmaskedSourceMatch(source: string, masked: string, pattern: RegExp, prefix: RegExp): RegExpMatchArray | undefined {
+  return [...source.matchAll(pattern)].find(match => prefix.test(masked.slice(match.index)))
+}
+
+function resolveAgentReExport(file: string, source: string, masked: string): string | undefined {
+  const direct = findUnmaskedSourceMatch(source, masked, /\bexport\s+\{\s*default\s*\}\s+from\s*(["'])([^"']+)\1/g, /^export\s+\{\s*default\s*\}\s+from\b/)
+  const exported = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\b/.exec(masked)
+  const imported = exported && findUnmaskedSourceMatch(source, masked, new RegExp(`\\bimport\\s+${exported[1]}\\s+from\\s*(["'])([^"']+)\\1`, "g"), /^import\b/)
+  const specifier = direct?.[2] || imported?.[2]
+  if (!specifier?.startsWith(".")) return undefined
+  const target = resolve(file, "..", specifier)
+  const extensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"]
+  const sourceTarget = target.replace(/\.(?:c|m)?js$/i, "")
+  for (const candidate of [target, ...extensions.map(extension => `${target}${extension}`), ...extensions.map(extension => `${sourceTarget}${extension}`), ...extensions.map(extension => resolve(target, `index${extension}`))]) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
+  }
+  return undefined
+}
+
+function isFolderAgentImplementationTarget(file: string): boolean {
+  const fileName = normalize(file).split("/").pop()!
+  if (/^definition\.(?:c|m)?[jt]s$/i.test(fileName)) return true
+  return /^index\.(?:c|m)?[jt]s$/i.test(fileName)
+    && normalize(resolve(file, "../..")).split("/").pop() === "definition"
+}
+
+function extractAgentRuntime(file: string, seen = new Set<string>()): { masked?: string, raw?: string } | undefined {
+  if (seen.has(file)) return undefined
+  seen.add(file)
+  const source = readFileSync(file, "utf8")
+  const masked = maskSourceLiterals(source)
+  const start = findAgentObjectStart(source, masked)
+  if (start === undefined) {
+    const target = resolveAgentReExport(file, source, masked)
+    if (target) return extractAgentRuntime(target, seen)
+    if (hasExportedDefineAgent(source, masked)) return {}
+    return /\bexport\s+default\s+[A-Za-z_$][\w$]*Agent\b/.test(masked) ? {} : undefined
+  }
+  let depth = 0
+  for (let index = start; index < masked.length; index++) {
+    if (masked[index] === "{") {
+      depth++
+    }
+    else if (masked[index] === "}" && --depth === 0) {
+      return {}
+    }
+    else if (depth === 1) {
+      const previous = masked.slice(0, index).trimEnd().at(-1)
+      if ((previous === "{" || previous === ",") && /^runtime\s*(?:,|})/.test(masked.slice(index))) {
+        return { masked: "runtime", raw: "runtime" }
+      }
+      const runtimeProperty = /^runtime\s*:/.test(masked.slice(index))
+        || ((previous === "{" || previous === ",") && /^["']runtime["']\s*:/.test(source.slice(index)))
+      if (!runtimeProperty) continue
+      const colon = source.indexOf(":", index + 7)
+      let end = colon + 1
+      let nested = 0
+      for (; end < masked.length; end++) {
+        if ("([{".includes(masked[end] || "")) nested++
+        else if (")]}".includes(masked[end] || "")) {
+          if (nested === 0) break
+          nested--
+        }
+        else if (masked[end] === "," && nested === 0) break
+      }
+      return {
+        masked: masked.slice(colon + 1, end).trim(),
+        raw: source.slice(colon + 1, end).trim(),
+      }
+    }
+  }
+  return {}
 }
 
 function extractAgentWorkflowName(file: string, fallbackName: string): string | undefined {
-  const source = stripSourceComments(readFileSync(file, "utf8"))
-  const match = /\bruntime\s*:\s*workflow\s*\(([^)]*)\)/m.exec(source)
-  if (!match) return undefined
-  const literal = /^\s*(["'`])([^"'`]+)\1\s*$/.exec(match[1] || "")
-  return literal?.[2] || fallbackName
+  const runtime = extractAgentRuntime(file)
+  if (!runtime) return undefined
+  const workflowPattern = /^(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*workflow\s*\(\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*(["'`])([^"'`]+)\1\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*\)(?:\s*(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$)))*\s*$/
+  const match = workflowPattern.exec(runtime.raw || "")
+  if (match) {
+    return match[2] || fallbackName
+  }
+  if (/^false(?:\s+as\s+const)?$/.test(runtime.masked || "")) return undefined
+  const shorthand = /^([A-Za-z_$][\w$]*)$/.exec(runtime.masked || "")?.[1]
+  if (shorthand) {
+    const source = readFileSync(file, "utf8")
+    const masked = maskSourceLiterals(source)
+    const declaration = new RegExp(`\\b(?:const|let|var)\\s+${shorthand}\\s*(?::(?:=>|[^=])*?)?=\\s*`).exec(masked)
+    if (declaration) {
+      const start = declaration.index + declaration[0].length
+      let end = start
+      let depth = 0
+      for (; end < masked.length; end++) {
+        if ("([{".includes(masked[end] || "")) depth++
+        else if (")]}".includes(masked[end] || "")) depth--
+        else if (depth === 0 && (masked[end] === ";" || masked[end] === "\n")) break
+      }
+      const initializer = source.slice(start, end).trim()
+      if (/^false(?:\s+as\s+const)?$/.test(masked.slice(start, end).trim())) return undefined
+      const shorthandWorkflow = workflowPattern.exec(initializer)
+      if (shorthandWorkflow) return shorthandWorkflow[2] || fallbackName
+    }
+  }
+  return fallbackName
 }
 
 function toAgentWorkflowDefinition(file: string, fallbackName: string): DiscoveredWorkflowDefinition | undefined {
   const name = extractAgentWorkflowName(file, fallbackName)
-  return name ? { handler: file, name, source: "agent-workflow" } : undefined
+  return name ? { agentIdentity: fallbackName, handler: file, name, source: "agent-workflow" } : undefined
 }
 
 function isWorkflowFolder(directory: string) {
@@ -92,7 +295,7 @@ function findWorkflowFolders(workflowsDir: string): string[] {
 }
 
 function hasFolderAgentDefinition(directory: string): boolean {
-  return readDirEntries(directory).some(entry => entry.isFile() && folderAgentFilePattern.test(entry.name) && isSourceFile(entry.name))
+  return readDirEntries(directory).some(entry => entry.isFile() && (folderAgentFilePattern.test(entry.name) || folderAgentIndexFilePattern.test(entry.name)) && isSourceFile(entry.name))
 }
 
 function findFolderAgentFiles(agentsDir: string): string[] {
@@ -103,10 +306,14 @@ function findFolderAgentFiles(agentsDir: string): string[] {
     }
     const absolute = resolve(agentsDir, entry.name)
     if (entry.isDirectory() && !entry.isSymbolicLink()) {
+      if ((entry.name === "workspace" || entry.name === "skills") && hasFolderAgentDefinition(agentsDir)) continue
       files.push(...findFolderAgentFiles(absolute))
       continue
     }
-    if (entry.isFile() && folderAgentFilePattern.test(entry.name) && isSourceFile(entry.name)) {
+    if (entry.isFile()
+      && (folderAgentFilePattern.test(entry.name) || folderAgentIndexFilePattern.test(entry.name))
+      && !(folderAgentIndexFilePattern.test(entry.name) && readDirEntries(agentsDir).some(sibling => sibling.isFile() && folderAgentFilePattern.test(sibling.name)))
+      && isSourceFile(entry.name)) {
       files.push(absolute)
     }
   }
@@ -125,11 +332,27 @@ function discoverSuffixAgentWorkflowDefinitions(roots: string[]): DiscoveredWork
 }
 
 function discoverFlatServerAgentWorkflowDefinitions(scanDirs: string[]): DiscoveredWorkflowDefinition[] {
+  const folderAgentFiles = scanDirs.flatMap(scanDir => findFolderAgentFiles(resolve(scanDir, "agents")))
+  const folderAgentDirs = new Set(folderAgentFiles.map(file => normalize(resolve(file, ".."))))
+  const folderAgentTargets = new Set(folderAgentFiles.flatMap((file) => {
+    const source = readFileSync(file, "utf8")
+    const target = resolveAgentReExport(file, source, maskSourceLiterals(source))
+    const relativeTarget = target && normalize(relative(resolve(file, ".."), target))
+    return target && relativeTarget && relativeTarget !== ".." && !relativeTarget.startsWith("../") && isFolderAgentImplementationTarget(target)
+      ? [normalize(target)]
+      : []
+  }))
   return discoverDefinitions("agent workflow", [
     createDirectoryDefinitionSource<DiscoveredWorkflowDefinition>("agent-workflow", scanDirs, "agents", {
       normalizeName(directory, file) {
         const fileName = normalize(file).split("/").pop()!
         const parent = normalize(resolve(file, ".."))
+        const name = normalizePathDefinitionName(directory, file)
+        if (folderAgentTargets.has(normalize(file))) return undefined
+        if ([...folderAgentDirs].some((agentDir) => {
+          const path = normalize(relative(agentDir, file))
+          return path === "workspace" || path.startsWith("workspace/") || path === "skills" || path.startsWith("skills/")
+        })) return undefined
         if ((folderAgentFilePattern.test(fileName) && parent !== normalize(directory))
           || legacyFolderAgentFilePattern.test(fileName)
           || agentEvalFilePattern.test(fileName)) {
@@ -140,7 +363,10 @@ function discoverFlatServerAgentWorkflowDefinitions(scanDirs: string[]): Discove
           && extractAgentWorkflowName(file, "__vitehub_agent_workflow__") === undefined) {
           return undefined
         }
-        return normalizePathDefinitionName(directory, file)
+        if (/^index\.(?:c|m)?[jt]s$/i.test(fileName) && hasFolderAgentDefinition(resolve(file, ".."))) {
+          return undefined
+        }
+        return name
       },
       createDefinition: ({ file, name }) => ({ handler: file, name, source: "agent-workflow" }),
     }),
@@ -155,7 +381,15 @@ function discoverConfiguredServerAgentWorkflowDefinitions(scanDirs: string[]): D
 
   for (const scanDir of scanDirs) {
     const agentsDir = resolve(scanDir, "agents")
-    for (const file of findFolderAgentFiles(agentsDir)) {
+    const files = findFolderAgentFiles(agentsDir)
+    const targets = new Set(files.flatMap((file) => {
+      const source = readFileSync(file, "utf8")
+      const target = resolveAgentReExport(file, source, maskSourceLiterals(source))
+      const relativeTarget = target && normalize(relative(resolve(file, ".."), target))
+      return target && relativeTarget && relativeTarget !== ".." && !relativeTarget.startsWith("../") ? [normalize(target)] : []
+    }))
+    for (const file of files) {
+      if (targets.has(normalize(file))) continue
       const name = normalize(relative(agentsDir, resolve(file, "..")))
       if (!name || name === ".") {
         continue

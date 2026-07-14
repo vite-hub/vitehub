@@ -81,13 +81,35 @@ describe("Vite workflow provider outputs", () => {
   it("builds the playground and emits cloudflare and vercel workflow outputs", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vite-playground-")
     const agentDir = join(rootDir, "server", "agents", "nuxt")
+    const inlineAgentDir = join(rootDir, "server", "agents", "inline")
+    const flatAgent = join(rootDir, "server", "agents", "flat.ts")
     await mkdir(agentDir, { recursive: true })
+    await mkdir(join(agentDir, "workspace"), { recursive: true })
+    await mkdir(join(agentDir, "skills", "review"), { recursive: true })
+    await mkdir(join(rootDir, "server", "agents", "skills", "shared"), { recursive: true })
+    await mkdir(join(rootDir, "server", "agents", "workspace"), { recursive: true })
+    await mkdir(inlineAgentDir, { recursive: true })
     await writeFile(join(agentDir, "agent.ts"), [
-      `import { defineAgent, workflow } from "@vite-hub/agent"`,
+      `import { defineAgent } from "@vite-hub/agent"`,
       "",
       "export default defineAgent({",
-      "  runtime: workflow(),",
+      "  workspace: {},",
       `  run: () => "nuxt agent",`,
+      "})",
+      "",
+    ].join("\n"))
+    await writeFile(join(agentDir, "instructions.md"), "Keep answers concise.\n@./shared.md\n`@./inline-example.md`\n```md\n@./fenced-example.md\n```\n    @./indented-example.md\n")
+    await writeFile(join(agentDir, "shared.md"), "Use shared policy.\n")
+    await writeFile(join(agentDir, "skills", "review", "SKILL.md"), "# Review skill\n")
+    await writeFile(join(rootDir, "server", "agents", "skills", "shared", "SKILL.md"), "# Shared directory must not leak\n")
+    await writeFile(flatAgent, `export default defineAgent({ workspace: {}, run: () => "flat agent" })\n`)
+    await writeFile(join(rootDir, "server", "agents", "instructions.md"), "Use flat Agent instructions.\n")
+    await writeFile(join(inlineAgentDir, "agent.ts"), [
+      `import { defineAgent } from "@vite-hub/agent"`,
+      "",
+      "export default defineAgent({",
+      `  runtime: false,`,
+      `  run: () => "inline agent",`,
       "})",
       "",
     ].join("\n"))
@@ -105,6 +127,8 @@ describe("Vite workflow provider outputs", () => {
     const wrangler = JSON.parse(await readFile(cloudflareConfig, "utf8"))
     const className = getCloudflareWorkflowClassName("welcome")
     const agentClassName = getCloudflareWorkflowClassName("nuxt")
+    const devtoolsAgentClassName = getCloudflareWorkflowClassName("devtools-demo")
+    const flatAgentClassName = getCloudflareWorkflowClassName("flat")
 
     expect(existsSync(cloudflareWorker)).toBe(true)
     expect(existsSync(cloudflareWorkerBundle)).toBe(true)
@@ -118,15 +142,43 @@ describe("Vite workflow provider outputs", () => {
       class_name: agentClassName,
       name: getCloudflareWorkflowName("nuxt"),
     })
-    expect(wrangler.workflows).toHaveLength(2)
+    expect(wrangler.workflows).toContainEqual({
+      binding: getCloudflareWorkflowBindingName("devtools-demo"),
+      class_name: devtoolsAgentClassName,
+      name: getCloudflareWorkflowName("devtools-demo"),
+    })
+    expect(wrangler.workflows).toContainEqual({
+      binding: getCloudflareWorkflowBindingName("flat"),
+      class_name: flatAgentClassName,
+      name: getCloudflareWorkflowName("flat"),
+    })
+    expect(wrangler.workflows).toHaveLength(4)
     const cloudflareWorkerContents = await readFile(cloudflareWorker, "utf8")
     expect(cloudflareWorkerContents).toContain("waitUntil as viteHubWaitUntil")
     expect(cloudflareWorkerContents).toContain(`export class ${className} extends WorkflowEntrypoint`)
     expect(cloudflareWorkerContents).toContain(`export class ${agentClassName} extends WorkflowEntrypoint`)
+    expect(cloudflareWorkerContents).toContain(`export class ${devtoolsAgentClassName} extends WorkflowEntrypoint`)
+    expect(cloudflareWorkerContents).toContain(`export class ${flatAgentClassName} extends WorkflowEntrypoint`)
     expect(cloudflareWorkerContents).toContain('runViteHubWorkflowDefinition("welcome"')
     expect(cloudflareWorkerContents).toContain('runViteHubWorkflowDefinition("nuxt"')
+    expect(cloudflareWorkerContents).not.toContain('runViteHubWorkflowDefinition("inline"')
     expect(await readFile(cloudflareWorkerBundle, "utf8")).toContain("runViteHubWorkflowDefinition")
-    expect(await readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8")).toContain("runAgentWorkflowDefinition")
+    const registry = await readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8")
+    expect(registry).toContain("runAgentWorkflowDefinition")
+    expect(registry).toContain('agentIdentity: context.payload?.agentIdentity || { name: "nuxt" }')
+    expect(registry).toContain("workspaceAgentWithSourceRoot")
+    expect(registry).toContain("agentWithColocatedSkills")
+    expect(registry).toContain("__vitehubAgentSkill:skills/review/SKILL.md")
+    expect(registry).toContain(JSON.stringify(join(agentDir, "workspace")))
+    expect(registry).toContain("Keep answers concise")
+    expect(registry).toContain("Use shared policy")
+    expect(registry).toContain("Use flat Agent instructions.")
+    expect(registry).toContain(JSON.stringify(join(rootDir, "server", "agents", "workspace")))
+    expect(registry).not.toContain("@./shared.md")
+    expect(registry).toContain("@./inline-example.md")
+    expect(registry).toContain("@./fenced-example.md")
+    expect(registry).toContain("@./indented-example.md")
+    expect(registry).not.toContain("Shared directory must not leak")
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
   }, buildOutputTestTimeout)

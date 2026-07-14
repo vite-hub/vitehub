@@ -1176,6 +1176,7 @@ describe("agent message protocol", () => {
     const { registerWorkspaceAgent } = await import("../src/server/workspace.ts")
     const workspaceName = `shared-agent-workspace-${Math.random().toString(36).slice(2)}`
     const summaryAgent = defineAgent({
+      runtime: false,
       workspace: { name: workspaceName, mode: "write" },
       driver: { async run({ workspace }) {
           await (workspace as WritableWorkspaceFacade).fs.writeFile("summary.md", "summary")
@@ -1183,6 +1184,7 @@ describe("agent message protocol", () => {
         } },
     })
     const reviewerAgent = registerWorkspaceAgent(defineAgent({
+      runtime: false,
       workspace: {
         mode: "write",
         store: { provider: "memory" },
@@ -8212,6 +8214,7 @@ describe("agent message protocol", () => {
     const { defineAgent } = await import("../src/index.ts")
     const browserAgent = {
       async resolve(context) {
+        expect(context.agentIdentity).toEqual({ name: "reviewer" })
         return {
           async generate({ runtime }) {
             return {
@@ -8241,6 +8244,7 @@ describe("agent message protocol", () => {
     })
 
     const resolved = await reviewerAgent.resolve({
+      agentIdentity: { name: "reviewer" },
       memo: vi.fn(),
       runtime: "unknown",
       runtimeConfig: { region: "iad" },
@@ -8256,6 +8260,31 @@ describe("agent message protocol", () => {
       },
       text: "browser report",
     })
+  })
+
+  it("keeps default subagents inline when static tools resolve with a discovered identity", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    const reviewerAgent = defineAgent({
+      capabilities: [subagents({
+        agents: {
+          browser: {
+            agent: defineAgent({ driver: { run: () => "browser report" } }),
+            description: "Collect browser evidence.",
+          },
+        },
+      })],
+      driver: { model: {} as never },
+    })
+    const resolved = await reviewerAgent.resolve({
+      agentIdentity: { name: "reviewer" },
+      memo: vi.fn(),
+      runtime: "vercel",
+      waitUntil: vi.fn(),
+    }) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
+
+    await expect(resolved.tools.run_browser!.execute({ message: "Check the product card." })).resolves.toBe("browser report")
   })
 
   it("prevents denied tools from executing", async () => {
@@ -8400,18 +8429,18 @@ describe("agent message protocol", () => {
       ])
     })
 
-    it("queues direct agent runs as Workflow Runs", async () => {
-      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+    it("queues discovered agent runs as Workflow Runs by default", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
       const agent = defineAgent({
-        runtime: workflow("support-agent"),
         driver: { run: context => `received ${context.prompt}` },
       })
       const run = await runAgent(agent, {
+        agentIdentity: { name: "support-agent" },
         memo: vi.fn(),
         runtime: "vercel",
         waitUntil: promise => waitUntilTasks.push(promise),
@@ -8428,6 +8457,249 @@ describe("agent message protocol", () => {
       })
     })
 
+    it("keeps programmatic agent runs inline without a discovered identity", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const agent = defineAgent({
+        driver: { run: context => `received ${context.prompt}` },
+      })
+
+      await expect(runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: vi.fn(),
+      }, { prompt: "hello" })).resolves.toBe("received hello")
+    })
+
+    it("keeps discovered Agent runs inline without an active Workflow runtime", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const agent = defineAgent({ driver: { run: () => "inline" } })
+
+      await expect(runAgent(agent, {
+        agentIdentity: { name: "support" },
+        memo: vi.fn(),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {})).resolves.toBe("inline")
+    })
+
+    it("keeps discovered Agent runs inline when Workflows are disabled", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      setWorkflowRuntimeConfig(false)
+
+      await expect(runAgent(defineAgent({ driver: { run: () => "inline" } }), {
+        agentIdentity: { name: "disabled-workflow" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: vi.fn(),
+      }, {})).resolves.toBe("inline")
+    })
+
+    it("reuses a discovered Workflow registry entry for default Agent runs", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeRegistry({
+        support: async () => ({ handler: async context => `registry:${(context.payload as { input?: { prompt?: string } }).input?.prompt}` }),
+      })
+
+      const run = await runAgent(defineAgent({ driver: { run: () => "inline" } }), {
+        agentIdentity: { name: "support" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("support", run.id)).resolves.toMatchObject({ result: "registry:hello" })
+    })
+
+    it("does not reuse discovered registry entries for explicit Agent workflows", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeRegistry({
+        "explicit-registry-collision": async () => ({ handler: async () => "registry" }),
+      })
+
+      await expect(runAgent(defineAgent({
+        runtime: workflow("explicit-registry-collision"),
+        driver: { run: () => "explicit-agent" },
+      }), {
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {})).rejects.toThrow('Duplicate workflow name "explicit-registry-collision"')
+    })
+
+    it("reuses a discovered Workflow registry entry for named discovered Agent runs", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeRegistry({
+        "named-discovered": async () => ({ handler: async () => "registry" }),
+      })
+
+      const run = await runAgent(defineAgent({
+        runtime: workflow("named-discovered"),
+        driver: { run: () => "inline" },
+      }), {
+        agentIdentity: { name: "support" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("named-discovered", run.id)).resolves.toMatchObject({ result: "registry" })
+    })
+
+    it("does not reuse cached discovered handles for direct Agent runs", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      const agent = defineAgent({ runtime: workflow("cache-boundary"), driver: { run: () => "inline" } })
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeRegistry({ "cache-boundary": async () => ({ handler: async () => "registry" }) })
+
+      const discoveredRun = await runAgent(agent, {
+        agentIdentity: { name: "support" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+      await Promise.all(waitUntilTasks.splice(0))
+      await expect(getWorkflowRun("cache-boundary", discoveredRun.id)).resolves.toMatchObject({ result: "registry" })
+
+      setWorkflowRuntimeRegistry(undefined)
+      const directRun = await runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("cache-boundary", directRun.id)).resolves.toMatchObject({ result: "inline" })
+    })
+
+    it("keeps manually composed child Agents inline with inherited parent identity", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const child = defineAgent({ driver: { run: () => "child" } })
+      const parent = defineAgent({
+        runtime: false,
+        driver: { run: context => runAgent(child, context, {}) },
+      })
+
+      await expect(runAgent(parent, {
+        agentIdentity: { name: "parent" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: vi.fn(),
+      }, {})).resolves.toBe("child")
+    })
+
+    it("does not persist discovered identity ownership on caller contexts", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const context = {
+        agentIdentity: { name: "reusable" },
+        memo: vi.fn(),
+        runtime: "vercel" as const,
+        waitUntil: vi.fn(),
+      }
+
+      await expect(runAgent(defineAgent({ runtime: false, driver: { run: () => "inline" } }), context, {})).resolves.toBe("inline")
+      expect(Object.getOwnPropertySymbols(context)).toEqual([])
+    })
+
+    it("keeps child Agents inline when copied contexts recreate the parent identity", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      const child = defineAgent({ driver: { run: () => "child" } })
+      const parent = defineAgent({
+        runtime: false,
+        driver: { run: context => runAgent(child, { ...context, agentIdentity: { ...context.agentIdentity! } }, {}) },
+      })
+
+      await expect(runAgent(parent, {
+        agentIdentity: { name: "copied-parent" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: vi.fn(),
+      }, {})).resolves.toBe("child")
+    })
+
+    it("keeps discovered Agents inline for custom host capabilities", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const agent = defineAgent({ driver: { run: () => "custom" } })
+
+      await expect(runAgent(agent, {
+        agentIdentity: { name: "custom" },
+        capabilities: { custom: {} },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: vi.fn(),
+      }, {})).resolves.toBe("custom")
+    })
+
+    it("keeps discovered Agents with host capabilities inline", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const run = await runAgent(defineAgent({ driver: { run: context => Object.keys(context.capabilities || {}) } }), {
+        agentIdentity: { name: "generated-capabilities" },
+        capabilities: { schedule: {} },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {})
+
+      expect(run).toEqual(["schedule"])
+      expect(waitUntilTasks).toHaveLength(0)
+    })
+
+    it("uses discovered identity ahead of the Agent Definition name for the default binding", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const run = await runAgent(defineAgent({
+        name: "configured-name",
+        driver: { run: context => `received ${context.prompt}` },
+      }), {
+        agentIdentity: { name: "discovered-name" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      expect(await getWorkflowRun("discovered-name", run.id)).toMatchObject({ status: "completed" })
+    })
+
+    it("runs direct agent calls inline when runtime is false", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const agent = defineAgent({
+        driver: { run: context => `received ${context.prompt}` },
+        runtime: false,
+      })
+
+      await expect(runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: vi.fn(),
+      }, { prompt: "hello" })).resolves.toBe("received hello")
+    })
+
     it("uses discovered Agent identity for unnamed workflow runtime bindings", async () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
@@ -8441,6 +8713,7 @@ describe("agent message protocol", () => {
       })
       const run = await runAgent(agent, {
         agentIdentity: { name: "browser" },
+        capabilities: { custom: {} },
         memo: vi.fn(),
         runtime: "vercel",
         waitUntil: promise => waitUntilTasks.push(promise),

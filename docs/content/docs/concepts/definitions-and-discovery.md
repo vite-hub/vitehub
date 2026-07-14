@@ -15,7 +15,7 @@ Location-derived identity makes generated registries, Provider Output, DevTools,
 
 This matters for agents because an Agent File Name or agent folder name becomes the discovered Agent identity. `defineAgent({ name })` is not the discovery identity override.
 
-Generated Agent hosts carry that discovery identity as `context.agentIdentity`, typed as `AgentHostIdentity`. An explicit `workflow("name")` binding wins for Workflow identity; otherwise `defineAgent({ name })` takes precedence over host identity for Workflow and implicit Workspace names. Definition configuration does not change the host's route or registry key. Custom hosts pass the same runtime identity when they invoke an Agent Definition.
+Generated Agent hosts carry that discovery identity as `context.agentIdentity`, typed as `AgentHostIdentity`. Agent Definitions contribute a Workflow with the same discovery identity by default; literal `runtime: false` opts out. An explicit `workflow("name")` binding wins for Workflow identity. `defineAgent({ name })` still takes precedence over host identity for explicit unnamed Workflow bindings and implicit Workspace names. Definition configuration does not change the host's route or registry key. Custom hosts pass the same runtime identity when they invoke an Agent Definition.
 
 ## Current discovery examples
 

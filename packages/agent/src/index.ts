@@ -576,6 +576,19 @@ interface ScheduleRunContextLike {
 
 const agentWorkflowHandles = new WeakMap<object, Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>>()
 const agentWorkflowNames = new Set<string>()
+const agentIdentityOwner = Symbol("vitehub.agentIdentityOwner")
+
+interface DefaultAgentWorkflowRuntimeBinding extends AgentWorkflowRuntimeBinding {
+  discoveryDefault: true
+}
+
+function withAgentIdentityOwner<TRuntimeConfig extends AgentRuntimeConfig>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+): AgentRuntimeContext<TRuntimeConfig> {
+  if (!context.agentIdentity || (context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]) return context
+  return { ...context, [agentIdentityOwner]: agent as object } as AgentRuntimeContext<TRuntimeConfig>
+}
 
 function hasAgentMethods(value: unknown): value is AgentAdapter {
   return typeof value === "object"
@@ -624,7 +637,7 @@ function resolveAgentWorkflowRuntimeBinding<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
 ): AgentWorkflowRuntimeBinding | undefined {
   if (!hasAgentDefinition(agent)) return undefined
-  return agent.runtime?.kind === "workflow" ? agent.runtime : undefined
+  return agent.runtime && agent.runtime.kind === "workflow" ? agent.runtime : undefined
 }
 
 function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -633,7 +646,7 @@ function resolveAgentWorkflowName<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): string {
   const definition = hasAgentDefinition(agent) ? agent : undefined
-  const name = binding.name || definition?.name || context.agentIdentity?.name
+  const name = binding.name || ("discoveryDefault" in binding ? context.agentIdentity?.name : definition?.name || context.agentIdentity?.name)
   if (name) return name
   throw new Error("[vitehub] Agent runtime workflow() requires a name when invoked directly. A stable Workflow Definition target requires workflow(\"name\").")
 }
@@ -644,21 +657,23 @@ async function getAgentWorkflowHandle<
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   name: string,
+  reuseRegistry: boolean,
 ): Promise<WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>> {
   const handles = agentWorkflowHandles.get(agent as object) || new Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>()
-  const existing = handles.get(name)
+  const cacheKey = `${reuseRegistry ? "registry" : "inline"}:${name}`
+  const existing = handles.get(cacheKey)
   if (existing) return existing as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>
 
   const { createWorkflow } = await import(/* @vite-ignore */ workflowSpecifier) as typeof import("@vite-hub/workflow")
-  const { getInlineWorkflowDefinitions } = await import(/* @vite-ignore */ workflowRuntimeStateSpecifier) as typeof import("@vite-hub/workflow/runtime/state")
-  const handle = agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name)
+  const { getInlineWorkflowDefinitions, getWorkflowRuntimeRegistry } = await import(/* @vite-ignore */ workflowRuntimeStateSpecifier) as typeof import("@vite-hub/workflow/runtime/state")
+  const handle = (reuseRegistry && getWorkflowRuntimeRegistry()?.[name]) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
     ? createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>(name)
     : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>(name, async (workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
         return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never)
       })
   agentWorkflowNames.add(name)
-  handles.set(name, handle as WorkflowHandle<AgentWorkflowInvocationPayload, unknown>)
+  handles.set(cacheKey, handle as WorkflowHandle<AgentWorkflowInvocationPayload, unknown>)
   agentWorkflowHandles.set(agent as object, handles)
   return handle
 }
@@ -672,9 +687,20 @@ async function runAgentAsWorkflow<
   input: AgentRunInput<CALL_OPTIONS>,
 ) {
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
-  if (!binding) return undefined
+  if (!binding || ("discoveryDefault" in binding && !context.agentIdentity)) return undefined
+  if ("discoveryDefault" in binding) {
+    const { getWorkflowRuntimeConfig } = await import(/* @vite-ignore */ workflowRuntimeStateSpecifier) as typeof import("@vite-hub/workflow/runtime/state")
+    if (!getWorkflowRuntimeConfig()) return undefined
+  }
+  if ("discoveryDefault" in binding && context.agentIdentity) {
+    const owner = (context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]
+    if (owner && owner !== agent) return undefined
+  }
+  const capabilityNames = Object.keys(context.capabilities || {})
+  // ponytail: Host capability handles and registries cannot cross a Workflow payload without losing identity.
+  if ("discoveryDefault" in binding && capabilityNames.length) return undefined
 
-  const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS>(agent, resolveAgentWorkflowName(agent, binding, context))
+  const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS>(agent, resolveAgentWorkflowName(agent, binding, context), Boolean(context.agentIdentity))
   const resolvedContext = createResolvedRuntimeContext(context)
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
@@ -1013,7 +1039,7 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   const driver = normalizeAgentDriver(options)
-  const { box, capabilities, cli, description, hooks, messages, name, runtime, version, workspace } = options
+  const { box, capabilities, cli, description, hooks, messages, name, runtime = defaultAgentWorkflowRuntime(), version, workspace } = options
   const channels = normalizeAgentChannels(options.channels)
   if (box && driver.kind !== "harness") {
     throw new Error("[vitehub] defineAgent({ box }) currently requires a harness Agent Driver.")
@@ -1074,6 +1100,7 @@ function defineBaseAgent<
     workspace,
     ...(normalizedCapabilities.length ? { capabilities: normalizedCapabilities } : {}),
     async resolve(context) {
+      context = withAgentIdentityOwner(definition, context)
       const adapterInstance = await resolveBaseAgent(context)
       const resolvedContext = createResolvedRuntimeContext(context)
       const resolvedTools = driver.kind === "model" && normalizedCapabilities.length && !workspace
@@ -1098,6 +1125,10 @@ export function workflow(name?: string): AgentWorkflowRuntimeBinding {
     kind: "workflow",
     ...(name ? { name } : {}),
   }
+}
+
+function defaultAgentWorkflowRuntime(): DefaultAgentWorkflowRuntimeBinding {
+  return { discoveryDefault: true, kind: "workflow" }
 }
 
 function createSyntheticWorkspaceRun<
@@ -2277,6 +2308,7 @@ export async function runAgentInline<
   input: AgentRunInput<CALL_OPTIONS>,
   options: RunAgentInlineOptions = {},
 ): Promise<Response | AgentRunResult | unknown> {
+  context = withAgentIdentityOwner(agent, context)
   const renderOutput = options.output !== "raw"
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const runContext = await createAgentInvocationContext(agent, context, input)
@@ -2355,9 +2387,10 @@ export async function runAgent<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
 ): Promise<Response | AgentRunResult | unknown> {
-  const workflowRun = await runAgentAsWorkflow(agent, context, input)
+  const invocationContext = withAgentIdentityOwner(agent, context)
+  const workflowRun = await runAgentAsWorkflow(agent, invocationContext, input)
   if (workflowRun) return workflowRun
-  return await runAgentInline(agent, context, input)
+  return await runAgentInline(agent, invocationContext, input)
 }
 
 export async function runScheduledAgent(

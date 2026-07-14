@@ -1,7 +1,7 @@
 import type { WorkspaceSourceInput } from "@vite-hub/workspace"
 
-export const colocatedAgentSkillsSymbol = Symbol.for("vitehub.agent.colocatedSkills")
-export const colocatedAgentSkillsContextKey = "agent.colocatedSkills"
+export const colocatedAgentSkillsSymbol: symbol = Symbol.for("vitehub.agent.colocatedSkills")
+export const colocatedAgentSkillsContextKey: string = "agent.colocatedSkills"
 
 export type ColocatedAgentSkills = Record<string, WorkspaceSourceInput>
 

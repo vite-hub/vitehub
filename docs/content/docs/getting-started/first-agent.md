@@ -63,6 +63,7 @@ import { defineAgent } from "@vite-hub/agent"
 
 export default defineAgent({
   description: "Returns a deterministic greeting for the first tutorial.",
+  runtime: false,
   driver: {
     run({ prompt }) {
       const name = typeof prompt === "string" ? prompt : "friend"
@@ -75,8 +76,10 @@ export default defineAgent({
 })
 ```
 
-The route imports this Definition directly. Keeping it under `server/agents`
-makes the Agent boundary easy to discover and review.
+The route imports this Definition directly and needs the completed result for
+its HTTP response, so `runtime: false` opts out of the hosted Workflow default.
+Keeping it under `server/agents` makes the Agent boundary easy to discover and
+review.
 
 ## Run one Agent Invocation
 
