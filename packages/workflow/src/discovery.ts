@@ -192,7 +192,7 @@ function extractAgentWorkflowName(file: string, fallbackName: string): string | 
 
 function toAgentWorkflowDefinition(file: string, fallbackName: string): DiscoveredWorkflowDefinition | undefined {
   const name = extractAgentWorkflowName(file, fallbackName)
-  return name ? { handler: file, name, source: "agent-workflow" } : undefined
+  return name ? { agentIdentity: fallbackName, handler: file, name, source: "agent-workflow" } : undefined
 }
 
 function isWorkflowFolder(directory: string) {
@@ -230,7 +230,7 @@ function findFolderAgentFiles(agentsDir: string): string[] {
     }
     const absolute = resolve(agentsDir, entry.name)
     if (entry.isDirectory() && !entry.isSymbolicLink()) {
-      if (entry.name === "workspace" && hasFolderAgentDefinition(agentsDir)) continue
+      if ((entry.name === "workspace" || entry.name === "skills") && hasFolderAgentDefinition(agentsDir)) continue
       files.push(...findFolderAgentFiles(absolute))
       continue
     }
@@ -256,16 +256,23 @@ function discoverSuffixAgentWorkflowDefinitions(roots: string[]): DiscoveredWork
 }
 
 function discoverFlatServerAgentWorkflowDefinitions(scanDirs: string[]): DiscoveredWorkflowDefinition[] {
-  const folderAgentDirs = new Set(scanDirs.flatMap(scanDir => findFolderAgentFiles(resolve(scanDir, "agents")).map(file => normalize(resolve(file, "..")))))
+  const folderAgentFiles = scanDirs.flatMap(scanDir => findFolderAgentFiles(resolve(scanDir, "agents")))
+  const folderAgentDirs = new Set(folderAgentFiles.map(file => normalize(resolve(file, ".."))))
+  const folderAgentTargets = new Set(folderAgentFiles.flatMap((file) => {
+    const source = readFileSync(file, "utf8")
+    const target = resolveAgentReExport(file, source, maskSourceLiterals(source))
+    return target ? [normalize(target)] : []
+  }))
   return discoverDefinitions("agent workflow", [
     createDirectoryDefinitionSource<DiscoveredWorkflowDefinition>("agent-workflow", scanDirs, "agents", {
       normalizeName(directory, file) {
         const fileName = normalize(file).split("/").pop()!
         const parent = normalize(resolve(file, ".."))
         const name = normalizePathDefinitionName(directory, file)
+        if (folderAgentTargets.has(normalize(file))) return undefined
         if ([...folderAgentDirs].some((agentDir) => {
           const path = normalize(relative(agentDir, file))
-          return path === "workspace" || path.startsWith("workspace/")
+          return path === "workspace" || path.startsWith("workspace/") || path === "skills" || path.startsWith("skills/")
         })) return undefined
         if ((folderAgentFilePattern.test(fileName) && parent !== normalize(directory))
           || legacyFolderAgentFilePattern.test(fileName)
@@ -295,7 +302,14 @@ function discoverConfiguredServerAgentWorkflowDefinitions(scanDirs: string[]): D
 
   for (const scanDir of scanDirs) {
     const agentsDir = resolve(scanDir, "agents")
-    for (const file of findFolderAgentFiles(agentsDir)) {
+    const files = findFolderAgentFiles(agentsDir)
+    const targets = new Set(files.flatMap((file) => {
+      const source = readFileSync(file, "utf8")
+      const target = resolveAgentReExport(file, source, maskSourceLiterals(source))
+      return target ? [normalize(target)] : []
+    }))
+    for (const file of files) {
+      if (targets.has(normalize(file))) continue
       const name = normalize(relative(agentsDir, resolve(file, "..")))
       if (!name || name === ".") {
         continue

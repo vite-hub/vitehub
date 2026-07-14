@@ -172,6 +172,7 @@ export interface WorkflowDefinitionRegistry {
 }
 
 export interface DiscoveredWorkflowDefinition {
+  agentIdentity?: string
   handler: string
   name: string
   source?: "agent-workflow" | "inline" | "server-workflows" | "vite-suffix"

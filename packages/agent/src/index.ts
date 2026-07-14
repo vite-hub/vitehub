@@ -654,8 +654,8 @@ async function getAgentWorkflowHandle<
   if (existing) return existing as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>
 
   const { createWorkflow } = await import(/* @vite-ignore */ workflowSpecifier) as typeof import("@vite-hub/workflow")
-  const { getInlineWorkflowDefinitions } = await import(/* @vite-ignore */ workflowRuntimeStateSpecifier) as typeof import("@vite-hub/workflow/runtime/state")
-  const handle = agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name)
+  const { getInlineWorkflowDefinitions, getWorkflowRuntimeRegistry } = await import(/* @vite-ignore */ workflowRuntimeStateSpecifier) as typeof import("@vite-hub/workflow/runtime/state")
+  const handle = getWorkflowRuntimeRegistry()?.[name] || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
     ? createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>(name)
     : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>(name, async (workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
@@ -677,6 +677,10 @@ async function runAgentAsWorkflow<
 ) {
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
   if (!binding || ("discoveryDefault" in binding && !context.agentIdentity)) return undefined
+  if ("discoveryDefault" in binding) {
+    const { getWorkflowRuntimeConfig } = await import(/* @vite-ignore */ workflowRuntimeStateSpecifier) as typeof import("@vite-hub/workflow/runtime/state")
+    if (getWorkflowRuntimeConfig() === undefined) return undefined
+  }
   if ("discoveryDefault" in binding && context.agentIdentity) {
     const owner = agentIdentityOwners.get(context.agentIdentity)
     if (owner && owner !== agent) return undefined

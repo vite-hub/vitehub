@@ -111,6 +111,7 @@ describe("workflow definitions", () => {
     await mkdir(join(rootDir, "server", "agents", "wrapped-inline"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "index-folder", "workspace", "src"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "team"), { recursive: true })
+    await mkdir(join(rootDir, "server", "agents", "team", "skills", "helper"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "variable-inline"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "variable-typed"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "workspace"), { recursive: true })
@@ -125,7 +126,7 @@ describe("workflow definitions", () => {
     await writeFile(join(rootDir, "server", "agents", "wrapped", "agent.ts"), "export { default } from './definition'\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "wrapped", "definition.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "wrapped-index", "agent.ts"), "export { default } from './definition'\n", "utf8")
-    await writeFile(join(rootDir, "server", "agents", "wrapped-index", "definition", "index.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "wrapped-index", "definition", "index.ts"), "export default defineAgent({ runtime: workflow('wrapped-custom'), driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "dynamic", "agent.ts"), "export default defineAgent(createOptions())\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "imported", "agent.ts"), "import reviewAgent from './definition'\nexport default reviewAgent\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "imported", "definition.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
@@ -137,15 +138,15 @@ describe("workflow definitions", () => {
     await writeFile(join(rootDir, "server", "agents", "team", "index.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "team", "review.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "team", "helper.ts"), "export default { driver: { run } }\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "team", "skills", "helper", "agent.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "variable-inline", "agent.ts"), "const supportAgent = defineAgent({ runtime: false, driver: { run } })\nexport default supportAgent\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "variable-typed", "agent.ts"), "const jobsAgent: AgentDefinition<{ region: string; token: string }> = defineAgent({ runtime: workflow('typed-variable'), driver: { run } })\nexport default jobsAgent\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "workspace", "foo.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
 
     expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
-      expect.objectContaining({ name: "custom-name", source: "agent-workflow" }),
+      expect.objectContaining({ agentIdentity: "named", name: "custom-name", source: "agent-workflow" }),
       expect.objectContaining({ name: "dynamic", source: "agent-workflow" }),
       expect.objectContaining({ name: "imported", source: "agent-workflow" }),
-      expect.objectContaining({ name: "imported/definition", source: "agent-workflow" }),
       expect.objectContaining({ name: "index-folder", source: "agent-workflow" }),
       expect.objectContaining({ name: "mentioned", source: "agent-workflow" }),
       expect.objectContaining({ name: "support", source: "agent-workflow" }),
@@ -155,9 +156,7 @@ describe("workflow definitions", () => {
       expect.objectContaining({ name: "typed-variable", source: "agent-workflow" }),
       expect.objectContaining({ name: "workspace/foo", source: "agent-workflow" }),
       expect.objectContaining({ name: "wrapped", source: "agent-workflow" }),
-      expect.objectContaining({ name: "wrapped-index", source: "agent-workflow" }),
-      expect.objectContaining({ name: "wrapped-index/definition", source: "agent-workflow" }),
-      expect.objectContaining({ name: "wrapped/definition", source: "agent-workflow" }),
+      expect.objectContaining({ agentIdentity: "wrapped-index", name: "wrapped-custom", source: "agent-workflow" }),
     ])
   })
 

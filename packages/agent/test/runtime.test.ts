@@ -1055,6 +1055,7 @@ describe("agent message protocol", () => {
 
     try {
       const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
       const traceLog = createTraceEventLog()
       const agent = defineAgent({       driver: {
         model: {} as never
@@ -8404,6 +8405,39 @@ describe("agent message protocol", () => {
         runtime: "vercel",
         waitUntil: vi.fn(),
       }, { prompt: "hello" })).resolves.toBe("received hello")
+    })
+
+    it("keeps discovered Agent runs inline without an active Workflow runtime", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const agent = defineAgent({ driver: { run: () => "inline" } })
+
+      await expect(runAgent(agent, {
+        agentIdentity: { name: "support" },
+        memo: vi.fn(),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, {})).resolves.toBe("inline")
+    })
+
+    it("reuses a discovered Workflow registry entry for default Agent runs", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeRegistry({
+        support: async () => ({ handler: async context => `registry:${(context.payload as { input?: { prompt?: string } }).input?.prompt}` }),
+      })
+
+      const run = await runAgent(defineAgent({ driver: { run: () => "inline" } }), {
+        agentIdentity: { name: "support" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("support", run.id)).resolves.toMatchObject({ result: "registry:hello" })
     })
 
     it("keeps manually composed child Agents inline with inherited parent identity", async () => {
