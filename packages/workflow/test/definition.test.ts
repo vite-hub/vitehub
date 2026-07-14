@@ -84,6 +84,7 @@ describe("workflow definitions", () => {
     await mkdir(agentDir, { recursive: true })
     await writeFile(join(agentDir, "agent.ts"), "export default defineAgent({ runtime: workflow() })\n", "utf8")
     await writeFile(join(agentDir, "review.ts"), "export default defineAgent({ runtime: workflow() })\n", "utf8")
+    await writeFile(join(agentDir, "config.ts"), "export default defineAgent({ runtime: workflow() })\n", "utf8")
     await writeFile(join(agentDir, "helper.ts"), "export const helper = true\n", "utf8")
 
     expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
