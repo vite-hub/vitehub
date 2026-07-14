@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { relative } from "node:path"
 
 import { normalize, resolve } from "pathe"
@@ -23,6 +23,7 @@ const sourceFilePattern = /\.(?:c|m)?[jt]s$/i
 const declarationFilePattern = /\.d\.(?:c|m)?[jt]s$/i
 const stepFilePattern = /^\d+[.-].*\.(?:c|m)?[jt]s$/i
 const folderAgentFilePattern = /^agent\.(?:c|m)?[jt]s$/i
+const folderAgentIndexFilePattern = /^index\.(?:c|m)?[jt]s$/i
 const legacyFolderAgentFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const agentEvalFilePattern = /\.eval\.(?:c|m)?[jt]s$/i
 
@@ -113,14 +114,29 @@ function findAgentObjectStart(masked: string): number | undefined {
   return undefined
 }
 
-function extractAgentRuntime(source: string): { masked?: string, raw?: string } | undefined {
+function resolveAgentReExport(file: string, source: string, masked: string): string | undefined {
+  const direct = /\bexport\s+\{\s*default\s*\}\s+from\s*(["'])([^"']+)\1/.exec(source)
+  const exported = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\b/.exec(masked)
+  const imported = exported && new RegExp(`\\bimport\\s+${exported[1]}\\s+from\\s*(["'])([^"']+)\\1`).exec(source)
+  const specifier = direct?.[2] || imported?.[2]
+  if (!specifier?.startsWith(".")) return undefined
+  const target = resolve(file, "..", specifier)
+  for (const candidate of [target, ...[".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"].map(extension => `${target}${extension}`)]) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
+  }
+  return undefined
+}
+
+function extractAgentRuntime(file: string, seen = new Set<string>()): { masked?: string, raw?: string } | undefined {
+  if (seen.has(file)) return undefined
+  seen.add(file)
+  const source = readFileSync(file, "utf8")
   const masked = maskSourceLiterals(source)
   const start = findAgentObjectStart(masked)
   if (start === undefined) {
-    return /\bexport\s+\{\s*default\s*\}\s+from\b/.test(masked)
-      || /\bexport\s+default\s+[A-Za-z_$][\w$]*Agent\b/.test(masked)
-      ? {}
-      : undefined
+    const target = resolveAgentReExport(file, source, masked)
+    if (target) return extractAgentRuntime(target, seen)
+    return /\bexport\s+default\s+[A-Za-z_$][\w$]*Agent\b/.test(masked) ? {} : undefined
   }
   let depth = 0
   for (let index = start; index < masked.length; index++) {
@@ -156,7 +172,7 @@ function extractAgentRuntime(source: string): { masked?: string, raw?: string } 
 }
 
 function extractAgentWorkflowName(file: string, fallbackName: string): string | undefined {
-  const runtime = extractAgentRuntime(readFileSync(file, "utf8"))
+  const runtime = extractAgentRuntime(file)
   if (!runtime) return undefined
   const match = /^(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*workflow\s*\(\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*(["'`])([^"'`]+)\1\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*\)$/.exec(runtime.raw || "")
   if (match) {
@@ -194,7 +210,7 @@ function findWorkflowFolders(workflowsDir: string): string[] {
 }
 
 function hasFolderAgentDefinition(directory: string): boolean {
-  return readDirEntries(directory).some(entry => entry.isFile() && folderAgentFilePattern.test(entry.name) && isSourceFile(entry.name))
+  return readDirEntries(directory).some(entry => entry.isFile() && (folderAgentFilePattern.test(entry.name) || folderAgentIndexFilePattern.test(entry.name)) && isSourceFile(entry.name))
 }
 
 function findFolderAgentFiles(agentsDir: string): string[] {
@@ -209,7 +225,10 @@ function findFolderAgentFiles(agentsDir: string): string[] {
       files.push(...findFolderAgentFiles(absolute))
       continue
     }
-    if (entry.isFile() && folderAgentFilePattern.test(entry.name) && isSourceFile(entry.name)) {
+    if (entry.isFile()
+      && (folderAgentFilePattern.test(entry.name) || folderAgentIndexFilePattern.test(entry.name))
+      && !(folderAgentIndexFilePattern.test(entry.name) && readDirEntries(agentsDir).some(sibling => sibling.isFile() && folderAgentFilePattern.test(sibling.name)))
+      && isSourceFile(entry.name)) {
       files.push(absolute)
     }
   }

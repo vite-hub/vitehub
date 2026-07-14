@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
 import { builtinModules } from "node:module"
 import { dirname, join, relative, resolve } from "node:path"
@@ -120,13 +120,38 @@ function readAgentInstructions(file: string): string | undefined {
     : undefined
 }
 
+function readAgentSkills(file: string): Record<string, { content: string, encoding: "base64", materialize: "build", mount: "", workspacePath: string }> | undefined {
+  const root = dirname(file)
+  const skillsRoot = join(root, "skills")
+  if (!existsSync(skillsRoot) || !statSync(skillsRoot).isDirectory()) return undefined
+  const sources: Record<string, { content: string, encoding: "base64", materialize: "build", mount: "", workspacePath: string }> = {}
+  const visit = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+      const target = join(directory, entry.name)
+      if (entry.isDirectory()) visit(target)
+      else if (entry.isFile()) {
+        const workspacePath = relative(root, target).replace(/\\/g, "/")
+        sources[`__vitehubAgentSkill:${workspacePath}`] = {
+          content: readFileSync(target).toString("base64"),
+          encoding: "base64",
+          materialize: "build",
+          mount: "",
+          workspacePath,
+        }
+      }
+    }
+  }
+  visit(skillsRoot)
+  return Object.keys(sources).length ? sources : undefined
+}
+
 function renderAgentWorkflowRegistryEntry(registryFile: string, definition: DiscoveredWorkflowDefinition) {
   return [
     `  ${JSON.stringify(definition.name)}: async () => {`,
     `    const cached = registryEntryCache.get(${JSON.stringify(definition.name)})`,
     "    if (cached) return cached",
     `    const loaded = await ${renderRegistryImport(registryFile, definition.handler)}`,
-    `    const agent = workspaceAgentWithSourceRoot("default" in loaded ? loaded.default : loaded, ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(readAgentInstructions(definition.handler))})`,
+    `    const agent = agentWithColocatedSkills(workspaceAgentWithSourceRoot("default" in loaded ? loaded.default : loaded, ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(readAgentInstructions(definition.handler))}), ${JSON.stringify(readAgentSkills(definition.handler))})`,
     "    const entry = { handler: async (context) => await runAgentWorkflowDefinition(agent, context, runAgentInline) }",
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
     "    return entry",
@@ -184,7 +209,7 @@ function createWorkflowRegistryContents(registryFile: string, definitions: Disco
     ...(needsAgentRuntime
       ? [
           `import { runAgentInline } from "@vite-hub/agent"`,
-          `import { runAgentWorkflowDefinition, workspaceAgentWithSourceRoot } from "@vite-hub/agent/runtime/workflow"`,
+          `import { agentWithColocatedSkills, runAgentWorkflowDefinition, workspaceAgentWithSourceRoot } from "@vite-hub/agent/runtime/workflow"`,
         ]
       : []),
     ...(needsWorkflowRuntime

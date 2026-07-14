@@ -84,6 +84,7 @@ describe("Vite workflow provider outputs", () => {
     const inlineAgentDir = join(rootDir, "server", "agents", "inline")
     await mkdir(agentDir, { recursive: true })
     await mkdir(join(agentDir, "workspace"), { recursive: true })
+    await mkdir(join(agentDir, "skills", "review"), { recursive: true })
     await mkdir(inlineAgentDir, { recursive: true })
     await writeFile(join(agentDir, "agent.ts"), [
       `import { defineAgent } from "@vite-hub/agent"`,
@@ -96,6 +97,7 @@ describe("Vite workflow provider outputs", () => {
     ].join("\n"))
     await writeFile(join(agentDir, "instructions.md"), "Keep answers concise.\n@./shared.md\n`@./inline-example.md`\n```md\n@./fenced-example.md\n```\n")
     await writeFile(join(agentDir, "shared.md"), "Use shared policy.\n")
+    await writeFile(join(agentDir, "skills", "review", "SKILL.md"), "# Review skill\n")
     await writeFile(join(inlineAgentDir, "agent.ts"), [
       `import { defineAgent } from "@vite-hub/agent"`,
       "",
@@ -151,6 +153,8 @@ describe("Vite workflow provider outputs", () => {
     const registry = await readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8")
     expect(registry).toContain("runAgentWorkflowDefinition")
     expect(registry).toContain("workspaceAgentWithSourceRoot")
+    expect(registry).toContain("agentWithColocatedSkills")
+    expect(registry).toContain("__vitehubAgentSkill:skills/review/SKILL.md")
     expect(registry).toContain(JSON.stringify(join(agentDir, "workspace")))
     expect(registry).toContain("Keep answers concise")
     expect(registry).toContain("Use shared policy")
