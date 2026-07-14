@@ -120,6 +120,7 @@ describe("workflow definitions", () => {
     await mkdir(join(rootDir, "server", "agents", "options-inline"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "block-comment"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "shorthand-inline"), { recursive: true })
+    await mkdir(join(rootDir, "server", "agents", "shorthand-named"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "js-wrapper"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "trailing-comment"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "workspace"), { recursive: true })
@@ -159,6 +160,7 @@ describe("workflow definitions", () => {
     await writeFile(join(rootDir, "server", "agents", "options-inline", "agent.ts"), "const options = { runtime: false, driver: { run } }\nexport default defineAgent(options)\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "block-comment", "agent.ts"), "export default defineAgent({ runtime: workflow('billing') /* hosted */, driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "shorthand-inline", "agent.ts"), "const runtime = false as const\nexport default defineAgent({ runtime, driver: { run } })\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "shorthand-named", "agent.ts"), "const runtime = workflow('shorthand-custom')\nexport default defineAgent({ runtime, driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "js-wrapper", "agent.ts"), "export { default } from './definition.js'\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "js-wrapper", "definition.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "trailing-comment", "agent.ts"), "export default defineAgent({ runtime: workflow('commented-name') // hosted workflow\n, driver: { run } })\n", "utf8")
@@ -179,6 +181,7 @@ describe("workflow definitions", () => {
       expect.objectContaining({ name: "index-folder", source: "agent-workflow" }),
       expect.objectContaining({ name: "js-wrapper", source: "agent-workflow" }),
       expect.objectContaining({ name: "mentioned", source: "agent-workflow" }),
+      expect.objectContaining({ agentIdentity: "shorthand-named", name: "shorthand-custom", source: "agent-workflow" }),
       expect.objectContaining({ name: "support", source: "agent-workflow" }),
       expect.objectContaining({ name: "team", source: "agent-workflow" }),
       expect.objectContaining({ name: "team/review", source: "agent-workflow" }),

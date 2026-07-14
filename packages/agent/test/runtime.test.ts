@@ -8497,6 +8497,34 @@ describe("agent message protocol", () => {
       await expect(getWorkflowRun("named-discovered", run.id)).resolves.toMatchObject({ result: "registry" })
     })
 
+    it("does not reuse cached discovered handles for direct Agent runs", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      const agent = defineAgent({ runtime: workflow("cache-boundary"), driver: { run: () => "inline" } })
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeRegistry({ "cache-boundary": async () => ({ handler: async () => "registry" }) })
+
+      const discoveredRun = await runAgent(agent, {
+        agentIdentity: { name: "support" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+      await Promise.all(waitUntilTasks.splice(0))
+      await expect(getWorkflowRun("cache-boundary", discoveredRun.id)).resolves.toMatchObject({ result: "registry" })
+
+      setWorkflowRuntimeRegistry(undefined)
+      const directRun = await runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("cache-boundary", directRun.id)).resolves.toMatchObject({ result: "inline" })
+    })
+
     it("keeps manually composed child Agents inline with inherited parent identity", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const child = defineAgent({ driver: { run: () => "child" } })

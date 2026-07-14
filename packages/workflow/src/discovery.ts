@@ -237,15 +237,31 @@ function extractAgentRuntime(file: string, seen = new Set<string>()): { masked?:
 function extractAgentWorkflowName(file: string, fallbackName: string): string | undefined {
   const runtime = extractAgentRuntime(file)
   if (!runtime) return undefined
-  const match = /^(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*workflow\s*\(\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*(["'`])([^"'`]+)\1\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*\)(?:\s*(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$)))*\s*$/.exec(runtime.raw || "")
+  const workflowPattern = /^(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*workflow\s*\(\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*(["'`])([^"'`]+)\1\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*\)(?:\s*(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$)))*\s*$/
+  const match = workflowPattern.exec(runtime.raw || "")
   if (match) {
     return match[2] || fallbackName
   }
   if (/^false(?:\s+as\s+const)?$/.test(runtime.masked || "")) return undefined
   const shorthand = /^([A-Za-z_$][\w$]*)$/.exec(runtime.masked || "")?.[1]
   if (shorthand) {
-    const masked = maskSourceLiterals(readFileSync(file, "utf8"))
-    if (new RegExp(`\\b(?:const|let|var)\\s+${shorthand}\\s*(?::[^=]+)?=\\s*false(?:\\s+as\\s+const)?\\b`).test(masked)) return undefined
+    const source = readFileSync(file, "utf8")
+    const masked = maskSourceLiterals(source)
+    const declaration = new RegExp(`\\b(?:const|let|var)\\s+${shorthand}\\s*(?::(?:=>|[^=])*?)?=\\s*`).exec(masked)
+    if (declaration) {
+      const start = declaration.index + declaration[0].length
+      let end = start
+      let depth = 0
+      for (; end < masked.length; end++) {
+        if ("([{".includes(masked[end] || "")) depth++
+        else if (")]}".includes(masked[end] || "")) depth--
+        else if (depth === 0 && (masked[end] === ";" || masked[end] === "\n")) break
+      }
+      const initializer = source.slice(start, end).trim()
+      if (/^false(?:\s+as\s+const)?$/.test(masked.slice(start, end).trim())) return undefined
+      const shorthandWorkflow = workflowPattern.exec(initializer)
+      if (shorthandWorkflow) return shorthandWorkflow[2] || fallbackName
+    }
   }
   return fallbackName
 }

@@ -659,7 +659,8 @@ async function getAgentWorkflowHandle<
   reuseRegistry: boolean,
 ): Promise<WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>> {
   const handles = agentWorkflowHandles.get(agent as object) || new Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>()
-  const existing = handles.get(name)
+  const cacheKey = `${reuseRegistry ? "registry" : "inline"}:${name}`
+  const existing = handles.get(cacheKey)
   if (existing) return existing as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>
 
   const { createWorkflow } = await import(/* @vite-ignore */ workflowSpecifier) as typeof import("@vite-hub/workflow")
@@ -671,7 +672,7 @@ async function getAgentWorkflowHandle<
         return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never)
       })
   agentWorkflowNames.add(name)
-  handles.set(name, handle as WorkflowHandle<AgentWorkflowInvocationPayload, unknown>)
+  handles.set(cacheKey, handle as WorkflowHandle<AgentWorkflowInvocationPayload, unknown>)
   agentWorkflowHandles.set(agent as object, handles)
   return handle
 }
