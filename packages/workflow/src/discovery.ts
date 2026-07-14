@@ -100,25 +100,45 @@ function findDefineAgentObjectStart(masked: string, start: number): number | und
   if (masked[index++] !== "(") return undefined
   while (/\s/.test(masked[index] || "")) index++
   if (masked[index] === "{") return index
+  const options = /^([A-Za-z_$][\w$]*)\b/.exec(masked.slice(index))?.[1]
+  if (options) {
+    const declaration = new RegExp(`\\b(?:const|let|var)\\s+${options}\\s*(?::(?:=>|[^=])*?)?=\\s*\\{`).exec(masked)
+    if (declaration) return declaration.index + declaration[0].lastIndexOf("{")
+  }
   return undefined
 }
 
-function findAgentObjectStart(masked: string): number | undefined {
-  const inline = /\bexport\s+default\s+defineAgent\b/.exec(masked)
-  if (inline) return findDefineAgentObjectStart(masked, inline.index + inline[0].length)
+function agentFactoryNames(source: string): string[] {
+  const names = new Set(["defineAgent"])
+  for (const match of source.matchAll(/\bimport\s*\{([^}]+)\}\s*from\s*["']@vite-hub\/agent["']/g)) {
+    for (const specifier of match[1]!.split(",")) {
+      const alias = /^\s*defineAgent\s+as\s+([A-Za-z_$][\w$]*)\s*$/.exec(specifier)?.[1]
+      if (alias) names.add(alias)
+    }
+  }
+  return [...names]
+}
+
+function findAgentObjectStart(source: string, masked: string): number | undefined {
+  for (const factory of agentFactoryNames(source)) {
+    const inline = new RegExp(`\\bexport\\s+default\\s+${factory}\\b`).exec(masked)
+    if (inline) return findDefineAgentObjectStart(masked, inline.index + inline[0].length)
+  }
 
   const exported = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\b/.exec(masked)
   if (!exported) return undefined
-  const declaration = new RegExp(`\\b(?:const|let|var)\\s+${exported[1]}\\s*(?::(?:=>|[^=])*?)?=\\s*defineAgent\\b`).exec(masked)
-  if (declaration) return findDefineAgentObjectStart(masked, declaration.index + declaration[0].length)
+  for (const factory of agentFactoryNames(source)) {
+    const declaration = new RegExp(`\\b(?:const|let|var)\\s+${exported[1]}\\s*(?::(?:=>|[^=])*?)?=\\s*${factory}\\b`).exec(masked)
+    if (declaration) return findDefineAgentObjectStart(masked, declaration.index + declaration[0].length)
+  }
   return undefined
 }
 
-function hasExportedDefineAgent(masked: string): boolean {
-  if (/\bexport\s+default\s+defineAgent\b/.test(masked)) return true
+function hasExportedDefineAgent(source: string, masked: string): boolean {
+  if (agentFactoryNames(source).some(factory => new RegExp(`\\bexport\\s+default\\s+${factory}\\b`).test(masked))) return true
   const exported = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\b/.exec(masked)
   return Boolean(exported
-    && new RegExp(`\\b(?:const|let|var)\\s+${exported[1]}\\s*(?::(?:=>|[^=])*?)?=\\s*defineAgent\\b`).test(masked))
+    && agentFactoryNames(source).some(factory => new RegExp(`\\b(?:const|let|var)\\s+${exported[1]}\\s*(?::(?:=>|[^=])*?)?=\\s*${factory}\\b`).test(masked)))
 }
 
 function resolveAgentReExport(file: string, source: string, masked: string): string | undefined {
@@ -141,11 +161,11 @@ function extractAgentRuntime(file: string, seen = new Set<string>()): { masked?:
   seen.add(file)
   const source = readFileSync(file, "utf8")
   const masked = maskSourceLiterals(source)
-  const start = findAgentObjectStart(masked)
+  const start = findAgentObjectStart(source, masked)
   if (start === undefined) {
     const target = resolveAgentReExport(file, source, masked)
     if (target) return extractAgentRuntime(target, seen)
-    if (hasExportedDefineAgent(masked)) return {}
+    if (hasExportedDefineAgent(source, masked)) return {}
     return /\bexport\s+default\s+[A-Za-z_$][\w$]*Agent\b/.test(masked) ? {} : undefined
   }
   let depth = 0
@@ -184,7 +204,7 @@ function extractAgentRuntime(file: string, seen = new Set<string>()): { masked?:
 function extractAgentWorkflowName(file: string, fallbackName: string): string | undefined {
   const runtime = extractAgentRuntime(file)
   if (!runtime) return undefined
-  const match = /^(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*workflow\s*\(\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*(["'`])([^"'`]+)\1\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*\)$/.exec(runtime.raw || "")
+  const match = /^(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*workflow\s*\(\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*(["'`])([^"'`]+)\1\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*\)\s*(?:\/\/[^\n]*)?$/.exec(runtime.raw || "")
   if (match) {
     return match[2] || fallbackName
   }
