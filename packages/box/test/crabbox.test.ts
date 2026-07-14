@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process"
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { promisify } from "node:util"
 
 import type { HarnessV1SandboxProvider } from "@ai-sdk/harness"
 import { afterEach, describe, expect, it } from "vitest"
@@ -9,6 +11,7 @@ import { resolveBox } from "../src/index.ts"
 import { crabbox } from "../src/crabbox.ts"
 
 const roots: string[] = []
+const execFileAsync = promisify(execFile)
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
@@ -65,7 +68,13 @@ describe("crabbox", () => {
     const bin = join(root, "bin")
     const log = join(root, "crabbox.log")
     await Promise.all([mkdir(workspace), mkdir(bin)])
-    await writeFile(join(workspace, ".env"), "local")
+    await Promise.all([
+      writeFile(join(workspace, ".env"), "local"),
+      writeFile(join(workspace, ".gitignore"), ".env\n"),
+      writeFile(join(workspace, "deleted.txt"), "delete me"),
+    ])
+    await runGit(workspace, ["init"])
+    await runGit(workspace, ["add", ".gitignore", "deleted.txt"])
     await fakeCrabbox(bin)
     await Promise.all([
       executable(bin, "codex", "exit 0"),
@@ -86,7 +95,7 @@ describe("crabbox", () => {
       await session.writeTextFile({ content: "cache", path: "cache.txt" })
       await expect(session.readTextFile({ path: "cache.txt" })).resolves.toBe("cache")
       await expect(session.run({
-        command: "printf changed > changed.txt",
+        command: "printf changed > changed.txt && rm deleted.txt",
         workingDirectory: join(cacheRoot, "workspace"),
       })).resolves.toMatchObject({ exitCode: 0 })
       await expect(readFile(join(workspace, "changed.txt"), "utf8")).resolves.toBe("changed")
@@ -95,7 +104,8 @@ describe("crabbox", () => {
       await session.destroy()
       await expect(readFile(join(cacheRoot, "cache.txt"))).rejects.toMatchObject({ code: "ENOENT" })
       await expect(readFile(join(workspace, ".env"), "utf8")).resolves.toBe("local")
-      await expect(readdir(workspace)).resolves.toEqual([".env", "changed.txt"])
+      await expect(stat(join(workspace, "deleted.txt"))).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(readdir(workspace)).resolves.toEqual([".env", ".git", ".gitignore", "changed.txt"])
 
       const workRoot = join(root, ".crabbox")
       const workRootCwd = await realpath(workRoot)
@@ -360,6 +370,10 @@ async function executable(bin: string, name: string, body: string) {
   const path = join(bin, name)
   await writeFile(path, `#!/bin/sh\n${body}\n`)
   await chmod(path, 0o755)
+}
+
+async function runGit(cwd: string, args: string[]) {
+  await execFileAsync("git", args, { cwd })
 }
 
 async function withEnvironment<T>(environment: Record<string, string>, run: () => Promise<T>) {

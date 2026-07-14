@@ -464,7 +464,7 @@ async function withTemporaryFile<T>(run: (path: string) => Promise<T>) {
 
 async function syncWorkspaceBack(state: CrabboxSessionState) {
   const result = await runCrabbox(state.options, state.leaseId, {
-    command: `archive=$(mktemp /tmp/vitehub-workspace.XXXXXX.tar) && manifest=$(mktemp /tmp/vitehub-workspace.XXXXXX.manifest) && trap 'rm -f -- "$archive" "$manifest"' EXIT && if git -C ${shellQuote(state.remoteWorkspace)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then git -C ${shellQuote(state.remoteWorkspace)} ls-files -z --cached --others --exclude-standard > "$manifest" && tar --null -C ${shellQuote(state.remoteWorkspace)} -cf "$archive" -T "$manifest"; else tar -C ${shellQuote(state.remoteWorkspace)} --exclude ./.git --exclude .git -cf "$archive" .; fi && base64 < "$archive"`,
+    command: `archive=$(mktemp /tmp/vitehub-workspace.XXXXXX.tar) && manifest=$(mktemp /tmp/vitehub-workspace.XXXXXX.manifest) && trap 'rm -f -- "$archive" "$manifest"' EXIT && if git -C ${shellQuote(state.remoteWorkspace)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then git -C ${shellQuote(state.remoteWorkspace)} ls-files -z --cached --others --exclude-standard > "$manifest" && tar --ignore-failed-read --null -C ${shellQuote(state.remoteWorkspace)} -cf "$archive" -T "$manifest"; else tar -C ${shellQuote(state.remoteWorkspace)} --exclude ./.git --exclude .git -cf "$archive" .; fi && base64 < "$archive"`,
   })
   if (result.exitCode !== 0) throw crabboxError("sync Crabbox workspace", result)
   const archive = Buffer.from(result.stdout.replace(/\s+/g, ""), "base64")
