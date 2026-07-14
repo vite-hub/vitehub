@@ -1,6 +1,6 @@
 import { spawn as spawnChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, posix, resolve } from "node:path"
 import { Readable } from "node:stream"
@@ -39,6 +39,8 @@ interface CrabboxRunOptions {
   abortSignal?: AbortSignal
   command: string
   env?: Record<string, string>
+  localWorkingDirectory?: string
+  sync?: boolean
   workingDirectory?: string
 }
 
@@ -47,6 +49,7 @@ interface CrabboxSessionState {
   options: CrabboxSessionOptions
   processes: Set<ChildProcessWithoutNullStreams>
   pendingTunnels: Map<number, { child: ChildProcessWithoutNullStreams, promise: Promise<{ child: ChildProcessWithoutNullStreams, localPort: number }> }>
+  remoteWorkspace: string
   root: string
   tunnels: Map<number, { child: ChildProcessWithoutNullStreams, localPort: number }>
 }
@@ -113,16 +116,20 @@ function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxP
         const leaseId = await warmup(sessionOptions, createOptions.abortSignal)
         const setup = await runCrabbox(sessionOptions, leaseId, {
           abortSignal: createOptions.abortSignal,
-          command: `root=$(mktemp -d /tmp/vitehub-box.XXXXXX) && trap 'rm -rf -- "$root"' EXIT && ln -s ${shellQuote(options.workspace)} "$root/workspace" && trap - EXIT && printf '%s\\n' "$root"`,
+          command: `root=$(mktemp -d /tmp/vitehub-box.XXXXXX) && trap 'rm -rf -- "$root"' EXIT && workspace=$(pwd -P) && ln -s "$workspace" "$root/workspace" && trap - EXIT && printf '%s\\n%s\\n' "$root" "$workspace"`,
+          localWorkingDirectory: options.workspace,
+          sync: true,
         })
         if (setup.exitCode !== 0) throw crabboxError("create disposable Box cache", setup)
-        const root = lastLine(setup.stdout)
+        const [root, remoteWorkspace] = lastLines(setup.stdout, 2)
         if (!/^\/tmp\/vitehub-box\.[A-Za-z0-9]+$/.test(root)) throw new Error(`[vitehub] Crabbox returned an invalid session root: ${root || "<empty>"}`)
+        if (!posix.isAbsolute(remoteWorkspace)) throw new Error(`[vitehub] Crabbox returned an invalid workspace path: ${remoteWorkspace || "<empty>"}`)
         const session = createCrabboxSession({
           leaseId,
           options: sessionOptions,
           pendingTunnels: new Map(),
           processes: new Set(),
+          remoteWorkspace,
           root,
           tunnels: new Map(),
         }, createOptions.sessionId)
@@ -156,6 +163,7 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
     async destroy() {
       try {
         await this.stop()
+        await syncWorkspaceBack(state)
         const result = await runCrabbox(state.options, state.leaseId, { command: `rm -rf -- ${shellQuote(state.root)}` })
         if (result.exitCode !== 0) throw crabboxError("remove disposable Box cache", result)
       }
@@ -177,10 +185,12 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       const probe = await this.run({ abortSignal, command: `test -f ${shellQuote(remotePath)}` })
       if (probe.exitCode === 1) return null
       if (probe.exitCode !== 0) throw crabboxError(`read ${path}`, probe)
-      return await withTemporaryFile(async (localPath) => {
-        await copyWithCrabbox(state.options, state.leaseId, `SANDBOX:${remotePath}`, localPath, abortSignal)
-        return new Uint8Array(await readFile(localPath))
+      const result = await runCrabbox(state.options, state.leaseId, {
+        abortSignal,
+        command: `base64 < ${shellQuote(remotePath)}`,
       })
+      if (result.exitCode !== 0) throw crabboxError(`read ${path}`, result)
+      return Buffer.from(result.stdout.replace(/\s+/g, ""), "base64")
     },
     async readFile(options: { abortSignal?: AbortSignal, path: string }) {
       const bytes = await this.readBinaryFile(options)
@@ -226,9 +236,9 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       const directory = posix.dirname(remotePath)
       const prepared = await this.run({ abortSignal, command: `mkdir -p -- ${shellQuote(directory)}` })
       if (prepared.exitCode !== 0) throw crabboxError(`prepare ${path}`, prepared)
-      await withTemporaryFile(async (localPath) => {
-        await writeFile(localPath, content)
-        await copyWithCrabbox(state.options, state.leaseId, localPath, `SANDBOX:${remotePath}`, abortSignal)
+      await runCrabboxScript(state.options, state.leaseId, {
+        abortSignal,
+        script: `set -eu\nbase64 -d > ${shellQuote(remotePath)} <<'VITEHUB_FILE'\n${Buffer.from(content).toString("base64")}\nVITEHUB_FILE\n`,
       })
     },
     async writeFile({ abortSignal, content, path }: { abortSignal?: AbortSignal, content: ReadableStream<Uint8Array>, path: string }) {
@@ -262,7 +272,7 @@ async function warmup(options: CrabboxSessionOptions, abortSignal: AbortSignal |
 function spawnCrabboxRun(state: CrabboxSessionState, options: CrabboxRunOptions) {
   const workingDirectory = resolveSessionPath(state.root, options.workingDirectory)
   const command = shellCommand(options.command, workingDirectory, options.env)
-  const child = spawnCrabbox(state.options, runArgs(state.options.workRoot, state.leaseId, command), options.abortSignal)
+  const child = spawnCrabbox(state.options, runArgs(state.options.workRoot, state.leaseId, command, options.sync !== true), options.abortSignal, options.localWorkingDirectory)
   state.processes.add(child)
   child.once("close", () => state.processes.delete(child))
   return processHandle(child, options.abortSignal)
@@ -270,31 +280,34 @@ function spawnCrabboxRun(state: CrabboxSessionState, options: CrabboxRunOptions)
 
 async function runCrabbox(options: CrabboxSessionOptions, leaseId: string, run: CrabboxRunOptions) {
   const command = shellCommand(run.command, undefined, run.env)
-  return await runProcess(spawnCrabbox(options, runArgs(options.workRoot, leaseId, command), run.abortSignal))
+  return await runProcess(spawnCrabbox(options, runArgs(options.workRoot, leaseId, command, run.sync !== true), run.abortSignal, run.localWorkingDirectory))
 }
 
-function runArgs(workRoot: string, leaseId: string, command: string) {
+function runArgs(workRoot: string, leaseId: string, command: string, noSync: boolean) {
   return [
     "run",
     "--provider", "ssh",
     "--id", leaseId,
     "--static-work-root", workRoot,
     "--no-hydrate",
-    "--no-sync",
+    ...(noSync ? ["--no-sync"] : []),
     "--shell", command,
   ]
 }
 
-async function copyWithCrabbox(options: CrabboxSessionOptions, leaseId: string, source: string, destination: string, abortSignal: AbortSignal | undefined) {
-  const result = await runProcess(spawnCrabbox(options, [
-    "cp",
+async function runCrabboxScript(options: CrabboxSessionOptions, leaseId: string, run: { abortSignal?: AbortSignal, script: string }) {
+  const child = spawnCrabbox(options, [
+    "run",
     "--provider", "ssh",
     "--id", leaseId,
     "--static-work-root", options.workRoot,
-    source,
-    destination,
-  ], abortSignal))
-  if (result.exitCode !== 0) throw crabboxError(`copy ${source}`, result)
+    "--no-hydrate",
+    "--no-sync",
+    "--script-stdin",
+  ], run.abortSignal)
+  child.stdin.end(run.script)
+  const result = await runProcess(child)
+  if (result.exitCode !== 0) throw crabboxError("run Crabbox script", result)
 }
 
 function startTunnel(state: CrabboxSessionState, remotePort: number) {
@@ -350,9 +363,9 @@ async function validateRequirements(session: HarnessV1NetworkSandboxSession, req
   }
 }
 
-function spawnCrabbox(options: CrabboxSessionOptions, args: string[], abortSignal?: AbortSignal) {
+function spawnCrabbox(options: CrabboxSessionOptions, args: string[], abortSignal?: AbortSignal, cwd = options.workRoot) {
   return spawnChildProcess("crabbox", args, {
-    cwd: options.workRoot,
+    cwd,
     env: {
       ...process.env,
       XDG_STATE_HOME: options.stateHome,
@@ -441,12 +454,27 @@ async function withTemporaryFile<T>(run: (path: string) => Promise<T>) {
   }
 }
 
+async function syncWorkspaceBack(state: CrabboxSessionState) {
+  const result = await runCrabbox(state.options, state.leaseId, {
+    command: `test -d ${shellQuote(state.remoteWorkspace)} && tar -C ${shellQuote(state.remoteWorkspace)} -cf - . | base64`,
+  })
+  if (result.exitCode !== 0) throw crabboxError("sync Crabbox workspace", result)
+  const archive = Buffer.from(result.stdout.replace(/\s+/g, ""), "base64")
+  await rm(state.options.workspace, { force: true, recursive: true })
+  await mkdir(state.options.workspace, { recursive: true })
+  await withTemporaryFile(async (localPath) => {
+    await writeFile(localPath, archive)
+    const extract = await runProcess(spawnChildProcess("tar", ["-xf", localPath, "-C", state.options.workspace]))
+    if (extract.exitCode !== 0) throw crabboxError("extract Crabbox workspace", extract)
+  })
+}
+
 function shellQuote(value: string) {
   return `'${value.replaceAll("'", `'"'"'`)}'`
 }
 
-function lastLine(value: string) {
-  return value.trim().split(/\r?\n/).at(-1) || ""
+function lastLines(value: string, count: number) {
+  return value.trim().split(/\r?\n/).slice(-count)
 }
 
 function crabboxError(action: string, result: { stderr: string, stdout: string }) {

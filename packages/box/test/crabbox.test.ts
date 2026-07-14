@@ -99,7 +99,7 @@ describe("crabbox", () => {
       const workRootCwd = await realpath(workRoot)
       const invocations = (await readFile(log, "utf8")).trim().split("\n")
       expect(invocations).not.toContain(expect.stringContaining("|tunnel|"))
-      expect(invocations.every(invocation => invocation.startsWith(`${workRootCwd}|`))).toBe(true)
+      expect(invocations.filter(invocation => invocation.includes("|warmup|")).every(invocation => invocation.startsWith(`${workRootCwd}|`))).toBe(true)
       expect(invocations.every(invocation => invocation.includes(`--static-work-root ${workRoot}`))).toBe(true)
       expect(invocations.find(invocation => invocation.includes("|warmup|"))).toContain(`--static-work-root ${workRoot} --reclaim`)
     })
@@ -207,7 +207,7 @@ describe("crabbox", () => {
       const invocations = (await readFile(log, "utf8")).trim().split("\n")
       const warmups = invocations.filter(invocation => invocation.includes("|warmup|"))
       expect(warmups).toHaveLength(2)
-      expect(invocations.every(invocation => invocation.startsWith(`${workRootCwd}|`))).toBe(true)
+      expect(warmups.every(invocation => invocation.startsWith(`${workRootCwd}|`))).toBe(true)
       expect(invocations.every(invocation => invocation.includes(`--static-work-root ${workRoot}`))).toBe(true)
       expect(warmups.every(invocation => invocation.endsWith("--reclaim --timing-json"))).toBe(true)
     })
@@ -313,6 +313,7 @@ case "$verb" in
     script=
     while [ "$#" -gt 0 ]; do
       if [ "$1" = --shell ]; then shift; script="$1"; break; fi
+      if [ "$1" = --script-stdin ]; then exec /bin/sh; fi
       shift
     done
     /bin/sh -c "$script"
