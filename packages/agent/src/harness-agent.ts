@@ -453,24 +453,30 @@ async function resolveHarnessWorkDir<
   return resolved
 }
 
+function isProcesslessHarnessRuntime(context: AgentAdapterRunContext): boolean {
+  return context.runtime.runtime === "cloudflare-agents" || context.runtime.runtime === "deno"
+}
+
+function assertHarnessSandboxRuntime(sandbox: object, context: AgentAdapterRunContext): void {
+  if (isProcesslessHarnessRuntime(context) && (sandbox as { providerId?: unknown }).providerId === "local") {
+    throw new Error(`[vitehub] Harness Agent Drivers on ${context.runtime.runtime} require a process-capable driver.sandbox provider.`)
+  }
+}
+
+const defaultHarnessEnvKeys = ["ComSpec", "HOME", "Path", "PATH", "PATHEXT", "SHELL", "SystemRoot", "TEMP", "TMP", "TMPDIR", "USER"] as const
+
+function defaultHarnessEnv(): Record<string, string> {
+  return Object.fromEntries(defaultHarnessEnvKeys
+    .map(key => [key, process.env[key]])
+    .filter((entry): entry is [string, string] => entry[1] !== undefined))
+}
+
 async function createDefaultHarnessSandbox(context: AgentAdapterRunContext): Promise<object> {
-  if (context.workspace && context.runtime.runtime === "vite") {
-    const { createLocalHarnessSandbox } = await import("./harness/local-sandbox.ts")
-    return createLocalHarnessSandbox()
+  if (isProcesslessHarnessRuntime(context)) {
+    throw new Error(`[vitehub] Harness Agent Drivers on ${context.runtime.runtime} require a process-capable driver.sandbox provider.`)
   }
-
-  let sandboxModule: { createVercelSandbox: (settings: Record<string, unknown>) => unknown }
-  try {
-    sandboxModule = await import("@ai-sdk/sandbox-vercel") as typeof sandboxModule
-  }
-  catch (error) {
-    throw new Error("[vitehub] defineAgent({ driver: { harness } }) requires @ai-sdk/sandbox-vercel for the default harness sandbox outside local Vite workspace runs.", { cause: error })
-  }
-
-  return sandboxModule.createVercelSandbox({
-    ports: [4000],
-    runtime: "node24",
-  }) as object
+  const { createLocalHarnessSandbox } = await import("./harness/local-sandbox.ts")
+  return createLocalHarnessSandbox({ env: defaultHarnessEnv() })
 }
 
 function hasHarnessInstructionDocument(context: AgentAdapterRunContext): boolean {
@@ -565,10 +571,23 @@ async function createHarnessAgent<
     : undefined
   const defaultSandbox = context.harnessSandboxProvider === undefined && driverSandbox === undefined
   const baseSandbox = context.harnessSandboxProvider ?? driverSandbox ?? await createDefaultHarnessSandbox(context)
+  assertHarnessSandboxRuntime(baseSandbox, context)
   const adaptSandbox = (harness as Record<PropertyKey, unknown>)[harnessSandboxAdapter]
-  const sandbox = typeof adaptSandbox === "function"
-    ? (adaptSandbox as (provider: object, options: { defaultSandbox: boolean }) => object)(baseSandbox, { defaultSandbox })
-    : baseSandbox
+  let sandbox = baseSandbox
+  if (typeof adaptSandbox === "function") {
+    sandbox = (adaptSandbox as (provider: object, options: { defaultSandbox: boolean }) => object)(baseSandbox, { defaultSandbox })
+  }
+  else if (defaultSandbox && (harness as { harnessId?: unknown }).harnessId === "codex") {
+    const { adaptCodexHarnessSandbox } = await import("./internal/codex-sandbox.ts")
+    sandbox = adaptCodexHarnessSandbox(baseSandbox, { defaultSandbox: true, isolateHome: false })!
+  }
+  else if (defaultSandbox) {
+    const bootstrap = await (harness as { getBootstrap?: () => Promise<{ bootstrapDir?: string }> }).getBootstrap?.()
+    if (bootstrap?.bootstrapDir) {
+      const { adaptLocalHarnessSandbox } = await import("./internal/local-sandbox.ts")
+      sandbox = adaptLocalHarnessSandbox(baseSandbox, bootstrap.bootstrapDir)!
+    }
+  }
   const instructions = await resolveHarnessDriverInstructions(options.instructions, context)
   const workDir = await resolveHarnessWorkDir(options.workDir, context) ?? context.harnessWorkDir
   const tools = toHarnessTools(context)

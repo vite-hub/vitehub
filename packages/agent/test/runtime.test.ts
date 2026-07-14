@@ -14,7 +14,6 @@ const harnessCreateSession = vi.hoisted(() => vi.fn())
 const harnessGenerate = vi.hoisted(() => vi.fn())
 const harnessStream = vi.hoisted(() => vi.fn())
 const loadAiSdk = vi.hoisted(() => vi.fn())
-const vercelSandboxSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 
 vi.mock("@ai-sdk/harness/agent", () => ({
   HarnessAgent: class {
@@ -36,13 +35,6 @@ vi.mock("@ai-sdk/harness/agent", () => ({
   },
 }))
 
-vi.mock("@ai-sdk/sandbox-vercel", () => ({
-  createVercelSandbox(settings: Record<string, unknown>) {
-    vercelSandboxSettings.push(settings)
-    return { providerId: "vercel", settings }
-  },
-}))
-
 vi.mock("../src/internal/ai-sdk-runtime.ts", () => ({
   loadAiSdk,
 }))
@@ -55,7 +47,6 @@ afterEach(() => {
   harnessStream.mockReset()
   loadAiSdk.mockReset()
   loadAiSdk.mockImplementation(async () => await import("ai"))
-  vercelSandboxSettings.length = 0
 })
 
 describe("agent message protocol", () => {
@@ -1295,7 +1286,7 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("runs harness Agent Drivers through AI SDK HarnessAgent", async () => {
+  it("defaults omitted harness sandboxes to the local provider on non-Vite runtimes", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     harnessAgentSettings.length = 0
     const session = { destroy: vi.fn() }
@@ -1310,7 +1301,6 @@ describe("agent message protocol", () => {
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
-    expect(vercelSandboxSettings).toEqual([{ ports: [4000], runtime: "node24" }])
     expect(harnessAgentSettings.at(-1)).toMatchObject({
       harness,
       permissionMode: "allow-all",
@@ -1318,8 +1308,9 @@ describe("agent message protocol", () => {
         onSession: expect.any(Function),
       },
       sandbox: {
-        providerId: "vercel",
-        settings: { ports: [4000], runtime: "node24" },
+        createSession: expect.any(Function),
+        providerId: "local",
+        specificationVersion: "harness-sandbox-v1",
       },
     })
     expect(harnessCreateSession).toHaveBeenCalledWith(undefined)
@@ -1328,6 +1319,76 @@ describe("agent message protocol", () => {
       session,
     }))
     expect(session.destroy).toHaveBeenCalledTimes(1)
+  })
+
+  it("requires explicit harness sandboxes on runtimes without local processes", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({ driver: { harness: { provider: "codex" } } })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "cloudflare-agents",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })).rejects.toThrow("require a process-capable driver.sandbox provider")
+
+    const configuredAgent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { providerId: "local" },
+      },
+    })
+    await expect(runAgent(configuredAgent, {
+      memo: vi.fn(),
+      runtime: "deno",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })).rejects.toThrow("require a process-capable driver.sandbox provider")
+  })
+
+  it("uses the framework fallback when helper sandboxes are omitted", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const harness = { provider: "codex" }
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({ text: "ok" })
+
+    const agent = defineAgent({ driver: { harness } })
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
+
+    expect(harnessAgentSettings.at(-1)?.sandbox).toMatchObject({ providerId: "local" })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "cloudflare-agents",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })).rejects.toThrow("require a process-capable driver.sandbox provider")
+
+    const provider = { providerId: "remote" }
+    const configuredAgent = defineAgent({ driver: { harness, sandbox: provider } })
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    harnessGenerate.mockResolvedValueOnce({ text: "ok" })
+    await expect(runAgent(configuredAgent, {
+      memo: vi.fn(),
+      runtime: "deno",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
+    expect(harnessAgentSettings.at(-1)).toMatchObject({ sandbox: provider })
+  })
+
+  it("adapts the local default for stock Codex harnesses", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({ text: "ok" })
+    const agent = defineAgent({ driver: { harness: { builtinTools: {}, harnessId: "codex" } } })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
+
+    expect(harnessAgentSettings.at(-1)).toMatchObject({
+      sandbox: {
+        createSession: expect.any(Function),
+        providerId: "local",
+      },
+    })
   })
 
   it("keeps harness driver markers across split Agent Package module instances", async () => {
@@ -1417,7 +1478,6 @@ describe("agent message protocol", () => {
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
-    expect(vercelSandboxSettings).toEqual([])
     expect(harnessAgentSettings.at(-1)).toMatchObject({
       harness,
       sandbox: provider,
@@ -1468,7 +1528,6 @@ describe("agent message protocol", () => {
       input: expect.objectContaining({ prompt: "hello" }),
       run: { runId: "run-1" },
     }))
-    expect(vercelSandboxSettings).toEqual([])
     expect(harnessAgentSettings.at(-1)).toMatchObject({
       sandbox: provider,
     })
@@ -1504,7 +1563,6 @@ describe("agent message protocol", () => {
     expect(sandbox).toHaveBeenCalledWith(expect.objectContaining({
       input: expect.objectContaining({ prompt: "hello" }),
     }))
-    expect(vercelSandboxSettings).toEqual([])
     expect(harnessAgentSettings.at(-1)).toMatchObject({
       sandbox: provider,
     })
@@ -1543,7 +1601,6 @@ describe("agent message protocol", () => {
       ],
     })).resolves.toMatchObject({ text: "ok" })
 
-    expect(vercelSandboxSettings).toEqual([])
     expect(harnessAgentSettings.at(-1)).toMatchObject({
       sandbox: provider,
     })
@@ -1603,7 +1660,7 @@ describe("agent message protocol", () => {
     }))
     expect(harnessAgentSettings.at(-1)).toMatchObject({
       harness: resolvedHarness,
-      sandbox: { providerId: "vercel" },
+      sandbox: { providerId: "local" },
     })
     expect(harnessCreateSession).toHaveBeenCalledWith({ sessionId: "acme:run-1" })
   })

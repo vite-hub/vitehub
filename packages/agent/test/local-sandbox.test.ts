@@ -3,9 +3,11 @@ import { createServer, type Server } from "node:net"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
+import type { HarnessV1SandboxProvider } from "@ai-sdk/harness"
 import { createLocalHarnessSandbox } from "../src/harness/local-sandbox.ts"
+import { adaptLocalHarnessSandbox } from "../src/internal/local-sandbox.ts"
 
 function listen(port: number): Promise<Server> {
   return new Promise((resolve, reject) => {
@@ -21,6 +23,53 @@ function close(server: Server | undefined): Promise<void> {
 }
 
 describe("local harness sandbox", () => {
+  it("keeps session ids inside the local sandbox root", async () => {
+    const session = await createLocalHarnessSandbox().createSession({ sessionId: "../../outside" })
+
+    try {
+      expect(relative(join(tmpdir(), "vitehub-harness"), (session as unknown as { rootDir: string }).rootDir)).toMatch(/^[a-f0-9]{64}$/)
+    }
+    finally {
+      await session.destroy?.()
+    }
+  })
+
+  it("resumes the same session root", async () => {
+    const provider = createLocalHarnessSandbox()
+    const first = await provider.createSession({ sessionId: "thread-1" })
+    const resumed = await provider.resumeSession!({ sessionId: "thread-1" })
+
+    try {
+      expect(resumed.defaultWorkingDirectory).toBe(first.defaultWorkingDirectory)
+    }
+    finally {
+      await resumed.destroy?.()
+    }
+  })
+
+  it("adapts bootstrap commands to the local session root", async () => {
+    const run = vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: "" }))
+    const rawSession = { defaultWorkingDirectory: "/session", restricted: () => ({ run }), run }
+    const provider = adaptLocalHarnessSandbox({
+      createSession: async (options: Parameters<HarnessV1SandboxProvider["createSession"]>[0]) => {
+        await options?.onFirstCreate?.(rawSession as never, {})
+        return rawSession as never
+      },
+      resumeSession: async () => rawSession,
+      specificationVersion: "harness-sandbox-v1",
+    }, "/tmp/harness/example")!
+    const session = await (provider as HarnessV1SandboxProvider).createSession({
+      onFirstCreate: async session => {
+        await session.run({ command: "pnpm --dir /tmp/harness/example bootstrap" })
+      },
+    })
+
+    await session.run({ command: "pnpm --dir /tmp/harness/example install" })
+
+    expect(run).toHaveBeenNthCalledWith(1, { command: "pnpm --dir /session/tmp/harness/example bootstrap" })
+    expect(run).toHaveBeenNthCalledWith(2, { command: "pnpm --dir /session/tmp/harness/example install" })
+  })
+
   it("does not serialize bootstrap work for independent roots", async () => {
     const provider = createLocalHarnessSandbox()
     let releaseFirst!: () => void

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url"
 import { createCodex } from "@ai-sdk/harness-codex"
 
 import { createLocalHarnessSandbox, type LocalHarnessSandboxOptions } from "./local-sandbox.ts"
+import { adaptCodexHarnessSandbox, stripGatewaySecrets, stripGitHubSecrets } from "../internal/codex-sandbox.ts"
 
 import type { CodexHarnessSettings } from "@ai-sdk/harness-codex"
 import type {
@@ -26,7 +27,6 @@ type CodexDriverSandboxOptions<CALL_OPTIONS = unknown> =
 const harnessSandboxAdapter = Symbol.for("vitehub.harnessSandboxAdapter")
 const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDirectory")
 const harnessSessionPrepare = Symbol.for("vitehub.harnessSessionPrepare")
-const codexSandboxAdapterApplied = Symbol("vitehub.codexSandboxAdapterApplied")
 
 export interface CodexDriverOptions<CALL_OPTIONS = unknown> extends CodexHarnessSettings {
   authJson?: string
@@ -77,7 +77,6 @@ export function codexDriver<CALL_OPTIONS = unknown>(options: CodexDriverOptions<
 }
 
 const codexBootstrapDir = "/tmp/harness/codex"
-const localCodexBootstrapDir = "tmp/harness/codex"
 const codexBridgeVersion = "0.144.1"
 const codexBridgeLockReplacements = {
   "0.130.0": codexBridgeVersion,
@@ -102,9 +101,7 @@ function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolea
         : undefined
       await prepareCodexHome(session, authHome)
     },
-    [harnessSandboxAdapter]: (provider: AgentHarnessSandboxProviderInput, options?: { defaultSandbox?: boolean }) => (provider as Record<PropertyKey, unknown>)[codexSandboxAdapterApplied]
-      ? provider
-      : relativeCodexSandboxProvider(provider, { preferOpenAI, stripGitHubSecrets: options?.defaultSandbox }),
+    [harnessSandboxAdapter]: (provider: AgentHarnessSandboxProviderInput, options?: { defaultSandbox?: boolean }) => adaptCodexHarnessSandbox(provider, { defaultSandbox: options?.defaultSandbox, preferOpenAI }),
     async getBootstrap() {
       const [pkg, lock, bridge, hostToolMcp] = await Promise.all([
         readCodexBridgeAsset("package.json"),
@@ -156,33 +153,6 @@ function patchCodexBridge(bridge: string): string {
   return patched
 }
 
-function relativeCodexSandboxSession<T extends object>(session: T, bootstrapDir?: string, codexHome?: string): T {
-  const defaultWorkingDirectory = bootstrapDir && codexHome
-    ? undefined
-    : (session as T & { defaultWorkingDirectory: string }).defaultWorkingDirectory.replace(/\/+$/, "")
-  const anchoredBootstrapDir = bootstrapDir ?? `${defaultWorkingDirectory}/${localCodexBootstrapDir}`
-  const anchoredCodexHome = codexHome ?? `${defaultWorkingDirectory}/tmp/harness/codex-home`
-  return new Proxy(session, {
-    get(target, property, receiver) {
-      if (property === "restricted") {
-        return () => relativeCodexSandboxSession((target as T & { restricted(): object }).restricted(), anchoredBootstrapDir, anchoredCodexHome)
-      }
-      if (property === "run" || property === "spawn") {
-        return (options: { command: string, env?: Record<string, string | undefined> }) => (target as T & Record<"run" | "spawn", (options: never) => unknown>)[property]({
-          ...options,
-          command: options.command.replaceAll("/tmp/harness/codex", anchoredBootstrapDir),
-          env: {
-            ...options.env,
-            CODEX_HOME: anchoredCodexHome,
-          },
-        } as never)
-      }
-      const value = Reflect.get(target, property, receiver)
-      return typeof value === "function" ? value.bind(target) : value
-    },
-  })
-}
-
 async function prepareCodexHome(session: object, authHome?: string): Promise<void> {
   const result = await (session as { run(options: { command: string, env?: Record<string, string | undefined> }): Promise<{ exitCode: number, stderr?: string }> }).run({
     command: 'mkdir -p "$CODEX_HOME" && chmod 700 "$CODEX_HOME" && : > "$CODEX_HOME/config.toml" && chmod 600 "$CODEX_HOME/config.toml" && rm -f "$CODEX_HOME/auth.json" && if [ -n "$VITEHUB_CODEX_AUTH_HOME" ] && [ -f "$VITEHUB_CODEX_AUTH_HOME/auth.json" ]; then ln -sfn "$VITEHUB_CODEX_AUTH_HOME/auth.json" "$CODEX_HOME/auth.json"; elif [ -f "$HOME/.codex/auth.json" ]; then ln -sfn "$HOME/.codex/auth.json" "$CODEX_HOME/auth.json"; fi',
@@ -192,7 +162,6 @@ async function prepareCodexHome(session: object, authHome?: string): Promise<voi
     throw new Error(`[vitehub] Failed to prepare isolated Codex home: ${result.stderr || "sandbox command failed"}`)
   }
 }
-
 function codexSandboxProvider(options: {
   authJson?: string
   authJsonPath?: string
@@ -206,7 +175,7 @@ function codexSandboxProvider(options: {
   if (sandbox === undefined && options.authJson === undefined && options.authJsonPath === undefined && options.env === undefined) return
 
   const localOptions = sandbox as LocalHarnessSandboxOptions | undefined
-  return relativeCodexSandboxProvider(createLocalHarnessSandbox({
+  return adaptCodexHarnessSandbox(createLocalHarnessSandbox({
     ...localOptions,
     env: codexLocalEnv({
       authJson: options.authJson,
@@ -218,38 +187,6 @@ function codexSandboxProvider(options: {
       preferOpenAI: options.preferOpenAI,
     }),
   }))
-}
-
-function relativeCodexSandboxProvider(
-  provider: AgentHarnessSandboxProviderInput,
-  options: { preferOpenAI?: boolean, stripGitHubSecrets?: boolean } = {},
-): AgentHarnessDriver["sandbox"] {
-  const adaptSession = (session: object) => {
-    if ("env" in session && session.env && typeof session.env === "object") {
-      const env = session.env as Record<string, string | undefined>
-      if (options.stripGitHubSecrets) stripGitHubSecrets(env)
-      if (options.preferOpenAI) stripGatewaySecrets(env)
-    }
-    return relativeCodexSandboxSession(session)
-  }
-  return {
-    ...provider,
-    [codexSandboxAdapterApplied]: true,
-    async createSession(createOptions: { onFirstCreate?: (session: object, context: { abortSignal?: AbortSignal }) => Promise<void> } = {}) {
-      const onFirstCreate = createOptions?.onFirstCreate
-      const session = await (provider as { createSession(options: object): Promise<object> }).createSession({
-        ...createOptions,
-        ...(onFirstCreate
-          ? {
-              onFirstCreate: async (session: object, context: { abortSignal?: AbortSignal }) => {
-                await onFirstCreate(adaptSession(session), context)
-              },
-            }
-          : {}),
-      })
-      return adaptSession(session)
-    },
-  }
 }
 
 function isHarnessSandboxProvider(value: unknown): value is AgentHarnessSandboxProviderInput {
@@ -285,19 +222,6 @@ function codexLocalEnv(options: {
     env.PATH,
   ].filter(Boolean).join(":")
   return env
-}
-
-function stripGatewaySecrets(env: Record<string, string | undefined>): void {
-  delete env.AI_GATEWAY_API_KEY
-  delete env.AI_GATEWAY_BASE_URL
-}
-
-function stripGitHubSecrets(env: Record<string, string | undefined>): void {
-  for (const key of Object.keys(env)) {
-    if (/^(?:GITHUB|GH|VITEHUB_GITHUB)_/.test(key) && /(?:TOKEN|SECRET|PRIVATE_KEY|WEBHOOK|APP_ID)/.test(key)) {
-      delete env[key]
-    }
-  }
 }
 
 function ambientCodexAuthJsonPath(): string | undefined {

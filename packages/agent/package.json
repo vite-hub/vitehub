@@ -155,7 +155,6 @@
     "@ai-sdk/harness": "catalog:ai",
     "@ai-sdk/harness-claude-code": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
-    "@ai-sdk/sandbox-vercel": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
@@ -173,7 +172,6 @@
     "@ai-sdk/harness-claude-code": "catalog:ai",
     "@ai-sdk/harness-codex": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
-    "@ai-sdk/sandbox-vercel": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@vite-hub/schedule": "workspace:*",
     "ai": "catalog:ai-compat",
@@ -190,9 +188,6 @@
       "optional": true
     },
     "@ai-sdk/mcp": {
-      "optional": true
-    },
-    "@ai-sdk/sandbox-vercel": {
       "optional": true
     },
     "@chat-adapter/discord": {

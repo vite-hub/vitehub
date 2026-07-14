@@ -427,7 +427,6 @@ describe("agent Vite plugin", () => {
                 "@ai-sdk/harness",
                 "@ai-sdk/harness/*",
                 "@ai-sdk/mcp",
-                "@ai-sdk/sandbox-vercel",
                 "@modelcontextprotocol/sdk/*",
                 "@vite-hub/sandbox",
                 "@vite-hub/sandbox/*",

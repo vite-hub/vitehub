@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node
 import { tmpdir } from "node:os"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { Readable } from "node:stream"
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 
 import type { HarnessV1NetworkSandboxSession, HarnessV1SandboxProvider } from "@ai-sdk/harness"
 
@@ -38,7 +38,7 @@ function stringEnv(env: Record<string, string | undefined>): Record<string, stri
 
 async function defaultRootDir(sessionId: string | undefined) {
   if (sessionId) {
-    const root = join(tmpdir(), "vitehub-harness", sessionId)
+    const root = join(tmpdir(), "vitehub-harness", createHash("sha256").update(sessionId).digest("hex"))
     await mkdir(root, { recursive: true })
     return root
   }
@@ -282,6 +282,9 @@ function createLocalHarnessSandboxProvider(options: LocalHarnessSandboxProviderO
         release()
         if (firstCreates.get(key) === current) firstCreates.delete(key)
       }
+    },
+    async resumeSession(resumeOptions) {
+      return await createSession(options, resumeOptions.sessionId)
     },
   }
 }

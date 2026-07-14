@@ -51,7 +51,7 @@ Use a harness-backed driver when the Agent should delegate execution to a harnes
 Install the Agent Package with the harness adapter package you use.
 
 ```bash [Terminal]
-pnpm add @vite-hub/agent @ai-sdk/harness @ai-sdk/harness-codex @ai-sdk/sandbox-vercel
+pnpm add @vite-hub/agent @ai-sdk/harness @ai-sdk/harness-codex
 ```
 
 ```ts [server/agents/codex/agent.ts]
@@ -71,7 +71,7 @@ export default defineAgent({
 })
 ```
 
-ViteHub resolves harness sandbox setup through the Agent Package runtime. Workspace-backed harness drivers in Vite dev use ViteHub's trusted local harness sandbox by default. Other runtime paths use the AI SDK Vercel Sandbox default when `@ai-sdk/sandbox-vercel` is installed. When an Agent needs a specific harness process or session provider, pass it through `driver.sandbox`:
+ViteHub resolves harness sandbox setup through the Agent Package runtime. Harness drivers use ViteHub's local harness sandbox by default on process-capable hosts. This is a tempdir-backed shell convenience, not OS/process isolation, and the default does not inherit application secrets from the host environment. Cloudflare Agents and Deno require a process-capable provider. When an Agent needs an isolated or provider-specific harness process, environment, or session provider, pass it through `driver.sandbox`:
 
 ```ts
 import { createCodex } from '@ai-sdk/harness-codex'

@@ -195,6 +195,54 @@ describe("codexDriver", () => {
     expect(adaptSandbox(driver.sandbox! as object)).toBe(driver.sandbox)
   })
 
+  it("adapts resumed Codex sandbox sessions", async () => {
+    const { codexDriver } = await import("../src/harness/codex.ts")
+    const run = vi.fn()
+    const rawSession = {
+      defaultWorkingDirectory: "/sandbox/run-1",
+      env: { GITHUB_TOKEN: "secret" },
+      restricted: () => ({ run }),
+      run,
+    }
+    const provider = {
+      createSession: vi.fn(async () => rawSession),
+      resumeSession: vi.fn(async () => rawSession),
+      specificationVersion: "harness-sandbox-v1",
+    }
+    const adapt = (codexDriver({ sandbox: false }).harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSandboxAdapter")] as (provider: object, options: { defaultSandbox: boolean }) => typeof provider & { resumeSession(options: { sessionId: string }): Promise<typeof rawSession> }
+    const resumed = await adapt(provider, { defaultSandbox: true }).resumeSession({ sessionId: "thread-1" })
+
+    await resumed.run({ command: "node /tmp/harness/codex/bridge.mjs" })
+
+    expect(resumed.env).not.toHaveProperty("GITHUB_TOKEN")
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      command: "node /sandbox/run-1/tmp/harness/codex/bridge.mjs",
+      env: { CODEX_HOME: "/sandbox/run-1/tmp/harness/codex-home" },
+    }))
+  })
+
+  it("preserves optional resume support and stock Codex auth homes", async () => {
+    const { adaptCodexHarnessSandbox } = await import("../src/internal/codex-sandbox.ts")
+    const run = vi.fn()
+    const rawSession = {
+      defaultWorkingDirectory: "/sandbox/run-1",
+      env: {},
+      restricted: () => ({ run }),
+      run,
+    }
+    const provider = {
+      createSession: vi.fn(async () => rawSession),
+      specificationVersion: "harness-sandbox-v1",
+    }
+    const adapted = adaptCodexHarnessSandbox(provider, { isolateHome: false })! as typeof provider & { resumeSession?: unknown }
+    const session = await adapted.createSession()
+
+    await session.run({ command: "node /tmp/harness/codex/bridge.mjs" })
+
+    expect(adapted).not.toHaveProperty("resumeSession")
+    expect(run).toHaveBeenCalledWith({ command: "node /sandbox/run-1/tmp/harness/codex/bridge.mjs" })
+  })
+
   it("exposes an isolated global skill directory", async () => {
     const { codexDriver } = await import("../src/harness/codex.ts")
     const driver = codexDriver({ sandbox: false })
