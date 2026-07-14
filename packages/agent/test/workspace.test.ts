@@ -751,12 +751,13 @@ describe("defineAgent workspace option", () => {
       provider: "codex",
       [Symbol.for("vitehub.harnessGlobalSkillsDirectory")]: "tmp/harness/codex-home/skills",
     }
+    const resolvePonytail = vi.fn(() => ({ path: "/opt/skills/ponytail" }))
     prepareHarnessWorkspaceSession.mockResolvedValueOnce({ close: vi.fn() })
     useWorkspace.mockClear()
 
     const agent = defineAgent({
       capabilities: [
-        skills({ path: "skills/ponytail", scope: "global", source: { path: "/opt/skills/ponytail" } }),
+        skills({ path: "skills/ponytail", scope: "global", source: { resolve: resolvePonytail } as never }),
         skills({ path: "skills/code-review", scope: "global", source: { path: "/opt/skills/code-review" } }),
       ],
       driver: { harness },
@@ -768,11 +769,12 @@ describe("defineAgent workspace option", () => {
         runtime: { allowProduction: true, type: "trusted-host" },
         sources: {
           "skill.code-review": { mount: "code-review", source: { path: "/opt/skills/code-review" } },
-          "skill.ponytail": { mount: "ponytail", source: { path: "/opt/skills/ponytail" } },
+          "skill.ponytail": expect.objectContaining({ mount: "ponytail", path: "/opt/skills/ponytail" }),
         },
       }),
       mode: "write",
     }))
+    expect(resolvePonytail).toHaveBeenCalledOnce()
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       paths: ["ponytail", "code-review"],
       session: harnessFileSession,

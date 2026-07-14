@@ -9,6 +9,7 @@ import {
   setHarnessWorkspaceDiff,
 } from "./harness-runtime.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
+import { agentInvocationSourceContext } from "./invocation-context.ts"
 import {
   colocatedAgentInstructionsSourceKey,
   resolveColocatedAgentInstructionDocument,
@@ -569,13 +570,20 @@ async function prepareHarnessGlobalSkills(
     throw new Error("[vitehub] This Harness Agent Driver does not support skills({ scope: \"global\" }).")
   }
   const { prepareHarnessWorkspaceSession, useWorkspace } = await import("@vite-hub/workspace")
-  const workspaceOptions = {
-    definition: {
-      name: "__vitehub_global_skills",
-      runtime: { allowProduction: true, type: "trusted-host" },
-      sources: Object.fromEntries(skills.map(skill => [skill.sourceKey, skill.source])),
-      store: { provider: "memory" },
+  const { resolveWorkspaceSources } = await import("@vite-hub/workspace/runtime")
+  const definition = await resolveWorkspaceSources({
+    name: "__vitehub_global_skills",
+    runtime: { allowProduction: true, type: "trusted-host" },
+    sources: Object.fromEntries(skills.map(skill => [skill.sourceKey, skill.source])),
+    store: { provider: "memory" },
+  }, {
+    invocation: {
+      context: agentInvocationSourceContext(context.context),
+      run: context.runtime.run,
     },
+  })
+  const workspaceOptions = {
+    definition,
     mode: "write" as const,
   }
   const workspace = useWorkspace("__vitehub_global_skills", workspaceOptions)
