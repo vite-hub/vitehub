@@ -18,9 +18,6 @@ catalogs:
     '@ai-sdk/mcp':
       specifier: 2.0.0
       version: 2.0.0
-    '@ai-sdk/sandbox-vercel':
-      specifier: 1.0.0
-      version: 1.0.0
     '@modelcontextprotocol/sdk':
       specifier: ^1.29.0
       version: 1.29.0
@@ -475,9 +472,6 @@ importers:
       '@ai-sdk/mcp':
         specifier: catalog:ai
         version: 2.0.0(zod@4.4.3)
-      '@ai-sdk/sandbox-vercel':
-        specifier: catalog:ai
-        version: 1.0.0(ws@8.21.0)(zod@4.4.3)
       '@chat-adapter/discord':
         specifier: catalog:chat
         version: 4.32.0(ai@7.0.0(zod@4.4.3))(zod@4.4.3)
@@ -1298,10 +1292,6 @@ packages:
 
   '@ai-sdk/provider@4.0.0':
     resolution: {integrity: sha512-fr9Gs89prDWiuox/T+kCA+i2cJkHpxU5S+tr4megjTzRC27ZsvFhwjU/+XrqqMbvBUlfmXxTOYWy8ng45dsjIg==}
-    engines: {node: '>=22'}
-
-  '@ai-sdk/sandbox-vercel@1.0.0':
-    resolution: {integrity: sha512-H/8IFbvjZzIu50CHkG3Jo6nG08mc+3cbkjlDp03xI3iYRvZJc5gAmC2PCOuTrLhIX5EUoQRZnLFpxJPg8lAn5g==}
     engines: {node: '>=22'}
 
   '@ai-sdk/vue@3.0.168':
@@ -6608,9 +6598,6 @@ packages:
   '@vercel/sandbox@1.10.0':
     resolution: {integrity: sha512-rGA8KJB5ZwQeygzsndgrbHsys3HGWKHQaRQlmyIEHce2BFuTfQUgivHDj5DCZhWiyjjSEodLHpoJkZBd95K0/Q==}
 
-  '@vercel/sandbox@2.2.1':
-    resolution: {integrity: sha512-IqFYVEsPilXb28VbpTtrP5UkMgVAyQlp77zcLJUgCUo1yEbjJiClGS6sEqGjkAukhbLGS+T2vG3ZOgzSzUTyZg==}
-
   '@vitejs/devtools-kit@0.1.19':
     resolution: {integrity: sha512-ORzJxRH0s+D79wdUanWjFl9tkeazavCG1MNz1zCSV+UgOnoj2nAfbGS67YUIC6tXtvFdQG286yqlo43CkwKfyQ==}
     peerDependencies:
@@ -9625,9 +9612,6 @@ packages:
   jose@6.2.2:
     resolution: {integrity: sha512-d7kPDd34KO/YnzaDOlikGpOurfF0ByC2sEV4cANCtdqLlTfBlw2p14O/5d/zv40gJPbIQxfES3nSx1/oYNyuZQ==}
 
-  jose@6.2.3:
-    resolution: {integrity: sha512-YYVDInQKFJfR/xa3ojUTl8c2KoTwiL1R5Wg9YCydwH0x0B9grbzlg5HC7mMjCtUJjbQ/YnGEZIhI5tCgfTb4Hw==}
-
   jpeg-js@0.4.4:
     resolution: {integrity: sha512-WZzeDOEtTOBK4Mdsar0IqEU5sMr3vSV2RqkAIzUEV2BHnUfKGyswWFPFwK5EeDo93K3FohSHbLAjj0s1Wzd+dg==}
 
@@ -12167,10 +12151,6 @@ packages:
     resolution: {integrity: sha512-6KQ/+QxK49Z/p3HO6E5ZCZWNnCasyZLa5ExaVYyvPxUwKtbCPMKELJOqh7EqOle0t9cH/7d2TaaTRRa6Nhs4YQ==}
     engines: {node: '>=20.18.1'}
 
-  undici@7.27.2:
-    resolution: {integrity: sha512-uZsKNuzQxDMUY6M3pIMvy5tvlGmtq8XJ2oLAkfRKGNu+1VQAIvLy2xIVG5ATZl5wDXl/tddByAWCizRbOme+TA==}
-    engines: {node: '>=20.18.1'}
-
   unenv@2.0.0-rc.24:
     resolution: {integrity: sha512-i7qRCmY42zmCwnYlh9H2SvLEypEFGye5iRmEMKjcGi7zk9UquigRjFtTLz0TYqr0ZGLZhaMHl/foy1bZR+Cwlw==}
 
@@ -13084,17 +13064,6 @@ snapshots:
   '@ai-sdk/provider@4.0.0':
     dependencies:
       json-schema: 0.4.0
-
-  '@ai-sdk/sandbox-vercel@1.0.0(ws@8.21.0)(zod@4.4.3)':
-    dependencies:
-      '@ai-sdk/harness': 1.0.0(ws@8.21.0)(zod@4.4.3)
-      '@ai-sdk/provider-utils': 5.0.0(zod@4.4.3)
-      '@vercel/sandbox': 2.2.1
-    transitivePeerDependencies:
-      - bare-abort-controller
-      - react-native-b4a
-      - ws
-      - zod
 
   '@ai-sdk/vue@3.0.168(vue@3.5.34(typescript@6.0.2))(zod@4.4.3)':
     dependencies:
@@ -18856,23 +18825,6 @@ snapshots:
       - bare-abort-controller
       - react-native-b4a
 
-  '@vercel/sandbox@2.2.1':
-    dependencies:
-      '@vercel/oidc': 3.2.0
-      '@workflow/serde': 4.1.0-beta.2
-      async-retry: 1.3.3
-      jose: 6.2.3
-      jsonlines: 0.1.1
-      ms: 2.1.3
-      picocolors: 1.1.1
-      tar-stream: 3.1.7
-      undici: 7.27.2
-      xdg-app-paths: 5.1.0
-      zod: 4.4.3
-    transitivePeerDependencies:
-      - bare-abort-controller
-      - react-native-b4a
-
   '@vitejs/devtools-kit@0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@nuxt/kit@4.4.6(magicast@0.5.3))(@voidzero-dev/vite-plus-core@0.1.24)(launch-editor@2.13.2)(typescript@6.0.2)':
     dependencies:
       birpc: 4.0.0
@@ -23373,8 +23325,6 @@ snapshots:
 
   jose@6.2.2: {}
 
-  jose@6.2.3: {}
-
   jpeg-js@0.4.4:
     optional: true
 
@@ -27411,8 +27361,6 @@ snapshots:
   undici@7.22.0: {}
 
   undici@7.24.8: {}
-
-  undici@7.27.2: {}
 
   unenv@2.0.0-rc.24:
     dependencies:

@@ -128,7 +128,7 @@ describe("claudeCodeDriver", () => {
     }
   })
 
-  it("can disable the default local Claude Code sandbox", async () => {
+  it("can defer the local Claude Code sandbox to the Agent Driver fallback", async () => {
     const { claudeCodeDriver } = await import("../src/harness/claude-code.ts")
 
     const driver = claudeCodeDriver({ sandbox: false })
