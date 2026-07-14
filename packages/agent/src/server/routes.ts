@@ -378,10 +378,25 @@ function getAgentChatOptions(agent: unknown): AgentChatOptions | undefined {
   return getChatCapabilityOptions(getAgentCapabilities(agent)) || definition.chat
 }
 
-function hasExplicitNonStreamingMessages(agent: unknown): boolean {
+function getChannelChatOptions(
+  agent: unknown,
+  channelId: string | undefined,
+  options: AgentChatOptions | undefined,
+): AgentChatOptions | undefined {
+  if (!channelId || !isRecord(agent) || !isRecord(agent.channels)) return options
+  const channel = agent.channels[channelId]
+  if (!isRecord(channel) || !isRecord(channel.messages)) return options
+  return { ...options, ...channel.messages }
+}
+
+function hasExplicitNonStreamingMessages(agent: unknown, channelId?: string): boolean {
   if (!isRecord(agent)) return false
   if (isRecord(agent.messages) && agent.messages.stream === false) return true
   if (!isRecord(agent.channels)) return true
+  if (channelId) {
+    const channel = agent.channels[channelId]
+    return isRecord(channel) && isRecord(channel.messages) && channel.messages.stream === false
+  }
   const channels = Object.values(agent.channels)
   if (!channels.some(channel => isRecord(channel) && channel.adapter && channel.messages !== false)) return true
   return channels.some(
@@ -2718,8 +2733,8 @@ export function createChannelWebhookRouteHandler(
         }
       }
 
-      const chatOptions = getAgentChatOptions(agent)
-      const adapters = await resolveChatAdapters(chatOptions, context)
+      const baseChatOptions = getAgentChatOptions(agent)
+      const adapters = await resolveChatAdapters(baseChatOptions, context)
       const adapterName = resolveChatAdapterName(adapters, registration)
       const adapter = adapterName ? adapters[adapterName] : undefined
       if (!adapter) {
@@ -2727,9 +2742,10 @@ export function createChannelWebhookRouteHandler(
       }
 
       try {
+        const chatOptions = getChannelChatOptions(agent, registration.channelId, baseChatOptions)
         const handler = await createChatWebhookHandler(agent, context, registration, adapterName!, adapter, chatOptions, handlerOptions)
         const response = await handler(request, { waitUntil: context.waitUntil })
-        if (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent)) {
+        if (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent, registration.channelId)) {
           await context.flushWaitUntil?.()
         }
         return response

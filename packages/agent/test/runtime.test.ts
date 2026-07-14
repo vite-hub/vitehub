@@ -4943,8 +4943,8 @@ describe("agent message protocol", () => {
 
   it("resolves zero-argument Channel factories once per Agent definition", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineChannel, stream } = await import("../src/channels.ts")
-    const factory = vi.fn(() => stream())
+    const { defineChannel, webChat } = await import("../src/channels.ts")
+    const factory = vi.fn(() => webChat())
     const existing = defineChannel("custom")
     const workspace = { sources: {} }
 
@@ -4974,9 +4974,9 @@ describe("agent message protocol", () => {
     })).toThrowError(new TypeError('[vitehub] Channel factory "broken" must return an Agent Channel definition.'))
   })
 
-  it("keeps shorthand and explicit Stream Channels equivalent on generated routes", async () => {
+  it("enables equivalent generated routes for shorthand and explicit Web Chat Channels", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { stream, webChat } = await import("../src/channels.ts")
+    const { webChat } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler, hasChannelChatRoute } = await import("../src/server/internal.ts")
     const shorthandRun = vi.fn(({ run }) => `${run.channelId}:${run.origin}`)
     const explicitRun = vi.fn(({ run }) => `${run.channelId}:${run.origin}`)
@@ -4987,23 +4987,36 @@ describe("agent message protocol", () => {
       method: "POST",
     })
 
-    const shorthand = defineAgent({ channels: { portal: stream }, driver: { run: shorthandRun } })
-    const explicit = defineAgent({ channels: { portal: stream() }, driver: { run: explicitRun } })
-    const routeDisabled = defineAgent({ channels: { portal: webChat() }, driver: { run: () => "ok" } })
+    const shorthand = defineAgent({ channels: { portal: webChat }, driver: { run: shorthandRun } })
+    const explicit = defineAgent({ channels: { portal: webChat() }, driver: { run: explicitRun } })
+    const routeDisabled = defineAgent({ channels: { portal: webChat({ route: false }) }, driver: { run: () => "ok" } })
     const shorthandResponse = await createChannelChatRouteHandler(shorthand as never)(request(), { agentName: "support" })
     const explicitResponse = await createChannelChatRouteHandler(explicit as never)(request(), { agentName: "support" })
 
     expect(shorthandResponse.status).toBe(200)
     expect(explicitResponse.status).toBe(200)
-    expect(shorthandRun).toHaveBeenCalledWith(expect.objectContaining({ run: expect.objectContaining({ channelId: "portal", origin: "stream" }) }))
-    expect(explicitRun).toHaveBeenCalledWith(expect.objectContaining({ run: expect.objectContaining({ channelId: "portal", origin: "stream" }) }))
+    expect(shorthandRun).toHaveBeenCalledWith(expect.objectContaining({ run: expect.objectContaining({ channelId: "portal", origin: "web-chat" }) }))
+    expect(explicitRun).toHaveBeenCalledWith(expect.objectContaining({ run: expect.objectContaining({ channelId: "portal", origin: "web-chat" }) }))
     expect(hasChannelChatRoute(explicit as never)).toBe(true)
     expect(hasChannelChatRoute(routeDisabled as never)).toBe(false)
 
     expect(() => createChannelChatRouteHandler(defineAgent({
-      channels: { first: stream, second: stream },
+      channels: { first: webChat, second: webChat },
       driver: { run: () => "ok" },
     }) as never)).toThrow("multiple route-enabled Channels")
+  })
+
+  it("accepts channel-local stream delivery across multiple message-shaped channels", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { teams, telegram } = await import("../src/channels.ts")
+
+    expect(() => defineAgent({
+      channels: {
+        teams: teams({ adapter: () => ({}) as never, messages: { stream: false } }),
+        telegram: telegram({ adapter: () => ({}) as never, messages: { stream: true } }),
+      },
+      driver: { run: () => "ok" },
+    })).not.toThrow()
   })
 
   it("applies channel-local message settings for one message-shaped channel", async () => {
@@ -5038,7 +5051,7 @@ describe("agent message protocol", () => {
         web: webChat({ messages: { triggerHistory: "none" } }),
       },
       driver: { run: () => "ok" },
-    })).toThrow("Channel-local messages options are only supported when an Agent defines one message-shaped Channel")
+    })).toThrow("Channel-local messages options other than stream are only supported when an Agent defines one message-shaped Channel")
   })
 
   it("rejects channel-local identity across multiple message-shaped channels", async () => {

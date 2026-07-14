@@ -1848,9 +1848,9 @@ describe("server helpers", () => {
     await expect(response.text()).rejects.toThrow("upstream failed")
   })
 
-  it("serves stream Channel chat routes with channel-owned trusted input mapping", async () => {
+  it("serves default webChat routes with channel-owned trusted input mapping", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { stream } = await import("../src/channels.ts")
+    const { webChat } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const run = vi.fn(({ context, invoker, run }) => {
       const chatContext = context.get("chat") as { meta?: { audience?: string }, user?: { email?: string } } | undefined
@@ -1858,7 +1858,7 @@ describe("server helpers", () => {
     })
     const handler = createChannelChatRouteHandler(defineAgent({
       channels: {
-        portal: stream({
+        portal: webChat({
           route: {
             mapInput({ body, request }) {
               if (request.headers.get("x-quiver-chat-token") !== "trusted") {
@@ -2535,12 +2535,12 @@ describe("server helpers", () => {
 
   it("defaults adapter-backed Channels to final-only delivery", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { stream, telegram } = await import("../src/channels.ts")
+    const { telegram, webChat } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler, createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const agent = defineAgent({
       channels: {
-        stream,
+        web: webChat,
         telegram: telegram({ adapter: () => adapter as never }),
       },
       driver: { run: () => ({ text: "final answer" }) },
@@ -2581,6 +2581,44 @@ describe("server helpers", () => {
     }))
     expect(streamResponse.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
     await expect(streamResponse.text()).resolves.toContain("final answer")
+  })
+
+  it("scopes progressive delivery to the active Channel", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const progressiveAdapter = createTestChatAdapter()
+    const finalAdapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        final: telegram({ adapter: () => finalAdapter as never, messages: { stream: false } }),
+        progressive: telegram({ adapter: () => progressiveAdapter as never, messages: { stream: true } }),
+      },
+      driver: { run: () => ({ text: "channel reply" }) },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = (messageId: number) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: messageId,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: messageId,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    })
+
+    await handler(request(1), "progressive")
+    expect(progressiveAdapter.postMessage).toHaveBeenCalledWith("telegram:456", "...")
+    expect(progressiveAdapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "channel reply" })
+
+    await handler(request(2), "final")
+    expect(finalAdapter.postMessage).toHaveBeenCalledOnce()
+    expect(finalAdapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "channel reply" })
+    expect(finalAdapter.editMessage).not.toHaveBeenCalled()
   })
 
   it("splits long Discord chat output after stream finalization", async () => {
