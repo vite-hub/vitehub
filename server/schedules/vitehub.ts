@@ -17,6 +17,7 @@ type Job = Awaited<ReturnType<typeof reconcileWorktrees>>[number] & {
 }
 
 const owners = createAgentOwnerPool<Job>({
+  concurrency: 4,
   onError(job, error) {
     console.error(new Error(`Babysitter failed for PR #${job.number}.`, { cause: error }))
   },
