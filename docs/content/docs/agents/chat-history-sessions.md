@@ -114,7 +114,7 @@ The default resolver returns `null` for bot authors, so Chat SDK does not associ
 
 ## Persist state deliberately
 
-Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive process restarts. Development state providers are useful locally, but hosted runtimes should configure durable state.
+Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive process restarts. The default `provider: 'auto'` wires Cloudflare state only when the Agent host or runtime resolves to Cloudflare; Vercel, Netlify, and unknown hosted Node deployments use memory state. Configure a durable provider explicitly when that state must survive process restarts.
 
 ```ts [vite.config.ts]
 import { hubAgent } from '@vite-hub/agent/vite'

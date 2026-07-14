@@ -752,7 +752,7 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it("installs Cloudflare chat state bindings for generated webhook routes", async () => {
+  it("installs automatic Cloudflare chat state for Cloudflare hosting", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
     const result = typeof plugin.config === "function"
@@ -772,6 +772,7 @@ describe("agent Vite plugin", () => {
               },
             },
           },
+          preset: "cloudflare",
           root: hostedAgentRoot,
         } as never, { command: "build", mode: "production" })
       : undefined
@@ -808,6 +809,89 @@ describe("agent Vite plugin", () => {
       rolldownOptions: { external: ["existing", ...optionalMessageAdapterRuntimeExternals] },
       rollupOptions: { external: optionalMessageAdapterRuntimeExternals },
     })
+  })
+
+  it("keeps automatic chat state host-neutral for Vercel hosting", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ devtools: false })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, {
+          preset: "vercel",
+          root: hostedAgentRoot,
+        } as never, { command: "build", mode: "production" })
+      : undefined
+    const output = result as {
+      nitro?: {
+        cloudflare?: unknown
+        handlers?: unknown[]
+        rollupConfig?: unknown
+      }
+    }
+
+    expect(output.nitro?.handlers).toContainEqual({
+      handler: ".vitehub/agent/chat-webhook-route.ts",
+      route: "/api/_vitehub/agents/:agent/chat",
+    })
+    expect(output.nitro?.handlers).toContainEqual({
+      handler: ".vitehub/agent/chat-webhook-route.ts",
+      route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
+    })
+    expect(output.nitro?.cloudflare).toBeUndefined()
+    expect(output.nitro?.rollupConfig).toBeUndefined()
+  })
+
+  it("prefers an explicit Vercel runtime over inferred Cloudflare hosting", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ runtime: "vercel" })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, {
+          preset: "cloudflare",
+          root: hostedAgentRoot,
+        } as never, { command: "build", mode: "production" })
+      : undefined
+
+    expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeUndefined()
+  })
+
+  it("prefers explicit Cloudflare hosting over ambient Vercel CI", async () => {
+    const previousVercel = process.env.VERCEL
+    try {
+      process.env.VERCEL = "1"
+      const { hubAgent } = await import("../src/vite.ts")
+      const plugin = hubAgent()
+      const result = typeof plugin.config === "function"
+        ? await plugin.config.call({} as never, {
+            preset: "cloudflare",
+            root: hostedAgentRoot,
+          } as never, { command: "build", mode: "production" })
+        : undefined
+
+      expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeDefined()
+    }
+    finally {
+      if (previousVercel === undefined) delete process.env.VERCEL
+      else process.env.VERCEL = previousVercel
+    }
+  })
+
+  it("detects automatic Cloudflare hosting from the build environment", async () => {
+    const previousCloudflarePages = process.env.CF_PAGES
+    try {
+      process.env.CF_PAGES = "1"
+      const { hubAgent } = await import("../src/vite.ts")
+      const plugin = hubAgent()
+      const result = typeof plugin.config === "function"
+        ? await plugin.config.call({} as never, {
+            root: hostedAgentRoot,
+          } as never, { command: "build", mode: "production" })
+        : undefined
+
+      expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeDefined()
+    }
+    finally {
+      if (previousCloudflarePages === undefined) delete process.env.CF_PAGES
+      else process.env.CF_PAGES = previousCloudflarePages
+    }
   })
 
   it("keeps Cloudflare chat state opt-out when the state provider is memory", async () => {
@@ -895,15 +979,15 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).not.toContain("withAgentDefaults")
       expect(webhookRoute).toContain("const agentIdentities")
       expect(webhookRoute).toContain('"support": {"name":"support"}')
-      expect(webhookRoute).toContain("import { createCloudflareAgentState } from \"@vite-hub/agent/cloudflare\"")
+      expect(webhookRoute).not.toContain("import { createCloudflareAgentState } from \"@vite-hub/agent/cloudflare\"")
       expect(webhookRoute).toContain("async function toRequest(event)")
       expect(webhookRoute).toContain("const body = await readRawBody(event)")
       expect(webhookRoute).not.toContain("return event.request")
       expect(webhookRoute).toContain("function waitUntilFromEvent(event)")
-      expect(webhookRoute).toContain("function chatStateFromCloudflare(cloudflare)")
+      expect(webhookRoute).not.toContain("function chatStateFromCloudflare(cloudflare)")
       expect(webhookRoute).toContain("function resolveChatRouteOptions(module)")
       expect(webhookRoute).toContain("waitUntil: waitUntilFromEvent(event)")
-      expect(webhookRoute).toContain("state: chatStateFromCloudflare(cloudflare)")
+      expect(webhookRoute).not.toContain("state: chatStateFromCloudflare(cloudflare)")
       expect(webhookRoute).toContain("runtime: 'vite'")
       expect(webhookRoute).toContain("const agentModules")
       expect(webhookRoute).toContain("const chatHandlers")
@@ -914,6 +998,28 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)")
       expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook")
       expect(webhookRoute).not.toContain("@vite-hub/schedule/runtime")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("writes generated Cloudflare state helpers for Cloudflare hosting", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-cloudflare-state-routes-"))
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      const plugin = hubAgent()
+      if (typeof plugin.configResolved === "function") {
+        await plugin.configResolved.call({} as never, { command: "build", preset: "cloudflare", root } as never)
+      }
+
+      const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+
+      expect(webhookRoute).toContain("import { createCloudflareAgentState } from \"@vite-hub/agent/cloudflare\"")
+      expect(webhookRoute).toContain("function chatStateFromCloudflare(cloudflare)")
+      expect(webhookRoute).toContain("state: chatStateFromCloudflare(cloudflare)")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -977,7 +1083,7 @@ describe("agent Vite plugin", () => {
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
       expect(webhookRoute).not.toContain("runtime: 'vite'")
-      expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: chatStateFromCloudflare(cloudflare), waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, waitUntil: waitUntilFromEvent(event) })")
+      expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, waitUntil: waitUntilFromEvent(event) })")
     }
     finally {
       await rm(root, { force: true, recursive: true })
