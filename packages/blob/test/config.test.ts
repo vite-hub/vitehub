@@ -18,6 +18,42 @@ describe("blob config", () => {
     })
   })
 
+  it("defaults the fs base from BLOB_FS_BASE", () => {
+    expect(normalizeBlobOptions(undefined, {
+      env: { BLOB_FS_BASE: "/data/blob" },
+    })).toEqual({
+      store: {
+        base: "/data/blob",
+        driver: "fs",
+      },
+    })
+  })
+
+  it("resolves an explicit fs store base from BLOB_FS_BASE", () => {
+    expect(normalizeBlobOptions({ driver: "fs" }, {
+      env: { BLOB_FS_BASE: "/data/blob" },
+    })).toEqual({
+      store: {
+        base: "/data/blob",
+        driver: "fs",
+      },
+    })
+  })
+
+  it("keeps an explicit fs base over BLOB_FS_BASE", () => {
+    expect(normalizeBlobOptions({
+      base: ".data/assets",
+      driver: "fs",
+    }, {
+      env: { BLOB_FS_BASE: "/data/blob" },
+    })).toEqual({
+      store: {
+        base: ".data/assets",
+        driver: "fs",
+      },
+    })
+  })
+
   it("defaults Cloudflare hosting to an R2 binding", () => {
     expect(normalizeBlobOptions({}, {
       env: { BLOB_BUCKET_NAME: "assets" },

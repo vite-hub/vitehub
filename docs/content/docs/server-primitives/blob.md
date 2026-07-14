@@ -73,7 +73,7 @@ export default defineConfig({
 | Shape | Description |
 | --- | --- |
 | `blob: false` | Disables Blob runtime configuration. |
-| `blob: { driver: 'fs', base?: string }` | Uses local filesystem storage. Default `base`: `.data/blob`. |
+| `blob: { driver: 'fs', base?: string }` | Uses local filesystem storage. At config time, `base` falls back to `BLOB_FS_BASE`, then `.data/blob`. |
 | `blob: { driver: 'cloudflare-r2', binding?: string, bucketName?: string }` | Uses Cloudflare R2. Default `binding`: `BLOB`. HTTP credentials can provide fallback access when no runtime binding exists. |
 | `blob: { driver: 'vercel-blob', token?, access? }` | Uses Vercel Blob. Runtime token can come from `BLOB_READ_WRITE_TOKEN`; access can be `private` or `public`. |
 | `blob: { driver: 's3', bucket, endpoint?, region? }` | Uses production S3-compatible object storage. |
