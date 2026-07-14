@@ -9,6 +9,7 @@ type AgentOwnerPoolOptions<TJob extends PullRequestJob> = {
 
 export function createAgentOwnerPool<TJob extends PullRequestJob>({ onError, run }: AgentOwnerPoolOptions<TJob>) {
   const active = new Map<number, Promise<void>>()
+  let tail = Promise.resolve()
 
   return {
     activePullRequests() {
@@ -24,13 +25,14 @@ export function createAgentOwnerPool<TJob extends PullRequestJob>({ onError, run
         if (active.has(job.number)) continue
 
         let owner: Promise<void>
-        owner = Promise.resolve()
+        owner = tail
           .then(() => run(job))
           .catch(error => onError(job, error))
           .finally(() => {
             if (active.get(job.number) === owner) active.delete(job.number)
           })
         active.set(job.number, owner)
+        tail = owner
         started.push(job.number)
       }
 
