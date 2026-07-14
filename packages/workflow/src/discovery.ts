@@ -235,7 +235,7 @@ function discoverFlatServerAgentWorkflowDefinitions(scanDirs: string[]): Discove
           && extractAgentWorkflowName(file, "__vitehub_agent_workflow__") === undefined) {
           return undefined
         }
-        if (/^index\.(?:c|m)?[jt]s$/i.test(fileName) && hasConfigAgentDefinition(resolve(file, ".."))) {
+        if (/^index\.(?:c|m)?[jt]s$/i.test(fileName) && hasFolderAgentDefinition(resolve(file, ".."))) {
           return undefined
         }
         return normalizePathDefinitionName(directory, file)
