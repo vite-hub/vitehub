@@ -6,6 +6,7 @@ export interface ScheduleRunContext<TInput = unknown> {
   scheduleId?: string
   scheduledAt: Date
   target?: ScheduleTargetName
+  waitUntil(promise: PromiseLike<unknown>): void
 }
 
 export type ScheduleHandler<TResult = unknown, TInput = unknown> = {

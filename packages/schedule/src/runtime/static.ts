@@ -1,10 +1,12 @@
 import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunContext } from "../types.ts"
+import { createLocalWaitUntil } from "./wait-until.ts"
 
 export interface ExecuteStaticScheduleOptions {
   cron: string
   definition: ScheduleDefinition
   name: string
   scheduledAt?: Date
+  waitUntil?: (promise: PromiseLike<unknown>) => void
 }
 
 export interface ExecuteMatchingStaticSchedulesOptions {
@@ -34,18 +36,27 @@ export interface StaticScheduleRun extends ScheduleRunContext {
   scheduleId: string
 }
 
-export function createStaticScheduleRun(options: Omit<ExecuteStaticScheduleOptions, "definition">): StaticScheduleRun {
+export function createStaticScheduleRun(
+  options: Omit<ExecuteStaticScheduleOptions, "definition" | "waitUntil"> & { waitUntil: NonNullable<ExecuteStaticScheduleOptions["waitUntil"]> },
+): StaticScheduleRun {
   const scheduledAt = options.scheduledAt ?? new Date()
   return {
     cron: options.cron,
     id: `run_${options.name}_${scheduledAt.toISOString()}`,
     scheduleId: options.name,
     scheduledAt,
+    waitUntil: options.waitUntil,
   }
 }
 
 export async function executeStaticSchedule(options: ExecuteStaticScheduleOptions): Promise<unknown> {
-  return await options.definition.handler(createStaticScheduleRun(options))
+  const localWaitUntil = createLocalWaitUntil()
+  const result = await options.definition.handler(createStaticScheduleRun({
+    ...options,
+    waitUntil: options.waitUntil ?? localWaitUntil.waitUntil,
+  }))
+  if (!options.waitUntil) await localWaitUntil.flush()
+  return result
 }
 
 export async function executeMatchingStaticSchedules(options: ExecuteMatchingStaticSchedulesOptions): Promise<unknown[]> {

@@ -353,6 +353,23 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
   const previousRuntimeScheduleStore = getRuntimeScheduleStore()
   const previousScheduleRunStore = getScheduleRunStore()
   const reportError = createErrorReporter(options.onError)
+  const pendingWork = new Set<Promise<unknown>>()
+  function waitUntil(value: PromiseLike<unknown>): void {
+    const promise = Promise.resolve(value)
+    pendingWork.add(promise)
+    void promise.then(
+      () => pendingWork.delete(promise),
+      (error) => {
+        pendingWork.delete(promise)
+        reportError(error)
+      },
+    )
+  }
+  async function flushWaitUntil(): Promise<void> {
+    while (pendingWork.size > 0) {
+      await Promise.allSettled([...pendingWork])
+    }
+  }
   const serialize = createSerializer()
   let driver: RuntimeScheduleWakeDriver | undefined
   let reconciledDriver: RuntimeScheduleWakeDriver | undefined
@@ -383,12 +400,14 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
               definition: staticSchedule.definition,
               name: staticSchedule.name,
               scheduledAt: input.scheduledAt,
+              waitUntil,
             })
             return
           }
           await executeRuntimeScheduleWake(input, {
             runtimeScheduleStore: options.runtimeScheduleStore,
             scheduleRunStore: options.scheduleRunStore,
+            waitUntil,
           })
         }),
       })
@@ -444,6 +463,7 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
     close() {
       return closePromise ??= serialize(async () => {}).then(async () => {
         await installedDriver.close?.()
+        await flushWaitUntil()
       })
     },
   }

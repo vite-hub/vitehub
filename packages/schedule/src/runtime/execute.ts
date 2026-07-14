@@ -3,6 +3,7 @@ import { randomId } from "@vite-hub/internal/runtime/random"
 import { ScheduleError } from "../errors.ts"
 import { isRuntimeScheduleDue } from "./due.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
+import { createLocalWaitUntil } from "./wait-until.ts"
 
 import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinition, ScheduleRegistryDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore, ScheduleTargetName } from "../types.ts"
 
@@ -14,6 +15,7 @@ interface ExecuteScheduleOptions {
   source?: "direct" | "runtime" | "static"
   scheduledAt?: Date
   target: ScheduleTargetName
+  waitUntil?: (promise: PromiseLike<unknown>) => void
 }
 
 interface ExecuteStaticScheduleOptions {
@@ -21,6 +23,7 @@ interface ExecuteStaticScheduleOptions {
   definition: ScheduleDefinition
   name: string
   scheduledAt?: Date
+  waitUntil?: (promise: PromiseLike<unknown>) => void
 }
 
 interface ExecuteRuntimeScheduleOptions {
@@ -29,11 +32,13 @@ interface ExecuteRuntimeScheduleOptions {
   runtimeScheduleStore?: RuntimeScheduleStore
   scheduledAt?: Date
   scheduleRunStore?: ScheduleRunStore
+  waitUntil?: (promise: PromiseLike<unknown>) => void
 }
 
 interface ExecuteRuntimeScheduleWakeOptions {
   runtimeScheduleStore: RuntimeScheduleStore
   scheduleRunStore: ScheduleRunStore
+  waitUntil?: (promise: PromiseLike<unknown>) => void
 }
 
 function assertRuntimeExecuteOptionsObject(options: unknown): asserts options is ExecuteRuntimeScheduleOptions {
@@ -140,7 +145,12 @@ async function startAttempt(run: ScheduleRunRecord, store: ScheduleRunStore = ge
   return attempt
 }
 
-function toHandlerContext(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord, input?: unknown): ScheduleRunContext {
+function toHandlerContext(
+  run: ScheduleRunRecord,
+  attempt: ScheduleRunAttemptRecord,
+  input: unknown,
+  waitUntil: (promise: PromiseLike<unknown>) => void,
+): ScheduleRunContext {
   return {
     attemptId: attempt.id,
     id: run.id,
@@ -149,6 +159,7 @@ function toHandlerContext(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRec
     scheduleId: run.scheduleId,
     scheduledAt: run.scheduledAt,
     target: run.target,
+    waitUntil,
   }
 }
 
@@ -183,7 +194,7 @@ async function failRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord
   }))
 }
 
-export async function createScheduleRun(options: Omit<ExecuteScheduleOptions, "definition">): Promise<ScheduleRunRecord> {
+export async function createScheduleRun(options: Omit<ExecuteScheduleOptions, "definition" | "waitUntil">): Promise<ScheduleRunRecord> {
   const scheduledAt = validateScheduledAt(options.scheduledAt ?? new Date())
   return (await createOrGetRun({ ...options, scheduledAt })).run
 }
@@ -200,8 +211,11 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
 
   const runStore = options.runStore ?? getScheduleRunStore()
   const attempt = await startAttempt(run, runStore)
+  const localWaitUntil = createLocalWaitUntil()
+  const waitUntil = options.waitUntil ?? localWaitUntil.waitUntil
   try {
-    await options.definition.handler(toHandlerContext(run, attempt, options.input))
+    await options.definition.handler(toHandlerContext(run, attempt, options.input, waitUntil))
+    if (!options.waitUntil) await localWaitUntil.flush()
     return await completeRun(run, attempt, runStore)
   }
   catch (error) {
@@ -217,6 +231,7 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
     source: "static",
     scheduledAt: options.scheduledAt,
     target: options.name,
+    waitUntil: options.waitUntil,
   })
 }
 
@@ -283,6 +298,7 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
     source: "runtime",
     scheduledAt,
     target: schedule.target,
+    waitUntil: runtimeOptions.waitUntil,
   })
 }
 
@@ -293,5 +309,6 @@ export async function executeRuntimeScheduleWake(input: RuntimeScheduleWake, opt
     runtimeScheduleStore: options.runtimeScheduleStore,
     scheduledAt: input.scheduledAt,
     scheduleRunStore: options.scheduleRunStore,
+    waitUntil: options.waitUntil,
   })
 }
