@@ -67,6 +67,12 @@ export interface AgentObservabilityFinishExtension {
   usage?: AgentUsageRecord
 }
 
+declare global {
+  interface ViteHubAgentFinishExtensions {
+    observability: AgentObservabilityFinishExtension
+  }
+}
+
 interface AgentObservabilityCapabilityMetadata<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
