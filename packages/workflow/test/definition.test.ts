@@ -98,17 +98,24 @@ describe("workflow definitions", () => {
     tempDirs.push(rootDir)
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "inline"), { recursive: true })
+    await mkdir(join(rootDir, "server", "agents", "inline", "workspace"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "named"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "mentioned"), { recursive: true })
+    await mkdir(join(rootDir, "server", "agents", "typed-inline"), { recursive: true })
+    await mkdir(join(rootDir, "server", "agents", "typed-named"), { recursive: true })
     await writeFile(join(rootDir, "src", "support.agent.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "inline", "agent.ts"), "export default defineAgent({ runtime: false, driver: { run } })\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "inline", "workspace", "source.ts"), "export const runtime = false\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "named", "agent.ts"), "export default defineAgent({ runtime: workflow('custom-name'), driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "mentioned", "agent.ts"), "export default defineAgent({ driver: { run: () => 'runtime: false' }, metadata: { runtime: false } })\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "typed-inline", "agent.ts"), "export default defineAgent<Runtime>({ runtime: /* inline */ false as const, driver: { run } })\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "typed-named", "agent.ts"), "import { defineAgent } from '@vite-hub/agent'\nexport default defineAgent<{ handler: () => string }, Options>({ runtime: /* provider */ workflow(/* stable */ 'typed-custom'), driver: { run } })\n", "utf8")
 
     expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
       expect.objectContaining({ name: "custom-name", source: "agent-workflow" }),
       expect.objectContaining({ name: "mentioned", source: "agent-workflow" }),
       expect.objectContaining({ name: "support", source: "agent-workflow" }),
+      expect.objectContaining({ name: "typed-custom", source: "agent-workflow" }),
     ])
   })
 

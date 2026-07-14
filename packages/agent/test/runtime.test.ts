@@ -8152,6 +8152,7 @@ describe("agent message protocol", () => {
     const { defineAgent } = await import("../src/index.ts")
     const browserAgent = {
       async resolve(context) {
+        expect(context.agentIdentity).toBeUndefined()
         return {
           async generate({ runtime }) {
             return {
@@ -8181,6 +8182,7 @@ describe("agent message protocol", () => {
     })
 
     const resolved = await reviewerAgent.resolve({
+      agentIdentity: { name: "reviewer" },
       memo: vi.fn(),
       runtime: "unknown",
       runtimeConfig: { region: "iad" },

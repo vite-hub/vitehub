@@ -84,15 +84,39 @@ function maskSourceLiterals(source: string): string {
   return masked
 }
 
-function extractAgentRuntime(source: string): string | undefined {
+function findAgentObjectStart(masked: string): number | undefined {
+  const definitions = /\bdefineAgent\b/g
+  for (const definition of masked.matchAll(definitions)) {
+    let index = definition.index + definition[0].length
+    while (/\s/.test(masked[index] || "")) index++
+    if (masked[index] === "<") {
+      let depth = 0
+      do {
+        if (masked[index] === "<") depth++
+        else if (masked[index] === ">" && masked[index - 1] !== "=") depth--
+        index++
+      } while (index < masked.length && depth > 0)
+    }
+    while (/\s/.test(masked[index] || "")) index++
+    if (masked[index++] !== "(") continue
+    while (/\s/.test(masked[index] || "")) index++
+    if (masked[index] === "{") return index
+  }
+  return undefined
+}
+
+function extractAgentRuntime(source: string): { masked?: string, raw?: string } | undefined {
   const masked = maskSourceLiterals(source)
-  const definition = /\bdefineAgent\s*\(\s*\{/.exec(masked)
-  if (!definition) return undefined
-  const start = definition.index + definition[0].lastIndexOf("{")
+  const start = findAgentObjectStart(masked)
+  if (start === undefined) return undefined
   let depth = 0
   for (let index = start; index < masked.length; index++) {
-    if (masked[index] === "{") depth++
-    else if (masked[index] === "}" && --depth === 0) return undefined
+    if (masked[index] === "{") {
+      depth++
+    }
+    else if (masked[index] === "}" && --depth === 0) {
+      return {}
+    }
     else if (depth === 1 && /^runtime\s*:/.test(masked.slice(index))) {
       const colon = masked.indexOf(":", index + 7)
       let end = colon + 1
@@ -105,20 +129,23 @@ function extractAgentRuntime(source: string): string | undefined {
         }
         else if (masked[end] === "," && nested === 0) break
       }
-      return source.slice(colon + 1, end).trim()
+      return {
+        masked: masked.slice(colon + 1, end).trim(),
+        raw: source.slice(colon + 1, end).trim(),
+      }
     }
   }
-  return undefined
+  return {}
 }
 
 function extractAgentWorkflowName(file: string, fallbackName: string): string | undefined {
   const runtime = extractAgentRuntime(readFileSync(file, "utf8"))
-  const match = /^workflow\s*\(([^)]*)\)$/.exec(runtime || "")
+  if (!runtime) return undefined
+  const match = /^(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*workflow\s*\(\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*(["'`])([^"'`]+)\1\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))\s*)*\)$/.exec(runtime.raw || "")
   if (match) {
-    const literal = /^\s*(["'`])([^"'`]+)\1\s*$/.exec(match[1] || "")
-    return literal?.[2] || fallbackName
+    return match[2] || fallbackName
   }
-  return runtime === "false" ? undefined : fallbackName
+  return /^false(?:\s+as\s+const)?$/.test(runtime.masked || "") ? undefined : fallbackName
 }
 
 function toAgentWorkflowDefinition(file: string, fallbackName: string): DiscoveredWorkflowDefinition | undefined {
