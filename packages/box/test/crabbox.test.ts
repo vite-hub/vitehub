@@ -112,8 +112,8 @@ describe("crabbox", () => {
       const invocations = (await readFile(log, "utf8")).trim().split("\n")
       expect(invocations).not.toContain(expect.stringContaining("|tunnel|"))
       expect(invocations.filter(invocation => invocation.includes("|warmup|")).every(invocation => invocation.startsWith(`${workRootCwd}|`))).toBe(true)
-      expect(invocations.every(invocation => invocation.includes(`--static-work-root ${workRoot}`))).toBe(true)
-      expect(invocations.find(invocation => invocation.includes("|warmup|"))).toContain(`--static-work-root ${workRoot} --reclaim`)
+      expect(invocations.every(invocation => !invocation.includes("--static-work-root"))).toBe(true)
+      expect(invocations.find(invocation => invocation.includes("|warmup|"))).toContain("--reclaim")
     })
   }, 30_000)
 
@@ -133,8 +133,7 @@ describe("crabbox", () => {
       await expect(session.getPortUrl({ port: 3000, protocol: "ws" })).resolves.toMatch(/^ws:\/\/127\.0\.0\.1:\d+$/)
       await session.destroy()
 
-      const workRoot = join(root, ".crabbox")
-      await expect(readFile(log, "utf8")).resolves.toContain(`|tunnel|--provider ssh --target linux --id static_test --static-work-root ${workRoot}`)
+      await expect(readFile(log, "utf8")).resolves.toContain("|tunnel|--provider ssh --target linux --id static_test --port 3000")
     })
   }, 30_000)
 
@@ -220,7 +219,7 @@ describe("crabbox", () => {
       const warmups = invocations.filter(invocation => invocation.includes("|warmup|"))
       expect(warmups).toHaveLength(2)
       expect(warmups.every(invocation => invocation.startsWith(`${workRootCwd}|`))).toBe(true)
-      expect(invocations.every(invocation => invocation.includes(`--static-work-root ${workRoot}`))).toBe(true)
+      expect(invocations.every(invocation => !invocation.includes("--static-work-root"))).toBe(true)
       expect(warmups.every(invocation => invocation.endsWith("--reclaim --timing-json"))).toBe(true)
     })
   }, 30_000)

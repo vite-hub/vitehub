@@ -260,7 +260,6 @@ async function warmup(options: CrabboxSessionOptions, abortSignal: AbortSignal |
     "warmup",
     "--provider", "ssh",
     "--target", "linux",
-    "--static-work-root", options.workRoot,
     ...(options.reclaim ? ["--reclaim"] : []),
     "--timing-json",
   ], abortSignal))
@@ -277,7 +276,7 @@ async function warmup(options: CrabboxSessionOptions, abortSignal: AbortSignal |
 function spawnCrabboxRun(state: CrabboxSessionState, options: CrabboxRunOptions) {
   const workingDirectory = resolveSessionPath(state.root, options.workingDirectory)
   const command = shellCommand(options.command, workingDirectory, options.env)
-  const child = spawnCrabbox(state.options, runArgs(state.options.workRoot, state.leaseId, command, options.sync !== true), options.abortSignal, options.localWorkingDirectory)
+  const child = spawnCrabbox(state.options, runArgs(state.leaseId, command, options.sync !== true), options.abortSignal, options.localWorkingDirectory)
   state.processes.add(child)
   child.once("close", () => state.processes.delete(child))
   return processHandle(child, options.abortSignal)
@@ -285,16 +284,15 @@ function spawnCrabboxRun(state: CrabboxSessionState, options: CrabboxRunOptions)
 
 async function runCrabbox(options: CrabboxSessionOptions, leaseId: string, run: CrabboxRunOptions) {
   const command = shellCommand(run.command, undefined, run.env)
-  return await runProcess(spawnCrabbox(options, runArgs(options.workRoot, leaseId, command, run.sync !== true), run.abortSignal, run.localWorkingDirectory))
+  return await runProcess(spawnCrabbox(options, runArgs(leaseId, command, run.sync !== true), run.abortSignal, run.localWorkingDirectory))
 }
 
-function runArgs(workRoot: string, leaseId: string, command: string, noSync: boolean) {
+function runArgs(leaseId: string, command: string, noSync: boolean) {
   return [
     "run",
     "--provider", "ssh",
     "--target", "linux",
     "--id", leaseId,
-    "--static-work-root", workRoot,
     "--no-hydrate",
     ...(noSync ? ["--no-sync"] : []),
     "--shell", command,
@@ -307,7 +305,6 @@ async function runCrabboxScript(options: CrabboxSessionOptions, leaseId: string,
     "--provider", "ssh",
     "--target", "linux",
     "--id", leaseId,
-    "--static-work-root", options.workRoot,
     "--no-hydrate",
     "--no-sync",
     "--script-stdin",
@@ -323,7 +320,6 @@ function startTunnel(state: CrabboxSessionState, remotePort: number) {
     "--provider", "ssh",
     "--target", "linux",
     "--id", state.leaseId,
-    "--static-work-root", state.options.workRoot,
     "--port", String(remotePort),
     "--json",
   ])
