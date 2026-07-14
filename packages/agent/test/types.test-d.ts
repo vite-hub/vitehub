@@ -2,7 +2,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, type AgentActor, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentFinishEvent, type AgentHarnessDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
 import { access, blob, browser, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, observability, openapi, pullRequestContext, repositoryHost, repositoryHostContext, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type SubagentToolInput, type UsageTelemetryRecord } from "../src/capabilities.ts"
-import { defineChannel, github, http, pullRequest, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
+import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
@@ -30,19 +30,19 @@ describe("agent public types", () => {
     interface RuntimeConfig extends AgentRuntimeConfig {
       token: string
     }
-    const factory: AgentChannelFactory = stream
-    const runtimeFactory: AgentChannelFactory<RuntimeConfig> = stream
+    const factory: AgentChannelFactory = webChat
+    const runtimeFactory: AgentChannelFactory<RuntimeConfig> = webChat
     const input: AgentChannelInput = factory
     const inputs: AgentChannelInputs = { portal: input }
 
     defineAgent({ channels: inputs, driver: { run: () => "ok" } })
-    const runtimeAgent = defineAgent<RuntimeConfig>({ channels: { stream: runtimeFactory }, driver: { run: () => "ok" } })
-    expectTypeOf(runtimeAgent.channels?.stream).toEqualTypeOf<AgentChannelDefinition<RuntimeConfig> | undefined>()
-    defineAgent({ channels: { portal: stream }, driver: { run: () => "ok" } })
-    defineAgent({ channels: { portal: stream() }, driver: { run: () => "ok" } })
-    defineAgent({ channels: { portal: stream({ messages: { sessions: false } }) }, driver: { run: () => "ok" } })
+    const runtimeAgent = defineAgent<RuntimeConfig>({ channels: { web: runtimeFactory }, driver: { run: () => "ok" } })
+    expectTypeOf(runtimeAgent.channels?.web).toEqualTypeOf<AgentChannelDefinition<RuntimeConfig> | undefined>()
+    defineAgent({ channels: { portal: webChat }, driver: { run: () => "ok" } })
+    defineAgent({ channels: { portal: webChat() }, driver: { run: () => "ok" } })
+    defineAgent({ channels: { portal: webChat({ messages: { sessions: false } }) }, driver: { run: () => "ok" } })
 
-    const requiresOptions = (_options: { route: boolean }) => stream()
+    const requiresOptions = (_options: { route: boolean }) => webChat()
     defineAgent({
       channels: {
         // @ts-expect-error Channel factories cannot require arguments.
@@ -62,7 +62,7 @@ describe("agent public types", () => {
     defineAgent({
       channels: {
         // @ts-expect-error Channel factories must resolve synchronously.
-        portal: async () => stream(),
+        portal: async () => webChat(),
       },
       driver: { run: () => "ok" },
     })
@@ -943,7 +943,7 @@ describe("agent public types", () => {
         telegram: telegram({
           adapter: () => ({}) as never,
         }),
-        portalStream: stream({
+        portalWeb: webChat({
           route: {
             mapInput({ body, request }) {
               expectTypeOf(body.messages).toEqualTypeOf<unknown>()
@@ -1022,6 +1022,7 @@ describe("agent public types", () => {
     type ChannelExports = typeof import("../src/channels.ts")
     type _PublicDefineChannel = ChannelExports["defineChannel"]
     type _PublicGithub = ChannelExports["github"]
+    // @ts-expect-error streaming is delivery behavior, not a public Channel Kind.
     type _PublicStream = ChannelExports["stream"]
     type _PublicTelegram = ChannelExports["telegram"]
     type _PublicTeams = ChannelExports["teams"]

@@ -90,11 +90,11 @@ async function writeFixtureFiles(overrides) {
   await writeFile(join(appDir, "src", "lib", "reply.ts"), "export const replyMarker = \"netlify-alias-ok\"\n", "utf8")
   await writeFile(join(appDir, "server", "agents", "support.ts"), [
     "import { defineAgent } from \"@vite-hub/agent\"",
-    "import { stream } from \"@vite-hub/agent/channels\"",
+    "import { webChat } from \"@vite-hub/agent/channels\"",
     "import { replyMarker } from \"@/lib/reply\"",
     "",
     "export default defineAgent({",
-    "  channels: { portal: stream },",
+    "  channels: { portal: webChat },",
     "  driver: {",
     "    run({ messages }) {",
     "      const latest = messages.at(-1)",

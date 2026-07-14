@@ -203,9 +203,14 @@ export function resolveAgentChannelChatOptions<TRuntimeConfig extends AgentRunti
   }
   if (channelMessageOverrides.length) {
     if (messageChannelCount > 1) {
-      throw new TypeError("[vitehub] Channel-local messages options are only supported when an Agent defines one message-shaped Channel. Move shared settings to defineAgent({ messages }) until Channel-scoped chat triggers land.")
+      const unsupportedOverrides = channelMessageOverrides.some(({ stream: _stream, ...channelMessages }) => Object.keys(channelMessages).length > 0)
+      if (unsupportedOverrides) {
+        throw new TypeError("[vitehub] Channel-local messages options other than stream are only supported when an Agent defines one message-shaped Channel. Move shared settings to defineAgent({ messages }) until Channel-scoped chat triggers land.")
+      }
     }
-    Object.assign(options, channelMessageOverrides[0])
+    else {
+      Object.assign(options, channelMessageOverrides[0])
+    }
   }
   if (Object.keys(platforms).length) {
     options.platforms = platforms

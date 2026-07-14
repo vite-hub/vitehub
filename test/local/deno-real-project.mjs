@@ -104,10 +104,10 @@ async function writeFixtureFiles(overrides) {
   await mkdir(join(appDir, "server", "agents"), { recursive: true })
   await writeFile(join(appDir, "server", "agents", "support.ts"), [
     "import { defineAgent } from \"@vite-hub/agent\"",
-    "import { stream } from \"@vite-hub/agent/channels\"",
+    "import { webChat } from \"@vite-hub/agent/channels\"",
     "",
     "export default defineAgent({",
-    "  channels: { portal: stream },",
+    "  channels: { portal: webChat },",
     "  driver: {",
     "    run({ messages }) {",
     "      const latest = messages.at(-1)",

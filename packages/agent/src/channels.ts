@@ -99,21 +99,13 @@ export interface AgentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
 type AgentChannelDefinitionOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Omit<AgentChannelDefinition<TRuntimeConfig>, "kind">
 
-export interface AgentStreamChannelOptions<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody,
-  TAuth = unknown,
->
-  extends AgentChannelOptions<TRuntimeConfig> {
-  route?: true | AgentChannelChatRouteHandlerOptions<TBody, TAuth>
-}
-
 export interface AgentWebChatChannelOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody,
   TAuth = unknown,
->
-  extends AgentStreamChannelOptions<TRuntimeConfig, TBody, TAuth> {}
+> extends AgentChannelOptions<TRuntimeConfig> {
+  route?: boolean | AgentChannelChatRouteHandlerOptions<TBody, TAuth>
+}
 
 type GitHubAppValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
   MaybeResolvable<T, AgentCallbackContext<TRuntimeConfig> | AgentChannelDeliveryEffectContext<TRuntimeConfig>>
@@ -1867,19 +1859,6 @@ export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
   return defineChannel("teams", options)
 }
 
-export function stream<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody,
-  TAuth = unknown,
->(
-  options: AgentStreamChannelOptions<TRuntimeConfig, TBody, TAuth> = {},
-): AgentChannelDefinition<TRuntimeConfig> {
-  return defineChannel("stream", {
-    ...options,
-    route: options.route ?? true,
-  })
-}
-
 export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: AgentChannelOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
@@ -1896,5 +1875,8 @@ export function webChat<
 >(
   options: AgentWebChatChannelOptions<TRuntimeConfig, TBody, TAuth> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
-  return defineChannel("web-chat", options)
+  return defineChannel("web-chat", {
+    ...options,
+    route: options.route ?? true,
+  })
 }

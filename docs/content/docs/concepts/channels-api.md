@@ -13,7 +13,7 @@ Channel definitions own invocation reachability, route admission, and delivery f
 
 ## Message-shaped invocation
 
-Generated routes should be configured on Channel definitions, such as `webChat({ route })` or `defineChannel(kind, { route })`. Application code should not import generated route handler factories.
+Generated routes should be configured on Channel definitions. `webChat()` enables its route by default, while `webChat({ route })` customizes admission and input mapping; application code should not import generated route handler factories.
 
 Application routes can consume the same trigger directly when the app owns the chat UI.
 
