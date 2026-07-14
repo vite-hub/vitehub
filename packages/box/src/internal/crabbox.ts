@@ -1,6 +1,6 @@
 import { spawn as spawnChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rename, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, posix, resolve } from "node:path"
 import { Readable } from "node:stream"
@@ -457,16 +457,23 @@ async function withTemporaryFile<T>(run: (path: string) => Promise<T>) {
 
 async function syncWorkspaceBack(state: CrabboxSessionState) {
   const result = await runCrabbox(state.options, state.leaseId, {
-    command: `test -d ${shellQuote(state.remoteWorkspace)} && tar -C ${shellQuote(state.remoteWorkspace)} -cf - . | base64`,
+    command: `archive=$(mktemp /tmp/vitehub-workspace.XXXXXX.tar) && trap 'rm -f -- "$archive"' EXIT && tar -C ${shellQuote(state.remoteWorkspace)} -cf "$archive" . && base64 < "$archive"`,
   })
   if (result.exitCode !== 0) throw crabboxError("sync Crabbox workspace", result)
   const archive = Buffer.from(result.stdout.replace(/\s+/g, ""), "base64")
-  await rm(state.options.workspace, { force: true, recursive: true })
-  await mkdir(state.options.workspace, { recursive: true })
+  const extractedWorkspace = await mkdtemp(join(dirname(state.options.workspace), ".vitehub-workspace-"))
   await withTemporaryFile(async (localPath) => {
-    await writeFile(localPath, archive)
-    const extract = await runProcess(spawnChildProcess("tar", ["-xf", localPath, "-C", state.options.workspace]))
-    if (extract.exitCode !== 0) throw crabboxError("extract Crabbox workspace", extract)
+    try {
+      await writeFile(localPath, archive)
+      const extract = await runProcess(spawnChildProcess("tar", ["-xf", localPath, "-C", extractedWorkspace]))
+      if (extract.exitCode !== 0) throw crabboxError("extract Crabbox workspace", extract)
+      await rm(state.options.workspace, { force: true, recursive: true })
+      await rename(extractedWorkspace, state.options.workspace)
+    }
+    catch (error) {
+      await rm(extractedWorkspace, { force: true, recursive: true })
+      throw error
+    }
   })
 }
 
