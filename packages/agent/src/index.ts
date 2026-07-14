@@ -575,7 +575,8 @@ interface ScheduleRunContextLike {
 
 const agentWorkflowHandles = new WeakMap<object, Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>>()
 const agentWorkflowNames = new Set<string>()
-const agentIdentityOwners = new WeakMap<object, object>()
+const agentIdentityOwner = Symbol("vitehub.agentIdentityOwner")
+const generatedAgentWorkflowCapabilities = new Set(["blob", "kv", "schedule"])
 
 interface DefaultAgentWorkflowRuntimeBinding extends AgentWorkflowRuntimeBinding {
   discoveryDefault: true
@@ -683,12 +684,12 @@ async function runAgentAsWorkflow<
     if (!getWorkflowRuntimeConfig()) return undefined
   }
   if ("discoveryDefault" in binding && context.agentIdentity) {
-    const owner = agentIdentityOwners.get(context.agentIdentity)
+    const owner = (context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]
     if (owner && owner !== agent) return undefined
-    agentIdentityOwners.set(context.agentIdentity, agent as object)
+    ;(context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner] = agent as object
   }
   const capabilityNames = Object.keys(context.capabilities || {})
-  if ("discoveryDefault" in binding && capabilityNames.length) return undefined
+  if ("discoveryDefault" in binding && capabilityNames.some(name => !generatedAgentWorkflowCapabilities.has(name))) return undefined
 
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS>(agent, resolveAgentWorkflowName(agent, binding, context), "discoveryDefault" in binding)
   const resolvedContext = createResolvedRuntimeContext(context)
@@ -1091,8 +1092,8 @@ function defineBaseAgent<
     workspace,
     ...(normalizedCapabilities.length ? { capabilities: normalizedCapabilities } : {}),
     async resolve(context) {
-      if (context.agentIdentity && !agentIdentityOwners.has(context.agentIdentity)) {
-        agentIdentityOwners.set(context.agentIdentity, definition as object)
+      if (context.agentIdentity && !(context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]) {
+        ;(context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner] = definition as object
       }
       const adapterInstance = await resolveBaseAgent(context)
       const resolvedContext = createResolvedRuntimeContext(context)
@@ -2301,8 +2302,8 @@ export async function runAgentInline<
   input: AgentRunInput<CALL_OPTIONS>,
   options: RunAgentInlineOptions = {},
 ): Promise<Response | AgentRunResult | unknown> {
-  if (context.agentIdentity && !agentIdentityOwners.has(context.agentIdentity)) {
-    agentIdentityOwners.set(context.agentIdentity, agent as object)
+  if (context.agentIdentity && !(context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]) {
+    ;(context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner] = agent as object
   }
   const renderOutput = options.output !== "raw"
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {

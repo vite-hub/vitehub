@@ -139,6 +139,7 @@ describe("workflow definitions", () => {
     await writeFile(join(rootDir, "server", "agents", "team", "index.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "team", "review.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "team", "helper.ts"), "export default { driver: { run } }\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "team", "commented-wrapper.ts"), "// export { default } from './agent'\nexport const example = true\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "team", "skills", "helper", "agent.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "variable-inline", "agent.ts"), "const supportAgent = defineAgent({ runtime: false, driver: { run } })\nexport default supportAgent\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "variable-typed", "agent.ts"), "const jobsAgent: AgentDefinition<{ region: string; token: string }> = defineAgent({ runtime: workflow('typed-variable'), driver: { run } })\nexport default jobsAgent\n", "utf8")

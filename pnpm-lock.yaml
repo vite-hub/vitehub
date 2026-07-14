@@ -484,9 +484,15 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.2
+      '@vite-hub/blob':
+        specifier: workspace:*
+        version: link:../blob
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vite-hub/kv':
+        specifier: workspace:*
+        version: link:../kv
       '@vite-hub/schedule':
         specifier: workspace:*
         version: link:../schedule

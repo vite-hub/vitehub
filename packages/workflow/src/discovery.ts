@@ -122,7 +122,8 @@ function hasExportedDefineAgent(masked: string): boolean {
 }
 
 function resolveAgentReExport(file: string, source: string, masked: string): string | undefined {
-  const direct = /\bexport\s+\{\s*default\s*\}\s+from\s*(["'])([^"']+)\1/.exec(source)
+  const directCandidate = /\bexport\s+\{\s*default\s*\}\s+from\s*(["'])([^"']+)\1/.exec(source)
+  const direct = directCandidate && /^export\s+\{\s*default\s*\}\s+from\b/.test(masked.slice(directCandidate.index)) ? directCandidate : undefined
   const exported = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\b/.exec(masked)
   const imported = exported && new RegExp(`\\bimport\\s+${exported[1]}\\s+from\\s*(["'])([^"']+)\\1`).exec(source)
   const specifier = direct?.[2] || imported?.[2]

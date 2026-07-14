@@ -8491,17 +8491,54 @@ describe("agent message protocol", () => {
       }, {})).resolves.toBe("child")
     })
 
-    it.each(["blob", "kv", "schedule", "custom"])("keeps discovered Agents inline for %s host capabilities", async (capability) => {
+    it("keeps child Agents inline when copied contexts recreate the parent identity", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      const child = defineAgent({ driver: { run: () => "child" } })
+      const parent = defineAgent({
+        runtime: false,
+        driver: { run: context => runAgent(child, { ...context, agentIdentity: { ...context.agentIdentity! } }, {}) },
+      })
+
+      await expect(runAgent(parent, {
+        agentIdentity: { name: "copied-parent" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: vi.fn(),
+      }, {})).resolves.toBe("child")
+    })
+
+    it("keeps discovered Agents inline for custom host capabilities", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const agent = defineAgent({ driver: { run: () => "custom" } })
 
       await expect(runAgent(agent, {
         agentIdentity: { name: "custom" },
-        capabilities: { [capability]: {} },
+        capabilities: { custom: {} },
         memo: vi.fn(),
         runtime: "vercel",
         waitUntil: vi.fn(),
       }, {})).resolves.toBe("custom")
+    })
+
+    it("queues discovered Agents with reconstructible generated capabilities", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const run = await runAgent(defineAgent({ driver: { run: context => Object.keys(context.capabilities || {}) } }), {
+        agentIdentity: { name: "generated-capabilities" },
+        capabilities: { schedule: {} },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("generated-capabilities", run.id)).resolves.toMatchObject({ result: ["schedule"], status: "completed" })
     })
 
     it("uses discovered identity ahead of the Agent Definition name for the default binding", async () => {
