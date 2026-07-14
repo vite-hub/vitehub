@@ -15,11 +15,6 @@ export function normalizeAgentOptions(options: AgentModuleOptions | false | unde
   }
 
   const discordGatewayRoute = normalizeAgentRouteOption(options?.routes?.discordGateway, defaultAgentDiscordGatewayRoute)
-  const webhookRoute = normalizeAgentRouteOption(
-    options?.routes?.webhooks ?? (discordGatewayRoute ? true : undefined),
-    defaultAgentWebhookRoute,
-  )
-
   return {
     execution: options?.execution || "inline",
     imports: options?.imports !== false,
@@ -40,9 +35,9 @@ export function normalizeAgentOptions(options: AgentModuleOptions | false | unde
       },
     },
     routes: {
-      chat: normalizeAgentRouteOption(options?.routes?.chat, defaultAgentChatRoute),
+      chat: defaultAgentChatRoute,
       discordGateway: discordGatewayRoute,
-      webhooks: webhookRoute,
+      webhooks: defaultAgentWebhookRoute,
     },
     runtime: options?.runtime || "auto",
   }

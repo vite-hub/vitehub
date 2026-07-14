@@ -4976,8 +4976,8 @@ describe("agent message protocol", () => {
 
   it("keeps shorthand and explicit Stream Channels equivalent on generated routes", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { stream } = await import("../src/channels.ts")
-    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const { stream, webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler, hasChannelChatRoute } = await import("../src/server/internal.ts")
     const shorthandRun = vi.fn(({ run }) => `${run.channelId}:${run.origin}`)
     const explicitRun = vi.fn(({ run }) => `${run.channelId}:${run.origin}`)
     const request = () => new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -4989,6 +4989,7 @@ describe("agent message protocol", () => {
 
     const shorthand = defineAgent({ channels: { portal: stream }, driver: { run: shorthandRun } })
     const explicit = defineAgent({ channels: { portal: stream() }, driver: { run: explicitRun } })
+    const routeDisabled = defineAgent({ channels: { portal: webChat() }, driver: { run: () => "ok" } })
     const shorthandResponse = await createChannelChatRouteHandler(shorthand as never)(request(), { agentName: "support" })
     const explicitResponse = await createChannelChatRouteHandler(explicit as never)(request(), { agentName: "support" })
 
@@ -4996,6 +4997,8 @@ describe("agent message protocol", () => {
     expect(explicitResponse.status).toBe(200)
     expect(shorthandRun).toHaveBeenCalledWith(expect.objectContaining({ run: expect.objectContaining({ channelId: "portal", origin: "stream" }) }))
     expect(explicitRun).toHaveBeenCalledWith(expect.objectContaining({ run: expect.objectContaining({ channelId: "portal", origin: "stream" }) }))
+    expect(hasChannelChatRoute(explicit as never)).toBe(true)
+    expect(hasChannelChatRoute(routeDisabled as never)).toBe(false)
 
     expect(() => createChannelChatRouteHandler(defineAgent({
       channels: { first: stream, second: stream },

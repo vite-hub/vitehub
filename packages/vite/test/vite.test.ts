@@ -64,7 +64,7 @@ describe("vitehub", () => {
   })
 
   it("leaves generated imports owned by each integration package", () => {
-    const agent = { routes: { chat: true } }
+    const agent = {}
     const schedule = { providerOutput: "nitro" as const }
 
     vitehub({ agent, schedule })

@@ -12,7 +12,7 @@ ViteHub keeps Agent Definitions, Schedule Definitions, KV Stores, and Runtime He
 
 | Concern | ViteHub boundary |
 | --- | --- |
-| Agent chat and webhook routes | Agent Package writes `.vitehub/agent/deno-server.ts` when `runtime: 'deno'` and routes are enabled. |
+| Agent chat and webhook routes | Agent Package writes `.vitehub/agent/deno-server.ts` when `runtime: 'deno'` and hosted Agent Definitions exist. Channels own reachability through the fixed dispatcher routes. |
 | Static cron schedules | Schedule Package writes `.vitehub/schedule/deno-cron.mjs` for Deno `Deno.cron` wake output. |
 | Lightweight state | KV Package can use `driver: 'deno-kv'` and native `Deno.openKv()`. |
 | Deployment | Deno Deploy owns app entrypoint configuration, environment variables, permissions, logs, and production rollout. |
@@ -29,13 +29,7 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [
-    hubAgent({
-      runtime: 'deno',
-      routes: {
-        chat: true,
-        webhooks: true,
-      },
-    }),
+    hubAgent({ runtime: 'deno' }),
     hubKv(),
     hubSchedule(),
   ],
