@@ -19,7 +19,7 @@ pnpm add @vite-hub/agent @vite-hub/box @ai-sdk/harness @ai-sdk/harness-codex
 
 Declare the Box inline. You do not need a separate `defineBox()` call.
 
-```ts [server/agents/babysitter/config.ts]
+```ts [server/agents/babysitter/agent.ts]
 import { defineAgent } from '@vite-hub/agent'
 import { codexDriver } from '@vite-hub/agent/harness/codex'
 import { trustedHost } from '@vite-hub/box'

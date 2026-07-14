@@ -380,7 +380,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
   it("installs GitHub workspace stores before Agent Workspace commands", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workspace-command-github-store-"))
     await mkdir(join(root, "server", "agents", "support"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default {}", "utf8")
+    await writeFile(join(root, "server", "agents", "support", "agent.ts"), "export default {}", "utf8")
 
     const { readWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } = await import("@vite-hub/workspace/server")
     const { defineAgent } = await import("../src/index.ts")
@@ -582,7 +582,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
 
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workspace-command-env-string-hosted-"))
     await mkdir(join(root, "server", "agents", "support"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default {}", "utf8")
+    await writeFile(join(root, "server", "agents", "support", "agent.ts"), "export default {}", "utf8")
 
     const { readWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } = await import("@vite-hub/workspace/server")
     const { defineAgent } = await import("../src/index.ts")
@@ -765,7 +765,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
   it("keeps harness driver metadata when wrapping channel streams for delivery previews", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-stream-harness-preview-metadata-"))
     await mkdir(join(root, "server", "agents", "review", "skills", "code-review"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "review", "config.ts"), "export default {}", "utf8")
+    await writeFile(join(root, "server", "agents", "review", "agent.ts"), "export default {}", "utf8")
     await writeFile(join(root, "server", "agents", "review", "skills", "code-review", "SKILL.md"), "# Code review\n", "utf8")
 
     harnessStreamResult.mockReturnValueOnce({

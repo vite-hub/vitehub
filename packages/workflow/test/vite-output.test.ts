@@ -82,7 +82,7 @@ describe("Vite workflow provider outputs", () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vite-playground-")
     const agentDir = join(rootDir, "server", "agents", "nuxt")
     await mkdir(agentDir, { recursive: true })
-    await writeFile(join(agentDir, "config.ts"), [
+    await writeFile(join(agentDir, "agent.ts"), [
       `import { defineAgent, workflow } from "@vite-hub/agent"`,
       "",
       "export default defineAgent({",

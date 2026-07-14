@@ -146,7 +146,7 @@ Application code should keep importing `kv` from `@vite-hub/kv` when switching b
 
 Direct KV access is for app and server code. To let a model inspect or edit scoped key-value data, attach the KV Capability from the agent capability catalog.
 
-```ts [server/agents/support/config.ts]
+```ts [server/agents/support/agent.ts]
 import { kv } from '@vite-hub/agent/capabilities'
 ```
 

@@ -42,7 +42,7 @@ export default defineConfig({
 })
 ```
 
-```ts [server/agents/docs/config.ts]
+```ts [server/agents/docs/agent.ts]
 import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 import { workspaceShell } from '@vite-hub/agent/capabilities'
@@ -76,7 +76,7 @@ The Workspace supplies files. The Workspace Shell Capability exposes read or wri
 
 Use a string when another Agent should read an existing Workspace. Use `{ name, mode: 'write' }` when it should write artifacts into that same Workspace File Tree.
 
-```ts [server/agents/summary/config.ts]
+```ts [server/agents/summary/agent.ts]
 export default defineAgent({
   workspace: { name: 'review', mode: 'write' },
   capabilities: [
@@ -105,7 +105,7 @@ Use `workspace.bindings` when an instruction document needs an explicit Workspac
 
 Use read mode when the Agent only needs to inspect files. Use write mode only when the product expects the Agent to mutate Workspace files and Workspace Rules allow the target paths.
 
-```ts [server/agents/docs/config.ts]
+```ts [server/agents/docs/agent.ts]
 import { workspaceShell } from '@vite-hub/agent/capabilities'
 
 export const workspaceAccess = [
@@ -119,7 +119,7 @@ Workspace access is not process access by default. Use execution Capabilities de
 
 Harness-backed Agent Drivers receive Workspace state through a Harness Workspace Session instead of model-facing Workspace Tools by default.
 
-```ts [server/agents/review/config.ts]
+```ts [server/agents/review/agent.ts]
 import { createCodex } from '@ai-sdk/harness-codex'
 import { defineAgent } from '@vite-hub/agent'
 import { skills } from '@vite-hub/agent/capabilities'
@@ -145,7 +145,7 @@ Read mode materializes the selected Workspace into the harness sandbox and disca
 
 Use the Access Capability when the Agent Invoker should narrow the visible Workspace Scope for one Agent Invocation.
 
-```ts [server/agents/support/config.ts]
+```ts [server/agents/support/agent.ts]
 import { access, workspaceShell } from '@vite-hub/agent/capabilities'
 
 export const supportCapabilities = [
@@ -178,7 +178,7 @@ When the Agent needs scope-specific model guidance, write it in Agent Driver Ins
 
 Source Resolution can narrow a Source from trusted invocation context, such as a Selected Workspace Scope or an Agent Invocation Context Value. Source Resolution is source shaping, not authorization.
 
-```ts [server/agents/support/config.ts]
+```ts [server/agents/support/agent.ts]
 import { github } from '@vite-hub/workspace'
 
 export const supportSources = {

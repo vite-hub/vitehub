@@ -54,7 +54,7 @@ Install the Agent Package with the harness adapter package you use.
 pnpm add @vite-hub/agent @ai-sdk/harness @ai-sdk/harness-codex @ai-sdk/sandbox-vercel
 ```
 
-```ts [server/agents/codex/config.ts]
+```ts [server/agents/codex/agent.ts]
 import { createCodex } from '@ai-sdk/harness-codex'
 import { defineAgent } from '@vite-hub/agent'
 

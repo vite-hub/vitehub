@@ -17,7 +17,7 @@ describe("colocated Agent Skills", () => {
   it("recursively embeds files as binary-safe build sources", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-skills-"))
     roots.push(root)
-    const handler = join(root, "config.ts")
+    const handler = join(root, "agent.ts")
     const binary = Uint8Array.from([0, 255, 128, 13, 10, 42])
     await mkdir(join(root, "skills", "review", "assets"), { recursive: true })
     await writeFile(handler, "export default {}\n", "utf8")

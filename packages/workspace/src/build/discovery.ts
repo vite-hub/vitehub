@@ -11,7 +11,7 @@ import {
   normalizeSuffixDefinitionName,
 } from "@vite-hub/internal/definition-catalog"
 
-import { workspaceConfigFileNames, workspaceConfigPattern, workspaceSuffixPattern } from "./workspace-config.ts"
+import { workspaceAgentPattern, workspaceConfigFileNames, workspaceConfigPattern, workspaceSuffixPattern } from "./workspace-config.ts"
 
 import type { DefinitionCatalogSource } from "@vite-hub/internal/definition-catalog"
 
@@ -37,7 +37,7 @@ function isAgentConfig(file: string) {
   return /\bdefineAgent\s*\(/.test(stripComments(readFileSync(file, "utf8")))
 }
 
-function isWorkspaceAgentConfig(file: string) {
+function isWorkspaceAgentDefinition(file: string) {
   return /\bdefineAgent\s*\(\s*\{[\s\S]*?\bworkspace\s*:/.test(stripComments(readFileSync(file, "utf8")))
 }
 
@@ -115,7 +115,7 @@ function serverWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSourc
       normalizeName: normalizeDirectoryName,
       createDefinition: ({ file, name }) => {
         if (isAgentConfig(file)) {
-          throw new Error(`[vitehub] Workspace config "${file}" must use defineWorkspace(); defineAgent() belongs in server/agents/<name>/config.ts.`)
+          throw new Error(`[vitehub] Workspace config "${file}" must use defineWorkspace(); defineAgent() belongs in server/agents/<name>/agent.ts.`)
         }
         return createWorkspaceDefinition("server-workspaces-directory-config", file, name)
       },
@@ -123,8 +123,8 @@ function serverWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSourc
     createDirectoryDefinitionSource("server-agent-workspaces", [resolve(rootDir, "server")], "agents", {
       includeHidden: true,
       normalizeName(_agentsRoot, file) {
-        if (!workspaceConfigPattern.test(basename(file))) return
-        if (!isWorkspaceAgentConfig(file)) return
+        if (!workspaceAgentPattern.test(basename(file))) return
+        if (!isWorkspaceAgentDefinition(file)) return
         const name = relative(agentsDir, dirname(file)).replace(/\\/g, "/")
         return name && name !== "." ? name : undefined
       },

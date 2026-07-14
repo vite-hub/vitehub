@@ -6,7 +6,7 @@
   <img alt="AI SDK" src="https://img.shields.io/badge/AI%20SDK-v7-111827?style=flat-square">
 </p>
 
-`@vite-hub/agent` defines model-backed agents from files such as `server/agents/support/config.ts`.
+`@vite-hub/agent` defines model-backed agents from files such as `server/agents/support/agent.ts`.
 
 Keep the three pieces separate:
 
@@ -37,7 +37,7 @@ For non-local omitted sandbox fallback, also add `@ai-sdk/sandbox-vercel`.
 ## Minimal API
 
 ```ts
-// server/agents/support/config.ts
+// server/agents/support/agent.ts
 import { gateway } from "@ai-sdk/gateway"
 import { defineAgent } from "@vite-hub/agent"
 import { chat, workspaceShell } from "@vite-hub/agent/capabilities"
@@ -67,7 +67,7 @@ export default defineAgent({
 Harness-backed agents use AI SDK `HarnessAgent` behind the ViteHub Agent Driver boundary.
 
 ```ts
-// server/agents/codex/config.ts
+// server/agents/codex/agent.ts
 import { defineAgent } from "@vite-hub/agent"
 import { codexDriver } from "@vite-hub/agent/harness/codex"
 import { file } from "@vite-hub/workspace"

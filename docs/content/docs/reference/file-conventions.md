@@ -11,14 +11,14 @@ File conventions produce Discovered Definitions. Discovery Identity comes from t
 
 | Definition | Directory convention | Suffix convention | Discovery Identity |
 | --- | --- | --- | --- |
-| Agent | `server/agents/<name>.ts` or `server/agents/<name>/config.ts` | `<path>.agent.ts` outside `server/` | Relative file or directory path. A leading `src/` is removed from suffix identities. |
+| Agent | `server/agents/<name>.ts` or `server/agents/<name>/agent.ts` | `<path>.agent.ts` outside `server/` | Relative file or directory path. A leading `src/` is removed from suffix identities. |
 | Auth | `server/auth.ts` | `server.auth.ts` | `default`. Only one Auth Definition is allowed. |
 | Database | `server/databases/config.ts` for one default database, or `server/databases/<name>/config.ts` for named databases | `src/database.ts` for the default database, or `<path>.database.ts` for a named database | `default` or the normalized relative path. Default and named modes cannot be mixed. |
 | Queue | `server/queues/<path>.ts` | `<path>.queue.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
 | Workflow | `server/workflows/<path>.ts` or a folder containing `index.ts` or numbered step files | `<path>.workflow.ts` | Normalized relative file or folder path. Agent Definitions using `runtime: workflow(...)` also contribute their selected workflow identity. |
 | Schedule | `server/schedules/<path>.ts` | `<path>.schedule.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
 | Sandbox | `server/sandboxes/<path>.ts` | `<path>.sandbox.ts` outside `server/sandboxes/` | Normalized relative path, without a trailing `.sandbox` segment. |
-| Workspace | `server/workspaces/<path>.ts`, `server/workspaces/<name>/config.ts`, or `server/agents/<name>/config.ts` when the Agent declares a Workspace | `<path>.workspace.ts` | Normalized relative path or the colocated Agent name. |
+| Workspace | `server/workspaces/<path>.ts`, `server/workspaces/<name>/config.ts`, or `server/agents/<name>/agent.ts` when the Agent declares a Workspace | `<path>.workspace.ts` | Normalized relative path or the colocated Agent name. |
 
 The table uses `.ts` for brevity. Directory and suffix patterns accept JavaScript and TypeScript module variants where the owning package permits them. `src/database.ts` is the exact default Database suffix-mode file.
 

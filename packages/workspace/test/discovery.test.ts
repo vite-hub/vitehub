@@ -87,11 +87,11 @@ describe("discoverServerWorkspaceDefinitions", () => {
   it("discovers workspace definitions colocated with directory agents", async () => {
     const root = await createRoot()
     await mkdir(join(root, "server", "agents", "docs", "workspace"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "docs", "config.ts"), "export default defineAgent({ workspace: {}, model })\n", "utf8")
+    await writeFile(join(root, "server", "agents", "docs", "agent.ts"), "export default defineAgent({ workspace: {}, model })\n", "utf8")
 
     expect(discoverServerWorkspaceDefinitions(root)).toEqual([
       expect.objectContaining({
-        handler: join(root, "server", "agents", "docs", "config.ts"),
+        handler: join(root, "server", "agents", "docs", "agent.ts"),
         name: "docs",
         source: "server-agent-workspaces",
         sourceRootDir: join(root, "server", "agents", "docs", "workspace"),
@@ -104,6 +104,6 @@ describe("discoverServerWorkspaceDefinitions", () => {
     await mkdir(join(root, "server", "workspaces", "docs"), { recursive: true })
     await writeFile(join(root, "server", "workspaces", "docs", "config.ts"), "export default defineAgent({ workspace: {}, model })\n", "utf8")
 
-    expect(() => discoverServerWorkspaceDefinitions(root)).toThrow("defineAgent() belongs in server/agents/<name>/config.ts")
+    expect(() => discoverServerWorkspaceDefinitions(root)).toThrow("defineAgent() belongs in server/agents/<name>/agent.ts")
   })
 })

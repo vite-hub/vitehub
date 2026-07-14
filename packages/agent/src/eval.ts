@@ -225,7 +225,7 @@ async function resolveSiblingAgent<TRuntimeConfig extends AgentRuntimeConfig>(
   const extension = extname(caller)
   const base = basename(caller, extension)
   const sibling = base === "eval"
-    ? join(dirname(caller), `config${extension}`)
+    ? join(dirname(caller), `agent${extension}`)
     : caller.slice(0, -extension.length).replace(/\.eval$/, "") + extension
   const module = await import(pathToFileURL(sibling).href) as { default?: AgentEvalAgent<TRuntimeConfig> }
   if (!module.default) {
