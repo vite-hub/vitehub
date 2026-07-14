@@ -37,8 +37,9 @@ const MINIO_SECRET_KEY_ENV = ["MINIO_SECRET_ACCESS_KEY", "MINIO_SECRET_KEY", "MI
 
 function resolveFsStore(
   config: Partial<FsBlobStoreConfig> = {},
+  env: Record<string, string | undefined> = process.env,
 ): ResolvedFsBlobStoreConfig {
-  return defu({ base: trimmed(config.base) }, { base: ".data/blob", driver: "fs" as const })
+  return defu({ base: trimmed(config.base) ?? readEnv(env, "BLOB_FS_BASE") }, { base: ".data/blob", driver: "fs" as const })
 }
 
 function resolveCloudflareStore(
@@ -112,7 +113,7 @@ function resolveExplicitStore(
     case "cloudflare-r2":
       return resolveCloudflareStore(store, env)
     case "fs":
-      return resolveFsStore(store)
+      return resolveFsStore(store, env)
     case "minio":
       return resolveMinioStore(store, env)
     case "netlify-blobs":
@@ -225,7 +226,7 @@ export function normalizeBlobOptions(
     return createResolvedConfig(resolveVercelStore(), undefined, serve)
   }
 
-  return createResolvedConfig(resolveFsStore(), undefined, serve)
+  return createResolvedConfig(resolveFsStore({}, env), undefined, serve)
 }
 
 export function warnVercelBlobFallback(
