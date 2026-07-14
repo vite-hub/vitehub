@@ -45,13 +45,20 @@ describe("Static Schedule runtime", () => {
   it("executes Cloudflare scheduled events with runtime env active", async () => {
     const seen: Array<string | undefined> = []
     const deferred: Promise<unknown>[] = []
+    let deferredEnv: string | undefined
+    let releaseDeferred: (() => void) | undefined
     const registry: ScheduleDefinitionRegistry = {
       sync: async () => ({
         default: {
           cron: "0 4 * * *",
           handler: async ({ waitUntil }) => {
             seen.push((globalThis as { __env__?: Record<string, unknown> }).__env__?.AIRTABLE_TOKEN as string | undefined)
-            waitUntil(Promise.resolve("recorded"))
+            waitUntil(new Promise<string>((resolve) => {
+              releaseDeferred = () => {
+                deferredEnv = (globalThis as { __env__?: Record<string, unknown> }).__env__?.AIRTABLE_TOKEN as string | undefined
+                resolve("recorded")
+              }
+            }))
           },
         },
       }),
@@ -69,7 +76,11 @@ describe("Static Schedule runtime", () => {
     }, { registry })
 
     expect(seen).toEqual(["airtable-secret"])
-    await expect(Promise.all(deferred)).resolves.toEqual(["recorded"])
+    expect(releaseDeferred).toBeTypeOf("function")
+    expect((globalThis as { __env__?: Record<string, unknown> }).__env__?.AIRTABLE_TOKEN).toBe("airtable-secret")
+    releaseDeferred!()
+    await expect(Promise.all(deferred)).resolves.toEqual(["recorded", undefined])
+    expect(deferredEnv).toBe("airtable-secret")
     expect((globalThis as { __env__?: Record<string, unknown> }).__env__).toBeUndefined()
   })
 

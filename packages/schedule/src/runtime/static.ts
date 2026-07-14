@@ -90,14 +90,14 @@ export async function executeCloudflareStaticSchedules(
 ): Promise<unknown[]> {
   const scheduled = readCloudflareScheduledEvent(event)
   const hostWaitUntil = readCloudflareWaitUntil(event)
-  return await runWithCloudflareServerEnv(event, async () => {
+  return await runWithCloudflareServerEnv(event, async (waitUntil) => {
     return await executeMatchingStaticSchedules({
       cron: scheduled.cron,
       registry: options.registry,
       scheduledAt: scheduled.scheduledAt,
-      waitUntil: hostWaitUntil ? promise => hostWaitUntil(Promise.resolve(promise)) : undefined,
+      waitUntil,
     })
-  })
+  }, hostWaitUntil)
 }
 
 function readCloudflareScheduledEvent(event: CloudflareScheduledEventLike): { cron: string, scheduledAt: Date } {
@@ -117,24 +117,47 @@ function readCloudflareScheduledEvent(event: CloudflareScheduledEventLike): { cr
   return { cron, scheduledAt }
 }
 
-function runWithCloudflareServerEnv<T>(event: CloudflareScheduledEventLike, callback: () => T): T {
+async function runWithCloudflareServerEnv<T>(
+  event: CloudflareScheduledEventLike,
+  callback: (waitUntil?: (promise: PromiseLike<unknown>) => void) => Promise<T>,
+  hostWaitUntil?: (promise: Promise<unknown>) => void,
+): Promise<T> {
   const globals = globalThis as { __env__?: Record<string, unknown> }
   const hadGlobalEnv = Object.prototype.hasOwnProperty.call(globals, "__env__")
   const previousGlobalEnv = globals.__env__
   const env = readCloudflareEventEnv(event)
   if (env) globals.__env__ = env
+  const pending = new Set<Promise<unknown>>()
+  const waitUntil = hostWaitUntil
+    ? (value: PromiseLike<unknown>) => {
+        const promise = Promise.resolve(value)
+        pending.add(promise)
+        void promise.then(
+          () => pending.delete(promise),
+          () => pending.delete(promise),
+        )
+        hostWaitUntil(promise)
+      }
+    : undefined
 
   try {
-    const result = callback()
-    if (isPromiseLike(result)) {
-      return result.finally(() => restoreGlobalEnv(globals, hadGlobalEnv, previousGlobalEnv)) as T
-    }
-    restoreGlobalEnv(globals, hadGlobalEnv, previousGlobalEnv)
-    return result
+    return await callback(waitUntil)
   }
-  catch (error) {
-    restoreGlobalEnv(globals, hadGlobalEnv, previousGlobalEnv)
-    throw error
+  finally {
+    if (pending.size === 0) {
+      restoreGlobalEnv(globals, hadGlobalEnv, previousGlobalEnv)
+    }
+    else {
+      hostWaitUntil!(flushPendingWork(pending).finally(() => {
+        restoreGlobalEnv(globals, hadGlobalEnv, previousGlobalEnv)
+      }))
+    }
+  }
+}
+
+async function flushPendingWork(pending: Set<Promise<unknown>>): Promise<void> {
+  while (pending.size > 0) {
+    await Promise.allSettled([...pending])
   }
 }
 
@@ -145,12 +168,6 @@ function restoreGlobalEnv(
 ): void {
   if (hadGlobalEnv) globals.__env__ = previousGlobalEnv
   else delete globals.__env__
-}
-
-function isPromiseLike(value: unknown): value is Promise<unknown> {
-  return typeof value === "object"
-    && value !== null
-    && typeof (value as { finally?: unknown }).finally === "function"
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
