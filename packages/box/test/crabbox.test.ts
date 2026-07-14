@@ -71,6 +71,18 @@ describe("crabbox", () => {
     await expect(resolveBox({ runtime: crabbox(), cwd: workspace, home: "/remote/home" }, {})).rejects.toThrow("crabbox() does not support box.home")
   })
 
+  it("canonicalizes symlinked workspace roots", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const linkedWorkspace = join(root, "linked-workspace")
+    await mkdir(workspace)
+    await symlink(workspace, linkedWorkspace)
+
+    const box = await resolveBox({ runtime: crabbox(), cwd: linkedWorkspace }, {})
+
+    expect(box.workspace.path).toBe(await realpath(workspace))
+  })
+
   it("rejects archive entries beneath local symlinks", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")

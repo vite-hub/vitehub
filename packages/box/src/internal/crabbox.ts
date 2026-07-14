@@ -1,6 +1,6 @@
 import { spawn as spawnChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { cp, lstat, mkdir, mkdtemp, rename, rm, rmdir, stat, writeFile } from "node:fs/promises"
+import { cp, lstat, mkdir, mkdtemp, realpath, rename, rm, rmdir, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, posix, resolve } from "node:path"
 import { Readable } from "node:stream"
@@ -56,9 +56,11 @@ export function crabbox(options: CrabboxOptions = {}): BoxRuntime {
   return {
     name: "crabbox",
     async resolve(input: ResolvedBoxInput) {
-      if (!input.cwd) throw new Error("[vitehub] crabbox() requires box.cwd.")
+      const cwd = input.cwd
+      if (!cwd) throw new Error("[vitehub] crabbox() requires box.cwd.")
       if (input.home) throw new Error("[vitehub] crabbox() does not support box.home; configure the remote user Home through Crabbox.")
-      const workspace = resolve(input.cwd)
+      const requestedWorkspace = resolve(cwd)
+      const workspace = await realpath(requestedWorkspace).catch(() => requestedWorkspace)
       const item = await stat(workspace).catch(() => undefined)
       if (!item?.isDirectory()) throw new Error(`[vitehub] Box workspace directory does not exist: ${workspace}`)
       const requirements = input.requirements.map(resolveRequirement)
