@@ -577,6 +577,7 @@ const agentWorkflowHandles = new WeakMap<object, Map<string, WorkflowHandle<Agen
 const agentWorkflowNames = new Set<string>()
 const agentIdentityOwner = Symbol("vitehub.agentIdentityOwner")
 const generatedAgentWorkflowCapabilities = new Set(["blob", "kv", "schedule"])
+const generatedAgentRuntimeCapabilities = Symbol.for("vitehub.agent.generatedRuntimeCapabilities")
 
 interface DefaultAgentWorkflowRuntimeBinding extends AgentWorkflowRuntimeBinding {
   discoveryDefault: true
@@ -689,13 +690,19 @@ async function runAgentAsWorkflow<
     ;(context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner] = agent as object
   }
   const capabilityNames = Object.keys(context.capabilities || {})
-  if ("discoveryDefault" in binding && capabilityNames.some(name => !generatedAgentWorkflowCapabilities.has(name))) return undefined
+  const capabilitiesAreGenerated = Boolean(context.capabilities
+    && (context.capabilities as Record<symbol, unknown>)[generatedAgentRuntimeCapabilities])
+  if ("discoveryDefault" in binding
+    && (capabilityNames.some(name => !generatedAgentWorkflowCapabilities.has(name))
+      || (capabilityNames.length > 0 && !capabilitiesAreGenerated)
+      // ponytail: Schedule targets live in the generated host registry and cannot cross a Workflow payload yet.
+      || capabilityNames.includes("schedule"))) return undefined
 
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS>(agent, resolveAgentWorkflowName(agent, binding, context), "discoveryDefault" in binding)
   const resolvedContext = createResolvedRuntimeContext(context)
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
-    ...(capabilityNames.length ? { capabilities: capabilityNames } : {}),
+    ...((capabilitiesAreGenerated || !("discoveryDefault" in binding)) && capabilityNames.length ? { capabilities: capabilityNames } : {}),
     input,
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,

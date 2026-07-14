@@ -8522,23 +8522,22 @@ describe("agent message protocol", () => {
       }, {})).resolves.toBe("custom")
     })
 
-    it("queues discovered Agents with reconstructible generated capabilities", async () => {
+    it("keeps discovered Agents with generated Schedule capabilities inline", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
-      const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
       const run = await runAgent(defineAgent({ driver: { run: context => Object.keys(context.capabilities || {}) } }), {
         agentIdentity: { name: "generated-capabilities" },
-        capabilities: { schedule: {} },
+        capabilities: Object.defineProperty({ schedule: {} }, Symbol.for("vitehub.agent.generatedRuntimeCapabilities"), { value: true }),
         memo: vi.fn(),
         runtime: "vercel",
         waitUntil: promise => waitUntilTasks.push(promise),
-      }, {}) as { id: string }
+      }, {})
 
-      await Promise.all(waitUntilTasks)
-      await expect(getWorkflowRun("generated-capabilities", run.id)).resolves.toMatchObject({ result: ["schedule"], status: "completed" })
+      expect(run).toEqual(["schedule"])
+      expect(waitUntilTasks).toHaveLength(0)
     })
 
     it("uses discovered identity ahead of the Agent Definition name for the default binding", async () => {
@@ -8613,7 +8612,7 @@ describe("agent message protocol", () => {
         runtime: workflow("explicit-capabilities"),
         driver: { run: context => Object.keys(context.capabilities || {}) },
       }), {
-        capabilities: { schedule: {} },
+        capabilities: Object.defineProperty({ schedule: {} }, Symbol.for("vitehub.agent.generatedRuntimeCapabilities"), { value: true }),
         memo: vi.fn(),
         runtime: "vercel",
         waitUntil: promise => waitUntilTasks.push(promise),

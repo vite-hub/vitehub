@@ -23,9 +23,6 @@ export function agentWithColocatedSkills<Agent>(agent: Agent, sources: Parameter
 }
 
 const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
-const blobSpecifier = "@vite-hub/blob"
-const kvSpecifier = "@vite-hub/kv"
-const scheduleSpecifier = "@vite-hub/schedule/runtime"
 
 export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   agentIdentity?: AgentHostIdentity
@@ -40,13 +37,13 @@ async function resolveAgentWorkflowCapabilities(names: string[]): Promise<NonNul
   const capabilities: NonNullable<AgentRuntimeContext["capabilities"]> = {}
   for (const name of names) {
     if (name === "blob") {
-      capabilities.blob = (await import(/* @vite-ignore */ blobSpecifier) as typeof import("@vite-hub/blob")).blob
+      capabilities.blob = (await import("@vite-hub/blob")).blob
     }
     else if (name === "kv") {
-      capabilities.kv = (await import(/* @vite-ignore */ kvSpecifier) as typeof import("@vite-hub/kv")).kv
+      capabilities.kv = (await import("@vite-hub/kv")).kv
     }
     else if (name === "schedule") {
-      capabilities.schedule = { schedules: (await import(/* @vite-ignore */ scheduleSpecifier) as typeof import("@vite-hub/schedule/runtime")).schedules }
+      capabilities.schedule = { schedules: (await import("@vite-hub/schedule/runtime")).schedules }
     }
   }
   return capabilities

@@ -119,7 +119,7 @@ function generatedAgentRuntimeCapabilityImports(capabilities: GeneratedAgentRunt
 function generatedAgentRuntimeCapabilities(capabilities: GeneratedAgentRuntimeCapability[], schedule: boolean): string {
   const entries = capabilities.map(capability => `${capability.name}: ${generatedAgentRuntimeCapabilityAlias(capability)}`)
   if (schedule) entries.push("schedule: { schedules: vitehubSchedules }")
-  return `{ ${entries.join(", ")} }`
+  return `Object.defineProperty({ ${entries.join(", ")} }, Symbol.for("vitehub.agent.generatedRuntimeCapabilities"), { value: true })`
 }
 
 function getInternalAgentOptions(options: AgentModuleOptions | false | undefined): InternalAgentModuleOptions | undefined {

@@ -109,7 +109,7 @@ function findAgentObjectStart(masked: string): number | undefined {
 
   const exported = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\b/.exec(masked)
   if (!exported) return undefined
-  const declaration = new RegExp(`\\b(?:const|let|var)\\s+${exported[1]}\\s*(?::[^=]*?)?=\\s*defineAgent\\b`).exec(masked)
+  const declaration = new RegExp(`\\b(?:const|let|var)\\s+${exported[1]}\\s*(?::(?:=>|[^=])*?)?=\\s*defineAgent\\b`).exec(masked)
   if (declaration) return findDefineAgentObjectStart(masked, declaration.index + declaration[0].length)
   return undefined
 }
@@ -118,7 +118,7 @@ function hasExportedDefineAgent(masked: string): boolean {
   if (/\bexport\s+default\s+defineAgent\b/.test(masked)) return true
   const exported = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\b/.exec(masked)
   return Boolean(exported
-    && new RegExp(`\\b(?:const|let|var)\\s+${exported[1]}\\s*(?::[^=]*?)?=\\s*defineAgent\\b`).test(masked))
+    && new RegExp(`\\b(?:const|let|var)\\s+${exported[1]}\\s*(?::(?:=>|[^=])*?)?=\\s*defineAgent\\b`).test(masked))
 }
 
 function resolveAgentReExport(file: string, source: string, masked: string): string | undefined {
