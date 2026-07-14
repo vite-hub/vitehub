@@ -17,9 +17,9 @@ describe("agent config", () => {
         state: { provider: "auto" },
       },
       routes: {
-        chat: false,
+        chat: "/api/_vitehub/agents/[agent]/chat",
         discordGateway: false,
-        webhooks: false,
+        webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
       runtime: "auto",
     })
@@ -33,7 +33,11 @@ describe("agent config", () => {
     })).toMatchObject({
       integrations: { sandbox: false, workflow: "auto" },
       providers: { state: { provider: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
-      routes: { chat: false, discordGateway: false, webhooks: false },
+      routes: {
+        chat: "/api/_vitehub/agents/[agent]/chat",
+        discordGateway: false,
+        webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
+      },
       runtime: "cloudflare-agents",
     })
   })
@@ -227,21 +231,4 @@ describe("agent config", () => {
     })).toThrow("custom() requires an explicit workspace")
   })
 
-  it("uses the default routes when routes are true", () => {
-    expect(normalizeAgentOptions({ routes: { chat: true, webhooks: true } })).toMatchObject({
-      routes: {
-        chat: "/api/_vitehub/agents/[agent]/chat",
-        webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
-      },
-    })
-  })
-
-  it("preserves custom routes", () => {
-    expect(normalizeAgentOptions({ routes: { chat: "/chat/[agent]", webhooks: "/hooks/[agent]/[webhook]" } })).toMatchObject({
-      routes: {
-        chat: "/chat/[agent]",
-        webhooks: "/hooks/[agent]/[webhook]",
-      },
-    })
-  })
 })

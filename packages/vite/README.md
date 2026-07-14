@@ -33,15 +33,12 @@ The preset composes these integrations by default:
 - Database
 - DevTools
 - Env
-- KV
-- Sandbox
-- Schedule
 - Workflow
 - Workspace
 
 Auth is not part of the preset. Register `hubAuth()` from `@vite-hub/auth/vite` explicitly when the application has an Auth Definition. Runtime, Shell, and Source are libraries rather than preset Vite integrations.
 
-Pass `false` for an integration that the application does not use.
+Pass `false` to disable one of the default integrations.
 
 ```ts
 // vite.config.ts
@@ -52,14 +49,13 @@ export default defineConfig({
   plugins: [
     vitehub({
       agent: false,
-      sandbox: false,
       workflow: false,
     }),
   ],
 })
 ```
 
-Queue is opt-in because enabling it selects hosted Queue Provider Output. Pass `queue: true` to use provider inference, or pass Queue integration options explicitly. Netlify does not infer a Queue provider.
+KV, Queue, Sandbox, and Schedule are opt-in. Pass `true` to enable one with inferred defaults, or pass its integration options explicitly. Netlify does not infer a Queue provider.
 
 ```ts
 // vite.config.ts
@@ -69,7 +65,10 @@ import { defineConfig } from "vite"
 export default defineConfig({
   plugins: [
     vitehub({
+      kv: true,
       queue: true,
+      sandbox: true,
+      schedule: true,
     }),
   ],
 })

@@ -51,6 +51,7 @@ describe("Agent Process Schedule integration", () => {
       "        channelIdFromThreadId: (threadId) => threadId,",
       "        postMessage: async (threadId, message) => { proof.deliveries.push({ message, threadId }) },",
       "      },",
+      "      route: chatRoute,",
       "    }),",
       "  },",
       "  driver: {",
@@ -86,7 +87,6 @@ describe("Agent Process Schedule integration", () => {
         hubAgent({
           eval: false,
           providers: { state: { provider: "memory" } },
-          routes: { chat: true, discordGateway: false, webhooks: false },
         }),
         {
           name: "@vite-hub/kv/vite",
