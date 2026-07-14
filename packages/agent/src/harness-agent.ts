@@ -66,6 +66,10 @@ type HarnessFileSandbox = {
   readBinaryFile?(options: { abortSignal?: AbortSignal, path: string }): MaybePromise<Uint8Array | null>
 }
 
+type HarnessGlobalSkillsSandbox = {
+  run(options: { abortSignal?: AbortSignal, command: string }): PromiseLike<{ exitCode: number, stderr?: string }>
+}
+
 type HarnessAgentConstructor = new (settings: Record<string, unknown>) => HarnessAgentLike
 const harnessResumeStates = new WeakMap<object, Map<string, unknown>>()
 const harnessGeneratedFiles = ["harness-tool.mjs"] as const
@@ -601,10 +605,19 @@ async function prepareHarnessGlobalSkills(
   directory: unknown,
   abortSignal?: AbortSignal,
 ): Promise<{ close: (error?: unknown) => MaybePromise<void> } | undefined> {
-  if (!resolved) return
   if (typeof directory !== "string" || !directory) {
+    if (!resolved) return
     throw new Error("[vitehub] This Harness Agent Driver does not support skills({ scope: \"global\" }).")
   }
+  const quotedDirectory = `'${directory.replace(/'/g, "'\\''")}'`
+  const reset = await (session as HarnessGlobalSkillsSandbox).run({
+    abortSignal,
+    command: `rm -rf -- ${quotedDirectory} && mkdir -p -- ${quotedDirectory}`,
+  })
+  if (reset.exitCode !== 0) {
+    throw new Error(`[vitehub] Failed to reset global Skill directory: ${reset.stderr || "sandbox command failed"}`)
+  }
+  if (!resolved) return
   const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
   return await prepareHarnessWorkspaceSession(resolved.workspace, {
     abortSignal,

@@ -183,6 +183,7 @@ describe("defineAgent workspace option", () => {
     })
     harnessFileSession.readBinaryFile.mockReset()
     harnessFileSession.run.mockReset()
+    harnessFileSession.run.mockResolvedValue({ exitCode: 0, stderr: "", stdout: "" })
     harnessFileSession.writeBinaryFile.mockReset()
     prepareHarnessWorkspaceSession.mockReset()
     agentGenerate.mockReset()
@@ -810,6 +811,23 @@ describe("defineAgent workspace option", () => {
 
     await expect(runAgent(agent, context(), { prompt: "review" })).rejects.toThrow("review/SKILL.md")
     expect(harnessCreateSession).not.toHaveBeenCalled()
+  })
+
+  it("clears a reused harness profile when no global Skills are configured", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: {
+        harness: {
+          provider: "codex",
+          [Symbol.for("vitehub.harnessGlobalSkillsDirectory")]: "tmp/harness/codex-home/skills",
+        },
+      },
+    })
+
+    await expect(runAgent(agent, context(), { prompt: "review" })).resolves.toMatchObject({ text: "ok" })
+    expect(harnessFileSession.run).toHaveBeenCalledWith(expect.objectContaining({
+      command: expect.stringContaining("rm -rf -- 'tmp/harness/codex-home/skills'"),
+    }))
   })
 
   it("rejects global skills for non-harness Agent Drivers", async () => {

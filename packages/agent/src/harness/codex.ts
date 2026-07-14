@@ -178,7 +178,7 @@ function relativeCodexSandboxSession<T extends object>(session: T, bootstrapDir?
 
 async function prepareCodexHome(session: object, authHome?: string): Promise<void> {
   const result = await (session as { run(options: { command: string, env?: Record<string, string | undefined> }): Promise<{ exitCode: number, stderr?: string }> }).run({
-    command: 'mkdir -p "$CODEX_HOME" && chmod 700 "$CODEX_HOME" && : > "$CODEX_HOME/config.toml" && chmod 600 "$CODEX_HOME/config.toml" && if [ -n "$VITEHUB_CODEX_AUTH_HOME" ] && [ -f "$VITEHUB_CODEX_AUTH_HOME/auth.json" ]; then ln -sfn "$VITEHUB_CODEX_AUTH_HOME/auth.json" "$CODEX_HOME/auth.json"; elif [ -f "$HOME/.codex/auth.json" ]; then ln -sfn "$HOME/.codex/auth.json" "$CODEX_HOME/auth.json"; fi',
+    command: 'mkdir -p "$CODEX_HOME" && chmod 700 "$CODEX_HOME" && : > "$CODEX_HOME/config.toml" && chmod 600 "$CODEX_HOME/config.toml" && rm -f "$CODEX_HOME/auth.json" && if [ -n "$VITEHUB_CODEX_AUTH_HOME" ] && [ -f "$VITEHUB_CODEX_AUTH_HOME/auth.json" ]; then ln -sfn "$VITEHUB_CODEX_AUTH_HOME/auth.json" "$CODEX_HOME/auth.json"; elif [ -f "$HOME/.codex/auth.json" ]; then ln -sfn "$HOME/.codex/auth.json" "$CODEX_HOME/auth.json"; fi',
     ...(authHome ? { env: { VITEHUB_CODEX_AUTH_HOME: authHome } } : {}),
   })
   if (result.exitCode !== 0) {

@@ -226,7 +226,7 @@ describe("codexDriver", () => {
     const session = await adaptSandbox(provider, { defaultSandbox: false }).createSession()
 
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
-      command: expect.stringContaining('chmod 600 "$CODEX_HOME/config.toml"'),
+      command: expect.stringContaining('rm -f "$CODEX_HOME/auth.json"'),
       env: {
         CODEX_HOME: "/sandbox/run-1/tmp/harness/codex-home",
         VITEHUB_CODEX_AUTH_HOME: "/box/.codex",
