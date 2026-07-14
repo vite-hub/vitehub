@@ -195,6 +195,48 @@ describe("codexDriver", () => {
     expect(adaptSandbox(driver.sandbox! as object)).toBe(driver.sandbox)
   })
 
+  it("exposes an isolated global skill directory", async () => {
+    const { codexDriver } = await import("../src/harness/codex.ts")
+    const driver = codexDriver({ sandbox: false })
+
+    expect((driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessGlobalSkillsDirectory")])
+      .toBe("tmp/harness/codex-home/skills")
+  })
+
+  it("isolates Codex config while preserving sandbox authentication", async () => {
+    const { codexDriver } = await import("../src/harness/codex.ts")
+    const run = vi.fn(async (_options: { command: string, env?: Record<string, string | undefined> }) => ({ exitCode: 0, stderr: "" }))
+    const rawSession = {
+      defaultWorkingDirectory: "/sandbox/run-1",
+      env: { CODEX_HOME: "/box/.codex", HOME: "/box" },
+      run,
+      spawn: vi.fn(),
+    }
+    const provider = {
+      specificationVersion: "harness-sandbox-v1",
+      async createSession(options: { onFirstCreate?: (session: object, context: object) => Promise<void> }) {
+        await options.onFirstCreate?.(rawSession, {})
+        return rawSession
+      },
+    }
+    const driver = codexDriver({ sandbox: provider })
+    const adaptSandbox = (driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessSandboxAdapter")] as (provider: object, options: { defaultSandbox: boolean }) => { createSession: () => Promise<typeof rawSession> }
+    const session = await adaptSandbox(provider, { defaultSandbox: false }).createSession()
+
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      command: expect.stringContaining('chmod 600 "$CODEX_HOME/config.toml"'),
+      env: {
+        CODEX_HOME: "/sandbox/run-1/tmp/harness/codex-home",
+        VITEHUB_CODEX_AUTH_HOME: "/box/.codex",
+      },
+    }))
+    await session.run({ command: "codex exec" })
+    expect(run).toHaveBeenLastCalledWith({
+      command: "codex exec",
+      env: { CODEX_HOME: "/sandbox/run-1/tmp/harness/codex-home" },
+    })
+  })
+
   it("forwards invocation-scoped harness configuration without treating it as Codex settings", async () => {
     const { codexDriver } = await import("../src/harness/codex.ts")
     const instructions = vi.fn(() => "Repair the pull request.")

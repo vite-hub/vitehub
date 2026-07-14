@@ -1532,6 +1532,12 @@ export interface AgentAdapterMetadataContext<
   workspace: ReadonlyWorkspaceFacade<Name>
 }
 
+export interface AgentGlobalSkill {
+  path: string
+  source: WorkspaceSourceInput
+  sourceKey: string
+}
+
 export interface AgentAdapterRunContext<
   TOptions = unknown,
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -1543,6 +1549,7 @@ export interface AgentAdapterRunContext<
   context: AgentInvocationContextStore
   devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
   driverContributions?: AgentDriverContribution[]
+  globalSkills?: readonly AgentGlobalSkill[]
   hasCapabilityCleanup?: boolean
   harnessSandboxProvider?: object
   harnessWorkDir?: string

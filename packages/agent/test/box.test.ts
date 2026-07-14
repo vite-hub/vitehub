@@ -33,7 +33,7 @@ vi.mock("@ai-sdk/harness/agent", () => ({
 
     async generate({ session }: Record<string, any>) {
       const result = await session.host.run({
-        command: "pwd; printf '%s\\n' \"$HOME\" \"$CODEX_HOME\"; test -f AGENTS.md; test -f \"$HOME/.agents/skills/global/SKILL.md\"; printf changed > changed.txt",
+        command: "pwd; printf '%s\\n' \"$HOME\" \"$CODEX_HOME\"; test -f AGENTS.md; test -f \"$HOME/.agents/skills/global/SKILL.md\"; test -f \"$CODEX_HOME/config.toml\"; test ! -s \"$CODEX_HOME/config.toml\"; test \"$(readlink \"$CODEX_HOME/auth.json\")\" = \"$HOME/.codex/auth.json\"; printf changed > changed.txt",
         workingDirectory: session.sessionWorkDir,
       })
       if (result.exitCode) throw new Error(result.stderr)
@@ -64,6 +64,7 @@ describe("Agent Box", () => {
     await Promise.all([
       writeFile(join(worktree, "AGENTS.md"), "Repository instructions.\n"),
       writeFile(join(home, ".agents", "skills", "global", "SKILL.md"), "Global skill.\n"),
+      writeFile(join(home, ".codex", "auth.json"), "{\"token\":\"box\"}\n"),
       writeFile(join(home, ".codex", "config.toml"), "model = \"configured-model\"\n"),
       executable(bin, "codex", "exit 0"),
       executable(bin, "gh", "exit 0"),
@@ -71,7 +72,7 @@ describe("Agent Box", () => {
     ])
 
     const originalPath = process.env.PATH
-    process.env.PATH = bin
+    process.env.PATH = [bin, originalPath].filter(Boolean).join(":")
     try {
       const { trustedHost } = await import("@vite-hub/box")
       const { defineAgent, runAgent } = await import("../src/index.ts")
@@ -86,16 +87,19 @@ describe("Agent Box", () => {
         driver: codexDriver(),
       })
 
-      await expect(runAgent(agent, {
+      const result = await runAgent(agent, {
         memo: vi.fn((_key, create) => create()),
         runtime: "vite",
         waitUntil: vi.fn(),
       }, {
         options: { worktreePath: worktree },
         prompt: "Repair the project.",
-      })).resolves.toMatchObject({
-        text: `${await realpath(worktree)}\n${home}\n${join(home, ".codex")}\n`,
-      })
+      }) as { text: string }
+      const [reportedWorktree, reportedHome, codexHome] = result.text.trim().split("\n")
+
+      expect(reportedWorktree).toBe(await realpath(worktree))
+      expect(reportedHome).toBe(home)
+      expect(codexHome).toMatch(/\/tmp\/harness\/codex-home$/)
 
       await expect(readFile(join(worktree, "changed.txt"), "utf8")).resolves.toBe("changed")
       expect(harnessSettings.at(-1)?.sandbox).toMatchObject({ providerId: "local" })

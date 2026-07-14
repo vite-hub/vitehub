@@ -36,6 +36,7 @@ import type {
   AgentFinishEvent,
   AgentFinishExtensionValues,
   AgentFinishExtensionProvider,
+  AgentGlobalSkill,
   AgentHookObserverHooks,
   AgentInvocationExtensions,
   AgentOutputExtensionValues,
@@ -64,12 +65,14 @@ type ResolvedAgentOutputRenderer = ((result: unknown, extensions?: AgentOutputEx
   providerCount: number
 }
 export const workspaceMaterializationPathsSymbol: unique symbol = Symbol("vitehub.agent.workspaceMaterializationPaths")
+export const globalSkillsSymbol: unique symbol = Symbol.for("vitehub.agent.globalSkills")
 export const capabilityInvocationStartSymbol: unique symbol = Symbol("vitehub.agent.capabilityInvocationStart")
 type InternalAgentCapabilityDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > = AgentCapabilityDefinition<TRuntimeConfig, Name> & {
   [capabilityInvocationStartSymbol]?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
+  [globalSkillsSymbol]?: AgentGlobalSkill
   [workspaceMaterializationPathsSymbol]?: readonly string[]
 }
 type AgentCapabilityBashEntry = Extract<AgentCapabilityBashCommand, { command: string }>
@@ -134,6 +137,7 @@ export interface AgentCapabilityInvocationOptions<
 export interface ResolvedAgentCapabilities {
   close: () => Promise<void>
   driverContributions: AgentDriverContribution[]
+  globalSkills: readonly AgentGlobalSkill[]
   hasCloseCallbacks: boolean
   input: AgentRunInput
   messages: Message[]
@@ -764,6 +768,10 @@ export async function resolveAgentCapabilities<
         ],
       ))
     : []
+  const globalSkills = capabilities.flatMap((capability) => {
+    const skill = (capability as InternalAgentCapabilityDefinition)[globalSkillsSymbol]
+    return skill ? [skill] : []
+  })
   let currentInput = normalizeRunInput(input)
   let currentWorkspace = workspace as ReadonlyWorkspaceFacade<Name> | undefined
   let currentWorkspaceDefinition = invocationOptions.workspaceDefinition
@@ -1063,6 +1071,7 @@ export async function resolveAgentCapabilities<
           return {
             close: closeRegisteredCallbacks,
             driverContributions,
+            globalSkills,
             hasCloseCallbacks: hasCloseWork,
             input: currentInput,
             messages,
@@ -1128,6 +1137,7 @@ export async function resolveAgentCapabilities<
   return {
     close: closeRegisteredCallbacks,
     driverContributions,
+    globalSkills,
     hasCloseCallbacks: hasCloseWork,
     input: currentInput,
     messages,

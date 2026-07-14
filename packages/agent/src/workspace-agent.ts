@@ -1078,7 +1078,7 @@ function capabilityCoverageWarnings(
   capabilities: readonly AgentCapabilityDefinition[] | undefined,
 ): AgentDevtoolsWarning[] {
   return normalizeCapabilities(capabilities as AgentCapabilityDefinition[] | undefined)
-    .filter(capability => capability.id !== "skills")
+    .filter(capability => capability.id !== "skills" && !capability.id.startsWith("skills."))
     .filter(capability => !capabilityCoverageKeys(capability.id).some(key => coverage.capabilities.has(key)))
     .map(capability => warning(
       `instruction-coverage:capability:${capability.id}`,
@@ -1097,7 +1097,7 @@ function skillCoverageWarnings(
   capabilities: readonly AgentCapabilityDefinition[] | undefined,
 ): AgentDevtoolsWarning[] {
   return normalizeCapabilities(capabilities as AgentCapabilityDefinition[] | undefined)
-    .filter(capability => capability.id === "skills")
+    .filter(capability => capability.id === "skills" || capability.id.startsWith("skills."))
     .flatMap((capability) => {
       const metadata = capability.metadata || {}
       const path = skillCoveragePath(metadata.path) || skillCoveragePath(metadata.skillPath)
