@@ -68,4 +68,17 @@ describe("colocated Agent Skills", () => {
     await writeFile(join(root, "review", "index.ts"), "export default {}\n", "utf8")
     expect(readColocatedAgentSkills(join(root, "review", "index.ts"))).toBeDefined()
   })
+
+  it("does not treat a sibling Agent named skills as Skills owned by a flat Agent named agent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-skills-"))
+    roots.push(root)
+    const agentsRoot = join(root, "server", "agents")
+    await mkdir(join(agentsRoot, "skills", "skills", "review"), { recursive: true })
+    await writeFile(join(agentsRoot, "agent.ts"), "export default {}\n", "utf8")
+    await writeFile(join(agentsRoot, "skills", "agent.ts"), "export default {}\n", "utf8")
+    await writeFile(join(agentsRoot, "skills", "skills", "review", "SKILL.md"), "# Review\n", "utf8")
+
+    expect(readColocatedAgentSkills(join(agentsRoot, "agent.ts"))).toBeUndefined()
+    expect(readColocatedAgentSkills(join(agentsRoot, "skills", "agent.ts"))).toBeDefined()
+  })
 })

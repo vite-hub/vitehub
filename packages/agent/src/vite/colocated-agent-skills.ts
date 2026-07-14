@@ -12,6 +12,9 @@ export interface EncodedColocatedAgentSkillSource {
 export function readColocatedAgentSkills(handler: string): Record<string, EncodedColocatedAgentSkillSource> | undefined {
   if (!/^(?:agent|index)\.(?:c|m)?[jt]s$/i.test(basename(handler))) return
   const sourceRoot = dirname(handler)
+  if (/^agent\.(?:c|m)?[jt]s$/i.test(basename(handler))
+    && basename(sourceRoot) === "agents"
+    && basename(dirname(sourceRoot)) === "server") return
   const skillsRoot = join(sourceRoot, "skills")
   if (!existsSync(skillsRoot) || !statSync(skillsRoot).isDirectory()) return
 
