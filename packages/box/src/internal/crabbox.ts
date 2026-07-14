@@ -1,6 +1,6 @@
 import { spawn as spawnChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { lstat, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, rm, rmdir, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, posix, resolve } from "node:path"
 import { Readable } from "node:stream"
@@ -452,14 +452,23 @@ export async function rejectSymlinkedArchiveParents(workspace: string, archivePa
   }
 }
 
-async function pruneWorkspaceForArchive(workspace: string, archivePath: string, manifest: readonly string[]) {
+export async function pruneWorkspaceForArchive(workspace: string, archivePath: string, manifest: readonly string[]): Promise<void> {
   if (!manifest.length) return
   const archive = await listArchiveEntries(archivePath)
   const archived = new Set(archive)
-  await Promise.all(manifest.map(async (path) => {
-    if (archived.has(path)) return
+  const removed = manifest.filter(path => !archived.has(path))
+  await Promise.all(removed.map(async (path) => {
     await rm(join(workspace, path), { force: true, recursive: true })
   }))
+  const parents = [...new Set(removed.flatMap((path) => {
+    const parts = path.split("/")
+    return parts.slice(1).map((_, index) => parts.slice(0, index + 1).join("/"))
+  }))].sort((a, b) => b.length - a.length)
+  for (const path of parents) {
+    await rmdir(join(workspace, path)).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT" && error.code !== "ENOTEMPTY") throw error
+    })
+  }
 }
 
 async function listArchiveEntries(archivePath: string) {

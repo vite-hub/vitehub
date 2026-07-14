@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { resolveBox } from "../src/index.ts"
 import { crabbox } from "../src/crabbox.ts"
-import { rejectSymlinkedArchiveParents } from "../src/internal/crabbox.ts"
+import { pruneWorkspaceForArchive, rejectSymlinkedArchiveParents } from "../src/internal/crabbox.ts"
 
 const roots: string[] = []
 const execFileAsync = promisify(execFile)
@@ -74,6 +74,21 @@ describe("crabbox", () => {
     await symlink(root, join(workspace, "linked"))
 
     await expect(rejectSymlinkedArchiveParents(workspace, archive)).rejects.toThrow("conflicts with local symlink: linked")
+  })
+
+  it("removes empty parents before extracting replacement entries", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const source = join(root, "source")
+    const archive = join(root, "workspace.tar")
+    await Promise.all([mkdir(join(workspace, "dir", "sub"), { recursive: true }), mkdir(source)])
+    await writeFile(join(workspace, "dir", "sub", "file.txt"), "local")
+    await writeFile(join(source, "dir"), "remote")
+    await execFileAsync("tar", ["-cf", archive, "-C", source, "dir"])
+
+    await pruneWorkspaceForArchive(workspace, archive, ["dir/sub/file.txt"])
+
+    await expect(stat(join(workspace, "dir"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("boots through Crabbox, validates requirements there, and preserves workspace mutations", async () => {
