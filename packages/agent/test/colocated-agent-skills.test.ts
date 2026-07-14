@@ -1,0 +1,55 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { afterEach, describe, expect, it } from "vitest"
+
+import { colocatedAgentSkillsSymbol, decodeColocatedAgentSkills, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
+import { readColocatedAgentSkills } from "../src/vite/colocated-agent-skills.ts"
+
+const roots: string[] = []
+
+describe("colocated Agent Skills", () => {
+  afterEach(async () => {
+    await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
+  })
+
+  it("recursively embeds files as binary-safe build sources", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-skills-"))
+    roots.push(root)
+    const handler = join(root, "config.ts")
+    const binary = Uint8Array.from([0, 255, 128, 13, 10, 42])
+    await mkdir(join(root, "skills", "review", "assets"), { recursive: true })
+    await writeFile(handler, "export default {}\n", "utf8")
+    await writeFile(join(root, "skills", "review", "SKILL.md"), "# Review\n", "utf8")
+    await writeFile(join(root, "skills", "review", "assets", "fixture.bin"), binary)
+
+    const sources = readColocatedAgentSkills(handler)
+
+    expect(Object.keys(sources || {})).toEqual([
+      "__vitehubAgentSkill:skills/review/assets/fixture.bin",
+      "__vitehubAgentSkill:skills/review/SKILL.md",
+    ])
+    expect(sources?.["__vitehubAgentSkill:skills/review/assets/fixture.bin"]).toEqual({
+      content: Buffer.from(binary).toString("base64"),
+      encoding: "base64",
+      materialize: "build",
+      mount: "",
+      workspacePath: "skills/review/assets/fixture.bin",
+    })
+    expect(decodeColocatedAgentSkills(sources)?.["__vitehubAgentSkill:skills/review/assets/fixture.bin"]).toMatchObject({
+      content: binary,
+      workspacePath: "skills/review/assets/fixture.bin",
+    })
+  })
+
+  it("attaches discovered sources without changing agents when no skills exist", () => {
+    const agent = { name: "review" }
+    const sources = {
+      review: { content: new TextEncoder().encode("# Review\n"), workspacePath: "skills/review/SKILL.md" },
+    }
+
+    expect(withColocatedAgentSkills(agent, undefined)).toBe(agent)
+    expect((withColocatedAgentSkills(agent, sources) as Record<PropertyKey, unknown>)[colocatedAgentSkillsSymbol]).toBe(sources)
+  })
+})

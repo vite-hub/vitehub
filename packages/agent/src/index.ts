@@ -36,6 +36,11 @@ import {
   scheduledAgentNameContextKey,
   scheduledAgentTurnContextKey,
 } from "./internal/scheduled-turn.ts"
+import {
+  colocatedAgentSkillsContextKey,
+  colocatedAgentSkillsSymbol,
+  type ColocatedAgentSkills,
+} from "./internal/colocated-agent-skills.ts"
 
 import {
   applyCapabilityToolTransforms,
@@ -550,6 +555,7 @@ type AgentDefinitionWithBaseResolve<
   [baseAgentDriverKind]?: AgentDriverKind
   [baseAgentResolve]?: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS>
   [baseAgentModel]?: AgentModelResolver<TRuntimeConfig>
+  [colocatedAgentSkillsSymbol]?: ColocatedAgentSkills
 }
 interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   input: AgentRunInput<CALL_OPTIONS>
@@ -1436,6 +1442,8 @@ async function createAgentInvocationContext<
   const invocationContext = createAgentInvocationContextStore(input.context)
   invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
   invocationContext.set(scheduledAgentNameContextKey, context.agentIdentity?.name, { overwrite: true })
+  const colocatedSkills = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[colocatedAgentSkillsSymbol]
+  if (colocatedSkills) invocationContext.set(colocatedAgentSkillsContextKey, colocatedSkills, { overwrite: true })
   let invoker = createFallbackAgentInvoker(context.run)
   try {
     invoker = await resolveAgentInvoker(

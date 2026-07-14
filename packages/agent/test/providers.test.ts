@@ -327,6 +327,16 @@ describe("agent Vite plugin", () => {
     expect(invalidateModule).toHaveBeenCalledWith(registryModule)
     expect(invalidateModule).toHaveBeenCalledWith(targetsModule)
     expect(invalidateModule).toHaveBeenCalledWith(nitroRegistryModule)
+
+    invalidateModule.mockClear()
+    handleHotUpdate({
+      file: "/app/server/agents/digest/skills/review/SKILL.md",
+      server: { moduleGraph: { getModuleById, invalidateModule } },
+    })
+
+    expect(invalidateModule).toHaveBeenCalledWith(registryModule)
+    expect(invalidateModule).toHaveBeenCalledWith(targetsModule)
+    expect(invalidateModule).toHaveBeenCalledWith(nitroRegistryModule)
   })
 
   it("materializes the MCP runtime package for Vercel build output", async () => {
@@ -1089,15 +1099,10 @@ describe("agent Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-deno-workspace-routes-"))
     try {
       await mkdir(join(root, "server", "agents", "support", "workspace"), { recursive: true })
+      await mkdir(join(root, "server", "agents", "support", "skills", "review", "scripts"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support", "config.ts"), [
         "import { defineAgent } from '@vite-hub/agent'",
-        "import { skills } from '@vite-hub/agent/capabilities'",
         "export default defineAgent({",
-        "  capabilities: [skills({",
-        "    path: 'skills/agent-browser',",
-        "    source: { content: '# Browser\\n', workspacePath: 'SKILL.md' },",
-        "    sourceKey: 'agentBrowserSkill',",
-        "  })],",
         "  workspace: {},",
         "  async run() { return 'ok' },",
         "})",
@@ -1105,6 +1110,8 @@ describe("agent Vite plugin", () => {
       ].join("\n"), "utf8")
       await writeFile(join(root, "server", "agents", "support", "instructions.md"), "Use support instructions.\n", "utf8")
       await writeFile(join(root, "server", "agents", "support", "workspace", "instructions.md"), "Do not use workspace instructions.\n", "utf8")
+      await writeFile(join(root, "server", "agents", "support", "skills", "review", "SKILL.md"), "# Review\n", "utf8")
+      await writeFile(join(root, "server", "agents", "support", "skills", "review", "scripts", "review.bin"), Uint8Array.from([0, 255, 42]))
       const plugin = hubAgent({ runtime: "deno" })
       if (typeof plugin.configResolved === "function") {
         await plugin.configResolved.call({} as never, { root } as never)
@@ -1118,12 +1125,16 @@ describe("agent Vite plugin", () => {
       expect(denoServer).toContain("workspaceRegistryEntry(\"support\", agent0")
       expect(denoServer).toContain("__vitehubAgentInstructions")
       expect(denoServer).toContain("content: colocatedInstructions")
-      expect(denoServer).toContain("const existingSources = agent.sources && typeof agent.sources === 'object' ? agent.sources : undefined")
+      expect(denoServer).toContain("Symbol.for('vitehub.agent.colocatedSkills')")
+      expect(denoServer).toContain("Uint8Array.from(atob(content)")
+      expect(denoServer).toContain(JSON.stringify("__vitehubAgentSkill:skills/review/SKILL.md"))
+      expect(denoServer).toContain(JSON.stringify(Buffer.from([0, 255, 42]).toString("base64")))
+      expect(denoServer).toContain("const existingSources = resolvedAgent.sources && typeof resolvedAgent.sources === 'object' ? resolvedAgent.sources : undefined")
       expect(denoServer).toContain("    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: 'build', mount: '', workspacePath: 'AGENTS.md' }, ...workspace.sources, ...existingSources }")
       expect(denoServer).toContain("workspaceDefinitionFromOptions")
       expect(denoServer).toContain("const workspaceOptions = { ...options, workspace: { ...workspace, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: resolvedSourceRootDir } }")
-      expect(denoServer).toContain("return { ...agent, ...workspaceDefinitionFromOptions(workspaceOptions), __vitehubWorkspaceAgentOptions: workspaceOptions }")
-      expect(denoServer).toContain(`${JSON.stringify(join(root, "server", "agents", "support", "workspace"))}, "Use support instructions.\\n")`)
+      expect(denoServer).toContain("return { ...resolvedAgent, ...workspaceDefinitionFromOptions(workspaceOptions), __vitehubWorkspaceAgentOptions: workspaceOptions }")
+      expect(denoServer).toContain(`${JSON.stringify(join(root, "server", "agents", "support", "workspace"))}, "Use support instructions.\\n", {`)
       expect(denoServer).not.toContain("Do not use workspace instructions.")
       expect(denoServer).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")
       expect(denoServer).not.toContain("\"support\": async ()")

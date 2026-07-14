@@ -31,6 +31,7 @@ const harnessCreateSessionOptions = vi.hoisted(() => [] as Array<Record<string, 
 const harnessSessionDestroy = vi.hoisted(() => vi.fn(async () => {
   order.push("harness-session-destroy")
 }))
+const harnessSessionRun = vi.hoisted(() => vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: "" })))
 const harnessStreamInputs = vi.hoisted(() => [] as Record<string, unknown>[])
 const harnessStreamResult = vi.hoisted(() => vi.fn<() => unknown>(() => ({
   fullStream: {
@@ -115,10 +116,10 @@ vi.mock("@ai-sdk/harness/agent", () => ({
       const sandboxConfig = this.settings.sandboxConfig as { onSession?: (input: Record<string, unknown>) => Promise<void> } | undefined
       await sandboxConfig?.onSession?.({
         abortSignal: options?.abortSignal,
-        session: {},
+        session: { run: harnessSessionRun },
         sessionWorkDir: "/workspace",
       })
-      return { destroy: harnessSessionDestroy }
+      return { destroy: harnessSessionDestroy, run: harnessSessionRun }
     }
 
     async generate() {
@@ -243,6 +244,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     resolveWorkspaceAutoCommit.mockReturnValue({ message: "commit review output" })
     harnessCreateSessionOptions.length = 0
     harnessSessionDestroy.mockClear()
+    harnessSessionRun.mockClear()
     harnessStreamInputs.length = 0
     harnessStreamResult.mockReset()
     harnessStreamResult.mockReturnValue({
@@ -762,8 +764,9 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
 
   it("keeps harness driver metadata when wrapping channel streams for delivery previews", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-stream-harness-preview-metadata-"))
-    await mkdir(join(root, "server", "agents"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
+    await mkdir(join(root, "server", "agents", "review", "skills", "code-review"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "review", "config.ts"), "export default {}", "utf8")
+    await writeFile(join(root, "server", "agents", "review", "skills", "code-review", "SKILL.md"), "# Code review\n", "utf8")
 
     harnessStreamResult.mockReturnValueOnce({
       fullStream: (async function* () {
@@ -833,6 +836,14 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     ])
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       paths: ["public", "AGENTS.md", "CLAUDE.md"],
+    }))
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
+      paths: ["skills"],
+      sessionWorkDir: "/workspace/.vitehub-agent-skills",
+    }))
+    expect(harnessSessionRun).toHaveBeenCalledWith(expect.objectContaining({
+      command: expect.stringContaining("cp -R .vitehub-agent-skills/skills/. skills"),
+      workingDirectory: "/workspace",
     }))
   })
 

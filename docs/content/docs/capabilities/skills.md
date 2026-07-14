@@ -7,11 +7,13 @@ navigation.group: Workspace
 icon: i-lucide-scroll-text
 ---
 
-`skills()` makes a Skill file available to an Agent Invocation. Workspace scope is the default; global scope mounts a source into the harness profile so Codex can discover it as an installed Skill.
+`skills()` makes a Workspace or external Source Skill available to an Agent Invocation. Workspace scope is the default; global scope mounts a source into the harness profile so Codex can discover it as an installed Skill.
+
+For an Agent-owned Skill, place the files in `skills/` beside the discovered Agent Definition instead. ViteHub discovers and materializes those files automatically, so local Skills do not need a Capability declaration.
 
 ## Installation
 
-Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
+Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })` when the Skill is supplied by a Workspace or external Source.
 Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
 
 ## What it adds

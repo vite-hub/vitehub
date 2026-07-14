@@ -27,6 +27,8 @@ import { createAgentRuntimeContext } from "../../runtime/context.ts"
 import { discoverAgentDefinitions } from "../../discovery.ts"
 import { workspaceAgentOwnsWorkspaceDefinition, workspaceAgentWithSourceRoot } from "../../workspace-agent.ts"
 import { loadAiSdk } from "../../internal/ai-sdk-runtime.ts"
+import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../../internal/colocated-agent-skills.ts"
+import { readColocatedAgentSkills } from "../../vite/colocated-agent-skills.ts"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
 import type { UIMessage } from "ai"
@@ -155,7 +157,10 @@ function installServerAgentWorkspaceRegistry(
         const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
         return {
           ...mod,
-          default: workspaceAgentWithSourceRoot(mod.default, sourceRootDir),
+          default: workspaceAgentWithSourceRoot(
+            withColocatedAgentSkills(mod.default, decodeColocatedAgentSkills(readColocatedAgentSkills(definition.handler))),
+            sourceRootDir,
+          ),
         }
       },
     ])))
@@ -166,7 +171,7 @@ async function loadDiscoveredAgent(
   definition: DiscoveredAgentDefinition,
 ): Promise<AgentInput<ViteAgentDevtoolsRuntimeContext> | undefined> {
   const module = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
-  return resolveAgentModule(module)
+  return withColocatedAgentSkills(resolveAgentModule(module), decodeColocatedAgentSkills(readColocatedAgentSkills(definition.handler)))
 }
 
 function agentIdentity(definition: DiscoveredAgentDefinition): AgentHostIdentity {

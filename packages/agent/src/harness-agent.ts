@@ -17,6 +17,10 @@ import {
 } from "./workspace-agent.ts"
 import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
+import {
+  colocatedAgentSkillsContextKey,
+  type ColocatedAgentSkills,
+} from "./internal/colocated-agent-skills.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import {
@@ -67,7 +71,7 @@ type HarnessFileSandbox = {
 }
 
 type HarnessGlobalSkillsSandbox = {
-  run(options: { abortSignal?: AbortSignal, command: string }): PromiseLike<{ exitCode: number, stderr?: string }>
+  run(options: { abortSignal?: AbortSignal, command: string, workingDirectory?: string }): PromiseLike<{ exitCode: number, stderr?: string }>
 }
 
 type HarnessAgentConstructor = new (settings: Record<string, unknown>) => HarnessAgentLike
@@ -616,6 +620,55 @@ async function resolveHarnessGlobalSkills(
   return { paths: skills.map(skill => skill.path), workspace }
 }
 
+async function resolveHarnessColocatedSkills(context: AgentAdapterRunContext) {
+  const sources = context.context.get<ColocatedAgentSkills>(colocatedAgentSkillsContextKey)
+  if (!sources || !Object.keys(sources).length) return
+  const definition = {
+    name: "__vitehub_agent_skills",
+    runtime: "trusted-host" as const,
+    sources,
+    store: { provider: "memory" as const },
+  }
+  const workspaceOptions = {
+    definition,
+    mode: "read" as const,
+  }
+  const { useWorkspace } = await import("@vite-hub/workspace")
+  return useWorkspace("__vitehub_agent_skills", workspaceOptions)
+}
+
+async function prepareHarnessColocatedSkills(
+  workspace: Awaited<ReturnType<typeof resolveHarnessColocatedSkills>>,
+  session: unknown,
+  destination: string,
+  target: "." | "skills",
+  abortSignal?: AbortSignal,
+): Promise<boolean> {
+  if (!workspace) return false
+  const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
+  const stagingDirectory = `${destination.replace(/\/+$/, "")}/.vitehub-agent-skills`
+  const prepared = await prepareHarnessWorkspaceSession(workspace, {
+    abortSignal,
+    paths: ["skills"],
+    session: session as never,
+    sessionWorkDir: stagingDirectory,
+  })
+  try {
+    const result = await (session as HarnessGlobalSkillsSandbox).run({
+      abortSignal,
+      command: `mkdir -p ${target} && cp -R .vitehub-agent-skills/skills/. ${target} && rm -rf .vitehub-agent-skills && find ${target} -type f -path "*/scripts/*" -exec chmod +x {} +`,
+      workingDirectory: destination,
+    })
+    if (result.exitCode !== 0) throw new Error(result.stderr || "sandbox command failed")
+  }
+  catch (error) {
+    await prepared.close(error)
+    throw new Error(`[vitehub] Failed to install colocated Agent Skills: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+  }
+  await prepared.close()
+  return true
+}
+
 async function prepareHarnessGlobalSkills(
   resolved: Awaited<ReturnType<typeof resolveHarnessGlobalSkills>>,
   session: unknown,
@@ -627,21 +680,31 @@ async function prepareHarnessGlobalSkills(
     throw new Error("[vitehub] This Harness Agent Driver does not support skills({ scope: \"global\" }).")
   }
   const quotedDirectory = `'${directory.replace(/'/g, "'\\''")}'`
-  const reset = await (session as HarnessGlobalSkillsSandbox).run({
+  const ensure = await (session as HarnessGlobalSkillsSandbox).run({
     abortSignal,
-    command: `rm -rf -- ${quotedDirectory} && mkdir -p -- ${quotedDirectory}`,
+    command: `mkdir -p -- ${quotedDirectory}`,
   })
-  if (reset.exitCode !== 0) {
-    throw new Error(`[vitehub] Failed to reset global Skill directory: ${reset.stderr || "sandbox command failed"}`)
+  if (ensure.exitCode !== 0) {
+    throw new Error(`[vitehub] Failed to prepare global Skill directory: ${ensure.stderr || "sandbox command failed"}`)
   }
   if (!resolved) return
   const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
-  return await prepareHarnessWorkspaceSession(resolved.workspace, {
+  const prepared = await prepareHarnessWorkspaceSession(resolved.workspace, {
     abortSignal,
     paths: resolved.paths,
     session: session as never,
     sessionWorkDir: directory,
   })
+  const executable = await (session as HarnessGlobalSkillsSandbox).run({
+    abortSignal,
+    command: `find ${quotedDirectory} -type f -path "*/scripts/*" -exec chmod +x {} +`,
+  })
+  if (executable.exitCode !== 0) {
+    const error = new Error(`[vitehub] Failed to prepare global Skill scripts: ${executable.stderr || "sandbox command failed"}`)
+    await prepared.close(error)
+    throw error
+  }
+  return prepared
 }
 
 function hasDetach(session: HarnessAgentSessionLike): session is HarnessAgentSessionLike & { detach: () => MaybePromise<unknown> } {
@@ -919,6 +982,7 @@ export function createHarnessAgentAdapter<
   async function createAgentAndSession(context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>) {
     let workspaceSession: { close: (error?: unknown) => MaybePromise<void>, refreshGitBaseline?: () => MaybePromise<void> } | undefined
     let globalSkillsSession: { close: (error?: unknown) => MaybePromise<void> } | undefined
+    const colocatedSkillsWorkspace = await resolveHarnessColocatedSkills(context)
     const resolved = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal, globalSkillsDirectory, globalSkillsWorkspace, sessionPrepare) => {
       const harnessInstructions = context.workspace ? await resolveHarnessInstructions(context) : undefined
       try {
@@ -939,6 +1003,11 @@ export function createHarnessAgentAdapter<
           await writeHarnessInstructionFiles(session as HarnessInstructionSandbox, sessionWorkDir, abortSignal, harnessInstructions)
           if (harnessInstructions) await workspaceSession.refreshGitBaseline?.()
         }
+        const installedWorkspaceSkills = await prepareHarnessColocatedSkills(colocatedSkillsWorkspace, session, sessionWorkDir, "skills", abortSignal)
+        if (isHarnessRelativeDirectory(globalSkillsDirectory)) {
+          await prepareHarnessColocatedSkills(colocatedSkillsWorkspace, session, globalSkillsDirectory, ".", abortSignal)
+        }
+        if (installedWorkspaceSkills) await workspaceSession?.refreshGitBaseline?.()
         globalSkillsSession = await prepareHarnessGlobalSkills(globalSkillsWorkspace, session, globalSkillsDirectory, abortSignal)
         if (typeof sessionPrepare === "function") {
           await (sessionPrepare as (session: unknown) => MaybePromise<void>)(session)
