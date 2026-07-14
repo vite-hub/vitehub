@@ -189,6 +189,8 @@ describe("Schedule waitUntil", () => {
     await flushAsyncWork()
     expect(closed).toBe(false)
     expect(driverClosed).toBe(false)
+    await context!.wake({ scheduleId: "runtime-report", scheduledAt: new Date("2026-07-12T09:00:00.000Z") })
+    expect(releases).toHaveLength(2)
 
     for (const release of releases) release()
     await closing

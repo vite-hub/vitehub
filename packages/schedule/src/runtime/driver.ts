@@ -375,6 +375,7 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
   let reconciledDriver: RuntimeScheduleWakeDriver | undefined
   let staticSchedules: StaticSchedules = { byId: new Map(), records: [] }
   let aborted = false
+  let closing = false
 
   setScheduleRuntimeRegistry(options.registry)
   setScheduleRunStore(options.scheduleRunStore)
@@ -385,7 +386,7 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
       staticSchedules = createStaticSchedules(await loadStaticDefinitions(options.staticRegistry), runtimeSchedules)
       driver = await options.createDriver({
         reportError,
-        wake: input => serialize.runWake(async () => {
+        wake: input => closing ? Promise.resolve() : serialize.runWake(async () => {
           const staticSchedule = staticSchedules.byId.get(input.scheduleId)
           if (staticSchedule) {
             if (!isRuntimeScheduleDue(staticSchedule.record, input.scheduledAt)) {
@@ -461,7 +462,9 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
   let closePromise: Promise<void> | undefined
   return {
     close() {
-      return closePromise ??= serialize(async () => {}).then(async () => {
+      if (closePromise) return closePromise
+      closing = true
+      return closePromise = serialize(async () => {}).then(async () => {
         await flushWaitUntil()
         await installedDriver.close?.()
       })
