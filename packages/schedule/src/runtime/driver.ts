@@ -475,6 +475,7 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
         while (activeWakes.size > 0) {
           await Promise.allSettled([...activeWakes])
         }
+        await serialize(async () => {})
         await flushWaitUntil()
         await installedDriver.close?.()
       })()
