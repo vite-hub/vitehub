@@ -116,10 +116,11 @@ describe("workflow definitions", () => {
     await writeFile(join(rootDir, "server", "agents", "typed-named", "agent.ts"), "import { defineAgent } from '@vite-hub/agent'\nexport default defineAgent<{ handler: () => string }, Options>({ runtime: /* provider */ workflow(/* stable */ 'typed-custom'), driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "wrapped", "agent.ts"), "export { default } from './definition'\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "team", "agent.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "team", "index.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "team", "review.ts"), "export default defineAgent({ driver: { run } })\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "team", "helper.ts"), "export default { driver: { run } }\n", "utf8")
     await writeFile(join(rootDir, "server", "agents", "variable-inline", "agent.ts"), "const supportAgent = defineAgent({ runtime: false, driver: { run } })\nexport default supportAgent\n", "utf8")
-    await writeFile(join(rootDir, "server", "agents", "variable-typed", "agent.ts"), "const jobsAgent: AgentDefinition = defineAgent({ runtime: workflow('typed-variable'), driver: { run } })\nexport default jobsAgent\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "variable-typed", "agent.ts"), "const jobsAgent: AgentDefinition<{ region: string; token: string }> = defineAgent({ runtime: workflow('typed-variable'), driver: { run } })\nexport default jobsAgent\n", "utf8")
 
     expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
       expect.objectContaining({ name: "custom-name", source: "agent-workflow" }),

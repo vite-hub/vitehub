@@ -108,7 +108,7 @@ function findAgentObjectStart(masked: string): number | undefined {
 
   const exported = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\b/.exec(masked)
   if (!exported) return undefined
-  const declaration = new RegExp(`\\b(?:const|let|var)\\s+${exported[1]}\\s*(?::[^;]*?)?=\\s*defineAgent\\b`).exec(masked)
+  const declaration = new RegExp(`\\b(?:const|let|var)\\s+${exported[1]}\\s*(?::[^=]*?)?=\\s*defineAgent\\b`).exec(masked)
   if (declaration) return findDefineAgentObjectStart(masked, declaration.index + declaration[0].length)
   return undefined
 }
@@ -233,6 +233,9 @@ function discoverFlatServerAgentWorkflowDefinitions(scanDirs: string[]): Discove
         if (parent !== normalize(directory)
           && hasFolderAgentDefinition(parent)
           && extractAgentWorkflowName(file, "__vitehub_agent_workflow__") === undefined) {
+          return undefined
+        }
+        if (/^index\.(?:c|m)?[jt]s$/i.test(fileName) && hasConfigAgentDefinition(resolve(file, ".."))) {
           return undefined
         }
         return normalizePathDefinitionName(directory, file)
