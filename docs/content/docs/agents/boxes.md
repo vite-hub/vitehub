@@ -7,7 +7,7 @@ icon: i-lucide-package-open
 
 A Box is the execution environment for a harness Agent. It selects where the Agent runs, which Home it sees, and which host tools and authentication must be ready before the Agent starts.
 
-The first Box runtime is `trustedHost()`. It uses the host filesystem, processes, CLI installations, configuration, and authentication without providing isolation.
+Use `trustedHost()` when the Agent should run against the current host filesystem, processes, CLI installations, configuration, and authentication. Use `crabbox()` when the harness should run through Crabbox Static SSH while keeping the ViteHub Box contract.
 
 ## Run Codex in an existing checkout
 
@@ -81,6 +81,26 @@ A failed check stops the Agent Invocation with the requirement name and command 
 An explicit Box `cwd` is an authoritative checkout, so ViteHub does not combine it with Agent Workspace materialization in this first slice. Omit `cwd` when an Agent Workspace should be materialized into a disposable trusted-host session.
 
 `trustedHost()` does not provide filesystem, credential, network, or process isolation. Use it only when the Agent is trusted to act with the host user's authority.
+
+## Run through Crabbox
+
+Crabbox is available from its provider-specific subpath:
+
+```ts
+import { crabbox } from '@vite-hub/box/crabbox'
+
+box: {
+  runtime: crabbox({ profile: 'babysitter' }),
+  cwd: ({ input }) => input.options?.worktreePath,
+  requires: ['github', 'pnpm'],
+}
+```
+
+`crabbox()` requires `cwd`. The checkout remains authoritative, and each Agent Invocation gets a disposable harness cache linked back to it. Sibling checkouts share one static Crabbox work root beside their parent so concurrent invocations do not race separate static lease claims.
+
+Port URLs use Crabbox tunnels by default. Set `network: 'direct'` only for a trusted target that shares the ViteHub process loopback network namespace.
+
+Crabbox validates requirements inside the selected environment. It does not make a filesystem, credential, network, or process isolation promise; those boundaries belong to the Crabbox provider and selected host.
 
 ## Related pages
 

@@ -25,6 +25,7 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./crabbox": "./dist/crabbox.js",
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -34,6 +35,7 @@
     "test": "vp run -t @vite-hub/box#build && vp test"
   },
   "devDependencies": {
+    "@ai-sdk/harness": "catalog:ai",
     "@types/node": "catalog:tooling",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",

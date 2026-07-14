@@ -45,6 +45,7 @@ export interface ResolvedBox {
   readonly isolation: "none"
   readonly requirements: readonly ResolvedBoxRequirement[]
   readonly runtime: string
+  readonly sandbox?: object
   readonly workspace: {
     readonly path?: string
     readonly state: "authoritative" | "disposable"

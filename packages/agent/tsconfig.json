@@ -8,6 +8,9 @@
       "@vite-hub/box": [
         "packages/box/src/index.ts"
       ],
+      "@vite-hub/box/crabbox": [
+        "packages/box/src/crabbox.ts"
+      ],
       "#vitehub/agent/registry": [
         "packages/agent/src/runtime/empty-registry.ts"
       ],
