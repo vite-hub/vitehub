@@ -308,12 +308,14 @@ describe("agent Vite plugin", () => {
     const registryModule = { id: "registry" }
     const targetsModule = { id: "targets" }
     const nitroRegistryModule = { id: "nitro-registry" }
+    const generatedRouteModule = { id: "generated-route" }
     const configResolved = plugin.configResolved as unknown as (config: { agent?: unknown, command: "serve", plugins: never[], root: string }) => Promise<void>
     await configResolved({ command: "serve", plugins: [], root: "/app" })
     const modules = new Map<string, object>([
       ["\0#vitehub/schedule/registry", registryModule],
       ["\0#vitehub/schedule/targets", targetsModule],
       ["/app/.vitehub/nitro/schedule/runtime-registry.js", nitroRegistryModule],
+      ["/app/.vitehub/agent/chat-webhook-route.ts", generatedRouteModule],
     ])
     const getModuleById = vi.fn((id: string) => modules.get(id))
     const invalidateModule = vi.fn()
@@ -337,6 +339,7 @@ describe("agent Vite plugin", () => {
     expect(invalidateModule).toHaveBeenCalledWith(registryModule)
     expect(invalidateModule).toHaveBeenCalledWith(targetsModule)
     expect(invalidateModule).toHaveBeenCalledWith(nitroRegistryModule)
+    expect(invalidateModule).toHaveBeenCalledWith(generatedRouteModule)
   })
 
   it("materializes the MCP runtime package for Vercel build output", async () => {

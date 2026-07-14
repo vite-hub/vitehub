@@ -369,14 +369,15 @@ function toHarnessTools(context: AgentAdapterRunContext): AgentToolSet | undefin
 
 function harnessWriteBackIgnorePaths(context: AgentAdapterRunContext, instructions: string | undefined): string[] {
   const colocatedSkills = context.context.get<ColocatedAgentSkills>(colocatedAgentSkillsContextKey)
+  const colocatedSkillDirectories = new Set(Object.values(colocatedSkills || {}).flatMap((source) => {
+    if (!source || typeof source !== "object" || !("workspacePath" in source) || typeof source.workspacePath !== "string") return []
+    const [root, skill] = source.workspacePath.split("/")
+    return root === "skills" && skill ? [`${root}/${skill}`] : []
+  }))
   return [
     ...(hasEntries(context.tools) ? harnessGeneratedFiles : []),
     ...(instructions ? harnessInstructionFiles : []),
-    ...Object.values(colocatedSkills || {}).flatMap(source =>
-      source && typeof source === "object" && "workspacePath" in source && typeof source.workspacePath === "string"
-        ? [source.workspacePath]
-        : [],
-    ),
+    ...colocatedSkillDirectories,
   ]
 }
 

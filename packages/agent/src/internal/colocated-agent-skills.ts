@@ -25,8 +25,7 @@ export function decodeColocatedAgentSkills(
 
 export function withColocatedAgentSkills<Agent>(agent: Agent, skills: ColocatedAgentSkills | undefined): Agent {
   if (!skills || !Object.keys(skills).length || !agent || typeof agent !== "object") return agent
-  return {
-    ...agent,
-    [colocatedAgentSkillsSymbol]: skills,
-  }
+  const resolved = Object.create(Object.getPrototypeOf(agent), Object.getOwnPropertyDescriptors(agent))
+  Object.defineProperty(resolved, colocatedAgentSkillsSymbol, { configurable: true, enumerable: true, value: skills })
+  return resolved
 }

@@ -1283,14 +1283,24 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     async handleHotUpdate(context) {
       const file = context.file.replace(/\\/g, "/")
       if (!/\.agent\.(?:c|m)?[jt]s$/i.test(file) && !/\/server\/agents\/.*(?:\.(?:c|m)?[jt]s|\/skills\/.*)$/i.test(file)) return
-      if (resolved && /\/server\/agents\/.*\/skills\/.*$/i.test(file)) {
+      const skillUpdate = /\/server\/agents\/.*\/skills\/.*$/i.test(file)
+      if (resolved && skillUpdate) {
         await writeGeneratedAgentOutputs(resolved)
       }
-      const scheduleModuleIds = [resolvedScheduleRegistryId, resolvedScheduleTargetsId]
+      const moduleIds = [resolvedScheduleRegistryId, resolvedScheduleTargetsId]
       if (resolved?.root) {
-        scheduleModuleIds.push(join(resolved.root, generatedScheduleRuntimeRegistrySuffix).replace(/\\/g, "/"))
+        moduleIds.push(join(resolved.root, generatedScheduleRuntimeRegistrySuffix).replace(/\\/g, "/"))
+        if (skillUpdate) {
+          const root = resolved.root
+          moduleIds.push(...[
+            generatedAgentDenoServer,
+            generatedAgentDiscordGatewayRouteHandler,
+            generatedAgentNetlifyFunction,
+            generatedAgentWebhookRouteHandler,
+          ].map(handler => join(root, handler).replace(/\\/g, "/")))
+        }
       }
-      for (const id of scheduleModuleIds) {
+      for (const id of moduleIds) {
         const module = context.server.moduleGraph.getModuleById(id)
         if (module) context.server.moduleGraph.invalidateModule(module)
       }

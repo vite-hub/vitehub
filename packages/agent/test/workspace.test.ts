@@ -831,7 +831,7 @@ describe("defineAgent workspace option", () => {
       mode: "read",
     }))
     expect(prepareHarnessWorkspaceSession).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
-      ignoreWriteBackPaths: ["skills/review/SKILL.md"],
+      ignoreWriteBackPaths: ["skills/review"],
     }))
     expect(prepareHarnessWorkspaceSession).toHaveBeenNthCalledWith(2, expect.anything(), expect.objectContaining({
       paths: ["skills"],

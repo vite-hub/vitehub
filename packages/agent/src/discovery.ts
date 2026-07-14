@@ -78,6 +78,7 @@ function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefin
     for (const entry of entries) {
       const file = resolve(current, entry.name)
       if (entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith(".")) {
+        if (entry.name === "skills") continue
         walk(agentsRoot, file)
         continue
       }
@@ -116,6 +117,7 @@ export function discoverAgentDefinitions(options:
     const directoryDefinitions = discoverDefinitions("agent", [
       createDirectoryDefinitionSource<DiscoveredAgentDefinition>("server-agents", options.scanDirs, "agents", {
         normalizeName(directory, file) {
+          if (relative(directory, file).replace(/\\/g, "/").split("/").includes("skills")) return
           if (configPattern.test(basename(file)) || isEvalDefinitionFile(file)) return
           if (isInsideConfiguredAgent(file, configuredAgentDirs)) return
           return relative(directory, file).replace(/\.(?:c|m)?[jt]s$/i, "").replace(/\/index$/i, "")

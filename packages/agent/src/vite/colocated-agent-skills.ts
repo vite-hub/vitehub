@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
-import { dirname, join, relative } from "node:path"
+import { basename, dirname, join, relative } from "node:path"
 
 export interface EncodedColocatedAgentSkillSource {
   content: string
@@ -10,6 +10,7 @@ export interface EncodedColocatedAgentSkillSource {
 }
 
 export function readColocatedAgentSkills(handler: string): Record<string, EncodedColocatedAgentSkillSource> | undefined {
+  if (!/^config\.(?:c|m)?[jt]s$/i.test(basename(handler))) return
   const sourceRoot = dirname(handler)
   const skillsRoot = join(sourceRoot, "skills")
   if (!existsSync(skillsRoot) || !statSync(skillsRoot).isDirectory()) return

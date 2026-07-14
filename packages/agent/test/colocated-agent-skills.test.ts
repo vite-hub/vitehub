@@ -44,12 +44,26 @@ describe("colocated Agent Skills", () => {
   })
 
   it("attaches discovered sources without changing agents when no skills exist", () => {
-    const agent = { name: "review" }
+    const agent = { name: "review" } as { name: string, settings?: string }
+    Object.defineProperty(agent, "settings", { value: "preserved" })
     const sources = {
       review: { content: new TextEncoder().encode("# Review\n"), workspacePath: "skills/review/SKILL.md" },
     }
 
     expect(withColocatedAgentSkills(agent, undefined)).toBe(agent)
-    expect((withColocatedAgentSkills(agent, sources) as Record<PropertyKey, unknown>)[colocatedAgentSkillsSymbol]).toBe(sources)
+    const resolved = withColocatedAgentSkills(agent, sources)
+    expect((resolved as Record<PropertyKey, unknown>)[colocatedAgentSkillsSymbol]).toBe(sources)
+    expect(resolved.settings).toBe("preserved")
+    expect(Object.getOwnPropertyDescriptor(resolved, "settings")?.enumerable).toBe(false)
+  })
+
+  it("only discovers skills owned by folder Agent Definitions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-skills-"))
+    roots.push(root)
+    await mkdir(join(root, "review", "skills", "review"), { recursive: true })
+    await writeFile(join(root, "review.ts"), "export default {}\n", "utf8")
+    await writeFile(join(root, "review", "skills", "review", "SKILL.md"), "# Review\n", "utf8")
+
+    expect(readColocatedAgentSkills(join(root, "review.ts"))).toBeUndefined()
   })
 })
