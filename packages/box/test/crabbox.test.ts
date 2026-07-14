@@ -75,7 +75,7 @@ describe("crabbox", () => {
     await withEnvironment({ CRABBOX_TEST_LOG: log, PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
       const box = await resolveBox({
         runtime: crabbox({ network: "direct", profile: "babysitter", reclaim: true }),
-        requires: ["github", "pnpm"],
+        requires: ["codex-cli", "github", "pnpm"],
         cwd: workspace,
       }, {}, { requires: ["codex"] })
       const sandbox = box.sandbox as { createSession(): Promise<any> }

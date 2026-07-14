@@ -87,6 +87,7 @@ export function crabbox(options: CrabboxOptions = {}): BoxRuntime {
 
 const requirementCommands: Record<string, Pick<ResolvedBoxRequirement, "command"> & { args: string[] }> = {
   codex: { args: ["login", "status"], command: "codex" },
+  "codex-cli": { args: [], command: "codex" },
   github: { args: ["auth", "status"], command: "gh" },
 }
 
