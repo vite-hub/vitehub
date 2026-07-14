@@ -105,7 +105,16 @@ function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefin
     const path = relative(dirname(parent.handler), dirname(definition.handler)).replace(/\\/g, "/")
     return path === "skills" || path.startsWith("skills/")
   }) ? [definition.handler] : []))
-  const discoveredCandidates = candidates.filter(definition => !ownedSkillConfigs.has(definition.handler))
+  const nestedHelperIndexes = new Set(candidates.flatMap(definition => indexDefinitionPattern.test(basename(definition.handler))
+    && !isAgentDefinitionSource(readFileSync(definition.handler, "utf8"))
+    && candidates.some((parent) => {
+      if (parent === definition) return false
+      const path = relative(dirname(parent.handler), dirname(definition.handler)).replace(/\\/g, "/")
+      return path !== "" && path !== ".." && !path.startsWith("../")
+    })
+    ? [definition.handler]
+    : []))
+  const discoveredCandidates = candidates.filter(definition => !ownedSkillConfigs.has(definition.handler) && !nestedHelperIndexes.has(definition.handler))
   const configuredAgentDirs = new Set(discoveredCandidates
     .filter(definition => definition.source === "server-agent-workspace")
     .map(definition => dirname(definition.handler)))

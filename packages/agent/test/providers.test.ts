@@ -1129,6 +1129,7 @@ describe("agent Vite plugin", () => {
       expect(denoServer).toContain("__vitehubAgentInstructions")
       expect(denoServer).toContain("content: colocatedInstructions")
       expect(denoServer).toContain("Symbol.for('vitehub.agent.colocatedSkills')")
+      expect(denoServer).toContain("Object.create(Object.getPrototypeOf(agent), Object.getOwnPropertyDescriptors(agent))")
       expect(denoServer).toContain("Uint8Array.from(atob(content)")
       expect(denoServer).toContain(JSON.stringify("__vitehubAgentSkill:skills/review/SKILL.md"))
       expect(denoServer).toContain(JSON.stringify(Buffer.from([0, 255, 42]).toString("base64")))

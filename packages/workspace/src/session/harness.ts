@@ -491,6 +491,7 @@ async function copySandboxChangesToWorkspace(
   }
   for (const path of [...initialTree.directories].sort((left, right) => right.length - left.length)) {
     if (isIgnoredWriteBackPath(path, ignoredWriteBackPaths)) continue
+    if (isIgnoredWriteBackParent(path, ignoredWriteBackPaths)) continue
     if (!sandboxDirectories.has(path)) await session.rm(path, { force: true, recursive: true })
   }
   for (const path of sandboxDirectories) {
