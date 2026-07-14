@@ -1464,12 +1464,12 @@ async function createAgentInvocationContext<
     if (box?.workspace.path && workspaceOptions) {
       throw new Error("[vitehub] defineAgent({ box.cwd, workspace }) is not supported because an authoritative Box workspace must not be reset by Workspace materialization.")
     }
-    const harnessSandboxProvider = box
+    const harnessSandboxProvider = box?.sandbox || (box
       ? (await import("./harness/local-sandbox.ts")).createTrustedHostHarnessSandbox({
           env: box.environment.env,
           ...(box.workspace.path ? { workspaceDir: box.workspace.path } : {}),
         })
-      : undefined
+      : undefined)
     const workspaceName = workspaceOptions
       ? workspaceNameFromOptions(workspaceOptions, {}, context.agentIdentity)
       : undefined

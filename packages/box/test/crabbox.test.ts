@@ -1,0 +1,513 @@
+import { execFile } from "node:child_process"
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { promisify } from "node:util"
+
+import type { HarnessV1SandboxProvider } from "@ai-sdk/harness"
+import { afterEach, describe, expect, it } from "vitest"
+
+import { resolveBox } from "../src/index.ts"
+import { crabbox } from "../src/crabbox.ts"
+import { pruneWorkspaceForArchive, rejectSymlinkedArchiveParents } from "../src/internal/crabbox.ts"
+
+const roots: string[] = []
+const execFileAsync = promisify(execFile)
+
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
+})
+
+describe("crabbox", () => {
+  it("resolves a provider-neutral Box without serializing its runtime bridge", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    await mkdir(workspace)
+
+    const box = await resolveBox({
+      runtime: crabbox({ profile: "babysitter" }),
+      requires: ["github", "pnpm"],
+      cwd: ({ worktree }: { worktree: string }) => worktree,
+    }, { worktree: workspace }, { requires: ["codex", "github"] })
+
+    expect(box).toMatchObject({
+      cache: { state: "disposable" },
+      environment: {},
+      isolation: "none",
+      runtime: "crabbox",
+      requirements: [
+        { command: "gh", name: "github" },
+        { command: "pnpm", name: "pnpm" },
+        { command: "codex", name: "codex" },
+      ],
+      workspace: { path: workspace, state: "authoritative" },
+    })
+    expect(box.sandbox).toMatchObject({ providerId: "crabbox" })
+    expect(JSON.stringify(box)).not.toContain("sandbox")
+  })
+
+  it("rejects invalid Box requirement names", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    await mkdir(workspace)
+
+    await expect(resolveBox({
+      runtime: crabbox(),
+      requires: [""],
+      cwd: workspace,
+    }, {})).rejects.toThrow("Box requirements must be non-empty names")
+    await expect(resolveBox({
+      runtime: crabbox(),
+      requires: [null as never],
+      cwd: workspace,
+    }, {})).rejects.toThrow("Box requirements must be non-empty names")
+  })
+
+  it("rejects unsupported Box Home configuration", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    await mkdir(workspace)
+
+    await expect(resolveBox({ runtime: crabbox(), cwd: workspace, home: "/remote/home" }, {})).rejects.toThrow("crabbox() does not support box.home")
+  })
+
+  it("canonicalizes symlinked workspace roots", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const linkedWorkspace = join(root, "linked-workspace")
+    await mkdir(workspace)
+    await symlink(workspace, linkedWorkspace)
+
+    const box = await resolveBox({ runtime: crabbox(), cwd: linkedWorkspace }, {})
+
+    expect(box.workspace.path).toBe(await realpath(workspace))
+  })
+
+  it("rejects archive entries beneath local symlinks", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const source = join(root, "source")
+    const archive = join(root, "workspace.tar")
+    await Promise.all([mkdir(workspace), mkdir(join(source, "linked"), { recursive: true })])
+    await writeFile(join(source, "linked", "file.txt"), "remote")
+    await execFileAsync("tar", ["-cf", archive, "-C", source, "linked/file.txt"])
+    await symlink(root, join(workspace, "linked"))
+
+    await expect(rejectSymlinkedArchiveParents(workspace, archive)).rejects.toThrow("conflicts with local symlink: linked")
+  })
+
+  it("rejects unsafe workspace archive paths", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const source = join(root, "source")
+    const archive = join(root, "workspace.tar")
+    await Promise.all([mkdir(workspace), mkdir(source)])
+    await writeFile(join(source, "file.txt"), "remote")
+    await execFileAsync("tar", ["-cf", archive, "--transform=s|file.txt|../outside.txt|", "-C", source, "file.txt"])
+
+    await expect(rejectSymlinkedArchiveParents(workspace, archive)).rejects.toThrow("archive contains an invalid path")
+  })
+
+  it("removes empty parents before extracting replacement entries", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const source = join(root, "source")
+    const archive = join(root, "workspace.tar")
+    await Promise.all([mkdir(join(workspace, "dir", "sub"), { recursive: true }), mkdir(source)])
+    await writeFile(join(workspace, "dir", "sub", "file.txt"), "local")
+    await writeFile(join(source, "dir"), "remote")
+    await execFileAsync("tar", ["-cf", archive, "-C", source, "dir"])
+
+    await pruneWorkspaceForArchive(workspace, archive, ["dir/sub/file.txt"])
+
+    await expect(stat(join(workspace, "dir"))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("removes deleted empty directories", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const source = join(root, "source")
+    const archive = join(root, "workspace.tar")
+    await Promise.all([mkdir(join(workspace, "empty"), { recursive: true }), mkdir(source)])
+    await execFileAsync("tar", ["-cf", archive, "-C", source, "."])
+
+    await pruneWorkspaceForArchive(workspace, archive, ["empty"])
+
+    await expect(stat(join(workspace, "empty"))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("replaces files with archived directories", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const source = join(root, "source")
+    const archive = join(root, "workspace.tar")
+    await Promise.all([mkdir(workspace), mkdir(join(source, "entry"), { recursive: true })])
+    await Promise.all([writeFile(join(workspace, "entry"), "file"), writeFile(join(source, "entry", "nested.txt"), "nested")])
+    await execFileAsync("tar", ["-cf", archive, "-C", source, "."])
+
+    await pruneWorkspaceForArchive(workspace, archive, ["entry"])
+    await execFileAsync("tar", ["-xf", archive, "-C", workspace])
+
+    await expect(readFile(join(workspace, "entry", "nested.txt"), "utf8")).resolves.toBe("nested")
+  })
+
+  it("removes directories replaced by archived symlinks", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const source = join(root, "source")
+    const archive = join(root, "workspace.tar")
+    await Promise.all([mkdir(join(workspace, "entry"), { recursive: true }), mkdir(source)])
+    await writeFile(join(workspace, "entry", "file.txt"), "local")
+    await symlink("target", join(source, "entry"))
+    await execFileAsync("tar", ["-cf", archive, "-C", source, "entry"])
+
+    await pruneWorkspaceForArchive(workspace, archive, ["entry", "entry/file.txt"])
+
+    await expect(stat(join(workspace, "entry"))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("rejects deleted paths beneath local symlinks", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const source = join(root, "source")
+    const archive = join(root, "workspace.tar")
+    await Promise.all([mkdir(workspace), mkdir(source)])
+    await symlink(root, join(workspace, "linked"))
+    await writeFile(join(root, "outside.txt"), "keep")
+    await execFileAsync("tar", ["-cf", archive, "-C", source, "."])
+
+    await expect(pruneWorkspaceForArchive(workspace, archive, ["linked/outside.txt"])).rejects.toThrow("conflicts with local symlink: linked")
+    await expect(readFile(join(root, "outside.txt"), "utf8")).resolves.toBe("keep")
+  })
+
+  it("boots through Crabbox, validates requirements there, and preserves workspace mutations", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const bin = join(root, "bin")
+    const log = join(root, "crabbox.log")
+    await Promise.all([mkdir(workspace), mkdir(bin)])
+    await Promise.all([
+      writeFile(join(workspace, ".env"), "local"),
+      writeFile(join(workspace, ".gitignore"), ".env\n"),
+      writeFile(join(workspace, "deleted.txt"), "delete me"),
+      writeFile(join(workspace, "newly-ignored.txt"), "keep me"),
+    ])
+    await runGit(workspace, ["init"])
+    await runGit(workspace, ["add", ".gitignore", "deleted.txt"])
+    await fakeCrabbox(bin)
+    await Promise.all([
+      executable(bin, "codex", "exit 0"),
+      executable(bin, "gh", "exit 0"),
+      executable(bin, "pnpm", "exit 0"),
+    ])
+
+    await withEnvironment({ CRABBOX_TEST_LOG: log, PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      const box = await resolveBox({
+        runtime: crabbox({ network: "direct", profile: "babysitter", reclaim: true }),
+        requires: ["codex-cli", "github", "pnpm"],
+        cwd: workspace,
+      }, {}, { requires: ["codex"] })
+      const sandbox = box.sandbox as { createSession(): Promise<any> }
+      const session = await sandbox.createSession()
+      const cacheRoot = session.defaultWorkingDirectory
+
+      await session.writeTextFile({ content: "cache", path: "cache.txt" })
+      await expect(session.readTextFile({ path: "cache.txt" })).resolves.toBe("cache")
+      await expect(session.run({
+        command: "printf changed > changed.txt && printf 'newly-ignored.txt\\n' >> .gitignore && rm deleted.txt",
+        workingDirectory: join(cacheRoot, "workspace"),
+      })).resolves.toMatchObject({ exitCode: 0 })
+      await expect(readFile(join(workspace, "changed.txt"), "utf8")).resolves.toBe("changed")
+      await expect(session.getPortUrl({ port: 3000, protocol: "ws" })).resolves.toBe("ws://127.0.0.1:3000")
+
+      await session.destroy()
+      await expect(readFile(join(cacheRoot, "cache.txt"))).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(readFile(join(workspace, ".env"), "utf8")).resolves.toBe("local")
+      await expect(readFile(join(workspace, "newly-ignored.txt"), "utf8")).resolves.toBe("keep me")
+      await expect(stat(join(workspace, "deleted.txt"))).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(readdir(workspace)).resolves.toEqual([".env", ".git", ".gitignore", "changed.txt", "newly-ignored.txt"])
+
+      const workspaceCwd = await realpath(workspace)
+      const invocations = (await readFile(log, "utf8")).trim().split("\n")
+      expect(invocations).not.toContain(expect.stringContaining("|tunnel|"))
+      expect(invocations.every(invocation => invocation.startsWith(`${workspaceCwd}|`))).toBe(true)
+      expect(invocations.every(invocation => !invocation.includes("--static-work-root"))).toBe(true)
+      expect(invocations.find(invocation => invocation.includes("|warmup|"))).toContain("--reclaim")
+    })
+  }, 30_000)
+
+  it("rejects unsupported Static SSH port forwarding", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const bin = join(root, "bin")
+    await Promise.all([mkdir(workspace), mkdir(bin)])
+    await fakeCrabbox(bin)
+
+    await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
+      const sandbox = box.sandbox as { createSession(): Promise<any> }
+      const session = await sandbox.createSession()
+
+      await expect(session.getPortUrl({ port: 3000 })).rejects.toThrow("Crabbox Static SSH does not support port forwarding")
+      await session.destroy()
+    })
+  }, 30_000)
+
+  it("claims each sibling workspace consistently", async () => {
+    const root = await temporaryRoot()
+    const workspaces = [join(root, "pr-1"), join(root, "pr-2")]
+    const bin = join(root, "bin")
+    const claim = join(root, "claim")
+    const log = join(root, "crabbox.log")
+    await Promise.all([...workspaces.map(workspace => mkdir(workspace)), mkdir(bin)])
+    await fakeCrabbox(bin)
+
+    await withEnvironment({
+      CRABBOX_TEST_CLAIM: claim,
+      CRABBOX_TEST_LOG: log,
+      PATH: `${bin}:${process.env.PATH || ""}`,
+    }, async () => {
+      const sessions = await Promise.all(workspaces.map(async (workspace) => {
+        const box = await resolveBox({
+          runtime: crabbox({ profile: "babysitter", reclaim: true }),
+          cwd: workspace,
+        }, {})
+        return await (box.sandbox as { createSession(): Promise<any> }).createSession()
+      }))
+
+      await Promise.all(sessions.map(session => session.destroy()))
+
+      const invocations = (await readFile(log, "utf8")).trim().split("\n")
+      const warmups = invocations.filter(invocation => invocation.includes("|warmup|"))
+      expect(warmups).toHaveLength(2)
+      expect(warmups.map(invocation => invocation.split("|", 1)[0]).sort()).toEqual((await Promise.all(workspaces.map(workspace => realpath(workspace)))).sort())
+      expect(invocations.every(invocation => !invocation.includes("--static-work-root"))).toBe(true)
+      expect(warmups.every(invocation => invocation.endsWith("--reclaim --timing-json"))).toBe(true)
+    })
+  }, 30_000)
+
+  it("serializes sessions that share an authoritative workspace", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const bin = join(root, "bin")
+    await Promise.all([mkdir(workspace), mkdir(bin)])
+    await fakeCrabbox(bin)
+
+    await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
+      const sandbox = box.sandbox as { createSession(): Promise<any> }
+      const first = await sandbox.createSession()
+      let created = false
+      const second = sandbox.createSession().then((session) => {
+        created = true
+        return session
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(created).toBe(false)
+      await first.destroy()
+      await (await second).destroy()
+    })
+  }, 30_000)
+
+  it("aborts while waiting for an authoritative workspace", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const bin = join(root, "bin")
+    await Promise.all([mkdir(workspace), mkdir(bin)])
+    await fakeCrabbox(bin)
+
+    await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
+      const sandbox = box.sandbox as HarnessV1SandboxProvider
+      const first = await sandbox.createSession()
+      const controller = new AbortController()
+      const second = sandbox.createSession({ abortSignal: controller.signal })
+      controller.abort(new Error("cancelled"))
+
+      await expect(second).rejects.toThrow("cancelled")
+      await first.destroy?.()
+      await (await sandbox.createSession()).destroy?.()
+    })
+  }, 30_000)
+
+  it("removes the disposable cache when workspace sync fails", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const bin = join(root, "bin")
+    const log = join(root, "crabbox.log")
+    await Promise.all([mkdir(workspace), mkdir(bin)])
+    await fakeCrabbox(bin)
+
+    await withEnvironment({ CRABBOX_TEST_FAIL_SYNC: "1", CRABBOX_TEST_LOG: log, PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
+      const session = await (box.sandbox as HarnessV1SandboxProvider).createSession()
+
+      await expect(session.destroy?.()).rejects.toThrow()
+      const cleanup = (await readFile(log, "utf8")).trim().split("\n").at(-1)
+      expect(cleanup).toContain("rm -rf --")
+      expect(cleanup).toContain("/tmp/vitehub-box.")
+    })
+  }, 30_000)
+
+  it("isolates Crabbox state across concurrent session bootstrap", async () => {
+    const root = await temporaryRoot()
+    const workspaces = [join(root, "pr-1"), join(root, "pr-2")]
+    const bin = join(root, "bin")
+    const inheritedState = join(root, "inherited-state")
+    const race = join(root, "copy-race")
+    const stateLog = join(root, "state.log")
+    await Promise.all([...workspaces.map(workspace => mkdir(workspace)), mkdir(bin), mkdir(inheritedState)])
+    await fakeCrabbox(bin)
+
+    await withEnvironment({
+      CRABBOX_TEST_STATE_LOG: stateLog,
+      CRABBOX_TEST_STATE_RACE: race,
+      PATH: `${bin}:${process.env.PATH || ""}`,
+      XDG_STATE_HOME: inheritedState,
+    }, async () => {
+      const sessions = await Promise.all(workspaces.map(async (workspace, index) => {
+        const box = await resolveBox({
+          runtime: crabbox({ profile: "babysitter", reclaim: true }),
+          cwd: workspace,
+        }, {})
+        return await (box.sandbox as HarnessV1SandboxProvider).createSession({
+          async onFirstCreate(session) {
+            await session.writeTextFile({ content: `bootstrap-${index}`, path: "bootstrap.txt" })
+          },
+        })
+      }))
+
+      const stateHomes = [...new Set((await readFile(stateLog, "utf8")).trim().split("\n"))]
+      expect(stateHomes).toHaveLength(2)
+      expect(stateHomes).not.toContain(inheritedState)
+      await expect(Promise.all(stateHomes.map(stateHome => stat(stateHome)))).resolves.toHaveLength(2)
+
+      await Promise.all(sessions.map(session => session.destroy?.()))
+      for (const stateHome of stateHomes) {
+        await expect(stat(stateHome)).rejects.toMatchObject({ code: "ENOENT" })
+      }
+    })
+  }, 30_000)
+
+  it("stops boot when named authentication is not ready", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const bin = join(root, "bin")
+    const stateLog = join(root, "state.log")
+    await Promise.all([mkdir(workspace), mkdir(bin)])
+    await fakeCrabbox(bin)
+    await executable(bin, "gh", 'echo "not logged in" >&2\nexit 1')
+
+    await withEnvironment({ CRABBOX_TEST_STATE_LOG: stateLog, PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      const box = await resolveBox({
+        runtime: crabbox({ profile: "babysitter" }),
+        requires: ["github"],
+        cwd: workspace,
+      }, {})
+      const sandbox = box.sandbox as { createSession(): Promise<unknown> }
+      await expect(sandbox.createSession()).rejects.toThrow('Box requirement "github" failed: not logged in')
+      const [stateHome] = [...new Set((await readFile(stateLog, "utf8")).trim().split("\n"))]
+      await expect(stat(stateHome)).rejects.toMatchObject({ code: "ENOENT" })
+    })
+  }, 30_000)
+})
+
+async function temporaryRoot() {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-box-test-"))
+  roots.push(root)
+  return root
+}
+
+async function fakeCrabbox(bin: string) {
+  const command = join(bin, "crabbox")
+  await writeFile(command, `#!/bin/sh
+verb="$1"
+shift
+if [ -n "$CRABBOX_TEST_LOG" ]; then printf '%s|%s|%s\n' "$PWD" "$verb" "$*" >> "$CRABBOX_TEST_LOG"; fi
+if [ -n "$CRABBOX_TEST_STATE_LOG" ]; then printf '%s\n' "$XDG_STATE_HOME" >> "$CRABBOX_TEST_STATE_LOG"; fi
+case "$verb" in
+  warmup)
+    test "$CRABBOX_PROFILE" = babysitter || exit 20
+    if [ -n "$CRABBOX_TEST_CLAIM" ]; then
+      work_root=
+      previous=
+      for value in "$@"; do
+        if [ "$previous" = --static-work-root ]; then work_root="$value"; break; fi
+        previous="$value"
+      done
+      while ! mkdir "$CRABBOX_TEST_CLAIM.lock" 2>/dev/null; do sleep 0.01; done
+      trap 'rmdir "$CRABBOX_TEST_CLAIM.lock"' EXIT
+      if [ -f "$CRABBOX_TEST_CLAIM" ] && [ "$(cat "$CRABBOX_TEST_CLAIM")" != "$work_root" ]; then
+        printf '%s\n' 'lease claim changed; retry' >&2
+        exit 22
+      fi
+      printf '%s\n' "$work_root" > "$CRABBOX_TEST_CLAIM"
+    fi
+    printf '%s\n' '{"provider":"ssh","leaseId":"static_test","exitCode":0}' >&2
+    ;;
+  run)
+    script=
+    while [ "$#" -gt 0 ]; do
+      if [ "$1" = --shell ]; then shift; script="$1"; break; fi
+      if [ "$1" = --script-stdin ]; then
+        test -z "$CRABBOX_TEST_FAIL_SYNC" || exit 24
+        exec /bin/sh
+      fi
+      shift
+    done
+    /bin/sh -c "$script"
+    ;;
+  cp)
+    if [ -n "$CRABBOX_TEST_STATE_RACE" ]; then
+      mkdir -p "$CRABBOX_TEST_STATE_RACE" "$XDG_STATE_HOME"
+      touch "$CRABBOX_TEST_STATE_RACE/$$"
+      attempts=0
+      while [ "$(find "$CRABBOX_TEST_STATE_RACE" -type f | wc -l | tr -d ' ')" -lt 2 ]; do
+        attempts=$((attempts + 1))
+        test "$attempts" -lt 500 || exit 22
+        sleep 0.01
+      done
+      if ! mkdir "$XDG_STATE_HOME/copy.lock" 2>/dev/null; then
+        printf '%s\n' 'lease claim changed; retry' >&2
+        exit 23
+      fi
+      trap 'rmdir "$XDG_STATE_HOME/copy.lock"' EXIT
+      sleep 0.05
+    fi
+    source=
+    destination=
+    for value in "$@"; do source="$destination"; destination="$value"; done
+    source="\${source#SANDBOX:}"
+    destination="\${destination#SANDBOX:}"
+    /bin/cp "$source" "$destination"
+    ;;
+  *) exit 21 ;;
+esac
+`)
+  await chmod(command, 0o755)
+}
+
+async function executable(bin: string, name: string, body: string) {
+  const path = join(bin, name)
+  await writeFile(path, `#!/bin/sh\n${body}\n`)
+  await chmod(path, 0o755)
+}
+
+async function runGit(cwd: string, args: string[]) {
+  await execFileAsync("git", args, { cwd })
+}
+
+async function withEnvironment<T>(environment: Record<string, string>, run: () => Promise<T>) {
+  const original = Object.fromEntries(Object.keys(environment).map(name => [name, process.env[name]]))
+  Object.assign(process.env, environment)
+  try {
+    return await run()
+  }
+  finally {
+    for (const [name, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  }
+}

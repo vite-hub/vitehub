@@ -585,6 +585,9 @@ importers:
 
   packages/box:
     devDependencies:
+      '@ai-sdk/harness':
+        specifier: catalog:ai
+        version: 1.0.0(ws@8.21.0)(zod@4.4.3)
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.2
