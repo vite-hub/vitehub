@@ -378,6 +378,15 @@ function getAgentChatOptions(agent: unknown): AgentChatOptions | undefined {
   return getChatCapabilityOptions(getAgentCapabilities(agent)) || definition.chat
 }
 
+function hasExplicitNonStreamingMessages(agent: unknown): boolean {
+  if (!isRecord(agent)) return false
+  if (isRecord(agent.messages) && agent.messages.stream === false) return true
+  if (!isRecord(agent.channels)) return true
+  return Object.values(agent.channels).some(
+    channel => isRecord(channel) && isRecord(channel.messages) && channel.messages.stream === false,
+  )
+}
+
 interface AgentWebhookRegistrationMatch {
   registration: AgentWebhookRegistrationDefinition
   trigger: ResolvedAgentTriggerDefinition<ViteAgentRouteRuntimeConfig>
@@ -2718,7 +2727,7 @@ export function createChannelWebhookRouteHandler(
       try {
         const handler = await createChatWebhookHandler(agent, context, registration, adapterName!, adapter, chatOptions, handlerOptions)
         const response = await handler(request, { waitUntil: context.waitUntil })
-        if (chatOptions?.stream === false) {
+        if (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent)) {
           await context.flushWaitUntil?.()
         }
         return response

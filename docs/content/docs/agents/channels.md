@@ -27,7 +27,7 @@ export default defineAgent({
 
 Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`, `telegram()`, `stream()`, and `webChat()`. A synchronous Channel factory that needs no options can be registered directly, so `channels: { stream }` is equivalent to `channels: { stream: stream() }` and resolves once when `defineAgent()` runs. Call the helper when passing options, such as `stream({ messages: { sessions: false } })`. Use `defineChannel(kind, options)` for an app-owned Channel Kind.
 
-Adapter-backed Channels deliver only the completed response by default. Set `messages: { stream: true }` on the Channel to opt into draft and edit updates. Route-backed Stream and Web Chat Channels continue to return streaming responses.
+Adapter-backed Channels deliver only the completed response by default. Set top-level `defineAgent({ messages: { stream: true } })` to opt into draft and edit updates, or use the same `messages` option on the Channel when it is the Agent's only message-shaped Channel. Route-backed Stream and Web Chat Channels continue to return streaming responses.
 
 ## Scope capabilities to a Channel
 

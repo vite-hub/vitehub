@@ -2531,6 +2531,7 @@ describe("server helpers", () => {
       driver: { run: () => ({ text: "final answer" }) },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntilTasks: Promise<unknown>[] = []
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
       body: JSON.stringify({
@@ -2544,10 +2545,11 @@ describe("server helpers", () => {
         },
       }),
       method: "POST",
-    }), "telegram")
+    }), "telegram", { waitUntil: task => waitUntilTasks.push(task) })
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
+    await Promise.all(waitUntilTasks)
     expect(agent.chat).toMatchObject({ stream: false })
     expect(adapter.startTyping).not.toHaveBeenCalled()
     expect(adapter.postMessage).toHaveBeenCalledOnce()
