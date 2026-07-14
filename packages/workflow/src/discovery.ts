@@ -198,6 +198,7 @@ function findFolderAgentFiles(agentsDir: string): string[] {
     }
     const absolute = resolve(agentsDir, entry.name)
     if (entry.isDirectory() && !entry.isSymbolicLink()) {
+      if (entry.name === "workspace" && hasFolderAgentDefinition(agentsDir)) continue
       files.push(...findFolderAgentFiles(absolute))
       continue
     }
@@ -225,6 +226,8 @@ function discoverFlatServerAgentWorkflowDefinitions(scanDirs: string[]): Discove
       normalizeName(directory, file) {
         const fileName = normalize(file).split("/").pop()!
         const parent = normalize(resolve(file, ".."))
+        const name = normalizePathDefinitionName(directory, file)
+        if (name.split("/").slice(0, -1).includes("workspace")) return undefined
         if ((folderAgentFilePattern.test(fileName) && parent !== normalize(directory))
           || legacyFolderAgentFilePattern.test(fileName)
           || agentEvalFilePattern.test(fileName)) {
@@ -238,7 +241,7 @@ function discoverFlatServerAgentWorkflowDefinitions(scanDirs: string[]): Discove
         if (/^index\.(?:c|m)?[jt]s$/i.test(fileName) && hasFolderAgentDefinition(resolve(file, ".."))) {
           return undefined
         }
-        return normalizePathDefinitionName(directory, file)
+        return name
       },
       createDefinition: ({ file, name }) => ({ handler: file, name, source: "agent-workflow" }),
     }),

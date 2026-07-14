@@ -8200,6 +8200,29 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("keeps default subagents inline when static tools resolve with a discovered identity", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const reviewerAgent = defineAgent({
+      capabilities: [subagents({
+        agents: {
+          browser: {
+            agent: defineAgent({ driver: { run: () => "browser report" } }),
+            description: "Collect browser evidence.",
+          },
+        },
+      })],
+      driver: { model: {} as never },
+    })
+    const resolved = await reviewerAgent.resolve({
+      agentIdentity: { name: "reviewer" },
+      memo: vi.fn(),
+      runtime: "vercel",
+      waitUntil: vi.fn(),
+    }) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
+
+    await expect(resolved.tools.run_browser!.execute({ message: "Check the product card." })).resolves.toBe("browser report")
+  })
+
   it("prevents denied tools from executing", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const execute = vi.fn()

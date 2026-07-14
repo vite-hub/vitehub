@@ -1085,6 +1085,9 @@ function defineBaseAgent<
     workspace,
     ...(normalizedCapabilities.length ? { capabilities: normalizedCapabilities } : {}),
     async resolve(context) {
+      if (context.agentIdentity && !agentIdentityOwners.has(context.agentIdentity)) {
+        agentIdentityOwners.set(context.agentIdentity, definition as object)
+      }
       const adapterInstance = await resolveBaseAgent(context)
       const resolvedContext = createResolvedRuntimeContext(context)
       const resolvedTools = driver.kind === "model" && normalizedCapabilities.length && !workspace
