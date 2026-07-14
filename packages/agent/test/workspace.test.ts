@@ -727,8 +727,9 @@ describe("defineAgent workspace option", () => {
     })
     expect(capability.requires).toBeUndefined()
     expect(capability.workspaceSources).toBeUndefined()
-    expect(() => skills({ scope: "global" })).toThrow("requires source")
-    expect(() => skills({ scope: "global", shellExecution: "read", source: { path: "/opt/skills/ponytail" } })).toThrow("does not support shellExecution")
+    expect(() => skills({ scope: "global", source: { path: "/opt/skills/ponytail" } })).toThrow("requires path")
+    expect(() => skills({ path: "skills/ponytail", scope: "global" })).toThrow("requires source")
+    expect(() => skills({ path: "skills/ponytail", scope: "global", shellExecution: "read", source: { path: "/opt/skills/ponytail" } })).toThrow("does not support shellExecution")
     expect(() => skills({ scope: "profile" as never })).toThrow("skills({ scope })")
   })
 
@@ -771,7 +772,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
     const agent = defineAgent({
-      capabilities: [skills({ scope: "global", source: { path: "/opt/skills/review" } })],
+      capabilities: [skills({ path: "skills/review", scope: "global", source: { path: "/opt/skills/review" } })],
       driver: { harness: { provider: "custom" } },
     })
 
@@ -782,7 +783,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
     const agent = defineAgent({
-      capabilities: [skills({ scope: "global", source: { path: "/opt/skills/review" } })],
+      capabilities: [skills({ path: "skills/review", scope: "global", source: { path: "/opt/skills/review" } })],
       driver: { model: {} as never },
     })
 

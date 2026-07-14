@@ -94,14 +94,17 @@ function workspaceShellTools(
 }
 
 export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDefinition {
-  const normalizedPath = normalizeSkillPath(options.path || "skills")
   const scope = normalizeSkillScope(options.scope)
+  if (scope === "global" && !options.path) {
+    throw new TypeError("[vitehub] skills({ scope: \"global\" }) requires path.")
+  }
   if (scope === "global" && !options.source) {
     throw new TypeError("[vitehub] skills({ scope: \"global\" }) requires source.")
   }
   if (scope === "global" && options.shellExecution !== undefined) {
     throw new TypeError("[vitehub] skills({ scope: \"global\" }) does not support shellExecution.")
   }
+  const normalizedPath = normalizeSkillPath(options.path || "skills")
   const shellExecution = normalizeShellExecution(options.shellExecution)
   const workspaceRequirementMode = shellExecution ?? "read"
   const skillPath = normalizedPath === skillFilename || normalizedPath.endsWith("/SKILL.md")

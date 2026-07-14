@@ -98,10 +98,10 @@ Global sources are materialized into an ephemeral harness profile for the sessio
 
 ## Requirements
 
-`skills()` requires an explicit Workspace with read access to the configured skill file.
+Workspace-scoped `skills()` requires an explicit Workspace with read access to the configured skill file.
 The path can point to a directory or directly to a `SKILL.md` file.
 When `source` is configured, `path` is the canonical mount. ViteHub mounts the source at the configured skill directory even when the source helper has its own default mount.
-With `scope: 'global'`, `source` is required, `shellExecution` is unsupported, and the selected Harness Agent Driver must expose a global Skill directory.
+With `scope: 'global'`, `path` and `source` are required, `shellExecution` is unsupported, and the selected Harness Agent Driver must expose a global Skill directory.
 
 ## Driver support
 
@@ -124,7 +124,7 @@ The warning clears when Agent Driver Instructions or a deterministic imported in
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `path` | `string` | `"skills"` | Directory or `SKILL.md` path required in the Workspace. |
+| `path` | `string` | `"skills"` | Directory or `SKILL.md` path required in the Workspace. Required with global scope. |
 | `scope` | `"global" \| "workspace"` | `"workspace"` | Mount the Skill into the Agent Workspace or the harness's isolated global profile. |
 | `shellExecution` | `"read" \| "write"` | none | Optional Workspace Shell mode for model-backed Agents. Harness-backed Agents still receive the skill files, not Workspace Shell tools. |
 | `source` | `WorkspaceSourceInput` | none | Workspace Source to mount at the skill directory. |
