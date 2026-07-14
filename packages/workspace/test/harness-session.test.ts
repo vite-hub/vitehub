@@ -842,6 +842,70 @@ describe("Harness Workspace Session", () => {
     expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
   })
 
+  it("does not write new parent directories created only for ignored paths", async () => {
+    const workspaceSession = {
+      close: vi.fn(async () => {}),
+      commit: vi.fn(async () => {}),
+      diff: vi.fn(async () => ({ entries: [], to: "next" })),
+      mkdir: vi.fn(async () => {}),
+      rm: vi.fn(async () => {}),
+      writeFile: vi.fn(async () => {}),
+    }
+    const session = await prepareHarnessWorkspaceSession({
+      fs: { list: vi.fn(async () => []), readFile: vi.fn() },
+      startSession: vi.fn(async () => workspaceSession),
+      tools: {},
+    } as never, {
+      ignoreWriteBackPaths: ["skills/review"],
+      session: {
+        readBinaryFile: vi.fn(async ({ path }: { path: string }) => bytes(path)),
+        run: sandboxRun(["skills/review/SKILL.md"], ["skills", "skills/review"]),
+        writeBinaryFile: vi.fn(async () => {}),
+      },
+      sessionWorkDir: "/work/agent",
+    })
+
+    await session.close()
+
+    expect(workspaceSession.mkdir).not.toHaveBeenCalled()
+    expect(workspaceSession.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("does not remove parents of ignored paths", async () => {
+    const workspaceSession = {
+      close: vi.fn(async () => {}),
+      commit: vi.fn(async () => {}),
+      diff: vi.fn(async () => ({ entries: [], to: "next" })),
+      mkdir: vi.fn(async () => {}),
+      rm: vi.fn(async () => {}),
+      writeFile: vi.fn(async () => {}),
+    }
+    const session = await prepareHarnessWorkspaceSession({
+      fs: {
+        list: vi.fn(async () => [
+          { path: "skills", type: "directory" },
+          { path: "skills/review", type: "directory" },
+          { mediaType: "text/markdown", path: "skills/review/SKILL.md", type: "file" },
+        ]),
+        readFile: vi.fn(async () => bytes("review")),
+      },
+      startSession: vi.fn(async () => workspaceSession),
+      tools: {},
+    } as never, {
+      ignoreWriteBackPaths: ["skills/review"],
+      session: {
+        readBinaryFile: vi.fn(),
+        run: sandboxRun([], []),
+        writeBinaryFile: vi.fn(async () => {}),
+      },
+      sessionWorkDir: "/work/agent",
+    })
+
+    await session.close()
+
+    expect(workspaceSession.rm).not.toHaveBeenCalled()
+  })
+
   it("leaves harness changes uncommitted when the commit callback skips them", async () => {
     const diff = {
       entries: [{ path: "summary.md", type: "added" as const }],

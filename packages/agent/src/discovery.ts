@@ -82,7 +82,7 @@ function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefin
         continue
       }
 
-      if (!entry.isFile() || !configPattern.test(basename(file))) continue
+      if (!entry.isFile() || (!configPattern.test(basename(file)) && !indexDefinitionPattern.test(basename(file)))) continue
       const source = readFileSync(file, "utf8")
       const agent = relative(agentsRoot, dirname(file)).replace(/\\/g, "/")
       if (!agent || agent === ".") continue
@@ -100,10 +100,25 @@ function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefin
     walk(resolve(scanDir, "agents"), resolve(scanDir, "agents"))
   }
 
-  const configuredAgentDirs = new Set(candidates
+  const ownedSkillConfigs = new Set(candidates.flatMap(definition => candidates.some(parent => {
+    if (parent === definition) return false
+    const path = relative(dirname(parent.handler), dirname(definition.handler)).replace(/\\/g, "/")
+    return path === "skills" || path.startsWith("skills/")
+  }) ? [definition.handler] : []))
+  const nestedHelperIndexes = new Set(candidates.flatMap(definition => indexDefinitionPattern.test(basename(definition.handler))
+    && !isAgentDefinitionSource(readFileSync(definition.handler, "utf8"))
+    && candidates.some((parent) => {
+      if (parent === definition) return false
+      const path = relative(dirname(parent.handler), dirname(definition.handler)).replace(/\\/g, "/")
+      return path !== "" && path !== ".." && !path.startsWith("../")
+    })
+    ? [definition.handler]
+    : []))
+  const discoveredCandidates = candidates.filter(definition => !ownedSkillConfigs.has(definition.handler) && !nestedHelperIndexes.has(definition.handler))
+  const configuredAgentDirs = new Set(discoveredCandidates
     .filter(definition => definition.source === "server-agent-workspace")
     .map(definition => dirname(definition.handler)))
-  return candidates.filter(definition => !isWorkspaceSourceConfig(definition.handler, configuredAgentDirs))
+  return discoveredCandidates.filter(definition => !isWorkspaceSourceConfig(definition.handler, configuredAgentDirs))
 }
 
 export function discoverAgentDefinitions(options:
@@ -116,7 +131,11 @@ export function discoverAgentDefinitions(options:
     const directoryDefinitions = discoverDefinitions("agent", [
       createDirectoryDefinitionSource<DiscoveredAgentDefinition>("server-agents", options.scanDirs, "agents", {
         normalizeName(directory, file) {
-          if (configPattern.test(basename(file)) || isEvalDefinitionFile(file)) return
+          if (configPattern.test(basename(file)) || indexDefinitionPattern.test(basename(file)) || isEvalDefinitionFile(file)) return
+          for (const agentDir of configuredAgentDirs) {
+            const path = relative(agentDir, file).replace(/\\/g, "/")
+            if (path === "skills" || path.startsWith("skills/")) return
+          }
           if (isInsideConfiguredAgent(file, configuredAgentDirs)) return
           return relative(directory, file).replace(/\.(?:c|m)?[jt]s$/i, "").replace(/\/index$/i, "")
         },

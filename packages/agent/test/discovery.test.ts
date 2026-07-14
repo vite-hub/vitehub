@@ -171,6 +171,34 @@ describe("agent discovery", () => {
     ])
   })
 
+  it("does not discover TypeScript files inside Agent Skill trees", async () => {
+    const root = await createTempRoot("vitehub-agent-server-skills-")
+    await mkdir(join(root, "server", "agents", "review", "skills", "helper", "scripts"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "review", "config.ts"), "export default {}", "utf8")
+    await writeFile(join(root, "server", "agents", "review", "skills", "helper", "config.ts"), "export default {}", "utf8")
+    await writeFile(join(root, "server", "agents", "review", "skills", "helper", "scripts", "run.ts"), "export {}", "utf8")
+
+    expect(discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })).toEqual([
+      expect.objectContaining({ name: "review", source: "server-agents" }),
+    ])
+  })
+
+  it("allows a top-level folder Agent named skills", async () => {
+    const root = await createTempRoot("vitehub-agent-server-skills-name-")
+    await mkdir(join(root, "server", "agents", "skills"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "skills", "config.ts"), "export default {}", "utf8")
+
+    expect(discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })).toEqual([
+      expect.objectContaining({ name: "skills", source: "server-agents" }),
+    ])
+  })
+
   it("ignores eval definitions during server agent discovery", async () => {
     const root = await createTempRoot("vitehub-agent-server-eval-")
     await mkdir(join(root, "server", "agents", "support"), { recursive: true })
@@ -308,6 +336,34 @@ describe("agent discovery", () => {
       mode: "server-agents",
       scanDirs: [join(root, "server")],
     })).toThrow("Duplicate agent name")
+  })
+
+  it("keeps skill scripts out of index-based Agent discovery", async () => {
+    const root = await createTempRoot("vitehub-agent-index-skills-")
+    await mkdir(join(root, "server", "agents", "review", "skills", "helper", "scripts"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "review", "index.ts"), "export default defineAgent({ driver: { model } })", "utf8")
+    await writeFile(join(root, "server", "agents", "review", "skills", "helper", "scripts", "run.ts"), "export default {}", "utf8")
+
+    expect(discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })).toEqual([
+      expect.objectContaining({ name: "review", source: "server-agents" }),
+    ])
+  })
+
+  it("keeps helper indexes out of configured Agent discovery", async () => {
+    const root = await createTempRoot("vitehub-agent-helper-index-")
+    await mkdir(join(root, "server", "agents", "support", "lib"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ driver: { model } })", "utf8")
+    await writeFile(join(root, "server", "agents", "support", "lib", "index.ts"), "export * from './helper'", "utf8")
+
+    expect(discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })).toEqual([
+      expect.objectContaining({ name: "support", source: "server-agents" }),
+    ])
   })
 
   it("throws when a nested configured server agent also has an index definition", async () => {

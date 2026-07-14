@@ -51,6 +51,24 @@ server/
           setup.md
 ```
 
+## Colocated Agent Skills
+
+An Agent folder can own Skills in an adjacent `skills/` directory. ViteHub recursively embeds every file during discovery, materializes the directory into the Harness Workspace, and also installs it into supported isolated harness profiles such as Codex. Existing files at both destinations remain in place, and files below a `scripts/` directory become executable.
+
+```txt [File tree]
+server/
+  agents/
+    review/
+      config.ts
+      skills/
+        code-review/
+          SKILL.md
+          scripts/
+            review.sh
+```
+
+This convention needs no `skills()` Capability declaration. Use [`skills()`](/docs/capabilities/skills) when the Skill comes from a Workspace or external Source instead of the Agent folder.
+
 ## Generated files
 
 Generated files live under `.vitehub/**` and host output directories.

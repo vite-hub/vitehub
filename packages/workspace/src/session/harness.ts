@@ -105,6 +105,13 @@ function isIgnoredWriteBackPath(path: string, ignoreWriteBackPaths: Set<string>)
   return false
 }
 
+function isIgnoredWriteBackParent(path: string, ignoreWriteBackPaths: Set<string>) {
+  for (const ignoredPath of ignoreWriteBackPaths) {
+    if (ignoredPath.startsWith(`${path}/`)) return true
+  }
+  return false
+}
+
 async function runSandbox(
   sandbox: HarnessSandboxSession,
   options: { abortSignal?: AbortSignal, command: string, workingDirectory?: string },
@@ -484,10 +491,12 @@ async function copySandboxChangesToWorkspace(
   }
   for (const path of [...initialTree.directories].sort((left, right) => right.length - left.length)) {
     if (isIgnoredWriteBackPath(path, ignoredWriteBackPaths)) continue
+    if (isIgnoredWriteBackParent(path, ignoredWriteBackPaths)) continue
     if (!sandboxDirectories.has(path)) await session.rm(path, { force: true, recursive: true })
   }
   for (const path of sandboxDirectories) {
     if (isIgnoredWriteBackPath(path, ignoredWriteBackPaths)) continue
+    if (!initialTree.directories.has(path) && isIgnoredWriteBackParent(path, ignoredWriteBackPaths)) continue
     if (initialTree.archiveDirectories.has(path)) continue
     await session.mkdir(path, { recursive: true } satisfies MkdirOptions)
   }

@@ -69,7 +69,6 @@ Harness-backed agents use AI SDK `HarnessAgent` behind the ViteHub Agent Driver 
 ```ts
 // server/agents/codex/config.ts
 import { defineAgent } from "@vite-hub/agent"
-import { skills } from "@vite-hub/agent/capabilities"
 import { codexDriver } from "@vite-hub/agent/harness/codex"
 import { file } from "@vite-hub/workspace"
 
@@ -86,15 +85,14 @@ export default defineAgent({
       guide: file("AGENTS.md"),
     },
   },
-  capabilities: [
-    skills({ path: ".agents/skills/review" }),
-  ],
 })
 ```
 
+Put Agent-owned Skills under `server/agents/codex/skills/`; discovery materializes them into the Harness Workspace and the isolated Codex profile automatically. Use `skills()` for Workspace-backed or external Source Skills.
+
 For Claude Code, use `claudeCodeDriver()` from `@vite-hub/agent/harness/claude-code`. It accepts `createClaudeCode()` settings such as `auth`, `model`, and `maxTurns`, and uses the same local sandbox default unless `sandbox: false` is set.
 
-`driver.harness` is the AI SDK harness adapter instance. Workspace-backed harness drivers in Vite dev use ViteHub's local harness sandbox by default and receive a Harness Workspace Session prepared from the selected Workspace. The local sandbox is a tempdir-backed shell convenience, not OS/process isolation; pass a real harness sandbox provider through `driver.sandbox` when isolation matters. Outside the local workspace path, ViteHub uses the AI SDK Vercel Sandbox default when `@ai-sdk/sandbox-vercel` is installed. Harness sandbox provider setup is Agent Package runtime plumbing; use `driver.sandbox` when an Agent needs a specific harness process or session provider. `driver.workDir` selects a relative directory inside the sandbox default working directory. Add `sandbox({ commands })` only when the model should receive `sandbox_exec`. `driver.harness`, `driver.instructions`, `driver.sessionKey`, `driver.sandbox`, and `driver.workDir` can be callbacks when one Agent Definition needs invocation-scoped harness setup. ViteHub resolves harness instructions before constructing the AI SDK `HarnessAgent`, so stock harness adapters receive the selected instructions for both generated and streamed turns. When `access()` narrows Workspace Scope, ViteHub materializes only that selected scope plus generated source descriptors. Read mode materializes files and discards sandbox changes; write mode syncs additions, updates, and deletions back through Workspace rules. V1 configures built-in harness permissions internally with the no-approval policy and does not expose a public permission option. Skills stay a Capability through `skills()` rather than becoming a root Agent Definition field. For harness drivers, `skills()` relies on mounted Workspace files and does not inject model instructions or Workspace Shell tools. Put repository-wide guidance in Workspace files such as `AGENTS.md`; use `driver.instructions` for invocation-specific harness policy.
+`driver.harness` is the AI SDK harness adapter instance. Workspace-backed harness drivers in Vite dev use ViteHub's local harness sandbox by default and receive a Harness Workspace Session prepared from the selected Workspace. The local sandbox is a tempdir-backed shell convenience, not OS/process isolation; pass a real harness sandbox provider through `driver.sandbox` when isolation matters. Outside the local workspace path, ViteHub uses the AI SDK Vercel Sandbox default when `@ai-sdk/sandbox-vercel` is installed. Harness sandbox provider setup is Agent Package runtime plumbing; use `driver.sandbox` when an Agent needs a specific harness process or session provider. `driver.workDir` selects a relative directory inside the sandbox default working directory. Add `sandbox({ commands })` only when the model should receive `sandbox_exec`. `driver.harness`, `driver.instructions`, `driver.sessionKey`, `driver.sandbox`, and `driver.workDir` can be callbacks when one Agent Definition needs invocation-scoped harness setup. ViteHub resolves harness instructions before constructing the AI SDK `HarnessAgent`, so stock harness adapters receive the selected instructions for both generated and streamed turns. When `access()` narrows Workspace Scope, ViteHub materializes only that selected scope plus generated source descriptors. Read mode materializes the selected Workspace into the harness sandbox and discards sandbox changes; write mode syncs additions, updates, and deletions back through Workspace rules. Colocated `skills/` files are merged into the Harness Workspace and supported global profile without replacing existing files. V1 configures built-in harness permissions internally with the no-approval policy and does not expose a public permission option. `skills()` remains available for Workspace-backed and external Source Skills and does not inject model instructions or Workspace Shell tools. Put repository-wide guidance in Workspace files such as `AGENTS.md`; use `driver.instructions` for invocation-specific harness policy.
 
 ## Boxes
 
