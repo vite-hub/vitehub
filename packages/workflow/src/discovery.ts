@@ -261,7 +261,8 @@ function discoverFlatServerAgentWorkflowDefinitions(scanDirs: string[]): Discove
   const folderAgentTargets = new Set(folderAgentFiles.flatMap((file) => {
     const source = readFileSync(file, "utf8")
     const target = resolveAgentReExport(file, source, maskSourceLiterals(source))
-    return target ? [normalize(target)] : []
+    const relativeTarget = target && normalize(relative(resolve(file, ".."), target))
+    return target && relativeTarget && relativeTarget !== ".." && !relativeTarget.startsWith("../") ? [normalize(target)] : []
   }))
   return discoverDefinitions("agent workflow", [
     createDirectoryDefinitionSource<DiscoveredWorkflowDefinition>("agent-workflow", scanDirs, "agents", {
@@ -306,7 +307,8 @@ function discoverConfiguredServerAgentWorkflowDefinitions(scanDirs: string[]): D
     const targets = new Set(files.flatMap((file) => {
       const source = readFileSync(file, "utf8")
       const target = resolveAgentReExport(file, source, maskSourceLiterals(source))
-      return target ? [normalize(target)] : []
+      const relativeTarget = target && normalize(relative(resolve(file, ".."), target))
+      return target && relativeTarget && relativeTarget !== ".." && !relativeTarget.startsWith("../") ? [normalize(target)] : []
     }))
     for (const file of files) {
       if (targets.has(normalize(file))) continue

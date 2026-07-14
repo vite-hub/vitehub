@@ -648,6 +648,7 @@ async function getAgentWorkflowHandle<
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   name: string,
+  reuseRegistry: boolean,
 ): Promise<WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>> {
   const handles = agentWorkflowHandles.get(agent as object) || new Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>()
   const existing = handles.get(name)
@@ -655,7 +656,7 @@ async function getAgentWorkflowHandle<
 
   const { createWorkflow } = await import(/* @vite-ignore */ workflowSpecifier) as typeof import("@vite-hub/workflow")
   const { getInlineWorkflowDefinitions, getWorkflowRuntimeRegistry } = await import(/* @vite-ignore */ workflowRuntimeStateSpecifier) as typeof import("@vite-hub/workflow/runtime/state")
-  const handle = getWorkflowRuntimeRegistry()?.[name] || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
+  const handle = (reuseRegistry && getWorkflowRuntimeRegistry()?.[name]) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
     ? createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>(name)
     : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>(name, async (workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
@@ -679,7 +680,7 @@ async function runAgentAsWorkflow<
   if (!binding || ("discoveryDefault" in binding && !context.agentIdentity)) return undefined
   if ("discoveryDefault" in binding) {
     const { getWorkflowRuntimeConfig } = await import(/* @vite-ignore */ workflowRuntimeStateSpecifier) as typeof import("@vite-hub/workflow/runtime/state")
-    if (getWorkflowRuntimeConfig() === undefined) return undefined
+    if (!getWorkflowRuntimeConfig()) return undefined
   }
   if ("discoveryDefault" in binding && context.agentIdentity) {
     const owner = agentIdentityOwners.get(context.agentIdentity)
@@ -689,10 +690,11 @@ async function runAgentAsWorkflow<
   const capabilityNames = Object.keys(context.capabilities || {})
   if ("discoveryDefault" in binding && capabilityNames.length) return undefined
 
-  const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS>(agent, resolveAgentWorkflowName(agent, binding, context))
+  const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS>(agent, resolveAgentWorkflowName(agent, binding, context), "discoveryDefault" in binding)
   const resolvedContext = createResolvedRuntimeContext(context)
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
+    ...(capabilityNames.length ? { capabilities: capabilityNames } : {}),
     input,
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,

@@ -8421,6 +8421,19 @@ describe("agent message protocol", () => {
       }, {})).resolves.toBe("inline")
     })
 
+    it("keeps discovered Agent runs inline when Workflows are disabled", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      setWorkflowRuntimeConfig(false)
+
+      await expect(runAgent(defineAgent({ driver: { run: () => "inline" } }), {
+        agentIdentity: { name: "disabled-workflow" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: vi.fn(),
+      }, {})).resolves.toBe("inline")
+    })
+
     it("reuses a discovered Workflow registry entry for default Agent runs", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
@@ -8440,6 +8453,26 @@ describe("agent message protocol", () => {
 
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("support", run.id)).resolves.toMatchObject({ result: "registry:hello" })
+    })
+
+    it("does not reuse discovered registry entries for explicit Agent workflows", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeRegistry({
+        "explicit-registry-collision": async () => ({ handler: async () => "registry" }),
+      })
+
+      await expect(runAgent(defineAgent({
+        runtime: workflow("explicit-registry-collision"),
+        driver: { run: () => "explicit-agent" },
+      }), {
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {})).rejects.toThrow('Duplicate workflow name "explicit-registry-collision"')
     })
 
     it("keeps manually composed child Agents inline with inherited parent identity", async () => {
@@ -8530,6 +8563,29 @@ describe("agent message protocol", () => {
         result: "received hello",
         status: "completed",
       })
+    })
+
+    it("reconstructs generated host capabilities for explicit Agent workflows", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { getWorkflowRunState, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const run = await runAgent(defineAgent({
+        runtime: workflow("explicit-capabilities"),
+        driver: { run: context => Object.keys(context.capabilities || {}) },
+      }), {
+        capabilities: { schedule: {} },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      const outcome = await getWorkflowRunState("explicit-capabilities", run.id)!.promise
+      expect(outcome.error).toBeUndefined()
+      await expect(getWorkflowRun("explicit-capabilities", run.id)).resolves.toMatchObject({ result: ["schedule"], status: "completed" })
     })
 
     it("keeps one discovered Agent Definition isolated across host identities", async () => {

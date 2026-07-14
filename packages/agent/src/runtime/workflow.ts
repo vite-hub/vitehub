@@ -26,10 +26,27 @@ const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
 
 export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   agentIdentity?: AgentHostIdentity
+  capabilities?: string[]
   input?: AgentRunInput<CALL_OPTIONS>
   run?: AgentRunMetadata
   runtime?: AgentRuntimeName
   runtimeConfig?: AgentRuntimeConfig
+}
+
+async function resolveAgentWorkflowCapabilities(names: string[]): Promise<NonNullable<AgentRuntimeContext["capabilities"]>> {
+  const capabilities: NonNullable<AgentRuntimeContext["capabilities"]> = {}
+  for (const name of names) {
+    if (name === "blob") {
+      capabilities.blob = (await import(/* @vite-ignore */ "@vite-hub/blob")).blob
+    }
+    else if (name === "kv") {
+      capabilities.kv = (await import(/* @vite-ignore */ "@vite-hub/kv")).kv
+    }
+    else if (name === "schedule") {
+      capabilities.schedule = { schedules: (await import(/* @vite-ignore */ "@vite-hub/schedule")).schedules }
+    }
+  }
+  return capabilities
 }
 
 export type AgentWorkflowRunner<
@@ -60,12 +77,14 @@ export async function runAgentWorkflowDefinition<
   runAgentInline: AgentWorkflowRunner<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<Response | AgentRunResult | unknown> {
   const payload = context.payload || {}
+  const capabilities = await resolveAgentWorkflowCapabilities(payload.capabilities || [])
   const { getWorkflowRuntimeEvent } = await import(/* @vite-ignore */ workflowRuntimeStateSpecifier)
   const cloudflareEnv = context.provider === "cloudflare"
     ? getActiveCloudflareEnv() || getCloudflareEnv(getWorkflowRuntimeEvent())
     : undefined
   const runtimeContext = createAgentRuntimeContext<TRuntimeConfig>({
     ...(payload.agentIdentity ? { agentIdentity: payload.agentIdentity } : {}),
+    ...(Object.keys(capabilities).length ? { capabilities } : {}),
     ...(cloudflareEnv ? { cloudflare: { env: cloudflareEnv } } : {}),
     ...(payload.run || context.id
       ? { run: payload.run || { origin: `workflow:${context.provider}`, runId: context.id! } }
