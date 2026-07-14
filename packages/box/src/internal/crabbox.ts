@@ -47,12 +47,13 @@ interface CrabboxSessionState {
   leaseId: string
   options: CrabboxSessionOptions
   processes: Set<ChildProcessWithoutNullStreams>
+  releaseWorkspace: () => void
   remoteWorkspace: string
   root: string
   syncedWorkspacePaths: readonly string[]
 }
 
-const workspaceSyncs = new Map<string, Promise<void>>()
+const workspaceSessions = new Map<string, Promise<void>>()
 
 export function crabbox(options: CrabboxOptions = {}): BoxRuntime {
   return {
@@ -114,6 +115,7 @@ function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxP
         ...options,
         stateHome: await mkdtemp(join(tmpdir(), "vitehub-crabbox-state-")),
       }
+      const releaseWorkspace = await acquireWorkspace(options.workspace)
       try {
         const leaseId = await warmup(sessionOptions, createOptions.abortSignal)
         const setup = await runCrabbox(sessionOptions, leaseId, {
@@ -131,6 +133,7 @@ function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxP
           leaseId,
           options: sessionOptions,
           processes: new Set(),
+          releaseWorkspace,
           remoteWorkspace,
           root,
           syncedWorkspacePaths,
@@ -149,6 +152,7 @@ function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxP
         }
       }
       catch (error) {
+        releaseWorkspace()
         await rm(sessionOptions.stateHome, { force: true, recursive: true }).catch(() => undefined)
         throw error
       }
@@ -171,6 +175,7 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       }
       finally {
         await rm(state.options.stateHome, { force: true, recursive: true })
+        state.releaseWorkspace()
       }
     },
     async getPortUrl({ port, protocol = "http" }: { port: number, protocol?: "http" | "https" | "ws" }) {
@@ -407,20 +412,22 @@ async function withTemporaryFile<T>(run: (path: string) => Promise<T>) {
   }
 }
 
-async function syncWorkspaceBack(state: CrabboxSessionState) {
-  const workspace = state.options.workspace
-  const previous = workspaceSyncs.get(workspace) || Promise.resolve()
-  const current = previous.catch(() => undefined).then(() => syncWorkspaceBackUnlocked(state))
-  workspaceSyncs.set(workspace, current)
-  try {
-    await current
-  }
-  finally {
-    if (workspaceSyncs.get(workspace) === current) workspaceSyncs.delete(workspace)
+async function acquireWorkspace(workspace: string) {
+  const previous = workspaceSessions.get(workspace) || Promise.resolve()
+  let unlock = () => {}
+  const current = new Promise<void>(resolve => unlock = resolve)
+  workspaceSessions.set(workspace, current)
+  await previous.catch(() => undefined)
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    unlock()
+    if (workspaceSessions.get(workspace) === current) workspaceSessions.delete(workspace)
   }
 }
 
-async function syncWorkspaceBackUnlocked(state: CrabboxSessionState) {
+async function syncWorkspaceBack(state: CrabboxSessionState) {
   const initialManifest = Buffer.from(state.syncedWorkspacePaths.map(path => `${path}\0`).join("")).toString("base64")
   const result = await runCrabboxScript(state.options, state.leaseId, {
     script: `archive=$(mktemp /tmp/vitehub-workspace.XXXXXX.tar) && manifest=$(mktemp /tmp/vitehub-workspace.XXXXXX.manifest) && trap 'rm -f -- "$archive" "$manifest"' EXIT && if git -C ${shellQuote(state.remoteWorkspace)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then printf %s ${shellQuote(initialManifest)} | base64 -d > "$manifest" && git -C ${shellQuote(state.remoteWorkspace)} ls-files -z --cached --others --exclude-standard >> "$manifest" && tar --ignore-failed-read --no-recursion --null -C ${shellQuote(state.remoteWorkspace)} -cf "$archive" -T "$manifest"; else tar -C ${shellQuote(state.remoteWorkspace)} --exclude ./.git --exclude .git -cf "$archive" .; fi && base64 < "$archive"`,

@@ -271,6 +271,30 @@ describe("crabbox", () => {
     })
   }, 30_000)
 
+  it("serializes sessions that share an authoritative workspace", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const bin = join(root, "bin")
+    await Promise.all([mkdir(workspace), mkdir(bin)])
+    await fakeCrabbox(bin)
+
+    await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
+      const sandbox = box.sandbox as { createSession(): Promise<any> }
+      const first = await sandbox.createSession()
+      let created = false
+      const second = sandbox.createSession().then((session) => {
+        created = true
+        return session
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(created).toBe(false)
+      await first.destroy()
+      await (await second).destroy()
+    })
+  }, 30_000)
+
   it("isolates Crabbox state across concurrent session bootstrap", async () => {
     const root = await temporaryRoot()
     const workspaces = [join(root, "pr-1"), join(root, "pr-2")]
