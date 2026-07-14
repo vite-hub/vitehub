@@ -206,9 +206,11 @@ describe("codexDriver", () => {
   it("isolates Codex config while preserving sandbox authentication", async () => {
     const { codexDriver } = await import("../src/harness/codex.ts")
     const run = vi.fn(async (_options: { command: string, env?: Record<string, string | undefined> }) => ({ exitCode: 0, stderr: "" }))
+    const restrictedRun = vi.fn(async (_options: { command: string, env?: Record<string, string | undefined> }) => ({ exitCode: 0, stderr: "" }))
     const rawSession = {
       defaultWorkingDirectory: "/sandbox/run-1",
       env: { CODEX_HOME: "/box/.codex", HOME: "/box" },
+      restricted: () => ({ run: restrictedRun, spawn: vi.fn() }),
       run,
       spawn: vi.fn(),
     }
@@ -232,6 +234,11 @@ describe("codexDriver", () => {
     }))
     await session.run({ command: "codex exec" })
     expect(run).toHaveBeenLastCalledWith({
+      command: "codex exec",
+      env: { CODEX_HOME: "/sandbox/run-1/tmp/harness/codex-home" },
+    })
+    await session.restricted().run({ command: "codex exec" })
+    expect(restrictedRun).toHaveBeenCalledWith({
       command: "codex exec",
       env: { CODEX_HOME: "/sandbox/run-1/tmp/harness/codex-home" },
     })

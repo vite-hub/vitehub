@@ -149,14 +149,16 @@ function patchCodexBridge(bridge: string): string {
   return patched
 }
 
-function relativeCodexSandboxSession<T extends object>(session: T, bootstrapDir?: string): T {
-  const defaultWorkingDirectory = (session as T & { defaultWorkingDirectory: string }).defaultWorkingDirectory.replace(/\/+$/, "")
+function relativeCodexSandboxSession<T extends object>(session: T, bootstrapDir?: string, codexHome?: string): T {
+  const defaultWorkingDirectory = bootstrapDir && codexHome
+    ? undefined
+    : (session as T & { defaultWorkingDirectory: string }).defaultWorkingDirectory.replace(/\/+$/, "")
   const anchoredBootstrapDir = bootstrapDir ?? `${defaultWorkingDirectory}/${localCodexBootstrapDir}`
-  const codexHome = `${defaultWorkingDirectory}/tmp/harness/codex-home`
+  const anchoredCodexHome = codexHome ?? `${defaultWorkingDirectory}/tmp/harness/codex-home`
   return new Proxy(session, {
     get(target, property, receiver) {
       if (property === "restricted") {
-        return () => relativeCodexSandboxSession((target as T & { restricted(): object }).restricted(), anchoredBootstrapDir)
+        return () => relativeCodexSandboxSession((target as T & { restricted(): object }).restricted(), anchoredBootstrapDir, anchoredCodexHome)
       }
       if (property === "run" || property === "spawn") {
         return (options: { command: string, env?: Record<string, string | undefined> }) => (target as T & Record<"run" | "spawn", (options: never) => unknown>)[property]({
@@ -164,7 +166,7 @@ function relativeCodexSandboxSession<T extends object>(session: T, bootstrapDir?
           command: options.command.replaceAll("/tmp/harness/codex", anchoredBootstrapDir),
           env: {
             ...options.env,
-            CODEX_HOME: codexHome,
+            CODEX_HOME: anchoredCodexHome,
           },
         } as never)
       }
