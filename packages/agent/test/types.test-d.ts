@@ -1616,7 +1616,7 @@ describe("agent public types", () => {
       async test(t) {
         const observation = await t.send("hello")
         observation.text.toUpperCase()
-        expectTypeOf(observation.extensions?.get("observability")).toEqualTypeOf<unknown>()
+        expectTypeOf(observation.extensions?.get("observability")).toEqualTypeOf<AgentObservabilityFinishExtension | undefined>()
         expectTypeOf(t.capabilityExtension<{ status: string }>("observability")).toEqualTypeOf<{ status: string } | undefined>()
         expectTypeOf(t.capabilityExtension<string>("observability", "status")).toEqualTypeOf<string | undefined>()
         t.completed()
