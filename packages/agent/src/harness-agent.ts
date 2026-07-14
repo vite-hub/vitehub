@@ -588,7 +588,7 @@ async function resolveHarnessGlobalSkills(
   })
   const workspaceOptions = {
     definition,
-    mode: "write" as const,
+    mode: "read" as const,
   }
   const workspace = useWorkspace("__vitehub_global_skills", workspaceOptions)
   for (const skill of skills) {

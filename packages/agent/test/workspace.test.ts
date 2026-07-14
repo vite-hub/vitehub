@@ -774,7 +774,7 @@ describe("defineAgent workspace option", () => {
           "skill.ponytail": expect.objectContaining({ mount: "ponytail", path: "/opt/skills/ponytail" }),
         },
       }),
-      mode: "write",
+      mode: "read",
     }))
     expect(resolvePonytail).toHaveBeenCalledOnce()
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
