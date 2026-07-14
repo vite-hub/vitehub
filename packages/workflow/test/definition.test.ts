@@ -77,6 +77,21 @@ describe("workflow definitions", () => {
     expect(discoverWorkflowDefinitions({ rootDir })).toEqual([])
   })
 
+  it("discovers nested file Agent workflows inside folder Agents without discovering helpers", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-nested-file-"))
+    tempDirs.push(rootDir)
+    const agentDir = join(rootDir, "server", "agents", "team")
+    await mkdir(agentDir, { recursive: true })
+    await writeFile(join(agentDir, "agent.ts"), "export default defineAgent({ runtime: workflow() })\n", "utf8")
+    await writeFile(join(agentDir, "review.ts"), "export default defineAgent({ runtime: workflow() })\n", "utf8")
+    await writeFile(join(agentDir, "helper.ts"), "export const helper = true\n", "utf8")
+
+    expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
+      expect.objectContaining({ name: "team", source: "agent-workflow" }),
+      expect.objectContaining({ name: "team/review", source: "agent-workflow" }),
+    ])
+  })
+
   it("keeps root workflow files when the workflows directory has folder markers", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-root-flat-"))
     tempDirs.push(rootDir)

@@ -132,7 +132,9 @@ function discoverFlatServerAgentWorkflowDefinitions(scanDirs: string[]): Discove
         if ((folderAgentFilePattern.test(fileName) && parent !== normalize(directory)) || agentEvalFilePattern.test(fileName)) {
           return undefined
         }
-        if (parent !== normalize(directory) && hasFolderAgentDefinition(parent)) {
+        if (parent !== normalize(directory)
+          && hasFolderAgentDefinition(parent)
+          && extractAgentWorkflowName(file, "__vitehub_agent_workflow__") === undefined) {
           return undefined
         }
         return normalizePathDefinitionName(directory, file)
