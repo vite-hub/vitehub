@@ -96,7 +96,7 @@ box: {
 }
 ```
 
-`crabbox()` requires `cwd`. The checkout remains authoritative, and each Agent Invocation gets a disposable harness cache linked back to it. Sibling checkouts share one static Crabbox work root beside their parent so concurrent invocations do not race separate static lease claims.
+`crabbox()` requires `cwd`. The checkout remains authoritative, and each Agent Invocation gets a disposable harness cache linked back to it. Sibling checkouts share one static Crabbox work root beside their parent so concurrent invocations do not race separate static lease claims. The adapter targets Linux/POSIX Static SSH hosts.
 
 Port URLs use Crabbox tunnels by default. Set `network: 'direct'` only for a trusted target that shares the ViteHub process loopback network namespace.
 

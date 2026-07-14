@@ -59,4 +59,4 @@ export default defineAgent<any, { worktreePath: string }>({
 })
 ```
 
-Crabbox requires an explicit `cwd`. ViteHub treats that checkout as authoritative, creates a disposable harness cache inside the Crabbox session, and validates requirements inside the selected environment. Port access uses Crabbox tunnels by default; set `network: "direct"` only when the target shares the ViteHub process loopback network namespace.
+Crabbox requires an explicit `cwd`. ViteHub treats that checkout as authoritative, creates a disposable harness cache inside the Crabbox session, and validates requirements inside the selected environment. The adapter targets Linux/POSIX Static SSH hosts. Port access uses Crabbox tunnels by default; set `network: "direct"` only when the target shares the ViteHub process loopback network namespace.

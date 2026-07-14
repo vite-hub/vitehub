@@ -122,7 +122,7 @@ describe("crabbox", () => {
       await session.destroy()
 
       const workRoot = join(root, ".crabbox")
-      await expect(readFile(log, "utf8")).resolves.toContain(`|tunnel|--provider ssh --id static_test --static-work-root ${workRoot}`)
+      await expect(readFile(log, "utf8")).resolves.toContain(`|tunnel|--provider ssh --target linux --id static_test --static-work-root ${workRoot}`)
     })
   }, 30_000)
 
