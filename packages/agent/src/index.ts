@@ -558,7 +558,6 @@ type AgentDefinitionWithBaseResolve<
   [colocatedAgentSkillsSymbol]?: ColocatedAgentSkills
 }
 interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
-  capabilities?: string[]
   input: AgentRunInput<CALL_OPTIONS>
   run?: AgentRunMetadata
   runtime?: AgentRuntimeContext["runtime"]
@@ -577,7 +576,6 @@ interface ScheduleRunContextLike {
 const agentWorkflowHandles = new WeakMap<object, Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>>()
 const agentWorkflowNames = new Set<string>()
 const agentIdentityOwners = new WeakMap<object, object>()
-const hostedAgentWorkflowCapabilities = new Set(["blob", "kv", "schedule"])
 
 interface DefaultAgentWorkflowRuntimeBinding extends AgentWorkflowRuntimeBinding {
   discoveryDefault: true
@@ -685,12 +683,11 @@ async function runAgentAsWorkflow<
     agentIdentityOwners.set(context.agentIdentity, agent as object)
   }
   const capabilityNames = Object.keys(context.capabilities || {})
-  if (capabilityNames.some(name => !hostedAgentWorkflowCapabilities.has(name))) return undefined
+  if (capabilityNames.length) return undefined
 
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS>(agent, resolveAgentWorkflowName(agent, binding, context))
   const resolvedContext = createResolvedRuntimeContext(context)
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
-    ...(capabilityNames.length ? { capabilities: capabilityNames } : {}),
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
     input,
     runtime: context.runtime,

@@ -18,7 +18,6 @@ const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
 
 export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   agentIdentity?: AgentHostIdentity
-  capabilities?: string[]
   input?: AgentRunInput<CALL_OPTIONS>
   run?: AgentRunMetadata
   runtime?: AgentRuntimeName
@@ -44,16 +43,6 @@ function waitUntil(promise: Promise<unknown>): void {
   void Promise.resolve(promise).catch(() => {})
 }
 
-async function resolveWorkflowCapabilities(names: string[]): Promise<Record<string, unknown>> {
-  const capabilities: Record<string, unknown> = {}
-  for (const name of names) {
-    if (name === "blob") capabilities.blob = (await import("@vite-hub/blob")).blob
-    else if (name === "kv") capabilities.kv = (await import("@vite-hub/kv")).kv
-    else if (name === "schedule") capabilities.schedule = { schedules: (await import("@vite-hub/schedule")).schedules }
-  }
-  return capabilities
-}
-
 export async function runAgentWorkflowDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -67,11 +56,9 @@ export async function runAgentWorkflowDefinition<
   const cloudflareEnv = context.provider === "cloudflare"
     ? getActiveCloudflareEnv() || getCloudflareEnv(getWorkflowRuntimeEvent())
     : undefined
-  const capabilities = await resolveWorkflowCapabilities(payload.capabilities || [])
   const runtimeContext = createAgentRuntimeContext<TRuntimeConfig>({
     ...(payload.agentIdentity ? { agentIdentity: payload.agentIdentity } : {}),
     ...(cloudflareEnv ? { cloudflare: { env: cloudflareEnv } } : {}),
-    ...(Object.keys(capabilities).length ? { capabilities } : {}),
     ...(payload.run || context.id
       ? { run: payload.run || { origin: `workflow:${context.provider}`, runId: context.id! } }
       : {}),
