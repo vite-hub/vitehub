@@ -2,6 +2,8 @@
 
 `@vite-hub/vite` is the compatibility import for the canonical `vite-hub` framework package. It forwards the same `vitehub()` function and keeps existing Vite configuration source-compatible.
 
+Install `vite-hub` directly alongside this compatibility package so generated framework imports resolve from your application root.
+
 ```ts
 import { vitehub } from "@vite-hub/vite"
 ```

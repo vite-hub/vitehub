@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@vite-hub/vite": "*",
+    "vite-hub": "*",
     "vite": "8.0.8"
   },
   "devDependencies": {

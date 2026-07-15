@@ -348,7 +348,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         mkdir(packDir, { recursive: true }),
       ])
       await assertOnlyViteHubDependencies(appDir, ["vite-hub"])
-      await assertOnlyViteHubDependencies(compatAppDir, ["@vite-hub/vite"])
+      await assertOnlyViteHubDependencies(compatAppDir, ["@vite-hub/vite", "vite-hub"])
 
       const specs = await packWorkspacePackages(packDir)
       await Promise.all([
@@ -490,9 +490,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       }
 
       await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], compatAppDir)
-      expect(existsSync(join(compatAppDir, "node_modules/vite-hub")), "canonical framework package must stay nested instead of becoming a direct root link").toBe(false)
+      expect(existsSync(join(compatAppDir, "node_modules/vite-hub")), "compatibility applications must expose the canonical framework for generated imports").toBe(true)
       await run("pnpm", ["run", "typecheck"], compatAppDir)
       await run("pnpm", ["run", "build"], compatAppDir)
+      await run("pnpm", ["run", "typecheck"], compatAppDir)
       const compatVercelFunctionsRoot = join(compatAppDir, ".vercel/output/functions")
       const compatVercelSources = await readJavaScriptSources(compatVercelFunctionsRoot)
       const compatCanonicalImports = Object.entries(compatVercelSources).flatMap(([file, source]) =>
