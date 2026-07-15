@@ -24,6 +24,10 @@ const SANDBOX_PROVIDER_LOADER_ID = 'vitehub-sandbox-provider-loader'
 const SANDBOX_REGISTRY_ID = '#vitehub-sandbox-registry'
 
 type AliasMap = Record<string, string>
+interface SandboxViteInternalOptions {
+  providerImportAliases?: AliasMap
+  providerImportSpecifier?: string
+}
 type SandboxAlias = Alias & { replacement: string }
 type PreparedSandboxRuntime = {
   aliases: AliasMap
@@ -241,6 +245,7 @@ function invalidateGeneratedSandboxModules(files: string[], moduleGraph: { getMo
 }
 
 export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
+  const internalOptions = options as SandboxPublicOptions & SandboxViteInternalOptions | undefined
   const engine = {
     ...sandboxFeatureEngine,
     readPublicOptions(source) {
@@ -268,6 +273,9 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     generatedAliases = prepared.aliases
     generatedFiles = prepared.files
     definitions = prepared.definitions
+    if (internalOptions?.providerImportAliases && internalOptions.providerImportSpecifier) {
+      internalOptions.providerImportAliases[internalOptions.providerImportSpecifier] = generatedAliases[SANDBOX_PACKAGE_ID]!
+    }
     return prepared
   }
 

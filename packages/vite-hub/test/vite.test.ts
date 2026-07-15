@@ -116,7 +116,10 @@ describe("vitehub", () => {
       importBase: "vite-hub/_internal/blob",
     })
     expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined)
-    expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith(undefined)
+    expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith({
+      providerImportAliases: expect.any(Object),
+      providerImportSpecifier: "vite-hub/sandbox",
+    })
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/schedule",
       providerImportAliases: {

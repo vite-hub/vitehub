@@ -44,7 +44,12 @@ describe("hubSandbox", () => {
   it("exposes Vite feature state", async () => {
     const rootDir = await createViteRoot()
     const { hubSandbox } = await import("../src/vite.ts")
-    const plugin = hubSandbox()
+    const providerImportAliases: Record<string, string> = {}
+    const plugin = hubSandbox({
+      provider: "vercel",
+      providerImportAliases,
+      providerImportSpecifier: "vite-hub/sandbox",
+    } as never)
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
@@ -75,6 +80,7 @@ describe("hubSandbox", () => {
 
     expect(readAlias(alias, "@vite-hub/sandbox")).toBeUndefined()
     expect(sandboxAlias).toContain(".vitehub/sandbox/runtime/sandbox.mjs")
+    expect(providerImportAliases["vite-hub/sandbox"]).toBe(sandboxAlias)
     expect(registryAlias).toContain(".vitehub/sandbox/runtime/sandbox-registry.mjs")
     expect(providerLoaderAlias).toContain(".vitehub/sandbox/runtime/sandbox-provider-loader.mjs")
     expect(readAlias(alias, "@vite-hub/sandbox/runtime/state")).toBeUndefined()
