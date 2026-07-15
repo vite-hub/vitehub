@@ -31,6 +31,35 @@ describe("trustedHost", () => {
     await session.destroy?.();
   });
 
+  it("anchors deferred Home files to the resolved workspace", async () => {
+    const root = await temporaryRoot();
+    const workspace = join(root, "workspace");
+    await mkdir(workspace);
+    await writeFile(join(workspace, "credential"), "anchored");
+    const originalCwd = process.cwd();
+    const box = await (async () => {
+      try {
+        process.chdir(root);
+        return await resolveBox(
+          {
+            cwd: "workspace",
+            home: { files: { ".acme/credential": { from: "credential" } } },
+            runtime: trustedHost(),
+          },
+          {},
+        );
+      } finally {
+        process.chdir(originalCwd);
+      }
+    })();
+
+    const session = (await (box.sandbox as HarnessV1SandboxProvider).createSession()) as typeof sessionWithEnv;
+    await expect(readFile(join(session.env.HOME, ".acme", "credential"), "utf8")).resolves.toBe(
+      "anchored",
+    );
+    await session.destroy?.();
+  });
+
   it("materializes one private environment for every Box command", async () => {
     const root = await temporaryRoot();
     const workspace = join(root, "workspace");
