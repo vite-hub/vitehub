@@ -284,6 +284,7 @@ async function materializePlan(
     } else {
       script.push(`test -d ${shellQuote(persistent)}`);
     }
+    appendProjectionReconciliation(script, state, persistent, cleanup);
     script.push(`chmod 700 ${shellQuote(persistent)}`);
     const target = posix.join(home, state.path);
     script.push(
@@ -320,6 +321,40 @@ async function materializePlan(
   }
   await runCrabboxScript(options, leaseId, { abortSignal, script: `${script.join("\n")}\n` });
   return { environmentFile };
+}
+
+function appendProjectionReconciliation(
+  script: string[],
+  state: ResolvedBoxPlan["state"][number],
+  persistent: string,
+  cleanup: string[],
+) {
+  const manifest = `${persistent}.projections`;
+  const next = `${manifest}.next-${randomUUID()}`;
+  const contents = state.projections
+    .map((path) => Buffer.from(path).toString("base64"))
+    .join("\n");
+  appendFile(script, next, new TextEncoder().encode(contents ? `${contents}\n` : ""), 0o600, cleanup);
+  cleanup.push(next);
+  script.push(
+    `test ! -e ${shellQuote(manifest)} || test -f ${shellQuote(manifest)}`,
+    `if [ -f ${shellQuote(manifest)} ]; then`,
+    `  while IFS= read -r projection || [ -n "$projection" ]; do`,
+    `    if ! grep -Fqx -- "$projection" ${shellQuote(next)}; then`,
+    `      projection_path=$(printf '%s' "$projection" | base64 -d)`,
+    `      projection_target=${shellQuote(`${persistent}/`)}$projection_path`,
+    `      if [ -e "$projection_target" ] || [ -L "$projection_target" ]; then`,
+    `        projection_parent=$(CDPATH= cd -P -- "$(dirname -- "$projection_target")" && pwd -P)`,
+    `        case "$projection_parent" in`,
+    `          ${shellQuote(persistent)}|${shellQuote(`${persistent}/`)}*) rm -rf -- "$projection_target" ;;`,
+    `          *) printf '%s\n' 'Box projected path escapes writable state.' >&2; exit 1 ;;`,
+    `        esac`,
+    `      fi`,
+    `    fi`,
+    `  done < ${shellQuote(manifest)}`,
+    `fi`,
+    `mv -f -- ${shellQuote(next)} ${shellQuote(manifest)}`,
+  );
 }
 
 async function findMissingState(

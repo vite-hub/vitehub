@@ -51,6 +51,7 @@ export interface ResolvedBoxFile {
 export interface ResolvedBoxState {
   readonly key: string;
   readonly path: string;
+  readonly projections: readonly string[];
   readonly seed: Readonly<Record<string, ResolvedBoxFile>>;
 }
 
@@ -103,6 +104,7 @@ export interface ResolveBoxOptions {
 }
 
 const reservedEnvironment = new Set([
+  "CODEX_HOME",
   "HOME",
   "INIT_CWD",
   "OLDPWD",
@@ -195,6 +197,7 @@ function resolvePlan<Context>(
       return {
         key: value.key.trim(),
         path: target,
+        projections: [] as string[],
         seed: normalizeFiles(value.seed, context, `home.state ${path} seed`, sourceRoot),
       };
     },
@@ -213,6 +216,7 @@ function resolvePlan<Context>(
     const projectedFiles = Object.keys(files)
       .filter((file) => isDescendant(file, value.path))
       .map((file) => file.slice(value.path.length + 1));
+    value.projections.push(...projectedFiles.toSorted());
     validateFileTargets(
       [...Object.keys(value.seed), ...projectedFiles],
       `home.state ${value.path} projected`,
