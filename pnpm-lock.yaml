@@ -1161,6 +1161,9 @@ importers:
       '@vite-hub/devtools':
         specifier: workspace:*
         version: link:../devtools
+      '@vite-hub/email':
+        specifier: workspace:*
+        version: link:../email
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env

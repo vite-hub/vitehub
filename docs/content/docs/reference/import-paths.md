@@ -26,6 +26,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/box` | Box Definitions and trusted-host execution contracts. |
 | `vite-hub/database` and `vite-hub/database/drizzle` | Database Definitions and generated Drizzle access. |
 | `vite-hub/env` | Env Declaration helpers and authoring types. |
+| `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown` | Email Definitions, runtime delivery, and Markdown composition. |
 | `vite-hub/env/presets` and `vite-hub/env/schema` | Reusable Env presets and schema helpers. |
 | `vite-hub/env/secret` and `vite-hub/env/server` | Secret declarations and server-only Env access. |
 | `vite-hub/kv` | KV Runtime Helper. |

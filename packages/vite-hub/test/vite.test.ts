@@ -4,6 +4,7 @@ const integrationMocks = vi.hoisted(() => ({
   hubAgent: vi.fn(() => ({ name: "@vite-hub/agent/vite" })),
   hubAuth: vi.fn(() => ({ name: "@vite-hub/auth/vite" })),
   hubBlob: vi.fn(() => ({ name: "@vite-hub/blob/vite" })),
+  hubEmail: vi.fn(() => ({ name: "@vite-hub/email/vite" })),
   hubEnv: vi.fn(() => ({ name: "@vite-hub/env/vite" })),
   hubKv: vi.fn(() => ({ name: "@vite-hub/kv/vite" })),
   hubKvOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/kv/optional-peers" })),
@@ -22,6 +23,7 @@ vi.mock("@vite-hub/auth/vite", () => ({ hubAuth: integrationMocks.hubAuth }))
 vi.mock("@vite-hub/blob/vite", () => ({ hubBlob: integrationMocks.hubBlob }))
 vi.mock("@vite-hub/database/vite", () => ({ hubDb: () => ({ name: "@vite-hub/database/vite" }) }))
 vi.mock("@vite-hub/devtools", () => ({ hubDevtools: () => ({ name: "@vite-hub/devtools" }) }))
+vi.mock("@vite-hub/email/vite", () => ({ hubEmail: integrationMocks.hubEmail }))
 vi.mock("@vite-hub/env/vite", () => ({ hubEnv: integrationMocks.hubEnv }))
 vi.mock("@vite-hub/kv/vite", () => ({
   hubKv: integrationMocks.hubKv,
@@ -68,7 +70,7 @@ describe("vitehub", () => {
       "@vite-hub/devtools",
     ])
 
-    expect(pluginNames(vitehub({ auth: true, kv: true, sandbox: true, schedule: true }))).toEqual([
+    expect(pluginNames(vitehub({ auth: true, email: true, kv: true, sandbox: true, schedule: true }))).toEqual([
       "vite-hub/dependencies",
       "@vite-hub/env/vite",
       "@vite-hub/auth/vite",
@@ -76,6 +78,7 @@ describe("vitehub", () => {
       "@vite-hub/agent/vite",
       "@vite-hub/database/vite",
       "@vite-hub/blob/vite",
+      "@vite-hub/email/vite",
       "@vite-hub/kv/vite",
       "@vite-hub/schedule/vite",
       "@vite-hub/workflow/vite",
@@ -115,6 +118,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/blob",
     })
+    expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith({
       providerImportAliases: expect.any(Object),

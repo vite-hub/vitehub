@@ -7,6 +7,7 @@ import { hubAuth } from "@vite-hub/auth/vite"
 import { hubBlob } from "@vite-hub/blob/vite"
 import { hubDb } from "@vite-hub/database/vite"
 import { hubDevtools } from "@vite-hub/devtools"
+import { hubEmail } from "@vite-hub/email/vite"
 import { hubEnv } from "@vite-hub/env/vite"
 import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig } from "@vite-hub/kv/vite"
 import { hubQueue } from "@vite-hub/queue/vite"
@@ -20,6 +21,7 @@ import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { BlobModuleOptions } from "@vite-hub/blob"
 import type { DBModulePublicOptions } from "@vite-hub/database"
 import type { HubDevtoolsOptions } from "@vite-hub/devtools"
+import type { EmailVitePluginOptions } from "@vite-hub/email/vite"
 import type { EnvIntegrationOptions } from "@vite-hub/env"
 import type { KVModuleOptions } from "@vite-hub/kv"
 import type { QueueModuleOptions } from "@vite-hub/queue"
@@ -36,6 +38,7 @@ const frameworkDependencyNames = [
   "@vite-hub/box",
   "@vite-hub/database",
   "@vite-hub/devtools",
+  "@vite-hub/email",
   "@vite-hub/env",
   "@vite-hub/kv",
   "@vite-hub/queue",
@@ -139,6 +142,7 @@ export interface ViteHubPresetOptions {
   blob?: false | BlobModuleOptions
   database?: false | DBModulePublicOptions
   devtools?: false | HubDevtoolsOptions
+  email?: boolean | EmailVitePluginOptions
   env?: false | EnvIntegrationOptions
   kv?: boolean | KVModuleOptions
   queue?: boolean | QueueModuleOptions
@@ -204,6 +208,7 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
       importBase: `${generatedImportBase}/blob`,
     } as unknown as BlobModuleOptions))
   }
+  if (options.email) plugins.push(hubEmail(options.email === true ? undefined : options.email))
   if (options.kv) plugins.push(hubKv(options.kv === true ? undefined : options.kv))
   else plugins.push(hubKvOptionalPeerResolver())
   if (options.queue) plugins.push(hubQueue(options.queue === true ? {} : options.queue))
