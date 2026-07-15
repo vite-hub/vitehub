@@ -532,14 +532,22 @@ async function acquireFileLock(
   path: string,
   abortSignal?: AbortSignal,
 ): Promise<() => Promise<void>> {
+  const token = randomUUID();
   while (true) {
     abortSignal?.throwIfAborted();
     const acquired = await mkdir(path, { mode: 0o700 }).then(
       () => true,
       async (error: NodeJS.ErrnoException) => {
         if (error.code !== "EEXIST") throw error;
-        if (await staleLock(path)) {
-          await rm(path, { force: true, recursive: true });
+        const staleToken = await staleLock(path);
+        if (staleToken) {
+          const tombstone = `${path}.stale-${staleToken}`;
+          await rename(path, tombstone).then(
+            () => true,
+            () => false,
+          );
+          // Keep the non-empty tombstone so another stale waiter cannot rename a
+          // freshly acquired lock using the same observed owner token.
           return false;
         }
         return false;
@@ -549,7 +557,7 @@ async function acquireFileLock(
       try {
         await writeFile(
           join(path, "owner.json"),
-          JSON.stringify({ host: hostname(), pid: process.pid }),
+          JSON.stringify({ host: hostname(), pid: process.pid, token }),
           { mode: 0o600 },
         );
       } catch (error) {
@@ -571,7 +579,7 @@ async function staleLock(path: string) {
   const owner = await readFile(join(path, "owner.json"), "utf8").then(
     (value) => {
       try {
-        return JSON.parse(value) as { host?: unknown; pid?: unknown };
+        return JSON.parse(value) as { host?: unknown; pid?: unknown; token?: unknown };
       } catch {
         return undefined;
       }
@@ -580,14 +588,21 @@ async function staleLock(path: string) {
   );
   if (!owner) {
     const item = await stat(path).catch(() => undefined);
-    return Boolean(item && Date.now() - item.mtimeMs > 5_000);
+    return item && Date.now() - item.mtimeMs > 5_000
+      ? `invalid-${item.dev}-${item.ino}-${Math.floor(item.mtimeMs)}`
+      : undefined;
   }
-  if (owner.host !== hostname() || typeof owner.pid !== "number") return false;
+  if (
+    owner.host !== hostname() ||
+    typeof owner.pid !== "number" ||
+    typeof owner.token !== "string"
+  )
+    return undefined;
   try {
     process.kill(owner.pid, 0);
-    return false;
+    return undefined;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "ESRCH";
+    return (error as NodeJS.ErrnoException).code === "ESRCH" ? owner.token : undefined;
   }
 }
 
