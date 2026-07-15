@@ -154,7 +154,6 @@ export interface WorkflowCreateOptions<TPayload = unknown, TResult = unknown> {
   handler?: WorkflowHandler<TPayload, TResult>
   id?: (context: { name: string, payload?: TPayload }) => Promise<WorkflowRunIdValue> | WorkflowRunIdValue
   name?: string
-  native?: WorkflowHandler<TPayload, TResult>
 }
 
 export interface WorkflowDefinitionOptions<TPayload = unknown, TResult = unknown> {

@@ -103,10 +103,7 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
     if (typeof handler !== "function") {
       throw new TypeError("`createWorkflow()` requires a workflow handler.")
     }
-    registerInlineWorkflowDefinition(name, {
-      handler: handler as WorkflowHandler,
-      options: createOptions.native ? { native: createOptions.native as WorkflowHandler } : undefined,
-    })
+    registerInlineWorkflowDefinition(name, { handler: handler as WorkflowHandler })
     return {
       cancel: (id: string) => cancelWorkflow<TPayload, TResult>(name, id),
       name,
@@ -140,10 +137,7 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
     if (typeof handler !== "function") {
       throw new TypeError("`createWorkflow()` requires a workflow handler.")
     }
-    registerInlineWorkflowDefinition(name, {
-      handler: handler as WorkflowHandler,
-      options: createOptions?.native ? { native: createOptions.native as WorkflowHandler } : undefined,
-    })
+    registerInlineWorkflowDefinition(name, { handler: handler as WorkflowHandler })
   }
   else if (handlerOrOptions !== undefined && (typeof handlerOrOptions !== "object" || handlerOrOptions === null)) {
     throw new TypeError("`createWorkflow()` options must be an object.")
