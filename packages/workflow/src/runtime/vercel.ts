@@ -17,7 +17,7 @@ export interface VercelRun {
 export interface VercelStep {
   attempt: number
   completedAt?: Date
-  error?: { code?: string; message: string }
+  error?: unknown
   startedAt?: Date
   status: string
   stepId: string
@@ -111,6 +111,30 @@ function normalizeStatus(status: string): WorkflowRunStatus {
   return statusMap[status.toLowerCase()] || "unknown"
 }
 
+function normalizeStepError(error: unknown): { code?: string; message: string } | undefined {
+  if (error === undefined || error === null) return undefined
+  if (error instanceof Error) return { message: error.message }
+  if (typeof error === "string") {
+    try {
+      return normalizeStepError(JSON.parse(error)) || { message: error }
+    }
+    catch {
+      return { message: error }
+    }
+  }
+  if (typeof error === "object") {
+    const value = error as { code?: unknown, error?: unknown, message?: unknown }
+    if (typeof value.message === "string") {
+      return {
+        ...(typeof value.code === "string" ? { code: value.code } : {}),
+        message: value.message,
+      }
+    }
+    if (value.error !== undefined) return normalizeStepError(value.error)
+  }
+  return { message: "Workflow step failed." }
+}
+
 function getNativeWorkflowName<TPayload, TResult>(name: string, definition: WorkflowDefinition<TPayload, TResult>): string {
   const workflowName = (definition.options?.native as WorkflowDefinition<TPayload, TResult>["handler"] & { workflowId?: string } | undefined)?.workflowId
   if (!workflowName) {
@@ -146,7 +170,7 @@ export async function inspectVercelWorkflowRun<TPayload = unknown, TResult = unk
     steps: steps.map(step => ({
       attempt: step.attempt,
       completedAt: step.completedAt,
-      error: step.error,
+      error: normalizeStepError(step.error),
       id: step.stepId,
       name: step.stepName,
       startedAt: step.startedAt,

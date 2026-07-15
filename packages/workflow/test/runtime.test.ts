@@ -915,8 +915,9 @@ describe("workflow runtime", () => {
       {
         attempt: 1,
         completedAt,
+        error: JSON.stringify({ code: "TRANSCRIBE_FAILED", message: "Transcription failed." }),
         startedAt,
-        status: "completed",
+        status: "failed",
         stepId: "step-1",
         stepName: "transcribe",
       },
@@ -953,7 +954,13 @@ describe("workflow runtime", () => {
       result: { ok: true },
       startedAt,
       status: "completed",
-      steps: [{ attempt: 1, id: "step-1", name: "transcribe", status: "completed" }],
+      steps: [{
+        attempt: 1,
+        error: { code: "TRANSCRIBE_FAILED", message: "Transcription failed." },
+        id: "step-1",
+        name: "transcribe",
+        status: "failed",
+      }],
     })
 
     await expect(resumeWorkflowSignal("opaque-provider-token", { ready: true })).resolves.toEqual({
