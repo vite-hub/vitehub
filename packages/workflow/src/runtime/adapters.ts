@@ -1,14 +1,15 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 
+import { WorkflowError } from "../errors.ts"
 import { getCloudflareWorkflowBindingName } from "../integrations/cloudflare.ts"
 import { getVercelWorkflowName } from "../integrations/vercel.ts"
 
 import { runWorkflowHandler } from "./execute.ts"
 import { getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
-import { getVercelWorkflowRunState, setVercelWorkflowRunState } from "./vercel-state.ts"
-import { getWorkflowRunState, setWorkflowRun } from "./state.ts"
+import { getWorkflowRunState, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
+import { cancelVercelWorkflow, inspectVercelWorkflowRun, resumeVercelWorkflowSignal, startVercelWorkflow } from "./vercel.ts"
 
-import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowRun, WorkflowRunStatus } from "../types.ts"
+import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowRun, WorkflowRunStatus, WorkflowSignalResult } from "../types.ts"
 
 interface RunWorkflowAdapterContext<TPayload = unknown, TResult = unknown> {
   definition: WorkflowDefinition<TPayload, TResult>
@@ -26,8 +27,18 @@ interface GetWorkflowAdapterContext {
 }
 
 interface WorkflowRuntimeAdapter {
+  cancel<TPayload = unknown, TResult = unknown>(context: GetWorkflowAdapterContext): Promise<WorkflowRun<TPayload, TResult>>
   get<TPayload = unknown, TResult = unknown>(context: GetWorkflowAdapterContext): Promise<WorkflowRun<TPayload, TResult>>
+  resume<TPayload = unknown>(token: string, payload: TPayload): Promise<WorkflowSignalResult>
   run<TPayload = unknown, TResult = unknown>(context: RunWorkflowAdapterContext<TPayload, TResult>): Promise<WorkflowRun<TPayload, TResult>>
+}
+
+function unsupportedOperation(provider: string, operation: string): never {
+  throw new WorkflowError(`Workflow provider ${JSON.stringify(provider)} does not support ${operation}.`, {
+    code: "WORKFLOW_OPERATION_UNSUPPORTED",
+    details: { operation },
+    provider,
+  })
 }
 
 function resolveCloudflareBinding(event: unknown, binding: string | undefined, name: string) {
@@ -36,6 +47,7 @@ function resolveCloudflareBinding(event: unknown, binding: string | undefined, n
 }
 
 const cloudflareStatusMap: Record<string, WorkflowRunStatus> = {
+  cancelled: "cancelled",
   complete: "completed",
   completed: "completed",
   errored: "failed",
@@ -53,6 +65,7 @@ function normalizeCloudflareStatus(status: unknown): WorkflowRunStatus {
 
 function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
   return {
+    cancel: () => unsupportedOperation("cloudflare", "cancellation"),
     async get({ event, id, name }) {
       const binding = resolveCloudflareBinding(event, config.binding, name)
       if (binding) {
@@ -88,18 +101,22 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
 
       return await inlineAdapter(config).run({ definition, event, id, name, options, payload })
     },
+    resume: () => unsupportedOperation("cloudflare", "signals"),
   }
 }
 
 function createOpenWorkflowAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
   return {
+    cancel: () => unsupportedOperation("openworkflow", "cancellation"),
     get: async ({ id, name }) => await getOpenWorkflowRun(config, name, id),
+    resume: () => unsupportedOperation("openworkflow", "signals"),
     run: async ({ definition, name, options, payload }) => await runOpenWorkflow(config, name, payload, definition, options),
   }
 }
 
 function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
   return {
+    cancel: () => unsupportedOperation(config.provider, "cancellation"),
     async get<TPayload = unknown, TResult = unknown>({ id, name }: GetWorkflowAdapterContext): Promise<WorkflowRun<TPayload, TResult>> {
       const run = getWorkflowRunState(name, id)
       if (run) {
@@ -118,20 +135,6 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
           status: run.status,
         }
       }
-
-      if (config.provider === "vercel") {
-        const persisted = await getVercelWorkflowRunState(name, id)
-        if (persisted) {
-          return {
-            id,
-            metadata: persisted.error,
-            provider: "vercel",
-            result: persisted.result as TResult,
-            status: persisted.status,
-          }
-        }
-      }
-
       return {
         id,
         provider: config.provider,
@@ -149,25 +152,52 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
         .then(result => ({ result, status: "completed" as const }))
         .catch(error => ({ error, status: "failed" as const }))
       const runState = setWorkflowRun(name, id, run)
-      const persistStarted = config.provider === "vercel"
-        ? setVercelWorkflowRunState(name, id, { status: "running" }).catch(() => {})
-        : Promise.resolve()
-      const persistFinished = config.provider === "vercel"
-        ? runState.promise.then(result => setVercelWorkflowRunState(name, id, result)).catch(() => {})
-        : Promise.resolve()
       const waitUntil = resolveWaitUntil(event)
       if (waitUntil) {
-        waitUntil(Promise.all([runState.promise, persistFinished]))
+        waitUntil(runState.promise)
       }
-      await persistStarted
 
       return {
         id,
-        metadata: config.provider === "vercel" ? { workflow: getVercelWorkflowName(name) } : undefined,
+        metadata: config.provider === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined,
         payload,
         provider: config.provider,
         status: "queued",
       }
+    },
+    resume: () => unsupportedOperation(config.provider, "signals"),
+  }
+}
+
+function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
+  const fallback = inlineAdapter(config)
+  return {
+    async cancel<TPayload = unknown, TResult = unknown>({ id, name }: GetWorkflowAdapterContext) {
+      const definition = await loadWorkflowDefinition(name)
+      if (!definition?.options?.native) {
+        return await fallback.cancel({ event: undefined, id, name })
+      }
+      return await cancelVercelWorkflow<TPayload, TResult>(name, definition as WorkflowDefinition<TPayload, TResult>, id)
+    },
+    async get<TPayload = unknown, TResult = unknown>({ id, name }: GetWorkflowAdapterContext) {
+      const definition = await loadWorkflowDefinition(name)
+      return definition?.options?.native
+        ? await inspectVercelWorkflowRun<TPayload, TResult>(name, definition as WorkflowDefinition<TPayload, TResult>, id)
+        : await fallback.get<TPayload, TResult>({ event: undefined, id, name })
+    },
+    resume: async (token, payload) => await resumeVercelWorkflowSignal(token, payload),
+    async run({ definition, event, id, name, options, payload }) {
+      if (!definition.options?.native) {
+        return await fallback.run({ definition, event, id, name, options, payload })
+      }
+      if (options.id) {
+        throw new WorkflowError("Native Vercel workflows assign their own run IDs.", {
+          code: "WORKFLOW_RUN_ID_UNSUPPORTED",
+          details: { id: options.id, name },
+          provider: "vercel",
+        })
+      }
+      return await startVercelWorkflow(name, definition, payload)
     },
   }
 }
@@ -179,5 +209,5 @@ export function getWorkflowRuntimeAdapter(config: ResolvedWorkflowOptions): Work
   if (config.provider === "openworkflow") {
     return createOpenWorkflowAdapter(config)
   }
-  return inlineAdapter(config)
+  return createVercelAdapter(config)
 }

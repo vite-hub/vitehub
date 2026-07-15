@@ -6,7 +6,7 @@ import { WorkflowError } from "../errors.ts"
 import { getWorkflowRuntimeAdapter } from "./adapters.ts"
 import { getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefinition, registerInlineWorkflowDefinition, runWithWorkflowRuntimeEvent } from "./state.ts"
 
-import type { ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDeferOptions, WorkflowDefinition, WorkflowHandle, WorkflowHandler, WorkflowRun, WorkflowRunIdValue, WorkflowStartOptions } from "../types.ts"
+import type { ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDeferOptions, WorkflowDefinition, WorkflowHandle, WorkflowHandler, WorkflowRun, WorkflowRunIdValue, WorkflowSignalResult, WorkflowStartOptions } from "../types.ts"
 
 function getActiveWorkflowConfig(): false | ResolvedWorkflowOptions {
   const config = getWorkflowRuntimeConfig()
@@ -103,8 +103,12 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
     if (typeof handler !== "function") {
       throw new TypeError("`createWorkflow()` requires a workflow handler.")
     }
-    registerInlineWorkflowDefinition(name, { handler: handler as WorkflowHandler })
+    registerInlineWorkflowDefinition(name, {
+      handler: handler as WorkflowHandler,
+      options: createOptions.native ? { native: createOptions.native as WorkflowHandler } : undefined,
+    })
     return {
+      cancel: (id: string) => cancelWorkflow<TPayload, TResult>(name, id),
       name,
       defer: async (payload?: TPayload, options: WorkflowStartOptions = {}) => deferWorkflow<TPayload>(
         name,
@@ -136,13 +140,17 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
     if (typeof handler !== "function") {
       throw new TypeError("`createWorkflow()` requires a workflow handler.")
     }
-    registerInlineWorkflowDefinition(name, { handler: handler as WorkflowHandler })
+    registerInlineWorkflowDefinition(name, {
+      handler: handler as WorkflowHandler,
+      options: createOptions?.native ? { native: createOptions.native as WorkflowHandler } : undefined,
+    })
   }
   else if (handlerOrOptions !== undefined && (typeof handlerOrOptions !== "object" || handlerOrOptions === null)) {
     throw new TypeError("`createWorkflow()` options must be an object.")
   }
 
   return {
+    cancel: (id: string) => cancelWorkflow<TPayload, TResult>(name, id),
     name,
     defer: async (payload?: TPayload, options: WorkflowStartOptions = {}) => deferWorkflow<TPayload>(
       name,
@@ -197,6 +205,37 @@ export async function getWorkflowRun<TPayload = unknown, TResult = unknown>(name
     id,
     name,
   })
+}
+
+export async function cancelWorkflow<TPayload = unknown, TResult = unknown>(name: string, id: string): Promise<WorkflowRun<TPayload, TResult>> {
+  const config = getActiveWorkflowConfig()
+  if (config === false) {
+    throw new WorkflowError("Workflow is disabled.", {
+      code: "WORKFLOW_DISABLED",
+      httpStatus: 400,
+    })
+  }
+
+  await loadRequiredWorkflowDefinition(name)
+  return await getWorkflowRuntimeAdapter(config).cancel<TPayload, TResult>({
+    event: getWorkflowRuntimeEvent(),
+    id,
+    name,
+  })
+}
+
+export async function resumeWorkflowSignal<TPayload = unknown>(token: string, payload: TPayload): Promise<WorkflowSignalResult> {
+  if (!token || typeof token !== "string") {
+    throw new TypeError("`resumeWorkflowSignal()` requires an opaque signal token.")
+  }
+  const config = getActiveWorkflowConfig()
+  if (config === false) {
+    throw new WorkflowError("Workflow is disabled.", {
+      code: "WORKFLOW_DISABLED",
+      httpStatus: 400,
+    })
+  }
+  return await getWorkflowRuntimeAdapter(config).resume(token, payload)
 }
 
 export function deferWorkflow<TPayload = unknown>(

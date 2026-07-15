@@ -10,9 +10,12 @@ import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare
 import { resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
 import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
-import { createWorkflow, deferWorkflow, getWorkflowRun, runWorkflow } from "../src/runtime/client.ts"
+import { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, resumeWorkflowSignal, runWorkflow } from "../src/runtime/client.ts"
 import { createWorkflowSteps } from "../src/runtime/execute.ts"
 import { enterWorkflowRuntimeEvent, getInlineWorkflowDefinitions, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinition } from "../src/runtime/state.ts"
+import { setVercelWorkflowRuntimeLoader } from "../src/runtime/vercel.ts"
+
+import type { VercelRun, VercelStep, VercelWorkflowRuntime } from "../src/runtime/vercel.ts"
 
 const openWorkflowMock = vi.hoisted(() => {
   const runs = new Map<string, any>()
@@ -154,28 +157,9 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  setVercelWorkflowRuntimeLoader()
   vi.restoreAllMocks()
 })
-
-function mockUpstash() {
-  const store = new Map<string, string>()
-  const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-    const command = JSON.parse(String(init?.body || "[]")) as string[]
-    const [operation, key, value] = command
-    if (operation === "SET") {
-      store.set(key, value)
-      return Response.json({ result: "OK" })
-    }
-    if (operation === "GET") {
-      return Response.json({ result: store.get(key) || null })
-    }
-    return Response.json({ result: null })
-  })
-  vi.stubGlobal("fetch", fetch)
-  process.env.KV_REST_API_URL = "https://example.upstash.io"
-  process.env.KV_REST_API_TOKEN = "token"
-  return { fetch, store }
-}
 
 describe("workflow runtime", () => {
   it("defines inline workflows and returns a typed runtime handle", async () => {
@@ -905,32 +889,177 @@ describe("workflow runtime", () => {
     await expect(getWorkflowRun("two", "shared")).resolves.toMatchObject({ result: "two" })
   })
 
-  it("reads persisted Vercel run state when local memory misses", async () => {
-    mockUpstash()
-    let resolveRun: ((value: { ok: boolean }) => void) | undefined
+  it("runs native Vercel entries durably and exposes run and step state", async () => {
+    const createdAt = new Date("2026-07-15T10:00:00.000Z")
+    const startedAt = new Date("2026-07-15T10:00:01.000Z")
+    const completedAt = new Date("2026-07-15T10:00:02.000Z")
+    let status = "pending"
+    const native = Object.assign(vi.fn(async () => ({ ok: true })), { workflowId: "durable-welcome" })
+    const otherNative = Object.assign(vi.fn(async () => ({ ok: true })), { workflowId: "durable-other" })
+    const run: VercelRun = {
+      cancel: vi.fn(async () => {
+        status = "cancelled"
+      }),
+      completedAt: Promise.resolve(completedAt),
+      createdAt: Promise.resolve(createdAt),
+      exists: Promise.resolve(true),
+      returnValue: Promise.resolve({ ok: true }),
+      runId: "wdk-1",
+      startedAt: Promise.resolve(startedAt),
+      get status() {
+        return Promise.resolve(status)
+      },
+      workflowName: Promise.resolve(native.workflowId),
+    }
+    const steps: VercelStep[] = [
+      {
+        attempt: 1,
+        completedAt,
+        startedAt,
+        status: "completed",
+        stepId: "step-1",
+        stepName: "transcribe",
+      },
+    ]
+    const runtime: VercelWorkflowRuntime = {
+      getRun: vi.fn(() => run),
+      listSteps: vi.fn(async () => steps),
+      resumeHook: vi.fn(async () => ({ runId: run.runId })),
+      start: vi.fn(async () => run),
+    }
+    setVercelWorkflowRuntimeLoader(async () => runtime)
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
         default: {
-          handler: () => new Promise(resolve => {
-            resolveRun = resolve
-          }),
+          handler: async () => ({ inline: true }),
+          options: { native },
         },
+      }),
+      other: async () => ({
+        default: { handler: async () => ({ inline: true }), options: { native: otherNative } },
       }),
     })
 
-    await runWorkflow("welcome", {}, { id: "persisted" })
-    resetWorkflowRuntime()
+    const pending = await runWorkflow("welcome", { message: "hello" })
+    expect(pending).toMatchObject({ id: "wdk-1", provider: "vercel", status: "queued" })
+    expect(runtime.start).toHaveBeenCalledWith(native, [{ name: "welcome", payload: { message: "hello" }, provider: "vercel" }])
+
+    status = "completed"
+    await expect(getWorkflowRun("welcome", run.runId)).resolves.toMatchObject({
+      completedAt,
+      createdAt,
+      id: "wdk-1",
+      result: { ok: true },
+      startedAt,
+      status: "completed",
+      steps: [{ attempt: 1, id: "step-1", name: "transcribe", status: "completed" }],
+    })
+
+    await expect(resumeWorkflowSignal("opaque-provider-token", { ready: true })).resolves.toEqual({
+      id: "wdk-1",
+      provider: "vercel",
+    })
+    expect(runtime.resumeHook).toHaveBeenCalledWith("opaque-provider-token", { ready: true })
+
+    await expect(getWorkflowRun("other", run.runId)).resolves.toEqual({
+      id: "wdk-1",
+      provider: "vercel",
+      status: "unknown",
+    })
+    await expect(cancelWorkflow("other", run.runId)).resolves.toEqual({
+      id: "wdk-1",
+      provider: "vercel",
+      status: "unknown",
+    })
+    expect(run.cancel).not.toHaveBeenCalled()
+
+    await expect(cancelWorkflow("welcome", run.runId)).resolves.toMatchObject({
+      status: "cancelled",
+    })
+    expect(run.cancel).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects caller-assigned ids for native Vercel entries", async () => {
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: vi.fn(),
+      listSteps: vi.fn(async () => []),
+      resumeHook: vi.fn(),
+      start: vi.fn(),
+    }) as never)
     setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({
+        default: { handler: async () => "inline", options: { native: async () => "native" } },
+      }),
+    })
 
-    await expect(getWorkflowRun("welcome", "persisted")).resolves.toMatchObject({ status: "running" })
-    resolveRun?.({ ok: true })
+    await expect(runWorkflow("welcome", {}, { id: "caller-id" })).rejects.toMatchObject({
+      code: "WORKFLOW_RUN_ID_UNSUPPORTED",
+      provider: "vercel",
+    })
+  })
 
-    await vi.waitFor(async () => {
-      await expect(getWorkflowRun("welcome", "persisted")).resolves.toMatchObject({
-        result: { ok: true },
-        status: "completed",
-      })
+  it("normalizes unrecognized native Vercel states conservatively", async () => {
+    const run: VercelRun = {
+      cancel: vi.fn(),
+      completedAt: Promise.resolve(undefined),
+      createdAt: Promise.resolve(new Date()),
+      exists: Promise.resolve(true),
+      returnValue: Promise.resolve(undefined),
+      runId: "wdk-unknown",
+      startedAt: Promise.resolve(undefined),
+      status: Promise.resolve("suspended"),
+      workflowName: Promise.resolve("durable-welcome"),
+    }
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: () => run,
+      listSteps: async () => [{ attempt: 1, status: "waiting", stepId: "step-unknown", stepName: "wait" }],
+      resumeHook: vi.fn(),
+      start: vi.fn(async () => run),
+    }))
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({
+        default: { handler: async () => "inline", options: { native: Object.assign(async () => "native", { workflowId: "durable-welcome" }) } },
+      }),
+    })
+
+    await expect(getWorkflowRun("welcome", run.runId)).resolves.toMatchObject({
+      status: "unknown",
+      steps: [{ id: "step-unknown", status: "unknown" }],
+    })
+  })
+
+  it("fails unsupported inline cancellation and non-Vercel signals explicitly", async () => {
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => "inline" } }),
+    })
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    await expect(cancelWorkflow("welcome", "inline-1")).rejects.toMatchObject({
+      code: "WORKFLOW_OPERATION_UNSUPPORTED",
+    })
+
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    await expect(resumeWorkflowSignal("opaque", {})).rejects.toMatchObject({
+      code: "WORKFLOW_OPERATION_UNSUPPORTED",
+    })
+  })
+
+  it("reports a missing optional Vercel Workflow DevKit explicitly", async () => {
+    setVercelWorkflowRuntimeLoader(async () => {
+      throw new Error("Cannot find package 'workflow'")
+    })
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({
+        default: { handler: async () => "inline", options: { native: async () => "native" } },
+      }),
+    })
+
+    await expect(getWorkflowRun("welcome", "missing-sdk")).rejects.toMatchObject({
+      code: "VERCEL_WORKFLOW_SDK_LOAD_FAILED",
+      provider: "vercel",
     })
   })
 
@@ -969,12 +1098,7 @@ describe("workflow runtime", () => {
     expect(create).not.toHaveBeenCalled()
   })
 
-  it("returns unknown when persisted Vercel run state is unavailable", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => {
-      throw new Error("upstash unavailable")
-    }))
-    process.env.KV_REST_API_URL = "https://example.upstash.io"
-    process.env.KV_REST_API_TOKEN = "token"
+  it("returns unknown when inline Vercel run state is unavailable", async () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
 
     await expect(getWorkflowRun("welcome", "missing")).resolves.toMatchObject({

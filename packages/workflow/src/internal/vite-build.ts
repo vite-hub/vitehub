@@ -1,13 +1,15 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { builtinModules } from "node:module"
+import { builtinModules, createRequire } from "node:module"
 import { basename, dirname, join, relative, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { createDefaultCloudflareOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
+import type { Plugin } from "esbuild"
 
 import { normalizeWorkflowOptions } from "../config.ts"
 import { discoverWorkflowDefinitions } from "../discovery.ts"
@@ -29,6 +31,67 @@ const optionalAgentRuntimeExternals = ["@vite-hub/workspace", "@vite-hub/workspa
 const WORKFLOW_ENTRY_BASE_NAMES = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
 const WORKFLOW_PRIORITY_NAMES = ["server-workflow.ts", "server-workflow.mts", "server-workflow.js", "server-workflow.mjs"] as const
 const folderAgentEntryPattern = /^(?:agent|index)\.(?:c|m)?[jt]s$/i
+interface VercelWorkflowBuilders {
+  VercelBuildOutputAPIBuilder: new (options: {
+    buildTarget: "vercel-build-output-api"
+    dirs: string[]
+    projectRoot: string
+    stepsBundlePath: string
+    webhookBundlePath: string
+    workflowsBundlePath: string
+    workingDir: string
+  }) => { build: () => Promise<void> }
+  createSwcPlugin: (options: { mode: "workflow", projectRoot: string }) => Plugin
+  detectWorkflowPatterns: (source: string) => { hasUseWorkflow: boolean }
+}
+
+async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | undefined> {
+  let workflowEntry: string
+  try {
+    workflowEntry = createRequire(import.meta.url).resolve("workflow")
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND") return undefined
+    throw error
+  }
+  const workflowRequire = createRequire(workflowEntry)
+  return await import(pathToFileURL(workflowRequire.resolve("@workflow/builders")).href) as VercelWorkflowBuilders
+}
+
+async function createVercelWorkflowTransformPlugin(rootDir: string): Promise<Plugin | undefined> {
+  const builders = await loadVercelWorkflowBuilders()
+  if (!builders) return undefined
+  return builders.createSwcPlugin({ mode: "workflow", projectRoot: rootDir })
+}
+
+async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[]): Promise<void> {
+  const builders = await loadVercelWorkflowBuilders()
+  if (!builders) return
+  const nativeDefinitions = definitions.filter(definition =>
+    statSync(definition.handler).isFile()
+    && builders.detectWorkflowPatterns(readFileSync(definition.handler, "utf8")).hasUseWorkflow,
+  )
+  if (!nativeDefinitions.length) return
+
+  const outputConfigFile = resolve(rootDir, ".vercel", "output", "config.json")
+  const viteHubConfig = JSON.parse(await readFile(outputConfigFile, "utf8")) as { routes?: unknown[] }
+  const builder = new builders.VercelBuildOutputAPIBuilder({
+    buildTarget: "vercel-build-output-api",
+    dirs: [...new Set(nativeDefinitions.map(definition => dirname(definition.handler)))],
+    projectRoot: rootDir,
+    stepsBundlePath: "./.well-known/workflow/v1/step.js",
+    webhookBundlePath: "./.well-known/workflow/v1/webhook.js",
+    workflowsBundlePath: "./.well-known/workflow/v1/flow.js",
+    workingDir: rootDir,
+  })
+  await builder.build()
+  const workflowConfig = JSON.parse(await readFile(outputConfigFile, "utf8")) as { routes?: unknown[], [key: string]: unknown }
+  await writeFile(outputConfigFile, `${JSON.stringify({
+    ...workflowConfig,
+    ...viteHubConfig,
+    routes: [...(workflowConfig.routes ?? []), ...(viteHubConfig.routes ?? [])],
+  }, null, 2)}\n`, "utf8")
+}
 
 function isFolderAgentEntry(file: string): boolean {
   if (!folderAgentEntryPattern.test(basename(file))) return false
@@ -480,11 +543,13 @@ async function createCloudflareWorkflowCleanup(rootDir: string) {
   }
 }
 
-function createVercelOutput(
+async function createVercelOutput(
+  rootDir: string,
   artifacts: GeneratedWorkflowArtifacts,
   frameworkImportBase?: string,
   providerImportAliases?: Record<string, string>,
-): VercelProviderDeploymentOutput {
+): Promise<VercelProviderDeploymentOutput> {
+  const workflowTransformPlugin = await createVercelWorkflowTransformPlugin(rootDir)
   return {
     bundleEntry: artifacts.vercelServerFile,
     bundleOptions: {
@@ -500,6 +565,7 @@ function createVercelOutput(
       ],
       format: "esm",
       platform: "node",
+      plugins: workflowTransformPlugin ? [workflowTransformPlugin] : [],
     },
   }
 }
@@ -516,6 +582,9 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"
     ? createCloudflareOutput(options.rootDir, artifacts, options.providerImportAliases)
     : undefined
+  const vercelOutput = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
+    ? await createVercelOutput(options.rootDir, artifacts, options.importBase, options.providerImportAliases)
+    : undefined
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
     cloudflare: cloudflareOutput,
@@ -523,9 +592,8 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
       cloudflare: cloudflareOutput ? undefined : () => createCloudflareWorkflowCleanup(options.rootDir),
     },
     rootDir: options.rootDir,
-    ...(vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
-      ? { vercel: createVercelOutput(artifacts, options.importBase, options.providerImportAliases) }
-      : {}),
+    ...(vercelOutput ? { vercel: vercelOutput } : {}),
   })
+  if (vercelOutput) await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions)
   return artifacts
 }
