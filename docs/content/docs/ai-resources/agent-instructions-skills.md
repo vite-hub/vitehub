@@ -43,8 +43,10 @@ Keeping them separate prevents repository guidance from leaking into runtime Age
 | Public ViteHub skill | Coding agents building a ViteHub application | Routes implementation through live docs, installed contracts, and proof. |
 | Repository `AGENTS.md` | Coding agents contributing to a repository | Defines local development rules and project boundaries. |
 | [Agent Driver Instructions](/docs/agents/instructions) | Agents that run inside an application | Defines model-facing runtime behavior. |
-| Agent-local `skills/` | Harness-backed Agent Invocations | Automatically installs Skills owned beside a discovered Agent Definition. |
+| Agent-local `skills/` | Harness-backed Agent Invocations | Automatically installs Skills owned by a folder Agent Definition. |
 | [`skills()` Capability](/docs/capabilities/skills) | ViteHub Agent Invocations | Makes Workspace-backed or external Source Skills available to the Agent. |
+
+Agent-local Skills require a folder Definition. Place them beside `server/agents/<name>/agent.ts` under `server/agents/<name>/skills/<skill>/SKILL.md`. A flat Definition such as `server/agents/review.ts` cannot own a sibling Skill tree; move it to `server/agents/review/agent.ts` when it needs colocated Skills.
 
 ## Use the docs fallback
 

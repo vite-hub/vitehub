@@ -231,7 +231,7 @@ pnpm vitehub agent dev --url http://localhost:3000 --agent support --cli invento
 | Agent Driver | Custom Capability behavior |
 | --- | --- |
 | Model-backed | Receives model-facing tools when the Capability contributes them. |
-| Harness-backed | Receives only runtime effects and explicitly supported harness-compatible contributions. |
+| Harness-backed | Receives Agent tools through the Harness tool bridge plus supported runtime effects and harness-compatible contributions. Provider Tool contributions are unsupported. |
 | Custom-run-backed | Receives prepared input and invocation context; `driver.run` decides which custom Capability outputs to consume. |
 
 ## Inspect and verify

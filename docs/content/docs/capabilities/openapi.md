@@ -176,23 +176,12 @@ openapi({
 })
 ```
 
-## Migrate from the old shape
-
-| Old option | New shape |
-| --- | --- |
-| `enabled` | Attach `openapi()` only to Agents that should have the ability. For invocation-specific CLI availability, use a `cli` resolver; keep authority in `access()`, Agent Trigger routing, request checks, or separate Agent Definitions. |
-| `operations: { allow: [...] }` | `operations: [...]` |
-| `baseUrl` | Use the OpenAPI `servers` entry. Use `server` only when the spec has no usable server. |
-| `headers` | Set headers in `hooks.request`. |
-| `defaults` | Mutate `request.body`, `request.path`, or `request.query` in `hooks.request`. |
-| `input.omit` | Use `hooks.request.provides` for fields owned by the runtime hook. |
-
 ## Driver support
 
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives selected OpenAPI tools, or one generated Capability CLI tool when `cli` is set. |
-| Harness-backed | Runtime requirements apply; model-facing OpenAPI tools are not passed by default. |
+| Harness-backed | Receives selected OpenAPI tools, or the generated Capability CLI tool, through the Harness tool bridge. |
 | Custom-run-backed | Receives prepared context; `driver.run` decides whether to call API operations directly. |
 
 ## Options
@@ -201,6 +190,7 @@ openapi({
 | --- | --- | --- | --- |
 | `spec` | `string \| URL \| object \| function` | required | OpenAPI document URL, inline document, or invocation-scoped document resolver. |
 | `operations` | `readonly string[]` | required | Selected OpenAPI `operationId`s exposed by this Capability. |
+| `description` | `string` | none | Prefix for generated operation-tool descriptions and fallback description for the generated Capability CLI. |
 | `hooks.request` | `(context) => patch \| void` or `{ provides?, handler }` | none | Fetch-style request preparation hook for runtime headers, cookies, path, query, body, and timeout values. |
 | `hooks.request.provides` | `{ body?, path?, query? }` | none | Runtime-owned OpenAPI input fields to remove from model and generated CLI schemas before caller validation. |
 | `server` | `string \| URL \| function` | OpenAPI server | Override escape hatch for specs without a usable `servers[0].url` or spec URL origin. |

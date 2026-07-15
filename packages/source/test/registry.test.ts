@@ -43,4 +43,26 @@ describe("@vite-hub/source registry", () => {
   it("throws a source-specific error for missing registrations", () => {
     expect(() => useSource("missing" as any)).toThrow(SourceNotFoundError)
   })
+
+  it("passes the abort signal to custom Source methods", async () => {
+    const controller = new AbortController()
+    let receivedSignal: AbortSignal | undefined
+
+    registerSources({
+      custom: custom({
+        name: "custom",
+        async getKeys(ctx) {
+          receivedSignal = ctx.abortSignal
+          return []
+        },
+        async getItem(key) {
+          return { key }
+        },
+      }),
+    })
+
+    await useSource("custom", { abortSignal: controller.signal }).keys()
+
+    expect(receivedSignal).toBe(controller.signal)
+  })
 })

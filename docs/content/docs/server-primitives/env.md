@@ -94,6 +94,8 @@ Pass Integration Options to `hubEnv()`.
 | `diagnostics` | `EnvDiagnostics` | Package default | Controls Env diagnostic output during Vite config/dev/build. Values: `off`, `summary`, `trace`. |
 | `prefix` | `string` | None | Prefixes env variable lookup names. |
 | `projectRoot` | `string` | ViteHub project root | Resolves generated files and package import updates from a custom project root. |
+| `runtimeImports.secret` | `string` | `@vite-hub/env/secret` | Replaces the type import used for `SecretEnv` in generated Server Env modules. Framework integrations can point generated code at their runtime-owned entry point. |
+| `runtimeImports.server` | `string` | `@vite-hub/env/server` | Replaces the `resolveServerEnv` import used by generated Server Env modules. Framework integrations can point generated code at their runtime-owned entry point. |
 
 ## Env config sections
 

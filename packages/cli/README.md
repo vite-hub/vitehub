@@ -18,7 +18,13 @@ pnpm add -D @vite-hub/cli
 
 ```sh
 pnpm vitehub --help
+pnpm vitehub agent info
+pnpm vitehub agent dev
 pnpm vitehub agent eval
+pnpm vitehub db generate
+pnpm vitehub db migrate
+pnpm vitehub workspace dev docs
+pnpm vitehub provision run --provider cloudflare --dry-run
 ```
 
 ```ts
@@ -33,6 +39,6 @@ const exitCode = await runViteHubCli({
 
 ## Vite
 
-Commands come from Vite plugins, so package CLIs can stay package-owned. The first public namespace is `vitehub agent eval` from [`@vite-hub/agent`](../agent/README.md), backed by [Evalite](https://v1.evalite.dev/).
+Commands come from the active Vite plugins, so package CLIs stay package-owned. The Agent integration contributes `agent info`, `agent dev`, and Evalite-backed `agent eval`; Database contributes `db generate` and `db migrate`; Workspace contributes `workspace dev`. The CLI also owns `provision run` for executing package-contributed provider provisioning steps.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

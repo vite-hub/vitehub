@@ -149,6 +149,19 @@ When artifacts are enabled, inspect the Workspace for transcript files and the f
 | `client.receive(payload)` | `completed \| failed` completion | Normalizes an already-authenticated provider completion payload. |
 | `elevenLabsScribe(options)` | `TranscriptionDriver` | Maps remote Scribe v2 submission and callback payloads without exposing provider types. |
 
+Without `artifacts.directory`, transcripts use `transcripts/<date>/<stem>.txt` and audio is placed beside the transcript. If transcripts are disabled, audio uses `audio/<date>/<stem>.<extension>`.
+
+## Public helpers
+
+Import these helpers from `@vite-hub/agent/capabilities` when custom hooks or executors need the same normalized data as the Capability.
+
+| Helper | Return value | Behavior |
+| --- | --- | --- |
+| `audioBytes(audio, { maxBytes? })` | `Promise<Uint8Array>` | Resolves direct data, `fetchData`, or an audio URL and enforces a `26214400` byte default limit. |
+| `getTranscriptionResults(context)` | `TranscriptionResult[]` | Reads the current invocation's results from an invocation context store or an object containing one. Returns an empty array when none exist. |
+
+Each `TranscriptionResult` contains `createdAt`, `date`, `messageId`, `stem`, and `transcript`, plus `audioPath` or `transcriptPath` when those artifacts were written.
+
 ## Reference
 
 - [Workspace primitive](/docs/server-primitives/workspace)

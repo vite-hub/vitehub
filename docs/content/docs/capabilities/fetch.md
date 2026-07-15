@@ -62,7 +62,7 @@ Use schemas for input and response validation when the endpoint accepts argument
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives the named fetch tools. |
-| Harness-backed | Runtime requirements apply; model-facing fetch tools are not passed by default. |
+| Harness-backed | Receives the named fetch tools through the Harness tool bridge. |
 | Custom-run-backed | Receives prepared context; `driver.run` decides whether to call HTTP endpoints directly. |
 
 ## Inspect and verify
@@ -78,7 +78,13 @@ Run one invocation with invalid input when a schema is configured and verify the
 | `tools.*.description` | `string` | `Fetch <name>.` | Tool description. |
 | `tools.*.url` | `string \| URL` | none | Static request URL. |
 | `tools.*.request` | `object \| function` | none | Static or input-derived request definition. |
-| `tools.*.method` | `"GET" \| "HEAD" \| "POST"` | request default | HTTP method. |
+| `tools.*.method` | `"GET" \| "HEAD" \| "POST"` | `"GET"` | HTTP method used when the request definition does not override it. |
+| `tools.*.request.url` | `string \| URL` | `tools.*.url` | Request URL. A request resolver can derive it from validated tool input. |
+| `tools.*.request.method` | `"GET" \| "HEAD" \| "POST"` | `tools.*.method`, then `"GET"` | Per-request HTTP method override. |
+| `tools.*.request.headers` | `Record<string, string>` | none | Request headers. |
+| `tools.*.request.query` | `Record<string, unknown>` | none | Query parameters appended to the URL. |
+| `tools.*.request.body` | `unknown` | none | Request body. |
+| `tools.*.request.timeout` | `number` | none | Request timeout in milliseconds. |
 | `tools.*.inputSchema` | Standard Schema | none | Validates model tool input before request construction. |
 | `tools.*.schema` | Standard Schema | none | Validates parsed response data. |
 | `tools.*.responseType` | `"json" \| "text"` | `"json"` | Response parser. |

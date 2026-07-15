@@ -13,7 +13,7 @@ The primitive owns the app-facing contract. A host provider may supply storage, 
 
 Vite apps often need the same server behavior across local development, Cloudflare, Vercel, Node, and framework-specific hosts. ViteHub keeps the public API at the primitive boundary so application code does not learn every provider's wiring model.
 
-This also keeps agents honest. An Agent can use a primitive only when an attached Capability exposes a model-facing ability for that primitive.
+This also keeps agents honest. An Agent can use a primitive only when an attached Capability exposes an ability for that primitive.
 
 ## What primitives own
 

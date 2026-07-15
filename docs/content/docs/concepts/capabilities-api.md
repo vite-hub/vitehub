@@ -1,6 +1,6 @@
 ---
 title: Capabilities API
-description: Understand how Agents attach controlled model-facing abilities without raw top-level tools.
+description: Understand how Agents attach controlled abilities without raw top-level tools.
 navigation.order: 8
 icon: i-lucide-blocks
 ---
@@ -13,7 +13,7 @@ Tools belong to Capability Definitions. They are not top-level Agent Definition 
 
 Raw tools make validation, policy, DevTools metadata, and driver support hard to inspect. A Capability keeps the ability, requirements, tool contracts, and runtime behavior together.
 
-Capabilities also keep primitive access explicit. Installing KV does not let every Agent read KV; attaching `kv()` decides whether a model receives KV read or edit tools.
+Capabilities also keep primitive access explicit. Installing KV does not let every Agent read KV; attaching `kv()` decides whether the selected Agent Driver receives KV read or edit tools.
 
 ## Official capability imports
 
@@ -42,16 +42,16 @@ export default defineAgent({
 })
 ```
 
-The Agent Package root stays focused on Agent Definition, invocation, message, and composition primitives. Capability factories stay on the capability subpath so model-facing abilities remain visible.
+The Agent Package root stays focused on Agent Definition, invocation, message, and composition primitives. Capability factories stay on the capability subpath so Agent abilities remain visible.
 
 ## What a Capability can contribute
 
 | Contribution | Purpose |
 | --- | --- |
 | Requirements | Primitive, Workspace mode, path, store, or policy requirements checked early. |
-| Tools | Model-facing operations such as read, edit, query, execute, search, or transcribe. |
+| Tools | Agent Driver-facing operations such as read, edit, query, execute, search, or transcribe. |
 | Trigger behavior | Product events that start Agent Invocations. |
-| Policy | Approval and safety decisions for model-facing actions. |
+| Policy | Approval and safety decisions for tool actions. |
 | Invocation context values | Typed data that later Agent and Capability callbacks can read. |
 | Metadata | Inspectable configuration for runtime and DevTools surfaces. |
 

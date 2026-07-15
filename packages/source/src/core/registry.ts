@@ -42,6 +42,7 @@ export function clearSources(): void {
 
 function createSourceContext(name: string, context: Partial<SourceContext> = {}): SourceContext {
   return {
+    abortSignal: context.abortSignal,
     rootDir: context.rootDir || process.cwd(),
     source: context.source || name,
     sourceRootDir: context.sourceRootDir,

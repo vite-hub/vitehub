@@ -54,6 +54,6 @@ export default defineConfig({
 
 ## Vite Integration
 
-Use `hubSandbox()` in Vite to discover `src/<name>.sandbox.ts`. Provider config selects [Cloudflare Sandbox SDK](https://developers.cloudflare.com/sandbox/) or [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox/).
+Use `hubSandbox()` in Vite to discover directory Definitions under `server/sandboxes/` and suffix Definitions such as `src/<name>.sandbox.ts`. Nested directory paths become nested Sandbox names. Provider config selects [Cloudflare Sandbox SDK](https://developers.cloudflare.com/sandbox/) or [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox/).
 
 Learn more at [vitehub.dev](https://vitehub.dev).

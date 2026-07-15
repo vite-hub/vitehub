@@ -104,7 +104,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-DevTools can select configured Agent Invoker Profiles before a new Chat Session starts. It should not switch invokers in the middle of one conversation.
+DevTools can select configured Agent Actor Profiles through `invokerProfileId` before a new Chat Session starts. It should not switch Actors in the middle of one conversation.
 
 ## Partition transcripts by Channel
 
@@ -138,5 +138,5 @@ Choose a durable provider before treating Chat History as production conversatio
 ## Next steps
 
 - Read [Channels](/docs/agents/channels) for message origins and delivery metadata.
-- Read [Invokers](/docs/agents/invokers) for trusted caller identity.
+- Read [Agent Actors](/docs/agents/actors) for trusted caller identity.
 - Read [Capabilities](/docs/capabilities) for `chat()` and `memory()`.

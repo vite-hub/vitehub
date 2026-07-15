@@ -49,7 +49,7 @@ Delete operations return `{ pathname, deleted: true }`.
 
 ## Requirements
 
-`blob()` requires a configured `blob` primitive.
+`blob()` uses the configured `blob` primitive when present, or the default export from an installed `@vite-hub/blob` package.
 Named store selection requires the Blob primitive to expose store selection.
 
 Writes require explicit write mode.

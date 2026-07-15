@@ -5,7 +5,7 @@ navigation.order: 21
 icon: i-lucide-file-user
 ---
 
-An Agent Definition is the code declaration that names one Agent and configures how it runs. It owns the Agent Driver, optional Box, attached Capabilities, Workspace context, Agent Invoker options, and lifecycle hooks.
+An Agent Definition is the code declaration that names one Agent and configures how it runs. It owns the Agent Driver, optional Box, attached Capabilities, Workspace context, Agent Actor configuration, Channels, and lifecycle hooks.
 
 ViteHub discovers Agent Definitions from `server/agents`. The Agent File Name or folder name provides the discovered identity, so `server/agents/support.ts` and `server/agents/support/agent.ts` both create a `support` Agent.
 
@@ -28,6 +28,28 @@ export default defineAgent({
 ```
 
 The driver object accepts exactly one concrete variant: `model`, `harness`, or `run`. Driver-specific options stay beside that variant key.
+
+## Agent Definition options
+
+`defineAgent()` requires `driver` and accepts the following top-level fields.
+
+| Option | Type | Default | Purpose |
+| --- | --- | --- | --- |
+| `driver` | `AgentDriver` | Required | Selects exactly one model, harness, or custom-run execution path. |
+| `box` | `BoxDefinition` | None | Gives a harness driver an explicit execution environment, Home, checkout, and requirements. A Box replaces `driver.sandbox` and `driver.workDir`. |
+| `capabilities` | `AgentCapabilitiesInput` | `[]` | Attaches a static Capability list or an invocation-time resolver. |
+| `channels` | `Record<string, AgentChannelInput>` | None | Declares named Channel factories or definitions for reachability and delivery. |
+| `cli.capabilities` | `boolean` | `true` | Enables or disables Capability-contributed Agent CLI commands for this Definition. |
+| `description` | `string` | None | Adds human-readable metadata for discovery and inspection. |
+| `hooks` | Agent, Capability, and observer hook map | None | Registers `agent:input`, `agent:finish`, Capability lifecycle, or `hook:observe` callbacks. |
+| `invoker` | `AgentInvokerOptions` | None | Configures Agent Actor profiles and resolution through the current `invoker`-named API. |
+| `messages` | `AgentMessageChannelSettings` | Channel defaults | Applies shared message delivery, concurrency, session, state, and transcript settings across adapter-backed Channels. |
+| `name` | `string` | Discovered identity | Supplies an explicit Definition name for direct metadata and Workspace naming. Discovered host identity still comes from the file or folder path. |
+| `runtime` | `false \| workflow(name?)` | Discovered Workflow | Disables hosted Workflow execution or selects an explicit Workflow binding. Direct calls without discovered Agent identity remain inline. |
+| `version` | `string` | None | Adds a Definition version to generated and DevTools metadata. |
+| `workspace` | `WorkspaceAgentWorkspaceConfig` | None | References a named Workspace or declares an Agent-owned Workspace and access mode. |
+
+The resolved `AgentDefinition` also exposes runtime-owned `resolve()` and, when applicable, `run()`. Those are outputs of `defineAgent()`, not additional authoring fields.
 
 ## Attach Capabilities
 
@@ -55,7 +77,7 @@ export default defineAgent({
 
 Tools are contributed by Capabilities. They are not top-level Agent Definition fields.
 
-When trusted invocation context decides which Agent Definition abilities apply, make `capabilities` a callback. ViteHub resolves the Agent Invoker first and uses the returned list for that invocation; Capabilities contributed by the active Channel still compose normally.
+When trusted invocation context decides which Agent Definition abilities apply, make `capabilities` a callback. ViteHub resolves the Agent Actor first and uses the returned list for that invocation; Capabilities contributed by the active Channel still compose normally.
 
 ```ts [server/agents/support.ts]
 export default defineAgent({
@@ -103,9 +125,9 @@ export default defineAgent({
 
 Use a writable Workspace Capability only when the product expects the Agent to change Workspace files. Start with read access when the Agent only needs context.
 
-## Configure trusted callers
+## Configure Agent Actors
 
-Agent Invoker options define trusted caller profiles and optional resolution logic. The resolved Agent Invoker becomes `context.invoker` for Agent and Capability callbacks.
+An Agent Actor carries trusted caller identity for one invocation. The current configuration field and helper are named `invoker` and `defineAgentInvoker()`. Resolved callbacks receive the same Actor as both `actor` and `invoker`.
 
 ```ts [server/agents/support.ts]
 import { gateway } from '@ai-sdk/gateway'
@@ -129,11 +151,12 @@ export default defineAgent({
 })
 ```
 
-Agent Invokers are not Channels, Auth Users, or Access roles. They carry trusted invocation identity that those systems may produce or consume.
+Agent Actors are not Channels, Auth Users, or Access roles. Those systems can produce or consume an Actor, but they do not replace its trusted invocation identity.
 
 ## Next steps
 
 - Read [Agent Drivers](/docs/agents/agent-drivers) for the driver variants.
 - Read [Boxes](/docs/agents/boxes) when a harness Agent needs an explicit execution environment.
 - Read [Workspace context](/docs/agents/workspace-context) before exposing files.
+- Read [Agent Actors](/docs/agents/actors) for trusted caller profiles and exact `invoker` API names.
 - Read [Capabilities](/docs/capabilities) for official and custom ability pages.

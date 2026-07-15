@@ -120,6 +120,7 @@ Target-based context requires a client option or a configured `repository-host` 
 | `client` | `RepositoryHostClient \| function` | primitive | Provider client with `read()`. |
 | `context` | `RepositoryHostContextInput \| function` | invocation context | Static issue, Change Request, or selected key values. |
 | `contextKey` | `string` | `"repositoryHost"` | Agent Invocation Context key used to store the async record. |
+| `id` | `string` | `"repository-host-context"` | Capability id. |
 | `provider` | `"github" \| string` | client provider | Provider guard. V1 accepts GitHub targets. |
 | `target` | `RepositoryHostContextTarget \| function` | none | Repository host target such as `{ repo, number }`, `{ repo, issue }`, or `{ repo, pullRequest }`. |
 | `triggers` | `Record<string, AgentTriggerDefinition>` | none | Trigger contributions tied to this context. |

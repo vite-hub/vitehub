@@ -57,7 +57,7 @@ The client must expose `read()`, and write mode also requires `write()` before t
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives `repository_host_read`, plus `repository_host_write` in write mode. |
-| Harness-backed | Does not receive model-facing Repository Host tools by default. |
+| Harness-backed | Receives Repository Host tools through the Harness tool bridge. |
 | Custom-run-backed | Can use the configured client directly through runtime context if the runner owns that behavior. |
 
 ## Options

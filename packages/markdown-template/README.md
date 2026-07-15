@@ -19,7 +19,7 @@ Use `{{ pullRequest.title }}` for a string, number, or boolean. Scalar values ar
 
 Scalar bindings also work inside quoted XML-style attributes. Attribute values are HTML-escaped, while template syntax inside code spans and code blocks stays literal.
 
-Conditional sections support own-property data paths, literals, `!`, strict equality and inequality, `&&`, `||`, and parentheses:
+Conditional sections support own-property data paths, literals, `!`, equality and inequality (`===`, `!==`, `==`, and `!=` use strict semantics), `&&`, `||`, and parentheses:
 
 ```md
 ::if{pullRequest.available && !pullRequest.draft}
@@ -39,6 +39,8 @@ await renderMarkdownTemplate(template, {
   },
 })
 ```
+
+Imports resolve before conditional sections are evaluated, so the resolver must authorize every requested import even when it appears inside an unselected branch.
 
 The package does not provide loops, helpers, macros, a compile phase, filesystem or URL access, HTML rendering, or public syntax-tree hooks. Markdown fragments preserve document structure, but they do not make untrusted content safe for a model; instruction and data boundaries remain the caller's responsibility.
 

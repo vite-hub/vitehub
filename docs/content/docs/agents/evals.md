@@ -39,6 +39,36 @@ export default defineEval({
 Call `t.send(...)` with the first user message, then call it again for follow-ups that should keep the same Chat History.
 Use `messages` or `context` in the input when the eval needs a precise starting state, and split independent checks into separate scenarios.
 
+### Eval Definition options
+
+`defineEval()` accepts one `scenarios` array or one imperative `test` callback. The two forms are mutually exclusive.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `agent` | Agent Definition or async factory | Sibling Agent | Selects the Agent under test. `support.eval.ts` infers `support.ts`; a folder `eval.ts` infers `agent.ts`. |
+| `name` | `string` | Eval file name | Names the Evalite suite. A folder `eval.ts` uses the folder name. |
+| `runtimeConfig` | object or async factory | `{}` | Supplies app-owned Agent runtime configuration to each invocation. |
+| `scorers` | `AgentScorer[]` | `[]` | Applies scorers to every declarative scenario or to the imperative test. |
+| `variants` | `AgentEvalVariant[]` | Baseline only | Runs every case against named model or instruction variants. |
+| `workspace` | `WorkspaceName` | Agent Workspace | Selects the Workspace used by the test runner. |
+| `scenarios` | `AgentEvalScenario[]` | Mutually exclusive with `test` | Declares one or more independent inputs and optional per-scenario scorers. An empty array is rejected. |
+| `test` | callback | Mutually exclusive with `scenarios` | Runs a conversation-shaped imperative check through `AgentEvalTestContext`. |
+
+### Imperative test helpers
+
+| Helper | Purpose |
+| --- | --- |
+| `send(input)` | Runs a string or full Agent Invocation input and returns the normalized observation. Repeated calls preserve the test conversation. |
+| `completed()` | Requires a completed invocation. |
+| `textContains(value)` | Requires response text to contain a string or match a regular expression. |
+| `calledTool(name)` | Requires one normalized tool call with the given name. |
+| `doesNotCallTool(name)` | Requires the named tool to remain unused. |
+| `capabilityExtension(id, key?)` | Reads a Capability finish extension from the latest observation. |
+| `hasCapabilityExtension(id, key?)` | Requires a Capability finish extension to exist. |
+| `expect(scorer)` | Applies a custom `AgentScorer` to the latest observation. |
+| `observation` | Exposes the latest observation when one has been sent. |
+| `reply` | Exposes the latest response text. |
+
 Use `scenarios` when one eval file should run several cases or reuse the same scorers.
 
 ```ts [server/agents/support.eval.ts]
@@ -64,9 +94,18 @@ export default defineEval({
 Scenarios pass normal Agent Invocation input.
 Scorers receive the Agent output text, raw result, tool steps, usage, warnings, capability finish extensions, scenario name, and variant name.
 
+### Scenario options
+
+| Option | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | `string` | Yes | Identifies the case in Evalite output. |
+| `input` | `AgentRunInput` | Yes | Supplies `prompt`, `message`, `messages`, `context`, call `options`, `timeout`, or an `abortSignal`. |
+| `metadata` | `unknown` | No | Carries app-owned case metadata into the observation. |
+| `scorers` | `AgentScorer[]` | No | Adds case-specific scorers after Definition-level scorers. |
+
 ## Compare variants
 
-Variants compare model or instruction changes against the same scenarios. They apply only to model-backed Agent Drivers.
+Variants compare model or instruction changes against the same scenarios. Instruction-only variants require a model-backed Agent Driver. A variant that supplies `model` can also replace a Harness Driver for that eval run.
 
 ```ts [server/agents/support.eval.ts]
 import { defineEval, textContains } from '@vite-hub/agent/eval'
@@ -88,6 +127,16 @@ export default defineEval({
 
 Use a separate Agent Definition when the change affects Capabilities, Workspace context, custom `driver.run` behavior, or host runtime configuration.
 
+### Variant options
+
+Baseline variants without `model` or `instructions` leave every Agent Driver unchanged. `instructions` can override only a model-backed Driver, while `model` can replace a model-backed or Harness Driver for the variant. Override variants are unsupported for custom `driver.run` Agents and fail before the scenario runs.
+
+| Option | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | `string` | Yes | Identifies the variant in Evalite output. |
+| `model` | `AgentModelInput` | No | Replaces `driver.model` for the variant. |
+| `instructions` | `string \| string[]` | No | Replaces `driver.instructions` for the variant. |
+
 ## Run evals
 
 The Agent Vite integration writes the Evalite configuration during local setup. Run the Agent eval CLI from the workspace.
@@ -96,7 +145,49 @@ The Agent Vite integration writes the Evalite configuration during local setup. 
 pnpm vitehub agent eval server/agents/support.eval.ts
 ```
 
-Use `--watch` while editing prompts or scenarios. Use `--threshold` and `--output` when the eval should feed CI or another review surface.
+Configure the runner through `hubAgent({ eval })`. Set `eval: false` to disable Agent Evals and their CLI contribution.
+
+```ts [vite.config.ts]
+import { hubAgent } from '@vite-hub/agent/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [
+    hubAgent({
+      eval: {
+        cache: true,
+        maxConcurrency: 2,
+        scoreThreshold: 85,
+        testTimeout: 60_000,
+      },
+    }),
+  ],
+})
+```
+
+### Eval Integration options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `cache` | `boolean` | `true` | Enables Evalite result caching. |
+| `forceRerunTriggers` | `string[]` | Agent and Eval globs | Adds files that force a watch-mode rerun. Defaults to `server/agents/**`, `src/**/*.agent.*`, and `src/**/*.eval.*`. |
+| `hideTable` | `boolean` | Evalite default | Hides the terminal score table. |
+| `maxConcurrency` | `number` | Vitest default | Limits concurrent eval cases. |
+| `scoreThreshold` | `number` | None | Fails the run when its score is below the threshold. |
+| `server.port` | `number` | Evalite default | Selects the local Evalite server port. |
+| `setupFiles` | `string[]` | `[]` | Loads additional Vitest setup files after Evalite's environment setup. |
+| `testTimeout` | `number` | `30_000` | Sets each eval test timeout in milliseconds. |
+| `trialCount` | `number` | Evalite default | Repeats each case for the requested number of trials. |
+
+CLI flags override the matching Integration option for one run.
+
+| Flag | Purpose |
+| --- | --- |
+| `--watch` | Reruns Evals when watched files change. |
+| `--threshold <score>` | Overrides `scoreThreshold`. |
+| `--output <path>` | Writes the completed Evalite result as JSON. |
+| `--hide-table` | Hides the terminal score table. |
+| `--no-cache` | Disables Evalite caching for this run. |
 
 ## Score useful behavior
 

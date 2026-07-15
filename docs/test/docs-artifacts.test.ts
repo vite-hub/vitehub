@@ -41,6 +41,7 @@ describe("writeDocsArtifacts", () => {
         "---",
         "title: KV",
         "navigation.order: 2",
+        "navigation.group: Storage",
         "---",
         "",
         "KV content.",
@@ -66,6 +67,7 @@ describe("writeDocsArtifacts", () => {
         "/docs/server-primitives/kv",
         "/docs/server-primitives/hidden",
       ]);
+      expect(manifest.sections[0]?.pages.find(page => page.id === "kv")?.group).toBe("Storage");
       expect(manifest.sections[0]?.pages.find(page => page.id === "hidden")?.navigation).toBe(false);
     } finally {
       rmSync(rootDir, { force: true, recursive: true });

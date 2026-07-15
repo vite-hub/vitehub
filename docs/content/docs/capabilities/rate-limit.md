@@ -89,6 +89,14 @@ The Capability should fail with a store requirement instead of using process mem
 | `onAllowed` | `function` | none | Callback after allowed decisions. |
 | `onRejected` | `function` | none | Callback after rejected decisions. |
 
+### In-memory store
+
+`memoryRateLimitStore()` creates the process-local store used by `store: 'memory'`. Import it directly when tests or local development need an isolated store instance.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `maxEntries` | `number` | `100000` | Maximum active fixed-window entries retained before the store evicts older data. |
+
 ## Reference
 
 - [Agent invocations](/docs/agents/invocations)

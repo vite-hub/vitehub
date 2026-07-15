@@ -23,12 +23,13 @@ Libraries and advanced integrations that do not use the framework distribution
 can install `@vite-hub/cli` directly.
 
 Expected help lists available namespaces.
-The Agent Package contributes the `agent` namespace when `hubAgent()` is active, the Workspace Package contributes the `workspace` namespace when `hubWorkspace()` is active, and the CLI includes the built-in `provision` namespace.
+The Agent Package contributes `agent` when `hubAgent()` is active, Database contributes `db` when `hubDb()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the CLI includes the built-in `provision` namespace.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
 Available namespaces:
   agent       Agent development workflows.
+  db          Database development workflows.
   workspace   Workspace development workflows.
   provision   Idempotently create missing provider resources.
 ```
@@ -40,8 +41,23 @@ Available namespaces:
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
+| `vitehub db generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
+| `vitehub db migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
 | `vitehub workspace dev` | Available | Workspace Package | Run commands through a Workspace Session exposed by a Compatible Vite Development Server. |
 | `vitehub provision run` | Available | ViteHub CLI plus package Provision Steps | Create missing provider resources idempotently. |
+
+## Manage Database migrations
+
+The Database commands refresh the discovered Database Definitions before running Drizzle Kit. When every Database is named, ViteHub runs the command once for each generated Drizzle config and stops at the first failure.
+
+```bash [Terminal]
+pnpm vitehub db generate
+pnpm vitehub db generate --name add-audit-log
+pnpm vitehub db generate --custom --name backfill-state
+pnpm vitehub db migrate
+```
+
+`db generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. `db migrate` accepts forwarded Drizzle Kit migration arguments.
 
 ## Run Agent Evals
 
@@ -58,9 +74,11 @@ pnpm add -D @vite-hub/agent evalite vitest
 pnpm vitehub agent eval
 pnpm vitehub agent eval server/agents/support.eval.ts --threshold 90
 pnpm vitehub agent eval --output .vitehub/evals/support.json --hide-table
+pnpm vitehub agent eval --watch
+pnpm vitehub agent eval --no-cache
 ```
 
-Set `agent.eval.testTimeout` in `vite.config.ts` for long-running model or harness evals.
+Use `--watch` to rerun affected evals after file changes and `--no-cache` to bypass cached model output. Set `agent.eval.testTimeout` in `vite.config.ts` for long-running model or harness evals.
 
 ## Inspect an Agent Definition
 
@@ -164,11 +182,13 @@ Start the app's Vite dev server first, then run the command from another termina
 ```bash [Terminal]
 pnpm vitehub workspace dev --url http://localhost:5173 docs exec pnpm test --filter api
 pnpm vitehub workspace dev --timeout 180000 docs exec "npm run lint"
+pnpm vitehub workspace dev --path guides --path examples docs exec pnpm test
 ```
 
 The command runs through the Workspace dev endpoint exposed by `hubWorkspace()` on the Compatible Vite Development Server.
 ViteHub materializes a Workspace Session, executes the command, prints stdout and stderr, and commits the session when the command exits successfully.
 Put Workspace Dev options before the Workspace target; use `exec` before one-shot command args.
+Repeat `--path <path>` to materialize only those Workspace paths for the command session.
 If you omit the command in an interactive terminal, the CLI opens a prompt for repeated Workspace commands.
 
 ```txt [Output]

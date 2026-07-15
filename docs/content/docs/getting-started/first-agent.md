@@ -85,10 +85,10 @@ export default defineAgent({
 })
 ```
 
-The route imports this Definition directly and needs the completed result for
-its HTTP response, so `runtime: false` opts out of the hosted Workflow default.
-Keeping it under `server/agents` makes the Agent boundary easy to discover and
-review.
+The direct `runAgent()` call below has no discovered Agent identity, so it would
+already run inline. This tutorial keeps `runtime: false` explicit so the same
+Definition also stays inline if it is later invoked through discovery. Keeping
+the file under `server/agents` makes the Agent boundary easy to inspect.
 
 ## Run one Agent Invocation
 
@@ -169,4 +169,4 @@ the Agent Definition and invocation boundary.
 - Follow the longer [Agents tutorial](/blog/agents) to upgrade this Agent to an AI SDK model.
 - Read [Agent Definitions](/docs/agents/agent-definitions) for every Agent Driver shape.
 - Read [Invocations](/docs/agents/invocations) for streaming, trusted context, and failure handling.
-- Read [Capabilities](/docs/agents/capabilities) before exposing tools or data.
+- Read [Capabilities](/docs/capabilities) before exposing tools or data.
