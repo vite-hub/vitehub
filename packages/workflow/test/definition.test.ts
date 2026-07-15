@@ -19,6 +19,17 @@ describe("workflow definitions", () => {
     expect(defineWorkflow(async () => ({ ok: true })).handler).toEqual(expect.any(Function))
   })
 
+  it("registers optional native durable entries", () => {
+    const handler = async () => ({ inline: true })
+    const native = async () => ({ inline: false })
+
+    expect(defineWorkflow(handler, { native })).toEqual({
+      handler,
+      options: { native },
+    })
+    expect(() => defineWorkflow(handler, { native: "invalid" as never })).toThrow(/native entry/)
+  })
+
   it("discovers Vite suffix and server workflow definitions", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-discovery-"))
     tempDirs.push(rootDir)

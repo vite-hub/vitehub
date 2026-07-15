@@ -191,8 +191,22 @@ describe("Vite workflow provider outputs", () => {
 
   it("does not emit Cloudflare workflow artifacts for Vercel provider overrides", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-override-")
+    await linkNodeModuleEntry(join(playgroundDir, "../../packages/workflow/node_modules/workflow"), join(rootDir, "node_modules", "workflow"))
     const viteConfig = join(rootDir, "vite.config.ts")
-    await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replaceAll("workflow: {},", "workflow: { provider: \"vercel\" },"))
+    await writeFile(viteConfig, (await readFile(viteConfig, "utf8"))
+      .replace("const baseConfig = {", `const baseConfig = {\n    resolve: { alias: { "@": resolve(import.meta.dirname, ".") } },`)
+      .replaceAll("workflow: {},", "workflow: { provider: \"vercel\" },"))
+    await writeFile(join(rootDir, "server", "workflows", "durable.ts"), [
+      `export async function durable() {`,
+      `  "use workflow"`,
+      `  return "durable"`,
+      `}`,
+    ].join("\n"))
+    await writeFile(join(rootDir, "server", "workflows", "native.ts"), [
+      `import { defineWorkflow } from "@vite-hub/workflow"`,
+      `import { durable } from "@/server/workflows/durable.js"`,
+      `export default defineWorkflow(async () => "inline", { native: durable })`,
+    ].join("\n"))
 
     await execFileAsync("vp", ["build"], {
       cwd: rootDir,
@@ -201,6 +215,34 @@ describe("Vite workflow provider outputs", () => {
 
     expect(existsSync(join(rootDir, "dist", "vite"))).toBe(false)
     expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(true)
+    expect(await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")).toContain("workflowId")
+    expect(existsSync(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.js"))).toBe(true)
+    expect(existsSync(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "webhook", "[token].func", "index.js"))).toBe(true)
+    expect(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).toContain("/.well-known/workflow/v1/webhook/")
+  }, buildOutputTestTimeout)
+
+  it("rejects native Vercel entries outside discovered definition directories", async () => {
+    const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-external-native-")
+    await linkNodeModuleEntry(join(playgroundDir, "../../packages/workflow/node_modules/workflow"), join(rootDir, "node_modules", "workflow"))
+    const viteConfig = join(rootDir, "vite.config.ts")
+    await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replaceAll("workflow: {},", "workflow: { provider: \"vercel\" },"))
+    await mkdir(join(rootDir, "server", "durable"), { recursive: true })
+    await writeFile(join(rootDir, "server", "durable", "welcome.ts"), [
+      `export async function durable() {`,
+      `  "use workflow"`,
+      `  return "durable"`,
+      `}`,
+    ].join("\n"))
+    await writeFile(join(rootDir, "server", "workflows", "native.ts"), [
+      `import { defineWorkflow } from "@vite-hub/workflow"`,
+      `import { durable } from "../durable/welcome"`,
+      `export default defineWorkflow(async () => "inline", { native: durable })`,
+    ].join("\n"))
+
+    await expect(execFileAsync("vp", ["build"], {
+      cwd: rootDir,
+      env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
+    })).rejects.toThrow(/must be colocated with its discovered workflow definition/)
   }, buildOutputTestTimeout)
 
   it("does not emit provider deployment artifacts for OpenWorkflow provider overrides", async () => {

@@ -9,6 +9,8 @@
 
 `@vite-hub/workflow` defines long-running work once and starts it through one `runWorkflow()` API.
 
+Vercel definitions can register a native entry for durable execution. Definitions without one remain source-compatible, but execute inline and do not survive a function restart.
+
 ## Install
 
 ```sh
@@ -33,6 +35,30 @@ export default defineWorkflow<{ email: string }>(async ({ id, payload, step }) =
 })
 ```
 
+For a durable Vercel run, keep the same context-shaped interface and register a native entry containing the Workflow DevKit directive:
+
+```ts
+import { defineWorkflow, type WorkflowExecutionContext } from "@vite-hub/workflow"
+
+interface WelcomePayload {
+  email: string
+}
+
+async function durableWelcome({ payload }: WorkflowExecutionContext<WelcomePayload>) {
+  "use workflow"
+
+  return { sentTo: payload.email }
+}
+
+async function inlineWelcome({ payload }: WorkflowExecutionContext<WelcomePayload>) {
+  return { sentTo: payload.email }
+}
+
+export default defineWorkflow(inlineWelcome, { native: durableWelcome })
+```
+
+ViteHub transforms the native entry with Workflow DevKit when it generates Vercel provider output.
+
 ```ts
 // server/api/welcome.post.ts
 import { getWorkflowRun, runWorkflow } from "@vite-hub/workflow"
@@ -43,6 +69,8 @@ export default defineEventHandler(async (event) => {
   return getWorkflowRun("welcome", run.id)
 })
 ```
+
+`getWorkflowRun()` normalizes provider run and step state, including timestamps, attempts, and failures. `cancelWorkflow()` cancels a durable run, and `resumeWorkflowSignal()` forwards an opaque signal token created inside the native workflow. Providers that cannot perform an operation fail explicitly instead of simulating it.
 
 ```ts
 // vite.config.ts

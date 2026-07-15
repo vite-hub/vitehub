@@ -67,12 +67,16 @@
   },
   "peerDependencies": {
     "@vite-hub/database": "workspace:*",
+    "@workflow/builders": "catalog:workflow",
     "openworkflow": "catalog:workflow",
     "vite": "catalog:vite-compat",
     "workflow": "catalog:workflow"
   },
   "peerDependenciesMeta": {
     "@vite-hub/database": {
+      "optional": true
+    },
+    "@workflow/builders": {
       "optional": true
     },
     "openworkflow": {

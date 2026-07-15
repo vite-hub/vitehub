@@ -84,15 +84,29 @@ export type WorkflowModuleOptions =
 export type ResolvedWorkflowOptions = WorkflowProviderOptions
 
 export interface WorkflowRun<TPayload = unknown, TResult = unknown> {
+  completedAt?: Date
+  createdAt?: Date
   id: string
   provider: WorkflowProvider
   result?: TResult
+  startedAt?: Date
   status: WorkflowRunStatus
+  steps?: WorkflowRunStep[]
   metadata?: unknown
   payload?: TPayload
 }
 
-export type WorkflowRunStatus = "queued" | "running" | "completed" | "failed" | "unknown"
+export type WorkflowRunStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "unknown"
+
+export interface WorkflowRunStep {
+  attempt: number
+  completedAt?: Date
+  error?: { code?: string; message: string }
+  id: string
+  name: string
+  startedAt?: Date
+  status: WorkflowRunStatus
+}
 
 export interface WorkflowStepOptions {
   retries?: {
@@ -142,17 +156,19 @@ export interface WorkflowCreateOptions<TPayload = unknown, TResult = unknown> {
   name?: string
 }
 
-export interface WorkflowDefinitionOptions {
+export interface WorkflowDefinitionOptions<TPayload = unknown, TResult = unknown> {
   id?: string
+  native?: WorkflowHandler<TPayload, TResult>
   rootStep?: boolean
 }
 
 export interface WorkflowDefinition<TPayload = unknown, TResult = unknown> {
   handler: WorkflowHandler<TPayload, TResult>
-  options?: WorkflowDefinitionOptions
+  options?: WorkflowDefinitionOptions<TPayload, TResult>
 }
 
 export interface WorkflowHandle<TPayload = unknown, TResult = unknown> {
+  cancel: (id: string) => Promise<WorkflowRun<TPayload, TResult>>
   defer: (payload?: TPayload, options?: WorkflowStartOptions) => Promise<WorkflowRun<TPayload>>
   getRun: (id: string) => Promise<WorkflowRun<TPayload, TResult>>
   name: string
@@ -165,6 +181,11 @@ export interface WorkflowStartOptions {
 
 export interface WorkflowDeferOptions extends WorkflowStartOptions {
   deferred?: boolean
+}
+
+export interface WorkflowSignalResult {
+  id: string
+  provider: WorkflowProvider
 }
 
 export interface WorkflowDefinitionRegistry {
