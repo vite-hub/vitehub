@@ -33,7 +33,7 @@ Use the Agent DevTools Feature to answer the basic discovery questions before de
 | Agent Definitions | The expected files under `server/agents` were discovered with the expected Agent File Name. |
 | Agent Driver | The active driver is `model`, `harness`, or `run`, with expected model or harness metadata. |
 | Capabilities | The Agent attached the expected Capability Definitions and requirements. |
-| Agent Invoker Profiles | DevTools can select configured profiles before a new Chat Session starts. |
+| Agent Actor Profiles | DevTools can select configured `invoker.profiles` before a new Chat Session starts. |
 | Workspace | Visible Sources and Workspace Scope match the selected invocation. |
 
 If discovery is wrong, fix the Agent Definition before inspecting model output.
@@ -46,7 +46,7 @@ Start the app's Vite Development Server, then inspect one chat-capable Agent Def
 pnpm vitehub agent info --agent support
 ```
 
-The command reads the same resolved metadata as the Agent DevTools side panel: Driver metadata, tools, visible Workspace files and Sources, instruction documents, Agent Invoker Profiles, warnings, and metadata status.
+The command reads the same resolved metadata as the Agent DevTools side panel: Driver metadata, tools, visible Workspace files and Sources, instruction documents, Agent Actor Profiles, warnings, and metadata status.
 Pass `--json` when another agent or script needs the structured inspection contract, and use `--url` when Vite is not listening on `http://localhost:5173`.
 Agent DevTools must be enabled because the command inspects resolved runtime metadata from its running Vite bridge.
 
@@ -57,7 +57,7 @@ DevTools should show each Agent Invocation through the same public runtime bound
 | Runtime fact | Why it matters |
 | --- | --- |
 | Input and messages | Proves the trigger or route prepared the right Agent Invocation input. |
-| Agent Invoker | Shows which trusted identity Capabilities received. |
+| Agent Actor | Shows which trusted identity Capabilities received as `actor` and `invoker`. |
 | Run metadata | Connects the invocation to origin, channel, message, thread, or schedule facts. |
 | Tools and policy | Shows model-facing tools, approval decisions, and tool results. |
 | Usage record | Normalizes driver usage, latency, provider details, and cost context when available. |

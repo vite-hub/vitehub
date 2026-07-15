@@ -1,6 +1,4 @@
-import { chmodSync, existsSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
-import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -29,8 +27,6 @@ const harnessGlobalSkillsDirectory = Symbol.for("vitehub.harnessGlobalSkillsDire
 const harnessSessionPrepare = Symbol.for("vitehub.harnessSessionPrepare")
 
 export interface CodexDriverOptions<CALL_OPTIONS = unknown> extends CodexHarnessSettings {
-  authJson?: string
-  authJsonPath?: string
   credentials?: AgentHarnessCredentialSource
   env?: Record<string, string | undefined>
   instructions?: AgentHarnessInstructions<AgentRuntimeConfig, CALL_OPTIONS>
@@ -40,8 +36,6 @@ export interface CodexDriverOptions<CALL_OPTIONS = unknown> extends CodexHarness
 
 export function codexDriver<CALL_OPTIONS = unknown>(options: CodexDriverOptions<CALL_OPTIONS> = {}): AgentHarnessDriver<AgentRuntimeConfig, CALL_OPTIONS> {
   const {
-    authJson,
-    authJsonPath,
     credentials,
     env,
     instructions,
@@ -50,17 +44,10 @@ export function codexDriver<CALL_OPTIONS = unknown>(options: CodexDriverOptions<
     ...settings
   } = options
   const defaultOpenAIAuth = settings.auth === undefined
-  const usesAmbientCodexAuth = settings.auth === undefined
-    && authJson === undefined
-    && authJsonPath === undefined
-    && env?.CODEX_AUTH_JSON === undefined
-    && env?.CODEX_AUTH_JSON_PATH === undefined
   const auth = settings.auth ?? { openai: {} }
   // The upstream harness pins a model when this is undefined, which bypasses the operator's Codex profile.
   const model = settings.model ?? ""
   const sandboxProvider = codexSandboxProvider({
-    authJson,
-    authJsonPath,
     env,
     preferOpenAI: defaultOpenAIAuth,
     sandbox,
@@ -70,7 +57,9 @@ export function codexDriver<CALL_OPTIONS = unknown>(options: CodexDriverOptions<
     credentials: credentials ?? { label: "Codex", source: "ambient" },
     harness: createViteHubCodex({ ...settings, auth, model }, defaultOpenAIAuth),
     ...(instructions !== undefined ? { instructions } : {}),
-    requires: [usesAmbientCodexAuth ? "codex" : "codex-cli"],
+    requires: [
+      defaultOpenAIAuth ? { name: "Codex", command: "codex", args: ["login", "status"] } : "codex",
+    ],
     ...(sandboxProvider ? { sandbox: sandboxProvider } : {}),
     ...(workDir !== undefined ? { workDir } : {}),
   }
@@ -94,14 +83,20 @@ function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolea
   const harness = createCodex(settings)
   return {
     ...harness,
-    [harnessGlobalSkillsDirectory]: "tmp/harness/codex-home/skills",
+    [harnessGlobalSkillsDirectory]: (context: { box?: unknown }) => context.box
+      ? "home/.codex/skills"
+      : "tmp/harness/codex-home/skills",
     [harnessSessionPrepare]: async (session: object) => {
-      const authHome = "env" in session && session.env && typeof session.env === "object"
-        ? (session.env as Record<string, string | undefined>).CODEX_HOME
-        : undefined
-      await prepareCodexHome(session, authHome)
+      await prepareCodexHome(session)
     },
-    [harnessSandboxAdapter]: (provider: AgentHarnessSandboxProviderInput, options?: { defaultSandbox?: boolean }) => adaptCodexHarnessSandbox(provider, { defaultSandbox: options?.defaultSandbox, preferOpenAI }),
+    [harnessSandboxAdapter]: (
+      provider: AgentHarnessSandboxProviderInput,
+      options?: { box?: boolean, defaultSandbox?: boolean },
+    ) => adaptCodexHarnessSandbox(provider, {
+      defaultSandbox: options?.defaultSandbox,
+      isolateHome: !options?.box,
+      preferOpenAI,
+    }),
     async getBootstrap() {
       const [pkg, lock, bridge, hostToolMcp] = await Promise.all([
         readCodexBridgeAsset("package.json"),
@@ -153,18 +148,17 @@ function patchCodexBridge(bridge: string): string {
   return patched
 }
 
-async function prepareCodexHome(session: object, authHome?: string): Promise<void> {
+async function prepareCodexHome(session: object): Promise<void> {
   const result = await (session as { run(options: { command: string, env?: Record<string, string | undefined> }): Promise<{ exitCode: number, stderr?: string }> }).run({
-    command: 'mkdir -p "$CODEX_HOME" && chmod 700 "$CODEX_HOME" && : > "$CODEX_HOME/config.toml" && chmod 600 "$CODEX_HOME/config.toml" && rm -f "$CODEX_HOME/auth.json" && if [ -n "$VITEHUB_CODEX_AUTH_HOME" ] && [ -f "$VITEHUB_CODEX_AUTH_HOME/auth.json" ]; then ln -sfn "$VITEHUB_CODEX_AUTH_HOME/auth.json" "$CODEX_HOME/auth.json"; elif [ -f "$HOME/.codex/auth.json" ]; then ln -sfn "$HOME/.codex/auth.json" "$CODEX_HOME/auth.json"; fi',
-    ...(authHome ? { env: { VITEHUB_CODEX_AUTH_HOME: authHome } } : {}),
+    command:
+      'codex_home="${CODEX_HOME:-$HOME/.codex}" && ambient_home="$HOME/.codex" && mkdir -p "$codex_home" && chmod 700 "$codex_home" && if [ "$codex_home" != "$ambient_home" ] && [ -f "$ambient_home/auth.json" ] && [ ! -e "$codex_home/auth.json" ]; then cp "$ambient_home/auth.json" "$codex_home/auth.json" && chmod 600 "$codex_home/auth.json"; fi && if [ ! -e "$codex_home/config.toml" ]; then : > "$codex_home/config.toml"; fi && chmod 600 "$codex_home/config.toml"',
   })
   if (result.exitCode !== 0) {
-    throw new Error(`[vitehub] Failed to prepare isolated Codex home: ${result.stderr || "sandbox command failed"}`)
+    throw new Error(`[vitehub] Failed to prepare Codex Home: ${result.stderr || "sandbox command failed"}`)
   }
 }
+
 function codexSandboxProvider(options: {
-  authJson?: string
-  authJsonPath?: string
   env?: Record<string, string | undefined>
   preferOpenAI: boolean
   sandbox?: CodexDriverSandboxOptions
@@ -172,14 +166,12 @@ function codexSandboxProvider(options: {
   const { sandbox } = options
   if (sandbox === false) return
   if (typeof sandbox === "function" || isHarnessSandboxProvider(sandbox)) return sandbox
-  if (sandbox === undefined && options.authJson === undefined && options.authJsonPath === undefined && options.env === undefined) return
+  if (sandbox === undefined && options.env === undefined) return
 
   const localOptions = sandbox as LocalHarnessSandboxOptions | undefined
   return adaptCodexHarnessSandbox(createLocalHarnessSandbox({
     ...localOptions,
     env: codexLocalEnv({
-      authJson: options.authJson,
-      authJsonPath: options.authJsonPath,
       env: {
         ...options.env,
         ...localOptions?.env,
@@ -196,8 +188,6 @@ function isHarnessSandboxProvider(value: unknown): value is AgentHarnessSandboxP
 }
 
 function codexLocalEnv(options: {
-  authJson?: string
-  authJsonPath?: string
   env?: Record<string, string | undefined>
   preferOpenAI: boolean
 }): Record<string, string | undefined> {
@@ -211,38 +201,10 @@ function codexLocalEnv(options: {
     stripGatewaySecrets(env)
   }
 
-  const codexHome = codexHomeFromAuth({
-    authJson: options.authJson ?? env.CODEX_AUTH_JSON,
-    authJsonPath: options.authJsonPath ?? env.CODEX_AUTH_JSON_PATH ?? ambientCodexAuthJsonPath(),
-  })
-  if (codexHome) env.CODEX_HOME = codexHome
   env.PATH = [
     join(process.cwd(), "node_modules", ".bin"),
     env.HOME ? join(env.HOME, ".local", "bin") : undefined,
     env.PATH,
   ].filter(Boolean).join(":")
   return env
-}
-
-function ambientCodexAuthJsonPath(): string | undefined {
-  const path = join(homedir(), ".codex", "auth.json")
-  return existsSync(path) ? path : undefined
-}
-
-function codexHomeFromAuth(options: { authJson?: string, authJsonPath?: string }): string | undefined {
-  const authJson = options.authJson?.trim()
-  const authJsonPath = options.authJsonPath?.trim()
-  if (!authJson && !authJsonPath) return
-
-  const dir = mkdtempSync(join(tmpdir(), "vitehub-codex-home-"))
-  chmodSync(dir, 0o700)
-  writeFileSync(join(dir, "config.toml"), "")
-  if (authJson) {
-    writeFileSync(join(dir, "auth.json"), authJson.endsWith("\n") ? authJson : `${authJson}\n`, { mode: 0o600 })
-  } else if (authJsonPath && existsSync(authJsonPath)) {
-    symlinkSync(authJsonPath, join(dir, "auth.json"))
-  } else if (authJsonPath) {
-    throw new Error(`[vitehub] Codex auth JSON path does not exist: ${authJsonPath}`)
-  }
-  return dir
 }

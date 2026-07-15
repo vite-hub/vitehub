@@ -86,11 +86,19 @@ Source has no discovery or Vite Integration by itself. Import the module that re
 | Loader | Key options | Nuance |
 | --- | --- | --- |
 | `file(input)` | A path string, `{ path, workspacePath?, mediaType? }`, or inline `{ workspacePath, content, mediaType? }`. | Reads one file from the Source Context root. `workspacePath` controls the Source key. |
-| `markdown(input)` | Same options as `file(input)`. | Wraps file retrieval with markdown-oriented media type behavior. |
+| `markdown(options)` | `{ path, workspacePath?, mediaType? }` or inline `{ workspacePath, content, mediaType? }`. | Uses the `file()` contract with `text/markdown` as the default media type. Unlike `file()`, it requires an options object. |
 | `glob(options)` | `include`, `cwd`, `ignore`, `dot`, `followSymlinks`, `keyCache`, `prefix`. | Expands local files with `tinyglobby`; `keyCache: false` refreshes keys on each read path. |
 | `github(options)` | `repo`, `ref`, `root`, `auth`, `include`, `exclude`, `cache`. | Retrieves repository archive content. `auth` can be a token string or a trusted callback. |
 | `mcpResources(options)` | `server`, `include`, `exclude`, `path`, `request`, `cache`. | Reads MCP Resource content. `server` can be a client, client config, or resolver. |
 | `custom(source)` | A `Source` object. | Use when the built-in loaders do not match the origin contract. |
+
+### Cache options
+
+`github()`, `mcpResources()`, and custom Sources can expose a cache policy; `false` disables it. GitHub applies the policy to its own ref, archive, and metadata caches. Workspace can also consume the same policy when it decides whether materialized Source content is fresh.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `maxAge` | `number` | Consumer default | Maximum cache age in seconds. Workspace uses this value when deciding whether materialized Source content is still fresh. |
 
 ## Source object contract
 
@@ -107,8 +115,41 @@ A custom `Source` implements the retrieval behavior directly.
 | `getItems(ctx)` | `function` | Optional bulk item reader. |
 | `getMeta(key, ctx)` | `function` | Optional metadata reader. |
 | `search(query, ctx)` | `function` | Optional Source search implementation. |
+| `watch` | `unknown[]` | Optional watch descriptors for the consuming integration. Source does not start a watcher by itself. |
 
-`SourceContext` carries `rootDir`, optional `sourceRootDir`, optional Source name, and optional Workspace name. It is supplied by the caller that owns the runtime boundary.
+`getKeys()` and `getItem()` are required. `prepare()` runs at most once for each `useSource()` reader before its first operation. `getItems()` lets a consumer load all items in one call; `getMeta()` can return origin metadata without loading content.
+
+### Source Context
+
+The caller that owns the runtime boundary supplies `SourceContext` to every custom Source method.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `rootDir` | `string` | `process.cwd()` for `useSource()` | Base project directory. |
+| `sourceRootDir` | `string` | None | Optional Source-specific root. Built-in local file loaders fall back to `rootDir` when it is absent. |
+| `source` | `string` | Registered Source name | Identifies the active Source. |
+| `workspace` | `string` | None | Identifies the consuming Workspace when one owns the call. |
+| `abortSignal` | `AbortSignal` | None | Cancels in-flight work when the owning runtime supplies a signal. Custom loaders should forward it to fetches and other abortable operations. |
+
+### Custom search
+
+A custom `search(query, ctx)` returns `SourceSearchHit[]`. Workspace can call this hook when it searches Source-backed paths; `SourceReader` itself exposes keys, item reads, metadata, existence checks, and listing.
+
+| Query field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `pattern` | `string` | Yes | Text or regular-expression pattern to find. |
+| `cwd` | `string` | No | Narrows search to a Source-relative directory. |
+| `paths` | `string[]` | No | Restricts search to explicit Source paths. |
+| `regex` | `boolean` | No | Interprets `pattern` as a regular expression. |
+| `caseSensitive` | `boolean` | No | Enables case-sensitive matching. |
+| `limit` | `number` | No | Caps the number of returned hits. |
+
+| Result field | Type | Description |
+| --- | --- | --- |
+| `path` | `string` | Source-relative path containing the match. |
+| `line` | `number` | Match line number. |
+| `column` | `number` | Match column number. |
+| `text` | `string` | Matching line or excerpt. |
 
 ## Use it at runtime
 

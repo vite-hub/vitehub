@@ -93,7 +93,7 @@ The Vite config key is `workflow`.
 | `sqlite.runMigrations` | `boolean` | provider default | Runs OpenWorkflow SQLite migrations. |
 | `worker.concurrency` | `number` | provider default | OpenWorkflow worker concurrency. |
 
-When no provider is configured, ViteHub selects Cloudflare on Cloudflare hosting and Vercel otherwise. On Node or Docker hosting, OpenWorkflow is inferred when OpenWorkflow storage is configured through `database`, `postgres.url`, or `sqlite.path`.
+When no provider is configured, ViteHub selects Cloudflare on Cloudflare hosting and Vercel on other supported hosts. Netlify cannot infer a Workflow Provider, so set `provider` explicitly or disable Workflow there. On Node or Docker hosting, OpenWorkflow is inferred when OpenWorkflow storage is configured through `database`, `postgres.url`, or `sqlite.path`.
 
 ## Providers
 

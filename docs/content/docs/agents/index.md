@@ -71,7 +71,7 @@ Channels and Agent Triggers make an Agent reachable from product events without 
 | --- | --- |
 | Accept delivery from GitHub, web chat, streams, HTTP, CLI, DevTools, or chat platforms | [Channels](/docs/agents/channels) |
 | Map a Capability-owned or app-owned event into an Agent Invocation | [Triggers](/docs/agents/triggers) |
-| Carry trusted caller identity into one Agent Invocation | [Trusted caller identity](/docs/agents/invokers) |
+| Carry trusted caller identity into one Agent Invocation | [Agent Actors](/docs/agents/actors) |
 | Bound conversational state and prior messages | [Chat History and sessions](/docs/agents/chat-history-sessions) |
 
 ## Add controlled abilities
@@ -112,12 +112,12 @@ Agent behavior should be inspectable without guessing which hook, Capability, Ch
 
 | Concept | Responsibility |
 | --- | --- |
-| Agent Definition | Declares one Agent, its Agent Driver, Capabilities, Workspace, hooks, and Agent Invoker options. |
+| Agent Definition | Declares one Agent, its Agent Driver, Capabilities, Workspace, hooks, and Agent Actor configuration. |
 | Agent Driver | Selects model-backed, harness-backed, or custom-run-backed execution for each Agent Invocation. |
 | Capability | Adds a named ability and may contribute triggers, tools, policy, metadata, or context values. |
 | Agent Invocation | Runs one request through the selected Agent Definition and records lifecycle state. |
-| Agent Invoker | Carries the trusted caller identity for one Agent Invocation. |
-| Channel | Names origin, events, delivery, and message facts. It does not replace Agent Invoker identity. |
+| Agent Actor | Carries the trusted caller identity for one Agent Invocation through the current `invoker`-named configuration and input fields. |
+| Channel | Names origin, events, delivery, and message facts. It does not replace Agent Actor identity. |
 | Workspace | Exposes a scoped file tree and Sources for the Agent to inspect or mutate when allowed. |
 
 ## Next steps

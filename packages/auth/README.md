@@ -23,7 +23,6 @@ import { defineAuth } from "@vite-hub/auth"
 
 export default defineAuth({
   appName: "My app",
-  database: true,
 })
 ```
 
@@ -109,7 +108,7 @@ export default defineAuth({
 
 Manual hosts can mount the stable `#vitehub/auth/server` handler directly.
 
-Better Auth options stay top-level. ViteHub-owned wiring uses reserved fields: `access`, `database`, `secondaryStorage`, `basePath`, and `route`. `access.routes` must be static route strings or `{ method, route }` objects so the Vite Integration can register Nitro middleware.
+Better Auth options stay top-level. ViteHub-owned wiring reserves `access`, `database`, `secondaryStorage`, `basePath`, `route`, and `runtime`. The Better Auth fields `baseURL`, `secret`, and `secrets` are runtime-only: return them from the Definition callback or place them under `runtime`. `access.routes` must be static route strings or `{ method, route }` objects so the Vite Integration can register Nitro middleware.
 
 ```ts
 export default defineAuth({
@@ -119,7 +118,7 @@ export default defineAuth({
 })
 ```
 
-Database and secondary storage placement are metadata in this first package layer. Runtime adapters are passed through `@vite-hub/auth/server` today and will be wired into the database and KV packages in follow-up iterations.
+`database` and `secondaryStorage` are placement metadata. ViteHub removes metadata-shaped values before calling `betterAuth()`, so they do not create Database or KV adapters. When Better Auth needs persistent storage, return its concrete `database` or `secondaryStorage` adapter from the Definition callback or `runtime`.
 
 ## Client-side Auth
 
@@ -141,7 +140,6 @@ import { defineAuth } from "@vite-hub/auth"
 export default defineAuth({
   appName: "My app",
   basePath: "/auth",
-  database: true,
 })
 ```
 
@@ -169,6 +167,9 @@ import { authenticated } from "@vite-hub/auth/agent"
 
 export default defineAgent({
   invoker: authenticated(),
+  driver: {
+    run: ({ invoker }) => ({ invoker }),
+  },
 })
 ```
 

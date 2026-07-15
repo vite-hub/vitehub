@@ -5,7 +5,7 @@ navigation.order: 23
 icon: i-lucide-play-circle
 ---
 
-An Agent Invocation is one runtime request to an Agent. It receives input, resolves the Agent Invoker, applies Capabilities, runs the selected Agent Driver, records lifecycle state, and returns or streams output.
+An Agent Invocation is one runtime request to an Agent. It receives input, resolves the Agent Actor, applies Capabilities, runs the selected Agent Driver, records lifecycle state, and returns or streams output.
 
 Invoke Agents from server code, Agent Triggers, schedules, DevTools, or framework-owned routes. The invocation input carries prompt or message content plus trusted context values.
 
@@ -39,7 +39,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-The `context.invoker` input is trusted server data. Validate the request before passing identity or access facts into ViteHub.
+The `context.invoker` input is the current API field for a trusted Agent Actor. Validate the request before passing identity or access facts into ViteHub; callbacks receive the normalized Actor as both `actor` and `invoker`.
 
 ## Stream an Agent
 
@@ -87,6 +87,46 @@ export default defineAgent({
 ```
 
 The finish hook runs before the invocation's terminal Trace Event. Agent tests and eval observations expose the finalized `TraceRunView` as `result.trace` or `observation.trace` after completion. Stream and Response traces become terminal when the caller consumes, cancels, or encounters an error from the output.
+
+## Publish application run events
+
+Use Agent Run Events when server code needs to expose application-owned progress across Capability input, Agent Driver, and finish phases. Define the store beside the Agent so Workflow execution imports the resolver instead of serializing it in the Workflow payload.
+
+```ts [server/agents/summary/agent.ts]
+import { defineAgent } from '@vite-hub/agent'
+import { defineAgentRunEvents } from '@vite-hub/agent/server'
+import { summaryRunEventStore } from '../../run-event-store'
+
+export const summaryRunEvents = defineAgentRunEvents({
+  store: context => summaryRunEventStore(context),
+})
+
+export default defineAgent({
+  runEvents: summaryRunEvents,
+  capabilities: [{
+    id: 'transcribe',
+    async input(context) {
+      await context.runEvents?.publish({
+        type: 'stage',
+        data: { stage: 'transcribe' },
+      })
+    },
+  }],
+  driver: {
+    async run(context) {
+      await context.runEvents?.publish({
+        type: 'stage',
+        data: { stage: 'summarize' },
+      })
+      return summarize(context)
+    },
+  },
+})
+```
+
+The publisher exists only when the invocation has a stable `runId`; ViteHub does not invent a second identity for inline calls. Workflow-backed Agents use the Workflow Run id, while Capability input, the Agent Driver, and finish hooks remain phases inside that one run rather than separate Workflow steps.
+
+Server routes can call `summaryRunEvents.read(runId, cursor)` for replay or `summaryRunEvents.subscribe(runId, cursor, { signal })` for replay followed by live events. The configured store owns cursor assignment, ordering, timestamps, persistence, and the replay-to-live handoff, and it must stop subscriptions when the abort signal fires. ViteHub supplies no default persistence or authorization; authenticate the server route and scope every store operation to the application's run owner.
 
 ## Invoke a trigger
 
@@ -209,5 +249,5 @@ export default defineAgent({
 ## Next steps
 
 - Read [Triggers](/docs/agents/triggers) for Channel and Capability trigger paths.
-- Read [Invokers](/docs/agents/invokers) for trusted caller identity.
+- Read [Agent Actors](/docs/agents/actors) for trusted caller identity and exact `invoker` API names.
 - Read [DevTools](/docs/agents/devtools) to inspect Agent Invocation state.

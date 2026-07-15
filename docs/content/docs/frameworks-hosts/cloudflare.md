@@ -32,17 +32,29 @@ export default defineConfig({
     hubDb(),
     hubQueue(),
   ],
-  database: {
-    driver: 'd1',
-    binding: 'DB',
-    databaseName: 'app',
-  },
   queue: {
     provider: 'cloudflare',
     binding: 'JOBS',
   },
 })
 ```
+
+Database D1 metadata belongs to each Database Definition because a Vite app can have multiple Named Databases.
+
+```ts [src/database.ts]
+import { defineDatabase } from '@vite-hub/database'
+import { notes } from './schema'
+
+export default defineDatabase({
+  cloudflare: {
+    binding: 'DB',
+    databaseName: 'app',
+  },
+  tables: { notes },
+})
+```
+
+The Nuxt-only `database.driver: 'd1'` option configures one Nuxt Content and Nitro host resource; it is not a Vite Database Definition shortcut.
 
 ## Provision boundary
 

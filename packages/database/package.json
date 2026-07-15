@@ -58,6 +58,7 @@
     "pathe": "catalog:unjs"
   },
   "devDependencies": {
+    "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "drizzle-orm": "catalog:database",
     "publint": "catalog:tooling",

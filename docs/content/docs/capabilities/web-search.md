@@ -54,7 +54,7 @@ Tool mode requires the application to install `askweb` and configure one web sea
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives the provider tool in model mode or `web_search` and `web_read` in tool mode. |
-| Harness-backed | Runtime requirements apply; model-facing web tools are not passed by default. |
+| Harness-backed | Receives `web_search` and `web_read` through the Harness tool bridge in tool mode. Model mode is unsupported because Harness Agent Drivers do not accept Provider Tool contributions. |
 | Custom-run-backed | Receives prepared context; `driver.run` decides how to perform web access. |
 
 ## Inspect and verify
@@ -72,8 +72,32 @@ The Capability should report the missing package and suggest model mode as the a
 | `mode` | `"model" \| "tool"` | required | Uses provider-native model web search or ViteHub-managed search/read tools. |
 | `provider` | `WebSearchProviderInput` | required in tool mode | Provider name or provider options for tool mode. |
 | `provider.name` | `"brave" \| "exa" \| "jina" \| "searxng" \| "serpapi" \| "serpbase" \| "tavily" \| string` | required | Tool-mode web search provider. |
-| `provider.apiKey` | `string \| unsealer \| function` | env/provider default | Credential for providers that require one. |
+| `provider.apiKey` | `string \| unsealer \| function` | environment | Credential for providers that require one. |
 | `provider.baseURL` | `string` | provider default | Override provider endpoint. |
+
+## Credentials
+
+Tool mode resolves credentials in this order: `provider.apiKey`, `VITEHUB_<PROVIDER>_API_KEY`, then `<PROVIDER>_API_KEY`. ViteHub uppercases the provider name and replaces non-alphanumeric characters with underscores, so `my-search` uses `VITEHUB_MY_SEARCH_API_KEY` before `MY_SEARCH_API_KEY`.
+
+## Tool inputs
+
+Tool mode rejects properties outside these public input contracts.
+
+### `web_search`
+
+| Input | Type | Default | Description |
+| --- | --- | --- | --- |
+| `query` | `string` | required | Non-empty search query. |
+| `includeDomains` | `string[]` | provider default | Restrict results to these domains. |
+| `excludeDomains` | `string[]` | provider default | Exclude these domains from results. |
+| `maxResults` | `number` | provider default | Maximum number of search results. |
+
+### `web_read`
+
+| Input | Type | Default | Description |
+| --- | --- | --- | --- |
+| `url` | `string` | required | Non-empty page URL to read. |
+| `maxTokens` | `number` | reader default | Maximum normalized content size. |
 
 ## Reference
 

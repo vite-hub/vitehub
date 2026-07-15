@@ -19,6 +19,7 @@ import {
   chatSummary,
   chatTitle,
   db,
+  email,
   fetch,
   git,
   inputCommands,
@@ -44,29 +45,52 @@ import {
 
 ## Catalog
 
+### Invocation
+
 | Ability | Capability | Use it when |
 | --- | --- | --- |
 | Invocation access | [`access()`](/docs/capabilities/access) | Trusted invocation identity should narrow chat admission or Workspace Scope before later Capabilities run. |
 | Chat behavior | [`chat()`](/docs/capabilities/chat) | A chat surface should start Agent Invocations and manage Chat History behavior. |
 | Input commands | [`inputCommands()`](/docs/capabilities/input-commands) | Explicit user commands should transform or enrich input before the Agent runs. |
-| Subagents | [`subagents()`](/docs/capabilities/subagents) | A model-backed Agent should delegate bounded work to named Agent Definitions through model-facing tools. |
+| Subagents | [`subagents()`](/docs/capabilities/subagents) | An Agent should delegate bounded work to named Agent Definitions through tools. |
+
+### Workspace
+
+| Ability | Capability | Use it when |
+| --- | --- | --- |
 | Browser automation | [`browser()`](/docs/capabilities/browser) | The Agent needs headless browser evidence through the global `bash` tool and an included browser skill file. |
 | Workspace files | [`workspaceShell()`](/docs/capabilities/workspace-shell) | The Agent should inspect or edit Workspace files, or run allowlisted Workspace-session commands, through constrained Workspace tools. |
 | Git source history | [`git()`](/docs/capabilities/git) | The Agent needs bounded Git source-history inspection or local Workspace Session git state selection. |
-| Repository host | [`repositoryHost()`](/docs/capabilities/repository-host) | The Agent needs provider-hosted repository, Change Request, issue, comment, check, or status data through a configured Repository Host client. |
-| Repository host context | [`repositoryHostContext()`](/docs/capabilities/repository-host-context) | A trigger or host knows the current issue or Change Request and runtime code should read related context lazily. |
 | Skills file | [`skills()`](/docs/capabilities/skills) | The Agent requires a Workspace skill file at invocation time. |
+| Durable memory | [`memory()`](/docs/capabilities/memory) | The Agent needs scoped durable records across invocations. |
+
+### Runtime primitives
+
+| Ability | Capability | Use it when |
+| --- | --- | --- |
 | KV storage | [`kv()`](/docs/capabilities/kv) | The Agent needs scoped key-value read or edit tools. |
 | Blob storage | [`blob()`](/docs/capabilities/blob) | The Agent needs scoped object read or edit tools. |
 | Database | [`db()`](/docs/capabilities/db) | The Agent needs guarded SQL query, schema, or mutation tools. |
+| Email | [`email()`](/docs/capabilities/email) | The Agent should send authorized plain-text messages through the configured Email primitive. |
 | Sandbox execution | [`sandbox()`](/docs/capabilities/sandbox) | The Agent may run an allowlisted executable in an isolated runtime. |
 | Schedules | [`schedule()`](/docs/capabilities/schedule) | The Agent declares scheduled invocations or manages Runtime Schedules through tools. |
+
+### External context
+
+| Ability | Capability | Use it when |
+| --- | --- | --- |
+| Repository host | [`repositoryHost()`](/docs/capabilities/repository-host) | The Agent needs provider-hosted repository, Change Request, issue, comment, check, or status data through a configured Repository Host client. |
+| Repository host context | [`repositoryHostContext()`](/docs/capabilities/repository-host-context) | A trigger or host knows the current issue or Change Request and runtime code should read related context lazily. |
 | MCP servers | [`mcp()`](/docs/capabilities/mcp) | External MCP server tools should become model-facing Agent tools. |
 | Web search | [`webSearch()`](/docs/capabilities/web-search) | The Agent needs model web search or normalized web search/read tools. |
 | Fetch tools | [`fetch()`](/docs/capabilities/fetch) | The Agent needs named HTTP tools for developer-approved endpoints. |
 | OpenAPI tools | [`openapi()`](/docs/capabilities/openapi) | The Agent needs a selected OpenAPI operation catalog exposed as bounded HTTP tools or a generated Capability CLI. |
 | Transcription | [`transcribe()`](/docs/capabilities/transcribe) | Audio input parts should become text before model execution. |
-| Durable memory | [`memory()`](/docs/capabilities/memory) | The Agent needs scoped durable records across invocations. |
+
+### Decisions and output
+
+| Ability | Capability | Use it when |
+| --- | --- | --- |
 | LLM routing | [`llmRoute()`](/docs/capabilities/llm-route) | A pre-invocation model decision should choose one developer-defined route. |
 | LLM gate | [`llmGate()`](/docs/capabilities/llm-gate) | A pre-invocation model decision should allow or reject the request. |
 | Rate limit | [`rateLimit()`](/docs/capabilities/rate-limit) | A trusted invocation budget should be checked or consumed before the Agent runs. |

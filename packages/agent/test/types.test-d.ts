@@ -1,12 +1,13 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentFinishEvent, type AgentHarnessDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentUsageRecord, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
-import { access, blob, browser, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, openapi, papercuts, pullRequestContext, repositoryHost, repositoryHostContext, sandbox, schedule, skills, subagents, transcribe, webSearch, workspaceShell, type PapercutReportContext, type PapercutReportEvent, type SubagentToolInput } from "../src/capabilities.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentFinishEvent, type AgentHarnessDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentUsageRecord, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
+import { access, blob, browser, chat, chatTitle, db, email, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, openapi, papercuts, pullRequestContext, repositoryHost, repositoryHostContext, sandbox, schedule, skills, subagents, transcribe, webSearch, workspaceShell, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type PapercutReportContext, type PapercutReportEvent, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../src/output.ts"
+import { defineAgentRunEvents, type AgentRunEventPublisher } from "../src/server.ts"
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentToolDefinition, AgentToolSchema, StreamEvent } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
@@ -26,6 +27,84 @@ declare global {
 }
 
 describe("agent public types", () => {
+  it("types the Email capability as one explicit send grant", () => {
+    const policy: EmailCapabilityToolPolicy = "require-approval"
+    const options = { from: "agent@example.com", policy, recipients: ["owner@example.com"] as const } satisfies EmailCapabilityOptions
+
+    expectTypeOf(email(options)).toMatchTypeOf<AgentCapabilityDefinition>()
+    // @ts-expect-error Email requires an application-owned sender.
+    email({})
+    // @ts-expect-error Email has no read mode.
+    email({ from: "agent@example.com", mode: "read" })
+    // @ts-expect-error Email recipients must be an array.
+    email({ from: "agent@example.com", recipients: "owner@example.com" })
+    // @ts-expect-error Email recipient entries must be strings.
+    email({ from: "agent@example.com", recipients: [123] })
+  })
+
+  it("exposes a run-scoped event publisher across Agent phases", () => {
+    const runEvents = defineAgentRunEvents({
+      store: {
+        append: (_runId, event) => ({ ...event, cursor: "1", runId: "run-1", timestamp: new Date(0).toISOString() }),
+        read: () => [],
+        subscribe: () => (async function* () {})(),
+      },
+    })
+
+    defineAgent({
+      capabilities: [defineCapability({
+        id: "progress",
+        input(context) {
+          expectTypeOf(context.runEvents).toEqualTypeOf<AgentRunEventPublisher | undefined>()
+        },
+      })],
+      driver: {
+        run(context) {
+          expectTypeOf(context.runEvents).toEqualTypeOf<AgentRunEventPublisher | undefined>()
+        },
+      },
+      hooks: {
+        "agent:finish"(event) {
+          expectTypeOf(event.runtime.runEvents).toEqualTypeOf<AgentRunEventPublisher | undefined>()
+        },
+      },
+      runEvents,
+    })
+
+    const handWritten = {
+      publish: runEvents.publish,
+      read: runEvents.read,
+      subscribe: runEvents.subscribe,
+    }
+    defineAgent({
+      driver: { run: () => "ok" },
+      // @ts-expect-error Agent Run Events must be created by defineAgentRunEvents().
+      runEvents: handWritten,
+    })
+  })
+
+  it("infers structured Agent output from its Standard Schema", () => {
+    const schema = {
+      "~standard": {
+        validate: (input: unknown) => ({ value: input as { summary: string, title: string } }),
+        vendor: "test",
+        version: 1 as const,
+      },
+    } satisfies StandardSchemaV1<unknown, { summary: string, title: string }>
+    const agent = defineAgent({
+      driver: { run: () => "{}" },
+      output: { schema },
+      runtime: false,
+    })
+    const result = runAgentInline(agent, {} as AgentRuntimeContext, {})
+    const rawResult = runAgentInline(agent, {} as AgentRuntimeContext, {}, { output: "raw" })
+    const workflowResult = runAgent(agent, {} as AgentRuntimeContext, {})
+
+    expectTypeOf(result).toEqualTypeOf<Promise<Response | { summary: string, title: string }>>()
+    expectTypeOf(rawResult).toEqualTypeOf<Promise<unknown>>()
+    expectTypeOf<Extract<Awaited<typeof workflowResult>, { id: string }>["result"]>().toEqualTypeOf<{ summary: string, title: string } | undefined>()
+  })
+
   it("accepts literal false as the inline runtime opt-out", () => {
     const agent = defineAgent({
       driver: { run: () => "ok" },

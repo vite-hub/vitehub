@@ -1378,6 +1378,54 @@ describe("agent message protocol", () => {
     expect(session.destroy).toHaveBeenCalledTimes(1)
   })
 
+  it("guides harnesses with optional Standard JSON Schema and validates their final output", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({ text: "{\"title\":\"Weekly sync\"}" })
+    const schema = {
+      "~standard": {
+        jsonSchema: {
+          input: () => ({ properties: { title: { type: "string" } }, required: ["title"], type: "object" }),
+          output: () => ({ type: "number" }),
+        },
+        validate: (value: unknown) => ({ value: value as { title: string } }),
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const agent = defineAgent({
+      driver: { harness: { provider: "codex" } },
+      output: { schema },
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "summarize" })).resolves.toEqual({ title: "Weekly sync" })
+    expect(harnessAgentSettings.at(-1)?.instructions).toContain("Return only one valid JSON value")
+    expect(harnessAgentSettings.at(-1)?.instructions).toContain('"title"')
+  })
+
+  it("rejects malformed JSON from structured harness results", async () => {
+    const { defineAgent, runAgent, AgentOutputValidationError } = await import("../src/index.ts")
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    harnessGenerate.mockResolvedValueOnce({ text: "hello" })
+    const agent = defineAgent({
+      driver: { harness: { provider: "codex" } },
+      output: {
+        schema: {
+          "~standard": {
+            validate: (value: unknown) => ({ value: value as { text: string } }),
+            vendor: "vitehub-test",
+            version: 1,
+          },
+        },
+      },
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).rejects.toBeInstanceOf(AgentOutputValidationError)
+  })
+
   it("requires explicit harness sandboxes on runtimes without local processes", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({ driver: { harness: { provider: "codex" } } })
@@ -1561,8 +1609,8 @@ describe("agent message protocol", () => {
     await runAgent(defaultAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "default" })
     await runAgent(configuredAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "configured" })
 
-    expect(adaptSandbox).toHaveBeenNthCalledWith(1, expect.any(Object), { defaultSandbox: true })
-    expect(adaptSandbox).toHaveBeenNthCalledWith(2, provider, { defaultSandbox: false })
+    expect(adaptSandbox).toHaveBeenNthCalledWith(1, expect.any(Object), { box: false, defaultSandbox: true })
+    expect(adaptSandbox).toHaveBeenNthCalledWith(2, provider, { box: false, defaultSandbox: false })
   })
 
   it("resolves function-valued driver.sandbox for each invocation", async () => {
@@ -2328,23 +2376,23 @@ describe("agent message protocol", () => {
     expect(secondSession.detach).toHaveBeenCalledTimes(1)
   })
 
-  it("does not resume harness sessions across different Box identities", async () => {
+  it("does not resume harness sessions across different Box workspaces", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const firstSession = { detach: vi.fn(async () => ({ token: "resume" })), destroy: vi.fn() }
     const secondSession = { detach: vi.fn(async () => ({ token: "next" })), destroy: vi.fn() }
     harnessCreateSession.mockResolvedValueOnce(firstSession).mockResolvedValueOnce(secondSession)
     harnessGenerate.mockResolvedValue({ text: "ok" })
 
-    const agent = defineAgent<any, { home: string, workspace: string }>({
+    const agent = defineAgent<any, { workspace: string }>({
       box: {
         cwd: ({ input }) => input.options?.workspace,
-        home: ({ input }) => input.options?.home,
         runtime: {
           name: "test",
-          async resolve({ cwd, home }) {
+          async resolve({ cwd, identity }) {
             return {
               cache: { state: "disposable" },
-              environment: { env: {}, home },
+              environment: { env: {} },
+              identity,
               isolation: "none",
               requirements: [],
               runtime: "test",
@@ -2360,11 +2408,11 @@ describe("agent message protocol", () => {
     })
 
     await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      options: { home: "/home/one", workspace: "/worktrees/one" },
+      options: { workspace: "/worktrees/one" },
       prompt: "repair",
     })
     await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      options: { home: "/home/two", workspace: "/worktrees/two" },
+      options: { workspace: "/worktrees/two" },
       prompt: "repair",
     })
 
@@ -8536,6 +8584,60 @@ describe("agent message protocol", () => {
         result: "received hello",
         status: "completed",
       })
+    })
+
+    it("reconstructs Agent Run Events inside workflow execution", async () => {
+      const { defineAgent, defineCapability, runAgent, workflow } = await import("../src/index.ts")
+      const { defineAgentRunEvents } = await import("../src/server.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      const published: Array<{ runId: string, event: { type: string } }> = []
+      let innerRunId: string | undefined
+      const store = {
+        append(runId: string, event: { type: string }) {
+          published.push({ event, runId })
+          return { ...event, cursor: String(published.length), runId, timestamp: new Date(0).toISOString() }
+        },
+        read: () => [],
+        subscribe: () => (async function* () {})(),
+      }
+      const resolveStore = vi.fn(({ runtime }) => {
+        innerRunId = runtime.run?.runId
+        expect(runtime.runtimeConfig).toEqual({ region: "iad" })
+        return store
+      })
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          id: "transcribe",
+          async input(context) {
+            await context.runEvents?.publish({ type: "transcribe" })
+          },
+        })],
+        driver: { run: context => context.runEvents?.publish({ type: "summarize" }).then(() => "done") },
+        runEvents: defineAgentRunEvents({ store: resolveStore }),
+        runtime: workflow("summary-run-events"),
+      })
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const run = await runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        runtimeConfig: { region: "iad" },
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("summary-run-events", run.id)).resolves.toMatchObject({
+        result: "done",
+        status: "completed",
+      })
+      expect(resolveStore).toHaveBeenCalledTimes(2)
+      expect(innerRunId).toBe(run.id)
+      expect(published).toEqual([
+        { event: { type: "transcribe" }, runId: run.id },
+        { event: { type: "summarize" }, runId: run.id },
+      ])
     })
 
     it("keeps programmatic agent runs inline without a discovered identity", async () => {

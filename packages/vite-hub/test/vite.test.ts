@@ -99,6 +99,7 @@ describe("vitehub", () => {
       },
       runtimeCapabilityImports: {
         blob: "vite-hub/_internal/blob",
+        email: "vite-hub/email/server",
         kv: "vite-hub/_internal/kv",
       },
       scheduleRuntimeImport: "vite-hub/_internal/schedule/runtime",

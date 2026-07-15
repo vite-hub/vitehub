@@ -1,11 +1,11 @@
 ---
 title: Auth
-description: Configure Better Auth server behavior, route exposure, storage placement, and session checks.
+description: Configure Better Auth server behavior, route exposure, runtime options, and session checks.
 navigation.order: 3
 icon: i-lucide-shield-check
 ---
 
-Auth is the server primitive for application user identity and sessions. ViteHub owns the Auth Definition, Auth Route Exposure, Auth Database Placement, Auth Secondary Storage, and server runtime helpers.
+Auth is the server primitive for application user identity and sessions. ViteHub owns the Auth Definition, Auth Route Exposure, storage placement metadata, and server runtime helpers. Storage placement metadata is inspectable configuration; it does not create Better Auth storage adapters.
 
 Better Auth owns client packages, sign-in UI, session hooks, client plugins, and provider-specific client behavior. Use ViteHub to expose and configure the server route, then use Better Auth clients in the browser.
 
@@ -61,7 +61,6 @@ import { defineAuth } from '@vite-hub/auth'
 
 export default defineAuth({
   appName: 'Acme',
-  database: true,
   emailAndPassword: {
     enabled: true,
   },
@@ -77,15 +76,15 @@ Better Auth-compatible options stay top-level. ViteHub reserves Auth fields such
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | Better Auth options | `AuthBetterAuthOptions` | Better Auth defaults | Passed through to `betterAuth()` after ViteHub-owned fields are removed. |
-| `database` | `AuthDatabaseConfiguration` | selected Default Database | Places Auth tables in the selected application database or an explicit Named Database. Use `true` or `{ name, dedicated? }`. |
-| `secondaryStorage` | `AuthSecondaryStorageConfiguration` | disabled | Uses the Default KV Store or a named KV Store for Better Auth secondary storage. Use `true` or `{ store }`. |
+| `database` | `AuthDatabaseConfiguration` | Default Database metadata | Records intended Default or Named Database placement for inspection. Use `true` or `{ name, dedicated? }`. It does not create a Better Auth database adapter. |
+| `secondaryStorage` | `AuthSecondaryStorageConfiguration` | disabled | Records intended Default or named KV Store placement for inspection. Use `true` or `{ store }`. It does not create a Better Auth secondary storage adapter. |
 | `basePath` | `string` | `/api/auth` | Sets the Auth Base Path. |
 | `route` | `false` | enabled | Disables automatic Auth Route Exposure when set to `false`. |
 | `access.routes` | `AuthAccessRoute[]` | `[]` | Routes guarded by generated Auth access middleware. Each entry is a route string or `{ method, route }`. |
 | `access.signIn` | `{ provider: string, callbackURL?: string, errorCallbackURL?: string, requestSignUp?: boolean, scopes?: string[] }` | none | Redirect behavior for HTML requests rejected by `requireAuth()`. |
 | `runtime` | `AuthRuntimeConfiguration` | none | Supplies runtime-only Better Auth values such as `baseURL`, `secret`, and `secrets`. |
 
-`baseURL`, `secret`, and `secrets` are runtime-only. Put them in the Definition callback or `runtime`, not as static top-level fields.
+`baseURL`, `secret`, and `secrets` are runtime-only. Put them in the Definition callback or `runtime`, not as static top-level fields. Concrete Better Auth `database` and `secondaryStorage` adapters are also runtime values; return them from the callback or `runtime` when Auth needs persistent storage.
 
 ## Use it at runtime
 
@@ -147,9 +146,11 @@ When `@vite-hub/env` is installed before Auth, the callback receives typed Serve
 | `createAuthHandler(definition, runtimeOptions?)` | Creates a Better Auth handler from a Definition. |
 | `requireAuth(input, definition?)` | Returns `undefined` when a session exists, otherwise returns an unauthorized or sign-in response. |
 
-## Storage placement
+## Storage placement metadata
 
-Auth Database Placement defaults to the selected application database when the app has a Default Database.
+The `database` and `secondaryStorage` fields describe intended ViteHub primitive placement. ViteHub removes these metadata values before it calls `betterAuth()`, so they do not connect Better Auth to `@vite-hub/database` or `@vite-hub/kv`.
+
+Omitting `database`, or setting it to `true`, selects Default Database metadata. Use a named reference when inspection should record an explicit target.
 
 ```ts [server/auth.ts]
 import { defineAuth } from '@vite-hub/auth'
@@ -160,18 +161,18 @@ export default defineAuth({
 })
 ```
 
-Use a named database only when the app has multiple Named Databases and Auth must target one explicitly.
+Set `dedicated: true` when the metadata should record that the Named Database is dedicated to Auth.
 
 ```ts [server/auth.ts]
 import { defineAuth } from '@vite-hub/auth'
 
 export default defineAuth({
   appName: 'Acme',
-  database: { name: 'primary' },
+  database: { name: 'auth', dedicated: true },
 })
 ```
 
-Auth Secondary Storage is opt-in. Configure it when Better Auth plugin data, verification records, or session-adjacent state should use a KV Store.
+Secondary Storage metadata is opt-in. Use `true` for the Default KV Store metadata or `{ store }` for a named target.
 
 ```ts [server/auth.ts]
 import { defineAuth } from '@vite-hub/auth'
@@ -181,6 +182,8 @@ export default defineAuth({
   secondaryStorage: { store: 'auth' },
 })
 ```
+
+To persist Better Auth data today, supply a concrete Better Auth database or secondary storage adapter from the Auth Definition callback or its `runtime` field. The placement metadata above does not substitute for that adapter.
 
 ## Vite Integration options
 
@@ -217,5 +220,5 @@ Read [Auth Users and Agent Invokers](/docs/concepts/auth-users-and-agent-invoker
 ## Next steps
 
 - Configure typed secrets with [Env](/docs/server-primitives/env).
-- Co-locate Auth tables through [Database](/docs/server-primitives/database).
+- Use [Database](/docs/server-primitives/database) and [KV](/docs/server-primitives/kv) as application primitives; Auth placement metadata does not wire them into Better Auth.
 - Learn shared identity boundaries in [Auth Users and Agent Invokers](/docs/concepts/auth-users-and-agent-invokers).

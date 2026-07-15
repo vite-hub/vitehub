@@ -59,10 +59,49 @@ transcribe({
 })
 ```
 
+## Asynchronous remote transcription
+
+Use `createTranscription()` when a durable workflow should submit a private remote object and resume after the provider completes it.
+The client returns the provider operation ID used for acknowledgement and idempotency, then normalizes an authenticated completion payload into a provider-neutral transcript or failure.
+
+```ts
+import {
+  createTranscription,
+  elevenLabsScribe,
+} from '@vite-hub/agent/capabilities'
+
+const transcription = createTranscription({
+  driver: elevenLabsScribe({
+    apiKey: () => env.ELEVENLABS_API_KEY,
+    diarize: true,
+    tagAudioEvents: true,
+    timestampsGranularity: 'word',
+    webhookId: env.ELEVENLABS_WEBHOOK_ID,
+  }),
+})
+
+const submission = await transcription.submit({
+  metadata: { attemptId, jobId },
+  source: { url: signedAudioUrl },
+})
+
+const completion = await transcription.receive(authenticatedProviderPayload)
+```
+
+`submit()` never downloads the remote object into the application process.
+Use a signed HTTPS URL for private Blob objects, with an expiry long enough for the provider to fetch it.
+
+The caller still owns callback authentication before `receive()`, durable operation state, duplicate-delivery handling, timeouts, and workflow resumption.
+Compose those concerns with the Workflow primitive; correlation metadata is untrusted until it matches the stored workflow attempt.
+Provider callback payloads and SDK types do not cross the transcription client interface.
+
 ## Requirements
 
 Basic transcription requires a model or custom executor.
 Artifact persistence requires an explicit writable Workspace.
+
+Asynchronous remote transcription requires a `TranscriptionDriver`.
+The built-in ElevenLabs Scribe driver requires an API key and an explicitly configured speech-to-text webhook ID.
 
 Audio data must stay within `maxBytes`.
 Artifact paths must stay inside the Workspace and cannot target reserved `.git` or `.vitehub` paths.
@@ -74,6 +113,8 @@ Artifact paths must stay inside the Workspace and cannot target reserved `.git` 
 | Model-backed | Receives text-enriched messages after transcription. |
 | Harness-backed | Receives text-enriched Agent Run Input before harness execution. |
 | Custom-run-backed | Receives text-enriched Agent Run Input and can read transcription results from context. |
+
+Asynchronous transcription is independent of the Agent Driver because the caller composes its submitted operation and completion result into a durable Workflow.
 
 ## Inspect and verify
 
@@ -98,6 +139,28 @@ When artifacts are enabled, inspect the Workspace for transcript files and the f
 | `artifacts.audio` | `boolean \| object` | disabled | Persist source audio artifacts to Workspace. |
 | `artifacts.audio.path` | `string \| function` | generated | Audio artifact path. |
 | `artifacts.audio.mediaType` | `string \| function` | audio media type | Audio artifact media type. |
+
+### Asynchronous client
+
+| Interface | Result | Description |
+| --- | --- | --- |
+| `createTranscription({ driver })` | `TranscriptionClient` | Creates a provider-neutral asynchronous client. |
+| `client.submit({ source, metadata, abortSignal })` | `submitted` operation | Submits a remote HTTP(S) source and returns the provider operation ID. |
+| `client.receive(payload)` | `completed \| failed` completion | Normalizes an already-authenticated provider completion payload. |
+| `elevenLabsScribe(options)` | `TranscriptionDriver` | Maps remote Scribe v2 submission and callback payloads without exposing provider types. |
+
+Without `artifacts.directory`, transcripts use `transcripts/<date>/<stem>.txt` and audio is placed beside the transcript. If transcripts are disabled, audio uses `audio/<date>/<stem>.<extension>`.
+
+## Public helpers
+
+Import these helpers from `@vite-hub/agent/capabilities` when custom hooks or executors need the same normalized data as the Capability.
+
+| Helper | Return value | Behavior |
+| --- | --- | --- |
+| `audioBytes(audio, { maxBytes? })` | `Promise<Uint8Array>` | Resolves direct data, `fetchData`, or an audio URL and enforces a `26214400` byte default limit. |
+| `getTranscriptionResults(context)` | `TranscriptionResult[]` | Reads the current invocation's results from an invocation context store or an object containing one. Returns an empty array when none exist. |
+
+Each `TranscriptionResult` contains `createdAt`, `date`, `messageId`, `stem`, and `transcript`, plus `audioPath` or `transcriptPath` when those artifacts were written.
 
 ## Reference
 

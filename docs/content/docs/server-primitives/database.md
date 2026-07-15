@@ -79,6 +79,7 @@ The Vite config key is `database`.
 | `database: false` | `false` | enabled | Disables database discovery and generated runtime surfaces. |
 | `database.cli.generate` | `false` | enabled | Disables package-owned schema generation CLI contribution. |
 | `database.cli.migrate` | `false` | enabled | Disables package-owned migration CLI contribution. |
+| `database.connection` | `DatabaseConnectionConfig` | local SQLite | Supplies a hosted libSQL connection for Database Definitions that do not declare one. Definition connection values override matching integration values. |
 | `database.driver` | `DatabaseRuntimeD1Options['driver']` | none | Selects Cloudflare D1 runtime output when configured at integration level. Value: `d1`. |
 | `database.binding` | `string` | `DB` or `DB_<NAME>` | Cloudflare D1 binding for integration-level runtime output. |
 | `database.databaseId` | `DatabaseConfigValue` | none | Cloudflare D1 database id. |
@@ -172,6 +173,30 @@ export default defineEventHandler(() => {
 | Local SQLite | `connection.url` or no connection config | Default for local development and generated Drizzle artifacts. |
 | Hosted SQLite/libSQL-style connection | `connection.url` and optional `connection.authToken` | Keep URLs and tokens in Server Env when they are secrets. |
 | Cloudflare D1 | `cloudflare` Definition options or integration-level `database.driver: 'd1'` | Provider binding is wiring; Default/Named Database remains the public identity. |
+
+### Select a hosted database for Vercel
+
+Keep the Database Definition limited to tables, then select its hosted libSQL connection in the Vite Integration. Runtime Env declarations preserve the Vercel Marketplace environment variable lookup in generated output instead of embedding credentials at build time.
+
+```ts [vite.config.ts]
+import { hubDb } from '@vite-hub/database/vite'
+import { env, hubEnv } from '@vite-hub/env/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [
+    hubEnv(),
+    hubDb({
+      connection: {
+        url: env({ source: env.source('TURSO_DATABASE_URL') }),
+        authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),
+      },
+    }),
+  ],
+})
+```
+
+This connection is a deployment default. A Database Definition can still declare a different `connection.url` or `connection.authToken`; those values take precedence for that database.
 
 ## Provider output
 

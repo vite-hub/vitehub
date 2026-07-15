@@ -77,6 +77,8 @@ Imports are relative to the file that declares them. ViteHub expands imported Ma
 
 Instruction imports only read relative files. Remote URLs, absolute paths, and globs fail because an instruction document should not widen runtime reachability.
 
+Use [Markdown Templates](/docs/reference/markdown-templates) when application code needs the reusable deterministic template API outside Agent instruction composition.
+
 ## Read invocation context
 
 Instruction composition can read explicit `context.*` paths from trusted Agent Invocation Context Values. Use double braces for scalar values and triple braces for trusted Markdown content.
@@ -117,7 +119,7 @@ export default defineAgent({
 
 `@workspace.<name>` inserts a Markdown binding and then runs the same Instruction Composition pass on that inserted Markdown. Use it for explicit instruction fragments that live in the Workspace. ViteHub reads only bindings declared under `workspace.bindings`; it does not scan or auto-load every Markdown file in the Workspace.
 
-Missing `workspace.*` bindings fail during Instruction Composition instead of rendering empty output. The legacy `{{ workspace.sources }}` binding is unsupported; cover Sources with explicit `::source` blocks instead.
+Missing `workspace.*` bindings fail during Instruction Composition instead of rendering empty output.
 
 ## Branch with conditions
 
@@ -161,7 +163,7 @@ ViteHub records the coverage metadata and strips the wrapper directives before s
 
 Tool descriptions and schemas are different. They remain structured tool contracts and should stay with the tool definition; they are not arbitrary system-instruction injection and they do not clear broader instruction coverage by themselves.
 
-`{{ capabilities }}`, `{{ capabilities.<id> }}`, and `{{ workspace.sources }}` no longer render model-facing prose. They fail during Instruction Composition so missing migration work is visible.
+`{{ capabilities }}` and `{{ capabilities.<id> }}` do not render model-facing prose. They fail during Instruction Composition so missing coverage remains visible.
 
 ## Use Capability context
 

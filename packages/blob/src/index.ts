@@ -8,6 +8,8 @@ export type {
   BlobModuleOptions,
   BlobObject,
   BlobPutOptions,
+  BlobSignedRequest,
+  BlobSignOptions,
   BlobSize,
   BlobStorage,
   BlobStoreConfig,

@@ -90,7 +90,7 @@ Workspace rules and Workspace Scope constrain materialization and the diff ViteH
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives Workspace tools, optional allowlisted command tools, and structured tool contracts. |
-| Harness-backed | Uses the scoped Workspace Session path; model-facing Workspace tools are not passed by default. |
+| Harness-backed | Receives Workspace and optional command tools through the Harness tool bridge and uses the scoped Workspace Session path. |
 | Custom-run-backed | Receives the prepared Workspace facade; `driver.run` decides whether to call Workspace APIs directly. |
 
 ## Inspect and verify

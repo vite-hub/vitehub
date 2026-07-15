@@ -54,7 +54,6 @@ export default defineSchedule({
 | `defineScheduleTarget` from `@vite-hub/schedule` | Declare a cronless target for Runtime Schedules. |
 | `schedules`, `validateRuntimeScheduleCron` from `@vite-hub/schedule` or `@vite-hub/schedule/runtime` | Manage Runtime Schedules and validate cron strings. |
 | `executeSchedule`, `executeStaticSchedule`, `executeRuntimeSchedule`, `createScheduleRun` from `@vite-hub/schedule` | Execute schedules from provider hooks or custom runtime wiring. |
-| `startScheduleRunner` from `@vite-hub/schedule` | Run due Runtime Schedules on long-running hosts. |
 | `createMemoryRuntimeScheduleStore`, `createKVRuntimeScheduleStore` from `@vite-hub/schedule` | Configure Runtime Schedule storage. |
 | `createMemoryScheduleRunStore`, `createKVScheduleRunStore` from `@vite-hub/schedule` | Configure Schedule Run storage. |
 | `setRuntimeScheduleStore`, `setScheduleRunStore`, `setScheduleRuntimeRegistry` from `@vite-hub/schedule` | Wire custom runtime state. |
@@ -86,11 +85,11 @@ export default defineConfig({
 | --- | --- | --- | --- |
 | `providerOutput` | `ScheduleVitePluginOptions['providerOutput']` | `auto` | Controls generated provider cron output. Values: `auto`, `standalone`, `nitro`, `false`. |
 | `projectRoot` | `string` | ViteHub project root | Resolves discovered schedule files and generated registry output from a custom project root. |
-| `runtime` | `ScheduleProcessRuntimeOptions` | No runtime driver | Explicitly installs the generated Nitro Process Runtime. Accepts `driver: 'process'`, plus optional `prefix`, `intervalMs`, and `concurrency`. |
+| `runtime` | `ScheduleProcessRuntimeOptions` | No runtime driver | Explicitly installs the generated Nitro Process Runtime. Accepts `driver: 'process'`, plus optional `prefix` (default `vitehub:schedule`), `intervalMs` (default `60_000`), and `concurrency` (default `1`). |
 
 Use `createScheduleNitroConfig()` when a Nitro integration owns config merging and needs Schedule to return Nitro-ready provider output.
 
-The Process Runtime imports the discovered registry and runs Static Schedule Definitions alongside persisted Runtime Schedules through one driver queue. It creates the Runtime Schedule and Schedule Run stores through the default KV store configured by `hubKv()`, applies the same explicit prefix to both, reports errors through Nitro, and closes the driver during Nitro shutdown. `intervalMs` must be no greater than the one-minute cron resolution. This setting is orthogonal to `providerOutput`; selecting one does not infer the other.
+The Process Runtime imports the discovered registry and runs Static Schedule Definitions alongside persisted Runtime Schedules through one driver queue. It creates the Runtime Schedule and Schedule Run stores through the default KV store configured by `hubKv()`, applies the Schedule prefix to both, reports errors through Nitro, and closes the driver during Nitro shutdown. It scans once per minute with one concurrent wake unless configured otherwise, and `intervalMs` cannot exceed the one-minute cron resolution. This setting is orthogonal to `providerOutput`; selecting one does not infer the other.
 
 ::warning
 The Process Runtime requires exactly one long-lived process or replica. The KV run store records occurrences but does not provide distributed leader election or locking. Do not use this driver on request-scoped or serverless hosts that may stop between requests. It scans inside the Node.js process and does not create cron, systemd, or another operating-system schedule.
@@ -247,7 +246,7 @@ When the host fires a native wake, call `context.wake({ scheduleId, scheduledAt 
 
 Use `createProcessScheduleWakeDriver()` from `@vite-hub/schedule/runtime/process` when a custom long-running host wants the same in-process wake behavior without generated Nitro wiring.
 
-`startScheduleRunner()` remains the polling compatibility path for long-running hosts. Static provider output remains build-time configuration; selecting the Process Runtime also executes discovered Static Schedule Definitions without requiring provider output.
+Static provider output remains build-time configuration; selecting the Process Runtime also executes discovered Static Schedule Definitions without requiring provider output.
 
 ## Storage
 

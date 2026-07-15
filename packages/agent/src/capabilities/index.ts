@@ -22,6 +22,9 @@ export {
   fetch,
 } from "./fetch.ts"
 export {
+  email,
+} from "./email.ts"
+export {
   git,
 } from "./git.ts"
 export {
@@ -73,6 +76,13 @@ export {
   getTranscriptionResults,
   transcribe,
 } from "./transcribe.ts"
+export {
+  createTranscription,
+  TranscriptionError,
+} from "./transcription.ts"
+export {
+  elevenLabsScribe,
+} from "./transcription-elevenlabs.ts"
 export {
   workspaceShell,
 } from "./workspace-shell.ts"
@@ -171,6 +181,10 @@ export type {
   FetchCapabilityToolOptions,
   FetchCapabilityToolRequest,
 } from "./fetch.ts"
+export type {
+  EmailCapabilityOptions,
+  EmailCapabilityToolPolicy,
+} from "./email.ts"
 export type {
   GitCapabilityOptions,
   GitCapabilityToolPolicy,
@@ -292,6 +306,25 @@ export type {
   TranscribeTranscriptArtifactOptions,
   TranscriptionResult,
 } from "./transcribe.ts"
+export type {
+  CreateTranscriptionOptions,
+  TranscriptionClient,
+  TranscriptionCompletion,
+  TranscriptionDriver,
+  TranscriptionDriverCompletion,
+  TranscriptionDriverSubmission,
+  TranscriptionErrorCode,
+  TranscriptionErrorOptions,
+  TranscriptionMetadata,
+  TranscriptionSource,
+  TranscriptionSubmission,
+  TranscriptionSubmitInput,
+  TranscriptionTranscript,
+  TranscriptionWord,
+} from "./transcription.ts"
+export type {
+  ElevenLabsScribeOptions,
+} from "./transcription-elevenlabs.ts"
 export type {
   BlobCapabilityOptions,
 } from "./storage/blob.ts"

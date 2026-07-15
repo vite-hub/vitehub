@@ -9,7 +9,7 @@ icon: i-lucide-scroll-text
 
 `skills()` makes a Workspace or external Source Skill available to an Agent Invocation. Workspace scope is the default; global scope mounts a source into the harness profile so Codex can discover it as an installed Skill.
 
-For an Agent-owned Skill, place the files in `skills/` beside the discovered Agent Definition instead. ViteHub discovers and materializes those files automatically, so local Skills do not need a Capability declaration.
+For an Agent-owned Skill, use a folder Agent Definition whose entry file is named `agent.ts`, `agent.js`, `index.ts`, or `index.js`, including their `c` and `m` variants, then place `skills/` beside that entry file. ViteHub discovers and materializes those files automatically, so local Skills do not need a Capability declaration. Flat files such as `server/agents/support.ts` do not discover sibling Skills.
 
 ## Installation
 

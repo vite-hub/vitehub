@@ -16,6 +16,7 @@ import { createRuntimeEnvConfigValue, resolveConfigValue } from "./config-value.
 import type {
   CloudflareD1BindingConfig,
   DatabaseConfigValue,
+  DatabaseConnectionConfig,
   DBModulePublicOptions,
   DiscoveredDatabaseDefinition,
   ResolvedCloudflareD1BindingConfig,
@@ -236,12 +237,24 @@ function getDefaultConnection(name: string) {
   }
 }
 
-function resolveDefinitionConnection(file: string, name: string) {
-  const connection = readDefinitionConnectionConfig(file)
-  const url = resolveConfigValue(connection?.url)
-  return typeof url === "string" && url.trim()
-    ? connection
-    : getDefaultConnection(name)
+function hasConnectionValue(value: DatabaseConfigValue | undefined) {
+  return typeof value === "string" ? Boolean(value.trim()) : typeof value !== "undefined"
+}
+
+function selectConnectionValue(value: DatabaseConfigValue | undefined, fallback: DatabaseConfigValue | undefined) {
+  const resolved = resolveConfigValue(value)
+  if (typeof resolved === "string" && resolved.trim()) return value
+  return typeof value === "object" && typeof fallback !== "undefined" ? value : fallback
+}
+
+function resolveDefinitionConnection(file: string, name: string, fallback?: DatabaseConnectionConfig) {
+  const definition = readDefinitionConnectionConfig(file)
+  const url = selectConnectionValue(definition?.url, fallback?.url)
+  if (!hasConnectionValue(url)) return getDefaultConnection(name)
+  return {
+    authToken: hasConnectionValue(definition?.authToken) ? definition?.authToken : fallback?.authToken,
+    url,
+  }
 }
 
 function createGeneratedSchemaFile(rootDir: string, name: string) {
@@ -274,7 +287,7 @@ export function resolveDBViteConfig(options?: DBModulePublicOptions, rootDir = p
     generatedSchemaFilesByDatabase[definition.name] = generatedSchemaFile
     databases[definition.name] = {
       cloudflare: normalizeCloudflareConfig(readDefinitionCloudflareConfig(definition.handler), definition.name, migrationsDir),
-      connection: resolveDefinitionConnection(definition.handler, definition.name),
+      connection: resolveDefinitionConnection(definition.handler, definition.name, options?.connection),
       dialect: "sqlite",
       drizzle: {},
       generatedSchemaFile,

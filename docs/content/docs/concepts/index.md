@@ -8,7 +8,7 @@ icon: i-lucide-map
 
 ViteHub is easiest to understand as a small set of boundaries. Server primitives give application code stable runtime APIs, while Agent Definitions compose Agent Drivers, Capabilities, Workspaces, Sources, Agent Invokers, and Agent Invocations.
 
-The concepts in this section explain those boundaries before the package pages add options and examples. Read them when a feature crosses package ownership, host output, model-facing access, or runtime inspection.
+The concepts in this section explain those boundaries before the package pages add options and examples. Read them when a feature crosses package ownership, host output, Agent access, or runtime inspection.
 
 ## Concept map
 
@@ -20,7 +20,7 @@ The concepts in this section explain those boundaries before the package pages a
 | [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output) | What build and dev integrations own. |
 | [Runtime Helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports) | Why application code imports stable ViteHub APIs instead of generated internals. |
 | [Workspace and Sources](/docs/concepts/workspace-and-sources) | How persistent file trees consume read-only origins. |
-| [Capabilities API](/docs/concepts/capabilities-api) | How Agents receive model-facing abilities. |
+| [Capabilities API](/docs/concepts/capabilities-api) | How Agents receive selected abilities. |
 | [Channels API](/docs/concepts/channels-api) | How message-shaped Agent Invocations, channel metadata, and host commands stay separate. |
 | [Auth Users and Agent Invokers](/docs/concepts/auth-users-and-agent-invokers) | How authenticated app users map into trusted Agent Invocation identity. |
 | [Runtime policy, approvals, and traces](/docs/concepts/runtime-policy-approvals-and-traces) | How ViteHub records runtime decisions without making policy invisible. |

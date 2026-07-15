@@ -99,7 +99,7 @@ export default defineConfig({
 
 ### `provider` `'cloudflare' | 'vercel'`
 
-Selects the Queue Provider. If you omit it, ViteHub resolves Cloudflare for Cloudflare hosting and Vercel for other production-shaped builds.
+Selects the Queue Provider. If you omit it, ViteHub resolves Cloudflare for Cloudflare hosting and Vercel for other supported production builds. Netlify cannot infer a Queue Provider, so set `provider` explicitly or disable Queue there.
 
 ### `cache` `boolean`
 

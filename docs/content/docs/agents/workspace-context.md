@@ -99,7 +99,7 @@ ViteHub warns in DevTools metadata when a configured Source lacks explicit instr
 
 Explicit `driver.instructions` still wins when the Agent needs custom prompt composition. Ordinary Workspace files named `AGENTS.md` are just files; only colocated `instructions.md` is the default Agent instructions convention.
 
-Use `workspace.bindings` when an instruction document needs an explicit Workspace-owned value or Markdown fragment. `{{ workspace.foo }}` renders scalar text, and `@workspace.foo` inserts the declared Markdown binding before Instruction Composition continues. The legacy `{{ workspace.sources }}` binding is unsupported.
+Use `workspace.bindings` when an instruction document needs an explicit Workspace-owned value or Markdown fragment. `{{ workspace.foo }}` renders scalar text, and `@workspace.foo` inserts the declared Markdown binding before Instruction Composition continues.
 
 ## Start with read access
 
@@ -141,9 +141,9 @@ export default defineAgent({
 
 Read mode materializes the selected Workspace into the harness sandbox and discards sandbox changes. Write mode syncs additions, updates, and deletions back through Workspace rules. Capabilities can also contribute harness-only Workspace paths, such as skill directories, without broadening the product-data Workspace Scope. Keep Skills behind the `skills()` Capability; ViteHub does not add root `skills`, `tools`, or `sandbox` Agent Definition fields for harness-backed Agents. Put harness guidance in colocated `instructions.md`; Sources, Capabilities, and Skills do not inject additional harness instructions.
 
-## Scope by Agent Invoker
+## Scope by Agent Actor
 
-Use the Access Capability when the Agent Invoker should narrow the visible Workspace Scope for one Agent Invocation.
+Use the Access Capability when the Agent Actor should narrow the visible Workspace Scope for one Agent Invocation. The current callback field remains `invoker`.
 
 ```ts [server/agents/support/agent.ts]
 import { access, workspaceShell } from '@vite-hub/agent/capabilities'
@@ -153,7 +153,7 @@ export const supportCapabilities = [
     workspace: {
       resolve({ invoker }) {
         if (invoker.meta?.scope === 'all') {
-          return { all: true, scope: 'support' }
+          return { all: true, role: 'admin', scope: 'support' }
         }
 
         const customer = String(invoker.meta?.customer ?? '')
@@ -171,7 +171,7 @@ export const supportCapabilities = [
 ]
 ```
 
-ViteHub does not generate prompt text from scope names, grants, roles, Source metadata, or invoker metadata.
+ViteHub does not generate prompt text from scope names, grants, roles, Source metadata, or Actor metadata.
 When the Agent needs scope-specific model guidance, write it in Agent Driver Instructions or an imported instruction file and mark the Access coverage with `::capability{key="access"}`.
 
 ## Resolve Sources per invocation
@@ -198,6 +198,6 @@ Access remains the boundary that decides which Workspace paths are visible. Sour
 
 ## Next steps
 
-- Read [Invokers](/docs/agents/invokers) for trusted identity.
+- Read [Actors](/docs/agents/actors) for trusted identity.
 - Read [Instructions](/docs/agents/instructions) for explicit instruction coverage.
 - Read [Capabilities](/docs/capabilities) for `access()` and `workspaceShell()`.

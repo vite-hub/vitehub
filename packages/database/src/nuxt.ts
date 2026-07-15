@@ -170,7 +170,7 @@ function resolveDatabaseNuxtD1Options(
 function installVitePlugin(viteConfig: Record<string, unknown>, options: ResolvedDatabaseNuxtIntegrationOptions) {
   const plugins = Array.isArray(viteConfig.plugins) ? viteConfig.plugins : []
   if (!plugins.some(plugin => isRecord(plugin) && plugin.name === "@vite-hub/database/vite")) {
-    viteConfig.plugins = [hubDbVite(options), ...plugins] satisfies Plugin[]
+    viteConfig.plugins = [hubDbVite(resolveDatabaseViteOptions(options)), ...plugins] satisfies Plugin[]
   }
 }
 

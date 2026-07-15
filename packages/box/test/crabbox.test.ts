@@ -26,9 +26,14 @@ describe("crabbox", () => {
 
     const box = await resolveBox({
       runtime: crabbox({ profile: "babysitter" }),
-      requires: ["github", "pnpm"],
+      requires: [{ command: "gh", args: ["auth", "status"] }, "pnpm"],
       cwd: ({ worktree }: { worktree: string }) => worktree,
-    }, { worktree: workspace }, { requires: ["codex", "github"] })
+    }, { worktree: workspace }, { requires: [
+          { command: "codex", args: ["login", "status"] },
+          { command: "gh", args: ["auth", "status"] },
+        ],
+      },
+    );
 
     expect(box).toMatchObject({
       cache: { state: "disposable" },
@@ -36,9 +41,9 @@ describe("crabbox", () => {
       isolation: "none",
       runtime: "crabbox",
       requirements: [
-        { command: "gh", name: "github" },
+        { command: "gh", name: "gh auth status" },
         { command: "pnpm", name: "pnpm" },
-        { command: "codex", name: "codex" },
+        { command: "codex", name: "codex login status" },
       ],
       workspace: { path: await realpath(workspace), state: "authoritative" },
     })
@@ -55,21 +60,250 @@ describe("crabbox", () => {
       runtime: crabbox(),
       requires: [""],
       cwd: workspace,
-    }, {})).rejects.toThrow("Box requirements must be non-empty names")
+    }, {})).rejects.toThrow("Box requirements must be non-empty commands");
     await expect(resolveBox({
       runtime: crabbox(),
       requires: [null as never],
       cwd: workspace,
-    }, {})).rejects.toThrow("Box requirements must be non-empty names")
+    }, {})).rejects.toThrow("Box requirements must be commands or direct command checks");
   })
 
-  it("rejects unsupported Box Home configuration", async () => {
+  it("materializes environment, files, and writable state before validation", async () => {
     const root = await temporaryRoot()
-    const workspace = join(root, "workspace")
-    await mkdir(workspace)
+    const workspace = join(root, "workspace");
+    const stateRoot = join(root, "remote-state");
+    const bin = join(root, "bin");
+    const log = join(root, "crabbox.log");
+    await Promise.all([mkdir(workspace), mkdir(bin), mkdir(stateRoot, { mode: 0o755 })]);
+    await chmod(stateRoot, 0o755);
+    await fakeCrabbox(bin);
+    await executable(
+      bin,
+      "acme",
+      'test "$ACME_TOKEN" = ready && test -f "$HOME/.acme/config.toml" && test -f "$HOME/.acme/auth.json"',
+    );
 
-    await expect(resolveBox({ runtime: crabbox(), cwd: workspace, home: "/remote/home" }, {})).rejects.toThrow("crabbox() does not support box.home")
-  })
+    await withEnvironment(
+      { CRABBOX_TEST_LOG: log, PATH: `${bin}:${process.env.PATH || ""}` },
+      async () => {
+        const box = await resolveBox(
+          {
+            cwd: workspace,
+            env: { ACME_TOKEN: "ready" },
+            home: {
+              files: { ".acme/config.toml": { contents: 'mode = "file"\n' } },
+              state: {
+                ".acme": {
+                  key: "portable-box-test/acme",
+                  seed: { "auth.json": { contents: "seed" } },
+                },
+              },
+            },
+            requires: [{ command: "acme", args: ["auth", "status"] }],
+            runtime: crabbox({ profile: "babysitter", stateRoot }),
+          },
+          {},
+        );
+        const sandbox = box.sandbox as HarnessV1SandboxProvider;
+        const first = await sandbox.createSession();
+        await expect(
+          first.run({ command: 'printf "%s|" "$ACME_TOKEN"; cat "$HOME/.acme/auth.json"' }),
+        ).resolves.toMatchObject({ stdout: "ready|seed" });
+        await expect(first.run({ command: "true", env: { HOME: "/ambient" } })).rejects.toThrow(
+          "cannot override HOME",
+        );
+        await expect(
+          first.run({ command: "true", env: { CODEX_HOME: "/ambient" } }),
+        ).rejects.toThrow("cannot override CODEX_HOME");
+        await first.run({
+          command:
+            'printf refreshed > "$HOME/.acme/auth.next" && mv "$HOME/.acme/auth.next" "$HOME/.acme/auth.json"',
+        });
+        await first.run({ command: 'rm "$HOME/.acme/config.toml" && mkdir "$HOME/.acme/config.toml"' });
+        await first.destroy?.();
+
+        const second = await sandbox.createSession();
+        await expect(
+          second.run({ command: 'cat "$HOME/.acme/auth.json" "$HOME/.acme/config.toml"' }),
+        ).resolves.toMatchObject({ stdout: 'refreshedmode = "file"\n' });
+        await second.destroy?.();
+
+        const withoutProjection = await resolveBox(
+          {
+            cwd: workspace,
+            home: { state: { ".acme": { key: "portable-box-test/acme" } } },
+            runtime: crabbox({ profile: "babysitter", stateRoot }),
+          },
+          {},
+        );
+        const third = await (withoutProjection.sandbox as HarnessV1SandboxProvider).createSession();
+        await expect(
+          third.run({ command: 'test ! -e "$HOME/.acme/config.toml" && cat "$HOME/.acme/auth.json"' }),
+        ).resolves.toMatchObject({ stdout: "refreshed" });
+        await third.destroy?.();
+        expect((await stat(stateRoot)).mode & 0o777).toBe(0o755);
+
+        const invocations = await readFile(log, "utf8");
+        expect(invocations).not.toContain("ready");
+        expect(invocations).not.toContain("c2VlZA==");
+      },
+    );
+  }, 30_000);
+
+  it("retries remote state seeding after a later boot failure", async () => {
+    const root = await temporaryRoot();
+    const workspace = join(root, "workspace");
+    const stateRoot = join(root, "remote-state");
+    const bin = join(root, "bin");
+    let attempts = 0;
+    await Promise.all([mkdir(workspace), mkdir(bin)]);
+    await fakeCrabbox(bin);
+
+    await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      const box = await resolveBox({
+          cwd: workspace,
+          home: {
+            state: {
+              ".acme": {
+                key: "portable-box-test/remote-seed-retry",
+                seed: {
+                  "auth.json": { contents: () => (++attempts === 1 ? "bad" : "seed") },
+                },
+              },
+            },
+          },
+          runtime: crabbox({ profile: "babysitter", stateRoot }),
+        },
+        {},
+      );
+      const sandbox = box.sandbox as HarnessV1SandboxProvider;
+
+      await expect(
+        sandbox.createSession({
+          onFirstCreate: async () => {
+            throw new Error("bad seed");
+          },
+        }),
+      ).rejects.toThrow("bad seed");
+      const session = await sandbox.createSession();
+      await expect(session.run({ command: 'cat "$HOME/.acme/auth.json"' })).resolves.toMatchObject({
+        stdout: "seed",
+      });
+      expect(attempts).toBe(2);
+      await session.destroy?.();
+    });
+  }, 30_000);
+
+  it("serializes writable state across different workspaces", async () => {
+    const root = await temporaryRoot();
+    const workspaces = [join(root, "pr-1"), join(root, "pr-2")];
+    const stateRoot = join(root, "remote-state");
+    const bin = join(root, "bin");
+    await Promise.all([...workspaces.map((workspace) => mkdir(workspace)), mkdir(bin)]);
+    await fakeCrabbox(bin);
+
+    await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      const sandboxes = await Promise.all(
+        workspaces.map(async (cwd) => {
+          const box = await resolveBox(
+            {
+              cwd,
+              home: { state: { ".acme": { key: "portable-box-test/shared-remote-state" } } },
+              runtime: crabbox({ profile: "babysitter", stateRoot }),
+            },
+            {},
+          );
+          return box.sandbox as HarnessV1SandboxProvider;
+        }),
+      );
+      const first = await sandboxes[0].createSession();
+      let opened = false;
+      const second = sandboxes[1].createSession().then((session) => {
+        opened = true;
+        return session;
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(opened).toBe(false);
+      await first.destroy?.();
+      await (await second).destroy?.();
+    });
+  }, 30_000);
+
+  it("preserves non-directory remote state targets", async () => {
+    const root = await temporaryRoot();
+    const workspace = join(root, "workspace");
+    const stateRoot = join(root, "remote-state");
+    const bin = join(root, "bin");
+    await Promise.all([mkdir(workspace), mkdir(bin)]);
+    await fakeCrabbox(bin);
+
+    await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      const box = await resolveBox(
+        {
+          cwd: workspace,
+          home: { state: { ".acme": { key: "portable-box-test/non-directory" } } },
+          runtime: crabbox({ profile: "babysitter", stateRoot }),
+        },
+        {},
+      );
+      const sandbox = box.sandbox as HarnessV1SandboxProvider;
+      const first = await sandbox.createSession();
+      await first.destroy?.();
+      const entries = await readdir(stateRoot, { withFileTypes: true });
+      const state = entries.find((entry) => entry.isDirectory() && entry.name !== ".locks");
+      expect(state).toBeDefined();
+      const persistent = join(stateRoot, state!.name);
+      await rm(persistent, { recursive: true });
+      await writeFile(persistent, "operator-owned");
+
+      await expect(sandbox.createSession()).rejects.toThrow("inspect Box state");
+      await expect(readFile(persistent, "utf8")).resolves.toBe("operator-owned");
+    });
+  }, 30_000);
+
+  it("invalidates a session when its remote state lease is lost", async () => {
+    const root = await temporaryRoot();
+    const workspace = join(root, "workspace");
+    const stateRoot = join(root, "remote-state");
+    const holder = join(root, "state-holder.pid");
+    const bin = join(root, "bin");
+    await Promise.all([mkdir(workspace), mkdir(bin)]);
+    await fakeCrabbox(bin);
+
+    await withEnvironment(
+      {
+        CRABBOX_TEST_STATE_HOLDER: holder,
+        PATH: `${bin}:${process.env.PATH || ""}`,
+      },
+      async () => {
+        const box = await resolveBox(
+          {
+            cwd: workspace,
+            home: { state: { ".acme": { key: "portable-box-test/lost-remote-state" } } },
+            runtime: crabbox({ profile: "babysitter", stateRoot }),
+          },
+          {},
+        );
+        const session = await (box.sandbox as HarnessV1SandboxProvider).createSession();
+        const holderPid = Number(await readFile(holder, "utf8"));
+        process.kill(holderPid, "SIGKILL");
+
+        let failure: unknown;
+        for (let attempt = 0; attempt < 100 && !failure; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          try {
+            await session.run({ command: "true" });
+          } catch (error) {
+            failure = error;
+          }
+        }
+        expect(failure).toBeInstanceOf(Error);
+        expect((failure as Error).message).toContain("Crabbox state lease was lost");
+        await expect(session.destroy?.()).rejects.toThrow("Crabbox state lease was lost");
+      },
+    );
+  }, 30_000);
 
   it("canonicalizes symlinked workspace roots", async () => {
     const root = await temporaryRoot()
@@ -206,10 +440,11 @@ describe("crabbox", () => {
     await withEnvironment({ CRABBOX_TEST_LOG: log, PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
       const box = await resolveBox({
         runtime: crabbox({ network: "direct", profile: "babysitter", reclaim: true }),
-        requires: ["codex-cli", "github", "pnpm"],
+        requires: ["codex", { command: "gh", args: ["auth", "status"] }, "pnpm"],
         cwd: workspace,
-      }, {}, { requires: ["codex"] })
-      const sandbox = box.sandbox as { createSession(): Promise<any> }
+      }, {},
+        );
+        const sandbox = box.sandbox as { createSession(): Promise<any> }
       const session = await sandbox.createSession()
       const cacheRoot = session.defaultWorkingDirectory
 
@@ -341,11 +576,13 @@ describe("crabbox", () => {
     await Promise.all([mkdir(workspace), mkdir(bin)])
     await fakeCrabbox(bin)
 
-    await withEnvironment({ CRABBOX_TEST_FAIL_SYNC: "1", CRABBOX_TEST_LOG: log, PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+    await withEnvironment({ CRABBOX_TEST_LOG: log, PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
       const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
       const session = await (box.sandbox as HarnessV1SandboxProvider).createSession()
 
-      await expect(session.destroy?.()).rejects.toThrow()
+      await expect(
+        withEnvironment({ CRABBOX_TEST_FAIL_SYNC: "1" }, async () => await session.destroy?.()),
+      ).rejects.toThrow()
       const cleanup = (await readFile(log, "utf8")).trim().split("\n").at(-1)
       expect(cleanup).toContain("rm -rf --")
       expect(cleanup).toContain("/tmp/vitehub-box.")
@@ -392,7 +629,7 @@ describe("crabbox", () => {
     })
   }, 30_000)
 
-  it("stops boot when named authentication is not ready", async () => {
+  it("stops boot when a direct requirement check fails", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")
     const bin = join(root, "bin")
@@ -404,12 +641,14 @@ describe("crabbox", () => {
     await withEnvironment({ CRABBOX_TEST_STATE_LOG: stateLog, PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
       const box = await resolveBox({
         runtime: crabbox({ profile: "babysitter" }),
-        requires: ["github"],
-        cwd: workspace,
+        requires: [{ name: "GitHub CLI", command: "gh", args: ["auth", "status"] }],
+            cwd: workspace,
       }, {})
       const sandbox = box.sandbox as { createSession(): Promise<unknown> }
-      await expect(sandbox.createSession()).rejects.toThrow('Box requirement "github" failed: not logged in')
-      const [stateHome] = [...new Set((await readFile(stateLog, "utf8")).trim().split("\n"))]
+      await expect(sandbox.createSession()).rejects.toThrow(
+          'Box requirement "GitHub CLI" failed',
+        );
+        const [stateHome] = [...new Set((await readFile(stateLog, "utf8")).trim().split("\n"))]
       await expect(stat(stateHome)).rejects.toMatchObject({ code: "ENOENT" })
     })
   }, 30_000)
@@ -421,9 +660,21 @@ async function temporaryRoot() {
   return root
 }
 
+async function rewriteTarEntryPath(path: string, name: string) {
+  const archive = await readFile(path);
+  archive.fill(0, 0, 100);
+  archive.write(name, 0, "utf8");
+  archive.fill(0x20, 148, 156);
+  let checksum = 0;
+  for (let index = 0; index < 512; index++) checksum += archive[index];
+  archive.write(`${checksum.toString(8).padStart(6, "0")}\0 `, 148, 8, "ascii");
+  await writeFile(path, archive);
+}
+
 async function fakeCrabbox(bin: string) {
   const command = join(bin, "crabbox")
-  await writeFile(command, `#!/bin/sh
+  await writeFile(command,
+    `#!/bin/sh
 verb="$1"
 shift
 if [ -n "$CRABBOX_TEST_LOG" ]; then printf '%s|%s|%s\n' "$PWD" "$verb" "$*" >> "$CRABBOX_TEST_LOG"; fi
@@ -458,6 +709,14 @@ case "$verb" in
       fi
       shift
     done
+    if [ -n "$CRABBOX_TEST_STATE_HOLDER" ]; then
+      case "$script" in
+        *VITEHUB_STATE_READY_*)
+          printf '%s\n' "$$" > "$CRABBOX_TEST_STATE_HOLDER"
+          exec /bin/sh -c "$script"
+          ;;
+      esac
+    fi
     /bin/sh -c "$script"
     ;;
   cp)
@@ -486,7 +745,8 @@ case "$verb" in
     ;;
   *) exit 21 ;;
 esac
-`)
+`,
+  );
   await chmod(command, 0o755)
 }
 

@@ -378,6 +378,14 @@ Inspect the final message after template composition and confirm that either `ht
 
 This release owns outbound transactional delivery, in-memory attachments, dynamic Markdown composition, and test capture. It does not own queues, retries, scheduling, provider templates, inbound email, webhooks, suppression lists, tracking, HTML sanitization, or CSS inlining.
 
+## Expose Email to an Agent
+
+Use the official [`email()` Capability](/docs/capabilities/email) when a model should send through the discovered Email Definition.
+The Capability fixes the sender in application code and exposes one plain-text `email_send` tool with optional policy; provider configuration and credentials stay in this primitive.
+
+Dynamic Markdown remains an application composition boundary.
+The official Capability does not render model-authored Markdown or expose HTML, headers, and attachments, so richer messages should use a trusted application template or a narrowly scoped Custom Capability.
+
 ## Next steps
 
 - Use [Queue](/docs/server-primitives/queue) when a request should return before email delivery completes.
