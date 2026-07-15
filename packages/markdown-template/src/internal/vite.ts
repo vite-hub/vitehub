@@ -21,7 +21,7 @@ function stripMarkdownCode(template: string): string {
   return template.split("\n").map((line) => {
     const content = line.replace(/^(?: {0,3}> ?)+/, "")
     if (!fence) {
-      const listIndented = inList && previousLineBlank && /^ {4}(?:`{3,}|~{3,})/.test(content)
+      const listIndented = inList && /^ {4}(?:`{3,}|~{3,})/.test(content)
       const opening = (listIndented ? content.slice(4) : content).match(/^ {0,3}(`{3,}|~{3,})/)
       if (!opening) {
         if (/^ {0,3}(?:[-+*]|\d+[.)])\s+/.test(content)) inList = true
