@@ -53,8 +53,8 @@ function generatedViteHubImportAliases(rootDir: string) {
 
 const rawImportVirtualModulePrefix = "vitehub:workspace-raw:"
 
-interface BabelImportDeclarationPath {
-  node: { source: { type?: string, value?: unknown } }
+interface BabelSourceDeclarationPath {
+  node: { source?: { type?: string, value?: unknown } | null }
 }
 
 function rawImportPath(specifier: string) {
@@ -65,16 +65,20 @@ function rawImportPath(specifier: string) {
 }
 
 function createRawImportTransformPlugin(importer: string | undefined) {
+  function rewriteRawSpecifier(path: BabelSourceDeclarationPath) {
+    if (!importer || path.node.source?.type !== "StringLiteral" || typeof path.node.source.value !== "string") return
+    const rawPath = rawImportPath(path.node.source.value)
+    if (rawPath === undefined) return
+
+    const reference = Buffer.from(JSON.stringify([importer, rawPath])).toString("base64url")
+    path.node.source.value = `${rawImportVirtualModulePrefix}${reference}`
+  }
+
   return () => ({
     visitor: {
-      ImportDeclaration(path: BabelImportDeclarationPath) {
-        if (!importer || path.node.source.type !== "StringLiteral" || typeof path.node.source.value !== "string") return
-        const rawPath = rawImportPath(path.node.source.value)
-        if (rawPath === undefined) return
-
-        const reference = Buffer.from(JSON.stringify([importer, rawPath])).toString("base64url")
-        path.node.source.value = `${rawImportVirtualModulePrefix}${reference}`
-      },
+      ExportAllDeclaration: rewriteRawSpecifier,
+      ExportNamedDeclaration: rewriteRawSpecifier,
+      ImportDeclaration: rewriteRawSpecifier,
     },
   })
 }

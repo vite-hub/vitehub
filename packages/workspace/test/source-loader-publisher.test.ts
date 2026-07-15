@@ -632,6 +632,33 @@ describe("sources, loaders, and publishers", () => {
     }])
   })
 
+  it("loads raw text re-exports from nested Workspace Definition modules", async () => {
+    const root = await createRoot()
+    const directory = join(root, "server", "agents", "review")
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, "repository-host-context.md"), "# Re-exported context\n")
+    await writeFile(join(directory, "context.ts"),
+      `export { default as repositoryHostContext } from "./repository-host-context.md?raw"\n`)
+    await writeFile(join(directory, "config.ts"), [
+      `import { repositoryHostContext } from "./context.ts"`,
+      `export default { rootDir: repositoryHostContext.trim() }`,
+      ``,
+    ].join("\n"))
+
+    const definition = {
+      handler: join(directory, "config.ts"),
+      name: "review",
+      path: join(directory, "config.ts"),
+      source: "test",
+      sourceRootDir: directory,
+    }
+    const loader = createWorkspaceDefinitionLoader(root)
+
+    await expect(loadDiscoveredWorkspaceDefinition(loader, definition)).resolves.toMatchObject({
+      rootDir: "# Re-exported context",
+    })
+  })
+
   it("ignores stale default Jiti transforms when loading raw imports", async () => {
     const root = await createRoot()
     const directory = join(root, "server", "agents", "review")
