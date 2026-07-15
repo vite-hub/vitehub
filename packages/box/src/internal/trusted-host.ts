@@ -339,11 +339,11 @@ async function createTrustedHostSession(options: {
 }): Promise<TrustedHostSession> {
   const workspace = join(options.root, "workspace");
   if (options.workspace) await symlink(options.workspace, workspace, "dir");
-  else await mkdir(workspace);
+  else await mkdir(workspace, { recursive: true });
   let destroyed = false;
   const processes = new Set<ChildProcessWithoutNullStreams>();
   const session = {
-    defaultWorkingDirectory: workspace,
+    defaultWorkingDirectory: options.workspace ? options.root : workspace,
     description: "Trusted host Box.",
     env: options.env,
     home: options.home,
