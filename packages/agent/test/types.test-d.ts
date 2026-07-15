@@ -7,6 +7,7 @@ import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinit
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../src/output.ts"
+import { defineAgentRunEvents, type AgentRunEventPublisher } from "../src/server.ts"
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentToolDefinition, AgentToolSchema, StreamEvent } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
@@ -39,6 +40,36 @@ describe("agent public types", () => {
     email({ from: "agent@example.com", recipients: "owner@example.com" })
     // @ts-expect-error Email recipient entries must be strings.
     email({ from: "agent@example.com", recipients: [123] })
+  })
+
+  it("exposes a run-scoped event publisher across Agent phases", () => {
+    const runEvents = defineAgentRunEvents({
+      store: {
+        append: (_runId, event) => ({ ...event, cursor: "1", runId: "run-1", timestamp: new Date(0).toISOString() }),
+        read: () => [],
+        subscribe: () => (async function* () {})(),
+      },
+    })
+
+    defineAgent({
+      capabilities: [defineCapability({
+        id: "progress",
+        input(context) {
+          expectTypeOf(context.runEvents).toEqualTypeOf<AgentRunEventPublisher | undefined>()
+        },
+      })],
+      driver: {
+        run(context) {
+          expectTypeOf(context.runEvents).toEqualTypeOf<AgentRunEventPublisher | undefined>()
+        },
+      },
+      hooks: {
+        "agent:finish"(event) {
+          expectTypeOf(event.runtime.runEvents).toEqualTypeOf<AgentRunEventPublisher | undefined>()
+        },
+      },
+      runEvents,
+    })
   })
 
   it("accepts literal false as the inline runtime opt-out", () => {

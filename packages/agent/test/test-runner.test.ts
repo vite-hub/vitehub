@@ -6,7 +6,7 @@ const inspectTools = vi.fn(() => ({}))
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, text: string, usage?: unknown }>>(async () => ({ finishReason: "stop", text: "ok" })))
 const workflowMock = vi.hoisted(() => {
-  const run = vi.fn(() => "workflow")
+  const run = vi.fn((_payload?: unknown, _options?: unknown) => "workflow")
   return { create: vi.fn(() => ({ run })), run }
 })
 
@@ -98,6 +98,35 @@ describe("agent test runner", () => {
       },
       usage: { outputTokens: 2 },
     })
+  })
+
+  it("keeps Agent Run Event store resolvers out of workflow payloads", async () => {
+    const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+    const { defineAgentRunEvents } = await import("../src/server.ts")
+    const resolveStore = vi.fn()
+    const agent = defineAgent({
+      driver: { run: () => "done" },
+      runEvents: defineAgentRunEvents({ store: resolveStore }),
+      runtime: workflow("run-events-payload"),
+    })
+
+    await runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-events-1" },
+      runtime: "vercel",
+      runtimeConfig: { region: "iad" },
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })
+
+    const payload = workflowMock.run.mock.calls.at(-1)?.[0]
+    expect(payload).toEqual({
+      input: { prompt: "hello" },
+      run: { runId: "run-events-1" },
+      runtime: "vercel",
+      runtimeConfig: { region: "iad" },
+    })
+    expect(() => JSON.stringify(payload)).not.toThrow()
+    expect(resolveStore).not.toHaveBeenCalled()
   })
 
   it("captures a terminal trace after reading Response output", async () => {

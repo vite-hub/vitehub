@@ -26,6 +26,7 @@ import {
   messageChannelTitleSupportContextKey,
 } from "./channels.ts"
 import { agentInvocationCallbackContextValues, createAgentInvocationContextStore } from "./invocation-context.ts"
+import { bindAgentRunEvents } from "./run-events.ts"
 import {
   createFallbackAgentInvoker,
   normalizeAgentInvokerOptions,
@@ -954,6 +955,16 @@ export {
 } from "./invocation-stream.ts"
 export type { AgentInvocationStreamEvent } from "./invocation-stream.ts"
 
+export type {
+  AgentRunEvent,
+  AgentRunEventInput,
+  AgentRunEventPublisher,
+  AgentRunEvents,
+  AgentRunEventStore,
+  AgentRunEventStoreResolveContext,
+  AgentRunEventStoreResolver,
+} from "./run-events.ts"
+
 function resolveCapabilityCliRunSurface(definition: Pick<AgentDefinition, "cli"> | undefined): boolean {
   if (definition?.cli?.capabilities !== undefined) return definition.cli.capabilities !== false
   return true
@@ -984,7 +995,7 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   const driver = normalizeAgentDriver(options)
-  const { box, capabilities, cli, description, hooks, messages, name, runtime = defaultAgentWorkflowRuntime(), version, workspace } = options
+  const { box, capabilities, cli, description, hooks, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, version, workspace } = options
   const channels = normalizeAgentChannels(options.channels)
   if (box && driver.kind !== "harness") {
     throw new Error("[vitehub] defineAgent({ box }) currently requires a harness Agent Driver.")
@@ -1044,6 +1055,7 @@ function defineBaseAgent<
     messages,
     name,
     runtime,
+    runEvents,
     run,
     version,
     workspace,
@@ -1431,13 +1443,17 @@ async function createAgentInvocationContext<
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const resolvedContext = createResolvedRuntimeContext(context)
-  const runtimeContext = resolvedContext.trace && resolvedContext.traceLog
+  const tracedRuntimeContext = resolvedContext.trace && resolvedContext.traceLog
     ? resolvedContext
     : {
         ...resolvedContext,
         trace: resolvedContext.trace || { id: createTraceId(context.run) },
         traceLog: resolvedContext.traceLog || createTraceEventLog(),
       }
+  const boundRunEvents = bindAgentRunEvents(definition?.runEvents, tracedRuntimeContext)
+  const runtimeContext = boundRunEvents
+    ? { ...tracedRuntimeContext, runEvents: boundRunEvents }
+    : tracedRuntimeContext
   const callbackContext = createAgentCallbackContext(runtimeContext)
   const invocationContext = createAgentInvocationContextStore(input.context)
   invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
