@@ -128,7 +128,7 @@ export async function resolveBox<Context>(
     throw new TypeError("[vitehub] Box requires a runtime.");
   }
   const cwdValue = await resolveValue(definition.cwd, context);
-  const cwd = cwdValue === undefined ? undefined : resolveString(cwdValue, "cwd");
+  const cwd = cwdValue === undefined ? undefined : resolve(resolveString(cwdValue, "cwd"));
   const plan = resolvePlan(definition, context, cwd || process.cwd());
   const requirements = normalizeRequirements([
     ...(definition.requires || []),

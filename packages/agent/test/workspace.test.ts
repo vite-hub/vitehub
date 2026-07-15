@@ -948,7 +948,7 @@ describe("defineAgent workspace option", () => {
     expect(harnessCreateSession).not.toHaveBeenCalled()
   })
 
-  it("clears a reused harness Skill directory when no global Skills are configured", async () => {
+  it("preserves unmanaged Skills when no global Skills are configured", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       driver: {
@@ -961,7 +961,10 @@ describe("defineAgent workspace option", () => {
 
     await expect(runAgent(agent, context(), { prompt: "review" })).resolves.toMatchObject({ text: "ok" })
     expect(harnessFileSession.run).toHaveBeenCalledWith(expect.objectContaining({
-      command: "rm -rf -- 'tmp/harness/codex-home/skills' && mkdir -p -- 'tmp/harness/codex-home/skills'",
+      command: expect.stringContaining("tmp/harness/codex-home/skills.vitehub-managed"),
+    }))
+    expect(harnessFileSession.run).not.toHaveBeenCalledWith(expect.objectContaining({
+      command: expect.stringContaining("rm -rf -- 'tmp/harness/codex-home/skills' &&"),
     }))
   })
 
