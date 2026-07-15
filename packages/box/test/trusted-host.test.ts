@@ -426,6 +426,24 @@ describe("trustedHost", () => {
     );
   });
 
+  it("resolves relative requirement executables from the Box workspace", async () => {
+    const root = await temporaryRoot();
+    const workspace = join(root, "workspace");
+    await mkdir(join(workspace, "bin"), { recursive: true });
+    await executable(join(workspace, "bin"), "check", "exit 0");
+    const box = await resolveBox(
+      {
+        cwd: workspace,
+        requires: [{ command: "./bin/check", args: [] }],
+        runtime: trustedHost(),
+      },
+      {},
+    );
+
+    const session = await (box.sandbox as HarnessV1SandboxProvider).createSession();
+    await session.destroy?.();
+  });
+
   it("rejects invalid targets and reserved environment variables", async () => {
     await expect(
       resolveBox(

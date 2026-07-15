@@ -483,7 +483,7 @@ async function validateRequirements(
   cwd: string | undefined,
 ) {
   for (const requirement of requirements) {
-    const executable = await findExecutable(requirement.command, env.PATH, env.PATHEXT);
+    const executable = await findExecutable(requirement.command, env.PATH, env.PATHEXT, cwd);
     if (!executable)
       throw new Error(
         `[vitehub] Box requirement "${requirement.name}" is unavailable: ${requirement.command} is not on PATH.`,
@@ -645,6 +645,7 @@ async function findExecutable(
   command: string,
   path: string | undefined,
   pathExt: string | undefined,
+  cwd: string | undefined,
 ) {
   const names = [
     command,
@@ -660,11 +661,15 @@ async function findExecutable(
   ];
   const candidates =
     command.includes("/") || command.includes("\\") || isAbsolute(command)
-      ? names.map((name) => resolve(name))
+      ? names.map((name) => resolve(cwd ?? process.cwd(), name))
       : (path || "")
           .split(delimiter)
           .filter(Boolean)
-          .flatMap((directory) => names.map((name) => join(directory, name)));
+          .flatMap((directory) =>
+            names.map((name) =>
+              isAbsolute(directory) ? join(directory, name) : resolve(cwd ?? process.cwd(), directory, name),
+            ),
+          );
   for (const candidate of candidates) {
     if (
       await access(candidate, constants.X_OK).then(
