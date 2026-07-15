@@ -411,6 +411,23 @@ describe("trustedHost", () => {
       resolveBox(
         {
           home: {
+            files: { ".acme/auth.json": { contents: "static" } },
+            state: {
+              ".acme": {
+                key: "same-file",
+                seed: { "auth.json": { contents: "seed" } },
+              },
+            },
+          },
+          runtime: trustedHost(),
+        },
+        {},
+      ),
+    ).rejects.toThrow("home.state .acme projected targets conflict");
+    await expect(
+      resolveBox(
+        {
+          home: {
             files: { ".acme/foo": { contents: "static" } },
             state: {
               ".acme": {
