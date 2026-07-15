@@ -186,6 +186,33 @@ describe("resolveDBViteConfig", () => {
     })
   })
 
+  it("preserves an unresolved definition auth token for a remote URL", async () => {
+    const rootDir = await createTempProject()
+    const originalAuthToken = process.env.TURSO_AUTH_TOKEN
+    delete process.env.TURSO_AUTH_TOKEN
+
+    try {
+      await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+        connection: [
+          "    authToken: process.env.TURSO_AUTH_TOKEN,",
+          "    url: 'libsql://definition.example.turso.io',",
+        ].join("\n"),
+      })
+
+      expect(resolveDBViteConfig(undefined, rootDir)?.databases.default.connection).toEqual({
+        authToken: {
+          kind: "env-variable",
+          source: { kind: "env", name: "TURSO_AUTH_TOKEN" },
+        },
+        url: "libsql://definition.example.turso.io",
+      })
+    }
+    finally {
+      if (typeof originalAuthToken === "undefined") delete process.env.TURSO_AUTH_TOKEN
+      else process.env.TURSO_AUTH_TOKEN = originalAuthToken
+    }
+  })
+
   it("uses the local connection fallback when an env-only URL is unset", async () => {
     const rootDir = await createTempProject()
     const originalAuthToken = process.env.TURSO_AUTH_TOKEN

@@ -248,13 +248,12 @@ function selectConnectionValue(value: DatabaseConfigValue | undefined, fallback:
 
 function resolveDefinitionConnection(file: string, name: string, fallback?: DatabaseConnectionConfig) {
   const definition = readDefinitionConnectionConfig(file)
-  const connection = {
-    authToken: selectConnectionValue(definition?.authToken, fallback?.authToken),
-    url: selectConnectionValue(definition?.url, fallback?.url),
+  const url = selectConnectionValue(definition?.url, fallback?.url)
+  if (!hasConnectionValue(url)) return getDefaultConnection(name)
+  return {
+    authToken: hasConnectionValue(definition?.authToken) ? definition?.authToken : fallback?.authToken,
+    url,
   }
-  return hasConnectionValue(connection.url)
-    ? connection
-    : getDefaultConnection(name)
 }
 
 function createGeneratedSchemaFile(rootDir: string, name: string) {
