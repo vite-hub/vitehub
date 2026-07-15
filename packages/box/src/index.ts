@@ -277,7 +277,11 @@ function normalizeFiles<Context>(
 function validateFileTargets(files: readonly string[], label: string) {
   for (let index = 0; index < files.length; index++) {
     for (let other = index + 1; other < files.length; other++) {
-      if (isDescendant(files[index], files[other]) || isDescendant(files[other], files[index])) {
+      if (
+        files[index] === files[other] ||
+        isDescendant(files[index], files[other]) ||
+        isDescendant(files[other], files[index])
+      ) {
         throw new TypeError(
           `[vitehub] Box ${label} targets conflict: ${files[index]} and ${files[other]}`,
         );
