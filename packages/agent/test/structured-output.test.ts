@@ -110,6 +110,24 @@ describe("Agent structured output", () => {
     })
   })
 
+  it("materializes and validates structured custom driver streams", async () => {
+    const agent = defineAgent({
+      driver: {
+        run: async function* () {
+          yield { text: "{\"summary\":\"Dec", type: "text-delta" as const }
+          yield { text: "isions\",\"title\":\"Weekly sync\"}", type: "text-delta" as const }
+        },
+      },
+      output: { schema: summarySchema() },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({
+      summary: "Decisions",
+      title: "Weekly sync",
+    })
+  })
+
   it("reports Standard Schema failures separately from JSON decoding", async () => {
     const agent = defineAgent({
       driver: { run: () => "{\"title\":42}" },

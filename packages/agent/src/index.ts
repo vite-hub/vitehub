@@ -2323,6 +2323,16 @@ async function finalizeAgentInvocationResult<
   }
 }
 
+async function materializeAgentStructuredOutput(result: unknown): Promise<unknown> {
+  if (!isAsyncIterable(result)) return result
+  let text = ""
+  for await (const event of streamAgentOutputToEvents(result)) {
+    if (event.type === "error") throw new Error(event.error)
+    if (event.type === "text-delta") text += event.text
+  }
+  return text
+}
+
 export async function runAgentInline<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -2365,8 +2375,9 @@ export async function runAgentInline<
         ? renderedResult ? result : await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
         : result
       const final = renderOutput ? await applyFinalOutputRenderers(rendered, runContext, outputExtensions) : rendered
+      const structuredFinal = runContext.output ? await materializeAgentStructuredOutput(final) : final
       const value = renderOutput && runContext.output
-        ? await validateAgentOutput(runContext.output, final, { allowMaterializedObject: true })
+        ? await validateAgentOutput(runContext.output, structuredFinal, { allowMaterializedObject: true })
         : final
       return {
         finishResult: runContext.output ? value : hasFinishWork(runContext) ? resultWithUsageRecord(final, driverUsageRecord) : final,
@@ -2374,6 +2385,7 @@ export async function runAgentInline<
         value,
       }
     }, "[vitehub] Agent run failed and finish lifecycle also failed.", {
+      finalizeRawStreams: renderOutput && Boolean(runContext.output),
       outputExtensions,
       wrapStream: stream => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, runContext),
     }) as TOutput
@@ -2398,15 +2410,18 @@ export async function runAgentInline<
     const driverUsageRecord = await resolveFinishUsageRecord(adapterContext, result)
     const rendered = renderOutput ? await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions) : result
     const final = renderOutput ? await applyFinalOutputRenderers(rendered, adapterContext, outputExtensions) : rendered
+    const structuredFinal = adapterContext.output ? await materializeAgentStructuredOutput(final) : final
     const runResult = renderOutput && adapterContext.output
-      ? await validateAgentOutput(adapterContext.output, final, { allowMaterializedObject: final !== result })
+      ? await validateAgentOutput(adapterContext.output, structuredFinal, { allowMaterializedObject: final !== result })
       : renderOutput ? toAgentRunResult(final) : final
     return {
       finishResult: adapterContext.output ? runResult : hasFinishWork(adapterContext) ? resultWithUsageRecord(final, driverUsageRecord) : final,
       finishUsage: driverUsageRecord,
       value: runResult,
     }
-  }, "[vitehub] Agent run failed and finish lifecycle also failed.") as TOutput
+  }, "[vitehub] Agent run failed and finish lifecycle also failed.", {
+    finalizeRawStreams: renderOutput && Boolean(adapterContext.output),
+  }) as TOutput
 }
 
 export async function runAgent<
