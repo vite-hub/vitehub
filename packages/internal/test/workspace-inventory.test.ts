@@ -17,6 +17,7 @@ describe("workspace inventory", () => {
       "devtools",
       "env",
       "kv",
+      "markdown-template",
       "queue",
       "runtime",
       "sandbox",
