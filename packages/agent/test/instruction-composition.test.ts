@@ -207,9 +207,15 @@ describe("instruction composition", () => {
   })
 
   it("preserves XML-style prompt tags as authored text", async () => {
-    expect(await composeInstructionDocument("<policy>Use {{ context.name }}.</policy>", {
-      context: { name: "Acme" },
-    })).toBe("<policy>Use Acme.</policy>")
+    expect(await composeInstructionDocument("<capability audience=\"{{ context.audience }}\" tone=\"{{ workspace.tone }}\">Use {{ context.name }}.</capability>", {
+      context: { audience: "A \"technical\" & safe", name: "Acme" },
+      workspace: { tone: "direct" },
+    })).toBe("<capability audience=\"A &quot;technical&quot; &amp; safe\" tone=\"direct\">Use Acme.</capability>")
+
+    await expect(composeInstructionDocument("<policy audience=\"{{ context.audience }}\">Use it.</policy>"))
+      .rejects.toThrow("Instruction binding \"{{ context.audience }}\" is not defined")
+    await expect(composeInstructionDocument("<policy tone=\"{{ workspace.tone }}\">Use it.</policy>"))
+      .rejects.toThrow("Instruction binding \"{{ workspace.tone }}\" is not defined")
   })
 
   it("parses boolean chains without skipping the right side", async () => {

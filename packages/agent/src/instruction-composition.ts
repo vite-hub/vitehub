@@ -44,6 +44,7 @@ interface ComposeInstructionState {
 const defaultImportDepth = 4
 const contextPathPattern = /context(?:\.[A-Za-z_$][\w$-]*)+/
 const compositionPathPattern = /^(?:context|workspace)(?:\.[A-Za-z_$][\w$-]*)+$/
+const compositionBindingPattern = /\{\{(?!\{)\s*((?:context|workspace)(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}/g
 const tripleBindingPattern = /\{\{\{\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}\}/g
 const tripleBindingPlaceholderPattern = /%%VITEHUB_TRIPLE_BINDING_(\d+)%%/g
 const scalarBindingPattern = /\{\{(?!\{)\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}/g
@@ -342,6 +343,10 @@ async function composeNode(
   if (!isElement(node)) return [node]
   const [tag, attrs, ...children] = node
 
+  if (tag === "code") return [node]
+  if (isHtmlElementAttributes(attrs)) {
+    return [[tag, composeHtmlAttributes(attrs, state), ...(await composeNodes(children, state, tag))] as ComarkElement]
+  }
   if (tag === "if") return await composeIfNode(node, state)
   if (tag === "else" || tag === "else-if") {
     throw new Error(`[vitehub] Instruction ${tag} block must follow an if block.`)
@@ -354,12 +359,12 @@ async function composeNode(
   if (tag === "vitehubTriple" || tag === "vitehub-triple") {
     return await renderTripleBinding(attrs, state.context, parent)
   }
-  if (tag === "code") return [node]
   if (tag === "p") {
     const path = soleTripleBindingPath(children, state.tripleBindings)
+    // ponytail: Parse standalone bindings as Markdown once without recursively composing their template syntax.
     if (path) return await renderTripleBindingPath(path, state.context)
   }
-  return [[tag, attrs, ...(await composeNodes(children, state, tag))] as ComarkElement]
+  return [[tag, composeHtmlAttributes(attrs, state), ...(await composeNodes(children, state, tag))] as ComarkElement]
 }
 
 async function composeTextNode(
@@ -392,12 +397,40 @@ function renderBinding(
   if (path === "workspace.sources") {
     throw new Error("[vitehub] Instruction binding \"{{ workspace.sources }}\" is no longer supported. Cover Sources with ::source blocks in Agent Driver Instructions.")
   }
+  return renderScalarBinding(path, scopes)
+}
+
+function renderScalarBinding(
+  path: string,
+  scopes: { context: Record<string, unknown>, workspace: Record<string, unknown> },
+): string {
   const value = namespacePathValue(path.startsWith("workspace.") ? scopes.workspace : scopes.context, path)
   if (value === null || value === undefined) {
     throw new Error(`[vitehub] Instruction binding "{{ ${path} }}" is not defined.`)
   }
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value)
   throw new TypeError(`[vitehub] Instruction binding "{{ ${path} }}" must resolve to a scalar value.`)
+}
+
+function composeHtmlAttributes(
+  attrs: Record<string, unknown>,
+  state: Pick<ComposeInstructionState, "context" | "workspace">,
+): Record<string, unknown> {
+  if (!isHtmlElementAttributes(attrs)) return attrs
+  return Object.fromEntries(Object.entries(attrs).map(([name, value]) => [
+    name,
+    typeof value === "string"
+      ? value.replace(compositionBindingPattern, (_match, path: string) => escapeHtmlAttribute(renderScalarBinding(path, state)))
+      : value,
+  ]))
+}
+
+function isHtmlElementAttributes(attrs: Record<string, unknown>): boolean {
+  return (attrs.$ as { html?: unknown } | undefined)?.html === 1
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 }
 
 function rejectLegacyCapabilityBinding(value: string): void {
@@ -470,7 +503,7 @@ async function renderTripleBindingPath(
   if (typeof value !== "string") {
     throw new TypeError(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" must resolve to a string.`)
   }
-  if (parent === "p") return [["vitehub-raw", { value }] as ComarkElement]
+  if (parent === "p") return [rawMarkdownNode(value)]
   const nodes = (await parseInstructionMarkdown(value)).nodes
   return nodes
 }

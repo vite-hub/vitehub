@@ -2880,7 +2880,7 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.instructions).toBe([
       "# Support\n\nImported policy.",
       "Use technical detail for Acme.",
-      "## Runtime policy\nUse trusted runtime context.",
+      "## Runtime policy\n\nUse trusted runtime context.",
       "Use docs for Acme.",
       "Use runtime support context for Acme.",
     ].join("\n\n"))
