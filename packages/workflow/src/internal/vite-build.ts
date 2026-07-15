@@ -62,7 +62,7 @@ async function createVercelWorkflowTransformPlugin(rootDir: string): Promise<Plu
   return builders.createSwcPlugin({ mode: "workflow", projectRoot: rootDir })
 }
 
-async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[]): Promise<void> {
+async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}): Promise<void> {
   const builders = await loadVercelWorkflowBuilders()
   if (!definitions.length) return
   const definitionDirs = [...new Set(definitions.map(definition => dirname(definition.handler)))]
@@ -90,8 +90,16 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
       }
       hasNativeEntry = true
     }
-    for (const match of source.matchAll(/(?:from\s*|import\s*\(\s*)["'](\.[^"']+)["']/g)) {
-      const imported = resolve(dirname(file), match[1])
+    for (const match of source.matchAll(/(?:from\s*|import\s*(?:\(\s*)?)["']([^"']+)["']/g)) {
+      const specifier = match[1]
+      const alias = Object.entries(aliases)
+        .find(([find]) => specifier === find || specifier.startsWith(`${find}/`))
+      const imported = specifier.startsWith(".")
+        ? resolve(dirname(file), specifier)
+        : alias
+          ? resolve(rootDir, specifier.replace(alias[0], alias[1]))
+          : undefined
+      if (!imported) continue
       const extensions = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]
       const sourceBase = imported.replace(/\.(?:m|c)?js$/, "")
       const candidate = [
@@ -630,6 +638,6 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     rootDir: options.rootDir,
     ...(vercelOutput ? { vercel: vercelOutput } : {}),
   })
-  if (vercelOutput) await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions)
+  if (vercelOutput) await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, options.providerImportAliases)
   return artifacts
 }

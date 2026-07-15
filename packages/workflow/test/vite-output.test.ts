@@ -193,7 +193,9 @@ describe("Vite workflow provider outputs", () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-override-")
     await linkNodeModuleEntry(join(playgroundDir, "../../packages/workflow/node_modules/workflow"), join(rootDir, "node_modules", "workflow"))
     const viteConfig = join(rootDir, "vite.config.ts")
-    await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replaceAll("workflow: {},", "workflow: { provider: \"vercel\" },"))
+    await writeFile(viteConfig, (await readFile(viteConfig, "utf8"))
+      .replace("const baseConfig = {", `const baseConfig = {\n    resolve: { alias: { "@": resolve(import.meta.dirname, ".") } },`)
+      .replaceAll("workflow: {},", "workflow: { provider: \"vercel\" },"))
     await writeFile(join(rootDir, "server", "workflows", "durable.ts"), [
       `export async function durable() {`,
       `  "use workflow"`,
@@ -202,7 +204,7 @@ describe("Vite workflow provider outputs", () => {
     ].join("\n"))
     await writeFile(join(rootDir, "server", "workflows", "native.ts"), [
       `import { defineWorkflow } from "@vite-hub/workflow"`,
-      `import { durable } from "./durable.js"`,
+      `import { durable } from "@/server/workflows/durable.js"`,
       `export default defineWorkflow(async () => "inline", { native: durable })`,
     ].join("\n"))
 
