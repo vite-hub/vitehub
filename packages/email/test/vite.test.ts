@@ -11,6 +11,7 @@ const tempDirs: string[] = []
 async function createTempProject(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-email-vite-"))
   tempDirs.push(root)
+  await writeFile(join(root, "package.json"), JSON.stringify({ private: true }))
   return root
 }
 
