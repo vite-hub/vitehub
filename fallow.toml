@@ -62,6 +62,7 @@ dynamicallyLoaded = [
   "packages/agent/test/**/*.test-d.ts",
   "packages/sandbox/test/**/*.test-d.ts",
   "packages/source/test/**/*.test-d.ts",
+  "packages/markdown-template/test/**/*.test-d.ts",
   "packages/sandbox/examples/**/server/**",
   "packages/sandbox/examples/**/src/server.ts",
   "packages/sandbox/examples/**/src/**/*.sandbox.ts",
@@ -120,6 +121,7 @@ ignoreDependencies = [
 
 publicPackages = [
   "@vite-hub/agent",
+  "@vite-hub/markdown-template",
   "@vite-hub/sandbox",
   "@vite-hub/schedule",
   "@vite-hub/shell",
