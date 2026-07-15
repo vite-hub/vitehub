@@ -5,8 +5,8 @@ export interface RuntimeEnvDeclarationLike {
   default?: unknown
   kind: "env-variable"
   source?: {
-    kind: "env"
-    name: string
+    kind: string
+    name?: string
     names?: string[]
   }
 }
@@ -109,4 +109,6 @@ export interface ResolvedDBViteConfig {
   rootDir: string
 }
 
-export type DBModulePublicOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options>
+export type DBModulePublicOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options> & {
+  connection?: DatabaseConnectionConfig
+}

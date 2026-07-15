@@ -1,5 +1,6 @@
 import type { UserConfig } from "vite"
 
+import { env } from "@vite-hub/env"
 import "../src/virtual.ts"
 
 import { describe, expectTypeOf, it } from "vitest"
@@ -15,10 +16,25 @@ describe("types", () => {
         cli: {
           generate: false,
         },
+        connection: {
+          authToken: "token",
+          url: "libsql://database.example.turso.io",
+        },
       },
     }
 
     expectTypeOf(config.database).toMatchTypeOf<DBModulePublicOptions | undefined>()
+  })
+
+  it("accepts Runtime Env declarations for hosted connections", () => {
+    const config: DBModulePublicOptions = {
+      connection: {
+        authToken: env({ secret: true, source: env.source("TURSO_AUTH_TOKEN") }),
+        url: env({ source: env.source("TURSO_DATABASE_URL") }),
+      },
+    }
+
+    expectTypeOf(config).toMatchTypeOf<DBModulePublicOptions>()
   })
 
   it("exposes drizzle types when the virtual ambient module entry is loaded", () => {

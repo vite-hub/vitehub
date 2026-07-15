@@ -139,6 +139,109 @@ describe("resolveDBViteConfig", () => {
     })
   })
 
+  it("uses the integration connection when the definition does not select a host", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts")
+    const originalAuthToken = process.env.TURSO_AUTH_TOKEN
+    const originalUrl = process.env.TURSO_DATABASE_URL
+    delete process.env.TURSO_AUTH_TOKEN
+    delete process.env.TURSO_DATABASE_URL
+
+    const connection = {
+      authToken: {
+        kind: "env-variable" as const,
+        source: { kind: "env" as const, name: "TURSO_AUTH_TOKEN" },
+      },
+      url: {
+        kind: "env-variable" as const,
+        source: { kind: "env" as const, name: "TURSO_DATABASE_URL" },
+      },
+    }
+
+    try {
+      expect(resolveDBViteConfig({ connection }, rootDir)?.databases.default.connection).toEqual(connection)
+    }
+    finally {
+      if (typeof originalAuthToken === "undefined") delete process.env.TURSO_AUTH_TOKEN
+      else process.env.TURSO_AUTH_TOKEN = originalAuthToken
+      if (typeof originalUrl === "undefined") delete process.env.TURSO_DATABASE_URL
+      else process.env.TURSO_DATABASE_URL = originalUrl
+    }
+  })
+
+  it("lets a definition override the integration connection URL", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+      connection: "    url: 'libsql://definition.example.turso.io',",
+    })
+
+    expect(resolveDBViteConfig({
+      connection: {
+        authToken: "integration-token",
+        url: "libsql://integration.example.turso.io",
+      },
+    }, rootDir)?.databases.default.connection).toEqual({
+      authToken: "integration-token",
+      url: "libsql://definition.example.turso.io",
+    })
+  })
+
+  it("preserves an unresolved definition URL over the integration connection", async () => {
+    const rootDir = await createTempProject()
+    const originalUrl = process.env.ANALYTICS_DATABASE_URL
+    delete process.env.ANALYTICS_DATABASE_URL
+
+    try {
+      await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+        connection: "    url: process.env.ANALYTICS_DATABASE_URL,",
+      })
+
+      expect(resolveDBViteConfig({
+        connection: {
+          authToken: "integration-token",
+          url: "libsql://integration.example.turso.io",
+        },
+      }, rootDir)?.databases.default.connection).toEqual({
+        authToken: "integration-token",
+        url: {
+          kind: "env-variable",
+          source: { kind: "env", name: "ANALYTICS_DATABASE_URL" },
+        },
+      })
+    }
+    finally {
+      if (typeof originalUrl === "undefined") delete process.env.ANALYTICS_DATABASE_URL
+      else process.env.ANALYTICS_DATABASE_URL = originalUrl
+    }
+  })
+
+  it("preserves an unresolved definition auth token for a remote URL", async () => {
+    const rootDir = await createTempProject()
+    const originalAuthToken = process.env.TURSO_AUTH_TOKEN
+    delete process.env.TURSO_AUTH_TOKEN
+
+    try {
+      await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+        connection: [
+          "    authToken: process.env.TURSO_AUTH_TOKEN,",
+          "    url: 'libsql://definition.example.turso.io',",
+        ].join("\n"),
+      })
+
+      expect(resolveDBViteConfig(undefined, rootDir)?.databases.default.connection).toEqual({
+        authToken: {
+          kind: "env-variable",
+          source: { kind: "env", name: "TURSO_AUTH_TOKEN" },
+        },
+        url: "libsql://definition.example.turso.io",
+      })
+    }
+    finally {
+      if (typeof originalAuthToken === "undefined") delete process.env.TURSO_AUTH_TOKEN
+      else process.env.TURSO_AUTH_TOKEN = originalAuthToken
+    }
+  })
+
   it("uses the local connection fallback when an env-only URL is unset", async () => {
     const rootDir = await createTempProject()
     const originalAuthToken = process.env.TURSO_AUTH_TOKEN

@@ -17,6 +17,7 @@ ViteHub keeps Definitions portable and moves Vercel-specific behavior into packa
 | Vercel Queues | Queue provider configuration and generated callback output. |
 | Vercel Workflow | Workflow provider configuration and generated runtime output. |
 | Vercel Sandbox | Sandbox Provider configuration, with Sandbox Identity passed only when the run needs reuse. |
+| External Database | Database integration `connection`, backed by a hosted libSQL service such as Turso. |
 | Credentials | `VERCEL_TOKEN` and `VERCEL_PROJECT_ID` for Blob Provision, with an optional team id; Server Env for app runtime secrets. |
 
 ## Provider-owned configuration
@@ -46,6 +47,26 @@ export default defineConfig({
 ::warning
 Vercel-hosted state needs hosted stores. Use `driver: 'vercel-blob'` with `BLOB_READ_WRITE_TOKEN` for Blob, and use Upstash-backed KV with `KV_REST_API_URL` and `KV_REST_API_TOKEN` when KV runs on Vercel. Local filesystem stores are development-only in Vercel deployments.
 ::
+
+Database Definitions own tables and identity, while the Database Integration selects the hosted connection used by Vercel output. Use Runtime Env declarations for Marketplace-provisioned credentials so generated output reads them at runtime.
+
+```ts [vite.config.ts]
+import { hubDb } from '@vite-hub/database/vite'
+import { env, hubEnv } from '@vite-hub/env/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [
+    hubEnv(),
+    hubDb({
+      connection: {
+        url: env({ source: env.source('TURSO_DATABASE_URL') }),
+        authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),
+      },
+    }),
+  ],
+})
+```
 
 ## Provision boundary
 

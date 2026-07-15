@@ -11,7 +11,7 @@ import { resolveConfigValue } from "../config-value.ts"
 import { resolveCloudflareD1Bindings } from "./cloudflare.ts"
 
 import type { ProvisionState } from "@vite-hub/internal/provision"
-import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
+import type { DatabaseConfigValue, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ComposedProviderOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
 export const dbPackageName = "@vite-hub/database"
@@ -172,15 +172,18 @@ function resolveDatabaseId(runtimeConfig: ResolvedDBViteConfig, name: string, pr
     ?? readProvisionedId(provisionState, "cloudflare", "d1", name)
 }
 
-function isRemoteLibsqlConnectionUrl(url: string | undefined) {
-  return typeof url === "string" && /^(?:libsql:|https?:\/\/)/i.test(url)
+function isRemoteLibsqlConnectionUrl(value: DatabaseConfigValue | undefined) {
+  const url = resolveConfigValue(value)
+  return typeof url === "string"
+    ? /^(?:libsql:|https?:\/\/)/i.test(url)
+    : typeof value !== "undefined"
 }
 
 function getCloudflareUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig, provisionState: ProvisionState) {
   return runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
     const hasD1Binding = Boolean(resolveDatabaseId(runtimeConfig, name, provisionState))
-    return !hasD1Binding && !isRemoteLibsqlConnectionUrl(resolveConfigValue(database?.connection?.url))
+    return !hasD1Binding && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
   })
 }
 
@@ -194,7 +197,7 @@ function getCloudflareDatabasesMissingNames(runtimeConfig: ResolvedDBViteConfig,
 function getVercelUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
   return runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
-    return !isRemoteLibsqlConnectionUrl(resolveConfigValue(database?.connection?.url))
+    return !isRemoteLibsqlConnectionUrl(database?.connection?.url)
   })
 }
 
