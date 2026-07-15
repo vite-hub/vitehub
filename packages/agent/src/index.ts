@@ -1855,8 +1855,10 @@ async function finishStreamAgentInvocation<
     return
   }
   let finishResult: unknown
+  let finishUsage: AgentUsageRecord | undefined
   try {
     const usageRecord = await resolveFinishUsageRecord(context, result)
+    finishUsage = usageRecord
     finishResult = await applyFinalOutputRenderers(result, context, outputExtensions)
     finishResult = context.output
       ? await validateAgentOutput(context.output, await materializeAgentStructuredOutput(finishResult), { allowMaterializedObject: finishResult !== result })
@@ -1865,7 +1867,7 @@ async function finishStreamAgentInvocation<
   catch (finishError) {
     await finishFailedAgentInvocation(context, finishError, failureMessage)
   }
-  await finishAgentInvocation(context, { result: finishResult, status: "success" })
+  await finishAgentInvocation(context, { result: finishResult, status: "success", usage: finishUsage })
 }
 
 function traceUiMessageStream<

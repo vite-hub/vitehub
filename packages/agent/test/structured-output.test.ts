@@ -156,6 +156,7 @@ describe("Agent structured output", () => {
         run: async function* () {
           yield { text: "{\"summary\":\"Decisions\",", type: "text-delta" as const }
           yield { text: "\"title\":\"Weekly sync\"}", type: "text-delta" as const }
+          yield { type: "usage" as const, usageRecord: { usage: { totalTokens: 3 } } }
         },
       },
       hooks: { "agent:finish": finish },
@@ -167,6 +168,7 @@ describe("Agent structured output", () => {
     expect(typeof (result as AsyncIterable<unknown>)[Symbol.asyncIterator]).toBe("function")
     for await (const _event of result as AsyncIterable<unknown>) {}
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      invocation: expect.objectContaining({ usage: { totalTokens: 3 } }),
       result: { summary: "Decisions", title: "Weekly sync" },
     }))
   })
