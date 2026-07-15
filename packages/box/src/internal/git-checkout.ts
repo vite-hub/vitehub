@@ -1,10 +1,10 @@
 import type { ResolvedBoxCheckout } from "../index.ts";
 
-export interface GitCheckoutCommandResult {
+interface GitCheckoutCommandResult {
   readonly stdout: string;
 }
 
-export interface GitCheckoutCommandRunner {
+interface GitCheckoutCommandRunner {
   readonly abortSignal?: AbortSignal;
   run(args: readonly string[]): Promise<GitCheckoutCommandResult>;
 }
