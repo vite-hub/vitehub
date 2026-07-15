@@ -94,6 +94,7 @@ export {
 } from "./memory.ts"
 export {
   mcp,
+  McpToolDefinitionDriftError,
 } from "./mcp.ts"
 export {
   webSearch,
@@ -325,6 +326,7 @@ export type {
   McpClient,
   McpClientConfig,
   McpServerConfig,
+  McpToolFingerprints,
 } from "../mcp/types.ts"
 export type {
   WebReadToolDefinition,

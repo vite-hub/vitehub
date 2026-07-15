@@ -23,9 +23,12 @@ export type McpServerConfig<
   | McpClientConfig
   | ((context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<McpClient | McpClientConfig>)
 
+export type McpToolFingerprints = Record<string, string>
+
 export interface McpCapabilityOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
+  integrity?: Record<string, McpToolFingerprints>
   servers: Record<string, McpServerConfig<TRuntimeConfig, Name>>
 }
