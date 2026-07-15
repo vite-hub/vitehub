@@ -18,7 +18,11 @@ function stripJsonFence(value: string): string {
   return match?.[1]?.trim() || value.trim()
 }
 
-function jsonValueFromResult(result: unknown): unknown {
+function jsonValueFromResult(result: unknown, allowMaterializedObject: boolean): unknown {
+  if (allowMaterializedObject && result !== null && typeof result === "object") {
+    const prototype = Object.getPrototypeOf(result)
+    if (prototype === Object.prototype || prototype === null) return result
+  }
   const directText = result && typeof result === "object" && "text" in result
     ? (result as { text?: unknown }).text
     : undefined
@@ -29,7 +33,6 @@ function jsonValueFromResult(result: unknown): unknown {
     return JSON.parse(stripJsonFence(text))
   }
   catch (cause) {
-    if (result !== null && typeof result === "object") return result
     throw new AgentOutputValidationError(
       "invalid-json",
       "[vitehub] Agent output is not valid JSON.",
@@ -53,8 +56,9 @@ function formatIssues(issues: readonly StandardSchemaV1.Issue[]): string {
 export async function validateAgentOutput<TOutput>(
   output: AgentOutputDefinition<TOutput>,
   result: unknown,
+  options: { allowMaterializedObject?: boolean } = {},
 ): Promise<TOutput> {
-  const value = jsonValueFromResult(result)
+  const value = jsonValueFromResult(result, options.allowMaterializedObject === true)
   const validation = await output.schema["~standard"].validate(value)
   if (validation.issues?.length) {
     throw new AgentOutputValidationError(

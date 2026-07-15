@@ -2365,7 +2365,9 @@ export async function runAgentInline<
         ? renderedResult ? result : await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
         : result
       const final = renderOutput ? await applyFinalOutputRenderers(rendered, runContext, outputExtensions) : rendered
-      const value = runContext.output ? await validateAgentOutput(runContext.output, final) : final
+      const value = renderOutput && runContext.output
+        ? await validateAgentOutput(runContext.output, final, { allowMaterializedObject: true })
+        : final
       return {
         finishResult: runContext.output ? value : hasFinishWork(runContext) ? resultWithUsageRecord(final, driverUsageRecord) : final,
         finishUsage: driverUsageRecord,
@@ -2396,8 +2398,8 @@ export async function runAgentInline<
     const driverUsageRecord = await resolveFinishUsageRecord(adapterContext, result)
     const rendered = renderOutput ? await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions) : result
     const final = renderOutput ? await applyFinalOutputRenderers(rendered, adapterContext, outputExtensions) : rendered
-    const runResult = adapterContext.output
-      ? await validateAgentOutput(adapterContext.output, final)
+    const runResult = renderOutput && adapterContext.output
+      ? await validateAgentOutput(adapterContext.output, final, { allowMaterializedObject: final !== result })
       : renderOutput ? toAgentRunResult(final) : final
     return {
       finishResult: adapterContext.output ? runResult : hasFinishWork(adapterContext) ? resultWithUsageRecord(final, driverUsageRecord) : final,

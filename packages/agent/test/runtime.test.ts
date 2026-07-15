@@ -1405,6 +1405,27 @@ describe("agent message protocol", () => {
     expect(harnessAgentSettings.at(-1)?.instructions).toContain('"title"')
   })
 
+  it("rejects malformed JSON from structured harness results", async () => {
+    const { defineAgent, runAgent, AgentOutputValidationError } = await import("../src/index.ts")
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    harnessGenerate.mockResolvedValueOnce({ text: "hello" })
+    const agent = defineAgent({
+      driver: { harness: { provider: "codex" } },
+      output: {
+        schema: {
+          "~standard": {
+            validate: (value: unknown) => ({ value: value as { text: string } }),
+            vendor: "vitehub-test",
+            version: 1,
+          },
+        },
+      },
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).rejects.toBeInstanceOf(AgentOutputValidationError)
+  })
+
   it("requires explicit harness sandboxes on runtimes without local processes", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({ driver: { harness: { provider: "codex" } } })
