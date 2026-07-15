@@ -119,12 +119,13 @@ describe("crabbox", () => {
           command:
             'printf refreshed > "$HOME/.acme/auth.next" && mv "$HOME/.acme/auth.next" "$HOME/.acme/auth.json"',
         });
+        await first.run({ command: 'rm "$HOME/.acme/config.toml" && mkdir "$HOME/.acme/config.toml"' });
         await first.destroy?.();
 
         const second = await sandbox.createSession();
-        await expect(second.run({ command: 'cat "$HOME/.acme/auth.json"' })).resolves.toMatchObject(
-          { stdout: "refreshed" },
-        );
+        await expect(
+          second.run({ command: 'cat "$HOME/.acme/auth.json" "$HOME/.acme/config.toml"' }),
+        ).resolves.toMatchObject({ stdout: 'refreshedmode = "file"\n' });
         await second.destroy?.();
 
         const withoutProjection = await resolveBox(

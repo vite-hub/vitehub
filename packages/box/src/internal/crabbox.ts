@@ -418,6 +418,7 @@ function appendFile(
     Buffer.from(contents).toString("base64"),
     marker,
     `chmod ${mode.toString(8)} ${shellQuote(temporary)}`,
+    `rm -rf -- ${shellQuote(path)}`,
     `mv -f -- ${shellQuote(temporary)} ${shellQuote(path)}`,
   );
 }
