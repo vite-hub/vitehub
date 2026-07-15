@@ -1046,7 +1046,7 @@ export function createHarnessAgentAdapter<
     const colocatedSkillsWorkspace = await resolveHarnessColocatedSkills(context)
     const resolved = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal, globalSkillsDirectory, globalSkillsWorkspace, sessionPrepare) => {
       const globalSkillsWorkingDirectory =
-        context.box?.runtime === "trusted-host" && !context.box.workspace.path ? ".." : undefined
+        context.box?.runtime === "trusted-host" && !context.box.workspace.path ? "." : undefined
       const harnessInstructions = context.workspace ? await resolveHarnessInstructions(context) : undefined
       try {
         if (context.workspace) {
