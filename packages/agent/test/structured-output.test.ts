@@ -149,6 +149,45 @@ describe("Agent structured output", () => {
     })
   })
 
+  it("materializes structured stream-result wrappers", async () => {
+    const agent = defineAgent({
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { text: "{\"summary\":\"Decisions\",\"title\":\"Weekly sync\"}", type: "text-delta" as const }
+          })(),
+        }),
+      },
+      output: { schema: summarySchema() },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({
+      summary: "Decisions",
+      title: "Weekly sync",
+    })
+  })
+
+  it("preserves usage while materializing structured run streams", async () => {
+    const finish = vi.fn()
+    const agent = defineAgent({
+      driver: {
+        run: async function* () {
+          yield { text: "{\"summary\":\"Decisions\",\"title\":\"Weekly sync\"}", type: "text-delta" as const }
+          yield { type: "usage" as const, usageRecord: { usage: { totalTokens: 3 } } }
+        },
+      },
+      hooks: { "agent:finish": finish },
+      output: { schema: summarySchema() },
+      runtime: false,
+    })
+
+    await runAgentInline(agent, runtime(), {})
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      invocation: expect.objectContaining({ usage: { usage: { totalTokens: 3 } } }),
+    }))
+  })
+
   it("preserves raw custom driver streams", async () => {
     const agent = defineAgent({
       driver: {

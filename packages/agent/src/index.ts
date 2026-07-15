@@ -2329,14 +2329,16 @@ async function finalizeAgentInvocationResult<
 }
 
 async function materializeAgentStructuredOutput(result: unknown): Promise<unknown> {
-  if (!isAsyncIterable(result)) return result
+  if (!isAsyncIterable(result) && !hasTraceableStreamResult(result)) return result
   if (toAgentRunResult(result).text !== undefined) return result
   let text = ""
+  let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
   for await (const event of streamAgentOutputToEvents(result)) {
     if (event.type === "error") throw new Error(event.error)
     if (event.type === "text-delta") text += event.text
+    if (event.type === "usage") usageRecord = event.usageRecord
   }
-  return text
+  return resultWithUsageRecord(text, usageRecord)
 }
 
 export function runAgentInline<
@@ -2402,12 +2404,13 @@ export async function runAgentInline<
         : result
       const final = renderOutput ? await applyFinalOutputRenderers(rendered, runContext, outputExtensions) : rendered
       const structuredFinal = runContext.output ? await materializeAgentStructuredOutput(final) : final
+      const structuredUsageRecord = runContext.output ? await resolveFinishUsageRecord(runContext, structuredFinal) : driverUsageRecord
       const value = renderOutput && runContext.output
         ? await validateAgentOutput(runContext.output, structuredFinal, { allowMaterializedObject: true })
         : final
       return {
         finishResult: runContext.output ? value : hasFinishWork(runContext) ? resultWithUsageRecord(final, driverUsageRecord) : final,
-        finishUsage: driverUsageRecord,
+        finishUsage: structuredUsageRecord,
         value,
       }
     }, "[vitehub] Agent run failed and finish lifecycle also failed.", {
@@ -2437,12 +2440,13 @@ export async function runAgentInline<
     const rendered = renderOutput ? await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions) : result
     const final = renderOutput ? await applyFinalOutputRenderers(rendered, adapterContext, outputExtensions) : rendered
     const structuredFinal = adapterContext.output ? await materializeAgentStructuredOutput(final) : final
+    const structuredUsageRecord = adapterContext.output ? await resolveFinishUsageRecord(adapterContext, structuredFinal) : driverUsageRecord
     const runResult = renderOutput && adapterContext.output
       ? await validateAgentOutput(adapterContext.output, structuredFinal, { allowMaterializedObject: final !== result })
       : renderOutput ? toAgentRunResult(final) : final
     return {
       finishResult: adapterContext.output ? runResult : hasFinishWork(adapterContext) ? resultWithUsageRecord(final, driverUsageRecord) : final,
-      finishUsage: driverUsageRecord,
+      finishUsage: structuredUsageRecord,
       value: runResult,
     }
   }, "[vitehub] Agent run failed and finish lifecycle also failed.", {
