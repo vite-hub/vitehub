@@ -2632,7 +2632,7 @@ export async function streamAgentInline<
       }, { abortSignal: adapterContext.input.abortSignal }) : tracedEvents,
     }
   }, "[vitehub] Agent stream failed and finish lifecycle also failed.", {
-    finalizeRawStreams: output === "ui-message-stream" || Boolean(adapterContext.finalOutputRenderers.length),
+    finalizeRawStreams: output === "ui-message-stream" || Boolean(adapterContext.finalOutputRenderers.length) || Boolean(adapterContext.output),
     outputExtensions,
   })
 }
