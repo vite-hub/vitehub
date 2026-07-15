@@ -29,6 +29,7 @@ function jsonValueFromResult(result: unknown): unknown {
     return JSON.parse(stripJsonFence(text))
   }
   catch (cause) {
+    if (result !== null && typeof result === "object") return result
     throw new AgentOutputValidationError(
       "invalid-json",
       "[vitehub] Agent output is not valid JSON.",

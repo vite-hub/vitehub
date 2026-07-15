@@ -76,6 +76,27 @@ describe("Agent structured output", () => {
     } satisfies Partial<AgentOutputValidationError>)
   })
 
+  it("validates materialized objects whose schema includes a text field", async () => {
+    const schema: StandardSchemaV1<unknown, { text: string }> = {
+      "~standard": {
+        validate(value) {
+          return value && typeof value === "object" && typeof (value as { text?: unknown }).text === "string"
+            ? { value: value as { text: string } }
+            : { issues: [{ message: "Expected text" }] }
+        },
+        vendor: "vitehub-test",
+        version: 1,
+      },
+    }
+    const agent = defineAgent({
+      driver: { run: () => ({ text: "hello" }) },
+      output: { schema },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({ text: "hello" })
+  })
+
   it("reports Standard Schema failures separately from JSON decoding", async () => {
     const agent = defineAgent({
       driver: { run: () => "{\"title\":42}" },
