@@ -714,8 +714,17 @@ async function prepareHarnessGlobalSkills(
   session: unknown,
   directory: unknown,
   abortSignal?: AbortSignal,
+  allowParent = false,
 ): Promise<{ close: (error?: unknown) => MaybePromise<void> } | undefined> {
-  if (!isHarnessRelativeDirectory(directory)) {
+  if (
+    !isHarnessRelativeDirectory(directory) &&
+    !(
+      allowParent &&
+      typeof directory === "string" &&
+      directory.startsWith("../") &&
+      isHarnessRelativeDirectory(directory.slice(3))
+    )
+  ) {
     if (!resolved) return
     throw new Error("[vitehub] This Harness Agent Driver does not support skills({ scope: \"global\" }).")
   }
@@ -1036,6 +1045,10 @@ export function createHarnessAgentAdapter<
     let globalSkillsSession: { close: (error?: unknown) => MaybePromise<void> } | undefined
     const colocatedSkillsWorkspace = await resolveHarnessColocatedSkills(context)
     const resolved = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal, globalSkillsDirectory, globalSkillsWorkspace, sessionPrepare) => {
+      const operationalGlobalSkillsDirectory =
+        context.box?.runtime === "trusted-host" && !context.box.workspace.path && isHarnessRelativeDirectory(globalSkillsDirectory)
+          ? posix.join("..", globalSkillsDirectory)
+          : globalSkillsDirectory
       const harnessInstructions = context.workspace ? await resolveHarnessInstructions(context) : undefined
       try {
         if (context.workspace) {
@@ -1055,10 +1068,16 @@ export function createHarnessAgentAdapter<
           await writeHarnessInstructionFiles(session as HarnessInstructionSandbox, sessionWorkDir, abortSignal, harnessInstructions)
           if (harnessInstructions) await workspaceSession.refreshGitBaseline?.()
         }
-        globalSkillsSession = await prepareHarnessGlobalSkills(globalSkillsWorkspace, session, globalSkillsDirectory, abortSignal)
+        globalSkillsSession = await prepareHarnessGlobalSkills(
+          globalSkillsWorkspace,
+          session,
+          operationalGlobalSkillsDirectory,
+          abortSignal,
+          operationalGlobalSkillsDirectory !== globalSkillsDirectory,
+        )
         const installedWorkspaceSkills = await prepareHarnessColocatedSkills(colocatedSkillsWorkspace, session, sessionWorkDir, "skills", abortSignal)
         if (isHarnessRelativeDirectory(globalSkillsDirectory)) {
-          await prepareHarnessColocatedSkills(colocatedSkillsWorkspace, session, globalSkillsDirectory, ".", abortSignal)
+          await prepareHarnessColocatedSkills(colocatedSkillsWorkspace, session, operationalGlobalSkillsDirectory as string, ".", abortSignal)
         }
         if (installedWorkspaceSkills) await workspaceSession?.refreshGitBaseline?.()
         if (typeof sessionPrepare === "function") {
