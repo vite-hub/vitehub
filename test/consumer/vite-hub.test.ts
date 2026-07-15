@@ -149,7 +149,7 @@ async function assertPackedPackage(tarball: string, framework: boolean) {
   await assertRootDeclarationsAvoidOptionalPeers(tarball, manifest)
 
   if (manifest.name === "@vite-hub/vite") {
-    expect(manifest.dependencies?.["vite-hub"], "compatibility package must pin the canonical framework release")
+    expect(manifest.peerDependencies?.["vite-hub"], "compatibility package must require the canonical framework release")
       .toBe(manifest.version)
   }
 
