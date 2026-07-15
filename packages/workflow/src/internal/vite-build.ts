@@ -71,6 +71,14 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
   const visit = (file: string) => {
     if (visited.has(file)) return
     visited.add(file)
+    if (!existsSync(file)) return
+    if (statSync(file).isDirectory()) {
+      for (const entry of readdirSync(file, { withFileTypes: true })) {
+        if (entry.name === "node_modules" || entry.name.startsWith(".")) continue
+        if (entry.isDirectory() || /\.(?:c|m)?[jt]sx?$/.test(entry.name)) visit(join(file, entry.name))
+      }
+      return
+    }
     const source = readFileSync(file, "utf8")
     if (/^\s*["']use workflow["'];?/m.test(source)) {
       const colocated = definitionDirs.some((definitionDir) => {
