@@ -7,6 +7,8 @@ icon: i-lucide-mail
 
 Email sends outbound transactional messages through one stable Runtime Helper. ViteHub owns the portable message, result, error, Definition, and driver boundaries, while the Email Definition owns the active delivery provider and its server-only credentials.
 
+The examples below use the canonical `vite-hub` application imports. SMTP, test utilities, and direct Vite Integration control remain explicit `@vite-hub/email` owner-package imports.
+
 ## Before you begin
 
 The quick start takes about ten minutes and sends a real message through an SMTP server. You need:
@@ -25,17 +27,19 @@ Nodemailer is required only for the SMTP driver. `createEmail()` can use a custo
 ### Install the SMTP dependencies
 
 ```bash [Terminal]
-pnpm add @vite-hub/email nodemailer
+pnpm add vite-hub @vite-hub/email nodemailer
 ```
+
+`vite-hub` provides the framework and provider-neutral Email imports. Install `@vite-hub/email` directly as well because the SMTP adapter is intentionally available only from its owner package.
 
 ### Register Email discovery
 
 ```ts [vite.config.ts]
-import { hubEmail } from '@vite-hub/email/vite'
+import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubEmail()],
+  plugins: [vitehub({ email: true })],
 })
 ```
 
@@ -52,8 +56,8 @@ Use your deployment platform's secret store in production. Do not use a `VITE_` 
 ### Define the delivery driver
 
 ```ts [server/email.ts]
-import { defineEmail } from '@vite-hub/email'
 import { smtp } from '@vite-hub/email/drivers/smtp'
+import { defineEmail } from 'vite-hub/email'
 
 const smtpURL = process.env.SMTP_URL
 if (!smtpURL) throw new Error('SMTP_URL is required')
@@ -68,8 +72,8 @@ export default defineEmail({
 Replace both addresses with values accepted by your SMTP provider. The request performs a real delivery.
 
 ```ts [server/api/welcome.post.ts]
-import { email } from '@vite-hub/email/server'
 import { defineEventHandler } from 'h3'
+import { email } from 'vite-hub/email/server'
 
 export default defineEventHandler(async () => {
   return await email.send({
@@ -100,20 +104,25 @@ The SMTP server supplies `id`. Confirm delivery in the recipient inbox or the pr
 
 | Surface | Use it when |
 | --- | --- |
-| `email.send(message)` | A Vite app discovers one Email Definition through `hubEmail()` or `vitehub({ email: true })`. |
+| `email.send(message)` | A Vite app discovers one Email Definition through `vitehub({ email: true })`. |
 | `createEmail({ driver })` | A server integration creates and owns the driver explicitly. Vite discovery is not required. |
 | `createTestEmail()` | A test needs production message validation and deterministic in-memory capture without delivery. |
 
 ## Public imports
 
+Applications should use the canonical `vite-hub` paths for framework and provider-neutral APIs. Provider adapters, test utilities, and direct integration control stay on the owner package so those dependencies remain explicit.
+
 | Import | Runtime values | Public types |
 | --- | --- | --- |
-| `@vite-hub/email` | `createEmail`, `defineEmail`, `EmailError` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailMessage`, `EmailDriver`, `EmailDriverResult`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode`, `EmailErrorOptions` |
-| `@vite-hub/email/server` | `email` | — |
+| `vite-hub` | `vitehub` | Framework Vite Integration options. |
+| `vite-hub/email` | `createEmail`, `defineEmail`, `EmailError` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailMessage`, `EmailDriver`, `EmailDriverResult`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode`, `EmailErrorOptions` |
+| `vite-hub/email/server` | `email` | — |
+| `vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmailMarkdown` |
 | `@vite-hub/email/drivers/smtp` | `smtp` | Nodemailer owns the accepted SMTP option types. |
-| `@vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmailMarkdown` |
 | `@vite-hub/email/test` | `createTestEmail`, `createMemoryEmailDriver` | `TestEmailClient`, `MemoryEmailDriver` |
 | `@vite-hub/email/vite` | `hubEmail` | `EmailVitePluginOptions`, `EmailVitePlugin`, `EmailVitePluginAPI` |
+
+The direct `@vite-hub/email`, `@vite-hub/email/server`, and `@vite-hub/email/markdown` paths remain stable for focused libraries and applications that install the owner package without the framework distribution.
 
 ## Message contract
 
@@ -145,8 +154,8 @@ Every successful send returns `Promise<EmailSendResult>`:
 `renderEmailMarkdown()` first composes the template through `@vite-hub/markdown-template`, then parses the composed Markdown with Comark and renders HTML.
 
 ```ts [server/welcome.ts]
-import { email } from '@vite-hub/email/server'
-import { renderEmailMarkdown } from '@vite-hub/email/markdown'
+import { renderEmailMarkdown } from 'vite-hub/email/markdown'
+import { email } from 'vite-hub/email/server'
 
 export async function sendWelcome(name: string, to: string) {
   const body = await renderEmailMarkdown([
@@ -188,8 +197,8 @@ export async function sendWelcome(name: string, to: string) {
 The SMTP driver accepts a connection URL or Nodemailer SMTP options. Validate required environment values before constructing an option object so a missing credential cannot silently become a different connection attempt.
 
 ```ts [server/email.ts]
-import { defineEmail } from '@vite-hub/email'
 import { smtp } from '@vite-hub/email/drivers/smtp'
+import { defineEmail } from 'vite-hub/email'
 
 function requiredEnv(name: string): string {
   const value = process.env[name]
@@ -222,7 +231,7 @@ import {
   EmailError,
   type EmailDriver,
   type EmailMessage,
-} from '@vite-hub/email'
+} from 'vite-hub/email'
 
 const endpoint = process.env.EMAIL_API_URL
 const token = process.env.EMAIL_API_TOKEN
@@ -288,8 +297,8 @@ Use `createMemoryEmailDriver()` when another client or test harness should own t
 Use `EmailError.code` for control flow and `driver` to identify the failing adapter. SMTP and core-wrapped provider failures keep the raw failure in `cause` and expose a safe message. A custom driver owns the same safety boundary when it throws `EmailError` directly.
 
 ```ts [server/send.ts]
-import { EmailError, type EmailMessage } from '@vite-hub/email'
-import { email } from '@vite-hub/email/server'
+import { EmailError, type EmailMessage } from 'vite-hub/email'
+import { email } from 'vite-hub/email/server'
 
 export async function send(message: EmailMessage) {
   try {
@@ -328,7 +337,7 @@ The package does not retry automatically. A timeout or disconnected response can
 The ViteHub preset keeps Email opt-in:
 
 ```ts [vite.config.ts]
-import { vitehub } from '@vite-hub/vite'
+import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
@@ -346,7 +355,7 @@ Only one Email Definition is allowed. The integration binds it through an intern
 
 ### `No Email Definition was discovered`
 
-Verify that `hubEmail()` or `vitehub({ email: true })` is registered and that exactly one `server/email.ts` or `server.email.ts` exists below the detected project root. If the Vite root is nested, set `projectRoot` explicitly. Restart the development server, then call `email.send()` again.
+Verify that `vitehub({ email: true })` is registered and that exactly one `server/email.ts` or `server.email.ts` exists below the detected project root. Applications using the owner integration directly can register `hubEmail()` instead. If the Vite root is nested, register `vitehub({ email: { projectRoot } })` explicitly. Restart the development server, then call `email.send()` again.
 
 ### `Only one Email Definition is allowed`
 
@@ -362,7 +371,7 @@ Inspect the final message after template composition and confirm that either `ht
 
 ## Compatibility and scope
 
-- `@vite-hub/email` currently requires Node.js 24 or later.
+- `vite-hub/email` and its `@vite-hub/email` owner package currently require Node.js 24 or later.
 - Email Definition discovery requires Vite 8 or later; explicit `createEmail()` clients do not require Vite.
 - The bundled SMTP adapter requires Nodemailer 9 and Node.js.
 - Provider-neutral means the core contract does not select a delivery provider. It does not claim support for arbitrary JavaScript runtimes in this release.

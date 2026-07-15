@@ -2,6 +2,8 @@
 
 `@vite-hub/email` sends outbound transactional email through one portable message and driver contract. Use the discovered `email` Runtime Helper in a ViteHub app, create an explicit client for manual integration, or provide your own delivery driver.
 
+Applications that install the `vite-hub` framework distribution can use `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown` for the provider-neutral APIs. Provider adapters, test utilities, and direct Vite Integration control stay on this owner package.
+
 ## Requirements
 
 - Node.js 24 or later.
