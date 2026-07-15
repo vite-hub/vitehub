@@ -104,8 +104,9 @@ describe("hubAuth", () => {
     expect(loadAuthServer(plugin)).not.toContain("@vite-hub/auth")
     const ambientTypes = await readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")
     expect(ambientTypes).toContain("declare module \"vite-hub/auth\"")
+    expect(ambientTypes).toContain("declare module \"@vite-hub/auth\"")
     expect(ambientTypes).toContain("from \"vite-hub/auth/server\"")
-    expect(ambientTypes).not.toContain("@vite-hub/auth")
+    expect(ambientTypes).not.toContain("from \"@vite-hub/auth/server\"")
   })
 
   it("connects the virtual Auth server helper to ViteHub Env when available", async () => {

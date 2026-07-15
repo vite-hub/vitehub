@@ -1191,6 +1191,9 @@ importers:
       '@vite-hub/workspace':
         specifier: workspace:*
         version: link:../workspace
+      '@vitejs/devtools-kit':
+        specifier: catalog:vite
+        version: 0.2.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@voidzero-dev/vite-plus-core@0.1.24)(crossws@0.4.5(srvx@0.11.22))(typescript@6.0.2)
       drizzle-kit:
         specifier: catalog:database
         version: 0.31.10

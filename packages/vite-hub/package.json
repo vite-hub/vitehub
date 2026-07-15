@@ -109,6 +109,7 @@
     "@vite-hub/source": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
+    "@vitejs/devtools-kit": "catalog:vite",
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database"
   },
