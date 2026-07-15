@@ -150,7 +150,7 @@ describe("crabbox", () => {
     );
   }, 30_000);
 
-  it("retries remote state seeding after a failed boot", async () => {
+  it("retries remote state seeding after a later boot failure", async () => {
     const root = await temporaryRoot();
     const workspace = join(root, "workspace");
     const stateRoot = join(root, "remote-state");
@@ -167,7 +167,7 @@ describe("crabbox", () => {
               ".acme": {
                 key: "portable-box-test/remote-seed-retry",
                 seed: {
-                  "auth.json": { contents: () => (++attempts === 1 ? undefined : "seed") },
+                  "auth.json": { contents: () => (++attempts === 1 ? "bad" : "seed") },
                 },
               },
             },
@@ -178,7 +178,13 @@ describe("crabbox", () => {
       );
       const sandbox = box.sandbox as HarnessV1SandboxProvider;
 
-      await expect(sandbox.createSession()).rejects.toThrow("Box file auth.json is required");
+      await expect(
+        sandbox.createSession({
+          onFirstCreate: async () => {
+            throw new Error("bad seed");
+          },
+        }),
+      ).rejects.toThrow("bad seed");
       const session = await sandbox.createSession();
       await expect(session.run({ command: 'cat "$HOME/.acme/auth.json"' })).resolves.toMatchObject({
         stdout: "seed",

@@ -350,7 +350,7 @@ describe("trustedHost", () => {
     }
   });
 
-  it("retries seed materialization after a failed boot", async () => {
+  it("retries seed materialization after a later boot failure", async () => {
     const root = await temporaryRoot();
     let attempts = 0;
     const box = await resolveBox(
@@ -360,7 +360,7 @@ describe("trustedHost", () => {
             ".acme": {
               key: "portable-box-test/seed-retry",
               seed: {
-                "auth.json": { contents: () => (++attempts === 1 ? undefined : "seed") },
+                "auth.json": { contents: () => (++attempts === 1 ? "bad" : "seed") },
               },
             },
           },
@@ -371,7 +371,13 @@ describe("trustedHost", () => {
     );
     const sandbox = box.sandbox as HarnessV1SandboxProvider;
 
-    await expect(sandbox.createSession()).rejects.toThrow("Box file auth.json is required");
+    await expect(
+      sandbox.createSession({
+        onFirstCreate: async () => {
+          throw new Error("bad seed");
+        },
+      }),
+    ).rejects.toThrow("bad seed");
     const session = (await sandbox.createSession()) as typeof sessionWithEnv;
     await expect(readFile(join(session.env.HOME, ".acme", "auth.json"), "utf8")).resolves.toBe(
       "seed",

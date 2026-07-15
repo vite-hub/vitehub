@@ -167,6 +167,7 @@ async function createSession(
   );
   let root: string | undefined;
   let session: TrustedHostSession | undefined;
+  const initializedState: string[] = [];
   try {
     root = await mkdtemp(join(tmpdir(), "vitehub-box-"));
     const home = join(root, "home");
@@ -174,7 +175,7 @@ async function createSession(
     const states = await prepareState(input.plan.state, options.stateRoot);
     const files = await resolveFiles(input.plan.files);
     const env = await resolveEnvironment(home, input.plan.env);
-    await materializeState(home, states);
+    await materializeState(home, states, initializedState);
     await materializeFiles(home, files);
     session = await createTrustedHostSession({
       env,
@@ -188,8 +189,21 @@ async function createSession(
     await createOptions.onFirstCreate?.(session, { abortSignal: createOptions.abortSignal });
     return session;
   } catch (error) {
-    if (session) await Promise.resolve(session.destroy?.()).catch(() => undefined);
+    if (session) {
+      await Promise.resolve(session.stop()).catch(() => undefined);
+      await Promise.all(
+        initializedState.map((path) =>
+          rm(path, { force: true, recursive: true }).catch(() => undefined)
+        ),
+      );
+      await Promise.resolve(session.destroy?.()).catch(() => undefined);
+    }
     else {
+      await Promise.all(
+        initializedState.map((path) =>
+          rm(path, { force: true, recursive: true }).catch(() => undefined)
+        ),
+      );
       if (root) await rm(root, { force: true, recursive: true }).catch(() => undefined);
       await releases();
     }
@@ -222,7 +236,11 @@ async function prepareState(
   return prepared;
 }
 
-async function materializeState(home: string, states: readonly PreparedState[]) {
+async function materializeState(
+  home: string,
+  states: readonly PreparedState[],
+  initialized: string[],
+) {
   for (const state of states) {
     if (state.initialize) {
       const staging = `${state.persistent}.init-${randomUUID()}`;
@@ -230,6 +248,7 @@ async function materializeState(home: string, states: readonly PreparedState[]) 
         await mkdir(staging, { mode: 0o700 });
         await materializeFiles(staging, state.seed);
         await rename(staging, state.persistent);
+        initialized.push(state.persistent);
       } finally {
         await rm(staging, { force: true, recursive: true }).catch(() => undefined);
       }

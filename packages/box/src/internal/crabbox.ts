@@ -139,6 +139,7 @@ function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxP
       let stateLease = emptyStateLease();
       let leaseId: string | undefined;
       let remoteRoot: string | undefined;
+      let initializedState: string[] = [];
       try {
         releaseWorkspace = await acquireWorkspace(options.workspace, createOptions.abortSignal);
         leaseId = await warmup(sessionOptions, createOptions.abortSignal)
@@ -179,6 +180,7 @@ function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxP
           remoteUser,
           bootstrapSignal,
         );
+        initializedState = materialized.initializedState;
         const syncedWorkspacePaths = await listRemoteWorkspacePaths(sessionOptions, leaseId, remoteWorkspace,
           bootstrapSignal,
         );
@@ -199,6 +201,12 @@ function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxP
           return session
         }
         catch (error) {
+          if (initializedState.length) {
+            await runCrabbox(sessionOptions, leaseId, {
+              command: `rm -rf -- ${initializedState.map(shellQuote).join(" ")}`,
+            }).catch(() => undefined);
+            initializedState = [];
+          }
           try {
             await session.destroy?.()
           }
@@ -207,6 +215,11 @@ function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxP
         }
       }
       catch (error) {
+        if (leaseId && initializedState.length) {
+          await runCrabbox(sessionOptions, leaseId, {
+            command: `rm -rf -- ${initializedState.map(shellQuote).join(" ")}`,
+          }).catch(() => undefined);
+        }
         if (leaseId && remoteRoot) {
           await runCrabbox(sessionOptions, leaseId, {
             command: `rm -rf -- ${shellQuote(remoteRoot)}`,
@@ -279,6 +292,7 @@ async function materializePlan(
     const persistent = remoteStatePath(options.stateRoot!, state.key);
     if (missingState.has(index)) {
       const staging = stateStaging.get(index)!;
+      cleanup.push(persistent);
       script.push(`mkdir -m 700 -- ${shellQuote(staging)}`);
       appendFiles(script, staging, seeds.get(index) || [], cleanup);
       script.push(`mv -- ${shellQuote(staging)} ${shellQuote(persistent)}`);
@@ -321,7 +335,12 @@ async function materializePlan(
     script.push("trap - EXIT HUP INT TERM");
   }
   await runCrabboxScript(options, leaseId, { abortSignal, script: `${script.join("\n")}\n` });
-  return { environmentFile };
+  return {
+    environmentFile,
+    initializedState: [...missingState].map((index) =>
+      remoteStatePath(options.stateRoot!, options.plan.state[index].key)
+    ),
+  };
 }
 
 function appendProjectionReconciliation(
