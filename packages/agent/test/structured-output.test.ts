@@ -161,7 +161,9 @@ describe("Agent structured output", () => {
     })
 
     const result = await runAgentInline(agent, runtime(), {}, { output: "raw" })
-    await expect(Array.fromAsync(result as AsyncIterable<unknown>)).resolves.toEqual([
+    const events: unknown[] = []
+    for await (const event of result as AsyncIterable<unknown>) events.push(event)
+    expect(events).toEqual([
       { text: "not json", type: "text-delta" },
     ])
   })
