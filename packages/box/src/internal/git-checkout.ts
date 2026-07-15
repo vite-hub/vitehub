@@ -14,7 +14,12 @@ export async function materializeGitCheckout(
   workspace: string,
   runner: GitCheckoutCommandRunner,
 ) {
-  await run("initialize", ["init", "--quiet", workspace]);
+  await run("initialize", [
+    "init",
+    "--quiet",
+    ...(checkout.sha.length === 64 ? ["--object-format=sha256"] : []),
+    workspace,
+  ]);
   await run("configure remote", ["-C", workspace, "remote", "add", "--", "origin", checkout.remote]);
   await run("fetch ref", [
     "-C",
