@@ -1,8 +1,6 @@
 import { readFile, stat } from "node:fs/promises"
-import { resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { dirname, resolve } from "node:path"
 
-import { parseMarkdownTemplateRequest, renderMarkdownTemplateModule } from "@vite-hub/markdown-template/internal/vite"
 import { build as bundle, type Plugin } from "esbuild"
 
 interface BundleEsmEntryOptions {
@@ -19,7 +17,27 @@ interface BundleEsmEntryOptions {
 
 const viteRawNamespace = "vitehub-vite-raw"
 const viteMarkdownTemplateNamespace = "vitehub-markdown-template"
-const markdownTemplateRuntime = fileURLToPath(import.meta.resolve("@vite-hub/markdown-template"))
+const markdownTemplateQuery = "markdown-template"
+const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
+
+function parseMarkdownTemplateRequest(id: string): { path: string } | undefined {
+  const queryIndex = id.indexOf("?")
+  if (queryIndex === -1) return
+  const query = id.slice(queryIndex + 1).split("#", 1)[0]!
+  if (!new URLSearchParams(query).has(markdownTemplateQuery)) return
+  return { path: id.slice(0, queryIndex) }
+}
+
+function renderMarkdownTemplateModule(template: string): string {
+  return [
+    `import { renderMarkdownTemplate as vitehubRenderMarkdownTemplate } from ${JSON.stringify(markdownTemplateRuntimeSpecifier)}`,
+    `const vitehubMarkdownTemplate = ${JSON.stringify(template)}`,
+    "export default function render(data = {}) {",
+    "  return vitehubRenderMarkdownTemplate(vitehubMarkdownTemplate, { data })",
+    "}",
+    "",
+  ].join("\n")
+}
 
 function hasViteRawQuery(path: string): boolean {
   const queryIndex = path.indexOf("?")
@@ -93,12 +111,10 @@ function createViteRawPlugin(rootDir: string | undefined): Plugin {
         contents: await readFile(args.path),
         loader: "text",
       }))
-      build.onResolve({ filter: /.*/, namespace: viteMarkdownTemplateNamespace }, (args) => {
-        if (args.path === markdownTemplateRuntime) return { namespace: "file", path: args.path }
-      })
       build.onLoad({ filter: /.*/, namespace: viteMarkdownTemplateNamespace }, async args => ({
-        contents: renderMarkdownTemplateModule(await readFile(args.path, "utf8"), markdownTemplateRuntime),
+        contents: renderMarkdownTemplateModule(await readFile(args.path, "utf8")),
         loader: "js",
+        resolveDir: dirname(args.path),
       }))
     },
   }

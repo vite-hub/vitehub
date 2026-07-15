@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url"
 
 import {
   markdownTemplateQuery,
+  markdownTemplateRuntimeSpecifier,
   parseMarkdownTemplateRequest,
   renderMarkdownTemplateModule,
   renderMarkdownTemplateTypes,
@@ -11,12 +12,19 @@ import {
 
 import type { Plugin } from "vite"
 
-const markdownTemplateRuntime = fileURLToPath(import.meta.resolve("@vite-hub/markdown-template"))
+const markdownTemplateRuntime = fileURLToPath(import.meta.resolve(markdownTemplateRuntimeSpecifier))
 
 export function hubMarkdownTemplate(): Plugin {
   return {
     name: "@vite-hub/markdown-template/vite",
     enforce: "pre",
+    config() {
+      return {
+        resolve: {
+          alias: { [markdownTemplateRuntimeSpecifier]: markdownTemplateRuntime },
+        },
+      }
+    },
     async resolveId(source, importer) {
       const request = parseMarkdownTemplateRequest(source)
       if (!request) return
@@ -31,7 +39,7 @@ export function hubMarkdownTemplate(): Plugin {
       if (!request) return
       this.addWatchFile(request.path)
       return {
-        code: renderMarkdownTemplateModule(await readFile(request.path, "utf8"), markdownTemplateRuntime),
+        code: renderMarkdownTemplateModule(await readFile(request.path, "utf8")),
         map: null,
       }
     },

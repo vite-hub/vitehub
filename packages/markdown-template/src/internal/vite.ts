@@ -1,4 +1,5 @@
 export const markdownTemplateQuery = "markdown-template"
+export const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
 export function parseMarkdownTemplateRequest(id: string): { path: string } | undefined {
   const queryIndex = id.indexOf("?")
@@ -8,9 +9,9 @@ export function parseMarkdownTemplateRequest(id: string): { path: string } | und
   return { path: id.slice(0, queryIndex) }
 }
 
-export function renderMarkdownTemplateModule(template: string, runtimeImport: string): string {
+export function renderMarkdownTemplateModule(template: string): string {
   return [
-    `import { renderMarkdownTemplate as vitehubRenderMarkdownTemplate } from ${JSON.stringify(runtimeImport)}`,
+    `import { renderMarkdownTemplate as vitehubRenderMarkdownTemplate } from ${JSON.stringify(markdownTemplateRuntimeSpecifier)}`,
     `const vitehubMarkdownTemplate = ${JSON.stringify(template)}`,
     "export default function render(data = {}) {",
     "  return vitehubRenderMarkdownTemplate(vitehubMarkdownTemplate, { data })",

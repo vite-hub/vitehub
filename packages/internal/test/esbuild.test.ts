@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -52,7 +52,12 @@ describe("bundleEsmEntry", () => {
     ].join("\n"), "utf8")
 
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
-    await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
+    await bundleEsmEntry(entry, outfile, {
+      alias: { "@vite-hub/markdown-template": fileURLToPath(import.meta.resolve("@vite-hub/markdown-template")) },
+      format: "esm",
+      platform: "node",
+      rootDir,
+    })
     await rm(template)
 
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }

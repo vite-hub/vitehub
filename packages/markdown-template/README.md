@@ -42,7 +42,7 @@ await renderMarkdownTemplate(template, {
 
 Imports resolve before conditional sections are evaluated, so the resolver must authorize every requested import even when it appears inside an unselected branch.
 
-The package does not provide loops, helpers, macros, a compile phase, filesystem or URL access, HTML rendering, or public syntax-tree hooks. Markdown fragments preserve document structure, but they do not make untrusted content safe for a model; instruction and data boundaries remain the caller's responsibility.
+The renderer does not provide loops, helpers, macros, a compile phase, filesystem or URL access, HTML rendering, or public syntax-tree hooks. Markdown fragments preserve document structure, but they do not make untrusted content safe for a model; instruction and data boundaries remain the caller's responsibility.
 
 Comark provides the Markdown parser, component syntax, syntax tree, and serializer. ViteHub owns the constrained composition policy exposed by this package.
 
