@@ -27,7 +27,7 @@ void messageWithoutBody
 
 it("exports the portable Email contract", () => {
   expectTypeOf<EmailAddress>().toEqualTypeOf<string | { email: string; name?: string }>()
-  expectTypeOf(createEmail).parameters.toEqualTypeOf<[options: { driver: EmailDriver }]>()
+  expectTypeOf(createEmail).parameters.toEqualTypeOf<[options: EmailDefinition]>()
   expectTypeOf(createEmail).returns.toEqualTypeOf<EmailClient>()
   expectTypeOf(defineEmail).parameters.toEqualTypeOf<[definition: EmailDefinition]>()
   expectTypeOf(email.send).parameters.toEqualTypeOf<[message: EmailMessage]>()

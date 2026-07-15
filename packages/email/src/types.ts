@@ -46,10 +46,6 @@ export interface EmailDefinition {
   driver: EmailDriver
 }
 
-export interface EmailClientOptions {
-  driver: EmailDriver
-}
-
 export interface EmailClient {
   send: (message: EmailMessage) => Promise<EmailSendResult>
 }

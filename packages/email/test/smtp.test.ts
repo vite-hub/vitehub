@@ -87,6 +87,22 @@ describe("smtp", () => {
     })
   })
 
+  it("keeps provider details out of the public error message", async () => {
+    const cause = new Error("Authentication failed for smtp-user@example.com with secret-123")
+    nodemailer.sendMail.mockRejectedValue(cause)
+    const client = createEmail({ driver: smtp("smtp://localhost") })
+
+    await expect(client.send({
+      from: "hello@example.com",
+      subject: "Welcome",
+      text: "Hello",
+      to: "maxi@example.com",
+    })).rejects.toMatchObject({
+      cause,
+      message: "[vitehub] SMTP delivery failed.",
+    })
+  })
+
   it("rejects a missing provider message id", async () => {
     nodemailer.sendMail.mockResolvedValue({})
     const driver = smtp("smtp://localhost")
