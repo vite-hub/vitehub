@@ -28,12 +28,14 @@ function parseMarkdownTemplateRequest(id: string): { path: string } | undefined 
   return { path: id.slice(0, queryIndex) }
 }
 
-function renderMarkdownTemplateModule(template: string): string {
+function renderMarkdownTemplateModule(template: string, sourceId?: string, imports: Record<string, { id: string, template: string }> = {}): string {
   return [
     `import { renderMarkdownTemplate as vitehubRenderMarkdownTemplate } from ${JSON.stringify(markdownTemplateRuntimeSpecifier)}`,
     `const vitehubMarkdownTemplate = ${JSON.stringify(template)}`,
+    `const vitehubMarkdownTemplateSourceId = ${JSON.stringify(sourceId)}`,
+    `const vitehubMarkdownTemplateImports = ${JSON.stringify(imports)}`,
     "export default function render(data = {}) {",
-    "  return vitehubRenderMarkdownTemplate(vitehubMarkdownTemplate, { data })",
+    "  return vitehubRenderMarkdownTemplate(vitehubMarkdownTemplate, { data, sourceId: vitehubMarkdownTemplateSourceId, resolveImport: (specifier, importer) => vitehubMarkdownTemplateImports[`${importer}\\0${specifier}`] })",
     "}",
     "",
   ].join("\n")
@@ -112,7 +114,28 @@ function createViteRawPlugin(rootDir: string | undefined): Plugin {
         loader: "text",
       }))
       build.onLoad({ filter: /.*/, namespace: viteMarkdownTemplateNamespace }, async args => ({
-        contents: renderMarkdownTemplateModule(await readFile(args.path, "utf8")),
+        contents: await (async () => {
+          const template = await readFile(args.path, "utf8")
+          const imports: Record<string, { id: string, template: string }> = {}
+          const visited = new Set([args.path])
+          const visit = async (source: string, importer: string): Promise<void> => {
+            for (const match of source.matchAll(/@(\.\.?\/[^\s<>{}[\]]+)/g)) {
+              const specifier = match[1]!
+              const key = `${importer}\0${specifier}`
+              if (imports[key]) continue
+              const resolved = await build.resolve(specifier, { importer, kind: "import-statement", resolveDir: dirname(importer) })
+              if (resolved.errors.length || resolved.external || resolved.namespace !== "file") continue
+              const imported = { id: resolved.path, template: await readFile(resolved.path, "utf8") }
+              imports[key] = imported
+              if (!visited.has(imported.id)) {
+                visited.add(imported.id)
+                await visit(imported.template, imported.id)
+              }
+            }
+          }
+          await visit(template, args.path)
+          return renderMarkdownTemplateModule(template, args.path, imports)
+        })(),
         loader: "js",
         resolveDir: dirname(args.path),
       }))

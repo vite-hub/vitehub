@@ -1,1 +1,1 @@
-Consumer template at {{ cwd }}
+{{ cwd }}

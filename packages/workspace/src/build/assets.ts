@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync } from "node:fs"
 import { mkdir, rm, writeFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createViteHubEnvImportAliases } from "@vite-hub/internal/build/vite"
@@ -123,11 +123,25 @@ export function createWorkspaceDefinitionLoader(rootDir: string, alias: Record<s
       const [importer, path, kind = "raw"] = JSON.parse(Buffer.from(reference, "base64url").toString("utf8")) as [string, string, StaticTextImportKind?]
       const specifier = resolveWorkspaceRawSpecifier(path, rootDir)
       const resolved = loader.esmResolve(specifier, pathToFileURL(importer).href)
-      const template = readFileSync(fileURLToPath(resolved), "utf8")
+      const templatePath = fileURLToPath(resolved)
+      const template = readFileSync(templatePath, "utf8")
       return {
         __esModule: true,
         default: kind === "markdown-template"
-          ? (data: Record<string, unknown> = {}) => renderMarkdownTemplate(template, { data })
+          ? (data: Record<string, unknown> = {}) => renderMarkdownTemplate(template, {
+              data,
+              sourceId: templatePath,
+              resolveImport(specifier, importer) {
+                const importedPath = resolve(dirname(importer), specifier)
+                try {
+                  return { id: importedPath, template: readFileSync(importedPath, "utf8") }
+                }
+                catch (error) {
+                  if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+                  throw error
+                }
+              },
+            })
           : template,
       }
     },

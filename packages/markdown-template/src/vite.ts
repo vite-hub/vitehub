@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url"
 import {
   markdownTemplateQuery,
   markdownTemplateRuntimeSpecifier,
+  bundleMarkdownTemplateImports,
   parseMarkdownTemplateRequest,
   renderMarkdownTemplateModule,
   renderMarkdownTemplateTypes,
@@ -37,9 +38,17 @@ export function hubMarkdownTemplate(): Plugin {
     async load(id) {
       const request = parseMarkdownTemplateRequest(id)
       if (!request) return
+      const template = await readFile(request.path, "utf8")
+      const imports = await bundleMarkdownTemplateImports(request.path, async (specifier, importer) => {
+        if (specifier === ".") return { id: request.path, template }
+        const resolved = await this.resolve(specifier, importer, { skipSelf: true })
+        if (!resolved || resolved.external) return
+        this.addWatchFile(resolved.id)
+        return { id: resolved.id, template: await readFile(resolved.id, "utf8") }
+      })
       this.addWatchFile(request.path)
       return {
-        code: renderMarkdownTemplateModule(await readFile(request.path, "utf8")),
+        code: renderMarkdownTemplateModule(template, request.path, imports),
         map: null,
       }
     },
