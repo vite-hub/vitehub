@@ -21,24 +21,29 @@ const viteMarkdownTemplateNamespace = "vitehub-markdown-template"
 const markdownTemplateQuery = "markdown-template"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
-function stripMarkdownFencedCode(template: string): string {
+function stripMarkdownCode(template: string): string {
   let fence: { marker: string, length: number } | undefined
+  let inList = false
   return template.split("\n").map((line) => {
+    const content = line.replace(/^(?: {0,3}> ?)+/, "")
     if (!fence) {
-      const opening = line.match(/^ {0,3}(`{3,}|~{3,})/)
-      if (!opening) return line
+      const opening = content.match(/^ {0,3}(`{3,}|~{3,})/)
+      if (!opening) {
+        if (/^ {0,3}(?:[-+*]|\d+[.)])\s+/.test(content)) inList = true
+        else if (content.trim() && !/^ {2,}/.test(content)) inList = false
+        return !inList && /^(?: {4}|\t)/.test(content) ? "" : line
+      }
       fence = { marker: opening[1]![0]!, length: opening[1]!.length }
       return ""
     }
-    const closing = line.match(/^ {0,3}(`+|~+)\s*$/)?.[1]
+    const closing = content.match(/^ {0,3}(`+|~+)\s*$/)?.[1]
     if (closing?.[0] === fence.marker && closing.length >= fence.length) fence = undefined
     return ""
   }).join("\n")
 }
 
 function extractMarkdownTemplateImportSpecifiers(template: string): string[] {
-  const visible = stripMarkdownFencedCode(template)
-    .replace(/^(?: {4}|\t).*$/gm, "")
+  const visible = stripMarkdownCode(template)
     .replace(/(`+)[\s\S]*?\1/g, "")
     .replace(/<[^>]*>/g, "")
   const specifiers = new Set<string>()
