@@ -44,6 +44,7 @@ They do not replace package-owned hooks such as Agent Finish Hooks.
 
 Policy Decisions are runtime outcomes, not generic booleans.
 An Approval Request is created only when policy requires external approval.
+An omitted policy resolves to `allow`.
 
 | Value | Meaning |
 | --- | --- |

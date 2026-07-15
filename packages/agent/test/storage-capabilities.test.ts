@@ -80,9 +80,9 @@ describe("storage capabilities", () => {
 
     await expect(resolveTools([schedule({ mode: "read", targets: ["reports"] })], { schedule: { schedules } }).then(tools => Object.keys(tools).sort())).resolves.toEqual(["cronjob"])
 
-    const tools = await resolveTools([schedule({ mode: "write", policy: "allow", targets: ["reports"] })], { schedule: { schedules } })
+    const tools = await resolveTools([schedule({ mode: "write", targets: ["reports"] })], { schedule: { schedules } })
     expect(Object.keys(tools)).toEqual(["cronjob"])
-    expect(await (tools.cronjob!.policy as (context: { input?: unknown, name: string }) => unknown)({ input: { operation: "list" }, name: "cronjob" })).toBe("allow")
+    expect(tools.cronjob!.policy).toBeUndefined()
 
     await expect(tools.cronjob!.execute?.({ operation: "targets" })).resolves.toEqual({ targets: ["reports"] })
     await expect(tools.cronjob!.execute?.({ operation: "list" })).resolves.toEqual([records[0]])
@@ -449,9 +449,9 @@ describe("storage capabilities", () => {
 
     await expect(resolveTools([kv()], { kv: { kind: "kv", value: store } }).then(tools => Object.keys(tools).sort())).resolves.toEqual(["kv_read"])
 
-    const tools = await resolveTools([kv({ mode: "write", policy: "allow" })], { kv: { kind: "kv", value: store } })
+    const tools = await resolveTools([kv({ mode: "write" })], { kv: { kind: "kv", value: store } })
     expect(Object.keys(tools).sort()).toEqual(["kv_edit", "kv_read"])
-    expect(tools.kv_edit?.policy).toBe("allow")
+    expect(tools.kv_edit?.policy).toBeUndefined()
 
     await expect(tools.kv_read!.execute?.({ key: "app:1" })).resolves.toBe("value")
     await expect(tools.kv_read!.execute?.({ prefix: "app:" })).resolves.toEqual(["app:1"])
@@ -503,7 +503,7 @@ describe("storage capabilities", () => {
 
     const tools = await resolveTools([blob({ mode: "write" })], { blob: store }, workspace)
     expect(Object.keys(tools).sort()).toEqual(["blob_edit", "blob_read"])
-    expect(tools.blob_edit?.policy).toBe("require-approval")
+    expect(tools.blob_edit?.policy).toBeUndefined()
 
     await tools.blob_read!.execute?.({ operation: "get", pathname: "images/a.png" })
     await tools.blob_read!.execute?.({ operation: "head", pathname: "images/a.png" })
@@ -659,7 +659,7 @@ describe("storage capabilities", () => {
       db: { run: vi.fn() },
       schema: { notes: true },
     }
-    const tools = await resolveTools([db({ mode: "write", policy: "allow" })], {
+    const tools = await resolveTools([db({ mode: "write" })], {
       db: database,
     })
 
@@ -704,15 +704,15 @@ describe("storage capabilities", () => {
     await expect(readTools.db_query!.execute?.({ statement: "with [delete] as (select 1) select * from [delete]" })).resolves.toEqual({ ok: true })
     await expect(readTools.db_query!.execute?.({ statement: "with cleaned as (select replace(title, 'a', 'b') from notes) select * from cleaned" })).resolves.toEqual({ ok: true })
 
-    const writeTools = await resolveTools([db({ mode: "write", policy: "allow" })], { db: database })
-    expect(writeTools.db_exec?.policy).toBe("allow")
+    const writeTools = await resolveTools([db({ mode: "write" })], { db: database })
+    expect(writeTools.db_exec?.policy).toBeUndefined()
     await expect(Promise.resolve().then(() => writeTools.db_exec!.execute?.({ rationale: "", statement: "delete from notes where id = 1" }))).rejects.toThrow("rationale")
     await expect(Promise.resolve().then(() => writeTools.db_exec!.execute?.({ rationale: "remove duplicate", statement: "delete from notes where id = 1; delete from notes where id = 2" }))).rejects.toThrow("exactly one")
     await expect(Promise.resolve().then(() => writeTools.db_exec!.execute?.({ rationale: "create table", statement: "create table notes (id integer)" }))).rejects.toThrow("schemaMode")
     await expect(writeTools.db_exec!.execute?.({ rationale: "remove duplicate", statement: "delete from notes where id = 1" })).resolves.toEqual({ ok: true })
     await expect(writeTools.db_exec!.execute?.({ rationale: "remove duplicate", statement: "with stale as (select id from notes) delete from notes where id in (select id from stale)" })).resolves.toEqual({ ok: true })
 
-    const schemaTools = await resolveTools([db({ policy: "allow", schemaMode: "write" })], { db: database })
+    const schemaTools = await resolveTools([db({ schemaMode: "write" })], { db: database })
     await expect(schemaTools.db_exec!.execute?.({ rationale: "create table", statement: "create table notes (id integer)" })).resolves.toEqual({ ok: true })
     await expect(Promise.resolve().then(() => schemaTools.db_exec!.execute?.({ rationale: "read", statement: "select * from notes" }))).rejects.toThrow("use db_query")
   })

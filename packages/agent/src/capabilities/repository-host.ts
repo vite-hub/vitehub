@@ -136,7 +136,7 @@ function repositoryHostTools(mode: AgentCapabilityMode, options: RepositoryHostO
         },
         inputSchema: repositoryHostWriteInputSchema,
         name: "repository_host_write",
-        policy: options.policy || "require-approval",
+        policy: options.policy,
       })
     }
     return tools

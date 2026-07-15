@@ -45,7 +45,7 @@ describe("Agent Process Schedule integration", () => {
       "}",
       "export default defineAgent({",
       "  runtime: false,",
-      "  capabilities: [kv(), schedule({ allowSelfTarget: true, delivery: 'origin', mode: 'write', policy: 'allow', timeZone: 'Asia/Bangkok' })],",
+      "  capabilities: [kv(), schedule({ allowSelfTarget: true, delivery: 'origin', mode: 'write', timeZone: 'Asia/Bangkok' })],",
       "  channels: {",
       "    discord: defineChannel('discord', {",
       "      adapter: {",

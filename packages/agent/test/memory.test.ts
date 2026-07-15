@@ -61,7 +61,7 @@ describe("agent memory capability", () => {
               adapter,
               allowKinds: ["procedural", "semantic"],
               scope: { agent: "support" },
-              write: { mode: "tool", policy: "allow" },
+              write: { mode: "tool" },
             },
           },
         }),
@@ -75,10 +75,10 @@ describe("agent memory capability", () => {
     await expect(capturedTools.memory_read!.execute({ id: "mem_1" })).resolves.toMatchObject({ item: { id: "mem_1" } })
     await expect(capturedTools.memory_remember!.execute({ content: "Prefer workspace JSONL.", kind: "semantic" })).resolves.toMatchObject({ item: { id: "mem_2" } })
     await expect(capturedTools.memory_delete!.execute({ id: "mem_1", reason: "obsolete" })).resolves.toMatchObject({ ok: true })
-    expect(await (capturedTools.memory_remember!.policy as (context: { input?: unknown }) => unknown)({ input: {} })).toBe("allow")
+    expect(capturedTools.memory_remember!.policy).toBeUndefined()
   })
 
-  it("enforces memory write mode and policy for the selected store", async () => {
+  it("enforces memory write mode for the selected store", async () => {
     const writable: MemoryStoreAdapter = {
       append: vi.fn(async request => ({ action: "created" as const, item: memoryRecord({ ...request, id: "mem_1" }) })),
       delete: vi.fn(async request => ({ deletedId: request.id, ok: true as const, tombstoneId: "mem_del_1" })),
@@ -107,7 +107,7 @@ describe("agent memory capability", () => {
             agent: {
               adapter: writable,
               scope: { agent: "support" },
-              write: { mode: "tool", policy: "allow" },
+              write: { mode: "tool" },
             },
             readonly: {
               adapter: readonly,
@@ -119,7 +119,7 @@ describe("agent memory capability", () => {
     })
 
     await runAgent(agent, runtime(), {})
-    expect(await capturedTools.memory_remember!.policy!({ input: { store: "agent" } })).toBe("allow")
+    expect(capturedTools.memory_remember!.policy).toBeUndefined()
     await expect(Promise.resolve().then(() => capturedTools.memory_remember!.execute({ content: "Keep this.", kind: "semantic", store: "readonly" }))).rejects.toThrow("does not allow writes")
     await expect(Promise.resolve().then(() => capturedTools.memory_delete!.execute({ id: "mem_1", store: "readonly" }))).rejects.toThrow("does not allow writes")
     expect(readonly.append).not.toHaveBeenCalled()
@@ -197,7 +197,7 @@ describe("agent memory capability", () => {
             project: {
               adapter,
               scope: { project: "vitehub" },
-              write: { mode: "tool", policy: "allow" },
+              write: { mode: "tool" },
             },
           },
         }),
@@ -263,7 +263,7 @@ describe("agent memory capability", () => {
             agent: {
               adapter,
               scope: { agent: "support" },
-              write: { mode: "tool", policy: "allow" },
+              write: { mode: "tool" },
             },
           },
         }),
@@ -409,7 +409,7 @@ describe("agent memory capability", () => {
             agent: {
               adapter,
               scope: { agent: "support" },
-              write: { mode: "tool", policy: "allow" },
+              write: { mode: "tool" },
             },
           },
         }),
@@ -446,7 +446,7 @@ describe("agent memory capability", () => {
             agent: {
               adapter,
               scope: context => ({ agent: "support", thread: context.run?.threadId }),
-              write: { mode: "tool", policy: "allow" },
+              write: { mode: "tool" },
             },
           },
         }),

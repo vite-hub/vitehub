@@ -8211,6 +8211,28 @@ describe("agent message protocol", () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
+  it("allows tools when policy is omitted", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => "refunded")
+
+    const agent = defineAgent({
+      driver: { model: {} as never },
+      capabilities: [{
+        id: "refund-tools",
+        tools: {
+          refund: {
+            execute,
+            name: "refund",
+          },
+        },
+      }],
+    })
+    const resolved = await agent.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
+
+    await expect(resolved.tools.refund!.execute({ amount: 100 })).resolves.toBe("refunded")
+    expect(execute).toHaveBeenCalledWith({ amount: 100 })
+  })
+
   it("turns approval-required tool policy into an approval error", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const execute = vi.fn()

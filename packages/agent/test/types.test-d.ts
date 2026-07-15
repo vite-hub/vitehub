@@ -181,8 +181,8 @@ describe("agent public types", () => {
           },
         }),
         workspaceShell(),
-        blob({ mode: "write", policy: () => "allow", store: "assets" }),
-        db({ database: "analytics", mode: "write", policy: "allow", schemaMode: "write" }),
+        blob({ mode: "write", policy: () => "require-approval", store: "assets" }),
+        db({ database: "analytics", mode: "write", schemaMode: "write" }),
         fetch({
           tools: {
             status: {

@@ -41,14 +41,15 @@ export default defineAgent({
 
 ViteHub selects the configured KV store and exposes a small Storage Capability Tool Surface.
 Read mode supports one exact key or one prefix per tool call.
-Write mode adds a put/delete tool with approval required by default.
+Write mode adds a put/delete tool and allows its normal operations by default.
 
 ## Requirements
 
 `kv()` requires a configured `kv` primitive.
 Named store selection requires the KV primitive to expose store selection.
 
-Writes require write mode and should keep approval enabled unless the product explicitly accepts autonomous storage writes.
+Writes require explicit write mode.
+Set `policy: 'require-approval'` or `policy: 'deny'` when the product needs an additional gate.
 
 ## Driver support
 
@@ -72,7 +73,7 @@ The Capability should fail before exposing tools.
 | --- | --- | --- | --- |
 | `mode` | `"read" \| "write"` | `"read"` | Adds `kv_edit` when set to `"write"`. |
 | `store` | `string` | default store | Selects a named KV store when the KV primitive supports `store()`. |
-| `policy` | `AgentToolPolicyDecision \| function` | `"require-approval"` | Policy for `kv_edit`. |
+| `policy` | `AgentToolPolicyDecision \| function` | `"allow"` | Policy for `kv_edit`. |
 
 ## Reference
 

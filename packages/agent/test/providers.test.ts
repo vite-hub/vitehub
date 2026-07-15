@@ -1754,7 +1754,6 @@ describe("server helpers", () => {
           allowSelfTarget: true,
           delivery: "origin",
           mode: "write",
-          policy: "allow",
           timeZone: "Asia/Bangkok",
         }),
       ],

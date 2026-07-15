@@ -40,6 +40,8 @@ export default defineAgent({
 })
 ```
 
+Attaching a Capability opts the Agent into that ability. Model-facing tool policy defaults to `allow`; set `policy: 'require-approval'` or `policy: 'deny'` when the product needs an additional runtime gate. Capability modes, scopes, allowlists, requirements, and input validation still bound the operation before policy applies.
+
 ## What Capabilities can contribute
 
 | Contribution | What it changes |

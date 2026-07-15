@@ -133,7 +133,7 @@ function dbTools(mode: AgentCapabilityMode, schemaMode: AgentCapabilityMode, opt
         },
         inputSchema: dbExecInputSchema,
         name: "db_exec",
-        policy: options.policy || "require-approval",
+        policy: options.policy,
       })
     }
     return tools

@@ -85,9 +85,9 @@ describe("repositoryHost capability", () => {
     const readTools = await resolveTools(repositoryHost({ client: readOnly }))
     expect(Object.keys(readTools)).toEqual(["repository_host_read"])
 
-    const writeTools = await resolveTools(repositoryHost({ client: readOnly, mode: "write", policy: "allow" }))
+    const writeTools = await resolveTools(repositoryHost({ client: readOnly, mode: "write" }))
     expect(Object.keys(writeTools).sort()).toEqual(["repository_host_read", "repository_host_write"])
-    expect(writeTools.repository_host_write!.policy).toBe("allow")
+    expect(writeTools.repository_host_write!.policy).toBeUndefined()
     await expect(Promise.resolve().then(() => writeTools.repository_host_write!.execute?.({
       body: "Queued review.",
       operation: "comment",

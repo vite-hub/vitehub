@@ -43,7 +43,7 @@ export default defineAgent({
 
 ViteHub selects the configured Blob store and exposes a small Storage Capability Tool Surface.
 Read mode supports one object read, metadata read, or prefix list operation per tool call.
-Write mode adds put/delete operations with approval required by default.
+Write mode adds put/delete operations and allows them by default.
 Put operations accept either `body` or `workspacePath`, not both.
 Delete operations return `{ pathname, deleted: true }`.
 
@@ -52,7 +52,8 @@ Delete operations return `{ pathname, deleted: true }`.
 `blob()` requires a configured `blob` primitive.
 Named store selection requires the Blob primitive to expose store selection.
 
-Writes require write mode and should keep approval enabled unless the product explicitly accepts autonomous storage writes.
+Writes require explicit write mode.
+Set `policy: 'require-approval'` or `policy: 'deny'` when the product needs an additional gate.
 
 ## Driver support
 
@@ -77,7 +78,7 @@ The Capability should fail before exposing tools.
 | `mode` | `"read" \| "write"` | `"read"` | Adds `blob_edit` when set to `"write"`. |
 | `assetPaths` | `boolean \| string \| string[]` | `false` | Materializes Harness asset paths and publishes current-run files explicitly referenced by final Markdown. `true` uses `screenshots`. |
 | `store` | `string` | default store | Selects a named Blob store when the Blob primitive supports `store()`. |
-| `policy` | `AgentToolPolicyDecision \| function` | `"require-approval"` | Policy for `blob_edit`. |
+| `policy` | `AgentToolPolicyDecision \| function` | `"allow"` | Policy for `blob_edit`. |
 
 ## Harness artifacts
 

@@ -17,7 +17,7 @@ ViteHub treats policy and tracing as inspectable runtime behavior. The model sho
 
 | Surface | Current behavior |
 | --- | --- |
-| Storage Capabilities | Write tools require approval by default unless the developer opts into autonomous storage writes. |
+| Storage Capabilities | Attaching a write-enabled Capability opts into its bounded write tools; developers can add approval or deny policy when the product needs another runtime gate. |
 | Workspace | Workspace Rules enforce path-scoped write policy before writes reach the store. |
 | Workspace Scope | Access can narrow visible files for one Agent Invocation without exposing hidden paths to the model. |
 | Harness-backed Agent Drivers | V1 bypasses adapter-level approval prompts when supported and relies on ViteHub-owned Workspace and runtime boundaries. |

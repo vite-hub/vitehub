@@ -389,7 +389,13 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
     }
     const client = scheduleClient(context as never, options.mode)
     const writeOperations = new Set(["create", "delete", "edit", "pause", "resume", "run"])
-    const writePolicy = options.policy || "require-approval"
+    const writePolicy = options.policy
+    const policy: ScheduleCapabilityToolPolicy | undefined = writePolicy
+      ? async (policyContext) => {
+          if (!writeOperations.has((policyContext.input as { operation?: unknown } | undefined)?.operation as string)) return "allow"
+          return typeof writePolicy === "function" ? await writePolicy(policyContext) : writePolicy
+        }
+      : undefined
     const tools: AgentToolSet = {
       cronjob: createTool<RuntimeScheduleToolInput>({
         description: "List, inspect, create, edit, pause, resume, run, or delete scoped cron jobs.",
@@ -495,9 +501,7 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
         },
         inputSchema: runtimeScheduleInputSchema(options.mode, options.allowSelfTarget),
         name: "cronjob",
-        policy: async policyContext => writeOperations.has((policyContext.input as { operation?: unknown } | undefined)?.operation as string)
-          ? typeof writePolicy === "function" ? await writePolicy(policyContext) : writePolicy
-          : "allow",
+        policy,
       }),
     }
 

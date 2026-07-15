@@ -164,10 +164,10 @@ describe("git capability", () => {
 
   it("runs local write commands only on a clean tree", async () => {
     const session = gitSession()
-    const { startSession, tools } = await capabilityTools(git({ mode: "write", policy: "allow" }), session)
+    const { startSession, tools } = await capabilityTools(git({ mode: "write" }), session)
 
     expect(Object.keys(tools)).toEqual(["shell"])
-    expect(typeof tools.shell!.policy).toBe("function")
+    expect(tools.shell!.policy).toBeUndefined()
     await expect(tools.shell!.execute?.({ command: "git switch feature/pr-1", cwd: "portal" })).resolves.toMatchObject({
       args: ["switch", "feature/pr-1"],
       cwd: "/workspace/portal",
@@ -178,16 +178,10 @@ describe("git capability", () => {
     expect(session.commit).toHaveBeenCalledWith({ message: "git switch" })
   })
 
-  it("defaults write commands to approval and allows read commands without approval", async () => {
+  it("allows supported commands by default", async () => {
     const { tools } = await capabilityTools(git({ mode: "write" }))
-    const policy = tools.shell!.policy
 
-    if (typeof policy !== "function") throw new Error("shell policy must be executable")
-
-    await expect(policy({ name: "shell", input: { command: "git status --short" } })).resolves.toBe("allow")
-    await expect(policy({ name: "shell", input: { command: "git fetch origin pull/123/head" } })).resolves.toBe("require-approval")
-    await expect(policy({ name: "shell", input: { command: "git checkout main" } })).resolves.toBe("require-approval")
-    await expect(policy({ name: "shell", input: { command: "git switch main" } })).resolves.toBe("require-approval")
+    expect(tools.shell!.policy).toBeUndefined()
   })
 
   it("evaluates custom write policies with normalized git inputs", async () => {
@@ -375,7 +369,7 @@ describe("git capability", () => {
       stderr: "",
       stdout: "",
     }))
-    const { tools } = await capabilityTools(git({ mode: "write", policy: "allow" }), session, {
+    const { tools } = await capabilityTools(git({ mode: "write" }), session, {
       pullRequest: {
         pullRequest: {
           base: { ref: "main" },

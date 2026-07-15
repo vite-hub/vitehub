@@ -74,8 +74,8 @@ If the product needs provisioning, keep that in the primitive or framework integ
 
 ## Add policy
 
-Policy belongs with the model-facing action.
-Use it to require approval for writes, limit shell or sandbox commands, restrict prefixes, reject unsafe SQL, or prevent broad Workspace access.
+Tool policy defaults to `allow` when omitted.
+Use `require-approval` or `deny` when a model-facing action needs an additional runtime gate after the Capability has established its modes, scopes, allowlists, and input validation.
 
 Custom policy should be narrow and visible.
 A reviewer should be able to understand the Capability's authority by reading the Capability Definition.

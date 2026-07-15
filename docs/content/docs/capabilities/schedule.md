@@ -70,9 +70,10 @@ Runtime Schedule mode reads visible Runtime Schedules and can create, edit, paus
 Static schedules require at least one five-field UTC cron expression.
 Runtime Schedule mode requires a configured `schedule` primitive.
 
-Runtime Schedule edits require write mode and approval by default.
+Runtime Schedule edits require explicit write mode and are allowed by default.
 Self-targeting requires explicit self-target permission.
 Runtime Schedules still require a provider wake or a long-running Schedule runner to execute when due.
+Set `policy: 'require-approval'` or `policy: 'deny'` when mutations need an additional gate; read operations remain allowed.
 
 ## Driver support
 
@@ -100,7 +101,7 @@ The Capability should reject it before the Agent starts.
 | `allowSelfTarget` | `boolean` | `false` | Lets the Agent create scheduled turns for itself. ViteHub derives the target from the discovered Agent name. |
 | `delivery` | `"origin"` | none | Delivers a scheduled Agent turn to the channel thread where it was created. Requires `allowSelfTarget: true`. |
 | `timeZone` | `string` | none (UTC fallback) | Default IANA time zone for Runtime Schedules created by the tool. New schedules use it before falling back to UTC. |
-| `policy` | `AgentToolPolicyDecision \| function` | `"require-approval"` | Policy for mutating `cronjob` operations. Read operations remain allowed. |
+| `policy` | `AgentToolPolicyDecision \| function` | `"allow"` | Policy for mutating `cronjob` operations. Read operations remain allowed. |
 
 ## Reference
 
