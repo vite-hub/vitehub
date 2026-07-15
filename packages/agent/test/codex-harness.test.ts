@@ -252,7 +252,7 @@ describe("codexDriver", () => {
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       command: expect.stringContaining("CODEX_HOME:-$HOME/.codex"),
     }))
-    expect(run.mock.calls[0][0].command).not.toContain("auth.json")
+    expect(run.mock.calls[0][0].command).toContain('cp "$ambient_home/auth.json"')
     await session.run({ command: "codex exec" })
     expect(run).toHaveBeenLastCalledWith({
       command: "codex exec",

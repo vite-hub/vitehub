@@ -151,7 +151,7 @@ function patchCodexBridge(bridge: string): string {
 async function prepareCodexHome(session: object): Promise<void> {
   const result = await (session as { run(options: { command: string, env?: Record<string, string | undefined> }): Promise<{ exitCode: number, stderr?: string }> }).run({
     command:
-      'codex_home="${CODEX_HOME:-$HOME/.codex}" && mkdir -p "$codex_home" && chmod 700 "$codex_home" && if [ ! -e "$codex_home/config.toml" ]; then : > "$codex_home/config.toml"; fi && chmod 600 "$codex_home/config.toml"',
+      'codex_home="${CODEX_HOME:-$HOME/.codex}" && ambient_home="$HOME/.codex" && mkdir -p "$codex_home" && chmod 700 "$codex_home" && if [ "$codex_home" != "$ambient_home" ] && [ -f "$ambient_home/auth.json" ] && [ ! -e "$codex_home/auth.json" ]; then cp "$ambient_home/auth.json" "$codex_home/auth.json" && chmod 600 "$codex_home/auth.json"; fi && if [ ! -e "$codex_home/config.toml" ]; then : > "$codex_home/config.toml"; fi && chmod 600 "$codex_home/config.toml"',
   })
   if (result.exitCode !== 0) {
     throw new Error(`[vitehub] Failed to prepare Codex Home: ${result.stderr || "sandbox command failed"}`)

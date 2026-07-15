@@ -438,7 +438,6 @@ async function createTrustedHostSession(options: {
         shell: true,
       });
       processes.add(child);
-      child.once("close", () => processes.delete(child));
       return processHandle(child, runOptions.abortSignal);
     },
     async stop() {
