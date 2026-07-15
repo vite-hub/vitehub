@@ -114,6 +114,10 @@ describe("signed Blob requests", () => {
       expiresIn: 900,
       signableHeaders: new Set(["content-type"]),
     })
+    const client = awsMock.getSignedUrl.mock.calls.at(-1)?.[0] as {
+      config: Record<string, unknown>
+    }
+    expect(client.config.requestChecksumCalculation).toBe("WHEN_REQUIRED")
   })
 
   it("requires R2 HTTP credentials even when CRUD uses a binding", async () => {

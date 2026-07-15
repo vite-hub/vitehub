@@ -84,6 +84,7 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
     credentials: { accessKeyId, secretAccessKey },
     endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
     region: "auto",
+    requestChecksumCalculation: "WHEN_REQUIRED",
   })
   const headers: Record<string, string> = {}
   const command = signOptions.method === "GET"
