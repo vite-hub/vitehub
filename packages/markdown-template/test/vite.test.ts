@@ -35,7 +35,7 @@ describe("hubMarkdownTemplate", () => {
     const template = join(root, "prompt.md")
     const partial = join(root, "context.md")
     const outfile = join(root, "dist", "schedule.mjs")
-    await writeFile(template, "# Babysitter\n\n@./context.md.\n\n`@./missing.md`\n\n{{{ blocker }}}\n", "utf8")
+    await writeFile(template, "# Babysitter\n\n@./context.md.\n\n`@./missing.md`\n\n    @./missing.md\n\n{{{ blocker }}}\n", "utf8")
     await writeFile(partial, "Review PR {{ context.number }}.", "utf8")
     await writeFile(entry, [
       `import prompt from "./prompt.md?markdown-template"`,
@@ -61,7 +61,7 @@ describe("hubMarkdownTemplate", () => {
 
     await Promise.all([rm(template), rm(partial)])
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
-    await expect(bundled.default()).resolves.toBe("# Babysitter\n\nReview PR 42..\n\n`@./missing.md`\n\n> Waiting")
+    await expect(bundled.default()).resolves.toBe("# Babysitter\n\nReview PR 42..\n\n`@./missing.md`\n\n```\n@./missing.md\n```\n\n> Waiting")
     const typesPath = join(root, ".vitehub", "types", "markdown-template.d.ts")
     await expect(readFile(typesPath, "utf8")).resolves.toContain(`declare module "*?markdown-template"`)
 
@@ -77,4 +77,18 @@ describe("hubMarkdownTemplate", () => {
     })
     expect(getPreEmitDiagnostics(program).map(diagnostic => flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
   }, 15_000)
+
+  it("fails the build when a bundled template import is missing", async () => {
+    const root = await createRoot()
+    const entry = join(root, "entry.ts")
+    await writeFile(join(root, "prompt.md"), "@./missing.md\n", "utf8")
+    await writeFile(entry, 'import prompt from "./prompt.md?markdown-template"\nexport default prompt\n', "utf8")
+
+    await expect(build({
+      build: { lib: { entry, formats: ["es"] }, outDir: join(root, "dist") },
+      logLevel: "silent",
+      plugins: [hubMarkdownTemplate()],
+      root,
+    })).rejects.toThrow("Could not resolve Markdown template import")
+  })
 })

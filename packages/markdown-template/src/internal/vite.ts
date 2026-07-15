@@ -17,6 +17,7 @@ export interface BundledMarkdownTemplate {
 export function extractMarkdownTemplateImportSpecifiers(template: string): string[] {
   const visible = template
     .replace(/^( {0,3})(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\2\s*$/gm, "")
+    .replace(/^(?: {4}|\t).*$/gm, "")
     .replace(/`+[^`\n]*`+/g, "")
     .replace(/<[^>]*>/g, "")
   const specifiers = new Set<string>()
@@ -57,7 +58,7 @@ export async function bundleMarkdownTemplateImports(
       const key = `${importer}\0${specifier}`
       if (imports[key]) continue
       const resolved = await load(specifier, importer)
-      if (!resolved) continue
+      if (!resolved) throw new Error(`[vitehub] Could not resolve Markdown template import ${JSON.stringify(specifier)} from ${JSON.stringify(importer)}.`)
       imports[key] = resolved
       if (visited.has(resolved.id)) continue
       visited.add(resolved.id)

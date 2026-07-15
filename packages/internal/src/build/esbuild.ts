@@ -1,5 +1,6 @@
 import { readFile, stat } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { build as bundle, type Plugin } from "esbuild"
 
@@ -19,10 +20,12 @@ const viteRawNamespace = "vitehub-vite-raw"
 const viteMarkdownTemplateNamespace = "vitehub-markdown-template"
 const markdownTemplateQuery = "markdown-template"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
+const markdownTemplateRuntime = fileURLToPath(import.meta.resolve(markdownTemplateRuntimeSpecifier))
 
 function extractMarkdownTemplateImportSpecifiers(template: string): string[] {
   const visible = template
     .replace(/^( {0,3})(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\2\s*$/gm, "")
+    .replace(/^(?: {4}|\t).*$/gm, "")
     .replace(/`+[^`\n]*`+/g, "")
     .replace(/<[^>]*>/g, "")
   const specifiers = new Set<string>()
@@ -80,6 +83,7 @@ function createViteRawPlugin(rootDir: string | undefined): Plugin {
   return {
     name: "vitehub-vite-raw",
     setup(build) {
+      build.onResolve({ filter: /^@vite-hub\/markdown-template$/ }, () => ({ path: markdownTemplateRuntime }))
       build.onResolve({ filter: /\?/ }, async (args) => {
         const markdownTemplate = parseMarkdownTemplateRequest(args.path)
         const raw = hasViteRawQuery(args.path)
@@ -137,7 +141,10 @@ function createViteRawPlugin(rootDir: string | undefined): Plugin {
               const key = `${importer}\0${specifier}`
               if (imports[key]) continue
               const resolved = await build.resolve(specifier, { importer, kind: "import-statement", resolveDir: dirname(importer) })
-              if (resolved.errors.length || resolved.external || resolved.namespace !== "file") continue
+              if (resolved.errors.length) return Promise.reject(new Error(resolved.errors.map(error => error.text).join("\n")))
+              if (resolved.external || resolved.namespace !== "file") {
+                throw new Error(`[vitehub] Could not resolve Markdown template import ${JSON.stringify(specifier)} from ${JSON.stringify(importer)} to a file.`)
+              }
               const imported = { id: resolved.path, template: await readFile(resolved.path, "utf8") }
               imports[key] = imported
               if (!visited.has(imported.id)) {

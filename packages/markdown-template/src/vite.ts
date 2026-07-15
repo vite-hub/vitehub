@@ -22,7 +22,7 @@ export function hubMarkdownTemplate(): Plugin {
     config() {
       return {
         resolve: {
-          alias: { [markdownTemplateRuntimeSpecifier]: markdownTemplateRuntime },
+          alias: [{ find: /^@vite-hub\/markdown-template$/, replacement: markdownTemplateRuntime }],
         },
       }
     },

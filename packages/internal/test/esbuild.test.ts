@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
+import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -45,7 +45,7 @@ describe("bundleEsmEntry", () => {
     const template = join(rootDir, "prompt.md")
     const partial = join(rootDir, "context.md")
     const outfile = join(rootDir, "bundle.mjs")
-    await writeFile(template, "@./context.md.\n\n`@./missing.md`\n\n{{{ blocker }}}\n", "utf8")
+    await writeFile(template, "@./context.md.\n\n`@./missing.md`\n\n    @./missing.md\n\n{{{ blocker }}}\n", "utf8")
     await writeFile(partial, "Review PR {{ context.number }}.", "utf8")
     await writeFile(entry, [
       `import prompt from "./prompt.md?markdown-template"`,
@@ -55,7 +55,6 @@ describe("bundleEsmEntry", () => {
 
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
     await bundleEsmEntry(entry, outfile, {
-      alias: { "@vite-hub/markdown-template": fileURLToPath(import.meta.resolve("@vite-hub/markdown-template")) },
       format: "esm",
       platform: "node",
       rootDir,
@@ -63,7 +62,19 @@ describe("bundleEsmEntry", () => {
     await Promise.all([rm(template), rm(partial)])
 
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
-    await expect(bundled.default()).resolves.toBe("Review PR 42..\n\n`@./missing.md`\n\n> Waiting")
+    await expect(bundled.default()).resolves.toBe("Review PR 42..\n\n`@./missing.md`\n\n```\n@./missing.md\n```\n\n> Waiting")
+  })
+
+  it("fails when a bundled Markdown template import is missing", async () => {
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "entry.mjs")
+    const outfile = join(rootDir, "bundle.mjs")
+    await writeFile(join(rootDir, "prompt.md"), "@./missing.md\n", "utf8")
+    await writeFile(entry, 'import prompt from "./prompt.md?markdown-template"\nexport default prompt\n', "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await expect(bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir }))
+      .rejects.toThrow("Could not resolve")
   })
 
   it("resolves root-absolute raw imports from the Vite root", async () => {
