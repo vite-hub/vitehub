@@ -61,6 +61,72 @@ describe("instruction composition", () => {
     })).toBe("Shared\n\nShared")
   })
 
+  it("preserves imported markdown structure on Comark 0.5", async () => {
+    const files = new Map([["/agent/policy.md", [
+      "## Policy",
+      "<policy>Use {{ context.name }}.</policy>",
+    ].join("\n")]])
+
+    expect(await resolveInstructionImports("@./policy.md", {
+      file: "/agent/instructions.md",
+      read: importReader(files),
+    })).toBe([
+      "## Policy",
+      "",
+      "<policy>Use {{ context.name }}.</policy>",
+    ].join("\n"))
+  })
+
+  it("keeps template syntax literal in indented code blocks", async () => {
+    const input = [
+      "    @./ignored.md",
+      "    @workspace.policy",
+      "    {{{ context.policy }}}",
+    ].join("\n")
+    const imported = await resolveInstructionImports(input, {
+      file: "/agent/instructions.md",
+      read: importReader(new Map()),
+    })
+    const expected = [
+      "```",
+      "@./ignored.md",
+      "@workspace.policy",
+      "{{{ context.policy }}}",
+      "```",
+    ].join("\n")
+
+    expect(imported).toBe(expected)
+    expect(await composeInstructionDocument(imported, {
+      context: { policy: "must not render" },
+      workspace: { policy: "must not import" },
+    })).toBe(expected)
+  })
+
+  it("keeps template syntax literal in multiline code spans", async () => {
+    const files = new Map([["/agent/used.md", "Used"]])
+    const imported = await resolveInstructionImports([
+      "Before ``code",
+      "@./ignored.md",
+      "@workspace.policy",
+      "{{{ context.policy }}}",
+      "code``",
+      "@./used.md",
+    ].join("\n"), {
+      file: "/agent/instructions.md",
+      read: importReader(files),
+    })
+    const expected = [
+      "Before `code @./ignored.md @workspace.policy {{{ context.policy }}} code`",
+      "Used",
+    ].join("\n")
+
+    expect(imported).toBe(expected)
+    expect(await composeInstructionDocument(imported, {
+      context: { policy: "must not render" },
+      workspace: { policy: "must not import" },
+    })).toBe(expected)
+  })
+
   it("normalizes shorthand conditions from imported documents", async () => {
     const files = new Map([["/agent/policy.md", "::if{context.enabled}\nEnabled\n::"]])
     const imported = await resolveInstructionImports("@./policy.md", {
@@ -103,6 +169,41 @@ describe("instruction composition", () => {
     expect(await composeInstructionDocument("Use ({{{ context.policy }}}).", {
       context: { policy: "trusted policy" },
     })).toBe("Use (trusted policy).")
+  })
+
+  it("renders markdown bindings without recursively evaluating their content", async () => {
+    expect(await composeInstructionDocument("{{{ context.policy }}}", {
+      context: {
+        enabled: true,
+        name: "Acme",
+        policy: [
+          "## Policy",
+          "Use **bold** [guidance](https://example.com).",
+          "{{ context.name }}",
+          "::if{context.enabled}",
+          "Keep this directive literal.",
+          "::",
+          "@workspace.policy",
+        ].join("\n"),
+      },
+    })).toBe([
+      "## Policy",
+      "",
+      "Use **bold** [guidance](https://example.com).",
+      "{{ context.name }}",
+      "",
+      "::if{context.enabled}",
+      "Keep this directive literal.",
+      "::",
+      "",
+      "@workspace.policy",
+    ].join("\n"))
+  })
+
+  it("escapes scalar bindings as markdown text", async () => {
+    expect(await composeInstructionDocument("{{ context.value }}", {
+      context: { value: "# Heading with *emphasis* and <policy>tags</policy>" },
+    })).toBe("\\# Heading with \\*emphasis\\* and \\<policy>tags\\</policy>")
   })
 
   it("preserves XML-style prompt tags as authored text", async () => {

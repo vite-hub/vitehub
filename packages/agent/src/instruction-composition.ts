@@ -48,13 +48,9 @@ const tripleBindingPattern = /\{\{\{\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}\
 const tripleBindingPlaceholderPattern = /%%VITEHUB_TRIPLE_BINDING_(\d+)%%/g
 const scalarBindingPattern = /\{\{(?!\{)\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}/g
 const legacyCapabilityBindingPattern = /\{\{\s*capabilities(?:\.[A-Za-z_$][\w$-]*)?\s*\}\}/
-const comarkComponents = { Binding }
-const noLinkify = {
-  markdownItPlugins: [(md: { disable: (rule: string) => unknown, set: (options: Record<string, unknown>) => unknown }) => {
-    md.disable("linkify")
-    md.set({ linkify: false })
-  }],
-  name: "vitehub-no-linkify",
+const comarkComponents = {
+  Binding,
+  VitehubRaw: (node: ComarkElement) => typeof node[1].value === "string" ? node[1].value : "",
 }
 
 export async function resolveInstructionImports(content: string, options: ResolveInstructionImportsOptions): Promise<string> {
@@ -96,8 +92,9 @@ async function parseInstructionMarkdown(content: string, bindings = false) {
   return await parse(content, {
     autoClose: false,
     autoUnwrap: false,
-    html: false,
-    plugins: bindings ? [noLinkify, binding()] : [noLinkify],
+    html: true,
+    linkify: false,
+    plugins: bindings ? [binding()] : [],
   })
 }
 
@@ -122,9 +119,7 @@ async function expandImportNodes(
   depth: number,
 ): Promise<ComarkNode[]> {
   const expanded: ComarkNode[] = []
-  for (const node of nodes) {
-    expanded.push(...await expandImportNode(node, options, depth))
-  }
+  for (const node of nodes) expanded.push(...await expandImportNode(node, options, depth))
   return expanded
 }
 
@@ -133,9 +128,7 @@ async function expandImportNode(
   options: ResolveInstructionImportsOptions & { maxDepth: number, seen: Set<string> },
   depth: number,
 ): Promise<ComarkNode[]> {
-  if (typeof node === "string") {
-    return [await replaceImportsInText(node, options, depth)]
-  }
+  if (typeof node === "string") return await replaceImportsInText(node, options, depth)
   if (!isElement(node)) return [node]
 
   const [tag, attrs, ...children] = node
@@ -147,17 +140,27 @@ async function replaceImportsInText(
   text: string,
   options: ResolveInstructionImportsOptions & { maxDepth: number, seen: Set<string> },
   depth: number,
-): Promise<string> {
-  let rendered = ""
+): Promise<ComarkNode[]> {
+  const nodes: ComarkNode[] = []
+  let textNode = ""
   let index = 0
   for (const match of text.matchAll(/@[^\s<>{}\[\]]+/g)) {
-    rendered += text.slice(index, match.index)
+    textNode += text.slice(index, match.index)
     const token = match[0]
     const replacement = await importReplacement(token, options, depth)
-    rendered += replacement ?? token
+    if (replacement === undefined) {
+      textNode += token
+    }
+    else {
+      if (textNode) nodes.push(textNode)
+      nodes.push(rawMarkdownNode(replacement))
+      textNode = ""
+    }
     index = match.index + token.length
   }
-  return rendered + text.slice(index)
+  textNode += text.slice(index)
+  if (textNode) nodes.push(textNode)
+  return nodes
 }
 
 async function expandWorkspaceInstructionImports(
@@ -179,9 +182,7 @@ async function expandWorkspaceImportNodes(
   seen: Set<string>,
 ): Promise<ComarkNode[]> {
   const expanded: ComarkNode[] = []
-  for (const node of nodes) {
-    expanded.push(...await expandWorkspaceImportNode(node, workspace, depth, seen))
-  }
+  for (const node of nodes) expanded.push(...await expandWorkspaceImportNode(node, workspace, depth, seen))
   return expanded
 }
 
@@ -191,9 +192,7 @@ async function expandWorkspaceImportNode(
   depth: number,
   seen: Set<string>,
 ): Promise<ComarkNode[]> {
-  if (typeof node === "string") {
-    return [await replaceWorkspaceImportsInText(node, workspace, depth, seen)]
-  }
+  if (typeof node === "string") return await replaceWorkspaceImportsInText(node, workspace, depth, seen)
   if (!isElement(node)) return [node]
 
   const [tag, attrs, ...children] = node
@@ -206,16 +205,23 @@ async function replaceWorkspaceImportsInText(
   workspace: Record<string, unknown>,
   depth: number,
   seen: Set<string>,
-): Promise<string> {
-  let rendered = ""
+): Promise<ComarkNode[]> {
+  const nodes: ComarkNode[] = []
   let index = 0
   for (const match of text.matchAll(/@workspace(?:\.[A-Za-z_$][\w$-]*)+/g)) {
-    rendered += text.slice(index, match.index)
+    const before = text.slice(index, match.index)
+    if (before) nodes.push(before)
     const token = match[0]
-    rendered += await workspaceImportReplacement(token, workspace, depth, seen)
+    nodes.push(rawMarkdownNode(await workspaceImportReplacement(token, workspace, depth, seen)))
     index = match.index + token.length
   }
-  return rendered + text.slice(index)
+  const after = text.slice(index)
+  if (after) nodes.push(after)
+  return nodes
+}
+
+function rawMarkdownNode(value: string): ComarkElement {
+  return ["vitehub-raw", { value }]
 }
 
 async function workspaceImportReplacement(
@@ -349,6 +355,10 @@ async function composeNode(
     return await renderTripleBinding(attrs, state.context, parent)
   }
   if (tag === "code") return [node]
+  if (tag === "p") {
+    const path = soleTripleBindingPath(children, state.tripleBindings)
+    if (path) return await renderTripleBindingPath(path, state.context)
+  }
   return [[tag, attrs, ...(await composeNodes(children, state, tag))] as ComarkElement]
 }
 
@@ -460,8 +470,15 @@ async function renderTripleBindingPath(
   if (typeof value !== "string") {
     throw new TypeError(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" must resolve to a string.`)
   }
-  if (parent === "p") return [value]
-  return (await parseInstructionMarkdown(value)).nodes
+  if (parent === "p") return [["vitehub-raw", { value }] as ComarkElement]
+  const nodes = (await parseInstructionMarkdown(value)).nodes
+  return nodes
+}
+
+function soleTripleBindingPath(children: ComarkNode[], bindings: string[]): string | undefined {
+  if (children.length !== 1 || typeof children[0] !== "string") return
+  const match = children[0].match(/^%%VITEHUB_TRIPLE_BINDING_(\d+)%%$/)
+  return match ? bindings[Number(match[1])] : undefined
 }
 
 async function composeIfNode(node: ComarkElement, state: ComposeInstructionState): Promise<ComarkNode[]> {
