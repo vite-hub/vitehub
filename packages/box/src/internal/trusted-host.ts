@@ -362,6 +362,7 @@ async function createTrustedHostSession(options: {
   else await mkdir(workspace, { recursive: true });
   let destroyed = false;
   const processes = new Set<ChildProcessWithoutNullStreams>();
+  const processGroups = new Set<number>();
   const session = {
     defaultWorkingDirectory: options.workspace ? options.root : workspace,
     description: "Trusted host Box.",
@@ -445,6 +446,7 @@ async function createTrustedHostSession(options: {
       env?: Record<string, string>;
       workingDirectory?: string;
     }) {
+      runOptions.abortSignal?.throwIfAborted();
       assertCommandEnvironment(runOptions.env);
       const cwd = await physicalSessionPath(
         options.root,
@@ -457,18 +459,29 @@ async function createTrustedHostSession(options: {
         shell: true,
       });
       processes.add(child);
+      if (child.pid && process.platform !== "win32") processGroups.add(child.pid);
+      child.once("close", () => {
+        processes.delete(child);
+        if (child.pid && process.platform !== "win32" && !processGroupExists(child.pid))
+          processGroups.delete(child.pid);
+      });
       return processHandle(child, runOptions.abortSignal);
     },
     async stop() {
       const active = [...processes];
-      for (const child of active) signalProcessTree(child, "SIGTERM");
+      for (const pid of processGroups) signalProcessGroup(pid, "SIGTERM");
+      if (process.platform === "win32")
+        for (const child of active) signalProcessTree(child, "SIGTERM");
       await Promise.race([
         Promise.all(active.map(waitForExit)),
         new Promise((resolvePromise) => setTimeout(resolvePromise, 250)),
       ]);
-      for (const child of active) signalProcessTree(child, "SIGKILL");
+      for (const pid of processGroups) signalProcessGroup(pid, "SIGKILL");
+      if (process.platform === "win32")
+        for (const child of active) signalProcessTree(child, "SIGKILL");
       await Promise.all(active.map(waitForExit));
       processes.clear();
+      processGroups.clear();
     },
     async writeBinaryFile({ content, path }: { content: Uint8Array; path: string }) {
       const target = resolveSessionPath(options.root, path);
@@ -808,15 +821,29 @@ function processHandle(
 
 function signalProcessTree(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals) {
   if (child.pid && process.platform !== "win32") {
-    try {
-      process.kill(-child.pid, signal);
-      return;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-    }
+    signalProcessGroup(child.pid, signal);
+    return;
   }
   if (child.exitCode !== null || child.signalCode !== null) return;
   child.kill(signal);
+}
+
+function signalProcessGroup(pid: number, signal: NodeJS.Signals) {
+  try {
+    process.kill(-pid, signal);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
+}
+
+function processGroupExists(pid: number) {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+    throw error;
+  }
 }
 
 function waitForExit(child: ChildProcessWithoutNullStreams) {

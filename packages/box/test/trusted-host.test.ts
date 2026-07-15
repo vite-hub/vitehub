@@ -331,23 +331,46 @@ describe("trustedHost", () => {
     await second.destroy?.();
   });
 
-  it("signals completed command process groups during teardown", async () => {
+  it("drops completed command process groups before teardown", async () => {
     if (process.platform === "win32") return;
     const box = await resolveBox({ runtime: trustedHost() }, {});
     const session = await (box.sandbox as HarnessV1SandboxProvider).createSession();
     await session.run({ command: "true" });
 
-    const error = Object.assign(new Error("missing process group"), { code: "ESRCH" });
-    const kill = vi.spyOn(process, "kill").mockImplementation(() => {
-      throw error;
-    });
+    const kill = vi.spyOn(process, "kill");
     try {
       await session.destroy?.();
-      expect(kill).toHaveBeenCalledWith(expect.any(Number), "SIGTERM");
-      expect(kill.mock.calls[0]?.[0]).toBeLessThan(0);
+      expect(kill).not.toHaveBeenCalled();
     } finally {
       kill.mockRestore();
     }
+  });
+
+  it("does not retain completed commands", async () => {
+    const box = await resolveBox({ runtime: trustedHost() }, {});
+    const session = (await (box.sandbox as HarnessV1SandboxProvider).createSession()) as
+      Awaited<ReturnType<HarnessV1SandboxProvider["createSession"]>> & {
+        processes: Set<unknown>;
+      };
+
+    await session.run({ command: "true" });
+    expect(session.processes.size).toBe(0);
+    await session.destroy?.();
+  });
+
+  it("does not start commands with an already-aborted signal", async () => {
+    const root = await temporaryRoot();
+    const marker = join(root, "started");
+    const box = await resolveBox({ runtime: trustedHost() }, {});
+    const session = await (box.sandbox as HarnessV1SandboxProvider).createSession();
+    const controller = new AbortController();
+    controller.abort(new Error("cancelled"));
+
+    await expect(
+      session.run({ abortSignal: controller.signal, command: `touch '${marker}'` }),
+    ).rejects.toThrow("cancelled");
+    await expect(stat(marker)).rejects.toMatchObject({ code: "ENOENT" });
+    await session.destroy?.();
   });
 
   it("retries seed materialization after a later boot failure", async () => {

@@ -395,10 +395,10 @@ async function findMissingState(
   const result = await runCrabbox(options, leaseId, {
     abortSignal,
     command: options.plan.state
-      .map(
-        (state, index) =>
-          `if [ ! -d ${shellQuote(remoteStatePath(options.stateRoot!, state.key))} ]; then printf '%s\\n' ${shellQuote(String(index))}; fi`,
-      )
+      .map((state, index) => {
+        const path = shellQuote(remoteStatePath(options.stateRoot!, state.key));
+        return `if [ -e ${path} ] || [ -L ${path} ]; then test -d ${path} || exit 1; else printf '%s\\n' ${shellQuote(String(index))}; fi`;
+      })
       .join("; "),
   });
   if (result.exitCode !== 0) throw crabboxError("inspect Box state", result);

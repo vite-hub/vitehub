@@ -230,6 +230,38 @@ describe("crabbox", () => {
     });
   }, 30_000);
 
+  it("preserves non-directory remote state targets", async () => {
+    const root = await temporaryRoot();
+    const workspace = join(root, "workspace");
+    const stateRoot = join(root, "remote-state");
+    const bin = join(root, "bin");
+    await Promise.all([mkdir(workspace), mkdir(bin)]);
+    await fakeCrabbox(bin);
+
+    await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      const box = await resolveBox(
+        {
+          cwd: workspace,
+          home: { state: { ".acme": { key: "portable-box-test/non-directory" } } },
+          runtime: crabbox({ profile: "babysitter", stateRoot }),
+        },
+        {},
+      );
+      const sandbox = box.sandbox as HarnessV1SandboxProvider;
+      const first = await sandbox.createSession();
+      await first.destroy?.();
+      const entries = await readdir(stateRoot, { withFileTypes: true });
+      const state = entries.find((entry) => entry.isDirectory() && entry.name !== ".locks");
+      expect(state).toBeDefined();
+      const persistent = join(stateRoot, state!.name);
+      await rm(persistent, { recursive: true });
+      await writeFile(persistent, "operator-owned");
+
+      await expect(sandbox.createSession()).rejects.toThrow("inspect Box state");
+      await expect(readFile(persistent, "utf8")).resolves.toBe("operator-owned");
+    });
+  }, 30_000);
+
   it("invalidates a session when its remote state lease is lost", async () => {
     const root = await temporaryRoot();
     const workspace = join(root, "workspace");
