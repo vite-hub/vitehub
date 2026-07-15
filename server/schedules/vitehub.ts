@@ -1,7 +1,7 @@
 import { type AgentRuntimeContext, runAgent } from '@vite-hub/agent'
 import { kv } from '@vite-hub/kv'
 import { defineSchedule } from '@vite-hub/schedule'
-import babysitter from '../agents/babysitter/config.ts'
+import babysitter from '../agents/babysitter/agent.ts'
 import instructions from '../agents/babysitter/instructions.md?raw'
 import { createAgentOwnerPool } from '../utils/agent-owner-pool.ts'
 import { pullRequestFingerprint, readPullRequest, reconcileWorktrees } from '../utils/reconcile-worktrees.ts'
