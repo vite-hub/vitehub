@@ -184,7 +184,7 @@ import type {
   WorkspaceDefinition,
   WorkspaceName,
 } from "@vite-hub/workspace"
-import type { WorkflowHandle, WorkflowRun } from "@vite-hub/workflow"
+import type { WorkflowHandle } from "@vite-hub/workflow"
 import type { BoxRequirement, ResolvedBox } from "@vite-hub/box"
 
 export type {
@@ -585,6 +585,14 @@ interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   run?: AgentRunMetadata
   runtime?: AgentRuntimeContext["runtime"]
   runtimeConfig?: AgentRuntimeConfig
+}
+interface AgentWorkflowRun<TOutput = unknown> {
+  id: string
+  metadata?: unknown
+  payload?: unknown
+  provider: string
+  result?: TOutput
+  status: "completed" | "failed" | "queued" | "running" | "unknown"
 }
 interface ScheduleRunContextLike {
   attemptId?: string
@@ -2407,7 +2415,7 @@ export async function runAgent<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
-): Promise<TOutput | Response | WorkflowRun<unknown, TOutput>> {
+): Promise<TOutput | Response | AgentWorkflowRun<TOutput>> {
   const invocationContext = withAgentIdentityOwner(agent, context)
   const workflowRun = await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, invocationContext, input)
   if (workflowRun) return workflowRun
