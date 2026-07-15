@@ -24,7 +24,7 @@ import {
   messageChannelSupportsTitleEffect,
   messageChannelTitleSupportContextKey,
 } from "./channels.ts"
-import { createAgentInvocationContextStore } from "./invocation-context.ts"
+import { agentInvocationCallbackContextValues, createAgentInvocationContextStore } from "./invocation-context.ts"
 import {
   createFallbackAgentInvoker,
   normalizeAgentInvokerOptions,
@@ -48,10 +48,10 @@ import {
   createAgentInvocationExtensions,
   defineCapability,
   normalizeCapabilities,
-  normalizeMode,
-  optionalWorkspaceCapabilitySymbol,
   resolveAgentCapabilities,
+  resolveAgentCapabilityDefinitions,
   resolveStaticCapabilityTools,
+  validateAgentCapabilityComposition,
   withCapabilityCleanup,
   withResponseCleanup,
 } from "./capability-runtime.ts"
@@ -96,6 +96,9 @@ import type {
   AgentAdapterRunContext,
   AgentAdapterResult,
   AgentCapabilitiesList,
+  AgentCapabilitiesInput,
+  AgentCapabilitiesResolver,
+  AgentCapabilitiesResolverContext,
   AgentChannelDefinition,
   AgentChannelInputs,
   AgentChannelTriggerContext,
@@ -193,7 +196,10 @@ export type {
   AgentAdapterRunContext,
   AgentActor,
   AgentCapabilities,
+  AgentCapabilitiesInput,
   AgentCapabilitiesList,
+  AgentCapabilitiesResolver,
+  AgentCapabilitiesResolverContext,
   AgentCallSettingsInstrumentation,
   AgentCallSettingsInstrumentationContext,
   AgentCapabilityHandle,
@@ -420,10 +426,10 @@ const baseAgentResolve = Symbol.for("vitehub.baseAgentResolve")
 const baseAgentModel = Symbol.for("vitehub.baseAgentModel")
 const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
 const baseAgentBoxRequirements = Symbol.for("vitehub.baseAgentBoxRequirements")
+const baseAgentCapabilitiesResolver = Symbol.for("vitehub.baseAgentCapabilitiesResolver")
 const workflowSpecifier = "@vite-hub/workflow"
 const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
 
-type NormalizedCapability = AgentCapabilityDefinition & { mode?: AgentCapabilityMode }
 type WorkspaceSourceNames<TWorkspace> =
   TWorkspace extends { sources: infer TSources }
     ? Extract<keyof NonNullable<TSources>, string>
@@ -446,8 +452,12 @@ type CapabilityWorkspaceSourceNames<TCapability> =
   | (TCapability extends { capabilities: infer TCapabilities }
     ? AgentCapabilitiesWorkspaceSourceNames<TCapabilities>
     : never)
+type ResolvedAgentCapabilitiesInput<TCapabilities> =
+  TCapabilities extends (...args: any[]) => infer TResult
+    ? Awaited<TResult>
+    : TCapabilities
 type AgentCapabilitiesWorkspaceSourceNames<TCapabilities> =
-  TCapabilities extends readonly (infer TCapability)[]
+  ResolvedAgentCapabilitiesInput<TCapabilities> extends readonly (infer TCapability)[]
     ? CapabilityWorkspaceSourceNames<TCapability>
     : never
 type WorkspaceSourceHasRemovedScopes<TSource, TDepth extends readonly unknown[] = []> =
@@ -482,7 +492,7 @@ type CapabilityWorkspaceSourcesWithRemovedScopes<TCapability> =
     ? AgentCapabilitiesWorkspaceSourcesWithRemovedScopes<TCapabilities>
     : never)
 type AgentCapabilitiesWorkspaceSourcesWithRemovedScopes<TCapabilities> =
-  TCapabilities extends readonly (infer TCapability)[]
+  ResolvedAgentCapabilitiesInput<TCapabilities> extends readonly (infer TCapability)[]
     ? CapabilityWorkspaceSourcesWithRemovedScopes<TCapability>
     : never
 type InvalidWorkspaceSourceGrant<TSourceName> = {
@@ -512,12 +522,18 @@ type ValidateAgentCapability<TCapability, TWorkspace, TCapabilities> =
       ? ValidateCapabilityWorkspaceSources<TSourceName, TWorkspace, TCapabilities, TCapability>
       : TCapability
     : TCapability
-type ValidateAgentCapabilities<TCapabilities, TWorkspace> =
+type ValidateAgentCapabilitiesList<TCapabilities, TWorkspace> =
   TCapabilities extends readonly [unknown, ...unknown[]] | readonly []
     ? { [Index in keyof TCapabilities]: ValidateAgentCapability<TCapabilities[Index], TWorkspace, TCapabilities> }
     : TCapabilities extends readonly (infer TCapability)[]
-      ? ValidateAgentCapability<TCapability, TWorkspace, TCapabilities>[]
+      ? readonly ValidateAgentCapability<TCapability, TWorkspace, TCapabilities>[]
       : TCapabilities
+type ValidateAgentCapabilities<TCapabilities, TWorkspace> =
+  TCapabilities extends (...args: infer TArgs) => infer TResult
+    ? (...args: TArgs) => TResult extends PromiseLike<infer TResolved>
+      ? Promise<ValidateAgentCapabilitiesList<TResolved, TWorkspace>>
+      : ValidateAgentCapabilitiesList<TResult, TWorkspace>
+    : ValidateAgentCapabilitiesList<TCapabilities, TWorkspace>
 type UnionToIntersection<T> =
   (T extends unknown ? (value: T) => void : never) extends (value: infer TIntersection) => void
     ? TIntersection
@@ -532,9 +548,9 @@ type CapabilityInvocationContextValues<TCapability> =
     : unknown
 type AgentCapabilitiesInvocationContextValues<TCapabilities> =
   AgentInvocationContextValues & UnionToIntersection<
-    TCapabilities extends readonly [unknown, ...unknown[]] | readonly []
-      ? CapabilityInvocationContextValues<TCapabilities[number]>
-      : TCapabilities extends readonly (infer TCapability)[]
+    ResolvedAgentCapabilitiesInput<TCapabilities> extends readonly [unknown, ...unknown[]] | readonly []
+      ? CapabilityInvocationContextValues<ResolvedAgentCapabilitiesInput<TCapabilities>[number]>
+      : ResolvedAgentCapabilitiesInput<TCapabilities> extends readonly (infer TCapability)[]
         ? CapabilityInvocationContextValues<TCapability>
         : unknown
   >
@@ -552,6 +568,7 @@ type AgentDefinitionWithBaseResolve<
   CALL_OPTIONS = unknown,
 > = AgentDefinition<TRuntimeConfig, CALL_OPTIONS> & {
   [baseAgentBoxRequirements]?: readonly BoxRequirement[]
+  [baseAgentCapabilitiesResolver]?: AgentCapabilitiesResolver<TRuntimeConfig, WorkspaceName, CALL_OPTIONS>
   [baseAgentDriverKind]?: AgentDriverKind
   [baseAgentResolve]?: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS>
   [baseAgentModel]?: AgentModelResolver<TRuntimeConfig>
@@ -938,80 +955,9 @@ export {
 } from "./invocation-stream.ts"
 export type { AgentInvocationStreamEvent } from "./invocation-stream.ts"
 
-function validateSandboxCommands(commands: unknown): string[] | undefined {
-  if (commands === undefined) return undefined
-  if (!Array.isArray(commands) || !commands.length) {
-    throw new TypeError("[vitehub] sandbox({ commands }) requires at least one executable name.")
-  }
-  for (const command of commands) {
-    if (typeof command !== "string" || !/^[A-Za-z0-9_.-]+$/.test(command)) {
-      throw new TypeError("[vitehub] sandbox({ commands }) accepts executable names only, not shell command strings.")
-    }
-  }
-  return commands
-}
-
-function validateWorkspaceCapabilities<Name extends WorkspaceName>(options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>): void {
-  const capabilities = normalizeCapabilities(options.capabilities)
-  const workspaceMode = workspaceModeFromOptions(options)
-  for (const capability of capabilities) {
-    if (capability.id === "workspace-shell") {
-      const metadata = capability.metadata as { commands?: unknown } | undefined
-      const requiresWritableSession = metadata?.commands !== undefined
-      if (requiresWritableSession && workspaceMode !== "write") {
-        throw new Error("[vitehub] workspaceShell({ commands }) requires workspace.mode: \"write\".")
-      }
-      if (!requiresWritableSession && normalizeMode(capability.mode, "Workspace Shell") === "write" && workspaceMode !== "write") {
-        throw new Error("[vitehub] workspaceShell({ mode: \"write\" }) requires workspace.mode: \"write\".")
-      }
-    }
-    if (capabilityRequiresBashWorkspace(capability) && workspaceMode !== "write") {
-      throw new Error(`[vitehub] ${capability.id}() bash requires workspace.mode: "write".`)
-    }
-    if (capability.id === "sandbox") {
-      validateSandboxCommands((capability.metadata as { commands?: unknown } | undefined)?.commands)
-    }
-  }
-}
-
-function accessCapabilityRequiresWorkspace(capability: NormalizedCapability): boolean {
-  if (capability.id !== "access") return false
-  const metadata = capability.metadata
-  return typeof metadata === "object"
-    && metadata !== null
-    && (metadata as { workspace?: unknown }).workspace === true
-}
-
-function capabilityWorkspaceIsOptional(capability: NormalizedCapability): boolean {
-  const metadata = capability.metadata
-  return typeof metadata === "object"
-    && metadata !== null
-    && (metadata as { [optionalWorkspaceCapabilitySymbol]?: unknown })[optionalWorkspaceCapabilitySymbol] === true
-}
-
 function resolveCapabilityCliRunSurface(definition: Pick<AgentDefinition, "cli"> | undefined): boolean {
   if (definition?.cli?.capabilities !== undefined) return definition.cli.capabilities !== false
   return true
-}
-
-function sandboxCapabilityRequiresWorkspace(capability: NormalizedCapability): boolean {
-  if (capability.id !== "sandbox") return false
-  const metadata = capability.metadata as { commands?: unknown } | undefined
-  return Array.isArray(metadata?.commands)
-}
-
-function capabilityRequiresBashWorkspace(capability: NormalizedCapability): boolean {
-  return Boolean(capability.bash?.length)
-}
-
-function validateNonWorkspaceCapabilities(capabilities: NormalizedCapability[], hasWorkspace: boolean): void {
-  if (hasWorkspace) return
-  for (const capability of capabilities) {
-    if (capability.workspace && !capabilityWorkspaceIsOptional(capability) || capability.id === "workspace-shell" || sandboxCapabilityRequiresWorkspace(capability) || accessCapabilityRequiresWorkspace(capability) || capabilityRequiresBashWorkspace(capability)) {
-      const name = capability.id === "workspace-shell" ? "workspaceShell" : capability.id
-      throw new Error(`[vitehub] ${name}() requires an explicit workspace.`)
-    }
-  }
 }
 
 function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -1048,7 +994,10 @@ function defineBaseAgent<
     throw new Error("[vitehub] defineAgent({ box }) owns harness execution. Move driver.sandbox and driver.workDir to the Box.")
   }
   const run = driver.kind === "run" ? driver.run : undefined
-  const baseCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
+  const capabilitiesResolver = typeof capabilities === "function"
+    ? capabilities as AgentCapabilitiesResolver<TRuntimeConfig, WorkspaceName, CALL_OPTIONS>
+    : undefined
+  const baseCapabilities = normalizeCapabilities(Array.isArray(capabilities) ? capabilities : undefined)
   const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
   const harnessDriver = driver.kind === "harness" ? driver : undefined
   const channelChat = resolveAgentChannelChatOptions<TRuntimeConfig>(channels, messages)
@@ -1060,7 +1009,7 @@ function defineBaseAgent<
   const normalizedCapabilities = channelChat
     ? [...baseCapabilities, defineChatCapability(channelChat) as AgentCapabilityDefinition<TRuntimeConfig>]
     : baseCapabilities
-  validateNonWorkspaceCapabilities(normalizedCapabilities, !!workspace)
+  if (!workspace) validateAgentCapabilityComposition(normalizedCapabilities, { hasWorkspace: false })
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
     const resolvedAdapter = driver.kind === "model"
       ? (await import("./ai-sdk.ts")).createAiSdkAdapter({
@@ -1084,6 +1033,7 @@ function defineBaseAgent<
     ...(driver.kind === "harness" && driver.requires?.length ? { [baseAgentBoxRequirements]: driver.requires } : {}),
     ...(driver.kind === "model" ? { [baseAgentModel]: driver.model } : {}),
     [baseAgentDriverKind]: driver.kind,
+    ...(capabilitiesResolver ? { [baseAgentCapabilitiesResolver]: capabilitiesResolver } : {}),
     [baseAgentResolve]: resolveBaseAgent,
     box,
     channels,
@@ -1148,44 +1098,58 @@ function createSyntheticWorkspaceRun<
   return Object.assign(run, { [syntheticWorkspaceRun]: true })
 }
 
+type AgentCapabilitiesOption<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+  CALL_OPTIONS,
+  TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined,
+> = TCapabilities | AgentCapabilitiesResolver<
+  TRuntimeConfig,
+  Name,
+  CALL_OPTIONS,
+  TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[]
+    ? TCapabilities
+    : readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[]
+>
+
 export interface DefineAgent {
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     Name extends WorkspaceName = WorkspaceName,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    const TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined = AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined,
+    const TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined,
     const TOptions extends WorkspaceAgentOptions<
       TRuntimeConfig,
       Name,
       CALL_OPTIONS,
       TInvokerProfile,
       AgentCapabilitiesInvocationContextValues<TCapabilities>,
-      TCapabilities
+      AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>
     > = WorkspaceAgentOptions<
       TRuntimeConfig,
       Name,
       CALL_OPTIONS,
       TInvokerProfile,
       AgentCapabilitiesInvocationContextValues<TCapabilities>,
-      TCapabilities
+      AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>
     >,
   >(
-    options: TOptions & { capabilities?: TCapabilities } & ValidateWorkspaceAgentOptions<TOptions>,
-  ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, TCapabilities>
+    options: TOptions & { capabilities?: AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities> } & ValidateWorkspaceAgentOptions<TOptions>,
+  ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, AgentCapabilitiesOption<TRuntimeConfig, Name, CALL_OPTIONS, TCapabilities>>
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    const TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined = AgentCapabilityDefinition<TRuntimeConfig>[] | undefined,
+    const TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined = readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined,
   >(
     options: AgentSettings<
       TRuntimeConfig,
       CALL_OPTIONS,
       TInvokerProfile,
       AgentCapabilitiesInvocationContextValues<TCapabilities>,
-      TCapabilities
-    > & { capabilities?: TCapabilities, workspace?: never },
+      AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>
+    > & { capabilities?: AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, workspace?: never },
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>>
 }
 
@@ -1198,7 +1162,12 @@ function createWorkspaceAgentDefinition<
   options: WorkspaceAgentOptions<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile>,
 ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS> {
   const workspaceDefinition = workspaceDefinitionFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
-  validateWorkspaceCapabilities(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
+  if (Array.isArray(options.capabilities)) {
+    validateAgentCapabilityComposition(options.capabilities, {
+      hasWorkspace: true,
+      workspaceMode: workspaceModeFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>),
+    })
+  }
   const definition = defineBaseAgent<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>({
     ...options,
     description: options.description,
@@ -1486,6 +1455,34 @@ async function createAgentInvocationContext<
       context.run,
       invocationContext.get<boolean>(scheduledAgentTurnContextKey) === true,
     )
+    const internalDefinition = definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined
+    const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
+    const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
+    const driverKind = internalDefinition?.[baseAgentDriverKind] || "model"
+    const capabilitiesResolver = internalDefinition?.[baseAgentCapabilitiesResolver]
+    const invocationResolvedCapabilities = capabilitiesResolver
+      ? await resolveAgentCapabilityDefinitions(capabilitiesResolver, {
+          ...agentInvocationCallbackContextValues(invocationContext),
+          ...callbackContext,
+          actor: invoker,
+          context: invocationContext,
+          driver: { kind: driverKind },
+          input,
+          invoker,
+          run: context.run,
+        })
+      : []
+    const channelCapabilities = activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel.capabilities || []
+    const resolvedCapabilityDefinitions = normalizeCapabilities([
+      ...invocationResolvedCapabilities,
+      ...(definition?.capabilities || []),
+      ...channelCapabilities,
+    ]) as AgentCapabilityDefinition<TRuntimeConfig>[]
+    const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
+    validateAgentCapabilityComposition(resolvedCapabilityDefinitions, {
+      hasWorkspace: Boolean(workspaceOptions),
+      ...(workspaceOptions ? { workspaceMode } : {}),
+    })
     const boxDefinition = definition?.box
     const box = boxDefinition
       ? await (await import("@vite-hub/box")).resolveBox(boxDefinition, {
@@ -1499,8 +1496,6 @@ async function createAgentInvocationContext<
           requires: (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentBoxRequirements],
         })
       : undefined
-    const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
-    const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
     if (box?.workspace.path && workspaceOptions) {
       throw new Error("[vitehub] defineAgent({ box.cwd, workspace }) is not supported because an authoritative Box workspace must not be reset by Workspace materialization.")
     }
@@ -1513,7 +1508,6 @@ async function createAgentInvocationContext<
     const workspaceName = workspaceOptions
       ? workspaceNameFromOptions(workspaceOptions, {}, context.agentIdentity)
       : undefined
-    const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
     const configuredWorkspaceDefinition = workspaceOptions && workspaceName
       ? { ...workspaceDefinitionFromOptions(workspaceOptions), name: workspaceName }
       : undefined
@@ -1545,20 +1539,10 @@ async function createAgentInvocationContext<
         ? workspaceModule.useWorkspace(workspaceName, workspaceUseOptions ? { ...workspaceUseOptions, mode: "write" } : { mode: "write" })
         : workspaceUseOptions ? workspaceModule.useWorkspace(workspaceName, { ...workspaceUseOptions, mode: "read" }) : workspaceModule.useWorkspace(workspaceName)
       : undefined
-    const baseCapabilityOptions = definition?.capabilities?.length
-      ? { capabilities: definition.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: definition.hooks as never }
-      : workspaceOptions && workspace
-        ? { capabilities: workspaceOptions.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: workspaceOptions.hooks as never }
-        : undefined
-    const channelCapabilities = activeAgentChannel(definition?.channels, invocationContext, context.run)?.channel.capabilities
-    const capabilityOptions = channelCapabilities?.length
-      ? {
-          capabilities: [...(baseCapabilityOptions?.capabilities || []), ...channelCapabilities],
-          hooks: baseCapabilityOptions?.hooks || definition?.hooks,
-        }
-      : baseCapabilityOptions
-    const agentModel = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
-    const driverKind = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentDriverKind]
+    const capabilityOptions = resolvedCapabilityDefinitions.length
+      ? { capabilities: resolvedCapabilityDefinitions, hooks: definition?.hooks as never }
+      : undefined
+    const agentModel = internalDefinition?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
     const resolveCapabilityCli = resolveCapabilityCliRunSurface(definition)
     const capabilities = await resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
       context: invocationContext,

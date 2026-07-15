@@ -67,6 +67,164 @@ describe("agent message protocol", () => {
     }))
   })
 
+  it("resolves Agent Capabilities from invocation context before composition", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const close = vi.fn()
+    const prepare = vi.fn()
+    const selected = defineCapability({
+      close,
+      id: "selected",
+      prepare,
+      tools: {
+        selected: {
+          execute: () => "selected",
+          name: "selected",
+        },
+      },
+    })
+    const resolveCapabilities = vi.fn(async (context) => {
+      expect(context.actor).toBe(context.invoker)
+      expect(context.driver.kind).toBe("run")
+      expect(context.input.prompt).toBe("hello")
+      expect(context.run?.channelId).toBe("portal")
+      return context.context.get("enableSelected") ? [selected] : []
+    })
+    const agent = defineAgent({
+      capabilities: resolveCapabilities,
+      driver: {
+        run: context => Object.keys(context.tools || {}),
+      },
+    })
+    const runtime = {
+      memo: vi.fn(),
+      run: { channelId: "portal", runId: "run-1" },
+      runtime: "unknown" as const,
+      waitUntil: vi.fn(),
+    }
+
+    expect(resolveCapabilities).not.toHaveBeenCalled()
+    await expect(runAgent(agent, runtime, {
+      context: { enableSelected: true },
+      prompt: "hello",
+    })).resolves.toEqual(["selected"])
+    expect(prepare).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
+    await expect(runAgent(agent, runtime, {
+      context: { enableSelected: false },
+      prompt: "hello",
+    })).resolves.toEqual([])
+    expect(resolveCapabilities).toHaveBeenCalledTimes(2)
+    expect(prepare).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
+  })
+
+  it("resolves callback-selected tools for Workspace and Harness Agent Drivers", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { defineWorkspace } = await import("@vite-hub/workspace")
+    const { registerWorkspace } = await import("@vite-hub/workspace/test")
+    const selected = defineCapability({
+      id: "selected",
+      tools: {
+        selected: {
+          execute: () => "selected",
+          name: "selected",
+        },
+      },
+    })
+    const workspaceName = `dynamic-capabilities-${Math.random().toString(36).slice(2)}`
+    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "memory" } }))
+    const workspaceAgent = defineAgent({
+      capabilities: () => [selected],
+      driver: { run: context => Object.keys(context.tools || {}) },
+      workspace: workspaceName,
+    })
+
+    await expect(runAgent(workspaceAgent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })).resolves.toEqual(["selected"])
+
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    harnessGenerate.mockResolvedValueOnce({ text: "ok" })
+    const harnessAgent = defineAgent({
+      capabilities: context => context.driver.kind === "harness" ? [selected] : [],
+      driver: { harness: { provider: "codex" } },
+    })
+    await expect(runAgent(harnessAgent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
+    expect(harnessAgentSettings.at(-1)?.tools).toMatchObject({ selected: expect.any(Object) })
+  })
+
+  it("allows invocation-selected Workspace Access and rejects dynamic Chat Access", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const { defineWorkspace } = await import("@vite-hub/workspace")
+    const { registerWorkspace } = await import("@vite-hub/workspace/test")
+    const workspaceName = `dynamic-access-${Math.random().toString(36).slice(2)}`
+    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "memory" } }))
+    const workspaceAgent = defineAgent({
+      capabilities: () => [
+        access({
+          workspace: {
+            resolve: { role: "admin", scope: "all" },
+            scopes: { all: { all: true } },
+          },
+        }),
+      ],
+      driver: { run: ({ context }) => context.get("access") },
+      workspace: workspaceName,
+    })
+
+    await expect(runAgent(workspaceAgent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })).resolves.toMatchObject({
+      workspaceScope: { all: true, scope: "all" },
+    })
+
+    const chatAgent = defineAgent({
+      capabilities: () => [access({ chat: { resolve: () => true } })],
+      driver: { run: () => "ok" },
+    })
+    await expect(runAgent(chatAgent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })).rejects.toThrow(
+      'Invocation-resolved Capability "access" cannot contribute chat access',
+    )
+  })
+
+  it("rejects definition-time contributions from invocation-resolved Capabilities", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: () => [
+        defineCapability({
+          id: "dynamic-trigger",
+          triggers: {
+            manual: {
+              invoke: () => ({ input: { prompt: "hello" } }),
+            },
+          },
+        }),
+      ],
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })).rejects.toThrow(
+      'Invocation-resolved Capability "dynamic-trigger" cannot contribute triggers',
+    )
+  })
+
   it("rejects the legacy top-level harnessSandbox option", async () => {
     const { defineAgent } = await import("../src/index.ts")
 

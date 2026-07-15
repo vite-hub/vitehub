@@ -55,11 +55,30 @@ The Agent Package root stays focused on Agent Definition, invocation, message, a
 | Invocation context values | Typed data that later Agent and Capability callbacks can read. |
 | Metadata | Inspectable configuration for runtime and DevTools surfaces. |
 
-## Static attachment
+## Invocation-resolved composition
 
-Capabilities are attached before the Agent Invocation runs. Pre-Invocation Decisions can record context values, reject, or influence conditional contributions, but they do not dynamically attach new Capabilities.
+Pass an ordered array when every Agent Invocation uses the same Capabilities. Pass a callback when trusted invocation context decides which Capabilities belong to the invocation.
 
-Capabilities run in array order. A Capability can include nested default Capabilities, but an explicitly listed Capability keeps its top-level position.
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
+import { customerRecords, internalDiagnostics } from './capabilities'
+
+export default defineAgent({
+  driver: { model },
+  capabilities: ({ actor }) => [
+    customerRecords,
+    ...(actor.meta?.support === true ? [internalDiagnostics] : []),
+  ],
+})
+```
+
+ViteHub resolves the Agent Invoker first, then calls the callback once before it sets up any Capability. The returned array is the actual composition boundary, so an omitted Capability contributes no tools, CLI commands, requirements, hooks, or cleanup work.
+
+The callback can inspect the Agent Actor, Agent Invoker, input, run metadata, Agent Invocation Context, runtime handles, and `driver.kind`. It cannot select behavior that ViteHub must register before an invocation exists. Capabilities that contribute Agent Triggers, chat admission or attachments, or static Workspace Sources must stay in a static array. Use the invocation-scoped `workspace` contribution when a selected Capability needs to add Workspace context.
+
+Async DevTools metadata resolution evaluates the callback with its inspection input. Synchronous definition metadata reports only definition-stable configuration because it has no invocation context.
+
+Capabilities run in resolved array order. A Capability can include nested default Capabilities, but an explicitly returned Capability keeps its top-level position. Capability selection does not change after the invocation starts.
 
 Free-form Capability guidance belongs in Agent Driver Instructions or deterministic imported instruction Markdown. Tool descriptions and schemas stay with the tool because they are structured tool contracts, not arbitrary system instructions.
 

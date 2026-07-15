@@ -198,6 +198,8 @@ ViteHub exposes command metadata through the generated CLI-named tool. Keep `ins
 
 Return `undefined` from a resolver when the CLI should not be available for the current invocation. The Capability remains attached and inspectable.
 
+When the entire Capability should be absent, resolve the Agent Definition's `capabilities` list instead. This keeps selection at the composition boundary, before the Capability can contribute tools, CLI commands, requirements, hooks, or cleanup work.
+
 ```ts [server/agents/capabilities/inventory-runtime.ts]
 export const inventoryRuntime = defineCapability({
   id: 'inventory-runtime',

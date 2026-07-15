@@ -1154,6 +1154,27 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("leaves invocation-resolved subagent Capabilities out of static source discovery", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { subagents } = await import("../src/capabilities.ts")
+
+    const child = defineAgent({
+      capabilities: () => [],
+      driver: { run: () => "ok" },
+      workspace: {},
+    })
+    const capability = subagents({
+      agents: {
+        child: {
+          agent: child,
+          description: "Handle one delegated task.",
+        },
+      },
+    })
+
+    expect(capability.workspaceSources).toBeUndefined()
+  })
+
   it("adds capability sources to shared named workspace references for one invocation", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
@@ -1406,7 +1427,7 @@ describe("defineAgent workspace option", () => {
   })
 
   it("requires writable workspace for configured workspace shell commands", async () => {
-    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { workspaceShell } = await import("../src/capabilities.ts")
 
     expect(() => defineAgent({
@@ -1417,6 +1438,15 @@ describe("defineAgent workspace option", () => {
 
     expect(() => defineAgent({
       capabilities: [workspaceShell({ commands: "trusted-host" })],
+      driver: { model: {} as never },
+      workspace: { mode: "read" },
+    })).toThrow("workspaceShell({ commands }) requires workspace.mode: \"write\"")
+
+    expect(() => defineAgent({
+      capabilities: [defineCapability({
+        capabilities: [workspaceShell({ commands: ["agent-browser"] })],
+        id: "nested-shell",
+      })],
       driver: { model: {} as never },
       workspace: { mode: "read" },
     })).toThrow("workspaceShell({ commands }) requires workspace.mode: \"write\"")
@@ -4432,6 +4462,134 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("resolves invocation-selected Capabilities for DevTools metadata", async () => {
+    const { defineAgent, resolveAgentDevtoolsMetadata } = await import("../src/index.ts")
+    const { workspaceShell } = await import("../src/capabilities.ts")
+    const resolveCapabilities = vi.fn(({ actor, context, driver }) => {
+      expect(actor.kind).toBe("devtools")
+      expect(driver.kind).toBe("model")
+      return context.get("workspaceShellEnabled") ? [workspaceShell()] : []
+    })
+    const agent = withExplicitWorkspaceName(defineAgent({
+      capabilities: resolveCapabilities,
+      driver: { model: {} as never },
+      workspace: {},
+    }), { workspace: "support" })
+
+    const metadata = await resolveAgentDevtoolsMetadata(agent, {
+      input: {
+        context: {
+          invoker: { id: "devtools", kind: "devtools" },
+          workspaceShellEnabled: true,
+        },
+      },
+    })
+
+    expect(resolveCapabilities).toHaveBeenCalledOnce()
+    expect(metadata.tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "workspaceShell" }),
+    ]))
+  })
+
+  it("resolves invocation-selected Capabilities for non-Workspace DevTools metadata", async () => {
+    const { defineAgent, defineCapability, resolveAgentDevtoolsMetadata } = await import("../src/index.ts")
+    const selected = defineCapability({
+      id: "selected",
+      tools: { selected: { name: "selected" } },
+    })
+    const resolveCapabilities = vi.fn(({ actor, context, driver }) => {
+      expect(actor.kind).toBe("devtools")
+      expect(driver.kind).toBe("run")
+      return context.get("selectedEnabled") ? [selected] : []
+    })
+    const agent = defineAgent({
+      capabilities: resolveCapabilities,
+      driver: { run: () => "ok" },
+    })
+
+    const metadata = await resolveAgentDevtoolsMetadata(agent, {
+      input: {
+        context: {
+          invoker: { id: "devtools", kind: "devtools" },
+          selectedEnabled: true,
+        },
+      },
+    })
+
+    expect(resolveCapabilities).toHaveBeenCalledOnce()
+    expect(metadata.tools).toEqual([
+      expect.objectContaining({ name: "selected" }),
+    ])
+  })
+
+  it("rejects impossible invocation-selected Capabilities in non-Workspace DevTools metadata", async () => {
+    const { defineAgent, resolveAgentDevtoolsMetadata } = await import("../src/index.ts")
+    const { workspaceShell } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      capabilities: () => [workspaceShell()],
+      driver: { run: () => "ok" },
+    })
+
+    await expect(resolveAgentDevtoolsMetadata(agent)).rejects.toThrow(
+      "workspaceShell() requires an explicit workspace",
+    )
+  })
+
+  it("closes prepared Capabilities after DevTools metadata success and failure", async () => {
+    const { defineAgent, defineCapability, resolveAgentDevtoolsMetadata } = await import("../src/index.ts")
+    const close = vi.fn()
+    const prepare = vi.fn()
+    const capability = defineCapability({ close, id: "metadata-resource", prepare })
+    const createAgent = (model: unknown) => withExplicitWorkspaceName(defineAgent({
+      capabilities: [capability],
+      driver: { model: model as never },
+      workspace: {},
+    }), { workspace: "support" })
+
+    await expect(resolveAgentDevtoolsMetadata(createAgent({}))).resolves.toBeDefined()
+    expect(prepare).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
+
+    const failure = new Error("model metadata failed")
+    await expect(resolveAgentDevtoolsMetadata(createAgent(() => { throw failure }))).rejects.toBe(failure)
+    expect(prepare).toHaveBeenCalledTimes(2)
+    expect(close).toHaveBeenCalledTimes(2)
+  })
+
+  it("resolves invocation-selected Workspace Access before DevTools Source Resolution", async () => {
+    const { defineAgent, resolveAgentDevtoolsMetadata } = await import("../src/index.ts")
+    const { access } = await import("../src/capabilities.ts")
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    const resolveCapabilities = vi.fn(() => [
+      access({
+        workspace: {
+          resolve: { role: "admin", scope: "all" },
+          scopes: { all: { all: true } },
+        },
+      }),
+    ])
+    const agent = withExplicitWorkspaceName(defineAgent({
+      capabilities: resolveCapabilities,
+      driver: { model: {} as never },
+      workspace: {
+        sources: {
+          docs: { name: "docs" } as never,
+        },
+      },
+    }), { workspace: "support" })
+
+    await expect(resolveAgentDevtoolsMetadata(agent)).resolves.toBeDefined()
+    expect(resolveCapabilities).toHaveBeenCalledOnce()
+    expect(createWorkspaceSourceResolutionFacade).toHaveBeenCalledOnce()
+    expect(createWorkspaceSourceResolutionFacade).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(Object),
+      expect.objectContaining({
+        selectedWorkspaceScope: expect.objectContaining({ all: true, name: "all", role: "admin" }),
+      }),
+    )
+  })
+
   it("resolves dynamic model metadata for DevTools", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const resolveModel = vi.fn((context: { channel?: { meta?: { customer?: string } }, invoker: { kind?: string } }) => ({
@@ -4676,7 +4834,7 @@ describe("defineAgent workspace option", () => {
       ].join("\n\n")],
       tools: [expect.objectContaining({ name: "tracked" })],
     })
-    expect(phase.mock.calls.map(call => call[0])).toEqual(["hook:prepare", "prepare"])
+    expect(phase.mock.calls.map(call => call[0])).toEqual(["hook:prepare", "prepare", "close"])
     expect(toolResolver).not.toHaveBeenCalled()
     expect(invokerResolve).toHaveBeenCalledOnce()
   })

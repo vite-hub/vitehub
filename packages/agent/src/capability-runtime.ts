@@ -17,6 +17,8 @@ import {
 import { runObservedAgentHook } from "./hooks.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
 import type {
+  AgentCapabilitiesInput,
+  AgentCapabilitiesResolverContext,
   AgentCallbackContext,
   AgentCapabilityCliContribution,
   AgentCapabilityContext,
@@ -222,7 +224,7 @@ export function normalizeMode(value: unknown, label: string): AgentCapabilityMod
 }
 
 export function normalizeCapabilities(
-  capabilities: AgentCapabilityDefinition[] | undefined,
+  capabilities: readonly AgentCapabilityDefinition[] | undefined,
 ): AgentCapabilityDefinition[] {
   if (capabilities === undefined) return []
   if (!Array.isArray(capabilities)) {
@@ -254,8 +256,103 @@ export function normalizeCapabilities(
   return normalized
 }
 
+export async function resolveAgentCapabilityDefinitions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  CALL_OPTIONS = unknown,
+>(
+  capabilities: AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined,
+  context: AgentCapabilitiesResolverContext<TRuntimeConfig, CALL_OPTIONS>,
+): Promise<AgentCapabilityDefinition<TRuntimeConfig, Name>[]> {
+  const resolved = normalizeCapabilities(
+    typeof capabilities === "function" ? await capabilities(context) : capabilities,
+  ) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
+
+  if (typeof capabilities !== "function") return resolved
+
+  for (const capability of resolved) {
+    const accessMetadata = capability.id === "access"
+      ? capability.metadata as { chat?: unknown } | undefined
+      : undefined
+    const unsupported = [
+      capability.triggers ? "triggers" : undefined,
+      capability.workspaceSources ? "workspaceSources" : undefined,
+      capability.chatAttachments ? "chatAttachments" : undefined,
+      accessMetadata?.chat === true ? "chat access" : undefined,
+    ].filter((value): value is string => Boolean(value))
+    if (unsupported.length) {
+      throw new Error(`[vitehub] Invocation-resolved Capability "${capability.id}" cannot contribute ${unsupported.join(", ")}. Attach definition-time behavior in a static capabilities array.`)
+    }
+  }
+
+  return resolved
+}
+
+function validateSandboxCommands(commands: unknown): void {
+  if (commands === undefined) return
+  if (!Array.isArray(commands) || !commands.length) {
+    throw new TypeError("[vitehub] sandbox({ commands }) requires at least one executable name.")
+  }
+  for (const command of commands) {
+    if (typeof command !== "string" || !/^[A-Za-z0-9_.-]+$/.test(command)) {
+      throw new TypeError("[vitehub] sandbox({ commands }) accepts executable names only, not shell command strings.")
+    }
+  }
+}
+
+function capabilityRequiresWorkspace(capability: AgentCapabilityDefinition): boolean {
+  const metadata = capability.metadata
+  const optionalWorkspace = typeof metadata === "object"
+    && metadata !== null
+    && (metadata as { [optionalWorkspaceCapabilitySymbol]?: unknown })[optionalWorkspaceCapabilitySymbol] === true
+  const accessWorkspace = capability.id === "access"
+    && typeof metadata === "object"
+    && metadata !== null
+    && (metadata as { workspace?: unknown }).workspace === true
+  const sandboxCommands = capability.id === "sandbox"
+    && Array.isArray((metadata as { commands?: unknown } | undefined)?.commands)
+  return capability.workspace && !optionalWorkspace
+    || capability.id === "workspace-shell"
+    || sandboxCommands
+    || accessWorkspace
+    || Boolean(capability.bash?.length)
+}
+
+export function validateAgentCapabilityComposition(
+  capabilities: readonly AgentCapabilityDefinition[],
+  options: { hasWorkspace: boolean, workspaceMode?: AgentCapabilityMode },
+): void {
+  for (const capability of normalizeCapabilities(capabilities)) {
+    if (capability.id === "sandbox") {
+      validateSandboxCommands((capability.metadata as { commands?: unknown } | undefined)?.commands)
+    }
+    if (!options.hasWorkspace) {
+      if (capabilityRequiresWorkspace(capability)) {
+        const name = capability.id === "workspace-shell" ? "workspaceShell" : capability.id
+        throw new Error(`[vitehub] ${name}() requires an explicit workspace.`)
+      }
+      continue
+    }
+
+    const workspaceMode = options.workspaceMode || "read"
+    if (capability.id === "workspace-shell") {
+      const metadata = capability.metadata as { commands?: unknown } | undefined
+      const requiresWritableSession = metadata?.commands !== undefined
+      if (requiresWritableSession && workspaceMode !== "write") {
+        throw new Error("[vitehub] workspaceShell({ commands }) requires workspace.mode: \"write\".")
+      }
+      if (!requiresWritableSession && normalizeMode(capability.mode, "Workspace Shell") === "write" && workspaceMode !== "write") {
+        throw new Error("[vitehub] workspaceShell({ mode: \"write\" }) requires workspace.mode: \"write\".")
+      }
+    }
+    if (capability.bash?.length && workspaceMode !== "write") {
+      throw new Error(`[vitehub] ${capability.id}() bash requires workspace.mode: "write".`)
+    }
+  }
+}
+
 export function capabilityWorkspaceSources(
-  capabilities: AgentCapabilityDefinition[] | undefined,
+  capabilities: readonly AgentCapabilityDefinition[] | undefined,
 ): WorkspaceDefinition["sources"] | undefined {
   const normalized = normalizeCapabilities(capabilities)
   const sources: NonNullable<WorkspaceDefinition["sources"]> = {}

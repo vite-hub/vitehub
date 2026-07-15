@@ -55,6 +55,20 @@ export default defineAgent({
 
 Tools are contributed by Capabilities. They are not top-level Agent Definition fields.
 
+When trusted invocation context decides which Agent Definition abilities apply, make `capabilities` a callback. ViteHub resolves the Agent Invoker first and uses the returned list for that invocation; Capabilities contributed by the active Channel still compose normally.
+
+```ts [server/agents/support.ts]
+export default defineAgent({
+  driver: { model },
+  capabilities: ({ actor }) => [
+    customerRecords,
+    ...(actor.meta?.support === true ? [internalDiagnostics] : []),
+  ],
+})
+```
+
+The callback also receives the invocation input and runtime handles. Capabilities that contribute Agent Triggers, chat admission or attachments, or static Workspace Sources must stay in a static array because ViteHub registers those contributions before an invocation starts.
+
 ## Add Workspace context
 
 Workspace context gives the Agent a file tree and Sources. The Workspace owns file visibility, while Capabilities decide whether the active Agent Driver receives model-facing tools or other driver-compatible inputs.
