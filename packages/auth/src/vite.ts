@@ -125,18 +125,12 @@ function renderAuthAmbientTypes(options: { importBase?: string, serverEnv: boole
       ? [
           `import type { ServerEnv } from ${JSON.stringify(envServerModuleId)}`,
           "",
-          `declare module ${JSON.stringify(importBase)} {`,
-          "  interface AuthRuntimeEnv extends ServerEnv {}",
+          "declare global {",
+          "  namespace ViteHub {",
+          "    interface AuthRuntimeEnv extends ServerEnv {}",
+          "  }",
           "}",
           "",
-          ...(importBase === authPackageName
-            ? []
-            : [
-                `declare module ${JSON.stringify(authPackageName)} {`,
-                "  interface AuthRuntimeEnv extends ServerEnv {}",
-                "}",
-                "",
-              ]),
         ]
       : []),
     `declare module ${JSON.stringify(AUTH_SERVER_ID)} {`,

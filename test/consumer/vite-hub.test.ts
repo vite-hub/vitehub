@@ -388,7 +388,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
 
       expect(agentRoute).toContain("vite-hub/_internal/agent")
       expect(agentRoute).toContain("vite-hub/_internal/workspace/runtime")
-      expect(authTypes).toContain('declare module "vite-hub/auth"')
+      expect(authTypes).toContain("namespace ViteHub")
       expect(authTypes).toContain("vite-hub/auth/server")
       expect(blobPlugin).toContain("vite-hub/_internal/blob/runtime/state")
       expect(envServer).toContain("vite-hub/env/server")

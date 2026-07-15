@@ -18,6 +18,8 @@ Provider Selection belongs in Integration Options when it changes generated outp
 `vitehub()`. Direct `hubX()` integration functions remain available from their
 independent `@vite-hub/*/vite` owner-package paths.
 
+Email, KV, Queue, Sandbox, and Schedule are opt-in with `true` for inferred defaults or with their integration options. Auth follows the same opt-in shape but currently has no plugin option bag.
+
 ## Vite Integration options
 
 | Package | Public type | Placement | Confirmed options and defaults |

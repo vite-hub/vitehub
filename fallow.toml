@@ -121,6 +121,8 @@ ignoreDependencies = [
   "@nuxt/ui",
   "@comark/nuxt",
   "@vitejs/devtools",
+  # Required by declarations re-exported from @vite-hub/devtools.
+  "@vitejs/devtools-kit",
   "@vueuse/nuxt",
 ]
 
