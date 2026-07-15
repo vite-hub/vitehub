@@ -25,7 +25,7 @@ function extractMarkdownTemplateImportSpecifiers(template: string): string[] {
   const visible = template
     .replace(/^( {0,3})(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\2\s*$/gm, "")
     .replace(/^(?: {4}|\t).*$/gm, "")
-    .replace(/`+[^`\n]*`+/g, "")
+    .replace(/(`+)[\s\S]*?\1/g, "")
     .replace(/<[^>]*>/g, "")
   const specifiers = new Set<string>()
   for (const match of visible.matchAll(/@(\.\.?\/[^\s<>{}[\]]+)/g)) {
