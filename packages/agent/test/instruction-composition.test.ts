@@ -332,6 +332,12 @@ describe("instruction composition", () => {
     ].join("\n\n"))
   })
 
+  it("requires workspace Markdown to use recursive imports", async () => {
+    await expect(composeInstructionDocument("{{{ workspace.policy }}}", {
+      workspace: { policy: "Use {{ context.name }}." },
+    })).rejects.toThrow("must use a context.* path. Import Workspace Markdown with @workspace.policy")
+  })
+
   it("does not render bindings or directives inside code spans and fences", async () => {
     expect(await composeInstructionDocument([
       "Hello {{ context.name }}.",

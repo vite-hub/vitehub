@@ -63,6 +63,7 @@ interface InstructionProtectedTokens {
 const defaultImportDepth = 4
 const contextPathPattern = /context(?:\.[A-Za-z_$][\w$-]*)+/
 const tripleBindingPattern = /\{\{\{\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}\}/g
+const instructionTripleBindingPattern = /\{\{\{\s*([A-Za-z_$][\w$-]*(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}\}/g
 const scalarBindingPattern = /\{\{(?!\{)\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}/g
 
 export async function resolveInstructionImports(content: string, options: ResolveInstructionImportsOptions): Promise<string> {
@@ -85,6 +86,7 @@ export async function composeInstructionDocument(content: string, options: Compo
   validateConditionalDirectives(await instructionDirectiveValidationSource(shorthand))
   const imported = await expandWorkspaceInstructionImports(shorthand, state.workspace, 0, new Set(), protectedTokens)
   validateConditionalDirectives(await instructionDirectiveValidationSource(imported))
+  validateInstructionMarkdownBindings(imported)
   await validateLegacyInstructionBindings(imported)
   await validateInstructionConditions(imported, state.context)
   const coverageMarker = createInstructionCoverageMarker()
@@ -96,6 +98,15 @@ export async function composeInstructionDocument(content: string, options: Compo
   }
   catch (error) {
     rethrowInstructionCompositionError(error)
+  }
+}
+
+function validateInstructionMarkdownBindings(content: string): void {
+  for (const match of content.matchAll(instructionTripleBindingPattern)) {
+    const path = match[1]!
+    if (!path.startsWith("context.")) {
+      throw new Error(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" must use a context.* path. Import Workspace Markdown with @${path}.`)
+    }
   }
 }
 
