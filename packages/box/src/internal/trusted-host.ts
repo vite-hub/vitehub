@@ -257,6 +257,14 @@ async function reconcileProjections(state: PreparedState) {
       throw error;
     },
   );
+  const persistent = await realpath(state.persistent);
+  for (const path of state.projections) {
+    const parent = await canonicalFuturePath(dirname(join(state.persistent, ...path.split("/"))));
+    const relativeParent = relative(persistent, parent);
+    if (relativeParent === ".." || relativeParent.startsWith(`..${sep}`) || isAbsolute(relativeParent)) {
+      throw new Error(`[vitehub] Box projected path escapes writable state: ${state.path}/${path}`);
+    }
+  }
   const current = new Set(state.projections);
   for (const path of previous) {
     if (current.has(path)) continue;
@@ -266,7 +274,7 @@ async function reconcileProjections(state: PreparedState) {
       throw error;
     });
     if (!parent) continue;
-    const relativeParent = relative(state.persistent, parent);
+    const relativeParent = relative(persistent, parent);
     if (relativeParent === ".." || relativeParent.startsWith(`..${sep}`) || isAbsolute(relativeParent)) {
       throw new Error(`[vitehub] Box projected path escapes writable state: ${state.path}/${path}`);
     }
