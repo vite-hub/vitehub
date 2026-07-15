@@ -1,4 +1,5 @@
 import type { Message, StreamEvent } from "./messages.ts"
+import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
 import type { BoxDefinition, BoxRequirement, ResolvedBox } from "@vite-hub/box"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { JSONSchema7 } from "json-schema"
@@ -64,7 +65,9 @@ export type ResolvedAgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfi
   AgentRuntimeContext<TRuntimeConfig> & { runtimeConfig: TRuntimeConfig }
 
 export type AgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  Omit<ResolvedAgentRuntimeContext<TRuntimeConfig>, "runtimeConfig">
+  Omit<ResolvedAgentRuntimeContext<TRuntimeConfig>, "runtimeConfig"> & {
+    runEvents?: AgentRunEventPublisher
+  }
 
 export type AgentInvokerMeta = Record<string, unknown>
 
@@ -477,7 +480,7 @@ export interface AgentFinishEvent<
     usage?: AgentUsageRecord
   }
   result?: unknown
-  runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>
+  runtime: ResolvedAgentRuntimeContext<TRuntimeConfig> & { runEvents?: AgentRunEventPublisher }
   text?: string
 }
 
@@ -1061,6 +1064,7 @@ type AgentSharedSettings<
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
   runtime?: AgentRuntimeBinding
+  runEvents?: AgentRunEvents
   version?: string
   workspace?: WorkspaceAgentWorkspaceConfig
 }
@@ -1092,6 +1096,7 @@ export interface AgentDefinition<
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
   runtime?: AgentRuntimeBinding
+  runEvents?: AgentRunEvents
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
   version?: string

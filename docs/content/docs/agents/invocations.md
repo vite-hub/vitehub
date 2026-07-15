@@ -88,6 +88,46 @@ export default defineAgent({
 
 The finish hook runs before the invocation's terminal Trace Event. Agent tests and eval observations expose the finalized `TraceRunView` as `result.trace` or `observation.trace` after completion. Stream and Response traces become terminal when the caller consumes, cancels, or encounters an error from the output.
 
+## Publish application run events
+
+Use Agent Run Events when server code needs to expose application-owned progress across Capability input, Agent Driver, and finish phases. Define the store beside the Agent so Workflow execution imports the resolver instead of serializing it in the Workflow payload.
+
+```ts [server/agents/summary/agent.ts]
+import { defineAgent } from '@vite-hub/agent'
+import { defineAgentRunEvents } from '@vite-hub/agent/server'
+import { summaryRunEventStore } from '../../run-event-store'
+
+export const summaryRunEvents = defineAgentRunEvents({
+  store: context => summaryRunEventStore(context),
+})
+
+export default defineAgent({
+  runEvents: summaryRunEvents,
+  capabilities: [{
+    id: 'transcribe',
+    async input(context) {
+      await context.runEvents?.publish({
+        type: 'stage',
+        data: { stage: 'transcribe' },
+      })
+    },
+  }],
+  driver: {
+    async run(context) {
+      await context.runEvents?.publish({
+        type: 'stage',
+        data: { stage: 'summarize' },
+      })
+      return summarize(context)
+    },
+  },
+})
+```
+
+The publisher exists only when the invocation has a stable `runId`; ViteHub does not invent a second identity for inline calls. Workflow-backed Agents use the Workflow Run id, while Capability input, the Agent Driver, and finish hooks remain phases inside that one run rather than separate Workflow steps.
+
+Server routes can call `summaryRunEvents.read(runId, cursor)` for replay or `summaryRunEvents.subscribe(runId, cursor, { signal })` for replay followed by live events. The configured store owns cursor assignment, ordering, timestamps, persistence, and the replay-to-live handoff, and it must stop subscriptions when the abort signal fires. ViteHub supplies no default persistence or authorization; authenticate the server route and scope every store operation to the application's run owner.
+
 ## Invoke a trigger
 
 Use `runAgentTrigger` or `streamAgentTrigger` when a Capability owns the product event shape. The trigger prepares Agent Invocation input, metadata, and run state before the Agent Driver starts.

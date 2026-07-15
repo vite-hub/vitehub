@@ -8538,6 +8538,60 @@ describe("agent message protocol", () => {
       })
     })
 
+    it("reconstructs Agent Run Events inside workflow execution", async () => {
+      const { defineAgent, defineCapability, runAgent, workflow } = await import("../src/index.ts")
+      const { defineAgentRunEvents } = await import("../src/server.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      const published: Array<{ runId: string, event: { type: string } }> = []
+      let innerRunId: string | undefined
+      const store = {
+        append(runId: string, event: { type: string }) {
+          published.push({ event, runId })
+          return { ...event, cursor: String(published.length), runId, timestamp: new Date(0).toISOString() }
+        },
+        read: () => [],
+        subscribe: () => (async function* () {})(),
+      }
+      const resolveStore = vi.fn(({ runtime }) => {
+        innerRunId = runtime.run?.runId
+        expect(runtime.runtimeConfig).toEqual({ region: "iad" })
+        return store
+      })
+      const agent = defineAgent({
+        capabilities: [defineCapability({
+          id: "transcribe",
+          async input(context) {
+            await context.runEvents?.publish({ type: "transcribe" })
+          },
+        })],
+        driver: { run: context => context.runEvents?.publish({ type: "summarize" }).then(() => "done") },
+        runEvents: defineAgentRunEvents({ store: resolveStore }),
+        runtime: workflow("summary-run-events"),
+      })
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const run = await runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        runtimeConfig: { region: "iad" },
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("summary-run-events", run.id)).resolves.toMatchObject({
+        result: "done",
+        status: "completed",
+      })
+      expect(resolveStore).toHaveBeenCalledTimes(2)
+      expect(innerRunId).toBe(run.id)
+      expect(published).toEqual([
+        { event: { type: "transcribe" }, runId: run.id },
+        { event: { type: "summarize" }, runId: run.id },
+      ])
+    })
+
     it("keeps programmatic agent runs inline without a discovered identity", async () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const agent = defineAgent({
