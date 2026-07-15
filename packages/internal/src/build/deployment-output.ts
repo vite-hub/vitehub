@@ -236,7 +236,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
 
   if (options.bundleEntry && workerOutfile) {
     await rm(workerOutfile, { force: true, recursive: true })
-    writes.push(bundleEsmEntry(options.bundleEntry, workerOutfile, options.bundleOptions))
+    writes.push(bundleEsmEntry(options.bundleEntry, workerOutfile, { ...options.bundleOptions, rootDir: options.rootDir }))
   }
 
   await Promise.all(writes)
@@ -253,7 +253,7 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   await mkdir(serverDir, { recursive: true })
 
   await Promise.all([
-    bundleEsmEntry(options.bundleEntry, serverEntry, options.bundleOptions),
+    bundleEsmEntry(options.bundleEntry, serverEntry, { ...options.bundleOptions, rootDir: options.rootDir }),
     writeFile(resolve(serverDir, ".vc-config.json"), `${JSON.stringify(options.functionConfig ?? createNodeFunctionConfig(), null, 2)}\n`, "utf8"),
     writeMergedJsonObject(resolve(outputRoot, "config.json"), options.config ?? createVercelConfigJson(), options.configKeys),
     staticIndex
@@ -272,6 +272,7 @@ async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOpti
     await bundleEsmEntry(func.bundleEntry, outfile, {
       ...func.bundleOptions,
       minifyIdentifiers: func.config ? true : func.bundleOptions.minifyIdentifiers,
+      rootDir: options.rootDir,
     })
     await appendNetlifyFunctionConfig(outfile, func.config)
   })

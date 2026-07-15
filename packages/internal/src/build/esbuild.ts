@@ -1,3 +1,6 @@
+import { readFile, stat } from "node:fs/promises"
+import { resolve } from "node:path"
+
 import { build as bundle, type Plugin } from "esbuild"
 
 interface BundleEsmEntryOptions {
@@ -9,6 +12,81 @@ interface BundleEsmEntryOptions {
   minifyIdentifiers?: boolean
   platform?: "browser" | "node" | "neutral"
   plugins?: Plugin[]
+  rootDir?: string
+}
+
+const viteRawNamespace = "vitehub-vite-raw"
+
+function hasViteRawQuery(path: string): boolean {
+  const queryIndex = path.indexOf("?")
+  return queryIndex !== -1 && /(?:^|&)raw(?:&|$)/.test(path.slice(queryIndex + 1))
+}
+
+async function resolveViteRawSpecifier(path: string, rootDir: string | undefined): Promise<string> {
+  if (path.startsWith("/@fs/")) return path.slice("/@fs/".length)
+  if (!rootDir || !path.startsWith("/")) return path
+
+  const rootRelativePath = path.slice(1)
+  const publicPath = resolve(rootDir, "public", rootRelativePath)
+  try {
+    await stat(publicPath)
+    return publicPath
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    return resolve(rootDir, rootRelativePath)
+  }
+}
+
+function createViteRawPlugin(rootDir: string | undefined): Plugin {
+  return {
+    name: "vitehub-vite-raw",
+    setup(build) {
+      build.onResolve({ filter: /\?/ }, async (args) => {
+        if (!hasViteRawQuery(args.path)) return
+        const path = args.path.slice(0, args.path.indexOf("?"))
+        const specifier = await resolveViteRawSpecifier(path, rootDir)
+        const resolved = await build.resolve(specifier, {
+          importer: args.importer,
+          kind: args.kind,
+          namespace: args.namespace,
+          pluginData: args.pluginData,
+          resolveDir: args.resolveDir,
+          with: args.with,
+        })
+        if (resolved.errors.length) return { errors: resolved.errors, warnings: resolved.warnings }
+        if (resolved.external) {
+          return {
+            external: true,
+            namespace: resolved.namespace,
+            path: resolved.path,
+            pluginData: resolved.pluginData,
+            sideEffects: resolved.sideEffects,
+            suffix: resolved.suffix,
+            warnings: resolved.warnings,
+          }
+        }
+        if (resolved.namespace !== "file") {
+          return {
+            errors: [{ text: `[vitehub] Vite raw fallback cannot load ${JSON.stringify(args.path)} from the ${JSON.stringify(resolved.namespace)} namespace. Handle this raw import in a caller plugin.` }],
+            warnings: resolved.warnings,
+          }
+        }
+        return {
+          namespace: viteRawNamespace,
+          path: resolved.path,
+          pluginData: resolved.pluginData,
+          sideEffects: resolved.sideEffects,
+          suffix: resolved.suffix,
+          warnings: resolved.warnings,
+        }
+      })
+      build.onLoad({ filter: /.*/, namespace: viteRawNamespace }, async args => ({
+        contents: await readFile(args.path),
+        loader: "text",
+      }))
+    },
+  }
 }
 
 export async function bundleEsmEntry(
@@ -43,7 +121,7 @@ export async function bundleEsmEntry(
     minifyIdentifiers: options.minifyIdentifiers,
     outfile,
     platform,
-    plugins: options.plugins,
+    plugins: [...(options.plugins ?? []), createViteRawPlugin(options.rootDir)],
     sourcemap: false,
     target: "es2022",
     write: true,

@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto"
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createViteHubEnvImportAliases } from "@vite-hub/internal/build/vite"
 import { createImportPath } from "@vite-hub/internal/build/paths"
@@ -15,6 +15,7 @@ import { createMemoryWorkspaceStore } from "../storage/memory.ts"
 
 import type { DiscoveredWorkspaceDefinition } from "./discovery.ts"
 import type { ResolvedWorkspaceModuleOptions, WorkspaceContent, WorkspaceDefinitionInput, WorkspaceStore } from "../core/types.ts"
+import type { TransformOptions } from "jiti"
 
 export interface WorkspaceAssetFile {
   content: WorkspaceContent
@@ -50,11 +51,87 @@ function generatedViteHubImportAliases(rootDir: string) {
   return aliases
 }
 
-export function createWorkspaceDefinitionLoader(rootDir: string, alias: Record<string, string> = {}) {
-  return createJiti(import.meta.url, {
-    alias: { ...alias, ...generatedViteHubImportAliases(rootDir) },
-    moduleCache: false,
+const rawImportVirtualModulePrefix = "vitehub:workspace-raw:"
+
+interface BabelSourceDeclarationPath {
+  node: { source?: { type?: string, value?: unknown } | null }
+}
+
+function rawImportPath(specifier: string) {
+  const queryIndex = specifier.indexOf("?")
+  if (queryIndex === -1 || !/(?:^|&)raw(?:&|$)/.test(specifier.slice(queryIndex + 1))) return
+
+  return specifier.slice(0, queryIndex)
+}
+
+function createRawImportTransformPlugin(importer: string | undefined) {
+  function rewriteRawSpecifier(path: BabelSourceDeclarationPath) {
+    if (!importer || path.node.source?.type !== "StringLiteral" || typeof path.node.source.value !== "string") return
+    const rawPath = rawImportPath(path.node.source.value)
+    if (rawPath === undefined) return
+
+    const reference = Buffer.from(JSON.stringify([importer, rawPath])).toString("base64url")
+    path.node.source.value = `${rawImportVirtualModulePrefix}${reference}`
+  }
+
+  return () => ({
+    visitor: {
+      ExportAllDeclaration: rewriteRawSpecifier,
+      ExportNamedDeclaration: rewriteRawSpecifier,
+      ImportDeclaration: rewriteRawSpecifier,
+    },
   })
+}
+
+function createWorkspaceDefinitionTransform() {
+  const transformer = createJiti(import.meta.url, { fsCache: false })
+  return (options: TransformOptions) => ({
+    code: transformer.transform({
+      ...options,
+      babel: {
+        ...options.babel,
+        plugins: [
+          ...(Array.isArray(options.babel?.plugins) ? options.babel.plugins : []),
+          createRawImportTransformPlugin(options.filename),
+        ],
+      },
+    }),
+  })
+}
+
+function resolveWorkspaceRawSpecifier(path: string, rootDir: string): string {
+  if (path.startsWith("/@fs/")) return path.slice("/@fs/".length)
+  if (!path.startsWith("/")) return path
+
+  const rootRelativePath = path.slice(1)
+  const publicPath = join(rootDir, "public", rootRelativePath)
+  return existsSync(publicPath) ? publicPath : join(rootDir, rootRelativePath)
+}
+
+export function createWorkspaceDefinitionLoader(rootDir: string, alias: Record<string, string> = {}) {
+  let loader: ReturnType<typeof createJiti>
+  const virtualModules = new Proxy<Record<string, unknown>>(Object.create(null), {
+    get(_target, id) {
+      if (typeof id !== "string" || !id.startsWith(rawImportVirtualModulePrefix)) return
+      const reference = id.slice(rawImportVirtualModulePrefix.length)
+      const [importer, path] = JSON.parse(Buffer.from(reference, "base64url").toString("utf8")) as [string, string]
+      const specifier = resolveWorkspaceRawSpecifier(path, rootDir)
+      const resolved = loader.esmResolve(specifier, pathToFileURL(importer).href)
+      return { __esModule: true, default: readFileSync(fileURLToPath(resolved), "utf8") }
+    },
+    has(_target, id) {
+      return typeof id === "string" && id.startsWith(rawImportVirtualModulePrefix)
+    },
+  })
+
+  loader = createJiti(import.meta.url, {
+    alias: { ...alias, ...generatedViteHubImportAliases(rootDir) },
+    fsCache: false,
+    moduleCache: false,
+    transform: createWorkspaceDefinitionTransform(),
+    virtualModules,
+  })
+  return loader
 }
 
 export async function loadDiscoveredWorkspaceDefinition(

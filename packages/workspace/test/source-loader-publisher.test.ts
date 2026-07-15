@@ -5,10 +5,11 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { gzipSync } from "node:zlib"
 
+import { createJiti } from "jiti"
 import { createMemoryStorage, setStorage } from "ocache"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { collectWorkspaceStoreAssetBundle, syncDiscoveredWorkspaceAssetBundles, writeWorkspaceAssetsRegistry } from "../src/build/assets.ts"
+import { collectWorkspaceStoreAssetBundle, createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, syncDiscoveredWorkspaceAssetBundles, writeWorkspaceAssetsRegistry } from "../src/build/assets.ts"
 import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets } from "../src/build/integration.ts"
 import { resetWorkspaceAssetsRegistry } from "../src/asset-registry.ts"
 import { custom, defineWorkspace, file, github, glob, markdown, useWorkspace } from "../src/index.ts"
@@ -590,6 +591,139 @@ describe("sources, loaders, and publishers", () => {
     const contents = await readFile(registryFile, "utf8")
     expect(contents.match(/"docs": createWorkspaceAssets/g)).toHaveLength(1)
     expect(contents.match(/"instructions\/AGENTS.md"/g)).toHaveLength(1)
+  })
+
+  it("loads raw text imports while syncing discovered Workspace Definitions", async () => {
+    const root = await createRoot()
+    const directory = join(root, "server", "agents", "review")
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, "repository-host-context.md"), "# Repository host context\n")
+    await writeFile(join(directory, "config.ts"), [
+      `import repositoryHostContext from "./repository-host-context.md?raw"`,
+      `export default {`,
+      `  sources: {`,
+      `    context: {`,
+      `      async getKeys() { return ["repository-host-context.md"] },`,
+      `      async getItem(key) { return { key, path: key, content: repositoryHostContext } },`,
+      `    },`,
+      `  },`,
+      `}`,
+      ``,
+    ].join("\n"))
+
+    const bundles = await syncDiscoveredWorkspaceAssetBundles([{
+      handler: join(directory, "config.ts"),
+      name: "review",
+      path: join(directory, "config.ts"),
+      source: "test",
+      sourceRootDir: directory,
+    }], root, {
+      root: join(root, ".vitehub", "workspaces"),
+      store: { provider: "memory" },
+      assets: true,
+    })
+
+    expect(bundles).toMatchObject([{
+      files: [{
+        content: "# Repository host context\n",
+        path: "context/repository-host-context.md",
+      }],
+      name: "review",
+    }])
+  })
+
+  it("loads raw text re-exports from nested Workspace Definition modules", async () => {
+    const root = await createRoot()
+    const directory = join(root, "server", "agents", "review")
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, "repository-host-context.md"), "# Re-exported context\n")
+    await writeFile(join(directory, "context.ts"),
+      `export { default as repositoryHostContext } from "./repository-host-context.md?raw"\n`)
+    await writeFile(join(directory, "config.ts"), [
+      `import { repositoryHostContext } from "./context.ts"`,
+      `export default { rootDir: repositoryHostContext.trim() }`,
+      ``,
+    ].join("\n"))
+
+    const definition = {
+      handler: join(directory, "config.ts"),
+      name: "review",
+      path: join(directory, "config.ts"),
+      source: "test",
+      sourceRootDir: directory,
+    }
+    const loader = createWorkspaceDefinitionLoader(root)
+
+    await expect(loadDiscoveredWorkspaceDefinition(loader, definition)).resolves.toMatchObject({
+      rootDir: "# Re-exported context",
+    })
+  })
+
+  it("loads public and /@fs/ raw paths with Vite semantics", async () => {
+    const root = await createRoot()
+    const outsideRoot = await createRoot()
+    const directory = join(root, "server", "agents", "review")
+    const outsidePath = join(outsideRoot, "outside.md")
+    await mkdir(join(root, "public"), { recursive: true })
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(root, "robots.txt"), "root robots\n")
+    await writeFile(join(root, "public", "robots.txt"), "public robots\n")
+    await writeFile(outsidePath, "outside context\n")
+    await writeFile(join(directory, "config.ts"), [
+      `import robots from "/robots.txt?raw"`,
+      `import outside from ${JSON.stringify(`/@fs/${outsidePath}?raw`)}`,
+      `export default { rootDir: [robots.trim(), outside.trim()].join("|") }`,
+      ``,
+    ].join("\n"))
+
+    const definition = {
+      handler: join(directory, "config.ts"),
+      name: "review",
+      path: join(directory, "config.ts"),
+      source: "test",
+      sourceRootDir: directory,
+    }
+    const loader = createWorkspaceDefinitionLoader(root)
+
+    await expect(loadDiscoveredWorkspaceDefinition(loader, definition)).resolves.toMatchObject({
+      rootDir: "public robots|outside context",
+    })
+  })
+
+  it("ignores stale default Jiti transforms when loading raw imports", async () => {
+    const root = await createRoot()
+    const directory = join(root, "server", "agents", "review")
+    const definitionPath = join(directory, "config.ts")
+    const definitionSource = [
+      `import repositoryHostContext from "./repository-host-context.md?raw"`,
+      `export default { rootDir: repositoryHostContext.trim() }`,
+      ``,
+    ].join("\n")
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, "repository-host-context.md"), "# Repository host context\n")
+    await writeFile(definitionPath, definitionSource)
+
+    const defaultLoader = createJiti(new URL("../src/build/assets.ts", import.meta.url).href, { moduleCache: false })
+    defaultLoader.transform({
+      async: true,
+      filename: definitionPath,
+      interopDefault: true,
+      source: definitionSource,
+      ts: true,
+    })
+    await expect(defaultLoader.import(definitionPath)).rejects.toMatchObject({ code: "ERR_UNKNOWN_FILE_EXTENSION" })
+
+    const definition = {
+      handler: definitionPath,
+      name: "review",
+      path: definitionPath,
+      source: "test",
+      sourceRootDir: directory,
+    }
+    const loader = createWorkspaceDefinitionLoader(root)
+    await expect(loadDiscoveredWorkspaceDefinition(loader, definition)).resolves.toMatchObject({
+      rootDir: "# Repository host context",
+    })
   })
 
   it("preserves empty source root overrides while syncing build assets", async () => {
