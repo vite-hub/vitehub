@@ -11,6 +11,9 @@ export default defineAppConfig({
   navigation: {
     sub: "aside",
   },
+  search: {
+    fts: true,
+  },
   ui: {
     colors: {
       primary: "neutral",

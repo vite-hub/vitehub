@@ -211,7 +211,6 @@ body {
   left: 50vw !important;
   width: min(640px, calc(100vw - 1rem)) !important;
   margin: 0 !important;
-  transform: translateX(-50%) !important;
   overflow: hidden;
   box-shadow: none !important;
 }
