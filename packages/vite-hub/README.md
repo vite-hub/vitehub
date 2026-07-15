@@ -20,11 +20,12 @@ export default defineConfig({
 })
 ```
 
-The default preset composes Agent, Blob, Database, DevTools, Env, Workflow, and Workspace. KV, Queue, Sandbox, Schedule, and Auth stay opt-in:
+The default preset composes Agent, Blob, Database, DevTools, Env, Workflow, and Workspace. Email, KV, Queue, Sandbox, Schedule, and Auth stay opt-in:
 
 ```ts
 vitehub({
   auth: true,
+  email: true,
   kv: true,
   queue: true,
   sandbox: true,

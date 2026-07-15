@@ -22,6 +22,9 @@ export {
   fetch,
 } from "./fetch.ts"
 export {
+  email,
+} from "./email.ts"
+export {
   git,
 } from "./git.ts"
 export {
@@ -171,6 +174,10 @@ export type {
   FetchCapabilityToolOptions,
   FetchCapabilityToolRequest,
 } from "./fetch.ts"
+export type {
+  EmailCapabilityOptions,
+  EmailCapabilityToolPolicy,
+} from "./email.ts"
 export type {
   GitCapabilityOptions,
   GitCapabilityToolPolicy,

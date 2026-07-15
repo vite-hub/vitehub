@@ -24,6 +24,7 @@ describe("framework package contract", () => {
 
   it("forwards feature APIs from their owner packages", () => {
     expect(frameworkAgent.defineAgent).toBe(ownerAgent.defineAgent)
+    expect(frameworkCapabilities.email).toBe(ownerCapabilities.email)
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
     expect(frameworkAuthHandler).toBe(ownerAuthHandler)
   })
