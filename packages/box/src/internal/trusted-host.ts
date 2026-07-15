@@ -783,7 +783,6 @@ function processHandle(
 }
 
 function signalProcessTree(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals) {
-  if (child.exitCode !== null || child.signalCode !== null) return;
   if (child.pid && process.platform !== "win32") {
     try {
       process.kill(-child.pid, signal);
@@ -792,6 +791,7 @@ function signalProcessTree(child: ChildProcessWithoutNullStreams, signal: NodeJS
       if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
     }
   }
+  if (child.exitCode !== null || child.signalCode !== null) return;
   child.kill(signal);
 }
 

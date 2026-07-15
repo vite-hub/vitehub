@@ -331,16 +331,20 @@ describe("trustedHost", () => {
     await second.destroy?.();
   });
 
-  it("does not signal completed command process groups during teardown", async () => {
+  it("signals completed command process groups during teardown", async () => {
     if (process.platform === "win32") return;
     const box = await resolveBox({ runtime: trustedHost() }, {});
     const session = await (box.sandbox as HarnessV1SandboxProvider).createSession();
     await session.run({ command: "true" });
 
-    const kill = vi.spyOn(process, "kill");
+    const error = Object.assign(new Error("missing process group"), { code: "ESRCH" });
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => {
+      throw error;
+    });
     try {
       await session.destroy?.();
-      expect(kill).not.toHaveBeenCalled();
+      expect(kill).toHaveBeenCalledWith(expect.any(Number), "SIGTERM");
+      expect(kill.mock.calls[0]?.[0]).toBeLessThan(0);
     } finally {
       kill.mockRestore();
     }
