@@ -43,7 +43,7 @@ catalogs:
     "@nuxt/kit": ^4.4.6
     "@nuxt/schema": ^4.4.6
     "@nuxt/ui": ^4.8.1
-    docus: ^5.11.0
+    docus: ^5.12.3
     nuxt: ^4.4.6
   runtime:
     "@standard-schema/spec": ^1.1.0
