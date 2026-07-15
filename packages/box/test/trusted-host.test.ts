@@ -15,6 +15,20 @@ afterEach(async () => {
 });
 
 describe("trustedHost", () => {
+  it("keeps the default workspace separate from runtime-owned paths", async () => {
+    const box = await resolveBox({ runtime: trustedHost() }, {});
+    const session = (await (box.sandbox as HarnessV1SandboxProvider).createSession()) as
+      Awaited<ReturnType<HarnessV1SandboxProvider["createSession"]>> & { root: string };
+
+    try {
+      expect(session.defaultWorkingDirectory).toBe(join(session.root, "workspace"));
+      await expect(stat(session.defaultWorkingDirectory)).resolves.toMatchObject({});
+      expect(session.defaultWorkingDirectory).not.toBe(session.root);
+    } finally {
+      await session.destroy?.();
+    }
+  });
+
   it("materializes a relative workspace from the process directory", async () => {
     const root = await temporaryRoot();
     const workspace = join(root, "workspace");
