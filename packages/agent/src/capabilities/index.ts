@@ -74,6 +74,13 @@ export {
   transcribe,
 } from "./transcribe.ts"
 export {
+  createTranscription,
+  TranscriptionError,
+} from "./transcription.ts"
+export {
+  elevenLabsScribe,
+} from "./transcription-elevenlabs.ts"
+export {
   workspaceShell,
 } from "./workspace-shell.ts"
 export type {
@@ -292,6 +299,25 @@ export type {
   TranscribeTranscriptArtifactOptions,
   TranscriptionResult,
 } from "./transcribe.ts"
+export type {
+  CreateTranscriptionOptions,
+  TranscriptionClient,
+  TranscriptionCompletion,
+  TranscriptionDriver,
+  TranscriptionDriverCompletion,
+  TranscriptionDriverSubmission,
+  TranscriptionErrorCode,
+  TranscriptionErrorOptions,
+  TranscriptionMetadata,
+  TranscriptionSource,
+  TranscriptionSubmission,
+  TranscriptionSubmitInput,
+  TranscriptionTranscript,
+  TranscriptionWord,
+} from "./transcription.ts"
+export type {
+  ElevenLabsScribeOptions,
+} from "./transcription-elevenlabs.ts"
 export type {
   BlobCapabilityOptions,
 } from "./storage/blob.ts"
