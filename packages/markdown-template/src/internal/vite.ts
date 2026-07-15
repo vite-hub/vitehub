@@ -38,6 +38,8 @@ function stripMarkdownCode(template: string): string {
 export function extractMarkdownTemplateImportSpecifiers(template: string): string[] {
   const visible = stripMarkdownCode(template)
     .replace(/(`+)[\s\S]*?\1/g, "")
+    .replace(/(!?\[[^\]]*\])\([^)]*\)/g, "$1")
+    .replace(/^ {0,3}\[[^\]]+\]:\s*\S+/gm, "")
     .replace(/<[^>]*>/g, "")
   const specifiers = new Set<string>()
   for (const match of visible.matchAll(/@(\.\.?\/[^\s<>{}[\]]+)/g)) {
