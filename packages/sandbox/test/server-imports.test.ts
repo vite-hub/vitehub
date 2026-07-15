@@ -15,4 +15,18 @@ describe("resolveEffectiveViteHubServerImports", () => {
       expect.objectContaining({ name: "schema", from: "@vite-hub/database/drizzle" }),
     ])
   })
+
+  it("emits the current Email Package imports", () => {
+    expect(resolveEffectiveViteHubServerImports({}, "email")).toEqual([
+      expect.objectContaining({ name: "createEmail", from: "@vite-hub/email" }),
+      expect.objectContaining({ name: "defineEmail", from: "@vite-hub/email" }),
+      expect.objectContaining({ name: "email", from: "@vite-hub/email" }),
+      expect.objectContaining({ name: "EmailError", from: "@vite-hub/email" }),
+      expect.objectContaining({ name: "renderEmailMarkdown", from: "@vite-hub/email/markdown" }),
+      expect.objectContaining({ name: "EmailDriver", from: "@vite-hub/email", type: true }),
+      expect.objectContaining({ name: "EmailMessage", from: "@vite-hub/email", type: true }),
+      expect.objectContaining({ name: "EmailSendResult", from: "@vite-hub/email", type: true }),
+      expect.objectContaining({ name: "RenderedEmailMarkdown", from: "@vite-hub/email/markdown", type: true }),
+    ])
+  })
 })

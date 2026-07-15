@@ -57,6 +57,7 @@ Start with the first primitive when you want a runnable path, use Concepts when 
 | --- | --- |
 | Public, server, build-time, runtime, or secret environment values | [Env](/docs/server-primitives/env) |
 | Application users, sessions, Better Auth routing, or guarded app routes | [Auth](/docs/server-primitives/auth) |
+| Outbound transactional messages with provider-neutral delivery | [Email](/docs/server-primitives/email) |
 | Small key-addressed values, settings, flags, cursors, or lightweight state | [KV](/docs/server-primitives/kv) |
 | Relational data, constraints, joins, migrations, or queryable history | [Database](/docs/server-primitives/database) |
 | Uploads, generated artifacts, binary files, or object metadata | [Blob](/docs/server-primitives/blob) |
@@ -87,7 +88,7 @@ That route does not know whether the backing KV Store uses local files, Cloudfla
 
 Some primitives work directly after configuration. Env, KV, Blob, Source, and Shell can often be called from server code without a discovered Definition.
 
-Other primitives need a Definition so ViteHub can discover named work, generate a Runtime Registry, and produce host-specific Provider Output. Database schemas, Workspace Definitions, Queue Definitions, Workflow Definitions, Static Schedule Definitions, Sandbox Definitions, and Agent Definitions use that model.
+Other primitives need a Definition so ViteHub can discover runtime behavior or named work. Email and Auth use singleton Definitions bound at runtime. Database schemas, Workspace Definitions, Queue Definitions, Workflow Definitions, Static Schedule Definitions, Sandbox Definitions, and Agent Definitions can also generate Runtime Registries or host-specific Provider Output.
 
 | Need | Read |
 | --- | --- |

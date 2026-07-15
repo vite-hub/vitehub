@@ -16,6 +16,7 @@
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/devtools": "workspace:*",
+    "@vite-hub/email": "workspace:*",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",

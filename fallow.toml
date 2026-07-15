@@ -24,6 +24,7 @@ dynamicallyLoaded = [
   "packages/database/test/e2e.mjs",
   "packages/env/test/**/*.test-d.ts",
   "packages/auth/test/**/*.test-d.ts",
+  "packages/email/test/**/*.test-d.ts",
   "packages/database/examples/**/server/**",
   "packages/database/examples/**/src/server.ts",
   "packages/database/examples/**/src/**/*.database.ts",
@@ -121,6 +122,7 @@ ignoreDependencies = [
 
 publicPackages = [
   "@vite-hub/agent",
+  "@vite-hub/email",
   "@vite-hub/markdown-template",
   "@vite-hub/sandbox",
   "@vite-hub/schedule",

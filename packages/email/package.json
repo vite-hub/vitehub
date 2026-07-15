@@ -1,8 +1,11 @@
 {
-  "name": "@vite-hub/vite",
+  "name": "@vite-hub/email",
   "version": "0.0.1",
-  "description": "Preset Vite integration for ViteHub primitives.",
+  "description": "Provider-neutral transactional email primitives and Vite integration for ViteHub.",
   "keywords": [
+    "email",
+    "smtp",
+    "transactional-email",
     "vite",
     "vitehub"
   ],
@@ -13,7 +16,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vite-hub/vitehub.git",
-    "directory": "packages/vite"
+    "directory": "packages/email"
   },
   "files": [
     "dist",
@@ -22,32 +25,35 @@
   "type": "module",
   "sideEffects": false,
   "types": "./dist/index.d.ts",
+  "imports": {
+    "#vitehub/email/definition": {
+      "types": "./dist/runtime/empty-definition.d.ts",
+      "default": "./dist/runtime/empty-definition.js"
+    }
+  },
   "exports": {
     ".": "./dist/index.js",
+    "./drivers/smtp": "./dist/drivers/smtp.js",
+    "./markdown": "./dist/markdown.js",
+    "./test": "./dist/test.js",
+    "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/vite#build && vp test"
+    "test": "vp run -t @vite-hub/email#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/agent": "workspace:*",
-    "@vite-hub/blob": "workspace:*",
-    "@vite-hub/database": "workspace:*",
-    "@vite-hub/devtools": "workspace:*",
-    "@vite-hub/email": "workspace:*",
-    "@vite-hub/env": "workspace:*",
-    "@vite-hub/kv": "workspace:*",
-    "@vite-hub/queue": "workspace:*",
-    "@vite-hub/sandbox": "workspace:*",
-    "@vite-hub/schedule": "workspace:*",
-    "@vite-hub/workflow": "workspace:*",
-    "@vite-hub/workspace": "workspace:*"
+    "@types/nodemailer": "catalog:email",
+    "@vite-hub/markdown-template": "workspace:*",
+    "comark": "catalog:ui"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
+    "nodemailer": "catalog:email",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -55,9 +61,13 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "nodemailer": "catalog:email",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "nodemailer": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }
