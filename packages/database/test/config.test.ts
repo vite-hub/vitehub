@@ -144,8 +144,8 @@ describe("resolveDBViteConfig", () => {
     await writeDefinition(rootDir, "server/databases/config.ts")
     const originalAuthToken = process.env.TURSO_AUTH_TOKEN
     const originalUrl = process.env.TURSO_DATABASE_URL
-    process.env.TURSO_AUTH_TOKEN = "token"
-    process.env.TURSO_DATABASE_URL = "libsql://database.example.turso.io"
+    delete process.env.TURSO_AUTH_TOKEN
+    delete process.env.TURSO_DATABASE_URL
 
     const connection = {
       authToken: {

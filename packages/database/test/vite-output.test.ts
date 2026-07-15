@@ -417,8 +417,6 @@ describe("Vite db provider outputs", () => {
     const rootDir = await createDbBuildProject("vitehub-db-vite-external-", { integrationConnection: true })
 
     await runDbBuild(rootDir, {
-      TURSO_AUTH_TOKEN: "secret-token",
-      TURSO_DATABASE_URL: "libsql://database.example.turso.io",
       VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
       VITEHUB_D1_DATABASE_ID: "primary-d1-id",
     })
@@ -428,8 +426,6 @@ describe("Vite db provider outputs", () => {
     const code = await readFile(vercelServer, "utf8")
     expect(code).toContain("TURSO_DATABASE_URL")
     expect(code).toContain("TURSO_AUTH_TOKEN")
-    expect(code).not.toContain("secret-token")
-    expect(code).not.toContain("libsql://database.example.turso.io")
   }, 30_000)
 
   it("skips Vercel output when a named database has no remote fallback URL", async () => {

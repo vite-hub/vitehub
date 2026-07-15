@@ -237,6 +237,10 @@ function getDefaultConnection(name: string) {
   }
 }
 
+function hasConnectionValue(value: DatabaseConfigValue | undefined) {
+  return typeof value === "string" ? Boolean(value.trim()) : typeof value !== "undefined"
+}
+
 function selectConnectionValue(value: DatabaseConfigValue | undefined, fallback: DatabaseConfigValue | undefined) {
   const resolved = resolveConfigValue(value)
   return typeof resolved === "string" && resolved.trim() ? value : fallback
@@ -248,8 +252,7 @@ function resolveDefinitionConnection(file: string, name: string, fallback?: Data
     authToken: selectConnectionValue(definition?.authToken, fallback?.authToken),
     url: selectConnectionValue(definition?.url, fallback?.url),
   }
-  const url = resolveConfigValue(connection.url)
-  return typeof url === "string" && url.trim()
+  return hasConnectionValue(connection.url)
     ? connection
     : getDefaultConnection(name)
 }
