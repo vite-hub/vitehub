@@ -26,6 +26,9 @@ importers:
       '@vite-hub/kv':
         specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@5c8aea5a6da7fc6753723e5280671052312f50d0
         version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@5c8aea5a6da7fc6753723e5280671052312f50d0(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))
+      '@vite-hub/markdown-template':
+        specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/markdown-template@1058dafe806bd27f7ce64dca2c43781643137671
+        version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/markdown-template@1058dafe806bd27f7ce64dca2c43781643137671
       '@vite-hub/schedule':
         specifier: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@5c8aea5a6da7fc6753723e5280671052312f50d0
         version: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@5c8aea5a6da7fc6753723e5280671052312f50d0(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))
@@ -971,6 +974,11 @@ packages:
       vite:
         optional: true
 
+  '@vite-hub/markdown-template@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/markdown-template@1058dafe806bd27f7ce64dca2c43781643137671':
+    resolution: {integrity: sha512-1S/5MFd87VqWdp0tUlsAB58vnDje8rX03vw5RoKdL4jgt4JFsPozi/IqRi8dbImXD9ah1jNo8ePFKPmjxgrppw==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/markdown-template@1058dafe806bd27f7ce64dca2c43781643137671}
+    version: 0.0.1
+    engines: {node: '>=24.0.0'}
+
   '@vite-hub/runtime@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5c8aea5a6da7fc6753723e5280671052312f50d0':
     resolution: {integrity: sha512-gpO5IRCjs/fPAlwEPz+SUXJcp+PIkcORdE1zF1jEKkjPWaZLPUYzp9NomrrcnZT6FWIDHFnb62ygfhWJLOMT2w==, tarball: https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5c8aea5a6da7fc6753723e5280671052312f50d0}
     version: 0.0.1
@@ -1233,6 +1241,20 @@ packages:
       beautiful-mermaid: ^1.1.3
       katex: ^0.16.45
       shiki: ^4.0.0
+    peerDependenciesMeta:
+      beautiful-mermaid:
+        optional: true
+      katex:
+        optional: true
+      shiki:
+        optional: true
+
+  comark@0.5.1:
+    resolution: {integrity: sha512-RRRmUaEc6tokYJhgIGHrl8+pUt3kY1BxMnbRrxMxkCk2RcPcrilq9OmmPWIO7zuUIF7qLLRCCQz+wPuMg7Vz9w==}
+    peerDependencies:
+      beautiful-mermaid: ^1.1.3
+      katex: ^0.17.0
+      shiki: ^4.3.1
     peerDependenciesMeta:
       beautiful-mermaid:
         optional: true
@@ -1824,6 +1846,10 @@ packages:
     resolution: {integrity: sha512-1td788aAnnZ5qs7V2QIRl1owjtYpbKt749Y3xauqQgwIIGF/xXWz1wMTEBx5O3LK3lXLVuqXPdPxj2BoFHaW9Q==}
     hasBin: true
 
+  js-yaml@5.2.1:
+    resolution: {integrity: sha512-zfLtNfQqxVqq3uaTqSkh4x4hZw3KHobGUA0fJUj4wawW8bsQLTVqpHdXSIzidh7o+4lEW36tANuAGdaFx6Zgnw==}
+    hasBin: true
+
   json-schema-ref-resolver@3.0.0:
     resolution: {integrity: sha512-hOrZIVL5jyYFjzk7+y7n5JDzGlU8rfWDuYyHwGa2WA8/pcmMHezp2xsVwxrebD/Q9t8Nc5DboieySDpCp4WG4A==}
 
@@ -1936,6 +1962,9 @@ packages:
 
   markdown-exit@1.0.0-beta.9:
     resolution: {integrity: sha512-5tzrMKMF367amyBly131vm6eGuWRL2DjBqWaFmPzPbLyuxP0XOmyyyroOAIXuBAMF/3kZbbfqOxvW/SotqKqbQ==}
+
+  markdown-exit@1.1.0-beta.2:
+    resolution: {integrity: sha512-8CzMGVlFZ4DEfnc8KU+4ycUW2SIOuiXqCHD7z51ecVEi/weyc0f2ylQbCm4KoKuVlTZSuMUMnWT0hTyquZ7anQ==}
 
   markdown-table@3.0.4:
     resolution: {integrity: sha512-wiYz4+JrLyb/DqW2hkFJxP7Vd7JuTDm77fvbM8VfEQdmSMqcImWeeRbHwZjBjIFki/VaMK2BhFi7oUUZeM5bqw==}
@@ -3707,6 +3736,14 @@ snapshots:
       - ofetch
       - uploadthing
 
+  '@vite-hub/markdown-template@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/markdown-template@1058dafe806bd27f7ce64dca2c43781643137671':
+    dependencies:
+      comark: 0.5.1
+    transitivePeerDependencies:
+      - beautiful-mermaid
+      - katex
+      - shiki
+
   '@vite-hub/runtime@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@5c8aea5a6da7fc6753723e5280671052312f50d0': {}
 
   '@vite-hub/schedule@https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@5c8aea5a6da7fc6753723e5280671052312f50d0(@vercel/functions@3.7.5(ws@8.21.0))(db0@0.3.4(@libsql/client@0.15.15))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)(vite@8.1.4(@types/node@25.9.5)(esbuild@0.27.7)(jiti@2.7.0))':
@@ -4027,6 +4064,13 @@ snapshots:
       htmlparser2: 12.0.0
       js-yaml: 4.3.0
       markdown-exit: 1.0.0-beta.9
+
+  comark@0.5.1:
+    dependencies:
+      entities: 8.0.0
+      htmlparser2: 12.0.0
+      js-yaml: 5.2.1
+      markdown-exit: 1.1.0-beta.2
 
   confbox@0.1.8: {}
 
@@ -4640,6 +4684,10 @@ snapshots:
     dependencies:
       argparse: 2.0.1
 
+  js-yaml@5.2.1:
+    dependencies:
+      argparse: 2.0.1
+
   json-schema-ref-resolver@3.0.0:
     dependencies:
       dequal: 2.0.3
@@ -4735,6 +4783,16 @@ snapshots:
       '@jridgewell/sourcemap-codec': 1.5.5
 
   markdown-exit@1.0.0-beta.9:
+    dependencies:
+      '@types/linkify-it': 5.0.0
+      '@types/mdurl': 2.0.0
+      entities: 7.0.1
+      linkify-it: 5.0.2
+      mdurl: 2.0.0
+      punycode.js: 2.3.1
+      uc.micro: 2.1.0
+
+  markdown-exit@1.1.0-beta.2:
     dependencies:
       '@types/linkify-it': 5.0.0
       '@types/mdurl': 2.0.0

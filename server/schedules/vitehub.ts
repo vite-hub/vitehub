@@ -1,5 +1,6 @@
 import { type AgentRuntimeContext, runAgent } from '@vite-hub/agent'
 import { kv } from '@vite-hub/kv'
+import { renderMarkdownTemplate } from '@vite-hub/markdown-template'
 import { defineSchedule } from '@vite-hub/schedule'
 import babysitter from '../agents/babysitter/agent.ts'
 import instructions from '../agents/babysitter/instructions.md?raw'
@@ -32,23 +33,18 @@ const owners = createAgentOwnerPool<Job>({
       runtime: 'unknown',
       waitUntil() {},
     }
-    const prompt = instructions
-      .replaceAll('{{ context.pullRequestHead }}', job.headRefOid)
-      .replaceAll('{{ context.pullRequestNumber }}', String(job.number))
-      .replaceAll('{{ context.pullRequestRepository }}', job.repository)
-      .replaceAll('{{ context.pullRequestSourceBranch }}', job.headRefName)
-      .replaceAll('{{ context.pullRequestTitle }}', job.title)
-      .replaceAll('{{ context.pullRequestUrl }}', job.url)
+    const context = {
+      pullRequestHead: job.headRefOid,
+      pullRequestNumber: job.number,
+      pullRequestRepository: job.repository,
+      pullRequestSourceBranch: job.headRefName,
+      pullRequestTitle: job.title,
+      pullRequestUrl: job.url,
+    }
+    const prompt = await renderMarkdownTemplate(instructions, { data: { context } })
     await runAgent(babysitter, agentContext, {
       abortSignal: AbortSignal.timeout(60 * 60 * 1000),
-      context: {
-        pullRequestHead: job.headRefOid,
-        pullRequestNumber: job.number,
-        pullRequestRepository: job.repository,
-        pullRequestSourceBranch: job.headRefName,
-        pullRequestTitle: job.title,
-        pullRequestUrl: job.url,
-      },
+      context,
       options: { worktreePath: job.worktreePath },
       prompt,
     })

@@ -19,6 +19,7 @@
     "@vite-hub/box": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/box@5c8aea5a6da7fc6753723e5280671052312f50d0",
     "@vite-hub/env": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/env@5c8aea5a6da7fc6753723e5280671052312f50d0",
     "@vite-hub/kv": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@5c8aea5a6da7fc6753723e5280671052312f50d0",
+    "@vite-hub/markdown-template": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/markdown-template@1058dafe806bd27f7ce64dca2c43781643137671",
     "@vite-hub/schedule": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@5c8aea5a6da7fc6753723e5280671052312f50d0",
     "@vite-hub/workspace": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workspace@5c8aea5a6da7fc6753723e5280671052312f50d0",
     "ai": "7.0.0",
