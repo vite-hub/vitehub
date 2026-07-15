@@ -295,6 +295,7 @@ async function writeVercelQueueFunctions(rootDir: string, queue: QueueModuleOpti
     await bundleEsmEntry(wrapperFile, functionFile, {
       format: "esm",
       platform: "node",
+      rootDir,
     })
     await rm(wrapperFile, { force: true })
     await writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig({

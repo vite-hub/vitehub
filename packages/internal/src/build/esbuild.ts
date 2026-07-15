@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises"
+import { resolve } from "node:path"
 
 import { build as bundle, type Plugin } from "esbuild"
 
@@ -11,6 +12,7 @@ interface BundleEsmEntryOptions {
   minifyIdentifiers?: boolean
   platform?: "browser" | "node" | "neutral"
   plugins?: Plugin[]
+  rootDir?: string
 }
 
 const viteRawNamespace = "vitehub-vite-raw"
@@ -20,14 +22,15 @@ function hasViteRawQuery(path: string): boolean {
   return queryIndex !== -1 && /(?:^|&)raw(?:&|$)/.test(path.slice(queryIndex + 1))
 }
 
-function createViteRawPlugin(): Plugin {
+function createViteRawPlugin(rootDir: string | undefined): Plugin {
   return {
     name: "vitehub-vite-raw",
     setup(build) {
       build.onResolve({ filter: /\?/ }, async (args) => {
         if (!hasViteRawQuery(args.path)) return
         const path = args.path.slice(0, args.path.indexOf("?"))
-        const resolved = await build.resolve(path, {
+        const specifier = rootDir && path.startsWith("/") ? resolve(rootDir, path.slice(1)) : path
+        const resolved = await build.resolve(specifier, {
           importer: args.importer,
           kind: args.kind,
           namespace: args.namespace,
@@ -102,7 +105,7 @@ export async function bundleEsmEntry(
     minifyIdentifiers: options.minifyIdentifiers,
     outfile,
     platform,
-    plugins: [...(options.plugins ?? []), createViteRawPlugin()],
+    plugins: [...(options.plugins ?? []), createViteRawPlugin(options.rootDir)],
     sourcemap: false,
     target: "es2022",
     write: true,

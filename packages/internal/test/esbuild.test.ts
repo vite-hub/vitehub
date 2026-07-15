@@ -39,6 +39,22 @@ describe("bundleEsmEntry", () => {
       .rejects.toThrow('No loader is configured for ".md" files')
   })
 
+  it("resolves root-absolute raw imports from the Vite root", async () => {
+    const rootDir = await createTempDir()
+    const sourceDir = join(rootDir, "src")
+    const entry = join(rootDir, "entry.mjs")
+    const outfile = join(rootDir, "bundle.mjs")
+    await mkdir(sourceDir, { recursive: true })
+    await writeFile(join(sourceDir, "context.md"), "# Root context\n", "utf8")
+    await writeFile(entry, 'import context from "/src/context.md?raw"\nexport default context\n', "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
+
+    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
+    expect(loaded.default).toBe("# Root context\n")
+  })
+
   it("lets caller plugins handle raw queries before the fallback", async () => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "entry.mjs")

@@ -661,6 +661,7 @@ export async function writeVercelScheduleFunctions(options: {
       format: "esm",
       platform: "node",
       plugins: [createScheduleDefinitionAliasPlugin()],
+      rootDir: options.rootDir,
     })
     await rm(wrapperFile, { force: true })
     await writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8")
@@ -819,6 +820,7 @@ async function writeCloudflareScheduleOutput(options: {
       format: "esm",
       platform: "neutral",
       plugins: [createScheduleDefinitionAliasPlugin()],
+      rootDir: options.rootDir,
     }),
     writeFile(configFile, `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8"),
     writeFile(options.stateFile, `${JSON.stringify({ crons: ownedCrons, main }, null, 2)}\n`, "utf8"),
