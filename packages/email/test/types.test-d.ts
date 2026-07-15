@@ -3,7 +3,6 @@ import { expectTypeOf, it } from "vitest"
 import {
   createEmail,
   defineEmail,
-  email,
   type EmailAddress,
   type EmailClient,
   type EmailDefinition,
@@ -12,6 +11,7 @@ import {
   type EmailSendResult,
 } from "../src/index.ts"
 import { renderEmailMarkdown } from "../src/markdown.ts"
+import { email } from "../src/server.ts"
 import { createTestEmail, type TestEmailClient } from "../src/test.ts"
 
 declare const driver: EmailDriver

@@ -22,7 +22,8 @@ They may resolve to Runtime Registries, generated files, virtual modules, or pac
 | `@vite-hub/auth` | Auth Package | Auth Definition helpers. |
 | `@vite-hub/auth/server` | Auth Package | Better Auth runtime creation, request handlers, and session access for manual host integration. |
 | `@vite-hub/blob` | Blob Package | Blob Runtime Helpers and Blob Store access. |
-| `@vite-hub/email` | Email Package | Email Definition, explicit clients, the discovered `email` Runtime Helper, portable types, and normalized errors. |
+| `@vite-hub/email` | Email Package | Email Definition, explicit clients, portable types, and normalized errors. |
+| `@vite-hub/email/server` | Email Runtime | Server-only discovered `email` Runtime Helper. |
 | `@vite-hub/email/drivers/smtp` | Email Package | Optional Node.js SMTP delivery through Nodemailer. |
 | `@vite-hub/email/markdown` | Email Package | Dynamic Markdown composition into HTML and text message bodies. |
 | `@vite-hub/email/test` | Email Package | Isolated in-memory message capture for tests. |

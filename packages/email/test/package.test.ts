@@ -13,6 +13,7 @@ describe("@vite-hub/email package contract", () => {
       "./drivers/smtp",
       "./markdown",
       "./package.json",
+      "./server",
       "./test",
       "./vite",
     ])

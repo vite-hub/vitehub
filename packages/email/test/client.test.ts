@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createEmail, email, EmailError } from "../src/index.ts"
+import { createEmail, EmailError } from "../src/index.ts"
+import { email } from "../src/server.ts"
 
 import type { EmailDriver, EmailMessage } from "../src/index.ts"
 

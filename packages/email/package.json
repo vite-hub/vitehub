@@ -35,6 +35,7 @@
     ".": "./dist/index.js",
     "./drivers/smtp": "./dist/drivers/smtp.js",
     "./markdown": "./dist/markdown.js",
+    "./server": "./dist/server.js",
     "./test": "./dist/test.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"

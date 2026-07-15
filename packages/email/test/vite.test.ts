@@ -83,6 +83,18 @@ describe("hubEmail", () => {
     expect(loadDefinition(plugin)).toContain(JSON.stringify(definition))
   })
 
+  it("discovers an email-only project above an app Vite root", async () => {
+    const root = await createTempProject()
+    const appRoot = join(root, "app")
+    await mkdir(appRoot)
+    const definition = await writeEmail(root)
+    const plugin = hubEmail()
+
+    await resolvePlugin(plugin, appRoot)
+
+    expect(loadDefinition(plugin)).toContain(JSON.stringify(definition))
+  })
+
   it("marks the package as noExternal for server environments", () => {
     const plugin = hubEmail()
     const config = plugin.config as (config: { ssr?: { noExternal?: string[] } }) => unknown

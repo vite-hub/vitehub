@@ -83,6 +83,7 @@ describe("smtp", () => {
       cause,
       code,
       driver: "smtp",
+      message: "[vitehub] SMTP delivery failed.",
     })
   })
 

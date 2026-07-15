@@ -39,7 +39,7 @@ export default defineEmail({
 Server code can now use the discovered Runtime Helper:
 
 ```ts
-import { email } from "@vite-hub/email"
+import { email } from "@vite-hub/email/server"
 
 await email.send({
   from: "hello@example.com",

@@ -11,6 +11,10 @@ const projectRootDirectoryMarkers = [
   ["server", "schedules"],
   ["server", "workspaces"],
 ]
+const projectRootDefinitionFileMarkers = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"].flatMap(extension => [
+  ["server", `email${extension}`],
+  [`server.email${extension}`],
+])
 const projectRootFileMarkers = [
   ["package.json"],
 ]
@@ -53,7 +57,7 @@ export function resolveViteHubProjectRoot(root: string, options: { projectRoot?:
 
   if (basename(resolvedRoot) === "app") {
     const parent = dirname(resolvedRoot)
-    if (hasProjectRootDirectoryMarker(parent)) return parent
+    if (hasProjectRootDirectoryMarker(parent) || hasProjectRootDefinitionFileMarker(parent)) return parent
   }
 
   let current = resolvedRoot
@@ -80,7 +84,20 @@ function hasProjectRootDirectoryMarker(root: string): boolean {
 
 function hasProjectRootMarker(root: string): boolean {
   if (hasProjectRootDirectoryMarker(root)) return true
+  if (hasProjectRootDefinitionFileMarker(root)) return true
   for (const marker of projectRootFileMarkers) {
+    try {
+      if (statSync(resolve(root, ...marker)).isFile()) return true
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+  }
+  return false
+}
+
+function hasProjectRootDefinitionFileMarker(root: string): boolean {
+  for (const marker of projectRootDefinitionFileMarkers) {
     try {
       if (statSync(resolve(root, ...marker)).isFile()) return true
     }

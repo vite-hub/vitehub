@@ -60,7 +60,7 @@ export default defineEmail({
 ### Send a message
 
 ```ts [server/api/welcome.post.ts]
-import { email } from '@vite-hub/email'
+import { email } from '@vite-hub/email/server'
 
 export default defineEventHandler(async () => {
   return await email.send({
@@ -80,7 +80,7 @@ A successful send returns `{ id, driver }`. The ID comes from the delivery provi
 
 | Import | Use |
 | --- | --- |
-| `email`, `createEmail`, `defineEmail`, and `EmailError` from `@vite-hub/email` | Send through the discovered Definition, create an explicit client, declare the singleton Definition, and handle normalized failures. |
+| `createEmail`, `defineEmail`, and `EmailError` from `@vite-hub/email`; `email` from `@vite-hub/email/server` | Create an explicit client, declare the singleton Definition, handle normalized failures, and send through the discovered Definition from server code. |
 | `smtp` from `@vite-hub/email/drivers/smtp` | Send through a Nodemailer SMTP transport on Node.js. |
 | `renderEmailMarkdown` from `@vite-hub/email/markdown` | Compose Dynamic Markdown and return `{ html, text }` message bodies. |
 | `createTestEmail` and `createMemoryEmailDriver` from `@vite-hub/email/test` | Capture messages in an isolated in-memory mailbox. |
@@ -107,7 +107,7 @@ The core validates portable structure but does not parse mailbox syntax. Deliver
 `renderEmailMarkdown()` first calls `renderMarkdownTemplate()`, then parses the composed Markdown with Comark and renders HTML.
 
 ```ts [server/welcome.ts]
-import { email } from '@vite-hub/email'
+import { email } from '@vite-hub/email/server'
 import { renderEmailMarkdown } from '@vite-hub/email/markdown'
 
 export async function sendWelcome(name: string, to: string) {

@@ -19,6 +19,7 @@ export default defineConfig({
       "src/index.ts",
       "src/markdown.ts",
       "src/runtime/empty-definition.ts",
+      "src/server.ts",
       "src/test.ts",
       "src/vite.ts",
     ],

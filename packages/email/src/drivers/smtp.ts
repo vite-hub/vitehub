@@ -72,7 +72,7 @@ export function smtp(transport: string | SMTPTransport.Options): EmailDriver {
       catch (error) {
         if (error instanceof EmailError) throw error
         const smtpError = error as SMTPError
-        throw new EmailError(smtpErrorCode(smtpError), `[vitehub] SMTP delivery failed: ${smtpError.message ?? "Unknown provider error"}`, {
+        throw new EmailError(smtpErrorCode(smtpError), "[vitehub] SMTP delivery failed.", {
           cause: error,
           driver: "smtp",
         })

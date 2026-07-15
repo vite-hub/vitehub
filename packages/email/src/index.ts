@@ -1,7 +1,6 @@
 export { createEmail } from "./client.ts"
 export { defineEmail } from "./definition.ts"
 export { EmailError } from "./errors.ts"
-export { email } from "./runtime/email.ts"
 
 export type {
   EmailAddress,

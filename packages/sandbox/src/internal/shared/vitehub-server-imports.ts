@@ -72,7 +72,7 @@ const featureImports = {
   email: [
     { name: 'createEmail', from: '@vite-hub/email' },
     { name: 'defineEmail', from: '@vite-hub/email' },
-    { name: 'email', from: '@vite-hub/email' },
+    { name: 'email', from: '@vite-hub/email/server' },
     { name: 'EmailError', from: '@vite-hub/email' },
     { name: 'renderEmailMarkdown', from: '@vite-hub/email/markdown' },
     { name: 'EmailDriver', as: 'EmailDriver', from: '@vite-hub/email', type: true },
