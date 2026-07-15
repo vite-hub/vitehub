@@ -507,7 +507,12 @@ async function validateRequirements(
   cwd: string | undefined,
 ) {
   for (const requirement of requirements) {
-    const executable = await findExecutable(requirement.command, env.PATH, env.PATHEXT, cwd);
+    const executable = await findExecutable(
+      requirement.command,
+      env.PATH || env.Path,
+      env.PATHEXT,
+      cwd,
+    );
     if (!executable)
       throw new Error(
         `[vitehub] Box requirement "${requirement.name}" is unavailable: ${requirement.command} is not on PATH.`,

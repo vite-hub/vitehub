@@ -462,6 +462,22 @@ describe("trustedHost", () => {
     await session.destroy?.();
   });
 
+  it("validates requirements with the Windows Path environment key", async () => {
+    const root = await temporaryRoot();
+    const bin = join(root, "bin");
+    await mkdir(bin);
+    await executable(bin, "acme", "exit 0");
+
+    const box = await withEnvironment({ PATH: "", Path: bin }, () =>
+      resolveBox({ requires: ["acme"], runtime: trustedHost() }, {}),
+    );
+    const session = await withEnvironment(
+      { PATH: "", Path: bin },
+      async () => await (box.sandbox as HarnessV1SandboxProvider).createSession(),
+    );
+    await session.destroy?.();
+  });
+
   it("does not validate requirements from the ambient process directory", async () => {
     const box = await resolveBox(
       {
