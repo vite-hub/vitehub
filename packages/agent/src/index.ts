@@ -1861,7 +1861,7 @@ async function finishStreamAgentInvocation<
     finishUsage = usageRecord
     finishResult = await applyFinalOutputRenderers(result, context, outputExtensions)
     finishResult = context.output
-      ? await validateAgentOutput(context.output, await materializeAgentStructuredOutput(finishResult), { allowMaterializedObject: finishResult !== result })
+      ? await validateAgentOutput(context.output, await materializeAgentStructuredOutput(finishResult, context.input.abortSignal), { allowMaterializedObject: finishResult !== result })
       : resultWithUsageRecord(finishResult, usageRecord)
   }
   catch (finishError) {
@@ -2328,12 +2328,13 @@ async function finalizeAgentInvocationResult<
   }
 }
 
-async function materializeAgentStructuredOutput(result: unknown): Promise<unknown> {
+async function materializeAgentStructuredOutput(result: unknown, abortSignal?: AbortSignal): Promise<unknown> {
   if (!isAsyncIterable(result) && !hasTraceableStreamResult(result)) return result
   if (toAgentRunResult(result).text !== undefined) return result
   let text = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
-  for await (const event of streamAgentOutputToEvents(result)) {
+  const events = withCapabilityCleanup(streamAgentOutputToEvents(result), async () => {}, { abortSignal }) as AsyncIterable<StreamEvent>
+  for await (const event of events) {
     if (event.type === "error") throw new Error(event.error)
     if (event.type === "text-delta") text += event.text
     if (event.type === "usage") usageRecord = event.usageRecord
@@ -2403,7 +2404,7 @@ export async function runAgentInline<
         ? renderedResult ? result : await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
         : result
       const final = renderOutput ? await applyFinalOutputRenderers(rendered, runContext, outputExtensions) : rendered
-      const structuredFinal = renderOutput && runContext.output ? await materializeAgentStructuredOutput(final) : final
+      const structuredFinal = renderOutput && runContext.output ? await materializeAgentStructuredOutput(final, runContext.input.abortSignal) : final
       const structuredUsageRecord = renderOutput && runContext.output
         ? await resolveFinishUsageRecord(runContext, structuredFinal) ?? driverUsageRecord
         : driverUsageRecord
@@ -2441,7 +2442,7 @@ export async function runAgentInline<
     const driverUsageRecord = await resolveFinishUsageRecord(adapterContext, result)
     const rendered = renderOutput ? await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions) : result
     const final = renderOutput ? await applyFinalOutputRenderers(rendered, adapterContext, outputExtensions) : rendered
-    const structuredFinal = renderOutput && adapterContext.output ? await materializeAgentStructuredOutput(final) : final
+    const structuredFinal = renderOutput && adapterContext.output ? await materializeAgentStructuredOutput(final, adapterContext.input.abortSignal) : final
     const structuredUsageRecord = renderOutput && adapterContext.output
       ? await resolveFinishUsageRecord(adapterContext, structuredFinal) ?? driverUsageRecord
       : driverUsageRecord

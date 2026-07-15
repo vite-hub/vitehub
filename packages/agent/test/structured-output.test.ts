@@ -149,6 +149,26 @@ describe("Agent structured output", () => {
     })
   })
 
+  it("aborts while materializing structured output streams", async () => {
+    const controller = new AbortController()
+    const pending = new Promise<IteratorResult<never>>(() => {})
+    const stream: AsyncIterable<never> = {
+      [Symbol.asyncIterator]() {
+        return { next: () => pending, return: async () => ({ done: true, value: undefined }) }
+      },
+    }
+    const agent = defineAgent({
+      driver: { run: () => stream },
+      output: { schema: summarySchema() },
+      runtime: false,
+    })
+    const result = runAgentInline(agent, runtime(), { abortSignal: controller.signal })
+
+    controller.abort(new Error("stopped"))
+
+    await expect(result).rejects.toThrow("stopped")
+  })
+
   it("materializes structured stream-result wrappers", async () => {
     const agent = defineAgent({
       driver: {
