@@ -1378,6 +1378,54 @@ describe("agent message protocol", () => {
     expect(session.destroy).toHaveBeenCalledTimes(1)
   })
 
+  it("guides harnesses with optional Standard JSON Schema and validates their final output", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({ text: "{\"title\":\"Weekly sync\"}" })
+    const schema = {
+      "~standard": {
+        jsonSchema: {
+          input: () => ({ properties: { title: { type: "string" } }, required: ["title"], type: "object" }),
+          output: () => ({ type: "number" }),
+        },
+        validate: (value: unknown) => ({ value: value as { title: string } }),
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const agent = defineAgent({
+      driver: { harness: { provider: "codex" } },
+      output: { schema },
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "summarize" })).resolves.toEqual({ title: "Weekly sync" })
+    expect(harnessAgentSettings.at(-1)?.instructions).toContain("Return only one valid JSON value")
+    expect(harnessAgentSettings.at(-1)?.instructions).toContain('"title"')
+  })
+
+  it("rejects malformed JSON from structured harness results", async () => {
+    const { defineAgent, runAgent, AgentOutputValidationError } = await import("../src/index.ts")
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    harnessGenerate.mockResolvedValueOnce({ text: "hello" })
+    const agent = defineAgent({
+      driver: { harness: { provider: "codex" } },
+      output: {
+        schema: {
+          "~standard": {
+            validate: (value: unknown) => ({ value: value as { text: string } }),
+            vendor: "vitehub-test",
+            version: 1,
+          },
+        },
+      },
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).rejects.toBeInstanceOf(AgentOutputValidationError)
+  })
+
   it("requires explicit harness sandboxes on runtimes without local processes", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({ driver: { harness: { provider: "codex" } } })

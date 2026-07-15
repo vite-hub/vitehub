@@ -45,11 +45,35 @@ The driver object accepts exactly one concrete variant: `model`, `harness`, or `
 | `invoker` | `AgentInvokerOptions` | None | Configures Agent Actor profiles and resolution through the current `invoker`-named API. |
 | `messages` | `AgentMessageChannelSettings` | Channel defaults | Applies shared message delivery, concurrency, session, state, and transcript settings across adapter-backed Channels. |
 | `name` | `string` | Discovered identity | Supplies an explicit Definition name for direct metadata and Workspace naming. Discovered host identity still comes from the file or folder path. |
+| `output` | `AgentOutputDefinition` | None | Decodes and validates structured Agent output with a Standard Schema. |
 | `runtime` | `false \| workflow(name?)` | Discovered Workflow | Disables hosted Workflow execution or selects an explicit Workflow binding. Direct calls without discovered Agent identity remain inline. |
+| `runEvents` | `AgentRunEvents` | None | Publishes and reads durable events scoped to the current Agent Invocation run. |
 | `version` | `string` | None | Adds a Definition version to generated and DevTools metadata. |
 | `workspace` | `WorkspaceAgentWorkspaceConfig` | None | References a named Workspace or declares an Agent-owned Workspace and access mode. |
 
 The resolved `AgentDefinition` also exposes runtime-owned `resolve()` and, when applicable, `run()`. Those are outputs of `defineAgent()`, not additional authoring fields.
+
+## Declare structured output
+
+Set `output.schema` when server code needs a typed value instead of provider result plumbing. The schema uses [Standard Schema](https://standardschema.dev/), so the Agent Invocation decodes the final JSON, validates it once, and returns the inferred output value.
+
+```ts [server/agents/summary.ts]
+import { defineAgent } from '@vite-hub/agent'
+import { codexDriver } from '@vite-hub/agent/harness/codex'
+import { object, string } from 'valibot'
+
+const summaryOutput = object({
+  summary: string(),
+  title: string(),
+})
+
+export default defineAgent({
+  driver: codexDriver(),
+  output: { schema: summaryOutput },
+})
+```
+
+Harness Agent Drivers receive a JSON-only output instruction. When the validator also implements Standard JSON Schema, ViteHub includes that JSON Schema as model guidance; Standard Schema validation remains the runtime authority either way. Invalid JSON and schema failures throw `AgentOutputValidationError` with distinct `invalid-json` and `schema-validation` codes.
 
 ## Attach Capabilities
 

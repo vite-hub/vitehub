@@ -1047,12 +1047,17 @@ export interface AgentDefinitionCliOptions {
   capabilities?: boolean
 }
 
+export interface AgentOutputDefinition<TOutput = unknown> {
+  schema: StandardSchemaV1<unknown, TOutput>
+}
+
 type AgentSharedSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
+  TOutput = unknown,
 > = {
   box?: BoxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
   capabilities?: TCapabilities
@@ -1063,6 +1068,7 @@ type AgentSharedSettings<
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
+  output?: AgentOutputDefinition<TOutput>
   runtime?: AgentRuntimeBinding
   runEvents?: AgentRunEvents
   version?: string
@@ -1075,7 +1081,8 @@ export type AgentSettings<
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
-> = AgentSharedSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities> & {
+  TOutput = unknown,
+> = AgentSharedSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities, TOutput> & {
   driver: AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
 }
 
@@ -1084,6 +1091,7 @@ export interface AgentDefinition<
   CALL_OPTIONS = unknown,
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
   TContextValues extends object = AgentInvocationContextValues,
+  TOutput = unknown,
 > {
   box?: BoxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
@@ -1095,6 +1103,7 @@ export interface AgentDefinition<
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
+  output?: AgentOutputDefinition<TOutput>
   runtime?: AgentRuntimeBinding
   runEvents?: AgentRunEvents
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
@@ -1103,8 +1112,8 @@ export interface AgentDefinition<
   workspace?: WorkspaceAgentWorkspaceConfig
 }
 
-export type AgentInput<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
-  AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig, any, any, any>
+export type AgentInput<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext, TOutput = unknown> =
+  AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig, any, any, any, TOutput>
 
 export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
   | { default?: AgentInput<TContext> }
@@ -1584,6 +1593,7 @@ export interface AgentAdapterRunContext<
   invoker: AgentInvoker
   messages: Message[]
   modelExecutionInstrumentation?: AgentModelExecutionInstrumentation[]
+  output?: AgentOutputDefinition
   outputRenderers?: Array<(result: unknown) => MaybePromise<unknown>>
   prompt?: string
   providerTools?: AgentProviderToolContribution[]

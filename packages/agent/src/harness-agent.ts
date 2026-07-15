@@ -17,6 +17,7 @@ import {
 } from "./workspace-agent.ts"
 import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
+import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import {
   colocatedAgentSkillsContextKey,
   type ColocatedAgentSkills,
@@ -426,7 +427,8 @@ async function resolveHarnessDriverInstructions<
   if (resolved !== undefined && typeof resolved !== "string") {
     throw new TypeError("[vitehub] defineAgent({ driver.instructions }) must resolve to a string.")
   }
-  return resolved ? await composeHarnessInstructions(resolved, context) : undefined
+  const configured = resolved ? await composeHarnessInstructions(resolved, context) : undefined
+  return [configured, agentOutputInstructions(context.output)].filter(Boolean).join("\n\n") || undefined
 }
 
 async function resolveHarnessWorkDir<
