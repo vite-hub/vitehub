@@ -1,7 +1,3 @@
-import { extractMarkdownTemplateImportSpecifiers } from "../imports.ts"
-
-export { extractMarkdownTemplateImportSpecifiers } from "../imports.ts"
-
 export const markdownTemplateQuery = "markdown-template"
 export const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
@@ -16,6 +12,20 @@ export function parseMarkdownTemplateRequest(id: string): { path: string } | und
 export interface BundledMarkdownTemplate {
   id: string
   template: string
+}
+
+export function extractMarkdownTemplateImportSpecifiers(template: string): string[] {
+  const visible = template
+    .replace(/^( {0,3})(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\2\s*$/gm, "")
+    .replace(/`+[^`\n]*`+/g, "")
+    .replace(/<[^>]*>/g, "")
+  const specifiers = new Set<string>()
+  for (const match of visible.matchAll(/@(\.\.?\/[^\s<>{}[\]]+)/g)) {
+    const token = match[1]!
+    const trailing = token.match(/[.,;:!?)]*$/)?.[0] || ""
+    specifiers.add(token.slice(0, token.length - trailing.length))
+  }
+  return [...specifiers]
 }
 
 export function renderMarkdownTemplateModule(template: string, sourceId?: string, imports: Record<string, BundledMarkdownTemplate> = {}): string {
@@ -43,7 +53,7 @@ export async function bundleMarkdownTemplateImports(
   const visited = new Set([sourceId])
 
   async function visit(template: string, importer: string): Promise<void> {
-    for (const specifier of await extractMarkdownTemplateImportSpecifiers(template)) {
+    for (const specifier of extractMarkdownTemplateImportSpecifiers(template)) {
       const key = `${importer}\0${specifier}`
       if (imports[key]) continue
       const resolved = await load(specifier, importer)

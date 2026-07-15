@@ -25,29 +25,6 @@ interface ImportState extends ExpandMarkdownTemplateImportsOptions {
   seen: Set<string>
 }
 
-export async function extractMarkdownTemplateImportSpecifiers(template: string): Promise<string[]> {
-  const tree = await parseTemplateMarkdown(template)
-  const specifiers = new Set<string>()
-  collectImportSpecifiers(tree.nodes, specifiers)
-  return [...specifiers]
-}
-
-function collectImportSpecifiers(nodes: ComarkNode[], specifiers: Set<string>): void {
-  for (const node of nodes) {
-    if (typeof node === "string") {
-      for (const match of node.matchAll(/@[^\s<>{}[\]]+/g)) {
-        const token = match[0]
-        if (!token.startsWith("@./") && !token.startsWith("@../")) continue
-        const trailing = token.match(/[.,;:!?)]*$/)?.[0] || ""
-        specifiers.add(token.slice(1, token.length - trailing.length))
-      }
-      continue
-    }
-    if (!isElement(node) || node[0] === "code") continue
-    collectImportSpecifiers(node.slice(2) as ComarkNode[], specifiers)
-  }
-}
-
 export async function expandMarkdownTemplateImports(
   template: string,
   options: ExpandMarkdownTemplateImportsOptions,

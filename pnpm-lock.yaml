@@ -453,9 +453,6 @@ importers:
       '@vite-hub/email':
         specifier: workspace:*
         version: link:../email
-      '@vite-hub/markdown-template':
-        specifier: workspace:*
-        version: link:../markdown-template
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime

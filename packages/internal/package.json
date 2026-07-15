@@ -50,7 +50,6 @@
   },
   "dependencies": {
     "@vercel/nft": "catalog:vercel",
-    "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "esbuild": "catalog:esbuild-v27",
     "exsolve": "catalog:unjs",
