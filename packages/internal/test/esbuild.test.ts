@@ -45,7 +45,7 @@ describe("bundleEsmEntry", () => {
     const template = join(rootDir, "prompt.md")
     const partial = join(rootDir, "context.md")
     const outfile = join(rootDir, "bundle.mjs")
-    await writeFile(template, "@./context.md.\n\n`@./missing.md`\n\n`multiline\n@./missing.md\ncode`\n\n    @./missing.md\n\n{{{ blocker }}}\n", "utf8")
+    await writeFile(template, "@./context.md.\n\n`@./missing.md`\n\n`multiline\n@./missing.md\ncode`\n\n~~~md\n@./missing.md\n~~~~\n\n    @./missing.md\n\n{{{ blocker }}}\n", "utf8")
     await writeFile(partial, "Review PR {{ context.number }}.", "utf8")
     await writeFile(entry, [
       `import prompt from "./prompt.md?markdown-template"`,
@@ -62,7 +62,7 @@ describe("bundleEsmEntry", () => {
     await Promise.all([rm(template), rm(partial)])
 
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
-    await expect(bundled.default()).resolves.toBe("Review PR 42..\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n```\n@./missing.md\n```\n\n> Waiting")
+    await expect(bundled.default()).resolves.toBe("Review PR 42..\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n```md\n@./missing.md\n```\n\n```\n@./missing.md\n```\n\n> Waiting")
   })
 
   it("fails when a bundled Markdown template import is missing", async () => {
