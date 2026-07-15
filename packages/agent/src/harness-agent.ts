@@ -683,6 +683,7 @@ async function prepareHarnessColocatedSkills(
   destination: string,
   target: "." | "skills",
   abortSignal?: AbortSignal,
+  refresh = false,
 ): Promise<boolean> {
   if (!workspace) return false
   const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
@@ -694,9 +695,12 @@ async function prepareHarnessColocatedSkills(
     sessionWorkDir: stagingDirectory,
   })
   try {
+    const refreshCommand = refresh
+      ? `manifest=${target}/.vitehub-colocated && if [ -f "$manifest" ]; then while IFS= read -r managed || [ -n "$managed" ]; do case "$managed" in ''|*/*|.. ) exit 1 ;; esac; rm -rf -- ${target}/"$managed"; done < "$manifest"; fi && : > "$manifest" && find .vitehub-agent-skills/skills -mindepth 1 -maxdepth 1 -type d -exec basename {} \\; >> "$manifest" && `
+      : ""
     const result = await (session as HarnessGlobalSkillsSandbox).run({
       abortSignal,
-      command: `find .vitehub-agent-skills/skills -type f -path "*/scripts/*" -exec chmod +x {} + && mkdir -p ${target} && cp -Rn .vitehub-agent-skills/skills/. ${target} && rm -rf .vitehub-agent-skills`,
+      command: `find .vitehub-agent-skills/skills -type f -path "*/scripts/*" -exec chmod +x {} + && mkdir -p ${target} && ${refreshCommand}cp -Rn .vitehub-agent-skills/skills/. ${target} && rm -rf .vitehub-agent-skills`,
       workingDirectory: destination,
     })
     if (result.exitCode !== 0) throw new Error(result.stderr || "sandbox command failed")
@@ -1077,7 +1081,14 @@ export function createHarnessAgentAdapter<
         )
         const installedWorkspaceSkills = await prepareHarnessColocatedSkills(colocatedSkillsWorkspace, session, sessionWorkDir, "skills", abortSignal)
         if (isHarnessRelativeDirectory(globalSkillsDirectory)) {
-          await prepareHarnessColocatedSkills(colocatedSkillsWorkspace, session, operationalGlobalSkillsDirectory as string, ".", abortSignal)
+          await prepareHarnessColocatedSkills(
+            colocatedSkillsWorkspace,
+            session,
+            operationalGlobalSkillsDirectory as string,
+            ".",
+            abortSignal,
+            true,
+          )
         }
         if (installedWorkspaceSkills) await workspaceSession?.refreshGitBaseline?.()
         if (typeof sessionPrepare === "function") {
