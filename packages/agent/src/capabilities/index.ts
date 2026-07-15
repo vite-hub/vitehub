@@ -37,9 +37,6 @@ export {
   rateLimit,
 } from "./rate-limit.ts"
 export {
-  observability,
-} from "./observability.ts"
-export {
   openapi,
 } from "./openapi.ts"
 export {
@@ -73,12 +70,6 @@ export {
   getTranscriptionResults,
   transcribe,
 } from "./transcribe.ts"
-export {
-  usageTelemetry,
-} from "./usage-telemetry.ts"
-export type {
-  UsageTelemetryRecord,
-} from "./usage-telemetry.ts"
 export {
   workspaceShell,
 } from "./workspace-shell.ts"
@@ -215,17 +206,6 @@ export type {
   RateLimitStoreResult,
   RateLimitWindow,
 } from "./rate-limit.ts"
-export type {
-  AgentObservabilityErrorEvent,
-  AgentObservabilityEvent,
-  AgentObservabilityEventBase,
-  AgentObservabilityEventHandler,
-  AgentObservabilityFinishEvent,
-  AgentObservabilityFinishExtension,
-  AgentObservabilityOptions,
-  AgentObservabilityStartEvent,
-  AgentObservabilityStatus,
-} from "./observability.ts"
 export type {
   OpenAPICapabilityOptions,
   OpenAPICliOptions,

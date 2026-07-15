@@ -14,18 +14,16 @@ const runtime = () => ({
 describe("usage context", () => {
   it("exposes normalized usage on finish and delivery context", async () => {
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
-    const { usageTelemetry } = await import("../src/capabilities.ts")
     const deliveryUsage = vi.fn()
     const finish = vi.fn()
 
     const agent = defineAgent({
       capabilities: [
-        usageTelemetry(),
         defineCapability({
           id: "usage-context-check",
           output(context) {
             context.delivery.finishEffect((context) => {
-              deliveryUsage(context.extensions.get("usage-telemetry"), context.event.extensions.get("usage-telemetry"))
+              deliveryUsage(context.invocation.usage, context.event.invocation.usage)
               return false
             })
           },
@@ -53,29 +51,33 @@ describe("usage context", () => {
 
     expect(result).toMatchObject({ text: "ok" })
     expect(finish).toHaveBeenCalledTimes(1)
-    const usage = finish.mock.calls[0]![0].extensions.get("usage-telemetry")
+    const usage = finish.mock.calls[0]![0].invocation.usage
     expect(usage).toMatchObject({
-      inputTokens: 10,
-      messageId: "message-1",
-      modelId: "openai/gpt-test",
-      outputTokens: 5,
-      responseFinishReason: "stop",
-      responseId: "response-1",
-      responseTimestamp: "2026-05-21T00:00:00.000Z",
-      runId: "run-1",
-      threadId: "thread-1",
-      totalTokens: 15,
+      model: { id: "openai/gpt-test" },
+      response: {
+        finishReason: "stop",
+        id: "response-1",
+        timestamp: "2026-05-21T00:00:00.000Z",
+      },
+      run: {
+        messageId: "message-1",
+        runId: "run-1",
+        threadId: "thread-1",
+      },
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+      },
     })
     expect(deliveryUsage).toHaveBeenCalledWith(usage, usage)
   })
 
   it("exposes streamed usage on finish context", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
-    const { usageTelemetry } = await import("../src/capabilities.ts")
     const finish = vi.fn()
 
     const agent = defineAgent({
-      capabilities: [usageTelemetry()],
       hooks: {
         "agent:finish": finish,
       },
@@ -98,22 +100,22 @@ describe("usage context", () => {
       { reason: "stop", type: "finish" },
     ])
     expect(finish).toHaveBeenCalledTimes(1)
-    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
-      messageId: "message-1",
-      runId: "run-1",
-      threadId: "thread-1",
-      totalTokens: 3,
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      run: {
+        messageId: "message-1",
+        runId: "run-1",
+        threadId: "thread-1",
+      },
+      usage: { totalTokens: 3 },
     })
   })
 
   it("preserves driver usage when output rendering replaces the result", async () => {
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
-    const { usageTelemetry } = await import("../src/capabilities.ts")
     const finish = vi.fn()
 
     const agent = defineAgent({
       capabilities: [
-        usageTelemetry(),
         defineCapability({
           id: "replace-output",
           output(context) {
@@ -136,21 +138,21 @@ describe("usage context", () => {
     await expect(runAgent(agent, runtime(), {})).resolves.toBe("rendered")
 
     expect(finish).toHaveBeenCalledTimes(1)
-    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
-      inputTokens: 7,
-      outputTokens: 2,
-      totalTokens: 9,
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      usage: {
+        inputTokens: 7,
+        outputTokens: 2,
+        totalTokens: 9,
+      },
     })
   })
 
   it("preserves async event usage before UI message stream conversion", async () => {
     const { readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
-    const { usageTelemetry } = await import("../src/capabilities.ts")
     const finish = vi.fn()
 
     const agent = defineAgent({
-      capabilities: [usageTelemetry()],
       hooks: {
         "agent:finish": finish,
       },
@@ -165,18 +167,16 @@ describe("usage context", () => {
     for await (const _message of readUIMessageStream({ stream })) {}
 
     expect(finish).toHaveBeenCalledTimes(1)
-    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
-      totalTokens: 4,
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      usage: { totalTokens: 4 },
     })
   })
 
-  it("exposes non-token usage details in telemetry", async () => {
+  it("exposes non-token usage details in the invocation record", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const { usageTelemetry } = await import("../src/capabilities.ts")
     const finish = vi.fn()
 
     const agent = defineAgent({
-      capabilities: [usageTelemetry()],
       hooks: {
         "agent:finish": finish,
       },
@@ -192,10 +192,12 @@ describe("usage context", () => {
     await runAgent(agent, runtime(), {})
 
     expect(finish).toHaveBeenCalledTimes(1)
-    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
-      details: {
-        actions: 3,
-        sessions: 1,
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      usage: {
+        details: {
+          actions: 3,
+          sessions: 1,
+        },
       },
     })
   })

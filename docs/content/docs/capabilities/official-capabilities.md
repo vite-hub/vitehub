@@ -27,7 +27,6 @@ import {
   llmRoute,
   mcp,
   memory,
-  observability,
   openapi,
   rateLimit,
   repositoryHost,
@@ -37,7 +36,6 @@ import {
   skills,
   subagents,
   transcribe,
-  usageTelemetry,
   webSearch,
   workspaceShell,
 } from '@vite-hub/agent/capabilities'
@@ -73,8 +71,6 @@ import {
 | Rate limit | [`rateLimit()`](/docs/capabilities/rate-limit) | A trusted invocation budget should be checked or consumed before the Agent runs. |
 | Chat title | [`chatTitle()`](/docs/capabilities/chat-title) | Chat streams and finish extensions should include a generated conversation title. |
 | Chat summary | [`chatSummary()`](/docs/capabilities/chat-summary) | A summary command should replace explicit input with a conversation summary. |
-| Observability (deprecated) | [`observability()`](/docs/capabilities/observability) | Existing code still needs the legacy lifecycle callback or finish extension while migrating to built-in invocation traces. |
-| Usage telemetry (deprecated) | [`usageTelemetry()`](/docs/capabilities/usage-telemetry) | Existing code still needs the legacy flat primitive usage extension while migrating to `invocation.usage`. |
 
 ## Read capability pages first
 

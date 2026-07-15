@@ -72,7 +72,7 @@ Every Agent Invocation receives a trace context and a metadata-only in-memory Tr
 
 That preservation applies to inline Agent Invocations. A workflow-backed invocation crosses a durable serialization boundary, so process-local Trace Event Logs and `onEntry` sinks are not carried into the Workflow Run. The workflow execution creates its own invocation trace instead.
 
-Agent Finish Hooks receive core completion facts without an observability Capability:
+Agent Finish Hooks receive core completion facts by default:
 
 ```ts [server/agents/support.ts]
 export default defineAgent({
@@ -147,25 +147,20 @@ export default defineAgent({
 
 ## Finish lifecycle
 
-Use an Agent Finish Hook to observe the completed invocation. Finish hooks are appropriate for usage export, trace collection, cleanup, or product-side notifications.
-Enable `usageTelemetry()` when the Agent needs primitive usage JSON at finish time. Treat the extension value as data, then store it directly or pass it to application-owned formatting code.
+Use an Agent Finish Hook to observe the completed invocation. Finish hooks are appropriate for usage export, trace collection, cleanup, or product-side notifications. Read normalized usage directly from `event.invocation.usage`.
 
 ```ts [server/agents/support.ts]
 import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
-import { usageTelemetry } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: {
     model: gateway('openai/gpt-5.1-mini'),
     instructions: 'Answer support requests.',
   },
-  capabilities: [
-    usageTelemetry(),
-  ],
   hooks: {
     'agent:finish'(event) {
-      const usage = event.extensions.get('usage-telemetry')
+      const usage = event.invocation.usage
       if (!usage) return
       event.runtime.waitUntil(recordUsage(usage))
     },
