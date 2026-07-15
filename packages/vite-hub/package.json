@@ -105,6 +105,7 @@
     "@vite-hub/email": "workspace:*",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/kv": "workspace:*",
+    "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/queue": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",

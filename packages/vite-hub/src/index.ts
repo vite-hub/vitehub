@@ -10,6 +10,7 @@ import { hubDevtools } from "@vite-hub/devtools"
 import { hubEmail } from "@vite-hub/email/vite"
 import { hubEnv } from "@vite-hub/env/vite"
 import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig } from "@vite-hub/kv/vite"
+import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
 import { hubQueue } from "@vite-hub/queue/vite"
 import { hubSandbox } from "@vite-hub/sandbox/vite"
 import { hubSchedule } from "@vite-hub/schedule/vite"
@@ -41,6 +42,7 @@ const frameworkDependencyNames = [
   "@vite-hub/email",
   "@vite-hub/env",
   "@vite-hub/kv",
+  "@vite-hub/markdown-template",
   "@vite-hub/queue",
   "@vite-hub/runtime",
   "@vite-hub/sandbox",
@@ -159,6 +161,7 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
   const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(Boolean(options.sandbox))
 
   plugins.push(frameworkDependencyResolver(options, providerImportAliases))
+  plugins.push(hubMarkdownTemplate())
 
   if (options.env !== false) {
     const envOptions = options.env ?? {}

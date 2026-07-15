@@ -39,6 +39,26 @@ describe("bundleEsmEntry", () => {
       .rejects.toThrow('No loader is configured for ".md" files')
   })
 
+  it("bundles caller-relative Markdown prompt templates without runtime source files", async () => {
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "babysitter.schedule.mjs")
+    const template = join(rootDir, "prompt.md")
+    const outfile = join(rootDir, "bundle.mjs")
+    await writeFile(template, "Review PR {{ context.number }}.\n\n{{{ blocker }}}\n", "utf8")
+    await writeFile(entry, [
+      `import prompt from "./prompt.md?markdown-template"`,
+      `export default () => prompt({ blocker: "> Waiting", context: { number: 42 } })`,
+      ``,
+    ].join("\n"), "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
+    await rm(template)
+
+    const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
+    await expect(bundled.default()).resolves.toBe("Review PR 42.\n\n> Waiting")
+  })
+
   it("resolves root-absolute raw imports from the Vite root", async () => {
     const rootDir = await createTempDir()
     const sourceDir = join(rootDir, "src")

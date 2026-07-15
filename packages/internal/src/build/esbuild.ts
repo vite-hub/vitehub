@@ -1,6 +1,8 @@
 import { readFile, stat } from "node:fs/promises"
 import { resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
+import { parseMarkdownTemplateRequest, renderMarkdownTemplateModule } from "@vite-hub/markdown-template/internal/vite"
 import { build as bundle, type Plugin } from "esbuild"
 
 interface BundleEsmEntryOptions {
@@ -16,6 +18,8 @@ interface BundleEsmEntryOptions {
 }
 
 const viteRawNamespace = "vitehub-vite-raw"
+const viteMarkdownTemplateNamespace = "vitehub-markdown-template"
+const markdownTemplateRuntime = fileURLToPath(import.meta.resolve("@vite-hub/markdown-template"))
 
 function hasViteRawQuery(path: string): boolean {
   const queryIndex = path.indexOf("?")
@@ -43,8 +47,10 @@ function createViteRawPlugin(rootDir: string | undefined): Plugin {
     name: "vitehub-vite-raw",
     setup(build) {
       build.onResolve({ filter: /\?/ }, async (args) => {
-        if (!hasViteRawQuery(args.path)) return
-        const path = args.path.slice(0, args.path.indexOf("?"))
+        const markdownTemplate = parseMarkdownTemplateRequest(args.path)
+        const raw = hasViteRawQuery(args.path)
+        if (!markdownTemplate && !raw) return
+        const path = markdownTemplate?.path ?? args.path.slice(0, args.path.indexOf("?"))
         const specifier = await resolveViteRawSpecifier(path, rootDir)
         const resolved = await build.resolve(specifier, {
           importer: args.importer,
@@ -68,12 +74,14 @@ function createViteRawPlugin(rootDir: string | undefined): Plugin {
         }
         if (resolved.namespace !== "file") {
           return {
-            errors: [{ text: `[vitehub] Vite raw fallback cannot load ${JSON.stringify(args.path)} from the ${JSON.stringify(resolved.namespace)} namespace. Handle this raw import in a caller plugin.` }],
+            errors: [{ text: markdownTemplate
+              ? `[vitehub] Markdown template fallback cannot load ${JSON.stringify(args.path)} from the ${JSON.stringify(resolved.namespace)} namespace. Handle this template import in a caller plugin.`
+              : `[vitehub] Vite raw fallback cannot load ${JSON.stringify(args.path)} from the ${JSON.stringify(resolved.namespace)} namespace. Handle this raw import in a caller plugin.` }],
             warnings: resolved.warnings,
           }
         }
         return {
-          namespace: viteRawNamespace,
+          namespace: markdownTemplate ? viteMarkdownTemplateNamespace : viteRawNamespace,
           path: resolved.path,
           pluginData: resolved.pluginData,
           sideEffects: resolved.sideEffects,
@@ -84,6 +92,13 @@ function createViteRawPlugin(rootDir: string | undefined): Plugin {
       build.onLoad({ filter: /.*/, namespace: viteRawNamespace }, async args => ({
         contents: await readFile(args.path),
         loader: "text",
+      }))
+      build.onResolve({ filter: /.*/, namespace: viteMarkdownTemplateNamespace }, (args) => {
+        if (args.path === markdownTemplateRuntime) return { namespace: "file", path: args.path }
+      })
+      build.onLoad({ filter: /.*/, namespace: viteMarkdownTemplateNamespace }, async args => ({
+        contents: renderMarkdownTemplateModule(await readFile(args.path, "utf8"), markdownTemplateRuntime),
+        loader: "js",
       }))
     },
   }

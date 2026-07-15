@@ -26,6 +26,8 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./internal/vite": "./dist/internal/vite.js",
+    "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -38,10 +40,20 @@
     "comark": "catalog:ui"
   },
   "devDependencies": {
+    "@types/node": "catalog:tooling",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
+  },
+  "peerDependencies": {
+    "vite": "catalog:vite-compat"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=24.0.0"
