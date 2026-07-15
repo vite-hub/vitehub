@@ -586,7 +586,10 @@ async function createHarnessAgent<
   const adaptSandbox = (harness as Record<PropertyKey, unknown>)[harnessSandboxAdapter]
   let sandbox = baseSandbox
   if (typeof adaptSandbox === "function") {
-    sandbox = (adaptSandbox as (provider: object, options: { defaultSandbox: boolean }) => object)(baseSandbox, { defaultSandbox })
+    sandbox = (adaptSandbox as (provider: object, options: { box: boolean, defaultSandbox: boolean }) => object)(baseSandbox, {
+      box: Boolean(context.box),
+      defaultSandbox,
+    })
   }
   else if (defaultSandbox && (harness as { harnessId?: unknown }).harnessId === "codex") {
     const { adaptCodexHarnessSandbox } = await import("./internal/codex-sandbox.ts")
@@ -721,7 +724,7 @@ async function prepareHarnessGlobalSkills(
   const quotedManagedManifest = `'${managedManifest.replace(/'/g, "'\\''")}'`
   const ensure = await (session as HarnessGlobalSkillsSandbox).run({
     abortSignal,
-    command: `mkdir -p -- ${quotedDirectory} && if [ -f ${quotedManagedManifest} ]; then while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d) || exit 1; case "$managed" in ''|/*|..|../*|*/..|*/../*) printf '%s\\n' 'Invalid ViteHub-managed Skill path.' >&2; exit 1 ;; esac; rm -rf -- ${quotedDirectory}/$managed; done < ${quotedManagedManifest}; fi && rm -f -- ${quotedManagedManifest}`,
+    command: `mkdir -p -- ${quotedDirectory} && if [ -f ${quotedManagedManifest} ]; then while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d) || exit 1; case "$managed" in ''|/*|..|../*|*/..|*/../*) printf '%s\\n' 'Invalid ViteHub-managed Skill path.' >&2; exit 1 ;; esac; rm -rf -- ${quotedDirectory}/"$managed"; done < ${quotedManagedManifest}; fi && rm -f -- ${quotedManagedManifest}`,
   })
   if (ensure.exitCode !== 0) {
     throw new Error(`[vitehub] Failed to prepare global Skill directory: ${ensure.stderr || "sandbox command failed"}`)

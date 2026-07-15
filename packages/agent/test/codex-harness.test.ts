@@ -254,9 +254,15 @@ describe("codexDriver", () => {
     }))
     expect(run.mock.calls[0][0].command).not.toContain("auth.json")
     await session.run({ command: "codex exec" })
-    expect(run).toHaveBeenLastCalledWith({ command: "codex exec" })
+    expect(run).toHaveBeenLastCalledWith({
+      command: "codex exec",
+      env: { CODEX_HOME: "/sandbox/run-1/tmp/harness/codex-home" },
+    })
     await session.restricted().run({ command: "codex exec" })
-    expect(restrictedRun).toHaveBeenCalledWith({ command: "codex exec" })
+    expect(restrictedRun).toHaveBeenCalledWith({
+      command: "codex exec",
+      env: { CODEX_HOME: "/sandbox/run-1/tmp/harness/codex-home" },
+    })
   })
 
   it("forwards invocation-scoped harness configuration without treating it as Codex settings", async () => {
