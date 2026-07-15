@@ -101,6 +101,7 @@ ignoreDependencies = [
   "docus",
   "@cloudflare/sandbox",
   "@vercel/blob",
+  "@vercel/functions",
   "@vercel/nft",
   "@vercel/queue",
   "@vercel/sandbox",
