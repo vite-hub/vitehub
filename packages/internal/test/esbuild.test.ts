@@ -43,8 +43,10 @@ describe("bundleEsmEntry", () => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "babysitter.schedule.mjs")
     const template = join(rootDir, "prompt.md")
+    const partial = join(rootDir, "context.md")
     const outfile = join(rootDir, "bundle.mjs")
-    await writeFile(template, "Review PR {{ context.number }}.\n\n{{{ blocker }}}\n", "utf8")
+    await writeFile(template, "@./context.md.\n\n`@./missing.md`\n\n{{{ blocker }}}\n", "utf8")
+    await writeFile(partial, "Review PR {{ context.number }}.", "utf8")
     await writeFile(entry, [
       `import prompt from "./prompt.md?markdown-template"`,
       `export default () => prompt({ blocker: "> Waiting", context: { number: 42 } })`,
@@ -58,10 +60,10 @@ describe("bundleEsmEntry", () => {
       platform: "node",
       rootDir,
     })
-    await rm(template)
+    await Promise.all([rm(template), rm(partial)])
 
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
-    await expect(bundled.default()).resolves.toBe("Review PR 42.\n\n> Waiting")
+    await expect(bundled.default()).resolves.toBe("Review PR 42..\n\n`@./missing.md`\n\n> Waiting")
   })
 
   it("resolves root-absolute raw imports from the Vite root", async () => {

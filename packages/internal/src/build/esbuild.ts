@@ -2,7 +2,6 @@ import { readFile, stat } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { build as bundle, type Plugin } from "esbuild"
-import { extractMarkdownTemplateImportSpecifiers } from "@vite-hub/markdown-template/internal/vite"
 
 interface BundleEsmEntryOptions {
   alias?: Record<string, string>
@@ -20,6 +19,20 @@ const viteRawNamespace = "vitehub-vite-raw"
 const viteMarkdownTemplateNamespace = "vitehub-markdown-template"
 const markdownTemplateQuery = "markdown-template"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
+
+function extractMarkdownTemplateImportSpecifiers(template: string): string[] {
+  const visible = template
+    .replace(/^( {0,3})(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\2\s*$/gm, "")
+    .replace(/`+[^`\n]*`+/g, "")
+    .replace(/<[^>]*>/g, "")
+  const specifiers = new Set<string>()
+  for (const match of visible.matchAll(/@(\.\.?\/[^\s<>{}[\]]+)/g)) {
+    const token = match[1]!
+    const trailing = token.match(/[.,;:!?)]*$/)?.[0] || ""
+    specifiers.add(token.slice(0, token.length - trailing.length))
+  }
+  return [...specifiers]
+}
 
 function parseMarkdownTemplateRequest(id: string): { path: string } | undefined {
   const queryIndex = id.indexOf("?")
