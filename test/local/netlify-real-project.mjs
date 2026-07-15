@@ -179,8 +179,8 @@ async function createProject({ packageSource, preview }) {
   await writeFixtureFiles(overrides)
 
   const packageSpecs = packageSource === "local"
-    ? [overrides["@vite-hub/agent"], overrides["@vite-hub/vite"]]
-    : [previewSpec("@vite-hub/agent", preview), previewSpec("@vite-hub/vite", preview)]
+    ? [overrides["@vite-hub/agent"], overrides["@vite-hub/vite"], overrides["vite-hub"]]
+    : [previewSpec("@vite-hub/agent", preview), previewSpec("@vite-hub/vite", preview), previewSpec("vite-hub", preview)]
 
   run("pnpm", [
     "add",
