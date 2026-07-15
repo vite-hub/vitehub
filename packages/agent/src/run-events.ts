@@ -1,6 +1,7 @@
 import type { MaybePromise, ResolvedAgentRuntimeContext } from "./types.ts"
 
 const bindAgentRunEventsSymbol = Symbol("vitehub.bindAgentRunEvents")
+const agentRunEventsBrand: unique symbol = Symbol("vitehub.agentRunEvents")
 
 export interface AgentRunEvent<TData = unknown> {
   cursor: string
@@ -49,6 +50,7 @@ export interface AgentRunEventPublisher {
 }
 
 export interface AgentRunEvents {
+  readonly [agentRunEventsBrand]: true
   publish<TData = unknown>(runId: string, event: AgentRunEventInput<TData>): Promise<AgentRunEvent<TData>>
   read(runId: string, cursor?: string): Promise<readonly AgentRunEvent[]>
   subscribe(runId: string, cursor?: string, options?: { signal?: AbortSignal }): AsyncIterable<AgentRunEvent>
@@ -91,6 +93,7 @@ export function defineAgentRunEvents(options: AgentRunEventsOptions): AgentRunEv
   }
 
   const events: BoundAgentRunEvents = {
+    [agentRunEventsBrand]: true,
     [bindAgentRunEventsSymbol](runtime) {
       const runId = runtime.run?.runId
       if (!runId) return

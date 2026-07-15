@@ -70,6 +70,17 @@ describe("agent public types", () => {
       },
       runEvents,
     })
+
+    const handWritten = {
+      publish: runEvents.publish,
+      read: runEvents.read,
+      subscribe: runEvents.subscribe,
+    }
+    defineAgent({
+      driver: { run: () => "ok" },
+      // @ts-expect-error Agent Run Events must be created by defineAgentRunEvents().
+      runEvents: handWritten,
+    })
   })
 
   it("accepts literal false as the inline runtime opt-out", () => {
