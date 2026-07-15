@@ -1858,7 +1858,7 @@ async function finishStreamAgentInvocation<
   let finishUsage: AgentUsageRecord | undefined
   try {
     const usageRecord = await resolveFinishUsageRecord(context, result)
-    finishUsage = usageRecord ? await resolveAgentUsageRecord({ usageRecord }, context.run) : undefined
+    finishUsage = usageRecord
     finishResult = await applyFinalOutputRenderers(result, context, outputExtensions)
     finishResult = context.output
       ? await validateAgentOutput(context.output, await materializeAgentStructuredOutput(finishResult), { allowMaterializedObject: finishResult !== result })
@@ -2302,7 +2302,7 @@ async function finalizeAgentInvocationResult<
       const stream = options.wrapStream?.(result) || result
       if (shouldWrapOutput) {
         const streamed = withStreamedResult(stream, result)
-        if (!context.finalOutputRenderers.length && !context.output) {
+        if (!context.finalOutputRenderers.length && (!context.output || !options.finalizeRawStreams)) {
           return withCapabilityCleanup(streamed.stream, async (outcome) => {
             const finishOutcome = finishOutcomeFromCleanup(outcome, result)
             const usage = streamed.finishUsage()
@@ -2555,7 +2555,11 @@ export async function streamAgentInline<
         const value = runContext.output
           ? await validateAgentOutput(runContext.output, final, { allowMaterializedObject: true })
           : final
-        return { finishResult: value, value }
+        return {
+          finishResult: value,
+          finishUsage: driverUsageRecord,
+          value,
+        }
       }
       const stream = isStreamResult
         ? streamAgentOutputToEvents(rendered)
@@ -2575,7 +2579,7 @@ export async function streamAgentInline<
           : rendered,
       }
     }, "[vitehub] Agent run failed and finish lifecycle also failed.", {
-      finalizeRawStreams: output === "ui-message-stream" || Boolean(runContext.finalOutputRenderers.length),
+      finalizeRawStreams: output === "ui-message-stream" || Boolean(runContext.finalOutputRenderers.length) || Boolean(runContext.output),
       outputExtensions,
       wrapStream: stream => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, runContext),
     })

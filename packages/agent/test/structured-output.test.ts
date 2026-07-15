@@ -149,6 +149,43 @@ describe("Agent structured output", () => {
     })
   })
 
+  it("preserves raw custom driver streams", async () => {
+    const agent = defineAgent({
+      driver: {
+        run: async function* () {
+          yield { text: "not json", type: "text-delta" as const }
+        },
+      },
+      output: { schema: summarySchema() },
+      runtime: false,
+    })
+
+    const result = await runAgentInline(agent, runtime(), {}, { output: "raw" })
+    await expect(Array.fromAsync(result as AsyncIterable<unknown>)).resolves.toEqual([
+      { text: "not json", type: "text-delta" },
+    ])
+  })
+
+  it("preserves usage for non-stream structured stream results", async () => {
+    const finish = vi.fn()
+    const agent = defineAgent({
+      driver: {
+        run: () => ({
+          text: "{\"summary\":\"Decisions\",\"title\":\"Weekly sync\"}",
+          usageRecord: { usage: { totalTokens: 3 } },
+        }),
+      },
+      hooks: { "agent:finish": finish },
+      output: { schema: summarySchema() },
+      runtime: false,
+    })
+
+    await streamAgentInline(agent, runtime(), {})
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      invocation: expect.objectContaining({ usage: { usage: { totalTokens: 3 } } }),
+    }))
+  })
+
   it("validates structured streams before running the finish lifecycle", async () => {
     const finish = vi.fn()
     const agent = defineAgent({
@@ -168,7 +205,7 @@ describe("Agent structured output", () => {
     expect(typeof (result as AsyncIterable<unknown>)[Symbol.asyncIterator]).toBe("function")
     for await (const _event of result as AsyncIterable<unknown>) {}
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
-      invocation: expect.objectContaining({ usage: { totalTokens: 3 } }),
+      invocation: expect.objectContaining({ usage: { usage: { totalTokens: 3 } } }),
       result: { summary: "Decisions", title: "Weekly sync" },
     }))
   })
