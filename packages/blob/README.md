@@ -70,6 +70,32 @@ export default defineConfig({
 
 Blob stores binary objects and small object metadata. Keep catalogs, indexes, permissions, search records, domain records, and richer metadata queries in KV, Database, or another NoSQL/catalog store next to Blob.
 
+## Signed requests
+
+Use `blob.sign()` to grant short-lived access to one private object without routing its body through your server.
+
+```ts
+const download = await blob.sign("private/audio.mp3", {
+  method: "GET",
+  expiresIn: 60 * 60,
+})
+
+const upload = await blob.sign("private/audio.mp3", {
+  method: "PUT",
+  expiresIn: 15 * 60,
+  contentType: "audio/mpeg",
+  createOnly: true,
+})
+
+await fetch(upload.url, {
+  method: upload.method,
+  headers: upload.headers,
+  body: file,
+})
+```
+
+The returned headers are part of the request contract and must be sent unchanged. `createOnly` prevents overwriting an existing object when the driver can enforce a conditional upload. Drivers that cannot sign the requested operation or enforce `createOnly` throw explicitly.
+
 ## S3-compatible storage
 
 Use `driver: "s3"` for production S3-compatible object storage. Use `driver: "minio"` for local or Docker Compose object storage, and use `driver: "cloudflare-r2"` for Cloudflare R2.

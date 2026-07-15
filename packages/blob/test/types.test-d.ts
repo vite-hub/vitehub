@@ -51,6 +51,17 @@ describe("types", () => {
     expectTypeOf(blob.get).returns.toEqualTypeOf<Promise<Blob | null>>()
     expectTypeOf(blob.list).toBeFunction()
     expectTypeOf(blob.put).toBeFunction()
+    expectTypeOf(blob.sign("private/audio.mp3", { expiresIn: 900, method: "GET" })).toMatchTypeOf<Promise<{
+      headers: Record<string, string>
+      method: "GET" | "PUT"
+      url: string
+    }>>()
+    expectTypeOf(blob.sign("private/audio.mp3", {
+      contentType: "audio/mpeg",
+      createOnly: true,
+      expiresIn: 900,
+      method: "PUT",
+    })).toMatchTypeOf<Promise<{ url: string }>>()
   })
 
   it("returns a vite plugin with runtime config access", () => {

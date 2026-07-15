@@ -179,6 +179,7 @@ Objects from the served store include a URL. With `serve.publicBaseUrl`, the URL
 | `blob.head(pathname)` | Reads object metadata. |
 | `blob.list(options?)` | Lists objects with optional `prefix`, `limit`, `cursor`, and folded folders. |
 | `blob.del(pathnames)` | Deletes one or more objects. |
+| `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one object. |
 | `blob.serve(event, pathname)` | Serves an object stream through an H3 event. |
 | `blob.store(name)` | Selects a named Blob Store. |
 
@@ -192,6 +193,30 @@ Objects from the served store include a URL. With `serve.publicBaseUrl`, the URL
 | `access` | `BlobPutOptions['access']` | Object access policy when the driver supports it. Values: `private`, `public`. |
 | `addRandomSuffix` | `boolean` | Adds a random suffix when supported by the driver. |
 | `prefix` | `string` | Provider path prefix when supported by the driver. |
+
+## Signed requests
+
+Use `blob.sign()` when a client or provider needs short-lived direct access to one private object. The result contains the URL, HTTP method, and every header that must be sent with the request.
+
+```ts [server/api/uploads/presign.post.ts]
+import { blob } from '@vite-hub/blob'
+
+const source = await blob.sign('users/user/jobs/job/source.mp3', {
+  method: 'GET',
+  expiresIn: 6 * 60 * 60,
+})
+
+const upload = await blob.sign('users/user/jobs/job/source.mp3', {
+  method: 'PUT',
+  expiresIn: 15 * 60,
+  contentType: 'audio/mpeg',
+  createOnly: true,
+})
+```
+
+Send `upload.headers` unchanged with the `PUT` body. `contentType` binds the upload MIME type into the signed request. `createOnly` binds a provider condition that rejects the upload when the object already exists; drivers that cannot enforce it throw instead of silently allowing an overwrite.
+
+Cloudflare R2 signs through its S3-compatible HTTP credentials, including when normal reads and writes use a Workers binding. A binding alone cannot mint a presigned URL, so configure `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` through runtime environment values. [R2 presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/) accept expiries from 1 second through 7 days, and the [S3 compatibility contract](https://developers.cloudflare.com/r2/api/s3/api/) supports `If-None-Match` on `PutObject`.
 
 ## `ensureBlob(blob, options)`
 

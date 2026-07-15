@@ -108,6 +108,7 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       return { ...result, blobs: await Promise.all(result.blobs.map(object => withServedBlobUrl(name, object))) }
     },
     async put(pathname, body, options) { return withServedBlobUrl(name, await (await resolveStorage(name)).put(pathname, body, options)) },
+    async sign(pathname, options) { return (await resolveStorage(name)).sign(pathname, options) },
     async serve(event, pathname) { return (await resolveStorage(name)).serve(event, pathname) },
     store(storeName: BlobStoreName) { return createRuntimeBlobStorage(storeName) },
   }
