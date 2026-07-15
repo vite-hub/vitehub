@@ -46,16 +46,15 @@ interface VercelWorkflowBuilders {
 }
 
 async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | undefined> {
-  let workflowEntry: string
   try {
-    workflowEntry = createRequire(import.meta.url).resolve("workflow")
+    createRequire(import.meta.url).resolve("workflow")
   }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND") return undefined
     throw error
   }
-  const workflowRequire = createRequire(workflowEntry)
-  return await import(pathToFileURL(workflowRequire.resolve("@workflow/builders")).href) as VercelWorkflowBuilders
+  const require = createRequire(import.meta.url)
+  return await import(pathToFileURL(require.resolve("@workflow/builders")).href) as VercelWorkflowBuilders
 }
 
 async function createVercelWorkflowTransformPlugin(rootDir: string): Promise<Plugin | undefined> {

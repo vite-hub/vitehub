@@ -47,6 +47,7 @@
     "test": "vp run -t @vite-hub/workflow#build && vp test"
   },
   "dependencies": {
+    "@workflow/builders": "catalog:workflow",
     "@vercel/functions": "catalog:vercel",
     "defu": "catalog:unjs",
     "esbuild": "catalog:tooling",
