@@ -13,7 +13,7 @@ catalogs:
     "@modelcontextprotocol/sdk": ^1.29.0
     "@types/json-schema": ^7.0.15
     agents: ^0.12.3
-    ai: 7.0.0
+    ai: 7.0.19
     evalite: 1.0.0-beta.16
   ai-compat:
     ai: ^6.0.0 || ^7.0.0-0

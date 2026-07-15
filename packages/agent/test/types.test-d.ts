@@ -280,6 +280,9 @@ describe("agent public types", () => {
         }),
         kv({ mode: "write", policy: "require-approval", store: "chat" }),
         mcp({
+          integrity: {
+            direct: { search: "reviewed-fingerprint" },
+          },
           servers: {
             direct: {} as MCPClient,
             factory: () => remoteMcpServer({ type: "sse", url: "https://example.com/sse" }),

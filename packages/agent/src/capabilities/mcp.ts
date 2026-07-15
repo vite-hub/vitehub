@@ -1,6 +1,7 @@
 import {
   defineCapability,
 } from "../capability-runtime.ts"
+import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -9,8 +10,31 @@ import type {
   AgentToolDefinition,
   AgentToolSet,
 } from "../types.ts"
-import type { McpCapabilityOptions, McpClient, McpClientConfig, McpServerConfig } from "../mcp/types.ts"
+import type { McpCapabilityOptions, McpClient, McpClientConfig, McpServerConfig, McpToolFingerprints } from "../mcp/types.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
+
+interface McpToolDrift {
+  added: string[]
+  changed: string[]
+  removed: string[]
+}
+
+export class McpToolDefinitionDriftError extends Error {
+  readonly added: string[]
+  readonly changed: string[]
+  readonly removed: string[]
+  readonly server: string
+
+  constructor(server: string, drift: McpToolDrift) {
+    const format = (names: string[]) => names.length ? names.map(name => JSON.stringify(name)).join(", ") : "none"
+    super(`[vitehub] MCP tool-definition drift for server "${server}". Added: ${format(drift.added)}. Changed: ${format(drift.changed)}. Removed: ${format(drift.removed)}. Review the server tools before updating mcp({ integrity }).`)
+    this.name = "McpToolDefinitionDriftError"
+    this.added = [...drift.added]
+    this.changed = [...drift.changed]
+    this.removed = [...drift.removed]
+    this.server = server
+  }
+}
 
 function normalizeMcpToolName(serverName: string, toolName: string) {
   return `mcp_${serverName}_${toolName}`.replace(/[^a-zA-Z0-9_]/g, "_")
@@ -27,6 +51,10 @@ function isMcpClientConfig(value: unknown): value is McpClientConfig {
   return typeof value === "object"
     && value !== null
     && "transport" in value
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 const secretKeyPattern = /authorization|api[-_ ]?key|cookie|secret|token|password|credential/i
@@ -48,6 +76,33 @@ async function createMcpClient(config: McpClientConfig): Promise<McpClient> {
   const specifier = ["@ai-sdk", "mcp"].join("/")
   const runtime = await import(specifier) as typeof import("@ai-sdk/mcp")
   return await runtime.createMCPClient(config as never)
+}
+
+async function assertMcpToolIntegrity(server: string, tools: Record<string, unknown>, baseline: McpToolFingerprints): Promise<void> {
+  const aiSdk = await loadAiSdk()
+  if (typeof aiSdk.fingerprintTools !== "function" || typeof aiSdk.detectToolDrift !== "function") {
+    throw new TypeError("[vitehub] mcp({ integrity }) requires ai 7.0.19 or newer.")
+  }
+  const current = await aiSdk.fingerprintTools(tools as never)
+  const drift = aiSdk.detectToolDrift(current, baseline)
+  if (drift.added.length || drift.changed.length) {
+    throw new McpToolDefinitionDriftError(server, drift)
+  }
+}
+
+function assertMcpIntegrityOptions(options: McpCapabilityOptions) {
+  if (options.integrity === undefined) return
+  if (!isRecord(options.integrity)) {
+    throw new TypeError("[vitehub] mcp({ integrity }) requires fingerprint maps keyed by configured server name.")
+  }
+  for (const [server, fingerprints] of Object.entries(options.integrity)) {
+    if (!Object.hasOwn(options.servers, server)) {
+      throw new TypeError(`[vitehub] mcp({ integrity }) references unknown server "${server}".`)
+    }
+    if (!isRecord(fingerprints) || Object.values(fingerprints).some(value => typeof value !== "string")) {
+      throw new TypeError(`[vitehub] mcp({ integrity }) requires a tool fingerprint map for server "${server}".`)
+    }
+  }
 }
 
 async function resolveMcpClient<
@@ -83,6 +138,7 @@ export function mcp<
   if (!options || typeof options !== "object" || !options.servers || typeof options.servers !== "object") {
     throw new TypeError("[vitehub] mcp({ servers }) requires a server map.")
   }
+  assertMcpIntegrityOptions(options)
   const clientsByContext = new WeakMap<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>, McpClient[]>()
   return defineCapability({
     id: "mcp",
@@ -95,6 +151,9 @@ export function mcp<
         const { client, metadata } = await resolveMcpClient(server, context)
         clients.push(client)
         const serverTools = await client.tools()
+        if (options.integrity && Object.hasOwn(options.integrity, serverName)) {
+          await assertMcpToolIntegrity(serverName, serverTools, options.integrity[serverName])
+        }
         for (const [toolName, tool] of Object.entries(serverTools || {})) {
           const definition = tool as AgentToolDefinition & { metadata?: Record<string, unknown> }
           const name = normalizeMcpToolName(serverName, toolName)
@@ -130,4 +189,5 @@ export type {
   McpClient,
   McpClientConfig,
   McpServerConfig,
+  McpToolFingerprints,
 } from "../mcp/types.ts"
