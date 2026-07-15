@@ -91,10 +91,10 @@ function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolea
     },
     [harnessSandboxAdapter]: (
       provider: AgentHarnessSandboxProviderInput,
-      options?: { defaultSandbox?: boolean },
+      options?: { box?: boolean, defaultSandbox?: boolean },
     ) => adaptCodexHarnessSandbox(provider, {
       defaultSandbox: options?.defaultSandbox,
-      isolateHome: options?.defaultSandbox,
+      isolateHome: !options?.box,
       preferOpenAI,
     }),
     async getBootstrap() {
