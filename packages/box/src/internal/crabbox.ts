@@ -337,6 +337,15 @@ function appendProjectionReconciliation(
     .join("\n");
   appendFile(script, next, new TextEncoder().encode(contents ? `${contents}\n` : ""), 0o600, cleanup);
   cleanup.push(next);
+  for (const path of state.projections) {
+    const parent = posix.dirname(posix.join(persistent, path));
+    script.push(
+      `projection_parent=${shellQuote(parent)}`,
+      `while [ ! -e "$projection_parent" ] && [ ! -L "$projection_parent" ]; do projection_parent=$(dirname -- "$projection_parent"); done`,
+      `projection_parent=$(CDPATH= cd -P -- "$projection_parent" && pwd -P)`,
+      `case "$projection_parent" in ${shellQuote(persistent)}|${shellQuote(`${persistent}/`)}*) ;; *) printf '%s\\n' 'Box projected path escapes writable state.' >&2; exit 1 ;; esac`,
+    );
+  }
   script.push(
     `test ! -e ${shellQuote(manifest)} || test -f ${shellQuote(manifest)}`,
     `if [ -f ${shellQuote(manifest)} ]; then`,

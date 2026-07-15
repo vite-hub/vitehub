@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
@@ -179,6 +180,31 @@ describe("trustedHost", () => {
     const second = (await (secondBox.sandbox as HarnessV1SandboxProvider).createSession()) as typeof sessionWithEnv;
     await expect(stat(join(second.env.HOME, ".codex", "config.toml"))).rejects.toMatchObject({ code: "ENOENT" });
     await second.destroy?.();
+  });
+
+  it("rejects projected files beneath symlinked writable state parents", async () => {
+    const root = await temporaryRoot();
+    const stateRoot = join(root, "state");
+    const outside = join(root, "outside");
+    const key = "portable-box-test/projected-symlink";
+    const persistent = join(stateRoot, createHash("sha256").update(key).digest("hex"));
+    await Promise.all([mkdir(persistent, { recursive: true }), mkdir(outside)]);
+    await symlink(outside, join(persistent, "skills"));
+    const box = await resolveBox(
+      {
+        home: {
+          files: { ".codex/skills/review/SKILL.md": { contents: "projected" } },
+          state: { ".codex": { key } },
+        },
+        runtime: trustedHost({ stateRoot }),
+      },
+      {},
+    );
+
+    await expect((box.sandbox as HarnessV1SandboxProvider).createSession()).rejects.toThrow(
+      "projected path escapes writable state",
+    );
+    await expect(stat(join(outside, "review", "SKILL.md"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("serializes sessions sharing writable state", async () => {
