@@ -97,6 +97,19 @@ describe("Agent structured output", () => {
     await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({ text: "hello" })
   })
 
+  it("decodes AgentRunResult text from custom drivers", async () => {
+    const agent = defineAgent({
+      driver: { run: () => ({ text: "{\"summary\":\"Decisions\",\"title\":\"Weekly sync\"}" }) },
+      output: { schema: summarySchema() },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({
+      summary: "Decisions",
+      title: "Weekly sync",
+    })
+  })
+
   it("reports Standard Schema failures separately from JSON decoding", async () => {
     const agent = defineAgent({
       driver: { run: () => "{\"title\":42}" },

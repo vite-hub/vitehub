@@ -19,9 +19,10 @@ function stripJsonFence(value: string): string {
 }
 
 function jsonValueFromResult(result: unknown, allowMaterializedObject: boolean): unknown {
+  let materializedObject = false
   if (allowMaterializedObject && result !== null && typeof result === "object") {
     const prototype = Object.getPrototypeOf(result)
-    if (prototype === Object.prototype || prototype === null) return result
+    materializedObject = prototype === Object.prototype || prototype === null
   }
   const directText = result && typeof result === "object" && "text" in result
     ? (result as { text?: unknown }).text
@@ -33,6 +34,7 @@ function jsonValueFromResult(result: unknown, allowMaterializedObject: boolean):
     return JSON.parse(stripJsonFence(text))
   }
   catch (cause) {
+    if (materializedObject) return result
     throw new AgentOutputValidationError(
       "invalid-json",
       "[vitehub] Agent output is not valid JSON.",
