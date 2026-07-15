@@ -829,7 +829,31 @@ export type AgentCapabilityInput<
 export type AgentCapabilitiesList<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> = Array<AgentCapabilityInput<TRuntimeConfig, Name>>
+> = readonly AgentCapabilityInput<TRuntimeConfig, Name>[]
+
+export interface AgentCapabilitiesResolverContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> extends AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>, AgentInvocationCallbackContextValues {
+  driver: {
+    kind: AgentDriverKind
+  }
+}
+
+export type AgentCapabilitiesResolver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  CALL_OPTIONS = unknown,
+  TCapabilities extends AgentCapabilitiesList<TRuntimeConfig, Name> = AgentCapabilitiesList<TRuntimeConfig, Name>,
+> = (
+  context: AgentCapabilitiesResolverContext<TRuntimeConfig, CALL_OPTIONS>,
+) => MaybePromise<TCapabilities>
+
+export type AgentCapabilitiesInput<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  CALL_OPTIONS = unknown,
+> = AgentCapabilitiesList<TRuntimeConfig, Name> | AgentCapabilitiesResolver<TRuntimeConfig, Name, CALL_OPTIONS>
 
 export type AgentAdapterInstructionsValue = string | string[]
 
@@ -1025,7 +1049,7 @@ type AgentSharedSettings<
   CALL_OPTIONS = unknown,
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
   TContextValues extends object = AgentInvocationContextValues,
-  TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined = AgentCapabilitiesList<TRuntimeConfig> | undefined,
+  TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
 > = {
   box?: BoxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
   capabilities?: TCapabilities
@@ -1046,7 +1070,7 @@ export type AgentSettings<
   CALL_OPTIONS = unknown,
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
   TContextValues extends object = AgentInvocationContextValues,
-  TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined = AgentCapabilitiesList<TRuntimeConfig> | undefined,
+  TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
 > = AgentSharedSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities> & {
   driver: AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
 }

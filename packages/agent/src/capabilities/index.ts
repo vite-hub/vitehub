@@ -40,6 +40,9 @@ export {
   openapi,
 } from "./openapi.ts"
 export {
+  papercuts,
+} from "./papercuts.ts"
+export {
   repositoryHost,
 } from "./repository-host.ts"
 export {
@@ -218,6 +221,13 @@ export type {
   OpenAPIRequestPatch,
   OpenAPIResponseContext,
 } from "./openapi.ts"
+export type {
+  Papercut,
+  PapercutReportContext,
+  PapercutReportEvent,
+  PapercutSource,
+  PapercutsOptions,
+} from "./papercuts.ts"
 export type {
   RepositoryHostClient,
   RepositoryHostOptions,

@@ -97,11 +97,16 @@ function subagentWorkspaceSources(
   const sources: NonNullable<WorkspaceDefinition["sources"]> = {}
   for (const { definition, name } of agents) {
     const workspaceAgent = definition.agent as Partial<{
-      __vitehubWorkspaceAgentOptions: { capabilities?: AgentCapabilityDefinition[] }
-      capabilities: AgentCapabilityDefinition[]
+      __vitehubWorkspaceAgentOptions: { capabilities?: unknown }
+      capabilities: unknown
     }>
+    const capabilities = Array.isArray(workspaceAgent.capabilities)
+      ? workspaceAgent.capabilities
+      : Array.isArray(workspaceAgent.__vitehubWorkspaceAgentOptions?.capabilities)
+        ? workspaceAgent.__vitehubWorkspaceAgentOptions.capabilities
+        : undefined
     const contributed = capabilityWorkspaceSources(
-      workspaceAgent.__vitehubWorkspaceAgentOptions?.capabilities || workspaceAgent.capabilities,
+      capabilities,
     )
     for (const [key, source] of Object.entries(contributed || {})) {
       if (key in sources) {

@@ -369,7 +369,8 @@ async function resolveMaybe<T, TContext extends AgentRuntimeContext>(
 function getAgentCapabilities(agent: unknown): AgentCapabilityDefinition[] {
   if (!isRecord(agent)) return []
   const definition = agent as AgentDefinitionWithCapabilities
-  return normalizeCapabilities(definition.__vitehubWorkspaceAgentOptions?.capabilities || definition.capabilities)
+  const capabilities = definition.capabilities || definition.__vitehubWorkspaceAgentOptions?.capabilities
+  return normalizeCapabilities(Array.isArray(capabilities) ? capabilities : undefined)
 }
 
 function getAgentChatOptions(agent: unknown): AgentChatOptions | undefined {

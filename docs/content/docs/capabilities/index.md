@@ -16,7 +16,7 @@ Capabilities decide which parts of that authority become available to an Agent I
 
 ## Capability lifecycle
 
-ViteHub applies Capabilities in the order listed on the Agent Definition.
+ViteHub applies Capabilities in the order listed or returned by the Agent Definition.
 It validates duplicate ids, checks runtime requirements, applies Capability Trigger Contributions, and then runs configure, prepare, bind, input, resolve, and output phases for each invocation.
 
 `access()` is the only official Capability with a fixed position rule.
@@ -41,6 +41,20 @@ export default defineAgent({
 ```
 
 Attaching a Capability opts the Agent into that ability. Model-facing tool policy defaults to `allow`; set `policy: 'require-approval'` or `policy: 'deny'` when the product needs an additional runtime gate. Capability modes, scopes, allowlists, requirements, and input validation still bound the operation before policy applies.
+
+Use a callback when invocation context decides the Agent Definition's Capability list. ViteHub calls it once after resolving the Agent Invoker and before Capability setup; Capabilities contributed by the active Channel still compose normally.
+
+```ts [server/agents/support.ts]
+export default defineAgent({
+  driver: { model },
+  capabilities: ({ actor }) => [
+    workspaceShell({ mode: 'read' }),
+    ...(actor.meta?.support === true ? [internalDiagnostics] : []),
+  ],
+})
+```
+
+Return only invocation-scoped behavior from the callback. Capabilities that contribute Agent Triggers, chat admission or attachments, or static Workspace Sources must stay in a static list because ViteHub registers those contributions before an invocation exists.
 
 ## What Capabilities can contribute
 

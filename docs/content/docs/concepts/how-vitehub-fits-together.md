@@ -29,7 +29,7 @@ For example, Workspace owns the Workspace File Tree and Sources. The Agent Packa
 
 An Agent Definition selects one Agent Driver. It may attach Capabilities, define an Agent Invoker resolver, use Workspace context, and run through Agent Invocations.
 
-Capabilities sit above the Agent Driver. They can contribute tools, trigger behavior, metadata, policy, requirements, and invocation context values, but they do not dynamically grant new Capabilities at runtime.
+Capabilities sit above the Agent Driver. An Agent Definition can attach a static ordered list or resolve its list once from trusted invocation context before Capability setup; the selected list does not change while the invocation runs.
 
 ## Inspect it
 

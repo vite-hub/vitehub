@@ -64,7 +64,8 @@ function agentCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig>(
   if (!hasAgentDefinition(agent)) return []
   const workspaceDefinition = agent as Partial<WorkspaceAgentDefinition<TRuntimeConfig>>
   const workspaceOptions = workspaceDefinition.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<TRuntimeConfig> | undefined
-  return (agent.capabilities || workspaceOptions?.capabilities || []) as AgentCapabilityDefinition<TRuntimeConfig>[]
+  const capabilities = agent.capabilities || workspaceOptions?.capabilities
+  return (Array.isArray(capabilities) ? capabilities : []) as AgentCapabilityDefinition<TRuntimeConfig>[]
 }
 
 function agentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig>(

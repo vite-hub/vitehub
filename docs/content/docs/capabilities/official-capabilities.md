@@ -28,6 +28,7 @@ import {
   mcp,
   memory,
   openapi,
+  papercuts,
   rateLimit,
   repositoryHost,
   repositoryHostContext,
@@ -71,6 +72,7 @@ import {
 | Rate limit | [`rateLimit()`](/docs/capabilities/rate-limit) | A trusted invocation budget should be checked or consumed before the Agent runs. |
 | Chat title | [`chatTitle()`](/docs/capabilities/chat-title) | Chat streams and finish extensions should include a generated conversation title. |
 | Chat summary | [`chatSummary()`](/docs/capabilities/chat-summary) | A summary command should replace explicit input with a conversation summary. |
+| Papercut reports | [`papercuts()`](/docs/capabilities/papercuts) | An Agent should report small runtime or developer-experience friction to an application-owned sink. |
 
 ## Read capability pages first
 
