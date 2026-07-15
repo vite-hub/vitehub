@@ -303,6 +303,7 @@ async function writePrivateFile(path: string, contents: Uint8Array) {
   const temporary = join(directory, `.vitehub-${randomUUID()}`);
   try {
     await writeFile(temporary, contents, { mode: 0o600 });
+    await rm(path, { force: true, recursive: true });
     await rename(temporary, path);
     await chmod(path, 0o600);
   } finally {
@@ -426,7 +427,10 @@ async function createTrustedHostSession(options: {
       workingDirectory?: string;
     }) {
       assertCommandEnvironment(runOptions.env);
-      const cwd = await physicalSessionPath(options.root, runOptions.workingDirectory);
+      const cwd = await physicalSessionPath(
+        options.root,
+        runOptions.workingDirectory ?? this.defaultWorkingDirectory,
+      );
       const child = spawnChildProcess(runOptions.command, {
         cwd,
         detached: process.platform !== "win32",

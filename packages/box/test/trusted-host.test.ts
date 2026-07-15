@@ -24,6 +24,9 @@ describe("trustedHost", () => {
       expect(session.defaultWorkingDirectory).toBe(join(session.root, "workspace"));
       await expect(stat(session.defaultWorkingDirectory)).resolves.toMatchObject({});
       expect(session.defaultWorkingDirectory).not.toBe(session.root);
+      await expect(session.run({ command: "pwd" })).resolves.toMatchObject({
+        stdout: `${session.defaultWorkingDirectory}\n`,
+      });
     } finally {
       await session.destroy?.();
     }
@@ -222,6 +225,29 @@ describe("trustedHost", () => {
     const secondBox = await resolveBox(definition(false), {});
     const second = (await (secondBox.sandbox as HarnessV1SandboxProvider).createSession()) as typeof sessionWithEnv;
     await expect(stat(join(second.env.HOME, ".codex", "config.toml"))).rejects.toMatchObject({ code: "ENOENT" });
+    await second.destroy?.();
+  });
+
+  it("replaces writable state directories with projected files", async () => {
+    const root = await temporaryRoot();
+    const stateRoot = join(root, "state");
+    const withoutProjection = await resolveBox({
+      home: { state: { ".codex": { key: "portable-box-test/directory-projection" } } },
+      runtime: trustedHost({ stateRoot }),
+    }, {});
+    const first = (await (withoutProjection.sandbox as HarnessV1SandboxProvider).createSession()) as typeof sessionWithEnv;
+    await mkdir(join(first.env.HOME, ".codex", "config.toml"));
+    await first.destroy?.();
+
+    const withProjection = await resolveBox({
+      home: {
+        files: { ".codex/config.toml": { contents: "projected" } },
+        state: { ".codex": { key: "portable-box-test/directory-projection" } },
+      },
+      runtime: trustedHost({ stateRoot }),
+    }, {});
+    const second = (await (withProjection.sandbox as HarnessV1SandboxProvider).createSession()) as typeof sessionWithEnv;
+    await expect(readFile(join(second.env.HOME, ".codex", "config.toml"), "utf8")).resolves.toBe("projected");
     await second.destroy?.();
   });
 
