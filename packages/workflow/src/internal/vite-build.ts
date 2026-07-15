@@ -46,7 +46,9 @@ interface VercelWorkflowBuilders {
 
 async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | undefined> {
   try {
-    createRequire(import.meta.url).resolve("workflow")
+    const require = createRequire(import.meta.url)
+    require.resolve("workflow")
+    require.resolve("@workflow/builders")
   }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND") return undefined
