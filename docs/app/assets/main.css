@@ -215,14 +215,6 @@ body {
   box-shadow: none !important;
 }
 
-.vitehub-content-search-modal:has(input:placeholder-shown)::after {
-  display: block;
-  padding: 0 0.875rem 1rem;
-  color: var(--ui-text-muted);
-  font-size: 0.8125rem;
-  content: "Search powered by Typesense";
-}
-
 .vitehub-content-search-modal button[aria-label="Close"] {
   width: 2.5rem;
   height: 2rem;
