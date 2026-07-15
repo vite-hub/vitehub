@@ -1561,8 +1561,8 @@ describe("agent message protocol", () => {
     await runAgent(defaultAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "default" })
     await runAgent(configuredAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "configured" })
 
-    expect(adaptSandbox).toHaveBeenNthCalledWith(1, expect.any(Object), { defaultSandbox: true })
-    expect(adaptSandbox).toHaveBeenNthCalledWith(2, provider, { defaultSandbox: false })
+    expect(adaptSandbox).toHaveBeenNthCalledWith(1, expect.any(Object), { box: false, defaultSandbox: true })
+    expect(adaptSandbox).toHaveBeenNthCalledWith(2, provider, { box: false, defaultSandbox: false })
   })
 
   it("resolves function-valued driver.sandbox for each invocation", async () => {
