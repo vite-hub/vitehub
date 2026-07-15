@@ -51,7 +51,6 @@ export async function renderMarkdownTemplate(
   const prepare = async (value: string) => maskTemplateTags(
     await protectCodeTemplateSyntax(value, protectedTokens, nonce),
     tagTokens,
-    data,
   )
   const shorthand = await prepare(template)
   const imported = options.resolveImport
@@ -73,18 +72,31 @@ export async function renderMarkdownTemplate(
     fragments: normalized.fragments,
   })
   const rendered = cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components: runtime.components }))
-  return restoreTemplateTokens(restoreTemplateTokens(rendered, tagTokens), protectedTokens)
+  return restoreTemplateTokens(restoreTemplateTags(rendered, tagTokens, data), protectedTokens)
 }
 
 function maskTemplateTags(
   template: string,
   state: TemplateTokenState,
-  data: Record<string, unknown>,
 ): string {
   return template.replace(/<\/?[A-Za-z][^<>]*>/g, (tag) => {
-    const index = state.values.push(renderTagBindings(tag, data)) - 1
+    const index = state.values.push(tag) - 1
     return `${state.prefix}${index}END`
   })
+}
+
+function restoreTemplateTags(
+  template: string,
+  state: TemplateTokenState,
+  data: Record<string, unknown>,
+): string {
+  return template.replace(
+    new RegExp(`${state.prefix}(\\d+)END`, "g"),
+    (_match, index: string) => {
+      const tag = state.values[Number(index)]
+      return tag === undefined ? _match : renderTagBindings(tag, data)
+    },
+  )
 }
 
 function renderTagBindings(tag: string, data: Record<string, unknown>): string {

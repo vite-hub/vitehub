@@ -154,6 +154,18 @@ describe("renderMarkdownTemplate", () => {
       .rejects.toThrow("binding \"{{ audience }}\" is not defined")
   })
 
+  it("only renders tag attribute bindings in the selected branch", async () => {
+    await expect(renderMarkdownTemplate([
+      "::if{enabled}",
+      "<policy audience=\"{{ missing }}\">Hidden</policy>",
+      "::else",
+      "Visible",
+      "::",
+    ].join("\n"), {
+      data: { enabled: false },
+    })).resolves.toBe("Visible")
+  })
+
   it("composes the full template language inside multiline XML blocks", async () => {
     expect(await renderMarkdownTemplate([
       "<policy>",
