@@ -6,6 +6,7 @@ const navLinks = [
   { label: "Agents", to: "/docs/agents" },
   { label: "Primitives", to: "/docs/server-primitives" },
   { label: "Docs", to: "/docs" },
+  { label: "Examples", to: "/examples" },
   { label: "Blog", to: "/blog" },
 ];
 
