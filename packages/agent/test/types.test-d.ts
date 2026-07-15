@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, type AgentActor, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentFinishEvent, type AgentHarnessDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
-import { access, blob, browser, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, observability, openapi, pullRequestContext, repositoryHost, repositoryHostContext, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type AgentObservabilityFinishExtension, type SubagentToolInput, type UsageTelemetryRecord } from "../src/capabilities.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, type AgentActor, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentFinishEvent, type AgentHarnessDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentUsageRecord, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
+import { access, blob, browser, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, openapi, pullRequestContext, repositoryHost, repositoryHostContext, sandbox, schedule, skills, subagents, transcribe, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -336,26 +336,6 @@ describe("agent public types", () => {
             return "transcript"
           },
         }),
-        usageTelemetry(),
-        observability({
-          instrumentation: {
-            callSettings({ callSettings, run }) {
-              expectTypeOf(callSettings).toEqualTypeOf<Readonly<Record<string, unknown>>>()
-              expectTypeOf(run?.runId).toEqualTypeOf<string | undefined>()
-            },
-            model({ model }) {
-              expectTypeOf(model).toEqualTypeOf<unknown>()
-              return model
-            },
-          },
-          onEvent(event) {
-            expectTypeOf(event.type).toEqualTypeOf<"error" | "finish" | "start">()
-            if (event.type === "error") {
-              expectTypeOf(event.error).toEqualTypeOf<unknown>()
-              expectTypeOf(event.status).toEqualTypeOf<"failed">()
-            }
-          },
-        }),
         chatTitle({
           channelDelivery: "once-per-thread",
           model: () => ({}),
@@ -532,17 +512,13 @@ describe("agent public types", () => {
     })
 
     defineAgent({
-      capabilities: [observability(), usageTelemetry()],
       driver: { model: {} as never },
       hooks: {
         "agent:finish"(event) {
           expectTypeOf(event.extensions.get<AgentChatFinishExtension>("chat")).toEqualTypeOf<AgentChatFinishExtension | undefined>()
           expectTypeOf(event.extensions.get<TranscriptionResult[]>("transcribe")).toEqualTypeOf<TranscriptionResult[] | undefined>()
-          expectTypeOf(event.extensions.get("observability")).toEqualTypeOf<AgentObservabilityFinishExtension | undefined>()
-          expectTypeOf(event.extensions.get("observability", "usage")).toEqualTypeOf<AgentObservabilityFinishExtension["usage"]>()
-          expectTypeOf(event.extensions.get("usage-telemetry")).toEqualTypeOf<UsageTelemetryRecord | undefined>()
-          expectTypeOf(event.extensions.get("observability", "missing")).toEqualTypeOf<unknown>()
           expectTypeOf(event.extensions.get("missing")).toEqualTypeOf<unknown>()
+          expectTypeOf(event.invocation.usage).toEqualTypeOf<AgentUsageRecord | undefined>()
           expectTypeOf(event.errorMessage).toEqualTypeOf<string | undefined>()
         },
       },
@@ -867,7 +843,7 @@ describe("agent public types", () => {
       expectTypeOf(context.output).toEqualTypeOf<unknown>()
       expectTypeOf(context.result).toEqualTypeOf<AgentRunResult | undefined>()
       expectTypeOf(context.text).toEqualTypeOf<string | undefined>()
-      expectTypeOf(context.extensions.get("usage-telemetry")).toEqualTypeOf<UsageTelemetryRecord | undefined>()
+      expectTypeOf(context.invocation.usage).toEqualTypeOf<AgentUsageRecord | undefined>()
       expectTypeOf(context.context).toEqualTypeOf<AgentChannelDeliveryFinishEffectContext["context"]>()
       expectTypeOf(context.context.get<{ repository: string }>("review.context")).toEqualTypeOf<{ repository: string } | undefined>()
       expectTypeOf(context.request).toEqualTypeOf<Request | undefined>()
@@ -914,7 +890,7 @@ describe("agent public types", () => {
                   expectTypeOf(event).toEqualTypeOf<AgentFinishEvent | undefined>()
                   expectTypeOf(context.context).toEqualTypeOf<AgentChannelDeliveryFinishEffectContext["context"]>()
                   expectTypeOf(context.request).toEqualTypeOf<Request | undefined>()
-                  expectTypeOf(context.extensions.get("usage-telemetry")).toEqualTypeOf<UsageTelemetryRecord | undefined>()
+                  expectTypeOf(context.invocation.usage).toEqualTypeOf<AgentUsageRecord | undefined>()
                   expectTypeOf(context.workspace).toEqualTypeOf<AgentChannelDeliveryFinishEffectContext["workspace"]>()
                   return context.reply(String(context.output), {
                     artifacts: [{ path: "screenshots/result.png", url: "https://assets.example/result.png" }],
@@ -1629,7 +1605,7 @@ describe("agent public types", () => {
 
   it("accepts agent eval definitions", () => {
     const scorer: AgentScorer = textContains("ok")
-    const capabilityScorer: AgentScorer = hasCapabilityExtension("observability")
+    const capabilityScorer: AgentScorer = hasCapabilityExtension("chat")
     const definition: AgentEvalDefinition = {
       agent: defineAgent({
         driver: { model: {} as never },
@@ -1653,14 +1629,14 @@ describe("agent public types", () => {
       async test(t) {
         const observation = await t.send("hello")
         observation.text.toUpperCase()
-        expectTypeOf(observation.extensions?.get("observability")).toEqualTypeOf<AgentObservabilityFinishExtension | undefined>()
-        expectTypeOf(t.capabilityExtension<{ status: string }>("observability")).toEqualTypeOf<{ status: string } | undefined>()
-        expectTypeOf(t.capabilityExtension<string>("observability", "status")).toEqualTypeOf<string | undefined>()
+        expectTypeOf(observation.extensions?.get<AgentChatFinishExtension>("chat")).toEqualTypeOf<AgentChatFinishExtension | undefined>()
+        expectTypeOf(t.capabilityExtension<{ status: string }>("chat")).toEqualTypeOf<{ status: string } | undefined>()
+        expectTypeOf(t.capabilityExtension<string>("chat", "status")).toEqualTypeOf<string | undefined>()
         t.completed()
         t.textContains("ok")
         t.calledTool("lookup")
         t.doesNotCallTool("refund")
-        t.hasCapabilityExtension("observability")
+        t.hasCapabilityExtension("chat")
         t.expect(scorer)
         t.expect(capabilityScorer)
       },

@@ -220,30 +220,31 @@ describe("agent eval", () => {
   })
 
   it("captures capability finish extensions in eval observations", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { observability } = await import("../src/capabilities.ts")
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { defineEval, hasCapabilityExtension } = await import("../src/eval.ts")
 
     defineEval({
       agent: defineAgent({
-        capabilities: [observability()],
+        capabilities: [defineCapability({
+          id: "completion",
+          finish: () => ({ status: "completed" }),
+        })],
         driver: { run: () => "ok", },
       }),
       name: "support",
-      scorers: [hasCapabilityExtension("observability", "status")],
+      scorers: [hasCapabilityExtension("completion", "status")],
       async test(t) {
         const observation = await t.send("hello")
-        expect(observation.extensions?.get("observability", "status")).toBe("completed")
-        expect(t.capabilityExtension("observability", "status")).toBe("completed")
-        t.hasCapabilityExtension("observability")
+        expect(observation.extensions?.get("completion", "status")).toBe("completed")
+        expect(t.capabilityExtension("completion", "status")).toBe("completed")
+        t.hasCapabilityExtension("completion")
       },
     })
 
     const output = await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input)
     const score = await evaliteCalls[0]!.opts.scorers[0].scorer({ output })
 
-    expect(output.extensions?.get("observability")).toMatchObject({
-      resultKind: "string",
+    expect(output.extensions?.get("completion")).toMatchObject({
       status: "completed",
     })
     expect(output.scores).toHaveLength(2)
@@ -549,13 +550,13 @@ describe("agent eval", () => {
       textContains,
     } = await import("../src/eval.ts")
     const extensions = {
-      entries: (): Array<[string, unknown]> => [["observability", { status: "completed" }]],
+      entries: (): Array<[string, unknown]> => [["completion", { status: "completed" }]],
       get<T = unknown>(capabilityId: string, key?: string): T | undefined {
-        if (capabilityId !== "observability") return undefined
+        if (capabilityId !== "completion") return undefined
         const value = key === "status" ? "completed" : { status: "completed" }
         return value as T
       },
-      toJSON: () => ({ observability: { status: "completed" } }),
+      toJSON: () => ({ completion: { status: "completed" } }),
     }
     const observation = {
       extensions,
@@ -588,8 +589,8 @@ describe("agent eval", () => {
     expect(await doesNotCallTool("shell").score(codexShellObservation)).toMatchObject({ score: 0, passed: false })
     expect(await doesNotCallTool("refund").score(erroredToolObservation)).toMatchObject({ score: 0, passed: false })
     expect(await doesNotCallTool("refund").score(observation)).toMatchObject({ score: 1, passed: true })
-    expect(await hasCapabilityExtension("observability").score(observation)).toMatchObject({ score: 1, passed: true })
-    expect(await hasCapabilityExtension("observability", "status").score(observation)).toMatchObject({ score: 1, passed: true })
+    expect(await hasCapabilityExtension("completion").score(observation)).toMatchObject({ score: 1, passed: true })
+    expect(await hasCapabilityExtension("completion", "status").score(observation)).toMatchObject({ score: 1, passed: true })
     expect(await hasCapabilityExtension("missing").score(observation)).toMatchObject({ score: 0, passed: false })
     expect(await staysUnderTokenBudget(10).score(observation)).toMatchObject({ score: 1, passed: true })
     expect(await staysUnderTokenBudget(4).score(observation)).toMatchObject({ score: 0.8, passed: false })

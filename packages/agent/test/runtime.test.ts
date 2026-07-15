@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
 import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/runtime"
-import { chat, chatTitle, observability, schedule, subagents, usageTelemetry } from "../src/capabilities.ts"
+import { chat, chatTitle, schedule, subagents } from "../src/capabilities.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 
 import type { AgentChannelDeliveryFinishEffectCallback, AgentFinishEvent } from "../src/index.ts"
@@ -105,64 +105,10 @@ describe("agent message protocol", () => {
     expect(run).toHaveBeenCalledTimes(1)
   })
 
-  it("emits observability events and finish extensions", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const standaloneEvents: string[] = []
-    const standaloneAgent = defineAgent({
-      capabilities: [
-        observability({
-          onEvent(event) {
-            standaloneEvents.push(event.type)
-          },
-        }),
-      ],
-      driver: { run: () => "ok" },
-    })
-
-    await expect(runAgent(standaloneAgent, {
-      memo: vi.fn(),
-      run: { origin: "http", runId: "run-1" },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, { prompt: "hello" })).resolves.toBe("ok")
-
-    expect(standaloneEvents).toEqual(["start", "finish"])
-
-    const events: string[] = []
-    const finish = vi.fn()
-    const agent = defineAgent({
-      capabilities: [
-        observability({
-          onEvent(event) {
-            events.push(event.type)
-          },
-        }),
-      ],
-      hooks: {
-        "agent:finish": finish,
-      },
-      driver: { run: () => "ok" },
-    })
-
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      run: { origin: "http", runId: "run-1" },
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, { prompt: "hello" })).resolves.toBe("ok")
-
-    expect(events).toEqual(["start", "finish"])
-    expect(finish.mock.calls[0]?.[0].extensions.get("observability")).toMatchObject({
-      resultKind: "string",
-      status: "completed",
-    })
-  })
-
-  it("adds core usage to observability finish metadata", async () => {
+  it("adds normalized usage to invocation finish metadata", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [observability()],
       hooks: {
         "agent:finish": finish,
       },
@@ -185,8 +131,7 @@ describe("agent message protocol", () => {
     expect(result).toMatchObject({
       text: "ok",
     })
-    const extensions = finish.mock.calls[0]![0].extensions
-    expect(extensions.get("observability", "usage")).toMatchObject({
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
       usage: {
         totalTokens: 10,
       },
@@ -198,7 +143,6 @@ describe("agent message protocol", () => {
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [
-        observability(),
         defineCapability({
           id: "usage-renderer",
           output(context) {
@@ -229,31 +173,11 @@ describe("agent message protocol", () => {
         outputTokens: 6,
       },
     })
-    expect(finish.mock.calls[0]![0].extensions.get("observability", "usage")).toMatchObject({
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
       usage: {
         totalTokens: 10,
       },
     })
-  })
-
-  it("does not let observability sink failures change Agent output", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const onEvent = vi.fn(() => {
-      throw new Error("sink failed")
-    })
-    const agent = defineAgent({
-      capabilities: [
-        observability({ onEvent }),
-      ],
-      driver: { run: () => "ok" },
-    })
-
-    await expect(runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, { prompt: "hello" })).resolves.toBe("ok")
-    expect(onEvent).toHaveBeenCalledTimes(2)
   })
 
   it("skips agent input hooks after a capability handles the input", async () => {
@@ -408,7 +332,7 @@ describe("agent message protocol", () => {
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret prompt")
   })
 
-  it("captures metadata-only invocation data without an observability capability", async () => {
+  it("captures metadata-only invocation data by default", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finishEvents: AgentFinishEvent[] = []
     const agent = defineAgent({
@@ -664,33 +588,6 @@ describe("agent message protocol", () => {
       expect(finishEvent?.error).toBe(error)
       expect(finishEvent).toMatchObject({ errorMessage: message })
     }
-  })
-
-  it("uses error messages as the failed finish signal", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const onEvent = vi.fn()
-    const finish = vi.fn()
-    const agent = defineAgent({
-      capabilities: [observability({ onEvent })],
-      driver: { run: () => {
-          throw undefined
-        }, },
-      hooks: { "agent:finish": finish },
-    })
-
-    await runAgent(agent, {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }, {}).catch(() => {})
-
-    expect(onEvent).toHaveBeenLastCalledWith(expect.objectContaining({
-      status: "failed",
-      type: "error",
-    }))
-    expect(finish.mock.calls[0]?.[0].extensions.get("observability")).toMatchObject({
-      status: "failed",
-    })
   })
 
   it("treats stream cancellation without reason as successful cleanup", async () => {
@@ -1911,7 +1808,6 @@ describe("agent message protocol", () => {
     })
 
     const agent = defineAgent({
-      capabilities: [usageTelemetry()],
       driver: {
         harness: { provider: "codex" },
       },
@@ -1930,10 +1826,12 @@ describe("agent message protocol", () => {
         },
       },
     })
-    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
-      inputTokens: 1,
-      outputTokens: 1,
-      totalTokens: 2,
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      usage: {
+        inputTokens: 1,
+        outputTokens: 1,
+        totalTokens: 2,
+      },
     })
   })
 
@@ -5557,7 +5455,6 @@ describe("agent message protocol", () => {
               }))
             },
           }),
-          usageTelemetry(),
         ],
         hooks: {
           "agent:finish": finish,
@@ -5582,10 +5479,12 @@ describe("agent message protocol", () => {
       expect(finish.mock.calls[0]![0].result).toMatchObject({
         text: "ok:final",
       })
-      expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
-        inputTokens: 4,
-        outputTokens: 2,
-        totalTokens: 6,
+      expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+        usage: {
+          inputTokens: 4,
+          outputTokens: 2,
+          totalTokens: 6,
+        },
       })
     }
     finally {
@@ -6052,7 +5951,6 @@ describe("agent message protocol", () => {
             context.delivery.finishEffect(context => context.reply(context.result!.text!))
           },
         }),
-        usageTelemetry(),
       ],
       channels: {
         review: defineChannel("review", {
@@ -6103,10 +6001,12 @@ describe("agent message protocol", () => {
     }
 
     expect(delivered).toHaveBeenCalledWith("ui usage:10")
-    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
-      inputTokens: 4,
-      outputTokens: 6,
-      totalTokens: 10,
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      usage: {
+        inputTokens: 4,
+        outputTokens: 6,
+        totalTokens: 10,
+      },
     })
   })
 
@@ -6131,7 +6031,6 @@ describe("agent message protocol", () => {
             context.delivery.finishEffect(context => context.reply(context.result!.text!))
           },
         }),
-        usageTelemetry(),
       ],
       channels: {
         review: defineChannel("review", {
@@ -6179,10 +6078,12 @@ describe("agent message protocol", () => {
     }
 
     expect(delivered).toHaveBeenCalledWith("event usage:13")
-    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toMatchObject({
-      inputTokens: 8,
-      outputTokens: 5,
-      totalTokens: 13,
+    expect(finish.mock.calls[0]![0].invocation.usage).toMatchObject({
+      usage: {
+        inputTokens: 8,
+        outputTokens: 5,
+        totalTokens: 13,
+      },
     })
   })
 
