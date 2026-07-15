@@ -19,6 +19,7 @@
     "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
+    "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/queue": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/schedule": "workspace:*",

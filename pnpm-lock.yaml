@@ -163,7 +163,7 @@ catalogs:
       specifier: ^14.3.0
       version: 14.3.0
     comark:
-      specifier: ^0.5.1
+      specifier: 0.5.1
       version: 0.5.1
     tailwindcss:
       specifier: ^4.1.18
@@ -299,6 +299,9 @@ importers:
       '@vite-hub/kv':
         specifier: workspace:*
         version: link:packages/kv
+      '@vite-hub/markdown-template':
+        specifier: workspace:*
+        version: link:packages/markdown-template
       '@vite-hub/queue':
         specifier: workspace:*
         version: link:packages/queue
@@ -426,6 +429,9 @@ importers:
       '@vite-hub/devtools':
         specifier: workspace:*
         version: link:../devtools
+      '@vite-hub/markdown-template':
+        specifier: workspace:*
+        version: link:../markdown-template
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -798,6 +804,25 @@ importers:
       vite-plus:
         specifier: catalog:tooling
         version: 0.1.24(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(@voidzero-dev/vite-plus-core@0.1.24)(esbuild@0.28.0)(jiti@2.7.0)(publint@0.3.21)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(unrun@0.2.36)(yaml@2.9.0)
+      vitest:
+        specifier: npm:@voidzero-dev/vite-plus-test@0.1.24
+        version: '@voidzero-dev/vite-plus-test@0.1.24(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.7.0)(publint@0.3.21)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(unrun@0.2.36)(vite@8.0.16)(yaml@2.9.0)'
+
+  packages/markdown-template:
+    dependencies:
+      comark:
+        specifier: catalog:ui
+        version: 0.5.1
+    devDependencies:
+      publint:
+        specifier: catalog:tooling
+        version: 0.3.21
+      typescript:
+        specifier: catalog:tooling
+        version: 6.0.2
+      vite-plus:
+        specifier: catalog:tooling
+        version: 0.1.24(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.7.0)(publint@0.3.21)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(unrun@0.2.36)(vite@8.0.16)(yaml@2.9.0)
       vitest:
         specifier: npm:@voidzero-dev/vite-plus-test@0.1.24
         version: '@voidzero-dev/vite-plus-test@0.1.24(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.7.0)(publint@0.3.21)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(unrun@0.2.36)(vite@8.0.16)(yaml@2.9.0)'

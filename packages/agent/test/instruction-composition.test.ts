@@ -158,7 +158,9 @@ describe("instruction composition", () => {
       },
     })).toBe([
       "Hello Acme.",
+      "",
       "## Policy",
+      "",
       "Use trusted policy.",
       "",
       "Use technical detail.",
@@ -216,6 +218,35 @@ describe("instruction composition", () => {
       .rejects.toThrow("Instruction binding \"{{ context.audience }}\" is not defined")
     await expect(composeInstructionDocument("<policy tone=\"{{ workspace.tone }}\">Use it.</policy>"))
       .rejects.toThrow("Instruction binding \"{{ workspace.tone }}\" is not defined")
+  })
+
+  it("composes multiline XML blocks while enforcing context-only conditions", async () => {
+    expect(await composeInstructionDocument([
+      "<policy>",
+      "Use {{ context.name }}.",
+      "::if{context.enabled}",
+      "{{{ context.section }}}",
+      "::",
+      "</policy>",
+    ].join("\n"), {
+      context: { enabled: true, name: "Acme", section: "**Trusted** guidance." },
+    })).toBe([
+      "<policy>",
+      "Use Acme.",
+      "",
+      "**Trusted** guidance.",
+      "",
+      "</policy>",
+    ].join("\n"))
+
+    await expect(composeInstructionDocument([
+      "<policy>",
+      "::if{workspace.enabled}",
+      "Forbidden",
+      "::",
+      "</policy>",
+    ].join("\n"), { workspace: { enabled: true } }))
+      .rejects.toThrow("Unsafe instruction condition")
   })
 
   it("parses boolean chains without skipping the right side", async () => {
@@ -301,6 +332,12 @@ describe("instruction composition", () => {
     ].join("\n\n"))
   })
 
+  it("requires workspace Markdown to use recursive imports", async () => {
+    await expect(composeInstructionDocument("{{{ workspace.policy }}}", {
+      workspace: { policy: "Use {{ context.name }}." },
+    })).rejects.toThrow("must use a context.* path. Import Workspace Markdown with @workspace.policy")
+  })
+
   it("does not render bindings or directives inside code spans and fences", async () => {
     expect(await composeInstructionDocument([
       "Hello {{ context.name }}.",
@@ -326,6 +363,38 @@ describe("instruction composition", () => {
       "::",
       "```",
     ].join("\n"))
+  })
+
+  it("keeps the full template language literal in fenced, indented, and multiline code", async () => {
+    const syntax = [
+      "{{ context.name }}",
+      "{{{ context.section }}}",
+      "::if{context.enabled}",
+      "@workspace.policy",
+      "::",
+    ]
+    const output = await composeInstructionDocument([
+      "```md",
+      ...syntax,
+      "```",
+      "",
+      ...syntax.map(line => `    ${line}`),
+      "",
+      `\`\`${syntax[0]}`,
+      ...syntax.slice(1),
+      "``",
+    ].join("\n"), {
+      context: { enabled: true, name: "Acme", section: "Rendered" },
+      workspace: { policy: "Imported" },
+    })
+
+    expect(output).not.toContain("Acme")
+    expect(output).not.toContain("Rendered")
+    expect(output).not.toContain("Imported")
+    expect(output.match(/@workspace\.policy/g)).toHaveLength(3)
+    expect(output.match(/\{\{ context\.name \}\}/g)).toHaveLength(3)
+    expect(output.match(/\{\{\{ context\.section \}\}\}/g)).toHaveLength(3)
+    expect(output.match(/::if\{context\.enabled\}/g)).toHaveLength(3)
   })
 
   it("strips explicit instruction coverage wrappers and records covered primitives", async () => {
@@ -354,6 +423,66 @@ describe("instruction composition", () => {
     expect([...coverage.skills]).toEqual(["skills/review-browser-evidence"])
   })
 
+  it("records coverage only from selected authored and workspace-imported branches", async () => {
+    const coverage = createInstructionCoverage()
+    const document = [
+      "::if{context.enabled}",
+      "::source{key=\"selected-source\"}",
+      "Use the selected Source.",
+      "::",
+      "::else",
+      "::capability",
+      "Do not validate or cover this branch.",
+      "::",
+      "::",
+      "@workspace.policy",
+    ].join("\n")
+
+    expect(await composeInstructionDocument(document, {
+      context: { enabled: true },
+      coverage,
+      workspace: {
+        policy: [
+          "::if{context.enabled}",
+          "::skill{path=\"skills/selected\"}",
+          "Use the selected Skill.",
+          "::",
+          "::else",
+          "::source{key=\"unselected-source\"}",
+          "Do not use this Source.",
+          "::",
+          "::",
+        ].join("\n"),
+      },
+    })).toBe([
+      "Use the selected Source.",
+      "",
+      "Use the selected Skill.",
+    ].join("\n"))
+    expect([...coverage.sources]).toEqual(["selected-source"])
+    expect([...coverage.capabilities]).toEqual([])
+    expect([...coverage.skills]).toEqual(["skills/selected"])
+  })
+
+  it("does not treat Markdown-fragment coverage directives as authored coverage", async () => {
+    const coverage = createInstructionCoverage()
+    const injected = [
+      "::source{key=\"injected-source\"}",
+      "Injected content.",
+      "::",
+    ].join("\n")
+
+    expect(await composeInstructionDocument([
+      "::source{key=\"authored-source\"}",
+      "{{{ context.section }}}",
+      "::",
+    ].join("\n"), {
+      context: { section: injected },
+      coverage,
+    })).toBe(injected)
+    expect([...coverage.sources]).toEqual(["authored-source"])
+  })
+
   it("rejects legacy ambient instruction slots", async () => {
     await expect(composeInstructionDocument("{{ workspace.sources }}"))
       .rejects.toThrow("{{ workspace.sources }}\" is no longer supported")
@@ -366,6 +495,9 @@ describe("instruction composition", () => {
   it("rejects unsafe expressions and non-scalar double bindings", async () => {
     await expect(composeInstructionDocument("::if{process.exit()}\nNo\n::"))
       .rejects.toThrow("Unsafe instruction condition")
+    await expect(composeInstructionDocument("::if{workspace.enabled}\nNo\n::", {
+      workspace: { enabled: true },
+    })).rejects.toThrow("Unsafe instruction condition")
     await expect(composeInstructionDocument("{{ context.customer }}", { context: { customer: { name: "Acme" } } }))
       .rejects.toThrow("must resolve to a scalar")
     await expect(composeInstructionDocument("::if{context.enabled}\nEnabled\n::else{condition=\"context.admin\"}\nFallback\n::"))

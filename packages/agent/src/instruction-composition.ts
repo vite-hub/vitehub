@@ -1,6 +1,9 @@
 import { parse } from "comark"
 import binding, { Binding } from "comark/plugins/binding"
 import { renderMarkdown } from "comark/render"
+import { renderMarkdownTemplate } from "@vite-hub/markdown-template"
+
+import type { NodeHandler } from "comark/render"
 
 export interface InstructionImportResolution {
   content: string
@@ -25,6 +28,14 @@ export interface InstructionCoverage {
   sources: Set<string>
 }
 
+interface InstructionCoverageMarker {
+  entries: Array<{
+    attributes: Record<string, unknown>
+    kind: "capability" | "skill" | "source"
+  }>
+  prefix: string
+}
+
 type ConditionOperator = "!" | "!=" | "!==" | "&&" | "(" | ")" | "==" | "===" | "||"
 type ConditionToken =
   | { type: "literal", value: unknown }
@@ -34,51 +45,76 @@ type ComarkElementAttributes = Record<string, unknown>
 type ComarkElement = [string, ComarkElementAttributes, ...ComarkNode[]]
 type ComarkComment = [null, ComarkElementAttributes, string]
 type ComarkNode = ComarkComment | ComarkElement | string
-interface ComposeInstructionState {
-  context: Record<string, unknown>
-  coverage?: InstructionCoverage
-  workspace: Record<string, unknown>
-  tripleBindings: string[]
+interface InstructionMarkdownRuntime {
+  components: Record<string, NodeHandler>
+  rawTag: string
+}
+
+interface InstructionTemplateTags {
+  prefix: string
+  values: string[]
+}
+
+interface InstructionProtectedTokens {
+  prefix: string
+  values: string[]
 }
 
 const defaultImportDepth = 4
 const contextPathPattern = /context(?:\.[A-Za-z_$][\w$-]*)+/
-const compositionPathPattern = /^(?:context|workspace)(?:\.[A-Za-z_$][\w$-]*)+$/
-const compositionBindingPattern = /\{\{(?!\{)\s*((?:context|workspace)(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}/g
 const tripleBindingPattern = /\{\{\{\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}\}/g
-const tripleBindingPlaceholderPattern = /%%VITEHUB_TRIPLE_BINDING_(\d+)%%/g
+const instructionTripleBindingPattern = /\{\{\{\s*([A-Za-z_$][\w$-]*(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}\}/g
 const scalarBindingPattern = /\{\{(?!\{)\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}/g
-const legacyCapabilityBindingPattern = /\{\{\s*capabilities(?:\.[A-Za-z_$][\w$-]*)?\s*\}\}/
-const comarkComponents = {
-  Binding,
-  VitehubRaw: (node: ComarkElement) => typeof node[1].value === "string" ? node[1].value : "",
-}
 
 export async function resolveInstructionImports(content: string, options: ResolveInstructionImportsOptions): Promise<string> {
-  return await expandInstructionImports(normalizeConditionShorthand(content), {
+  const runtime = createInstructionMarkdownRuntime()
+  const protectedTokens = createInstructionProtectedTokens()
+  const expanded = await expandInstructionImports(await normalizeDynamicConditionShorthand(content, protectedTokens), {
     ...options,
     maxDepth: options.maxDepth ?? defaultImportDepth,
+    protectedTokens,
+    runtime,
     seen: new Set([options.file]),
   })
+  return restoreInstructionProtectedTokens(expanded, protectedTokens)
 }
 
 export async function composeInstructionDocument(content: string, options: ComposeInstructionDocumentOptions = {}): Promise<string> {
   const state = { context: options.context || {}, workspace: options.workspace || {} }
-  const shorthand = normalizeConditionShorthand(content)
-  validateConditionalDirectives(shorthand)
-  const imported = await expandWorkspaceInstructionImports(shorthand, state.workspace)
-  validateConditionalDirectives(imported)
-  const normalized = await normalizeTripleBindings(imported)
-  const tree = await parseInstructionMarkdown(normalized.content, true)
-  const nodes = await composeNodes(tree.nodes, { ...state, coverage: options.coverage, tripleBindings: normalized.tripleBindings })
-  return cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components: comarkComponents }))
+  const protectedTokens = createInstructionProtectedTokens()
+  const shorthand = await normalizeDynamicConditionShorthand(content, protectedTokens)
+  validateConditionalDirectives(await instructionDirectiveValidationSource(shorthand))
+  const imported = await expandWorkspaceInstructionImports(shorthand, state.workspace, 0, new Set(), protectedTokens)
+  validateConditionalDirectives(await instructionDirectiveValidationSource(imported))
+  validateInstructionMarkdownBindings(imported)
+  await validateLegacyInstructionBindings(imported)
+  await validateInstructionConditions(imported, state.context)
+  const coverageMarker = createInstructionCoverageMarker()
+  const marked = await markInstructionCoverage(imported, coverageMarker)
+
+  try {
+    const rendered = await renderMarkdownTemplate(restoreInstructionProtectedTokens(marked, protectedTokens), { data: state })
+    return await stripMarkedInstructionCoverage(rendered, coverageMarker, options.coverage)
+  }
+  catch (error) {
+    rethrowInstructionCompositionError(error)
+  }
+}
+
+function validateInstructionMarkdownBindings(content: string): void {
+  for (const match of content.matchAll(instructionTripleBindingPattern)) {
+    const path = match[1]!
+    if (!path.startsWith("context.")) {
+      throw new Error(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" must use a context.* path. Import Workspace Markdown with @${path}.`)
+    }
+  }
 }
 
 export function composeStaticInstructionDocument(content: string, options: ComposeInstructionDocumentOptions = {}): string {
   const context = options.context || {}
-  const normalized = normalizeConditionShorthand(content)
+  const normalized = normalizeStaticConditionShorthand(content)
   validateConditionalDirectives(normalized)
-  return stripInstructionCoverageDirectives(renderStaticContextBindings(renderStaticConditionals(normalized, context), context)).trim().replace(/\n{3,}/g, "\n\n")
+  return stripStaticInstructionCoverageDirectives(renderStaticContextBindings(renderStaticConditionals(normalized, context), context)).trim().replace(/\n{3,}/g, "\n\n")
 }
 
 export function createInstructionCoverage(): InstructionCoverage {
@@ -87,6 +123,151 @@ export function createInstructionCoverage(): InstructionCoverage {
     skills: new Set(),
     sources: new Set(),
   }
+}
+
+function createInstructionCoverageMarker(): InstructionCoverageMarker {
+  return {
+    entries: [],
+    prefix: `vitehub-instruction-coverage-${crypto.randomUUID()}`,
+  }
+}
+
+async function validateLegacyInstructionBindings(content: string): Promise<void> {
+  const { tree } = await parseInstructionTemplate(content, true)
+  validateLegacyInstructionBindingNodes(tree.nodes)
+}
+
+function validateLegacyInstructionBindingNodes(nodes: ComarkNode[]): void {
+  for (const node of nodes) {
+    if (!isElement(node)) continue
+    const [tag, attrs, ...children] = node
+    if (tag === "code") continue
+    if (tag === "binding") {
+      const path = attrs[":value"]
+      if (typeof path === "string" && (path === "capabilities" || path.startsWith("capabilities."))) {
+        throw new Error(`[vitehub] Instruction binding "{{ ${path} }}" is no longer supported. Cover Capabilities with ::capability blocks in Agent Driver Instructions.`)
+      }
+      if (path === "workspace.sources") {
+        throw new Error("[vitehub] Instruction binding \"{{ workspace.sources }}\" is no longer supported. Cover Sources with ::source blocks in Agent Driver Instructions.")
+      }
+    }
+    validateLegacyInstructionBindingNodes(children)
+  }
+}
+
+async function validateInstructionConditions(
+  content: string,
+  context: Record<string, unknown>,
+): Promise<void> {
+  const { tree } = await parseInstructionTemplate(content)
+  validateInstructionConditionNodes(tree.nodes, context)
+}
+
+function validateInstructionConditionNodes(
+  nodes: ComarkNode[],
+  context: Record<string, unknown>,
+): void {
+  for (const node of nodes) {
+    if (!isElement(node)) continue
+    const [tag, , ...children] = node
+    if (tag === "code") continue
+    if (tag === "if") {
+      const { after, branches } = conditionalBranches(node)
+      const selected = branches.find(branch =>
+        branch.expression === undefined || evaluateCondition(branch.expression, context))
+      if (selected) validateInstructionConditionNodes(selected.nodes, context)
+      validateInstructionConditionNodes(after, context)
+    }
+    else {
+      validateInstructionConditionNodes(children, context)
+    }
+  }
+}
+
+async function markInstructionCoverage(
+  content: string,
+  marker: InstructionCoverageMarker,
+): Promise<string> {
+  const stack: Array<{ coverage?: number }> = []
+  const lines: string[] = []
+  for (const line of content.split(/\r?\n/)) {
+    if (/^\s*:{2,}\s*$/.test(line)) {
+      const current = stack.pop()
+      lines.push(current?.coverage === undefined
+        ? line
+        : `<!--${coverageMarkerValue(marker, current.coverage, "end")}-->`)
+      continue
+    }
+
+    const directive = line.match(/^\s*(:{2,})([A-Za-z][\w-]*)(?:\{.*\})?\s*$/)
+    if (!directive || directive[2] === "else" || directive[2] === "else-if") {
+      lines.push(line)
+      continue
+    }
+    const tag = directive[2]!
+    if (!isInstructionCoverageTag(tag)) {
+      stack.push({})
+      lines.push(line)
+      continue
+    }
+
+    const attributes = await instructionDirectiveAttributes(line, directive[1]!, tag)
+    const index = marker.entries.push({ attributes, kind: tag }) - 1
+    stack.push({ coverage: index })
+    lines.push(`<!--${coverageMarkerValue(marker, index, "start")}-->`)
+  }
+  return lines.join("\n")
+}
+
+async function instructionDirectiveAttributes(
+  line: string,
+  fence: string,
+  tag: "capability" | "skill" | "source",
+): Promise<Record<string, unknown>> {
+  const tree = await parseInstructionMarkdown(`${line}\nvalue\n${fence}`)
+  const node = tree.nodes.find(node => isElement(node) && node[0] === tag)
+  return node && isElement(node) ? node[1] : {}
+}
+
+async function stripMarkedInstructionCoverage(
+  content: string,
+  marker: InstructionCoverageMarker,
+  coverage: InstructionCoverage | undefined,
+): Promise<string> {
+  let stripped = content
+  for (const [index, entry] of marker.entries.entries()) {
+    const start = `<!--${coverageMarkerValue(marker, index, "start")}-->`
+    const end = `<!--${coverageMarkerValue(marker, index, "end")}-->`
+    if (stripped.includes(start)) recordInstructionCoverage(entry.kind, entry.attributes, coverage)
+    stripped = stripped
+      .replace(new RegExp(`${escapeRegExp(start)}(?:\\r?\\n){0,2}`), "")
+      .replace(new RegExp(`(?:\\r?\\n){0,2}${escapeRegExp(end)}`), "")
+  }
+  return cleanMarkdown(stripped)
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function coverageMarkerValue(
+  marker: InstructionCoverageMarker,
+  index: number,
+  boundary: "end" | "start",
+): string {
+  return `${marker.prefix}-${index}-${boundary}`
+}
+
+function rethrowInstructionCompositionError(error: unknown): never {
+  if (!(error instanceof Error)) throw error
+  const message = error.message
+    .replaceAll("Markdown template fragment", "Instruction markdown binding")
+    .replaceAll("Markdown template binding", "Instruction binding")
+    .replaceAll("Markdown template", "Instruction")
+    .replaceAll("Unsafe Instruction condition", "Unsafe instruction condition")
+    .replaceAll("Invalid Instruction condition", "Invalid instruction condition")
+    .replaceAll("read data paths", "read context.* paths")
+  throw error instanceof TypeError ? new TypeError(message) : new Error(message)
 }
 
 async function parseInstructionMarkdown(content: string, bindings = false) {
@@ -99,24 +280,90 @@ async function parseInstructionMarkdown(content: string, bindings = false) {
   })
 }
 
+function createInstructionMarkdownRuntime(): InstructionMarkdownRuntime {
+  const rawTag = `vitehub-instruction-raw-${crypto.randomUUID().replaceAll("-", "")}`
+  return {
+    components: {
+      Binding,
+      [rawTag]: (node: ComarkElement) => typeof node[1].value === "string" ? node[1].value : "",
+    },
+    rawTag,
+  }
+}
+
+function createInstructionProtectedTokens(): InstructionProtectedTokens {
+  return {
+    prefix: `VITEHUBINSTRUCTIONPROTECTED${crypto.randomUUID().replaceAll("-", "")}`,
+    values: [],
+  }
+}
+
+function restoreInstructionProtectedTokens(
+  content: string,
+  protectedTokens: InstructionProtectedTokens,
+): string {
+  return content.replace(
+    new RegExp(`${protectedTokens.prefix}(\\d+)END`, "g"),
+    (_match, index: string) => protectedTokens.values[Number(index)] ?? _match,
+  )
+}
+
 function cleanMarkdown(content: string): string {
-  return content.trim().replace(/\n{3,}/g, "\n\n")
+  return content.trim()
+}
+
+async function parseInstructionTemplate(content: string, bindings = false) {
+  const tags: InstructionTemplateTags = {
+    prefix: `VITEHUBINSTRUCTIONTAG${crypto.randomUUID().replaceAll("-", "")}`,
+    values: [],
+  }
+  const tree = await parseInstructionMarkdown(maskInstructionTags(content, tags), bindings)
+  return { tags, tree }
+}
+
+async function renderInstructionTemplate(
+  tree: Awaited<ReturnType<typeof parseInstructionMarkdown>>,
+  nodes: ComarkNode[],
+  tags: InstructionTemplateTags,
+  components: Record<string, NodeHandler>,
+): Promise<string> {
+  const rendered = cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components }))
+  return restoreInstructionTags(rendered, tags)
+}
+
+function maskInstructionTags(content: string, tags: InstructionTemplateTags): string {
+  return content.replace(/<\/?[A-Za-z][^<>]*>/g, (tag) => {
+    const index = tags.values.push(tag) - 1
+    return `${tags.prefix}${index}END`
+  })
+}
+
+function restoreInstructionTags(content: string, tags: InstructionTemplateTags): string {
+  return content.replace(
+    new RegExp(`${tags.prefix}(\\d+)END`, "g"),
+    (_match, index: string) => tags.values[Number(index)] ?? _match,
+  )
 }
 
 async function expandInstructionImports(
   content: string,
-  options: ResolveInstructionImportsOptions & { maxDepth: number, seen: Set<string> },
+  options: ResolveInstructionImportsOptions & {
+    maxDepth: number
+    protectedTokens: InstructionProtectedTokens
+    runtime: InstructionMarkdownRuntime
+    seen: Set<string>
+  },
   depth = 0,
 ): Promise<string> {
-  const tree = await parseInstructionMarkdown(content)
+  const { tags, tree } = await parseInstructionTemplate(content)
   const nodes = await expandImportNodes(tree.nodes, options, depth)
-  const rendered = cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components: comarkComponents }))
+  const rendered = await renderInstructionTemplate(tree, nodes, tags, options.runtime.components)
   return content.endsWith("\n") ? `${rendered}\n` : rendered
 }
 
 async function expandImportNodes(
   nodes: ComarkNode[],
-  options: ResolveInstructionImportsOptions & { maxDepth: number, seen: Set<string> },
+  options: ResolveInstructionImportsOptions & { maxDepth: number, protectedTokens: InstructionProtectedTokens, runtime: InstructionMarkdownRuntime, seen: Set<string> },
   depth: number,
 ): Promise<ComarkNode[]> {
   const expanded: ComarkNode[] = []
@@ -126,7 +373,7 @@ async function expandImportNodes(
 
 async function expandImportNode(
   node: ComarkNode,
-  options: ResolveInstructionImportsOptions & { maxDepth: number, seen: Set<string> },
+  options: ResolveInstructionImportsOptions & { maxDepth: number, protectedTokens: InstructionProtectedTokens, runtime: InstructionMarkdownRuntime, seen: Set<string> },
   depth: number,
 ): Promise<ComarkNode[]> {
   if (typeof node === "string") return await replaceImportsInText(node, options, depth)
@@ -139,13 +386,13 @@ async function expandImportNode(
 
 async function replaceImportsInText(
   text: string,
-  options: ResolveInstructionImportsOptions & { maxDepth: number, seen: Set<string> },
+  options: ResolveInstructionImportsOptions & { maxDepth: number, protectedTokens: InstructionProtectedTokens, runtime: InstructionMarkdownRuntime, seen: Set<string> },
   depth: number,
 ): Promise<ComarkNode[]> {
   const nodes: ComarkNode[] = []
   let textNode = ""
   let index = 0
-  for (const match of text.matchAll(/@[^\s<>{}\[\]]+/g)) {
+  for (const match of text.matchAll(/@[^\s<>{}[\]]+/g)) {
     textNode += text.slice(index, match.index)
     const token = match[0]
     const replacement = await importReplacement(token, options, depth)
@@ -154,7 +401,7 @@ async function replaceImportsInText(
     }
     else {
       if (textNode) nodes.push(textNode)
-      nodes.push(rawMarkdownNode(replacement))
+      nodes.push(rawMarkdownNode(replacement, options.runtime))
       textNode = ""
     }
     index = match.index + token.length
@@ -169,60 +416,20 @@ async function expandWorkspaceInstructionImports(
   workspace: Record<string, unknown>,
   depth = 0,
   seen: Set<string> = new Set(),
+  protectedTokens: InstructionProtectedTokens = createInstructionProtectedTokens(),
 ): Promise<string> {
-  const tree = await parseInstructionMarkdown(content)
-  const nodes = await expandWorkspaceImportNodes(tree.nodes, workspace, depth, seen)
-  const rendered = cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components: comarkComponents }))
-  return content.endsWith("\n") ? `${rendered}\n` : rendered
-}
-
-async function expandWorkspaceImportNodes(
-  nodes: ComarkNode[],
-  workspace: Record<string, unknown>,
-  depth: number,
-  seen: Set<string>,
-): Promise<ComarkNode[]> {
-  const expanded: ComarkNode[] = []
-  for (const node of nodes) expanded.push(...await expandWorkspaceImportNode(node, workspace, depth, seen))
-  return expanded
-}
-
-async function expandWorkspaceImportNode(
-  node: ComarkNode,
-  workspace: Record<string, unknown>,
-  depth: number,
-  seen: Set<string>,
-): Promise<ComarkNode[]> {
-  if (typeof node === "string") return await replaceWorkspaceImportsInText(node, workspace, depth, seen)
-  if (!isElement(node)) return [node]
-
-  const [tag, attrs, ...children] = node
-  if (tag === "code") return [node]
-  return [[tag, attrs, ...(await expandWorkspaceImportNodes(children, workspace, depth, seen))] as ComarkElement]
-}
-
-async function replaceWorkspaceImportsInText(
-  text: string,
-  workspace: Record<string, unknown>,
-  depth: number,
-  seen: Set<string>,
-): Promise<ComarkNode[]> {
-  const nodes: ComarkNode[] = []
-  let index = 0
-  for (const match of text.matchAll(/@workspace(?:\.[A-Za-z_$][\w$-]*)+/g)) {
-    const before = text.slice(index, match.index)
-    if (before) nodes.push(before)
-    const token = match[0]
-    nodes.push(rawMarkdownNode(await workspaceImportReplacement(token, workspace, depth, seen)))
-    index = match.index + token.length
+  let expanded = ""
+  let offset = 0
+  for (const match of content.matchAll(/@workspace(?:\.[A-Za-z_$][\w$-]*)+/g)) {
+    expanded += content.slice(offset, match.index)
+    expanded += await workspaceImportReplacement(match[0], workspace, depth, seen, protectedTokens)
+    offset = match.index + match[0].length
   }
-  const after = text.slice(index)
-  if (after) nodes.push(after)
-  return nodes
+  return expanded + content.slice(offset)
 }
 
-function rawMarkdownNode(value: string): ComarkElement {
-  return ["vitehub-raw", { value }]
+function rawMarkdownNode(value: string, runtime: InstructionMarkdownRuntime): ComarkElement {
+  return [runtime.rawTag, { value }]
 }
 
 async function workspaceImportReplacement(
@@ -230,6 +437,7 @@ async function workspaceImportReplacement(
   workspace: Record<string, unknown>,
   depth: number,
   seen: Set<string>,
+  protectedTokens: InstructionProtectedTokens,
 ): Promise<string> {
   if (depth >= defaultImportDepth) {
     throw new Error(`[vitehub] Instruction workspace import depth exceeded ${defaultImportDepth}.`)
@@ -247,7 +455,13 @@ async function workspaceImportReplacement(
   }
   seen.add(path)
   try {
-    return await expandWorkspaceInstructionImports(normalizeConditionShorthand(value), workspace, depth + 1, seen)
+    return await expandWorkspaceInstructionImports(
+      await normalizeDynamicConditionShorthand(value, protectedTokens),
+      workspace,
+      depth + 1,
+      seen,
+      protectedTokens,
+    )
   }
   finally {
     seen.delete(path)
@@ -256,7 +470,7 @@ async function workspaceImportReplacement(
 
 async function importReplacement(
   token: string,
-  options: ResolveInstructionImportsOptions & { maxDepth: number, seen: Set<string> },
+  options: ResolveInstructionImportsOptions & { maxDepth: number, protectedTokens: InstructionProtectedTokens, runtime: InstructionMarkdownRuntime, seen: Set<string> },
   depth: number,
 ): Promise<string | undefined> {
   if (/^@(?:https?:)?\/\//.test(token) || token.startsWith("@/")) {
@@ -279,14 +493,94 @@ async function importReplacement(
   }
   options.seen.add(resolved.file)
   try {
-    return `${await expandInstructionImports(normalizeConditionShorthand(resolved.content), { ...options, file: resolved.file }, depth + 1)}${trailing}`
+    return `${await expandInstructionImports(await normalizeDynamicConditionShorthand(resolved.content, options.protectedTokens), { ...options, file: resolved.file }, depth + 1)}${trailing}`
   }
   finally {
     options.seen.delete(resolved.file)
   }
 }
 
-function normalizeConditionShorthand(content: string): string {
+async function normalizeDynamicConditionShorthand(
+  content: string,
+  protectedTokens: InstructionProtectedTokens,
+): Promise<string> {
+  const nonce = crypto.randomUUID().replaceAll("-", "")
+  const prefix = `VITEHUBINSTRUCTIONCANDIDATE${nonce}`
+  const candidates: Array<{ kind: "directive" | "syntax", value: string }> = []
+  let masked = content.replace(/^(\s*)(::[^\r\n]*)$/gm, (_match, indentation: string, directive: string) => {
+    const index = candidates.push({ kind: "directive", value: directive }) - 1
+    return `${indentation}${prefix}${index}END`
+  })
+  masked = masked.replace(/\{\{\{[^{}\r\n]*\}\}\}|\{\{[^{}\r\n]*\}\}/g, (binding) => {
+    const index = candidates.push({ kind: "syntax", value: binding }) - 1
+    return `${prefix}${index}END`
+  })
+  masked = masked.replace(/@[^\s<>{}[\]]+/g, (specifier) => {
+    const index = candidates.push({ kind: "syntax", value: specifier }) - 1
+    return `${prefix}${index}END`
+  })
+  if (!candidates.length) return content
+
+  const { tree } = await parseInstructionTemplate(masked)
+  const inCode = instructionDirectiveTokensInCode(tree.nodes, prefix)
+  return masked.replace(new RegExp(`${prefix}(\\d+)END`, "g"), (_match, index: string) => {
+    const candidate = candidates[Number(index)]
+    if (!candidate) return _match
+    if (!inCode.has(Number(index))) {
+      return candidate.kind === "directive" ? normalizeConditionDirective(candidate.value) : candidate.value
+    }
+    const protectedIndex = protectedTokens.values.push(candidate.value) - 1
+    return `${protectedTokens.prefix}${protectedIndex}END`
+  })
+}
+
+function normalizeConditionDirective(directive: string): string {
+  return directive.replace(/^(::(?:if|else-if))\{([\s\S]+)\}(\s*)$/, (match, start: string, expression: string, end: string) =>
+    /^(?:if|condition)\s*=/.test(expression.trim())
+      ? match
+      : `${start}{condition=${JSON.stringify(expression.trim())}}${end}`)
+}
+
+async function instructionDirectiveValidationSource(content: string): Promise<string> {
+  const prefix = `VITEHUBINSTRUCTIONVALIDATION${crypto.randomUUID().replaceAll("-", "")}`
+  const directives: string[] = []
+  const masked = content.replace(/^(\s*)(::[^\r\n]*)$/gm, (_match, indentation: string, directive: string) => {
+    const index = directives.push(directive) - 1
+    return `${indentation}${prefix}${index}END`
+  })
+  if (!directives.length) return content
+
+  const { tree } = await parseInstructionTemplate(masked)
+  const inCode = instructionDirectiveTokensInCode(tree.nodes, prefix)
+  return masked.replace(new RegExp(`${prefix}(\\d+)END`, "g"), (_match, index: string) =>
+    inCode.has(Number(index)) ? "code" : directives[Number(index)] ?? _match)
+}
+
+function instructionDirectiveTokensInCode(
+  nodes: ComarkNode[],
+  prefix: string,
+  inCode = false,
+): Set<number> {
+  const found = new Set<number>()
+  for (const node of nodes) {
+    if (typeof node === "string") {
+      if (inCode) {
+        for (const match of node.matchAll(new RegExp(`${prefix}(\\d+)END`, "g"))) found.add(Number(match[1]))
+      }
+      continue
+    }
+    if (!isElement(node)) continue
+    const nested = instructionDirectiveTokensInCode(
+      node.slice(2) as ComarkNode[],
+      prefix,
+      inCode || node[0] === "code",
+    )
+    for (const index of nested) found.add(index)
+  }
+  return found
+}
+
+function normalizeStaticConditionShorthand(content: string): string {
   let fenced: string | undefined
   return content.split(/\r?\n/).map((line) => {
     const fence = line.match(/^\s*(```|~~~)/)?.[1]
@@ -300,143 +594,6 @@ function normalizeConditionShorthand(content: string): string {
         ? match
         : `${start}{condition=${JSON.stringify(expression.trim())}}${end}`)
   }).join("\n")
-}
-
-async function normalizeTripleBindings(content: string): Promise<{ content: string, tripleBindings: string[] }> {
-  const tripleBindings: string[] = []
-  const tree = await parseInstructionMarkdown(content)
-  const nodes = replaceTextOutsideCode(tree.nodes, value =>
-    value.replace(tripleBindingPattern, (_match, path: string) => {
-      const index = tripleBindings.push(path) - 1
-      return `%%VITEHUB_TRIPLE_BINDING_${index}%%`
-    }))
-  return {
-    content: await renderMarkdown({ ...tree, nodes }, { components: comarkComponents }),
-    tripleBindings,
-  }
-}
-
-function replaceTextOutsideCode(nodes: ComarkNode[], replace: (value: string) => string): ComarkNode[] {
-  return nodes.map((node) => {
-    if (typeof node === "string") return replace(node)
-    if (!isElement(node)) return node
-    const [tag, attrs, ...children] = node
-    if (tag === "code") return node
-    return [tag, attrs, ...replaceTextOutsideCode(children, replace)] as ComarkElement
-  })
-}
-
-async function composeNodes(
-  nodes: ComarkNode[],
-  state: ComposeInstructionState,
-  parent?: string,
-): Promise<ComarkNode[]> {
-  return (await Promise.all(nodes.map(node => composeNode(node, state, parent)))).flat()
-}
-
-async function composeNode(
-  node: ComarkNode,
-  state: ComposeInstructionState,
-  parent?: string,
-): Promise<ComarkNode[]> {
-  if (typeof node === "string") return await composeTextNode(node, state, parent)
-  if (!isElement(node)) return [node]
-  const [tag, attrs, ...children] = node
-
-  if (tag === "code") return [node]
-  if (isHtmlElementAttributes(attrs)) {
-    return [[tag, composeHtmlAttributes(attrs, state), ...(await composeNodes(children, state, tag))] as ComarkElement]
-  }
-  if (tag === "if") return await composeIfNode(node, state)
-  if (tag === "else" || tag === "else-if") {
-    throw new Error(`[vitehub] Instruction ${tag} block must follow an if block.`)
-  }
-  if (tag === "binding") return [renderBinding(attrs, state)]
-  if (isInstructionCoverageTag(tag)) {
-    recordInstructionCoverage(tag, attrs, state.coverage)
-    return await composeNodes(children, state, parent)
-  }
-  if (tag === "vitehubTriple" || tag === "vitehub-triple") {
-    return await renderTripleBinding(attrs, state.context, parent)
-  }
-  if (tag === "p") {
-    const path = soleTripleBindingPath(children, state.tripleBindings)
-    // ponytail: Parse standalone bindings as Markdown once without recursively composing their template syntax.
-    if (path) return await renderTripleBindingPath(path, state.context)
-  }
-  return [[tag, composeHtmlAttributes(attrs, state), ...(await composeNodes(children, state, tag))] as ComarkElement]
-}
-
-async function composeTextNode(
-  value: string,
-  state: ComposeInstructionState,
-  parent?: string,
-): Promise<ComarkNode[]> {
-  rejectLegacyCapabilityBinding(value)
-  const nodes: ComarkNode[] = []
-  let index = 0
-  for (const match of value.matchAll(tripleBindingPlaceholderPattern)) {
-    nodes.push(value.slice(index, match.index))
-    const path = state.tripleBindings[Number(match[1])]
-    nodes.push(...(path ? await renderTripleBindingPath(path, state.context, parent) : [match[0]]))
-    index = match.index + match[0].length
-  }
-  nodes.push(value.slice(index))
-  return nodes.filter(node => node !== "")
-}
-
-function renderBinding(
-  attrs: Record<string, unknown>,
-  scopes: { context: Record<string, unknown>, workspace: Record<string, unknown> },
-): ComarkNode {
-  const path = attrs[":value"]
-  if (typeof path === "string" && (path === "capabilities" || path.startsWith("capabilities."))) {
-    throw new Error(`[vitehub] Instruction binding "{{ ${path} }}" is no longer supported. Cover Capabilities with ::capability blocks in Agent Driver Instructions.`)
-  }
-  if (typeof path !== "string" || !compositionPathPattern.test(path)) return ["binding", attrs]
-  if (path === "workspace.sources") {
-    throw new Error("[vitehub] Instruction binding \"{{ workspace.sources }}\" is no longer supported. Cover Sources with ::source blocks in Agent Driver Instructions.")
-  }
-  return renderScalarBinding(path, scopes)
-}
-
-function renderScalarBinding(
-  path: string,
-  scopes: { context: Record<string, unknown>, workspace: Record<string, unknown> },
-): string {
-  const value = namespacePathValue(path.startsWith("workspace.") ? scopes.workspace : scopes.context, path)
-  if (value === null || value === undefined) {
-    throw new Error(`[vitehub] Instruction binding "{{ ${path} }}" is not defined.`)
-  }
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value)
-  throw new TypeError(`[vitehub] Instruction binding "{{ ${path} }}" must resolve to a scalar value.`)
-}
-
-function composeHtmlAttributes(
-  attrs: Record<string, unknown>,
-  state: Pick<ComposeInstructionState, "context" | "workspace">,
-): Record<string, unknown> {
-  if (!isHtmlElementAttributes(attrs)) return attrs
-  return Object.fromEntries(Object.entries(attrs).map(([name, value]) => [
-    name,
-    typeof value === "string"
-      ? value.replace(compositionBindingPattern, (_match, path: string) => escapeHtmlAttribute(renderScalarBinding(path, state)))
-      : value,
-  ]))
-}
-
-function isHtmlElementAttributes(attrs: Record<string, unknown>): boolean {
-  return (attrs.$ as { html?: unknown } | undefined)?.html === 1
-}
-
-function escapeHtmlAttribute(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-}
-
-function rejectLegacyCapabilityBinding(value: string): void {
-  const match = value.match(legacyCapabilityBindingPattern)
-  if (!match) return
-  throw new Error(`[vitehub] Instruction binding "${match[0]}" is no longer supported. Cover Capabilities with ::capability blocks in Agent Driver Instructions.`)
 }
 
 function isInstructionCoverageTag(tag: string): tag is "capability" | "skill" | "source" {
@@ -464,7 +621,7 @@ function recordInstructionCoverage(
   if (tag === "source") coverage.sources.add(value)
 }
 
-function stripInstructionCoverageDirectives(content: string): string {
+function stripStaticInstructionCoverageDirectives(content: string): string {
   let depth = 0
   const lines: string[] = []
   for (const line of content.split(/\r?\n/)) {
@@ -479,49 +636,6 @@ function stripInstructionCoverageDirectives(content: string): string {
     lines.push(line)
   }
   return lines.join("\n")
-}
-
-async function renderTripleBinding(
-  attrs: Record<string, unknown>,
-  context: Record<string, unknown>,
-  parent?: string,
-): Promise<ComarkNode[]> {
-  const path = attrs.path
-  if (typeof path !== "string" || !path.startsWith("context.")) return []
-  return await renderTripleBindingPath(path, context, parent)
-}
-
-async function renderTripleBindingPath(
-  path: string,
-  context: Record<string, unknown>,
-  parent?: string,
-): Promise<ComarkNode[]> {
-  const value = namespacePathValue(context, path)
-  if (value === null || value === undefined) {
-    throw new Error(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" is not defined.`)
-  }
-  if (typeof value !== "string") {
-    throw new TypeError(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" must resolve to a string.`)
-  }
-  if (parent === "p") return [rawMarkdownNode(value)]
-  const nodes = (await parseInstructionMarkdown(value)).nodes
-  return nodes
-}
-
-function soleTripleBindingPath(children: ComarkNode[], bindings: string[]): string | undefined {
-  if (children.length !== 1 || typeof children[0] !== "string") return
-  const match = children[0].match(/^%%VITEHUB_TRIPLE_BINDING_(\d+)%%$/)
-  return match ? bindings[Number(match[1])] : undefined
-}
-
-async function composeIfNode(node: ComarkElement, state: ComposeInstructionState): Promise<ComarkNode[]> {
-  const { after, branches } = conditionalBranches(node)
-  const selected = branches.find(branch =>
-    branch.expression === undefined || evaluateCondition(branch.expression, state.context))
-  return [
-    ...(selected ? await composeNodes(selected.nodes, state) : []),
-    ...await composeNodes(after, state),
-  ]
 }
 
 function conditionalBranches(node: ComarkElement): { after: ComarkNode[], branches: Array<{ expression?: string, nodes: ComarkNode[] }> } {
@@ -561,7 +675,7 @@ function conditionExpressionFromAttrs(attrs: Record<string, unknown>, kind: stri
 }
 
 function validateConditionalDirectives(content: string): void {
-  const stack: Array<{ sawElse: boolean }> = []
+  const stack: Array<{ kind: "if", sawElse: boolean } | { kind: "other" }> = []
   let fenced: string | undefined
 
   for (const line of content.split(/\r?\n/)) {
@@ -577,14 +691,17 @@ function validateConditionalDirectives(content: string): void {
     }
 
     const directive = directiveLine(line)
-    if (!directive) continue
+    if (!directive) {
+      if (/^\s*::[A-Za-z][\w-]*(?:\{.*\})?\s*$/.test(line)) stack.push({ kind: "other" })
+      continue
+    }
     if (directive.kind === "if") {
-      stack.push({ sawElse: false })
+      stack.push({ kind: "if", sawElse: false })
       continue
     }
 
     const current = stack.at(-1)
-    if (!current) {
+    if (!current || current.kind !== "if") {
       throw new Error(`[vitehub] Instruction ${directive.kind} block must follow an if block.`)
     }
     if (directive.kind === "else-if") {
@@ -598,7 +715,9 @@ function validateConditionalDirectives(content: string): void {
     current.sawElse = true
   }
 
-  if (stack.length) throw new Error("[vitehub] Instruction if block is missing a closing :: line.")
+  if (stack.some(entry => entry.kind === "if")) {
+    throw new Error("[vitehub] Instruction if block is missing a closing :: line.")
+  }
 }
 
 function renderStaticConditionals(content: string, context: Record<string, unknown>): string {
@@ -773,7 +892,7 @@ function createConditionParser(tokens: ConditionToken[], expression: string, con
     const token = peek()
     if (token?.type === "op" && token.value === "!") {
       take("!")
-      return !Boolean(parseUnary())
+      return !parseUnary()
     }
     return parsePrimary()
   }

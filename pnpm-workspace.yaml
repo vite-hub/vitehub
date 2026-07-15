@@ -71,7 +71,7 @@ catalogs:
     vue-tsc: ^3.2.6
   ui:
     "@comark/vue": ^0.5.1
-    comark: ^0.5.1
+    comark: 0.5.1
     "@iconify-json/lucide": ^1.2.111
     "@iconify-json/ph": ^1.2.2
     "@iconify-json/simple-icons": ^1.2.84
