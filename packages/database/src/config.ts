@@ -243,7 +243,8 @@ function hasConnectionValue(value: DatabaseConfigValue | undefined) {
 
 function selectConnectionValue(value: DatabaseConfigValue | undefined, fallback: DatabaseConfigValue | undefined) {
   const resolved = resolveConfigValue(value)
-  return typeof resolved === "string" && resolved.trim() ? value : fallback
+  if (typeof resolved === "string" && resolved.trim()) return value
+  return typeof value === "object" && typeof fallback !== "undefined" ? value : fallback
 }
 
 function resolveDefinitionConnection(file: string, name: string, fallback?: DatabaseConnectionConfig) {

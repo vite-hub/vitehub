@@ -186,6 +186,35 @@ describe("resolveDBViteConfig", () => {
     })
   })
 
+  it("preserves an unresolved definition URL over the integration connection", async () => {
+    const rootDir = await createTempProject()
+    const originalUrl = process.env.ANALYTICS_DATABASE_URL
+    delete process.env.ANALYTICS_DATABASE_URL
+
+    try {
+      await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+        connection: "    url: process.env.ANALYTICS_DATABASE_URL,",
+      })
+
+      expect(resolveDBViteConfig({
+        connection: {
+          authToken: "integration-token",
+          url: "libsql://integration.example.turso.io",
+        },
+      }, rootDir)?.databases.default.connection).toEqual({
+        authToken: "integration-token",
+        url: {
+          kind: "env-variable",
+          source: { kind: "env", name: "ANALYTICS_DATABASE_URL" },
+        },
+      })
+    }
+    finally {
+      if (typeof originalUrl === "undefined") delete process.env.ANALYTICS_DATABASE_URL
+      else process.env.ANALYTICS_DATABASE_URL = originalUrl
+    }
+  })
+
   it("preserves an unresolved definition auth token for a remote URL", async () => {
     const rootDir = await createTempProject()
     const originalAuthToken = process.env.TURSO_AUTH_TOKEN
