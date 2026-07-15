@@ -22,7 +22,7 @@ function jsonValueFromResult(result: unknown): unknown {
   const directText = result && typeof result === "object" && "text" in result
     ? (result as { text?: unknown }).text
     : undefined
-  const text = typeof directText === "string" ? directText : toAgentRunResult(result).text
+  const text = typeof directText === "string" && directText ? directText : toAgentRunResult(result).text
   if (text === undefined) return result
 
   try {

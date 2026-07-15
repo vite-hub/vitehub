@@ -2404,7 +2404,9 @@ export async function runAgentInline<
         : result
       const final = renderOutput ? await applyFinalOutputRenderers(rendered, runContext, outputExtensions) : rendered
       const structuredFinal = renderOutput && runContext.output ? await materializeAgentStructuredOutput(final) : final
-      const structuredUsageRecord = renderOutput && runContext.output ? await resolveFinishUsageRecord(runContext, structuredFinal) : driverUsageRecord
+      const structuredUsageRecord = renderOutput && runContext.output
+        ? await resolveFinishUsageRecord(runContext, structuredFinal) ?? driverUsageRecord
+        : driverUsageRecord
       const value = renderOutput && runContext.output
         ? await validateAgentOutput(runContext.output, structuredFinal, { allowMaterializedObject: structuredFinal === final })
         : final
@@ -2440,7 +2442,9 @@ export async function runAgentInline<
     const rendered = renderOutput ? await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions) : result
     const final = renderOutput ? await applyFinalOutputRenderers(rendered, adapterContext, outputExtensions) : rendered
     const structuredFinal = renderOutput && adapterContext.output ? await materializeAgentStructuredOutput(final) : final
-    const structuredUsageRecord = renderOutput && adapterContext.output ? await resolveFinishUsageRecord(adapterContext, structuredFinal) : driverUsageRecord
+    const structuredUsageRecord = renderOutput && adapterContext.output
+      ? await resolveFinishUsageRecord(adapterContext, structuredFinal) ?? driverUsageRecord
+      : driverUsageRecord
     const runResult = renderOutput && adapterContext.output
       ? await validateAgentOutput(adapterContext.output, structuredFinal, { allowMaterializedObject: structuredFinal === final && final !== result })
       : renderOutput ? toAgentRunResult(final) : final
