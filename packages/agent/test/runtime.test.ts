@@ -1609,8 +1609,8 @@ describe("agent message protocol", () => {
     await runAgent(defaultAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "default" })
     await runAgent(configuredAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "configured" })
 
-    expect(adaptSandbox).toHaveBeenNthCalledWith(1, expect.any(Object), { defaultSandbox: true })
-    expect(adaptSandbox).toHaveBeenNthCalledWith(2, provider, { defaultSandbox: false })
+    expect(adaptSandbox).toHaveBeenNthCalledWith(1, expect.any(Object), { box: false, defaultSandbox: true })
+    expect(adaptSandbox).toHaveBeenNthCalledWith(2, provider, { box: false, defaultSandbox: false })
   })
 
   it("resolves function-valued driver.sandbox for each invocation", async () => {
@@ -2376,23 +2376,23 @@ describe("agent message protocol", () => {
     expect(secondSession.detach).toHaveBeenCalledTimes(1)
   })
 
-  it("does not resume harness sessions across different Box identities", async () => {
+  it("does not resume harness sessions across different Box workspaces", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const firstSession = { detach: vi.fn(async () => ({ token: "resume" })), destroy: vi.fn() }
     const secondSession = { detach: vi.fn(async () => ({ token: "next" })), destroy: vi.fn() }
     harnessCreateSession.mockResolvedValueOnce(firstSession).mockResolvedValueOnce(secondSession)
     harnessGenerate.mockResolvedValue({ text: "ok" })
 
-    const agent = defineAgent<any, { home: string, workspace: string }>({
+    const agent = defineAgent<any, { workspace: string }>({
       box: {
         cwd: ({ input }) => input.options?.workspace,
-        home: ({ input }) => input.options?.home,
         runtime: {
           name: "test",
-          async resolve({ cwd, home }) {
+          async resolve({ cwd, identity }) {
             return {
               cache: { state: "disposable" },
-              environment: { env: {}, home },
+              environment: { env: {} },
+              identity,
               isolation: "none",
               requirements: [],
               runtime: "test",
@@ -2408,11 +2408,11 @@ describe("agent message protocol", () => {
     })
 
     await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      options: { home: "/home/one", workspace: "/worktrees/one" },
+      options: { workspace: "/worktrees/one" },
       prompt: "repair",
     })
     await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      options: { home: "/home/two", workspace: "/worktrees/two" },
+      options: { workspace: "/worktrees/two" },
       prompt: "repair",
     })
 
