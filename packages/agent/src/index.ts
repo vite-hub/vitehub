@@ -592,7 +592,7 @@ interface AgentWorkflowRun<TOutput = unknown> {
   payload?: unknown
   provider: string
   result?: TOutput
-  status: "completed" | "failed" | "queued" | "running" | "unknown"
+  status: "cancelled" | "completed" | "failed" | "queued" | "running" | "unknown"
 }
 interface ScheduleRunContextLike {
   attemptId?: string
