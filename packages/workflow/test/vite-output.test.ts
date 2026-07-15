@@ -89,12 +89,14 @@ describe("Vite workflow provider outputs", () => {
     await mkdir(join(rootDir, "server", "agents", "skills", "shared"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "workspace"), { recursive: true })
     await mkdir(inlineAgentDir, { recursive: true })
+    await writeFile(join(agentDir, "repository-host-context.md"), "Repository host context loaded through Vite raw semantics.\n")
     await writeFile(join(agentDir, "agent.ts"), [
       `import { defineAgent } from "@vite-hub/agent"`,
+      `import repositoryHostContext from "./repository-host-context.md?raw"`,
       "",
       "export default defineAgent({",
       "  workspace: {},",
-      `  run: () => "nuxt agent",`,
+      `  run: () => repositoryHostContext,`,
       "})",
       "",
     ].join("\n"))
@@ -162,7 +164,9 @@ describe("Vite workflow provider outputs", () => {
     expect(cloudflareWorkerContents).toContain('runViteHubWorkflowDefinition("welcome"')
     expect(cloudflareWorkerContents).toContain('runViteHubWorkflowDefinition("nuxt"')
     expect(cloudflareWorkerContents).not.toContain('runViteHubWorkflowDefinition("inline"')
-    expect(await readFile(cloudflareWorkerBundle, "utf8")).toContain("runViteHubWorkflowDefinition")
+    const cloudflareWorkerBundleContents = await readFile(cloudflareWorkerBundle, "utf8")
+    expect(cloudflareWorkerBundleContents).toContain("runViteHubWorkflowDefinition")
+    expect(cloudflareWorkerBundleContents).toContain("Repository host context loaded through Vite raw semantics.")
     const registry = await readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8")
     expect(registry).toContain("runAgentWorkflowDefinition")
     expect(registry).toContain('agentIdentity: context.payload?.agentIdentity || { name: "nuxt" }')
@@ -181,6 +185,7 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).not.toContain("Shared directory must not leak")
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
+    expect(await readFile(vercelServer, "utf8")).toContain("Repository host context loaded through Vite raw semantics.")
   }, buildOutputTestTimeout)
 
   it("does not emit Cloudflare workflow artifacts for Vercel provider overrides", async () => {
