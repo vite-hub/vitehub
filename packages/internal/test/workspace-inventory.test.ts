@@ -15,6 +15,7 @@ describe("workspace inventory", () => {
       "cli",
       "database",
       "devtools",
+      "email",
       "env",
       "kv",
       "markdown-template",

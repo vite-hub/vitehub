@@ -28,6 +28,9 @@ catalogs:
     drizzle-kit: ^0.31.10
     drizzle-orm: ^0.44.7
     postgres: ^3.4.9
+  email:
+    "@types/nodemailer": ^8.0.1
+    nodemailer: ^9.0.3
   devtools-compat:
     "@vitejs/devtools-kit": ">=0.2.0"
   esbuild-v27:

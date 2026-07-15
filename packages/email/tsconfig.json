@@ -1,0 +1,27 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "types": [
+      "node",
+      "vitest/globals"
+    ],
+    "baseUrl": "../..",
+    "paths": {
+      "#vitehub/email/definition": [
+        "packages/email/src/runtime/empty-definition.ts"
+      ],
+      "@vite-hub/internal/*": [
+        "packages/internal/src/*.ts"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "test/**/*.test-d.ts"
+  ],
+  "exclude": [
+    "dist"
+  ]
+}

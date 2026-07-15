@@ -26,6 +26,12 @@
       "@vite-hub/devtools": [
         "packages/devtools/src/index.ts"
       ],
+      "@vite-hub/email": [
+        "packages/email/src/index.ts"
+      ],
+      "@vite-hub/email/*": [
+        "packages/email/src/*.ts"
+      ],
       "@vite-hub/env": [
         "packages/env/src/index.ts"
       ],

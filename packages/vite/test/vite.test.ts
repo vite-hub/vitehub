@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 const integrationMocks = vi.hoisted(() => ({
   hubAgent: vi.fn(() => ({ name: "@vite-hub/agent/vite" })),
+  hubEmail: vi.fn(() => ({ name: "@vite-hub/email/vite" })),
   hubKv: vi.fn(() => ({ name: "@vite-hub/kv/vite" })),
   hubQueue: vi.fn(() => ({ name: "@vite-hub/queue/vite" })),
   hubSandbox: vi.fn(() => ({ name: "@vite-hub/sandbox/vite" })),
@@ -12,6 +13,7 @@ vi.mock("@vite-hub/agent/vite", () => ({ hubAgent: integrationMocks.hubAgent }))
 vi.mock("@vite-hub/blob/vite", () => ({ hubBlob: () => ({ name: "@vite-hub/blob/vite" }) }))
 vi.mock("@vite-hub/database/vite", () => ({ hubDb: () => ({ name: "@vite-hub/database/vite" }) }))
 vi.mock("@vite-hub/devtools", () => ({ hubDevtools: () => ({ name: "@vite-hub/devtools" }) }))
+vi.mock("@vite-hub/email/vite", () => ({ hubEmail: integrationMocks.hubEmail }))
 vi.mock("@vite-hub/env/vite", () => ({ hubEnv: () => ({ name: "@vite-hub/env/vite" }) }))
 vi.mock("@vite-hub/kv/vite", () => ({ hubKv: integrationMocks.hubKv }))
 vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue }))
@@ -39,11 +41,12 @@ describe("vitehub", () => {
       "@vite-hub/devtools",
     ])
 
-    expect(pluginNames(vitehub({ kv: true, sandbox: true, schedule: true }))).toEqual([
+    expect(pluginNames(vitehub({ email: true, kv: true, sandbox: true, schedule: true }))).toEqual([
       "@vite-hub/env/vite",
       "@vite-hub/agent/vite",
       "@vite-hub/database/vite",
       "@vite-hub/blob/vite",
+      "@vite-hub/email/vite",
       "@vite-hub/kv/vite",
       "@vite-hub/sandbox/vite",
       "@vite-hub/schedule/vite",
@@ -52,6 +55,7 @@ describe("vitehub", () => {
       "@vite-hub/devtools",
     ])
 
+    expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(undefined)
@@ -65,11 +69,13 @@ describe("vitehub", () => {
 
   it("leaves generated imports owned by each integration package", () => {
     const agent = {}
+    const email = { projectRoot: ".." }
     const schedule = { providerOutput: "nitro" as const }
 
-    vitehub({ agent, schedule })
+    vitehub({ agent, email, schedule })
 
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(agent)
+    expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith(email)
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(schedule)
   })
 

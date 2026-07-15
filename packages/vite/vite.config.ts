@@ -6,7 +6,7 @@ export default defineConfig({
     deps: {
       neverBundle: [
         "vite",
-        /^@vite-hub\/(?:agent|blob|database|devtools|env|kv|queue|sandbox|schedule|workflow|workspace)(?:\/.*)?$/,
+        /^@vite-hub\/(?:agent|blob|database|devtools|email|env|kv|queue|sandbox|schedule|workflow|workspace)(?:\/.*)?$/,
       ],
       onlyBundle: false,
     },

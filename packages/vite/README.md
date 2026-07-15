@@ -55,7 +55,7 @@ export default defineConfig({
 })
 ```
 
-KV, Queue, Sandbox, and Schedule are opt-in. Pass `true` to enable one with inferred defaults, or pass its integration options explicitly. Netlify does not infer a Queue provider.
+Email, KV, Queue, Sandbox, and Schedule are opt-in. Pass `true` to enable one with inferred defaults, or pass its integration options explicitly. Netlify does not infer a Queue provider.
 
 ```ts
 // vite.config.ts
@@ -65,6 +65,7 @@ import { defineConfig } from "vite"
 export default defineConfig({
   plugins: [
     vitehub({
+      email: true,
       kv: true,
       queue: true,
       sandbox: true,

@@ -17,6 +17,7 @@ Use the error family to choose the next proof path before changing implementatio
 | `ApprovalRequiredError` | Runtime Package | A policy decision requires an Approval Request before execution. |
 | `EnvError` | Env Package | Env Declaration resolution, validation, or diagnostics failed. |
 | `AuthenticationRequiredError` | Auth Package | A route or Agent Invoker bridge needs an authenticated application user. |
+| `EmailError` | Email Package | Message validation, missing Email Definition, delivery credentials, throttling, network, timeout, or provider delivery failed. |
 | `QueueError` | Queue Package | Queue dispatch, callback, or provider handling failed. |
 | `WorkspaceError` | Workspace Package | Workspace runtime, store, rule, or file-tree behavior failed. |
 | `WorkspaceNotFoundError` | Workspace Package | The requested Workspace is not registered. |
