@@ -194,9 +194,19 @@ describe("Vite workflow provider outputs", () => {
     await linkNodeModuleEntry(join(playgroundDir, "../../packages/workflow/node_modules/workflow"), join(rootDir, "node_modules", "workflow"))
     const viteConfig = join(rootDir, "vite.config.ts")
     await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replaceAll("workflow: {},", "workflow: { provider: \"vercel\" },"))
+    await writeFile(join(rootDir, "server", "workflows", "durable.ts"), [
+      `async function durableStep() {`,
+      `  "use step"`,
+      `  return "durable"`,
+      `}`,
+      `export async function durable() {`,
+      `  "use workflow"`,
+      `  return durableStep()`,
+      `}`,
+    ].join("\n"))
     await writeFile(join(rootDir, "server", "workflows", "native.ts"), [
       `import { defineWorkflow } from "@vite-hub/workflow"`,
-      `async function durable() { "use workflow"; return "durable" }`,
+      `import { durable } from "./durable"`,
       `export default defineWorkflow(async () => "inline", { native: durable })`,
     ].join("\n"))
 

@@ -67,17 +67,22 @@ async function createVercelWorkflowTransformPlugin(rootDir: string): Promise<Plu
 async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[]): Promise<void> {
   const builders = await loadVercelWorkflowBuilders()
   if (!builders) return
-  const nativeDefinitions = definitions.filter(definition =>
-    statSync(definition.handler).isFile()
-    && builders.detectWorkflowPatterns(readFileSync(definition.handler, "utf8")).hasUseWorkflow,
-  )
-  if (!nativeDefinitions.length) return
+  const definitionDirs = [...new Set(definitions.map(definition => dirname(definition.handler)))]
+  const containsNativeEntry = definitionDirs.some((directory) => {
+    const entries = readdirSync(directory, { recursive: true, withFileTypes: true })
+    return entries.some(entry =>
+      entry.isFile()
+      && /\.(?:c|m)?[jt]sx?$/.test(entry.name)
+      && builders.detectWorkflowPatterns(readFileSync(join(entry.parentPath, entry.name), "utf8")).hasUseWorkflow,
+    )
+  })
+  if (!containsNativeEntry) return
 
   const outputConfigFile = resolve(rootDir, ".vercel", "output", "config.json")
   const viteHubConfig = JSON.parse(await readFile(outputConfigFile, "utf8")) as { routes?: unknown[] }
   const builder = new builders.VercelBuildOutputAPIBuilder({
     buildTarget: "vercel-build-output-api",
-    dirs: [...new Set(nativeDefinitions.map(definition => dirname(definition.handler)))],
+    dirs: definitionDirs,
     projectRoot: rootDir,
     stepsBundlePath: "./.well-known/workflow/v1/step.js",
     webhookBundlePath: "./.well-known/workflow/v1/webhook.js",
