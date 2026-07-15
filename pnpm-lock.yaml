@@ -453,6 +453,9 @@ importers:
       '@vite-hub/email':
         specifier: workspace:*
         version: link:../email
+      '@vite-hub/markdown-template':
+        specifier: workspace:*
+        version: link:../markdown-template
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -812,9 +815,6 @@ importers:
       '@vercel/nft':
         specifier: catalog:vercel
         version: 1.5.0(rollup@4.60.4)
-      '@vite-hub/markdown-template':
-        specifier: workspace:*
-        version: link:../markdown-template
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
