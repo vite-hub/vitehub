@@ -355,7 +355,7 @@ Only one Email Definition is allowed. The integration binds it through an intern
 
 ### `No Email Definition was discovered`
 
-Verify that `vitehub({ email: true })` is registered and that exactly one `server/email.ts` or `server.email.ts` exists below the detected project root. Applications using the owner integration directly can register `hubEmail()` instead. If the Vite root is nested, set `projectRoot` explicitly. Restart the development server, then call `email.send()` again.
+Verify that `vitehub({ email: true })` is registered and that exactly one `server/email.ts` or `server.email.ts` exists below the detected project root. Applications using the owner integration directly can register `hubEmail()` instead. If the Vite root is nested, register `vitehub({ email: { projectRoot } })` explicitly. Restart the development server, then call `email.send()` again.
 
 ### `Only one Email Definition is allowed`
 
