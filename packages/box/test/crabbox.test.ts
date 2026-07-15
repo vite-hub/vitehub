@@ -112,6 +112,9 @@ describe("crabbox", () => {
         await expect(first.run({ command: "true", env: { HOME: "/ambient" } })).rejects.toThrow(
           "cannot override HOME",
         );
+        await expect(
+          first.run({ command: "true", env: { CODEX_HOME: "/ambient" } }),
+        ).rejects.toThrow("cannot override CODEX_HOME");
         await first.run({
           command:
             'printf refreshed > "$HOME/.acme/auth.next" && mv "$HOME/.acme/auth.next" "$HOME/.acme/auth.json"',
