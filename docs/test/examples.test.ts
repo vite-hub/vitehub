@@ -11,6 +11,9 @@ describe("examples catalog", () => {
 
     const header = readFileSync(resolve(docsRoot, "app/components/AppHeader.vue"), "utf8");
     expect(header).toContain('{ label: "Examples", to: "/examples" }');
+
+    const sitemap = readFileSync(resolve(docsRoot, "server/routes/sitemap.xml.ts"), "utf8");
+    expect(sitemap).toContain('{ path: "/examples" }');
   });
 
   it("keeps Babysitter pending until its source is publishable", () => {
