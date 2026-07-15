@@ -15,6 +15,10 @@ describe("types", () => {
         cli: {
           generate: false,
         },
+        connection: {
+          authToken: "token",
+          url: "libsql://database.example.turso.io",
+        },
       },
     }
 

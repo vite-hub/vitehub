@@ -53,7 +53,7 @@ async function writeDatabaseDefinition(rootDir: string, name: string, options: {
   ].join("\n"))
 }
 
-async function createDbBuildProject(prefix: string) {
+async function createDbBuildProject(prefix: string, options: { integrationConnection?: boolean } = {}) {
   const rootDir = await createWorkspaceTempDir(prefix)
   const nodeModules = resolvePlaygroundNodeModules()
   await mkdir(join(rootDir, "src"), { recursive: true })
@@ -77,7 +77,16 @@ async function createDbBuildProject(prefix: string) {
     "    rollupOptions: { input: resolve(import.meta.dirname, 'src/server.ts') },",
     "    ssr: true,",
     "  },",
-    "  plugins: [hubDb()],",
+    ...(options.integrationConnection
+      ? [
+          "  plugins: [hubDb({",
+          "    connection: {",
+          "      authToken: { kind: 'env-variable', source: { kind: 'env', name: 'TURSO_AUTH_TOKEN' } },",
+          "      url: { kind: 'env-variable', source: { kind: 'env', name: 'TURSO_DATABASE_URL' } },",
+          "    },",
+          "  })],",
+        ]
+      : ["  plugins: [hubDb()],"]),
     "})",
     "",
   ].join("\n"))
@@ -88,10 +97,14 @@ async function createDbBuildProject(prefix: string) {
       "    databaseId: process.env.VITEHUB_D1_DATABASE_ID,",
       "    previewDatabaseId: process.env.VITEHUB_D1_PREVIEW_DATABASE_ID,",
     ].join("\n"),
-    connection: [
-      "    authToken: process.env.TURSO_AUTH_TOKEN,",
-      "    url: process.env.TURSO_DATABASE_URL,",
-    ].join("\n"),
+    ...(!options.integrationConnection
+      ? {
+          connection: [
+            "    authToken: process.env.TURSO_AUTH_TOKEN,",
+            "    url: process.env.TURSO_DATABASE_URL,",
+          ].join("\n"),
+        }
+      : {}),
   })
   await writeDatabaseDefinition(rootDir, "analytics", {
     cloudflare: [
@@ -100,10 +113,14 @@ async function createDbBuildProject(prefix: string) {
       "    databaseId: process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID,",
       "    previewDatabaseId: process.env.VITEHUB_D1_ANALYTICS_PREVIEW_DATABASE_ID,",
     ].join("\n"),
-    connection: [
-      "    authToken: process.env.TURSO_AUTH_TOKEN,",
-      "    url: process.env.TURSO_ANALYTICS_DATABASE_URL || process.env.TURSO_DATABASE_URL,",
-    ].join("\n"),
+    ...(!options.integrationConnection
+      ? {
+          connection: [
+            "    authToken: process.env.TURSO_AUTH_TOKEN,",
+            "    url: process.env.TURSO_ANALYTICS_DATABASE_URL || process.env.TURSO_DATABASE_URL,",
+          ].join("\n"),
+        }
+      : {}),
   })
   return rootDir
 }
@@ -394,6 +411,25 @@ describe("Vite db provider outputs", () => {
     expect(vercelServerCode).toContain("process.env.TURSO_DATABASE_URL")
     expect(vercelServerCode).not.toContain("libsql://analytics.example.turso.io")
     expect(vercelServerCode).not.toContain("libsql://database.example.turso.io")
+  }, 30_000)
+
+  it("builds Vercel output from an integration-level external connection", async () => {
+    const rootDir = await createDbBuildProject("vitehub-db-vite-external-", { integrationConnection: true })
+
+    await runDbBuild(rootDir, {
+      TURSO_AUTH_TOKEN: "secret-token",
+      TURSO_DATABASE_URL: "libsql://database.example.turso.io",
+      VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
+      VITEHUB_D1_DATABASE_ID: "primary-d1-id",
+    })
+
+    const vercelServer = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
+    expect(existsSync(vercelServer)).toBe(true)
+    const code = await readFile(vercelServer, "utf8")
+    expect(code).toContain("TURSO_DATABASE_URL")
+    expect(code).toContain("TURSO_AUTH_TOKEN")
+    expect(code).not.toContain("secret-token")
+    expect(code).not.toContain("libsql://database.example.turso.io")
   }, 30_000)
 
   it("skips Vercel output when a named database has no remote fallback URL", async () => {

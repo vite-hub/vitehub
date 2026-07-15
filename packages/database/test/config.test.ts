@@ -139,6 +139,53 @@ describe("resolveDBViteConfig", () => {
     })
   })
 
+  it("uses the integration connection when the definition does not select a host", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts")
+    const originalAuthToken = process.env.TURSO_AUTH_TOKEN
+    const originalUrl = process.env.TURSO_DATABASE_URL
+    process.env.TURSO_AUTH_TOKEN = "token"
+    process.env.TURSO_DATABASE_URL = "libsql://database.example.turso.io"
+
+    const connection = {
+      authToken: {
+        kind: "env-variable" as const,
+        source: { kind: "env" as const, name: "TURSO_AUTH_TOKEN" },
+      },
+      url: {
+        kind: "env-variable" as const,
+        source: { kind: "env" as const, name: "TURSO_DATABASE_URL" },
+      },
+    }
+
+    try {
+      expect(resolveDBViteConfig({ connection }, rootDir)?.databases.default.connection).toEqual(connection)
+    }
+    finally {
+      if (typeof originalAuthToken === "undefined") delete process.env.TURSO_AUTH_TOKEN
+      else process.env.TURSO_AUTH_TOKEN = originalAuthToken
+      if (typeof originalUrl === "undefined") delete process.env.TURSO_DATABASE_URL
+      else process.env.TURSO_DATABASE_URL = originalUrl
+    }
+  })
+
+  it("lets a definition override the integration connection URL", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+      connection: "    url: 'libsql://definition.example.turso.io',",
+    })
+
+    expect(resolveDBViteConfig({
+      connection: {
+        authToken: "integration-token",
+        url: "libsql://integration.example.turso.io",
+      },
+    }, rootDir)?.databases.default.connection).toEqual({
+      authToken: "integration-token",
+      url: "libsql://definition.example.turso.io",
+    })
+  })
+
   it("uses the local connection fallback when an env-only URL is unset", async () => {
     const rootDir = await createTempProject()
     const originalAuthToken = process.env.TURSO_AUTH_TOKEN

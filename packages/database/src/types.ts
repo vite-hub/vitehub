@@ -109,4 +109,6 @@ export interface ResolvedDBViteConfig {
   rootDir: string
 }
 
-export type DBModulePublicOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options>
+export type DBModulePublicOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options> & {
+  connection?: DatabaseConnectionConfig
+}
