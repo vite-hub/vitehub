@@ -5,9 +5,11 @@ import { describe, expect, it } from "vitest"
 
 import * as ownerAgent from "@vite-hub/agent"
 import * as ownerCapabilities from "@vite-hub/agent/capabilities"
+import ownerAuthHandler from "@vite-hub/auth/server"
 import * as framework from "vite-hub"
 import * as frameworkAgent from "vite-hub/agent"
 import * as frameworkCapabilities from "vite-hub/agent/capabilities"
+import frameworkAuthHandler from "vite-hub/auth/server"
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
@@ -23,6 +25,7 @@ describe("framework package contract", () => {
   it("forwards feature APIs from their owner packages", () => {
     expect(frameworkAgent.defineAgent).toBe(ownerAgent.defineAgent)
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
+    expect(frameworkAuthHandler).toBe(ownerAuthHandler)
   })
 
   it("ships every declared export and both CLI names", () => {
