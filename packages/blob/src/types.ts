@@ -60,6 +60,16 @@ export interface BlobPutOptions {
 
 export type BlobPutBody = string | ReadableStream<unknown> | ArrayBuffer | ArrayBufferView | Blob
 
+export type BlobSignOptions =
+  | { expiresIn: number, method: "GET" }
+  | { contentType?: string, createOnly?: boolean, expiresIn: number, method: "PUT" }
+
+export interface BlobSignedRequest {
+  headers: Record<string, string>
+  method: "GET" | "PUT"
+  url: string
+}
+
 export interface BlobDriverAdapter<TOptions> {
   name: string
   options: TOptions
@@ -69,6 +79,7 @@ export interface BlobDriverAdapter<TOptions> {
   head(pathname: string): Promise<BlobObject | null>
   list(options?: BlobListOptions): Promise<BlobListResult>
   put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobObject>
+  sign?(pathname: string, options: BlobSignOptions): Promise<BlobSignedRequest>
 }
 
 export interface BlobEnsureOptions {
@@ -82,6 +93,7 @@ export interface BlobStorage {
   head(pathname: string): Promise<BlobObject>
   list(options?: BlobListOptions): Promise<BlobListResult>
   put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobObject>
+  sign(pathname: string, options: BlobSignOptions): Promise<BlobSignedRequest>
   serve(event: H3Event, pathname: string): Promise<ReadableStream>
   store(name: BlobStoreName): BlobStorage
 }

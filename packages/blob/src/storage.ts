@@ -95,6 +95,15 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>): BlobStorage {
         contentType,
       })
     },
+    async sign(pathname, options) {
+      if (!Number.isInteger(options.expiresIn) || options.expiresIn <= 0) {
+        throw new TypeError("`expiresIn` must be a positive integer.")
+      }
+      if (!driver.sign) {
+        throw new Error(`Blob driver "${driver.name}" does not support signed requests.`)
+      }
+      return driver.sign(normalizePathname(pathname), options)
+    },
     async serve(event, pathname: string) {
       const normalizedPath = normalizePathname(pathname)
       const arrayBuffer = await driver.getArrayBuffer(normalizedPath)
