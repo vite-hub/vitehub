@@ -1,6 +1,6 @@
 # @vite-hub/box
 
-`@vite-hub/box` defines the execution environment used by a ViteHub harness Agent. `trustedHost()` runs against tools, configuration, and authentication already available on the host. `crabbox()` uses Crabbox Static SSH to run the harness through a provider-owned session.
+`@vite-hub/box` prepares one portable execution environment for every harness and command in a ViteHub Agent. A project declares environment inputs, immutable Home files, writable Home state, and boot checks; the selected runtime materializes them without reading the machine's normal Home.
 
 ## Install
 
@@ -8,55 +8,109 @@
 pnpm add @vite-hub/box
 ```
 
-## Trusted host
-
-Declare the Box inline with the Agent Definition:
+## Prepare a trusted-host Box
 
 ```ts
-import { defineAgent } from "@vite-hub/agent"
-import { codexDriver } from "@vite-hub/agent/harness/codex"
-import { trustedHost } from "@vite-hub/box"
+import { defineAgent } from "@vite-hub/agent";
+import { codexDriver } from "@vite-hub/agent/harness/codex";
+import { trustedHost } from "@vite-hub/box";
+import { useServerEnv } from "#vitehub/env/server";
 
 export default defineAgent<any, { worktreePath: string }>({
   box: {
-    runtime: trustedHost(),
+    runtime: trustedHost({ stateRoot: "/var/lib/vitehub/boxes" }),
     cwd: ({ input }) => input.options?.worktreePath,
-    home: "/srv/vitehub/home",
-    requires: ["github", "pnpm"],
+    env: {
+      GH_TOKEN: () => useServerEnv().githubToken.unseal(),
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_TERMINAL_PROMPT: "0",
+    },
+    home: {
+      files: {
+        ".gitconfig": { from: ".vitehub/box/gitconfig" },
+        ".codex/config.toml": { from: ".vitehub/box/codex.toml" },
+      },
+      state: {
+        ".codex": {
+          key: "babysitter/codex",
+          seed: {
+            "auth.json": {
+              contents: () => useServerEnv().codexAuthJson.unseal(),
+            },
+          },
+        },
+      },
+    },
+    requires: [{ name: "GitHub CLI", command: "gh", args: ["auth", "status"] }, "pnpm"],
   },
   driver: codexDriver(),
-})
+});
 ```
 
-`cwd` is an authoritative mutable checkout. `home` points to a portable Home containing configuration such as `.codex`, `.config/gh`, and `.agents/skills`. When `home` is omitted, the Box inherits the host Home.
+Every Box session receives a new private `HOME` plus `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME`. The runtime starts from a small operational environment allowlist, applies the declared `env`, attaches writable state, materializes files, and runs requirements before the harness starts. Missing declarations fail boot; the host Home and undeclared credential variables cannot satisfy them.
 
-The Agent mounts the checkout into a disposable harness root. Project mutations remain in `cwd`, while harness bootstrap packages and resume data are removed with the session.
+`home.files` targets and state paths are relative POSIX paths below the materialized Home. A `from` source is relative to `cwd`, or the ViteHub process directory when `cwd` is omitted. Files with `contents` accept text, bytes, or a `BoxValue` callback. Every declared value is required.
 
-`codexDriver()` contributes `codex` for ambient authentication and `codex-cli` for explicit authentication. At Box boot, `trustedHost()` runs `codex login status` for `codex`, checks only the executable for `codex-cli`, checks `gh auth status` for `github`, and verifies other requirement names on `PATH`.
+The project may commit declarations, non-secret files, and ciphertext. Resolve plaintext through Server Env or another runtime capability. Do not commit plaintext credentials or the capability that decrypts committed ciphertext.
 
-Authentication values remain runtime-owned. A Box stores requirement names and an optional Home path, while its resolved environment is deliberately excluded from JSON serialization.
+## Separate files from state
+
+`home.files` is rebuilt at every boot and never becomes authoritative runtime state. Use it for `.gitconfig`, Codex configuration, arbitrary CLI settings, and immutable credential files.
+
+`home.state` attaches an opaque writable directory from the runtime's protected `stateRoot`. Its `key` is a stable project-owned identity. The runtime resolves `seed` only when that state directory does not exist, so a refreshed OAuth file is never replaced by stale bootstrap data. Sessions sharing a state key are serialized until the owning session stops its processes and releases the lease.
+
+A file may live beneath a state target. The runtime attaches state first and projects the file afterward, so committed configuration wins on every boot while adjacent CLI-owned files remain writable.
+
+`trustedHost({ stateRoot })` requires a durable local path whenever state is declared. Keep it outside the checkout, workspace, build context, cache, and artifact directories. The runtime creates private children but does not change permissions on an existing caller-owned root.
+
+## Use generic requirement checks
+
+A string requirement checks that an executable exists on `PATH`. An object supplies a fixed command and argv after the Box is prepared, without parsing a project-supplied shell command:
+
+```ts
+requires: [
+  "git",
+  { name: "GitHub CLI", command: "gh", args: ["auth", "status"] },
+  { name: "Acme CLI", command: "acme", args: ["auth", "status"] },
+];
+```
+
+Core does not contain provider names or auth-file formats. `codexDriver()` contributes its own generic `codex login status` check when it uses direct OpenAI authentication.
+
+Requirement names, commands, and argv are inspectable declaration metadata. Keep credentials in `env` or Home files rather than arguments.
+
+## Run through Crabbox
+
+```ts
+import { crabbox } from "@vite-hub/box/crabbox"
+
+box: {
+  runtime: crabbox({
+    profile: "babysitter",
+    stateRoot: "/var/lib/vitehub/boxes",
+  }),
+  cwd: ({ input }) => input.options?.worktreePath,
+  env: {
+    GH_TOKEN: () => useServerEnv().githubToken.unseal(),
+  },
+  home: {
+    files: {
+      ".gitconfig": { from: ".vitehub/box/gitconfig" },
+    },
+  },
+}
+```
+
+Crabbox materializes the same declaration on the target before requirement checks. Resolved material travels through Crabbox's protected stdin channel rather than command arguments. The private Home and writable state stay outside Workspace synchronization; only `cwd` is synchronized back.
+
+Crabbox requires `cwd` and targets Linux/POSIX Static SSH hosts. `stateRoot` is an absolute path on the target. Static SSH does not support Crabbox port publishing; use `network: "direct"` only when the target shares the ViteHub process loopback namespace.
+
+Commands must remain owned by their Box session. Daemonizing or escaping the session's process supervision is outside the v1 concurrency guarantee.
 
 ## Security boundary
 
-A trusted-host Box provides no filesystem, credential, or process isolation. Use it only when the Agent is trusted to act as the host user. `@vite-hub/sandbox` remains the isolated execution primitive.
+A Box isolates Home, configuration, and declared process environment from ambient machine state. It does not isolate the filesystem, network, installed executables, or trusted project code. Use `trustedHost()` only when the Agent may act with the host user's authority, and use a real sandbox for untrusted code.
 
-An explicit Box `cwd` cannot currently be combined with an Agent Workspace because Workspace materialization resets its target directory. Omit `cwd` when the Agent should use a disposable Workspace session.
+Resolved environment values, file contents, state, physical Home paths, and sandbox handles are excluded from serialized Box metadata. Requirement failures discard command output, while every process inside the Box remains trusted and can still read or log its credentials. Stable session identity uses declaration targets and state keys, never secret values or temporary paths.
 
-## Crabbox
-
-```ts
-import { defineAgent } from "@vite-hub/agent"
-import { codexDriver } from "@vite-hub/agent/harness/codex"
-import { crabbox } from "@vite-hub/box/crabbox"
-
-export default defineAgent<any, { worktreePath: string }>({
-  box: {
-    runtime: crabbox({ profile: "babysitter" }),
-    cwd: ({ input }) => input.options?.worktreePath,
-    requires: ["github", "pnpm"],
-  },
-  driver: codexDriver(),
-})
-```
-
-Crabbox requires an explicit `cwd`. ViteHub treats that checkout as authoritative, creates a disposable harness cache inside the Crabbox session, and validates requirements inside the selected environment. The adapter targets Linux/POSIX Static SSH hosts. Static SSH does not support Crabbox port publishing; set `network: "direct"` only when the target shares the ViteHub process loopback network namespace.
+An explicit Box `cwd` cannot be combined with Agent Workspace materialization because both would own the working tree. Omit `cwd` when the Agent should use a disposable Workspace session.

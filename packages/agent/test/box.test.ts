@@ -33,7 +33,8 @@ vi.mock("@ai-sdk/harness/agent", () => ({
 
     async generate({ session }: Record<string, any>) {
       const result = await session.host.run({
-        command: "pwd; printf '%s\\n' \"$HOME\" \"$CODEX_HOME\"; test -f AGENTS.md; test -f \"$HOME/.agents/skills/global/SKILL.md\"; test -f \"$CODEX_HOME/config.toml\"; test ! -s \"$CODEX_HOME/config.toml\"; test \"$(readlink \"$CODEX_HOME/auth.json\")\" = \"$HOME/.codex/auth.json\"; printf changed > changed.txt",
+        command:
+          'codex_home="${CODEX_HOME:-$HOME/.codex}"; pwd; printf \'%s\\n\' "$HOME" "$codex_home"; test -f AGENTS.md; test -f "$codex_home/skills/global/SKILL.md"; grep -q configured-model "$codex_home/config.toml"; grep -q box "$codex_home/auth.json"; printf changed > changed.txt',
         workingDirectory: session.sessionWorkDir,
       })
       if (result.exitCode) throw new Error(result.stderr)
@@ -53,19 +54,14 @@ describe("Agent Box", () => {
   it("runs Codex in the authoritative trusted-host workspace with the selected Home", async () => {
     const root = await temporaryRoot()
     const worktree = join(root, "worktree")
-    const home = join(root, "home")
+    const stateRoot = join(root, "state")
     const bin = join(root, "bin")
     await Promise.all([
       mkdir(worktree),
-      mkdir(join(home, ".agents", "skills", "global"), { recursive: true }),
-      mkdir(join(home, ".codex"), { recursive: true }),
       mkdir(bin),
     ])
     await Promise.all([
       writeFile(join(worktree, "AGENTS.md"), "Repository instructions.\n"),
-      writeFile(join(home, ".agents", "skills", "global", "SKILL.md"), "Global skill.\n"),
-      writeFile(join(home, ".codex", "auth.json"), "{\"token\":\"box\"}\n"),
-      writeFile(join(home, ".codex", "config.toml"), "model = \"configured-model\"\n"),
       executable(bin, "codex", "exit 0"),
       executable(bin, "gh", "exit 0"),
       executable(bin, "pnpm", "exit 0"),
@@ -75,15 +71,37 @@ describe("Agent Box", () => {
     process.env.PATH = [bin, originalPath].filter(Boolean).join(":")
     try {
       const { trustedHost } = await import("@vite-hub/box")
+      const { custom } = await import("@vite-hub/workspace")
       const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { skills } = await import("../src/capabilities.ts")
       const { codexDriver } = await import("../src/harness/codex.ts")
       const agent = defineAgent<any, { worktreePath: string }>({
         box: {
           cwd: ({ input }) => input.options?.worktreePath,
-          home,
-          requires: ["github", "pnpm"],
-          runtime: trustedHost(),
+          env: { GH_TOKEN: "box-token" },
+          home: {
+            files: {
+              ".codex/config.toml": {
+                contents: 'model = "configured-model"\ncli_auth_credentials_store = "file"\n',
+              },
+            },
+            state: {
+              ".codex": {
+                key: "agent-box-test/codex",
+                seed: { "auth.json": { contents: '{"token":"box"}\n' } },
+              },
+            },
+          },
+          requires: [{ command: "gh", args: ["auth", "status"] }, "pnpm"],
+          runtime: trustedHost({ stateRoot }),
         },
+        capabilities: [
+          skills({
+            path: "skills/global",
+            scope: "global",
+            source: custom({ files: [{ content: "Global skill.\n", path: "SKILL.md" }] }),
+          }),
+        ],
         driver: codexDriver(),
       })
 
@@ -98,11 +116,11 @@ describe("Agent Box", () => {
       const [reportedWorktree, reportedHome, codexHome] = result.text.trim().split("\n")
 
       expect(reportedWorktree).toBe(await realpath(worktree))
-      expect(reportedHome).toBe(home)
-      expect(codexHome).toMatch(/\/tmp\/harness\/codex-home$/)
+      expect(reportedHome).toMatch(/\/vitehub-box-[^/]+\/home$/)
+      expect(codexHome).toBe(join(reportedHome, ".codex"))
 
       await expect(readFile(join(worktree, "changed.txt"), "utf8")).resolves.toBe("changed")
-      expect(harnessSettings.at(-1)?.sandbox).toMatchObject({ providerId: "local" })
+      expect(harnessSettings.at(-1)?.sandbox).toMatchObject({ providerId: "trusted-host" })
       expect(harnessSettings.at(-1)?.sandboxConfig).toMatchObject({ workDir: "workspace" })
     }
     finally {

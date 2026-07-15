@@ -105,7 +105,7 @@ interface HarnessAgentAdapterOptions<
 
 interface HarnessSessionIdentity {
   box?: {
-    home?: string
+    identity: string
     runtime: string
     workspace?: string
   }
@@ -528,6 +528,16 @@ async function resolveHarness<
   return harness
 }
 
+function resolveHarnessGlobalSkillsDirectory(
+  harness: object,
+  context: AgentAdapterRunContext,
+): unknown {
+  const directory = (harness as Record<PropertyKey, unknown>)[harnessGlobalSkillsDirectory]
+  return typeof directory === "function"
+    ? (directory as (context: AgentAdapterRunContext) => unknown)(context)
+    : directory
+}
+
 async function resolveHarnessSandboxProvider<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -562,7 +572,7 @@ async function createHarnessAgent<
   assertSupportedHarnessDriverContributions(context)
   const { HarnessAgent } = await import(/* @vite-ignore */ harnessAgentPackage) as unknown as { HarnessAgent: HarnessAgentConstructor }
   const harness = await resolveHarness(options.harness, context)
-  const globalSkillsDirectory = (harness as Record<PropertyKey, unknown>)[harnessGlobalSkillsDirectory]
+  const globalSkillsDirectory = resolveHarnessGlobalSkillsDirectory(harness, context)
   if (context.globalSkills?.length && !isHarnessRelativeDirectory(globalSkillsDirectory)) {
     throw new Error("[vitehub] This Harness Agent Driver does not support skills({ scope: \"global\" }).")
   }
@@ -959,7 +969,7 @@ export function createHarnessAgentAdapter<
       ...(context.box
         ? {
             box: {
-              home: context.box.environment.home,
+              identity: context.box.identity,
               runtime: context.box.runtime,
               workspace: context.box.workspace.path,
             },
