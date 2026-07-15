@@ -18,12 +18,7 @@ function stripJsonFence(value: string): string {
   return match?.[1]?.trim() || value.trim()
 }
 
-function jsonValueFromResult(result: unknown, allowMaterializedObject: boolean): unknown {
-  let materializedObject = false
-  if (allowMaterializedObject && result !== null && typeof result === "object") {
-    const prototype = Object.getPrototypeOf(result)
-    materializedObject = prototype === Object.prototype || prototype === null
-  }
+function jsonValueFromResult(result: unknown): unknown {
   const directText = result && typeof result === "object" && "text" in result
     ? (result as { text?: unknown }).text
     : undefined
@@ -34,7 +29,6 @@ function jsonValueFromResult(result: unknown, allowMaterializedObject: boolean):
     return JSON.parse(stripJsonFence(text))
   }
   catch (cause) {
-    if (materializedObject) return result
     throw new AgentOutputValidationError(
       "invalid-json",
       "[vitehub] Agent output is not valid JSON.",
@@ -60,7 +54,14 @@ export async function validateAgentOutput<TOutput>(
   result: unknown,
   options: { allowMaterializedObject?: boolean } = {},
 ): Promise<TOutput> {
-  const value = jsonValueFromResult(result, options.allowMaterializedObject === true)
+  if (options.allowMaterializedObject && result !== null && typeof result === "object") {
+    const prototype = Object.getPrototypeOf(result)
+    if (prototype === Object.prototype || prototype === null) {
+      const directValidation = await output.schema["~standard"].validate(result)
+      if (!directValidation.issues?.length && "value" in directValidation) return directValidation.value
+    }
+  }
+  const value = jsonValueFromResult(result)
   const validation = await output.schema["~standard"].validate(value)
   if (validation.issues?.length) {
     throw new AgentOutputValidationError(

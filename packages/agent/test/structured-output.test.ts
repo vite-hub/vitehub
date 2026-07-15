@@ -97,6 +97,27 @@ describe("Agent structured output", () => {
     await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({ text: "hello" })
   })
 
+  it("preserves materialized text fields containing valid JSON", async () => {
+    const schema: StandardSchemaV1<unknown, { text: string }> = {
+      "~standard": {
+        validate(value) {
+          return value && typeof value === "object" && typeof (value as { text?: unknown }).text === "string"
+            ? { value: value as { text: string } }
+            : { issues: [{ message: "Expected text" }] }
+        },
+        vendor: "vitehub-test",
+        version: 1,
+      },
+    }
+    const agent = defineAgent({
+      driver: { run: () => ({ text: "42" }) },
+      output: { schema },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({ text: "42" })
+  })
+
   it("decodes AgentRunResult text from custom drivers", async () => {
     const agent = defineAgent({
       driver: { run: () => ({ text: "{\"summary\":\"Decisions\",\"title\":\"Weekly sync\"}" }) },

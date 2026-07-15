@@ -97,9 +97,11 @@ describe("agent public types", () => {
       runtime: false,
     })
     const result = runAgentInline(agent, {} as AgentRuntimeContext, {})
+    const rawResult = runAgentInline(agent, {} as AgentRuntimeContext, {}, { output: "raw" })
     const workflowResult = runAgent(agent, {} as AgentRuntimeContext, {})
 
     expectTypeOf(result).toEqualTypeOf<Promise<Response | { summary: string, title: string }>>()
+    expectTypeOf(rawResult).toEqualTypeOf<Promise<unknown>>()
     expectTypeOf<Extract<Awaited<typeof workflowResult>, { id: string }>["result"]>().toEqualTypeOf<{ summary: string, title: string } | undefined>()
   })
 
