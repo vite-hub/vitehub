@@ -447,6 +447,9 @@ importers:
       '@vite-hub/devtools':
         specifier: workspace:*
         version: link:../devtools
+      '@vite-hub/email':
+        specifier: workspace:*
+        version: link:../email
       '@vite-hub/markdown-template':
         specifier: workspace:*
         version: link:../markdown-template

@@ -116,6 +116,7 @@ Do not expose a primitive to a model just because the app uses it. Attach the re
 | Expose KV with scoped storage tools | [KV capability](/docs/capabilities/kv) |
 | Expose Blob storage with scoped file tools | [Blob capability](/docs/capabilities/blob) |
 | Expose relational data intentionally | [Database capability](/docs/capabilities/db) |
+| Let an Agent send authorized plain-text email | [Email capability](/docs/capabilities/email) |
 | Let an Agent manage allowed Runtime Schedules | [Schedule capability](/docs/capabilities/schedule) |
 | Expose Workspace-backed inspection or mutation | [Workspace shell](/docs/capabilities/workspace-shell) |
 | Run isolated execution from an Agent boundary | [Sandbox capability](/docs/capabilities/sandbox) |

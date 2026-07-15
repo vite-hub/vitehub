@@ -64,6 +64,10 @@ const result = await email.send({
 
 A successful send returns `{ id, driver: "smtp" }`; the provider supplies `id`. Invalid messages and delivery failures throw `EmailError` with a stable `code`. SMTP and core-wrapped provider failures keep the raw failure in `cause` while exposing a safe message. Custom drivers must follow the same rule when they throw `EmailError` directly.
 
+## Grant an Agent permission to send
+
+The official [`email()` Agent Capability](https://vitehub.dev/docs/capabilities/email) exposes one policy-controlled plain-text send tool through the discovered Email Definition. The application fixes the sender and keeps provider credentials below the Capability boundary; richer messages remain application-owned compositions.
+
 ## Compose dynamic Markdown
 
 `renderEmailMarkdown()` resolves `@vite-hub/markdown-template` data, conditions, fragments, and caller-provided imports before Comark renders the HTML body.

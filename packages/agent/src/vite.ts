@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
 
 import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
@@ -39,6 +39,7 @@ const generatedAgentDenoServer = ".vitehub/agent/deno-server.ts"
 const generatedAgentDiscordGatewayRouteHandler = ".vitehub/agent/discord-gateway-route.ts"
 const generatedAgentWebhookRouteHandler = ".vitehub/agent/chat-webhook-route.ts"
 const generatedAgentNetlifyFunction = ".vitehub/agent/netlify-function.mjs"
+const generatedAgentEmailRuntime = ".vitehub/agent/email-runtime.js"
 const generatedAgentScheduleRegistry = ".vitehub/agent/schedule-registry.js"
 const netlifyAgentFunctionName = "vitehub-agent"
 const generatedScheduleRuntimeRegistrySuffix = "/.vitehub/nitro/schedule/runtime-registry.js"
@@ -125,6 +126,7 @@ interface GeneratedAgentRuntimeCapability {
 
 const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapability[] = [
   { importName: "blob", name: "blob", packageName: "@vite-hub/blob", pluginName: "@vite-hub/blob/vite" },
+  { importName: "email", name: "email", packageName: "@vite-hub/email/server", pluginName: "@vite-hub/email/vite" },
   { importName: "kv", name: "kv", packageName: "@vite-hub/kv", pluginName: "@vite-hub/kv/vite" },
 ]
 
@@ -163,6 +165,36 @@ function generatedAgentRuntimeCapabilities(capabilities: GeneratedAgentRuntimeCa
   const entries = capabilities.map(capability => `${capability.name}: ${generatedAgentRuntimeCapabilityAlias(capability)}`)
   if (schedule) entries.push("schedule: { schedules: vitehubSchedules }")
   return `{ ${entries.join(", ")} }`
+}
+
+async function writeStandaloneAgentRuntimeCapabilities(
+  config: Pick<ResolvedConfig, "plugins" | "root">,
+  capabilities: GeneratedAgentRuntimeCapability[],
+): Promise<GeneratedAgentRuntimeCapability[]> {
+  const emailCapability = capabilities.find(capability => capability.name === "email")
+  const emailPlugin = config.plugins?.find(plugin => plugin.name === "@vite-hub/email/vite") as Plugin & {
+    api?: { getDefinition?: () => { handler: string } | undefined }
+  }
+  const definition = emailPlugin?.api?.getDefinition?.()
+  const runtimePath = join(config.root, generatedAgentEmailRuntime)
+  if (!emailCapability || !definition) {
+    await rm(runtimePath, { force: true })
+    return capabilities
+  }
+
+  const emailImport = emailCapability.packageName.endsWith("/server")
+    ? emailCapability.packageName.slice(0, -"/server".length)
+    : "@vite-hub/email"
+  await mkdir(dirname(runtimePath), { recursive: true })
+  await writeFile(runtimePath, [
+    `import { createEmail } from ${JSON.stringify(emailImport)}`,
+    `import definition from ${JSON.stringify(moduleImportSpecifier(runtimePath, definition.handler))}`,
+    "export const email = createEmail(definition)",
+    "",
+  ].join("\n"), "utf8")
+  return capabilities.map(capability => capability === emailCapability
+    ? { ...capability, packageName: "./email-runtime.js" }
+    : capability)
 }
 
 function getInternalAgentOptions(options: AgentModuleOptions | false | undefined): InternalAgentModuleOptions | undefined {
@@ -1382,6 +1414,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   const frameworkOptions = getInternalAgentOptions(options)
   let agent: AgentModuleOptions | false | undefined = options
   let runtimeCapabilities: GeneratedAgentRuntimeCapability[] = []
+  let standaloneRuntimeCapabilities: GeneratedAgentRuntimeCapability[] = []
   let resolved: ResolvedConfig | undefined
 
   async function writeGeneratedAgentOutputs(config: ResolvedConfig) {
@@ -1393,7 +1426,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         await writeAgentDenoServer(config.root, {
           agentImportBase: getAgentImportBase(agent, frameworkOptions),
           chatRoute: normalized.routes.chat,
-          runtimeCapabilities,
+          runtimeCapabilities: standaloneRuntimeCapabilities,
           schedule,
           scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
           workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
@@ -1437,7 +1470,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             libsqlState: resolveLibsqlAgentState(normalized),
             providerImportAliases: getProviderImportAliases(agent, frameworkOptions),
             runtime: "vite",
-            runtimeCapabilities,
+            runtimeCapabilities: standaloneRuntimeCapabilities,
             schedule,
             scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
             workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
@@ -1580,6 +1613,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         config,
         getInternalAgentOptions(agent)?.runtimeCapabilityImports ?? frameworkOptions?.runtimeCapabilityImports,
       )
+      standaloneRuntimeCapabilities = await writeStandaloneAgentRuntimeCapabilities(config, runtimeCapabilities)
       await writeGeneratedAgentOutputs(config)
       if (agent === false || agent?.eval === false) {
         return
@@ -1613,7 +1647,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             agentImportBase: getAgentImportBase(agent, frameworkOptions),
             libsqlState: resolveLibsqlAgentState(normalized),
             providerImportAliases: getProviderImportAliases(agent, frameworkOptions),
-            runtimeCapabilities,
+            runtimeCapabilities: standaloneRuntimeCapabilities,
             schedule: hasScheduleVitePlugin(resolved),
             scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
             workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),

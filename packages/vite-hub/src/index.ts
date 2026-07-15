@@ -193,6 +193,7 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
       providerImportAliases,
       runtimeCapabilityImports: {
         blob: `${generatedImportBase}/blob`,
+        email: "vite-hub/email/server",
         kv: `${generatedImportBase}/kv`,
       },
       scheduleRuntimeImport: `${generatedImportBase}/schedule/runtime`,
