@@ -1386,8 +1386,8 @@ describe("agent message protocol", () => {
     const schema = {
       "~standard": {
         jsonSchema: {
-          input: () => ({ type: "object" }),
-          output: () => ({ properties: { title: { type: "string" } }, required: ["title"], type: "object" }),
+          input: () => ({ properties: { title: { type: "string" } }, required: ["title"], type: "object" }),
+          output: () => ({ type: "number" }),
         },
         validate: (value: unknown) => ({ value: value as { title: string } }),
         vendor: "vitehub-test",

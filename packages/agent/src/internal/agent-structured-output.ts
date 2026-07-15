@@ -80,7 +80,7 @@ export async function validateAgentOutput<TOutput>(
 
 function supportsJsonSchema(schema: StandardSchemaV1): schema is StandardSchemaV1 & StandardJSONSchemaV1 {
   return typeof (schema["~standard"] as { jsonSchema?: unknown }).jsonSchema === "object"
-    && typeof (schema["~standard"] as { jsonSchema?: { output?: unknown } }).jsonSchema?.output === "function"
+    && typeof (schema["~standard"] as { jsonSchema?: { input?: unknown } }).jsonSchema?.input === "function"
 }
 
 export function agentOutputInstructions(output: AgentOutputDefinition | undefined): string | undefined {
@@ -88,7 +88,7 @@ export function agentOutputInstructions(output: AgentOutputDefinition | undefine
   let jsonSchema: Record<string, unknown> | undefined
   if (supportsJsonSchema(output.schema)) {
     try {
-      jsonSchema = output.schema["~standard"].jsonSchema.output({ target: "draft-07" })
+      jsonSchema = output.schema["~standard"].jsonSchema.input({ target: "draft-07" })
     }
     catch {}
   }
