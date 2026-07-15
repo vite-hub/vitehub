@@ -75,7 +75,8 @@ Agent Evals expose those values through `observation.extensions.get(capabilityId
 
 Capabilities attach above the Agent Driver.
 A model-backed Agent Driver can consume model-facing tools and Provider Tool contributions.
-A harness-backed Agent Driver receives explicit harness-compatible contributions and scoped Workspace behavior, but ViteHub does not silently pass model prompts or model-facing tools into the harness.
+A harness-backed Agent Driver receives Agent tools through the Harness tool bridge, explicit harness-compatible contributions, and scoped Workspace behavior.
+Harness-backed drivers do not support Capability Provider Tool contributions, such as `webSearch({ mode: 'model' })`, and do not receive Capability-authored model instructions unless the Capability exposes them through a harness-compatible surface.
 A custom-run-backed Agent Driver receives prepared input and invocation context; the `driver.run` implementation decides which Capability outputs to read.
 
 Free-form guidance about when and why to use a Capability belongs in Agent Driver Instructions or deterministic imported instruction Markdown. Tool descriptions and schemas remain part of the model-facing tool contract.

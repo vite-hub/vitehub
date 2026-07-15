@@ -5,7 +5,7 @@ navigation.order: 23
 icon: i-lucide-play-circle
 ---
 
-An Agent Invocation is one runtime request to an Agent. It receives input, resolves the Agent Invoker, applies Capabilities, runs the selected Agent Driver, records lifecycle state, and returns or streams output.
+An Agent Invocation is one runtime request to an Agent. It receives input, resolves the Agent Actor, applies Capabilities, runs the selected Agent Driver, records lifecycle state, and returns or streams output.
 
 Invoke Agents from server code, Agent Triggers, schedules, DevTools, or framework-owned routes. The invocation input carries prompt or message content plus trusted context values.
 
@@ -39,7 +39,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-The `context.invoker` input is trusted server data. Validate the request before passing identity or access facts into ViteHub.
+The `context.invoker` input is the current API field for a trusted Agent Actor. Validate the request before passing identity or access facts into ViteHub; callbacks receive the normalized Actor as both `actor` and `invoker`.
 
 ## Stream an Agent
 
@@ -209,5 +209,5 @@ export default defineAgent({
 ## Next steps
 
 - Read [Triggers](/docs/agents/triggers) for Channel and Capability trigger paths.
-- Read [Invokers](/docs/agents/invokers) for trusted caller identity.
+- Read [Agent Actors](/docs/agents/actors) for trusted caller identity and exact `invoker` API names.
 - Read [DevTools](/docs/agents/devtools) to inspect Agent Invocation state.

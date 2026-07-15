@@ -7,7 +7,7 @@ navigation.group: Workspace
 icon: i-lucide-brain
 ---
 
-`memory()` adds scoped durable records that an Agent can search, read, preload, remember, or delete through configured Memory Stores.
+`memory()` adds scoped durable records that an Agent can search, read, remember, or delete through configured Memory Stores.
 Memory is explicit Agent behavior and is not the same as Chat History.
 
 ## Installation
@@ -17,7 +17,7 @@ Use the configuration example below as the starting point, then tighten modes, p
 
 ## What it adds
 
-The Capability can preload selected memory records into instructions, expose `memory_search` and `memory_read`, and expose write tools when a store opts into tool writes.
+The Capability exposes `memory_search` and `memory_read`, plus remember and delete tools when a store opts into tool writes.
 Each store owns its adapter, scope, allowed kinds, read behavior, and write policy.
 
 ## Configuration
@@ -47,8 +47,7 @@ export default defineAgent({
 
 ## Runtime behavior
 
-During input, `memory()` can preload records from configured stores for model-backed behavior.
-During resolve, it creates read tools for stores that allow reading and write tools for stores that opt into tool writes.
+During resolve, `memory()` creates read tools for stores that allow reading and write tools for stores that opt into tool writes.
 
 Write tools add provenance from the current Agent Invocation and allow writes by default after a store opts into `write.mode: 'tool'`.
 Set the store policy to `require-approval` or `deny` when writes need an additional gate.
@@ -65,13 +64,13 @@ It requires writable Workspace access when the Agent creates, supersedes, or del
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Receives model-facing memory tools and current preload guidance when configured. |
-| Harness-backed | Runtime preload can run; model-facing memory tools are not passed by default. |
+| Model-backed | Receives the configured memory tools. |
+| Harness-backed | Receives the configured memory tools through the Harness tool bridge. |
 | Custom-run-backed | Receives prepared context and can call store adapters from custom code when the application exposes them. |
 
 ## Inspect and verify
 
-Inspect DevTools metadata for the configured memory stores and preload behavior.
+Inspect DevTools metadata for the configured memory stores.
 Inspect the tool list and confirm write tools appear only for stores with `write.mode: 'tool'`.
 
 For the workspace JSONL store, inspect the configured Workspace file and verify records include scope and provenance.
@@ -86,11 +85,16 @@ For the workspace JSONL store, inspect the configured Workspace file and verify 
 | `stores.*.allowKinds` | `MemoryKind[]` | all kinds | Allowed memory kinds for the store. |
 | `stores.*.read.tools.search` | `boolean` | `true` | Expose memory search. |
 | `stores.*.read.tools.read` | `boolean` | `true` | Expose exact memory read. |
-| `stores.*.read.preload` | `Array` | none | Preload scoped memories into instructions. |
 | `stores.*.write.mode` | `"off" \| "tool"` | `"off"` | Expose remember/delete tools when set to `"tool"`. |
 | `stores.*.write.policy` | `AgentToolPolicyDecision` | `"allow"` | Policy for write tools. |
-| `stores.*.retention.export` | `boolean` | `false` | Allow export operations. |
-| `stores.*.retention.hardDelete` | `boolean` | `false` | Allow hard delete behavior when supported. |
+
+### Workspace JSONL store
+
+`workspaceJsonlMemoryStore()` persists records as append-only JSONL inside the Agent Workspace.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `path` | `string` | `"memory/memory.jsonl"` | Workspace-relative JSONL file path. |
 
 Cover Memory usage guidance in Agent Driver Instructions with explicit Capability coverage blocks. Keep memory tool descriptions with the tool definitions because they are structured tool contracts.
 

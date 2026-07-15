@@ -133,6 +133,23 @@ describe("blob config", () => {
     })
   })
 
+  it("preserves explicit Vercel Blob runtime options", () => {
+    expect(normalizeBlobOptions({
+      access: "private",
+      allowOverwrite: false,
+      downloadTimeoutMs: 5_000,
+      driver: "vercel-blob",
+    })).toEqual({
+      store: {
+        access: "private",
+        allowOverwrite: false,
+        downloadTimeoutMs: 5_000,
+        driver: "vercel-blob",
+        token: "********",
+      },
+    })
+  })
+
   it("defaults Netlify hosting to Netlify Blobs", () => {
     expect(normalizeBlobOptions({}, {
       env: { BLOB_READ_WRITE_TOKEN: "vercel-token" },

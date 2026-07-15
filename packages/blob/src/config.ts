@@ -63,6 +63,7 @@ function resolveVercelStore(
   config: Partial<VercelBlobStoreConfig> = {},
 ): ResolvedVercelBlobStoreConfig {
   return {
+    ...config,
     access: config.access ?? "public",
     driver: "vercel-blob",
     token: trimmed(config.token) ?? MASKED_BLOB_RUNTIME_VALUE,

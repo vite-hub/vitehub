@@ -14,7 +14,7 @@ The concrete key holds the implementation value directly. Driver-specific option
 | Driver | Use it when | Driver-owned options |
 | --- | --- | --- |
 | `driver.model` | The Agent should call an AI SDK model through ViteHub model execution. | `instructions`, `execution` |
-| `driver.harness` | The Agent should run through an AI SDK harness adapter behind ViteHub's Agent Harness Driver Contract. | `credentials`, `instructions`, `sandbox`, `sessionKey`, `workDir` |
+| `driver.harness` | The Agent should run through an AI SDK harness adapter behind ViteHub's Agent Harness Driver Contract. | `credentials`, `instructions`, `requires`, `sandbox`, `sessionKey`, `workDir` |
 | `driver.run` | The Agent should execute developer code directly. | none |
 
 Driver variants are mutually exclusive. A single Agent Definition cannot combine `driver.model` with `driver.run`, or `driver.harness` with model instructions.
@@ -43,6 +43,22 @@ export default defineAgent({
 ```
 
 Capability Driver Contributions such as model-facing tools are filtered for the selected Agent Driver before the model call. Free-form Capability guidance belongs in Agent Driver Instructions or deterministic imported instruction Markdown.
+
+### Model driver options
+
+| Option | Type | Default | Purpose |
+| --- | --- | --- | --- |
+| `model` | model value or callback | Required | Resolves the AI SDK model for the invocation. |
+| `instructions` | `string`, `string[]`, or callback parts | Colocated instructions when available | Supplies Model Driver Instructions. Callback parts receive trusted runtime and Workspace metadata. |
+| `execution.callSettings` | `Record<string, unknown>` | `{}` | Passes provider and AI SDK call settings to model execution. |
+| `execution.stepLimit` | `number` | `20` | Stops the model tool loop after this many steps unless `callSettings.stopWhen` overrides it. |
+| `execution.instrumentation.model` | callback | None | Replaces or wraps the resolved model for one invocation. |
+| `execution.instrumentation.callSettings` | callback | None | Reads the resolved model, tools, input, Actor, and current settings, then returns call-setting overrides. |
+| `execution.workspaceFallback` | `boolean` or object | Enabled | Synthesizes a final answer from Workspace tool results when a run produced evidence but no text. |
+| `execution.workspaceFallback.enabled` | `boolean` | `true` | Enables or disables Workspace fallback synthesis. |
+| `execution.workspaceFallback.maxToolResults` | `number` | `8` | Limits the tool results supplied to fallback synthesis. Each captured result is truncated to 4,000 characters. |
+
+Instrumentation callbacks run after the Agent and its Capabilities resolve their model-execution contributions. Use them for invocation-scoped routing or call settings, and keep authorization in Access or Capability policy.
 
 ## Harness-backed driver
 
@@ -97,6 +113,18 @@ ViteHub resolves `driver.instructions` before constructing the AI SDK `HarnessAg
 Harness-backed drivers receive resolved Capability tools through harness tool support, but they do not receive provider tools or ambient Capability, Source, or Skill prose.
 When a Capability should support harness execution with files, declare those files with `requires.workspace.paths` or contribute them through Workspace Sources.
 
+### Harness driver options
+
+| Option | Type | Default | Purpose |
+| --- | --- | --- | --- |
+| `harness` | harness adapter or callback | Required | Resolves the AI SDK harness adapter for the invocation. |
+| `credentials` | `{ label?, source? }` | None | Records non-secret credential provenance such as `ambient`, `explicit`, `none`, or `unknown`. |
+| `instructions` | `string` or callback | None | Supplies invocation-scoped instructions to the AI SDK `HarnessAgent`. |
+| `requires` | `readonly BoxRequirement[]` | `[]` | Declares environment requirements such as `codex`, `codex-cli`, `github`, or an app-owned requirement. Driver helpers can contribute these automatically. |
+| `sandbox` | provider object or callback | Local harness sandbox on process-capable hosts | Selects the harness process, environment, or session provider. Do not combine it with `box`. |
+| `sessionKey` | `string` or callback | None | Reuses the harness adapter's session identity when the adapter supports sessions. |
+| `workDir` | relative POSIX path or callback | Sandbox default working directory | Selects a working directory inside the harness sandbox. Do not combine it with `box`. |
+
 For a fresh TypeScript app, use ESM and NodeNext resolution so the ESM-only ViteHub and harness subpath imports load correctly.
 
 ```json [package.json]
@@ -120,7 +148,7 @@ For a fresh TypeScript app, use ESM and NodeNext resolution so the ESM-only Vite
 
 ## Custom run driver
 
-Use `driver.run` when developer code owns the Agent behavior. The run callback receives prepared input, messages, tools, Workspace access when configured, Agent Invocation Context Values, and `context.invoker`.
+Use `driver.run` when developer code owns the Agent behavior. The run callback receives prepared input, messages, tools, Workspace access when configured, Agent Invocation Context Values, and the resolved Agent Actor as both `actor` and `invoker`.
 
 ```ts [server/agents/router.ts]
 import { defineAgent } from '@vite-hub/agent'

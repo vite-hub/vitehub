@@ -54,7 +54,7 @@ The Workspace requirement is write-mode because ViteHub may need session-local G
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives one controlled Git `shell` tool. |
-| Harness-backed | Does not receive model-facing Git tools by default. |
+| Harness-backed | Receives the controlled Git `shell` tool through the Harness tool bridge. |
 | Custom-run-backed | Can use the Workspace Session directly and may inspect Capability metadata. |
 
 ## Options
@@ -62,9 +62,9 @@ The Workspace requirement is write-mode because ViteHub may need session-local G
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `mode` | `"read" \| "write"` | `"read"` | Allows local `fetch`, `checkout`, and `switch` commands through `shell` when set to `"write"`. |
-| `maxOutputLength` | `number` | `30000` | Maximum stdout/stderr characters returned per command. |
+| `maxOutputLength` | `number` | `Infinity` | Maximum stdout/stderr characters returned per command. |
 | `policy` | `AgentToolPolicyDecision \| function` | `"allow"` | Policy for write-mode `shell` commands. Read-only Git commands remain allowed. |
-| `timeout` | `number` | none | Execution timeout passed to Workspace Session git commands. |
+| `timeout` | `number` | `60000` | Execution timeout in milliseconds passed to Workspace Session Git commands. |
 
 ## Inspect and verify
 

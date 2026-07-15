@@ -79,8 +79,8 @@ Set `policy: 'require-approval'` or `policy: 'deny'` when mutations need an addi
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Receives Runtime Schedule tools when mode is configured; static schedules are runtime metadata. |
-| Harness-backed | Runtime metadata and requirements apply; model-facing schedule tools are not passed by default. |
+| Model-backed | Receives the Runtime Schedule tool when mode is configured; static schedules are runtime metadata. |
+| Harness-backed | Receives the Runtime Schedule tool through the Harness tool bridge when mode is configured; static schedules remain runtime metadata. |
 | Custom-run-backed | Receives prepared metadata and context; `driver.run` decides how to use schedule context. |
 
 ## Inspect and verify

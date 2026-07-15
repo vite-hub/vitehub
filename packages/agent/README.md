@@ -6,11 +6,11 @@
   <img alt="AI SDK" src="https://img.shields.io/badge/AI%20SDK-v7-111827?style=flat-square">
 </p>
 
-`@vite-hub/agent` defines model-backed agents from files such as `server/agents/support/agent.ts`.
+`@vite-hub/agent` defines Agents from files such as `server/agents/support/agent.ts`. Each Agent selects one Driver: an AI SDK model, a coding harness, or application-owned `driver.run` logic.
 
 Keep the three pieces separate:
 
-- **AI package**: the AI SDK model and streaming runtime.
+- **Agent Driver**: the model, coding harness, or application-owned function that runs the Agent.
 - **Capabilities**: opt-in abilities such as chat, shell, search, storage, sandbox, and MCP tools.
 - **Workspace**: file-system context the agent can inspect, reason from, and optionally update while doing a task.
 
@@ -38,7 +38,8 @@ pnpm add @ai-sdk/harness @ai-sdk/harness-claude-code
 // server/agents/support/agent.ts
 import { gateway } from "@ai-sdk/gateway"
 import { defineAgent } from "@vite-hub/agent"
-import { chat, workspaceShell } from "@vite-hub/agent/capabilities"
+import { workspaceShell } from "@vite-hub/agent/capabilities"
+import { webChat } from "@vite-hub/agent/channels"
 import { file } from "@vite-hub/workspace"
 
 export default defineAgent({
@@ -49,7 +50,10 @@ export default defineAgent({
       "Use the support Source for support policies and known answers.",
     ],
   },
-  capabilities: [chat(), workspaceShell()],
+  channels: {
+    web: webChat(),
+  },
+  capabilities: [workspaceShell()],
   workspace: {
     sources: {
       support: file({
@@ -132,7 +136,7 @@ Pass `--json` for the structured inspection contract.
 
 ## Capabilities
 
-- `chat()` exposes the agent as a chat surface; see the [First Agent guide](https://vitehub.dev/docs/getting-started/first-agent).
+- A `webChat()` Channel exposes the generated web chat route. Use `chat()` when an app-owned trigger needs Chat History and `chat.message` behavior without Channel-owned route exposure; see the [First Agent guide](https://vitehub.dev/docs/getting-started/first-agent).
 - `workspaceShell()` runs scoped shell/file work through [`@vite-hub/shell`](../shell/README.md).
 - `webSearch()` searches and reads the web with [Brave](https://brave.com/search/api/), [Exa](https://docs.exa.ai/), [Jina](https://jina.ai/en-US/reader/), [SearXNG](https://docs.searxng.org/dev/search_api.html), [SerpApi](https://serpapi.com/search-api), [SerpBase](https://serpbase.dev/docs), or [Tavily](https://docs.tavily.com/).
 - `openapi()` turns an allowed OpenAPI `operationId` subset into bounded HTTP tools, or into a generated Capability CLI when `cli` is set.
@@ -215,6 +219,6 @@ This is not the Database Capability. It is Agent-owned runtime state for chat be
 
 ## Built on
 
-Vite discovers agent files and ViteHub generates the host route/runtime state for the active server host. Model execution uses [AI SDK](https://ai-sdk.dev/docs); provider tools stay capability-scoped instead of becoming one global agent config.
+Vite discovers Agent files and generates runtime state for the active server host. Route-enabled Channels contribute host routes. Model execution uses [AI SDK](https://ai-sdk.dev/docs); Provider Tools stay Capability-scoped instead of becoming one global Agent config.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

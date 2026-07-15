@@ -58,7 +58,7 @@ Set `policy: 'require-approval'` or `policy: 'deny'` when the product needs an a
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives `db_query`, `db_schema`, and write tools when enabled. |
-| Harness-backed | Runtime requirements apply; model-facing DB tools are not passed by default. |
+| Harness-backed | Receives Database tools through the Harness tool bridge. |
 | Custom-run-backed | The configured primitive is available through runtime context; `driver.run` decides how to use it. |
 
 ## Inspect and verify

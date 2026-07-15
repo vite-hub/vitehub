@@ -78,18 +78,20 @@ The Vite config key is `workspace`.
 | `root` | `string` | `.vitehub/workspaces` | Runtime Workspace root directory. |
 | `projectRoot` | `string` | ViteHub project root | Resolves server-side discovery from a custom project root. |
 | `assets` | `WorkspaceModuleOptions['assets']` | package default | Controls build-time Workspace asset materialization. Accepts `false`, `true`, or explicit asset paths. |
-| `store` | `WorkspaceStoreOptions` | `{ provider: 'local' }` | Default Workspace Store used by definitions that do not choose one. |
+| `store` | `WorkspaceStoreOptions` | inferred from development mode, hosting, and environment | Default Workspace Store used by definitions that do not choose one. |
 
 ## Store providers
 
 | Store | Configure with | Nuance |
 | --- | --- | --- |
-| Local | `{ provider: 'local', root?: string }` | Default filesystem-backed Workspace Store. |
+| Local | `{ provider: 'local', root?: string }` | Filesystem-backed Workspace Store. Used by default in development and on hosts without a more specific match. |
 | Memory | `{ provider: 'memory' }` | Test or ephemeral runtime storage. |
-| Cloudflare Artifacts | `{ provider: 'cloudflare-artifacts', binding?, namespace?, repo?, repoPrefix?, branch? }` | Opt-in, versioned Git storage for small Cloudflare Worker Workspaces. |
-| Vercel Blob | `{ provider: 'vercel-blob', token?, prefix?, access? }` | Blob-backed Workspace Store. |
-| GitHub | `{ provider: 'github', repo?, repository?, branch?, root?, token? }` | Repository-backed Workspace Store. |
+| Cloudflare Artifacts | `{ provider: 'cloudflare-artifacts', binding?, namespace?, repo?, repoPrefix?, branch? }` | Opt-in, versioned Git storage. Defaults: binding `WORKSPACE_ARTIFACTS`, namespace `vitehub`, repo prefix `vitehub-workspace-`. |
+| Vercel Blob | `{ provider: 'vercel-blob', token?, prefix?, access? }` | Blob-backed storage. Defaults: prefix `.vitehub/workspaces`, access `private`; the token can come from `BLOB_READ_WRITE_TOKEN`. |
+| GitHub | `{ provider: 'github', repo?, repository?, branch?, root?, token? }` | Repository-backed storage. Defaults: branch `main`, root `.vitehub/workspaces/<workspace>`. |
 | Custom | `WorkspaceStore` | Implement the Workspace Store contract directly. |
+
+Without an explicit `store`, development uses Local. Production uses Memory on Cloudflare, Vercel Blob when `BLOB_READ_WRITE_TOKEN` exists, Memory on Vercel without that token, and Local on other hosts. Cloudflare Artifacts and GitHub are always explicit choices.
 
 ### Cloudflare Artifacts
 
@@ -159,6 +161,7 @@ Source keys identify named origins inside the Workspace Source Map. A Source-Bac
 | `rootDir` | `string` | Source root used by loaders. |
 | `sourceRootDir` | `string` | Source-specific root for Source helpers. |
 | `store` | `WorkspaceStoreOptions` | Store for this Workspace. |
+| `bindings` | `Record<string, WorkspaceInstructionBinding>` | Explicit scalar or file-backed values available to Agent Instruction Composition. Values can be `string`, `number`, `boolean`, `null`, or `{ path: string }`. |
 | `sources` | `Record<string, WorkspaceSourceInput>` | Workspace Source Bindings. |
 | `rules` | `WorkspaceRules` | Read, write, media type, max size, commit, and validation policy by path pattern. |
 | `hooks` | `WorkspaceHooks` | Write lifecycle hooks. |
@@ -166,6 +169,8 @@ Source keys identify named origins inside the Workspace Source Map. A Source-Bac
 | `loaders` | `WorkspaceLoader[]` | Build-time or runtime loaders. |
 | `publish` | `WorkspacePublisher[]` | Publication behavior after snapshots or sync. |
 | `runtime` | `WorkspaceRuntime` | Runtime for executable Workspace Sessions, including sandbox and explicitly trusted host execution. |
+
+Instruction text reads scalar bindings with `{{ workspace.<name> }}` and file-backed bindings with `@workspace.<name>`. Only keys declared in `bindings` are available; ViteHub does not expose arbitrary Workspace files to Instruction Composition. See [Agent instructions](/docs/agents/instructions#read-workspace-bindings).
 
 ## Source Binding options
 
@@ -178,7 +183,33 @@ Workspace Source Bindings can wrap Source Package loaders and add Workspace beha
 | `cache` | `false or WorkspaceCacheOptions` | Source cache policy. Use `false` to disable caching or `{ maxAge }` to set a TTL. |
 | `validate` | `WorkspaceValidateMode` | Request validation mode for API-backed Sources. Use `false` or `request`. |
 | `sync` | `WorkspaceSourceSyncConfig` | Enables explicit Workspace Source Sync. Accepts `true`, `false`, or a sync policy. |
-| `resolve` | `WorkspaceSourceResolver` | Invocation-aware source resolution. |
+| `probeKeys` | `string[]` | Known Source item keys used to check bundled-source completeness and intersect path-scoped access without enumerating the whole Source. File-shaped helpers infer this when possible. |
+
+### Fetch Sources
+
+`fetch(options)` declares an HTTP-backed Source. It can expose one read-only Workspace path, or omit `workspacePath` to remain request-only for runtime Source request integrations. `fetch(resolver)` receives the invocation-aware Source Resolution Context and returns the same options or `false`, `null`, or `undefined`.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `url` | `string \| URL` | required | Request URL. |
+| `workspacePath` | `string` | none | Read-only Workspace path for the response. Omitting it creates a request-only Source. |
+| `method` | `GET \| HEAD \| POST` | `GET` | Allowed HTTP method. GET and HEAD cannot declare a body. |
+| `responseType` | `json \| text` | `json` | Response parser and serialized Workspace content type. |
+| `query` | `Record<string, unknown>` | URL query | Static query values. Cannot be combined with `querySchema`. |
+| `querySchema` | Standard JSON Schema-compatible schema | none | Validates runtime query input and supplies schema defaults. Cannot be combined with `query`. |
+| `body` | `unknown` | none | Static POST body. Cannot be combined with `bodySchema`. |
+| `bodySchema` | Standard JSON Schema-compatible schema | none | Validates runtime body input and supplies schema defaults. Cannot be combined with `body`. |
+| `headers` | `Record<string, string>` | none | Static request headers. |
+| `cookies` | `Record<string, string>` | none | Static request cookies. |
+| `timeout` | `number` | package default | Request timeout in milliseconds. |
+| `request` | `FetchSourceRequestOptions \| callback` | none | Adds headers, cookies, or timeout at request time. The callback receives request metadata, the Selected Workspace Scope, Source key, and Workspace name. |
+| `transform` | `(response) => output` | identity | Transforms parsed response data before ViteHub serializes it. |
+| `cache` | `false \| { maxAge?: number }` | `false` | Controls Source response caching. |
+| `materialize` | `build \| lazy \| none` | `lazy`, or `none` when sync is enabled | Controls when response content is written into the Workspace Store. |
+| `probeKeys` | `string[]` | inferred from `workspacePath` | Overrides the known Source item keys. |
+| `sync` | `boolean \| WorkspaceSourceSyncPolicy` | `false` | Allows explicit Workspace Source Sync. |
+
+A plain object Source with `url` is inferred as Fetch. In that shorthand, `path` supplies the Workspace path; when neither `path` nor `workspacePath` is present, ViteHub derives a file path from a query-free URL. Use the explicit `fetch()` helper when request-only behavior is intentional.
 
 ## Use it at runtime
 
@@ -218,12 +249,32 @@ export default defineEventHandler(async (event) => {
 | --- | --- |
 | `workspace.fs` read mode | `readFile`, `stat`, `exists`, `list`, `glob`, `search` |
 | `workspace.fs` write mode | read methods plus `writeFile`, `appendFile`, `mkdir`, `rm`, `movePath`, `copyPath` |
-| writable facade | `diff`, `snapshot`, `materializeSources`, `sync`, `startSession`, `tools` |
+| writable facade | `diff`, `snapshot`, `materializeSources`, `sync`, `startSession`, optional Store metadata methods `getMeta` and `setMeta`, and `tools` |
 | tools | default tools, `tools.inspect(options)`, `tools.write(options)`, `tools.none()` |
+
+### Runtime method options
+
+| Method | Options | Behavior |
+| --- | --- | --- |
+| `readFile(path, options?)` | `encoding?: 'utf8' \| 'binary'` | Defaults to UTF-8 text; binary reads return `Uint8Array`. |
+| `writeFile(path, content, options?)` | `mediaType?`, `metadata?` | Writes string or binary content with optional file metadata. |
+| `list(path?, options?)` | `recursive?: boolean` | Lists direct children or the complete subtree. |
+| `glob(pattern, options?)` | `cwd?: string` | Matches one pattern or an array relative to an optional Workspace directory. |
+| `search(query)` | `pattern`, `cwd?`, `paths?`, `regex?`, `caseSensitive?`, `limit?` | Searches text. Defaults to a case-insensitive literal pattern with a limit of `100`. |
+| `mkdir(path, options?)` | `recursive?: boolean` | Creates a Workspace directory. |
+| `rm(path, options?)` | `recursive?: boolean`, `force?: boolean` | Removes a file or directory under the active write policy. |
+| `movePath(from, to, options?)` | `overwrite?: boolean` | Moves a path. Existing destinations fail unless `overwrite` is enabled. |
+| `copyPath(from, to, options?)` | `overwrite?: boolean` | Copies a path. Existing destinations fail unless `overwrite` is enabled. |
+| `snapshot(options?)` | `name?: string` | Captures the current Workspace tree with an optional snapshot name. |
+| `diff(options?)` | `from?: WorkspaceSnapshot` | Compares the current tree with the supplied snapshot or the Store baseline. |
+| `materializeSources(options?)` | `abortSignal?`, `onProgress?`, `sources?`, `path?` | Materializes every Source or a selected Source/path subset, with cancellation and progress reporting. |
+| `getMeta(key)` / `setMeta(key, value)` | Store-defined | Reads or writes optional Workspace Store metadata when the configured Store implements it. |
 
 ## Custom Sources and source resolution
 
 Use `custom({ files })` when a Custom Source knows its Workspace paths before it loads their content. The shorthand enumerates those paths without resolving content, and path-scoped materialization resolves only the requested file's content callback.
+
+Invocation-aware resolution belongs to Source helpers and custom Source definitions, not to the Source Binding wrapper. Use resolver forms such as `fetch(resolver)` or the resolver accepted by the relevant helper, then add binding behavior such as `mount`, `cache`, or `sync` around the result.
 
 ```ts [server/workspaces/support.ts]
 import { custom, defineWorkspace } from '@vite-hub/workspace'
@@ -276,7 +327,7 @@ github(({ channel, invocation }) => {
 })
 ```
 
-The resolver receives registered invocation context values directly and can still read them through `invocation.context`. Register app-owned values through `ViteHubWorkspaceSourceResolutionContextMap`; the Agent package registers its canonical `channel` value automatically. Agent integrations omit legacy and internal aliases from the direct view. The resolver reads trusted Agent Invocation Context Values and the Selected Workspace Scope, not model output. Source Resolution only shapes the concrete Source. Authorization belongs to `access()`, whose selected scope must grant the Source key or its Workspace path. Scope-affecting resolved options are fingerprinted so source caches do not reuse data across scopes.
+The resolver receives registered invocation context values directly and can still read them through `invocation.context`. Register app-owned values through `ViteHubWorkspaceSourceResolutionContextMap`; the Agent package registers its canonical `channel` value automatically. The direct view exposes documented public context values. The resolver reads trusted Agent Invocation Context Values and the Selected Workspace Scope, not model output. Source Resolution only shapes the concrete Source. Authorization belongs to `access()`, whose selected scope must grant the Source key or its Workspace path. Scope-affecting resolved options are fingerprinted so source caches do not reuse data across scopes.
 
 Resolved Sources are evaluated at invocation time and default to lazy materialization. A resolver can return a narrowed GitHub `repo`, `root`, and `mount` without also declaring build-time materialization or cache options; the resolved fingerprint includes the Selected Workspace Scope so one scope cannot reuse another scope's source data.
 
@@ -300,6 +351,26 @@ export async function syncDocs() {
 
 Build and dev integrations own build-time Source materialization. Runtime `sync()` owns explicit Source Sync into Workspace Stores.
 
+### Source sync policy
+
+| Option | Type | Default | Behavior |
+| --- | --- | --- | --- |
+| `sync` | `boolean \| WorkspaceSourceSyncPolicy` | `false` | `true` enables sync with default policy; an object configures concurrency and stale paths. |
+| `sync.concurrency` | `skip \| queue` | `queue` | Queues behind an active sync for the same Source, or reports the overlapping Source as skipped. |
+| `sync.stale` | `keep \| remove` | `keep` | Keeps files no longer returned by the Source, or removes them during reconciliation. |
+
+### `workspace.sync()` options
+
+| Option | Type | Default | Behavior |
+| --- | --- | --- | --- |
+| `sources` | `all \| readonly string[]` | required | Selects all sync-enabled Sources or explicit Source keys. |
+| `details` | `counts \| paths` | `counts` | Returns per-Source counts, with optional per-path results. |
+| `snapshot` | `boolean \| { name?, message? }` | `false` | Creates a snapshot after successful reconciliation. A message is used as the snapshot name when `name` is absent. |
+| `publish` | `boolean` | `false` | Publishes the resulting snapshot through configured Workspace Publishers; enabling it also creates a snapshot. |
+| `publishPartial` | `boolean` | `false` | Applies and optionally publishes successful Source plans even when another selected Source fails. |
+
+Source Sync requires a Workspace Store with metadata support. Without `publishPartial`, any planning error skips all otherwise valid plans so the sync does not apply only part of the requested selection.
+
 ## Sessions and Shell
 
 Use a Workspace Session when execution should operate on a materialized file tree and then produce a diff.
@@ -318,6 +389,32 @@ export async function testDocs() {
   return diff
 }
 ```
+
+### Session method options
+
+`startSession({ paths })` limits materialization, reads, writes, diffs, and commits to the selected Workspace paths. Omit `paths`, pass an empty array, or include the root path to open the complete Workspace.
+
+| Method | Options | Behavior |
+| --- | --- | --- |
+| `readFile`, `writeFile`, `mkdir`, `rm`, `list`, `glob`, `search` | Same file options as the Workspace filesystem | Operate inside the Session path scope. |
+| `exec(command, args?, options?)` | `abortSignal?`, `cwd?`, `env?`, `timeout?` | Runs through the configured executable Workspace runtime. Basic non-executable Sessions reject this method. |
+| `diff()` | none | Returns changes inside the Session path scope. |
+| `commit(options?)` | `message?: string` | Writes Session changes back and snapshots them with an optional message. |
+| `close()` | none | Releases Session runtime resources. |
+| `tools?.aiSdk()` | none | Returns runtime-provided AI SDK tools when the Session supports them. |
+
+### Mount method options
+
+The exported `Workspace` contract also exposes `mount()` for integrations that hold the full Workspace implementation.
+
+| Surface | Options or result | Behavior |
+| --- | --- | --- |
+| `mount(options?)` | `mode: 'read-only' \| 'read-write' \| 'copy-on-write'`, `target?: string` | Declares the mount mode and target. With no options, mode defaults to `read-only` and target defaults to `/workspace`. |
+| `mount.diff()` | none | Returns changes made through the mount. |
+| `mount.commit(options?)` | `message?: string` | Commits mounted changes with an optional message. |
+| `mount.export()` | none | Exports the mounted Workspace as a snapshot. |
+
+The returned `WorkspaceMount` also exposes its `workspace`, resolved `mode`, and resolved `target`.
 
 Workspace owns the file tree and commit behavior. [Shell](/docs/server-primitives/shell) owns controlled command sessions, and [Sandbox](/docs/server-primitives/sandbox) owns isolated execution providers.
 

@@ -77,7 +77,7 @@ export default defineConfig({
 })
 ```
 
-The explicit `process` runtime generates Nitro wiring for a long-running process. It runs discovered Static Schedule Definitions and persisted Runtime Schedules through one driver queue, creates both stores through the default KV store configured by `hubKv()`, applies the Schedule prefix, and closes the driver with Nitro. `intervalMs` must be no greater than the one-minute cron resolution. `providerOutput` remains independent, so static provider wake output can be enabled or disabled separately.
+The explicit `process` runtime generates Nitro wiring for a long-running process. It runs discovered Static Schedule Definitions and persisted Runtime Schedules through one driver queue, creates both stores through the default KV store configured by `hubKv()`, applies the Schedule prefix, and closes the driver with Nitro. The defaults are prefix `vitehub:schedule`, `intervalMs: 60_000`, and `concurrency: 1`; the interval cannot exceed the one-minute cron resolution. `providerOutput` remains independent, so static provider wake output can be enabled or disabled separately.
 
 Run exactly one long-lived process or replica with this driver. The KV run store records occurrences but does not provide distributed leader election or locking. Do not select the process driver for request-scoped or serverless hosts that may stop between requests. Those hosts need a provider or host wake integration through `@vite-hub/schedule/runtime/driver`.
 
@@ -120,7 +120,5 @@ const controller = await installScheduleRuntime({
 The driver receives the complete stored Runtime Schedule snapshot, including disabled records. Installation finishes only after the initial snapshot is reconciled. Later creates, updates, and deletes persist first, reconcile serially, and roll back the stored record if host reconciliation fails. A native wake calls `context.wake({ scheduleId, scheduledAt })`; `controller.close()` releases driver resources without deleting schedule state.
 
 Long-running hosts can use `createProcessScheduleWakeDriver()` from `@vite-hub/schedule/runtime/process` when they install the runtime directly. It keeps wake registration inside the current process; it does not install cron, systemd, or another operating-system scheduler.
-
-`startScheduleRunner()` remains available as the polling compatibility runner for long-running hosts.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

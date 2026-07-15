@@ -11,7 +11,7 @@ File conventions produce Discovered Definitions. Discovery Identity comes from t
 
 | Definition | Directory convention | Suffix convention | Discovery Identity |
 | --- | --- | --- | --- |
-| Agent | `server/agents/<name>.ts` or `server/agents/<name>/agent.ts` | `<path>.agent.ts` outside `server/` | Relative file or directory path. A leading `src/` is removed from suffix identities. |
+| Agent | `server/agents/<name>.ts`, `server/agents/<name>/agent.ts`, or `server/agents/<name>/index.ts` | `<path>.agent.ts` outside `server/` | Relative file or directory path. A leading `src/` is removed from suffix identities. |
 | Auth | `server/auth.ts` | `server.auth.ts` | `default`. Only one Auth Definition is allowed. |
 | Email | `server/email.ts` | `server.email.ts` | `default`. Only one Email Definition is allowed. |
 | Database | `server/databases/config.ts` for one default database, or `server/databases/<name>/config.ts` for named databases | `src/database.ts` for the default database, or `<path>.database.ts` for a named database | `default` or the normalized relative path. Default and named modes cannot be mixed. |
@@ -45,7 +45,7 @@ Agent folders can colocate Workspace content beside the Agent Definition. When a
 server/
   agents/
     docs/
-      config.ts
+      agent.ts
       workspace/
         README.md
         guides/
@@ -60,7 +60,7 @@ An Agent folder can own Skills in an adjacent `skills/` directory. ViteHub recur
 server/
   agents/
     review/
-      config.ts
+      agent.ts
       skills/
         code-review/
           SKILL.md

@@ -73,7 +73,7 @@ ViteHub materializes it through the normal Workspace Source flow, so it remains 
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives the global `bash` tool with the browser command registered. |
-| Harness-backed | Receives the contributed browser skill file through Workspace materialization. Model-facing `bash` tools are not passed by default. |
+| Harness-backed | Receives the global `bash` tool through the Harness tool bridge and the contributed browser skill file through Workspace materialization. |
 | Custom-run-backed | Receives prepared Workspace context; `driver.run` decides whether to use Workspace APIs directly. |
 
 ## Inspect and verify

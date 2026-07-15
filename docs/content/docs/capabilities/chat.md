@@ -67,20 +67,29 @@ For adapter-backed delivery, inspect the Channel-generated webhook registrations
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `hooks` | `AgentChatEventHooks` | none | Chat event hooks such as `onDirectMessage`. |
+| `lifecycleHooks` | `Record<string, unknown>` | none | Additional lifecycle-hook settings for integrations that consume Chat Capability configuration. |
 | `event` | `"directMessage"` | none | Chat event binding hint. |
 | `triggerHistory` | `"none" \| { source: "thread"; maxMessages?: number }` | last 20 messages, or `threadHistory.maxMessages` when derived | Chat History Window sent into the `chat.message` Agent Trigger. |
 | `threadHistory` | `{ maxMessages?: number; ttlMs?: number }` | inherited | Adapter thread backfill/cache; stores messages but does not by itself define model input. |
+| `messageHistory` | Chat SDK message-history configuration | inherited | Adapter message-history behavior passed to the Chat SDK. |
+| `logger` | Chat SDK logger | inherited | Logger passed to adapter-backed Chat SDK delivery. |
 | `sessions` | `boolean \| AgentChatSessionOptions` | inherited | Chat Session behavior, including `strategy`, `idleTimeoutMs`, and `metadataKey`. |
 | `state` | `AgentChatStateResolver` | runtime state | Chat State adapter override. |
+| `transcripts` | Chat SDK `TranscriptsConfig` | none | Transcript persistence configuration for adapter-backed Channels. |
+| `identity` | `IdentityResolver` | channel-qualified user id when transcripts are enabled | Resolve the identity used to partition transcripts. |
 | `stream` | `boolean` | inherited | Whether the chat trigger should stream output. |
+| `streamingUpdateIntervalMs` | `number` | inherited | Minimum interval between streamed Channel message updates. |
 | `concurrency` | `"drop" \| "parallel" \| "queue" \| "reject" \| string` | inherited | Message concurrency behavior. |
 | `lockScope` | `"agent" \| "channel" \| "thread" \| string` | inherited | Scope used for message locks. |
+| `dedupeTtlMs` | `number` | inherited | Time-to-live for Chat SDK duplicate-message keys. |
+| `userName` | `string` | `"vitehub"` | Agent username used by adapter-backed Chat SDK delivery. |
 | `fallbackStreamingPlaceholderText` | `string \| string[] \| null \| function` | inherited | Placeholder text while streaming starts. Arrays pick one entry per Agent Invocation; empty arrays skip the placeholder. |
 | `errorFallbackText` | `string \| null \| function` | inherited | Fallback message when chat handling fails. |
 
 ## Reference
 
 - [Agent triggers](/docs/agents/triggers)
+- [Chat History and sessions](/docs/agents/chat-history-sessions)
 - [chatTitle()](/docs/capabilities/chat-title)
 - [chatSummary()](/docs/capabilities/chat-summary)
 - Source: `packages/agent/src/chat-trigger.ts`

@@ -56,7 +56,7 @@ Workspace Sources do not own authorization. Grant a Source by key from each Acce
 
 ## Requirements
 
-`access({ workspace })` requires an explicit Workspace and currently applies read-only Workspace Scope.
+`access({ workspace })` requires an explicit Workspace. Model-backed and custom-run-backed Agents receive a read-only scoped Workspace; writable Workspace access is supported only for Harness Agent Drivers and remains limited to the selected scope.
 An admin role is required for an all-Workspace scope.
 
 `access({ chat })` requires a resolver that returns an allow or reject decision for the chat surface.
@@ -85,8 +85,9 @@ Missing scope selection, root-mounted Source grants, missing Workspace definitio
 | `chat.resolve` | `(context) => boolean \| void` | none | Allow or reject trusted Chat Platform traffic before the Agent Invocation runs. |
 | `workspace.defaultScope` | `string` | none | Fallback Workspace Scope name when `resolve` does not choose one. |
 | `workspace.resolve` | `string \| selection \| function` | none | Select a Workspace Scope from trusted invocation context. |
-| `workspace.scopes` | `Record<string, scope>` | none | Optional named Workspace Scope definitions for explicit grants, roles, or full access. |
-| `scope.all` | `boolean` | `false` | Grant the full Workspace for that scope. |
+| `workspace.scopes` | `Record<string, scope>` | none | Optional named Workspace Scope definitions for explicit grants or full access. |
+| `selection.role` | `AccessRoleName` | `"viewer"` | Role applied to the selected scope. Full-Workspace access requires `"admin"`. |
+| `scope.all` | `boolean` | `false` | Grant the full Workspace for that scope when the selection uses the `"admin"` role. |
 | `scope.path` / `scope.paths` | `string \| string[]` | none | Grant Workspace paths. |
 | `scope.source` / `scope.sources` | `string \| string[]` | none | Grant Workspace Sources. |
 | `scope.grants` | `AccessWorkspaceScopeGrant[]` | none | Combine path and Source grants. |

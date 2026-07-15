@@ -74,6 +74,7 @@ Test a vague first message and confirm the fallback title is used instead of an 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `channelDelivery` | `"once-per-thread" \| "always"` | `"once-per-thread"` | Deliver framework-managed Chat SDK Channel titles once per thread, or on every invocation. |
+| `driver` | `AgentDriver` | none | Agent Driver used only for title generation. |
 | `execute` | `(input) => string \| { title?: string }` | none | Custom title generator. |
 | `fallback` | `string` | `"New Conversation"` | Title used when generation returns no usable text. |
 | `id` | `string` | `"chat-title"` | Capability id. |

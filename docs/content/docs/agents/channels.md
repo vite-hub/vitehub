@@ -7,7 +7,7 @@ icon: i-lucide-radio
 
 A Channel names where an Agent Invocation came from and how message-shaped events move through the system. Channels carry origin, event, delivery, thread, and message facts; they do not carry trusted caller identity by themselves.
 
-Use Channels for reachability and delivery. Use Agent Actors for identity, and use input commands for explicit user-authored command handling. The current API still exposes Agent Actor values through `context.invoker` and `defineAgent({ invoker })` while the public language migrates.
+Use Channels for reachability and delivery. Use Agent Actors for identity, and use input commands for explicit user-authored command handling.
 
 Channel Kind helpers are imported from `@vite-hub/agent/channels`, not the root `@vite-hub/agent` entry.
 
@@ -20,7 +20,7 @@ export default defineAgent({
     github: github({ pullRequest: true }),
     portal: webChat,
   },
-  run: () => 'ok',
+  driver: { run: () => 'ok' },
 })
 ```
 
@@ -48,7 +48,7 @@ export default defineAgent({
     portal: webChat({ capabilities: [portalApi] }),
     teams: teams(),
   },
-  run: () => 'ok',
+  driver: { run: () => 'ok' },
 })
 ```
 
@@ -72,7 +72,7 @@ export default defineAgent({
       messages: { lockScope: 'thread' },
     }),
   },
-  run: () => 'ok',
+  driver: { run: () => 'ok' },
 })
 ```
 
@@ -117,11 +117,11 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-The `run` fields are first-class Agent Run metadata, not legacy Chat context. They help DevTools, traces, and finish hooks explain where the invocation came from.
+The `run` fields are Agent Run metadata. They help DevTools, traces, and finish hooks explain where the invocation came from.
 
 Message-shaped Channels also record a canonical `channel` Agent Invocation Context Value. Capability callbacks, dynamic model metadata callbacks, and Source resolvers receive it directly as `context.channel`; instruction composition can read it as `context.channel`. It contains the current `message`, `meta`, `run`, `session`, and `user` values when available.
 
-The legacy `chat` context value remains available through `context.get('chat')` for compatibility, but it does not receive Agent Run metadata. Augment `ViteHubAgentChannelMeta` and `ViteHubAgentChannelUser` in application code to type app-owned metadata and user fields.
+Augment `ViteHubAgentChannelMeta` and `ViteHubAgentChannelUser` in application code to type app-owned metadata and user fields.
 
 ## Admit web chat requests
 
@@ -147,7 +147,7 @@ export default defineAgent({
       },
     }),
   },
-  run: () => 'ok',
+  driver: { run: () => 'ok' },
 })
 ```
 
@@ -155,7 +155,7 @@ ViteHub reads the raw request body once, parses the JSON object, runs `authentic
 
 ## Add identity separately
 
-When the channel handler authenticates a user, pass that identity as the Agent Actor. The current runtime input field is still named `invoker`, so Agents and Capabilities read `context.invoker` until the compatibility API is replaced.
+When the channel handler authenticates a user, pass that identity as the Agent Actor. The trusted invocation input key is `invoker`; Agent and Capability callbacks receive the resolved Actor as both `actor` and `invoker`.
 
 ```ts [server/api/support-chat.post.ts]
 return streamAgentTrigger(support, { runtime: 'unknown' }, 'chat.message', {
@@ -208,9 +208,11 @@ export default defineAgent({
     support: telegram({ adapter: createTelegramAdapter }),
   },
   workspace: { mode: 'write' },
-  run: async ({ workspace }) => {
-    await renderScreenshot(workspace, 'screenshots/login.png')
-    return 'Captured the login state.'
+  driver: {
+    run: async ({ workspace }) => {
+      await renderScreenshot(workspace, 'screenshots/login.png')
+      return 'Captured the login state.'
+    },
   },
 })
 ```
@@ -254,7 +256,7 @@ export default defineAgent({
       },
     }),
   },
-  run: () => 'ok',
+  driver: { run: () => 'ok' },
 })
 ```
 
@@ -265,5 +267,5 @@ GitHub Pull Request Context enrichment is bounded before it reaches the Agent In
 ## Next steps
 
 - Read [Triggers](/docs/agents/triggers) for `chat.message` and app-owned trigger consumers.
-- Read [Invokers](/docs/agents/invokers) for trusted identity compatibility APIs.
+- Read [Agent Actors](/docs/agents/actors) for trusted caller identity and the exact `invoker` API fields.
 - Read [Chat History and sessions](/docs/agents/chat-history-sessions) for conversation boundaries.

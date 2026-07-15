@@ -23,7 +23,7 @@ Commands that should produce model-facing text must return it explicitly; accept
 
 ## Configuration
 
-Define lowercase stable command names and a description for each command.
+Define lowercase stable command names. Add a description when DevTools and other inspectors should explain the command.
 The default trigger is `/`.
 
 ```ts [server/agents/support.ts]
@@ -86,8 +86,9 @@ Check DevTools metadata for the `inputCommands` Capability and its command descr
 | `commands` | `Record<string, InputCommand>` | required | Command map keyed by lowercase stable command names. |
 | `id` | `string` | `"inputCommands"` | Capability id. |
 | `trigger` | `string` | `"/"` | Non-whitespace command prefix. |
-| `commands.*.description` | `string` | required | Command description for metadata and inspection. |
+| `commands.*.description` | `string` | none | Optional command description for metadata and inspection. |
 | `commands.*.call` | `(input) => AgentRunInput \| Response \| string \| void` | remove command text | Handler that accepts, rejects, transforms, or enriches invocation input. |
+| `commands.*.run` | same as `call` | none | Accepted alias for `call`; when both are present, `call` wins. |
 | `commands.*.channels` | `string[]` | all channels | Optional configured Channel ID allowlist. |
 | `commands.*.hooks` | `{ 'agent:input'?, 'agent:finish'? }` | none | Command-scoped lifecycle hooks with `ctx.message.reply/update/react` delivery primitives. |
 

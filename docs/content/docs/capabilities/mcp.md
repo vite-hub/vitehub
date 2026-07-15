@@ -94,7 +94,7 @@ They do not prove that the first reviewed definition was safe or detect changed 
 
 ## Requirements
 
-`mcp({ servers })` requires a non-empty server map.
+`mcp({ servers })` requires a server map. Each configured entry must resolve to an MCP client or MCP client configuration.
 MCP client configuration uses the optional `@ai-sdk/mcp` runtime package when ViteHub creates the client from config.
 Tool integrity requires `ai` 7.0.19 or newer only when `integrity` is configured.
 
@@ -105,7 +105,7 @@ The external MCP Server owns its own credentials, availability, and tool behavio
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives normalized MCP tools. |
-| Harness-backed | Receives normalized MCP tools through harness tool support. |
+| Harness-backed | Receives normalized MCP tools through the Harness tool bridge; runtime connection and cleanup still run around the invocation. |
 | Custom-run-backed | Receives prepared context; `driver.run` decides whether to call MCP clients or tools through custom code. |
 
 ## Inspect and verify

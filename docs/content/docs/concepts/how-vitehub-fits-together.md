@@ -17,7 +17,7 @@ ViteHub connects portable declarations to runtime behavior through package-owned
 | 4 | Runtime Registry | Generated runtime code maps discovered names to lazy-loaded Definitions. |
 | 5 | Provider Output | Host-specific files, bindings, routes, functions, or crons are emitted when needed. |
 | 6 | Runtime Helper | Application code uses the primitive through a stable import. |
-| 7 | Capability | Agents receive selected model-facing abilities without gaining every primitive. |
+| 7 | Capability | Agents receive selected abilities without gaining every primitive. |
 
 ## Package ownership
 

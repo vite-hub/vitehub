@@ -3,6 +3,10 @@ import { docsManifest, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime
 
 type ManifestSection = (typeof docsManifest.sections)[number];
 type ManifestPage = ManifestSection["pages"][number];
+type SidebarPageGroup = {
+  label: string | null;
+  pages: ManifestPage[];
+};
 
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
@@ -22,7 +26,21 @@ const sectionOrder = [
 
 const sections = computed(() => {
   return docsManifest.sections
-    .map(section => ({ ...section, pages: section.pages.filter(page => page.navigation !== false) }))
+    .map((section) => {
+      const pages = section.pages.filter(page => page.navigation !== false);
+      const groups = new Map<string | null, ManifestPage[]>();
+
+      for (const page of pages) {
+        const label = page.group?.trim() || null;
+        groups.set(label, [...(groups.get(label) || []), page]);
+      }
+
+      return {
+        ...section,
+        pageGroups: [...groups].map(([label, groupPages]) => ({ label, pages: groupPages })),
+        pages,
+      };
+    })
     .filter(section => section.pages.length > 0)
     .sort((a, b) => {
       const aIndex = sectionOrder.indexOf(a.title);
@@ -145,6 +163,11 @@ function isSectionOpen(section: ManifestSection) {
     : section.pages.some(page => isActive(page.path));
 }
 
+function isPageGroupOpen(section: ManifestSection, group: SidebarPageGroup, index: number) {
+  return group.pages.some(page => isActive(page.path))
+    || (index === 0 && isSectionOpen(section));
+}
+
 </script>
 
 <template>
@@ -172,16 +195,43 @@ function isSectionOpen(section: ManifestSection) {
       </summary>
 
       <div class="vh-docs-sidebar-panel">
-        <NuxtLink
-          v-for="page in section.pages"
-          :key="page.path"
-          :to="page.path"
-          :class="['vh-docs-sidebar-link', { 'is-active': isActive(page.path) }]"
-          :aria-current="isActive(page.path) ? 'page' : undefined"
-        >
-          <UIcon :name="sidebarPageIcon(page)" class="size-4 shrink-0" />
-          <span class="min-w-0 truncate">{{ page.title }}</span>
-        </NuxtLink>
+        <template v-for="(pageGroup, groupIndex) in section.pageGroups" :key="pageGroup.label || 'pages'">
+          <template v-if="pageGroup.label">
+            <details
+              class="vh-docs-sidebar-page-group group/page-group"
+              :open="isPageGroupOpen(section, pageGroup, groupIndex)"
+            >
+              <summary class="vh-docs-sidebar-page-group-summary">
+                <span class="min-w-0 truncate">{{ pageGroup.label }}</span>
+                <UIcon name="i-ph-caret-down-light" class="ml-auto size-3 shrink-0 group-open/page-group:rotate-180" />
+              </summary>
+
+              <NuxtLink
+                v-for="page in pageGroup.pages"
+                :key="page.path"
+                :to="page.path"
+                :class="['vh-docs-sidebar-link is-grouped', { 'is-active': isActive(page.path) }]"
+                :aria-current="isActive(page.path) ? 'page' : undefined"
+              >
+                <UIcon :name="sidebarPageIcon(page)" class="size-4 shrink-0" />
+                <span class="min-w-0 truncate">{{ page.title }}</span>
+              </NuxtLink>
+            </details>
+          </template>
+
+          <template v-else>
+            <NuxtLink
+              v-for="page in pageGroup.pages"
+              :key="page.path"
+              :to="page.path"
+              :class="['vh-docs-sidebar-link', { 'is-active': isActive(page.path) }]"
+              :aria-current="isActive(page.path) ? 'page' : undefined"
+            >
+              <UIcon :name="sidebarPageIcon(page)" class="size-4 shrink-0" />
+              <span class="min-w-0 truncate">{{ page.title }}</span>
+            </NuxtLink>
+          </template>
+        </template>
       </div>
     </details>
   </nav>
@@ -240,6 +290,33 @@ function isSectionOpen(section: ManifestSection) {
   padding: 0;
 }
 
+.vh-docs-sidebar-page-group {
+  border-top: 1px solid color-mix(in srgb, var(--ui-border) 65%, transparent);
+}
+
+.vh-docs-sidebar-page-group-summary {
+  display: flex;
+  cursor: pointer;
+  list-style: none;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.25rem 0.375rem 2.25rem;
+  color: var(--ui-text-dimmed);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.vh-docs-sidebar-page-group-summary::-webkit-details-marker {
+  display: none;
+}
+
+.vh-docs-sidebar-page-group-summary:hover,
+.vh-docs-sidebar-page-group-summary:focus-visible {
+  color: var(--ui-text);
+}
+
 .vh-docs-sidebar-link {
   display: flex;
   align-items: center;
@@ -249,6 +326,10 @@ function isSectionOpen(section: ManifestSection) {
   color: var(--ui-text-muted);
   font-size: 0.875rem;
   transition: all 0.15s;
+}
+
+.vh-docs-sidebar-link.is-grouped {
+  padding-left: 2.75rem;
 }
 
 .vh-docs-sidebar-link:hover,
