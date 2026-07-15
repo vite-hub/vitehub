@@ -2,7 +2,6 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path"
-import { pathToFileURL } from "node:url"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { createDefaultCloudflareOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
@@ -53,8 +52,7 @@ async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | un
     if ((error as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND") return undefined
     throw error
   }
-  const require = createRequire(import.meta.url)
-  return await import(pathToFileURL(require.resolve("@workflow/builders")).href) as VercelWorkflowBuilders
+  return await import("@workflow/builders") as VercelWorkflowBuilders
 }
 
 async function createVercelWorkflowTransformPlugin(rootDir: string): Promise<Plugin | undefined> {
