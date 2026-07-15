@@ -42,7 +42,6 @@
     "test": "vp run -t @vite-hub/queue#build && vp test"
   },
   "dependencies": {
-    "@vercel/functions": "catalog:vercel",
     "defu": "catalog:unjs",
     "esbuild": "catalog:esbuild-v27",
     "exsolve": "catalog:unjs",
@@ -51,6 +50,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vercel/functions": "catalog:vercel",
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -59,10 +59,14 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "@vercel/functions": "catalog:vercel",
     "@vercel/queue": "catalog:vercel",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@vercel/functions": {
+      "optional": true
+    },
     "@vercel/queue": {
       "optional": true
     },

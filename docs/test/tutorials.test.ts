@@ -27,6 +27,16 @@ async function expectPageToUseFixture(pagePath: string, fixture: string, labels:
 }
 
 describe("launch tutorials", () => {
+  it("uses the framework distribution as the only direct ViteHub dependency", async () => {
+    for (const fixture of ["agents", "server-primitives"]) {
+      const manifest = JSON.parse(await readFile(resolve(fixturesRoot, fixture, "package.json"), "utf8"))
+      const dependencyNames = Object.keys(manifest.dependencies || {})
+
+      expect(dependencyNames).toContain("vite-hub")
+      expect(dependencyNames.filter(name => name.startsWith("@vite-hub/"))).toEqual([])
+    }
+  })
+
   it("keeps every source file in the cold-rendered tutorial body", async () => {
     const pages = [
       {

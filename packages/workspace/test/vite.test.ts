@@ -594,6 +594,28 @@ describe("hubWorkspace", () => {
     expect(pluginSource).toContain('"provider": "local"')
   })
 
+  it("uses a configured package base in physical Nitro imports", async () => {
+    const root = await createViteRoot()
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ importBase: "vite-hub/_internal/workspace" } as never)
+    const config = plugin.config as (
+      config: { nitro?: Record<string, unknown>, root: string },
+      env: { command: "serve", mode: string },
+    ) => Promise<{ nitro?: { plugins?: string[] } }>
+
+    await expect(config({ nitro: {}, root }, { command: "serve", mode: "development" })).resolves.toMatchObject({
+      nitro: {
+        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+      },
+    })
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("from 'vite-hub/_internal/workspace/internal/runtime/hosted'")
+    expect(pluginSource).toContain("from 'vite-hub/_internal/workspace/internal/runtime/hosted-vercel-blob'")
+    expect(pluginSource).toContain("from 'vite-hub/_internal/workspace/runtime'")
+    expect(pluginSource).not.toContain("@vite-hub/workspace")
+  })
+
   it("keeps Vite workspace names relative to nested Vite roots while writing project state", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-suffix-root-"))
     tempDirs.push(root)

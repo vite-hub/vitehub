@@ -11,7 +11,30 @@ export type WorkflowVitePlugin = Plugin
 
 const mergeNoExternal = createNoExternalMerger(workflowPackageName)
 
+type InternalWorkflowModuleOptions = Exclude<WorkflowModuleOptions, false> & {
+  agentImportBase?: string
+  importBase?: string
+  providerImportAliases?: Record<string, string>
+  workspaceDependencyRuntimeImports?: {
+    sandbox?: string
+    sandboxRuntimeState?: string
+    shellWorkspace?: string
+  }
+  workspaceImportBase?: string
+}
+
+function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
+  const aliases: Record<string, string> = {}
+  for (const alias of config.resolve.alias) {
+    if (typeof alias.find === "string" && typeof alias.replacement === "string") {
+      aliases[alias.find] = alias.replacement
+    }
+  }
+  return aliases
+}
+
 export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin {
+  const internalOptions = options as InternalWorkflowModuleOptions | undefined
   let resolved: ResolvedConfig | undefined
   let workflow: WorkflowModuleOptions | undefined = options
 
@@ -37,9 +60,17 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
         return
       }
       await generateProviderOutputs({
+        agentImportBase: internalOptions?.agentImportBase,
         clientOutDir: resolved.build.outDir,
+        importBase: internalOptions?.importBase,
+        providerImportAliases: {
+          ...resolveStringAliases(resolved),
+          ...internalOptions?.providerImportAliases,
+        },
         rootDir: resolved.root,
         workflow,
+        workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
+        workspaceImportBase: internalOptions?.workspaceImportBase,
       })
     },
   }

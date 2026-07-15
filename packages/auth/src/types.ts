@@ -1,10 +1,16 @@
 import type { Auth, BetterAuthOptions } from "better-auth"
 
+declare global {
+  namespace ViteHub {
+    interface AuthRuntimeEnv extends Record<string, unknown> {}
+  }
+}
+
 export type AuthRuntimeOption = "baseURL" | "secret" | "secrets"
 export type AuthReservedOption = AuthRuntimeOption | "access" | "basePath" | "database" | "route" | "runtime" | "secondaryStorage"
 export type AuthBetterAuthOptions = Omit<BetterAuthOptions, AuthReservedOption>
 
-export interface AuthRuntimeEnv extends Record<string, unknown> {}
+export interface AuthRuntimeEnv extends ViteHub.AuthRuntimeEnv {}
 
 export interface AuthRuntimeContext<TEnv extends Record<string, unknown> = AuthRuntimeEnv> {
   env: TEnv

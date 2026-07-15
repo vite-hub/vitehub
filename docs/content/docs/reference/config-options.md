@@ -12,7 +12,13 @@ Provider Selection belongs in Integration Options when it changes generated outp
 
 | Import | Public type | Placement | Defaults |
 | --- | --- | --- | --- |
-| `@vite-hub/vite` | `ViteHubPresetOptions` | `vitehub(options)` in Vite `plugins` | Composes Agent, Blob, Database, DevTools, Env, Workflow, and Workspace unless a key is `false`. Email, KV, Queue, Sandbox, and Schedule are opt-in with `true` or their integration options. Auth is not included. The preset does not re-export package APIs. |
+| `vite-hub` | `ViteHubPresetOptions` | `vitehub(options)` in Vite `plugins` | Composes Agent, Blob, Database, DevTools, Env, Workflow, and Workspace unless a key is `false`. Auth, Email, KV, Queue, Sandbox, and Schedule are enabled with `true` for inferred defaults or with their integration options. Application APIs use intentional `vite-hub/*` feature subpaths. |
+
+`@vite-hub/vite` remains a supported root-only compatibility import for
+`vitehub()`. Direct `hubX()` integration functions remain available from their
+independent `@vite-hub/*/vite` owner-package paths.
+
+Email, KV, Queue, Sandbox, and Schedule are opt-in with `true` for inferred defaults or with their integration options. Auth follows the same opt-in shape but currently has no plugin option bag.
 
 ## Vite Integration options
 
@@ -48,17 +54,19 @@ Provider-specific driver fields are intentionally summarized here. Read the expo
 Agent Eval Runner defaults live under the Agent Package integration.
 
 ```ts [vite.config.ts]
-import { hubAgent } from '@vite-hub/agent/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    hubAgent({
-      eval: {
-        cache: true,
-        maxConcurrency: 2,
-        scoreThreshold: 85,
-        testTimeout: 60_000,
+    vitehub({
+      agent: {
+        eval: {
+          cache: true,
+          maxConcurrency: 2,
+          scoreThreshold: 85,
+          testTimeout: 60_000,
+        },
       },
     }),
   ],
@@ -71,11 +79,12 @@ Env separates Public Env, compile-time define values, and Server Env.
 Secret Env values belong in `env.server`, not `env.public` or `env.define`.
 
 ```ts [vite.config.ts]
-import { env, hubEnv } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [hubEnv({ diagnostics: 'summary' })],
+  plugins: [vitehub({ env: { diagnostics: 'summary' } })],
   env: {
     public: {
       appName: env({ default: 'Acme' }),

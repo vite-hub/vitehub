@@ -19,7 +19,8 @@ describe("landing page", () => {
 
     for (const path of landingPaths) {
       expect(path.tutorialPath).toMatch(/^\/docs\/getting-started\//);
-      expect(path.code).toContain("@vite-hub/");
+      expect(path.code).toContain("vite-hub/");
+      expect(path.code).not.toContain("@vite-hub/");
       expect(path.description.length).toBeLessThan(120);
       expect(path.action.length).toBeLessThan(24);
     }
@@ -35,7 +36,8 @@ describe("landing page", () => {
     ]);
 
     for (const option of installOptions.packages) {
-      expect(option.command).toContain("@vite-hub/agent");
+      expect(option.command).toContain("vite-hub");
+      expect(option.command).not.toContain("@vite-hub/");
     }
 
     expect(landingPaths[0].code).toContain("run({ prompt })");

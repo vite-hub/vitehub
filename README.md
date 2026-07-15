@@ -36,16 +36,16 @@ Agents may compose Server Primitives. Server Primitives never require Agents.
 
 ## Installation
 
-The current full-platform setup starts with the Vite preset. Focused guides use the package that owns the Agent or Server Primitive surface.
+Install the framework distribution for the normal application path. It keeps one direct ViteHub dependency while preserving feature boundaries through intentional subpaths.
 
 ```bash
-pnpm add @vite-hub/vite @vite-hub/agent
+pnpm add vite-hub
 ```
 
 Register the Vite Integration.
 
 ```ts
-import { vitehub } from "@vite-hub/vite";
+import { vitehub } from "vite-hub";
 import { defineConfig } from "vite";
 
 export default defineConfig({
@@ -69,7 +69,7 @@ Create an Agent Definition.
 
 ```ts
 import { gateway } from "@ai-sdk/gateway";
-import { defineAgent } from "@vite-hub/agent";
+import { defineAgent } from "vite-hub/agent";
 
 export default defineAgent({
   driver: {
@@ -82,7 +82,7 @@ export default defineAgent({
 Run it from server code.
 
 ```ts
-import { runAgent } from "@vite-hub/agent";
+import { runAgent } from "vite-hub/agent";
 import support from "../agents/support";
 
 export default defineEventHandler(async (event) => {
@@ -113,18 +113,20 @@ Server primitives are useful with or without Agents.
 
 | Need | Start with |
 | --- | --- |
-| Environment values and secrets | [`@vite-hub/env`](https://vitehub.dev/docs/server-primitives/env) |
-| Auth and sessions | [`@vite-hub/auth`](https://vitehub.dev/docs/server-primitives/auth) |
-| Small key-addressed state | [`@vite-hub/kv`](https://vitehub.dev/docs/server-primitives/kv) |
-| Relational data | [`@vite-hub/database`](https://vitehub.dev/docs/server-primitives/database) |
-| Uploads and generated assets | [`@vite-hub/blob`](https://vitehub.dev/docs/server-primitives/blob) |
-| File-tree state and Sources | [`@vite-hub/workspace`](https://vitehub.dev/docs/server-primitives/workspace) |
-| Background delivery | [`@vite-hub/queue`](https://vitehub.dev/docs/server-primitives/queue) |
-| Durable long-running work | [`@vite-hub/workflow`](https://vitehub.dev/docs/server-primitives/workflows) |
-| Future or recurring work | [`@vite-hub/schedule`](https://vitehub.dev/docs/server-primitives/schedule) |
-| Isolated execution | [`@vite-hub/sandbox`](https://vitehub.dev/docs/server-primitives/sandbox) |
+| Environment values and secrets | [`vite-hub/env`](https://vitehub.dev/docs/server-primitives/env) |
+| Auth and sessions | [`vite-hub/auth`](https://vitehub.dev/docs/server-primitives/auth) |
+| Small key-addressed state | [`vite-hub/kv`](https://vitehub.dev/docs/server-primitives/kv) |
+| Relational data | [`vite-hub/database`](https://vitehub.dev/docs/server-primitives/database) |
+| Uploads and generated assets | [`vite-hub/blob`](https://vitehub.dev/docs/server-primitives/blob) |
+| File-tree state and Sources | [`vite-hub/workspace`](https://vitehub.dev/docs/server-primitives/workspace) |
+| Background delivery | [`vite-hub/queue`](https://vitehub.dev/docs/server-primitives/queue) |
+| Durable long-running work | [`vite-hub/workflow`](https://vitehub.dev/docs/server-primitives/workflows) |
+| Future or recurring work | [`vite-hub/schedule`](https://vitehub.dev/docs/server-primitives/schedule) |
+| Isolated execution | [`vite-hub/sandbox`](https://vitehub.dev/docs/server-primitives/sandbox) |
 
 Each package owns its Runtime Helpers and Vite Integration. Host-specific wiring stays behind ViteHub Provider Output, so app code can use stable imports instead of provider SDK plumbing.
+
+Libraries and focused integrations can depend on any `@vite-hub/*` owner package directly. Existing `@vite-hub/vite` imports remain supported as a root-only compatibility path for `vitehub()`; new applications should use `vite-hub`.
 
 ## Learn More
 
@@ -135,6 +137,7 @@ Each package owns its Runtime Helpers and Vite Integration. Host-specific wiring
 - [Capabilities](https://vitehub.dev/docs/capabilities)
 - [Server primitives](https://vitehub.dev/docs/server-primitives)
 - [Runtime imports](https://vitehub.dev/docs/reference/import-paths)
+- [Migrate to `vite-hub`](https://vitehub.dev/docs/getting-started/migration)
 
 ## Development
 

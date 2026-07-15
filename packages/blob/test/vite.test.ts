@@ -156,4 +156,25 @@ describe("hubBlob", () => {
     expect(handler).toContain("getRouterParam(event, '_', { decode: false })")
     expect(handler).toContain("blob.store(storeName).serve(event, pathname)")
   })
+
+  it("uses a configured package base in physical Nitro imports", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-import-base-"))
+    const plugin = hubBlob({
+      driver: "fs",
+      importBase: "vite-hub/_internal/blob",
+      serve: true,
+    } as never)
+    const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
+
+    await configResolved({
+      build: { outDir: "dist" },
+      root,
+    } as never)
+
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
+    const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
+    expect(nitroPlugin).toContain("from 'vite-hub/_internal/blob/runtime/state'")
+    expect(handler).toContain("from 'vite-hub/_internal/blob'")
+    expect(`${nitroPlugin}\n${handler}`).not.toContain("@vite-hub/blob")
+  })
 })

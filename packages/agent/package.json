@@ -137,7 +137,6 @@
     "@libsql/client": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
     "@types/json-schema": "catalog:ai",
-    "@vercel/functions": "catalog:vercel",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/box": "workspace:*",
     "@vite-hub/devtools": "workspace:*",
@@ -148,9 +147,7 @@
     "chat": "catalog:chat",
     "comark": "catalog:ui",
     "esbuild": "catalog:esbuild-v27",
-    "evalite": "catalog:ai",
-    "hookable": "catalog:unjs",
-    "vitest": "catalog:tooling"
+    "hookable": "catalog:unjs"
   },
   "devDependencies": {
     "@ai-sdk/harness": "catalog:ai",
@@ -158,15 +155,19 @@
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@types/node": "catalog:tooling",
+    "@vercel/functions": "catalog:vercel",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vitejs/devtools-kit": "catalog:vite",
     "ai": "catalog:ai",
+    "askweb": "catalog:ai",
+    "evalite": "catalog:ai",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
-    "vite-plus": "catalog:tooling"
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
   },
   "peerDependencies": {
     "@ai-sdk/harness": "catalog:ai",
@@ -174,10 +175,15 @@
     "@ai-sdk/harness-codex": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
+    "@vercel/functions": "catalog:vercel",
+    "@vite-hub/blob": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "ai": "catalog:ai-compat",
-    "vite": "catalog:vite-compat"
+    "askweb": "catalog:ai",
+    "evalite": "catalog:ai",
+    "vite": "catalog:vite-compat",
+    "vitest": "catalog:tooling"
   },
   "peerDependenciesMeta": {
     "@ai-sdk/harness": {
@@ -195,13 +201,31 @@
     "@chat-adapter/discord": {
       "optional": true
     },
+    "@vercel/functions": {
+      "optional": true
+    },
+    "@vite-hub/blob": {
+      "optional": true
+    },
     "@vite-hub/schedule": {
+      "optional": true
+    },
+    "@vite-hub/workflow": {
       "optional": true
     },
     "ai": {
       "optional": true
     },
+    "askweb": {
+      "optional": true
+    },
+    "evalite": {
+      "optional": true
+    },
     "vite": {
+      "optional": true
+    },
+    "vitest": {
       "optional": true
     }
   },

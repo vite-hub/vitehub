@@ -4,6 +4,9 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   packageDir,
+  packageInfo,
+  packageInfoByPublishName,
+  packageInfos,
   packageNames,
   readJson,
   readPackageManifest,
@@ -35,17 +38,8 @@ function exportTarget(rawTarget: unknown) {
   }
 }
 
-function packagePublishName(packageName: PackageName) {
-  return `@vite-hub/${packageName}`
-}
-
-function packageShortName(packageName: string) {
-  return packageName.replace("@vite-hub/", "")
-}
-
 function hasExport(packageName: string, specifier: string) {
-  const shortName = packageShortName(packageName) as PackageName
-  const manifest = readPackageManifest(shortName)
+  const manifest = readPackageManifest(packageInfoByPublishName(packageName).name)
   const subpath = specifier.slice(packageName.length)
 
   if (!subpath) {
@@ -53,6 +47,12 @@ function hasExport(packageName: string, specifier: string) {
   }
 
   return Boolean(manifest.exports?.[`.${subpath}`])
+}
+
+function publishNameFromSpecifier(specifier: string) {
+  if (specifier === "vite-hub" || specifier.startsWith("vite-hub/")) return "vite-hub"
+  const match = /^(@vite-hub\/[^/]+)/.exec(specifier)
+  return match?.[1]
 }
 
 function hasGeneratedOutputUnderExampleSurface(path: string) {
@@ -63,17 +63,17 @@ function hasGeneratedOutputUnderExampleSurface(path: string) {
 
 describe("package manifest contracts", () => {
   it("tracks every publishable workspace package in the contract surface", () => {
-    expect(packageNames).toEqual(expect.arrayContaining(["blob", "database", "kv", "queue", "sandbox", "workflow"]))
+    expect(packageNames).toEqual(expect.arrayContaining(["blob", "database", "kv", "queue", "sandbox", "vite-hub", "workflow"]))
   })
 
   it("keeps landed package manifests publishable by convention", () => {
     for (const packageName of packageNames) {
       const manifest = readPackageManifest(packageName)
 
-      expect(manifest.name).toBe(packagePublishName(packageName))
+      expect(manifest.name).toBe(packageInfo(packageName).packageName)
       expect(manifest.description, `${packageName} should describe its package`).toEqual(expect.any(String))
       expect(manifest.license).toBe("Apache-2.0")
-      expect(manifest.sideEffects).toBe(false)
+      expect(manifest.sideEffects).toEqual(packageName === "vite-hub" ? ["./dist/bin.js"] : false)
       expect(manifest.type).toBe("module")
       expect(manifest.types).toBe("./dist/index.d.ts")
       expect(manifest.files).toEqual(expect.arrayContaining(["dist", "package.json"]))
@@ -82,6 +82,29 @@ describe("package manifest contracts", () => {
       expect(manifest.scripts?.test).toEqual(expect.any(String))
       expect(exportTarget(manifest.exports?.["."])).toBe("./dist/index.js")
       expect(manifest.exports?.["./package.json"]).toBe("./package.json")
+    }
+  })
+
+  it("publishes required package dependencies before their consumers", () => {
+    const order = execFileSync(process.execPath, [join(repoRoot, ".github/scripts/package-release-order.mjs")], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    }).trim().split("\n")
+    const positions = new Map(order.map((path, index) => [readJson<{ name: string }>(join(repoRoot, path)).name, index]))
+
+    expect(positions.size).toBe(packageInfos.length)
+    for (const info of packageInfos) {
+      const manifest = readPackageManifest(info.name)
+      const dependencies = {
+        ...manifest.dependencies,
+        ...manifest.optionalDependencies,
+        ...manifest.peerDependencies,
+      }
+      for (const dependency of Object.keys(dependencies)) {
+        if (!positions.has(dependency)) continue
+        expect(positions.get(dependency), `${dependency} must publish before ${info.packageName}`)
+          .toBeLessThan(positions.get(info.packageName)!)
+      }
     }
   })
 
@@ -117,18 +140,30 @@ describe("package manifest contracts", () => {
 })
 
 describe("docs import contracts", () => {
-  it("only references existing @vite-hub package exports in source docs", () => {
+  it("documents every public framework import", () => {
+    const manifest = readPackageManifest("vite-hub")
+    const reference = readFileSync(join(repoRoot, "docs/content/docs/reference/import-paths.md"), "utf8")
+    const documented = new Set([...reference.matchAll(/`(vite-hub(?:\/[^`]+)?)`/g)].map(match => match[1]))
+
+    for (const subpath of Object.keys(manifest.exports || {})) {
+      if (subpath === "./package.json" || subpath.startsWith("./_internal/")) continue
+      const specifier = subpath === "." ? "vite-hub" : `vite-hub/${subpath.slice(2)}`
+      expect(documented, `Missing framework import reference: ${specifier}`).toContain(specifier)
+    }
+  })
+
+  it("only references existing ViteHub package exports in source docs", () => {
     const markdownFiles = [
       ...walkFiles(join(repoRoot, "docs", "content"), { extensions: new Set(["md"]) }),
       ...packageNames.flatMap(packageName => walkFiles(join(packageDir(packageName), "docs"), { extensions: new Set(["md"]) })),
     ]
     const specifiers = new Set<string>()
-    const importPattern = /from\s+['"](@vite-hub\/[^'"]+)['"]|import\s+['"](@vite-hub\/[^'"]+)['"]/g
+    const importPattern = /(?:from\s+|import\s+)['"]((?:@vite-hub\/[^'"]+)|(?:vite-hub(?:\/[^'"]+)?))['"]/g
 
     for (const file of markdownFiles) {
       const source = readFileSync(file, "utf8")
       for (const match of source.matchAll(importPattern)) {
-        const specifier = match[1] || match[2]
+        const specifier = match[1]
         if (specifier) {
           specifiers.add(specifier)
         }
@@ -136,14 +171,14 @@ describe("docs import contracts", () => {
     }
 
     expect(specifiers.size).toBeGreaterThan(0)
-    const scopedPackageNames = packageNames
-      .map(packagePublishName)
-      .filter(packageName => packageName.startsWith("@vite-hub/"))
+    const publishNames = packageInfos.map(info => info.packageName)
 
     for (const specifier of specifiers) {
-      const [scope, name] = specifier.split("/")
-      const packageName = `${scope}/${name}`
-      expect(scopedPackageNames, `Unexpected docs package import: ${specifier}`).toContain(packageName)
+      const packageName = publishNameFromSpecifier(specifier)
+      if (!packageName) {
+        throw new Error(`Could not identify docs package import: ${specifier}`)
+      }
+      expect(publishNames, `Unexpected docs package import: ${specifier}`).toContain(packageName)
       expect(hasExport(packageName, specifier), `Missing docs export: ${specifier}`).toBe(true)
     }
   })

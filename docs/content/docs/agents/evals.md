@@ -11,6 +11,12 @@ ViteHub Agent Evals use `defineEval` and run through the Agent test runner. They
 
 Keep the harness adapter, credentials, session key, harness sandbox provider, and runtime selection on the Agent Definition's Agent Driver. An eval should declare scenarios and scorers; it should not duplicate the Agent Driver setup. Harness sandbox provider setup is Agent Package runtime plumbing resolved from defaults or `driver.sandbox`. Add `sandbox({ commands })` only when the model should receive `sandbox_exec`.
 
+Eval authoring is an advanced Agent Package surface, so keep its runner dependencies explicit even when the app uses the `vite-hub` framework distribution.
+
+```bash [Terminal]
+pnpm add -D @vite-hub/agent evalite vitest
+```
+
 ## Define an eval
 
 Create eval files beside the Agent they protect. A sibling `support.eval.ts` can import `./support`, and a folder-level `eval.ts` can infer `./agent`.

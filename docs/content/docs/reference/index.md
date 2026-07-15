@@ -1,19 +1,30 @@
 ---
 title: Package reference
-description: Map ViteHub packages to their owned primitives, integrations, and public import surfaces.
+description: Map the ViteHub framework distribution and independent owner packages to their public surfaces.
 navigation.title: Package reference
 navigation.order: 50
 icon: i-lucide-package
 ---
 
-The package reference names ownership boundaries.
-Each package owns the public APIs, Vite Integration, Provider Output, errors, and generated files for its primitive or runtime surface.
+The framework distribution is the canonical application dependency. Independent
+owner packages preserve package-level composition for libraries and advanced
+integrations.
 
-## Public packages
+## Framework distribution
 
 | Package | Owns | Primary imports |
 | --- | --- | --- |
-| `@vite-hub/vite` | Composition preset for package-owned Vite integrations | `@vite-hub/vite` |
+| `vite-hub` | Framework defaults, the `vitehub()` Vite Integration, the tested compatibility matrix, and intentional feature subpaths | `vite-hub`, `vite-hub/agent`, `vite-hub/env`, `vite-hub/workspace`, `vite-hub/workflow` |
+
+The root export stays focused on framework composition. Runtime Helpers,
+Definitions, Capabilities, and other application APIs use feature subpaths
+instead of one root barrel.
+
+## Independent owner packages
+
+| Package | Owns | Primary imports |
+| --- | --- | --- |
+| `@vite-hub/vite` | Supported root-only compatibility import for `vitehub()` | `@vite-hub/vite` |
 | `@vite-hub/agent` | Agent Definitions, Agent Invocations, Agent Driver boundary, Capability composition, Agent Evals, Agent Trigger API | `@vite-hub/agent`, `@vite-hub/agent/capabilities`, `@vite-hub/agent/channels`, `@vite-hub/agent/eval`, `@vite-hub/agent/vite` |
 | `@vite-hub/auth` | Auth Definitions, Better Auth server wiring, generated Auth route behavior | `@vite-hub/auth`, `@vite-hub/auth/server`, `@vite-hub/auth/vite` |
 | `@vite-hub/blob` | Blob Stores, Default Blob Store behavior, Blob Driver Modules, provider storage output | `@vite-hub/blob`, `@vite-hub/blob/vite`, `@vite-hub/blob/drivers/*` |
@@ -41,7 +52,9 @@ Each package owns the public APIs, Vite Integration, Provider Output, errors, an
 
 ## Package rules
 
-Public package imports should stay package-owned.
+Applications should start with `vite-hub` and its documented feature subpaths.
+Libraries and focused integrations may depend directly on the package that
+owns the primitive.
 Application code should not import `@vite-hub/internal`, generated files, or framework virtual modules unless a package reference explicitly promotes the path.
 
 Provider-specific behavior belongs to the package that owns the primitive.
@@ -53,3 +66,4 @@ For example, Blob Provider SDK Adapters belong behind Blob Driver Modules, and W
 - [Config options](/docs/reference/config-options)
 - [Provider output](/docs/reference/provider-output)
 - [Runtime and host support](/docs/frameworks-hosts/support-matrix)
+- [Migrate to `vite-hub`](/docs/getting-started/migration)

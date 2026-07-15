@@ -45,17 +45,13 @@ jobs:
           '
 
       - run: vp install --frozen-lockfile
-      - run: vp run lint
-      - run: vp run typecheck
-      - run: vp run test
-      - run: vp run build
 
       - name: Resolve release metadata
         id: release
         shell: bash
         run: |
           publish=false
-          version="0.0.0"
+          version="0.0.0-dev.${GITHUB_RUN_ID}"
 
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             publish=true
@@ -83,16 +79,50 @@ jobs:
           echo "npm_tag=$npm_tag" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
 
+      - name: Apply release version
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          node <<'NODE'
+          const { readdirSync, readFileSync, writeFileSync } = require("node:fs")
+          const { join } = require("node:path")
+
+          if (!process.env.RELEASE_VERSION) throw new Error("Missing release version")
+
+          for (const entry of readdirSync("packages", { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue
+            const path = join("packages", entry.name, "package.json")
+            let manifest
+            try {
+              manifest = JSON.parse(readFileSync(path, "utf8"))
+            }
+            catch (error) {
+              if (error.code === "ENOENT") continue
+              throw error
+            }
+            if (manifest.private === true) continue
+            manifest.version = process.env.RELEASE_VERSION
+            writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`)
+          }
+          NODE
+
+      - run: vp run lint
+      - run: vp run typecheck
+      - run: vp run test:contracts
+      - run: vp run test
+      - run: vp run test:consumer
+
       - name: Dry-run npm package publish
         env:
           NPM_TAG: ${{ steps.release.outputs.npm_tag }}
         run: |
           set -euo pipefail
 
-          for package_json in packages/*/package.json; do
+          dry_run_package() {
+            package_json="$1"
             private="$(node -p "require('./${package_json}').private === true ? 'true' : 'false'")"
             if [[ "$private" == "true" ]]; then
-              continue
+              return
             fi
 
             package_name="$(node -p "require('./${package_json}').name")"
@@ -101,14 +131,19 @@ jobs:
 
             if npm view "${package_name}@${package_version}" version --json >/dev/null 2>&1; then
               echo "${package_name}@${package_version} is already published; skipping dry-run."
-              continue
+              return
             fi
 
             (
               cd "$package_dir"
               vp pm publish --dry-run --access public --tag "$NPM_TAG" --no-git-checks
             )
-          done
+          }
+
+          package_order="$(node .github/scripts/package-release-order.mjs)"
+          while IFS= read -r package_json; do
+            dry_run_package "$package_json"
+          done <<< "$package_order"
 
       - name: Publish packages to npm
         if: steps.release.outputs.publish == 'true'
@@ -117,10 +152,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          for package_json in packages/*/package.json; do
+          publish_package() {
+            package_json="$1"
             private="$(node -p "require('./${package_json}').private === true ? 'true' : 'false'")"
             if [[ "$private" == "true" ]]; then
-              continue
+              return
             fi
 
             package_name="$(node -p "require('./${package_json}').name")"
@@ -129,14 +165,19 @@ jobs:
 
             if npm view "${package_name}@${package_version}" version --json >/dev/null 2>&1; then
               echo "${package_name}@${package_version} is already published; skipping."
-              continue
+              return
             fi
 
             (
               cd "$package_dir"
               vp pm publish --access public --tag "$NPM_TAG" --no-git-checks
             )
-          done
+          }
+
+          package_order="$(node .github/scripts/package-release-order.mjs)"
+          while IFS= read -r package_json; do
+            publish_package "$package_json"
+          done <<< "$package_order"
 
       - name: Create GitHub release
         if: steps.release.outputs.publish == 'true'

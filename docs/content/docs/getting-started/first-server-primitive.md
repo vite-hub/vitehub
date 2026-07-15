@@ -16,26 +16,26 @@ an account or credential.
 
 ## Install KV
 
-Create an empty project and install KV with Vite and H3.
+Create an empty project and install ViteHub with Vite and H3.
 
 ```bash [Terminal]
 mkdir vitehub-kv-start
 cd vitehub-kv-start
 pnpm init
 pnpm pkg set type=module
-pnpm add @vite-hub/kv h3 vite
+pnpm add vite-hub h3 vite
 ```
 
 ## Configure the Vite Integration
 
-Register `hubKv()` and select the file-backed local driver. The explicit
+Register `vitehub()` and select the file-backed local KV driver. The explicit
 configuration stores values under `.data/kv`.
 
 ```ts [vite.config.ts]
 import { resolve } from "node:path"
 
-import { hubKv } from "@vite-hub/kv/vite"
 import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
 
 export default defineConfig({
   root: import.meta.dirname,
@@ -49,7 +49,16 @@ export default defineConfig({
     ssr: true,
   },
   plugins: [
-    hubKv({ driver: "fs-lite", base: ".data/kv" }),
+    vitehub({
+      agent: false,
+      blob: false,
+      database: false,
+      devtools: false,
+      env: false,
+      kv: { driver: "fs-lite", base: ".data/kv" },
+      workflow: false,
+      workspace: false,
+    }),
   ],
 })
 ```
@@ -62,9 +71,9 @@ the application-facing storage API.
 ```ts [src/server.ts]
 import { createServer } from "node:http"
 
-import { kv } from "@vite-hub/kv"
 import { H3, readBody } from "h3"
 import { toNodeHandler } from "h3/node"
+import { kv } from "vite-hub/kv"
 
 const app = new H3().post("/settings", async (event) => {
   const settings = await readBody<{ theme: string }>(event)
@@ -105,7 +114,7 @@ The response proves that the route wrote and read through ViteHub:
 ```
 
 Changing providers belongs in `vite.config.ts`. Server code keeps importing
-`kv` from `@vite-hub/kv` when you move to a supported hosted store.
+`kv` from `vite-hub/kv` when you move to a supported hosted store.
 
 ## Next steps
 

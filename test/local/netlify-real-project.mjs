@@ -46,7 +46,7 @@ async function createLocalPackageSpecs(packDir) {
     if (!entry.isDirectory()) continue
     const packageDir = join(packagesDir, entry.name)
     const pkg = await readPackageJson(join(packageDir, "package.json"))
-    if (typeof pkg.name !== "string" || !pkg.name.startsWith("@vite-hub/")) continue
+    if (typeof pkg.name !== "string" || (pkg.name !== "vite-hub" && !pkg.name.startsWith("@vite-hub/"))) continue
     run("pnpm", ["--filter", pkg.name, "pack", "--pack-destination", packDir], { cwd: repoRoot })
     specs[pkg.name] = `file:${join(packDir, packageTarballName(pkg.name, pkg.version))}`
   }
@@ -175,12 +175,12 @@ async function createProject({ packageSource, preview }) {
 
   const overrides = packageSource === "local"
     ? await createLocalPackageSpecs(join(baseDir, "vitehub-packs"))
-    : {}
+    : { "vite-hub": previewSpec("vite-hub", preview) }
   await writeFixtureFiles(overrides)
 
   const packageSpecs = packageSource === "local"
-    ? [overrides["@vite-hub/agent"], overrides["@vite-hub/vite"]]
-    : [previewSpec("@vite-hub/agent", preview), previewSpec("@vite-hub/vite", preview)]
+    ? [overrides["@vite-hub/agent"], overrides["@vite-hub/vite"], overrides["vite-hub"]]
+    : [previewSpec("@vite-hub/agent", preview), previewSpec("@vite-hub/vite", preview), previewSpec("vite-hub", preview)]
 
   run("pnpm", [
     "add",

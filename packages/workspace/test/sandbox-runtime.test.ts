@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineWorkspace } from "../src/index.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
+import { getWorkspaceDependencyRuntimeLoaders, setWorkspaceDependencyRuntimeLoaders } from "../src/runtime/dependency-loaders.ts"
 import { setSandboxRuntimeConfig } from "@vite-hub/sandbox/runtime/state"
 
 type FakeEntry = { content?: string | Uint8Array, target?: string, type: "directory" | "file" | "symlink" }
@@ -133,6 +134,7 @@ vi.mock("@vite-hub/sandbox", async (importOriginal) => {
 })
 
 afterEach(async () => {
+  setWorkspaceDependencyRuntimeLoaders(undefined)
   setSandboxRuntimeConfig(undefined)
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
   const sandboxPackage = await import("@vite-hub/sandbox")
@@ -140,6 +142,30 @@ afterEach(async () => {
 })
 
 describe("sandbox workspace runtime", () => {
+  it("uses configured generated-host sandbox loaders", async () => {
+    const fake = createFakeSandbox("cloudflare")
+    const createSandboxWithConfig = vi.fn(async () => fake.sandbox)
+    const getSandboxRuntimeConfig = vi.fn(() => ({ provider: "cloudflare" as const, binding: "SANDBOX" }))
+    setWorkspaceDependencyRuntimeLoaders({
+      ...getWorkspaceDependencyRuntimeLoaders(),
+      sandbox: async () => ({ createSandboxWithConfig }),
+      sandboxRuntimeState: async () => ({ getSandboxRuntimeConfig }),
+    })
+
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "sandbox",
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+    const session = await workspace.startSession()
+    await session.close()
+
+    expect(createSandboxWithConfig).toHaveBeenCalledWith({ provider: "cloudflare", binding: "SANDBOX" })
+    expect(getSandboxRuntimeConfig).toHaveBeenCalledOnce()
+  })
+
   it.each(["cloudflare", "vercel"] as const)("materializes a workspace into the configured %s app sandbox and commits changes", async (provider) => {
     const fake = createFakeSandbox(provider)
     const sandboxPackage = await import("@vite-hub/sandbox")

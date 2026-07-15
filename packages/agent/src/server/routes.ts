@@ -171,6 +171,7 @@ const chatFinishMessagesKey = Symbol("vitehub.chat.finish.messages")
 const chatNativeStreamUpdateIntervalMs = 1
 const chatTypingRefreshIntervalMs = 4000
 const chatTypingRefreshTimeoutMs = 2000
+const vercelFunctionsPackage = "@vercel/functions"
 
 type AgentChatQueuedFinishExtension = AgentChatFinishExtension & {
   [chatFinishMessagesKey]: AgentChatMessage[]
@@ -338,7 +339,7 @@ async function runWithRuntimeCloudflareEnv<T>(
 
 async function resolveRuntimeWaitUntil(waitUntil: AgentWaitUntil | undefined): Promise<AgentWaitUntil | undefined> {
   if (detectRuntime() !== "vercel") return waitUntil
-  const vercel = await import("@vercel/functions").catch(() => undefined) as { waitUntil?: AgentWaitUntil } | undefined
+  const vercel = await import(/* @vite-ignore */ vercelFunctionsPackage).catch(() => undefined) as { waitUntil?: AgentWaitUntil } | undefined
   return vercel?.waitUntil || waitUntil
 }
 

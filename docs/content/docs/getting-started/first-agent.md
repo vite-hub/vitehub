@@ -15,26 +15,27 @@ You need Node.js 24 or newer and `pnpm`. The quickstart runs completely offline.
 
 ## Install Agents
 
-Create an empty project and install ViteHub Agents with Vite and H3.
+Create an empty project and install ViteHub with Vite and H3.
 
 ```bash [Terminal]
 mkdir vitehub-agent-start
 cd vitehub-agent-start
 pnpm init
 pnpm pkg set type=module
-pnpm add @vite-hub/agent h3 vite
+pnpm add vite-hub h3 vite
 ```
 
 ## Configure the server build
 
-The first proof imports its Agent Definition directly, so it only needs a
-server build. Add Agent discovery when the application needs a named registry
-or host integration.
+Register `vitehub()` so the framework discovers the Agent Definition and owns
+the server integration. The route still imports the Definition directly for
+the smallest invocation proof.
 
 ```ts [vite.config.ts]
 import { resolve } from "node:path"
 
 import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
 
 export default defineConfig({
   root: import.meta.dirname,
@@ -47,8 +48,16 @@ export default defineConfig({
     },
     ssr: true,
   },
+  plugins: [vitehub({
+    blob: false,
+    database: false,
+    devtools: false,
+    env: false,
+    workflow: false,
+    workspace: false,
+  })],
   ssr: {
-    external: ["@vite-hub/agent"],
+    external: ["vite-hub/agent"],
   },
 })
 ```
@@ -59,7 +68,7 @@ Create a deterministic Agent Driver. `driver.run` keeps the first invocation
 observable and free from provider prerequisites.
 
 ```ts [server/agents/greeting.ts]
-import { defineAgent } from "@vite-hub/agent"
+import { defineAgent } from "vite-hub/agent"
 
 export default defineAgent({
   description: "Returns a deterministic greeting for the first tutorial.",
@@ -104,9 +113,9 @@ export function createMemo() {
 ```ts [src/server.ts]
 import { createServer } from "node:http"
 
-import { runAgent } from "@vite-hub/agent"
 import { H3, readBody } from "h3"
 import { toNodeHandler } from "h3/node"
+import { runAgent } from "vite-hub/agent"
 import greeting from "../server/agents/greeting"
 import { createMemo } from "./memo"
 

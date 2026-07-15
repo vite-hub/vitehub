@@ -1,4 +1,4 @@
-import { defineAgent } from "@vite-hub/agent"
+import { defineAgent } from "vite-hub/agent"
 
 export default defineAgent({
   description: "Returns a deterministic greeting for the first tutorial.",

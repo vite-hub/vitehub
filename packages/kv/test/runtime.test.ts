@@ -89,7 +89,7 @@ vi.mock("unstorage/drivers/fs-lite", () => ({
   }),
 }))
 
-vi.mock("unstorage/drivers/upstash", () => ({
+vi.mock("@vite-hub/kv/runtime/upstash-driver", () => ({
   default: vi.fn(createInspectableDriver("upstash")),
 }))
 

@@ -1,0 +1,520 @@
+import { execFile } from "node:child_process"
+import { existsSync } from "node:fs"
+import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { isAbsolute, join, posix, relative, resolve, sep } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
+import { promisify } from "node:util"
+
+import { describe, expect, it } from "vitest"
+
+import { listWorkspacePackageInfos } from "../../packages/internal/src/workspace-inventory.ts"
+
+const execFileAsync = promisify(execFile)
+const repoRoot = resolve(import.meta.dirname, "../..")
+const fixtureRoot = resolve(repoRoot, "fixtures/consumer/vite-hub")
+const compatFixtureRoot = resolve(repoRoot, "fixtures/consumer/vite-compat")
+const maxBuffer = 64 * 1024 * 1024
+const optionalPackages = [
+  "@ai-sdk/harness",
+  "@ai-sdk/harness-claude-code",
+  "@ai-sdk/harness-codex",
+  "@ai-sdk/mcp",
+  "@chat-adapter/discord",
+  "@cloudflare/sandbox",
+  "@vercel/blob",
+  "@vercel/queue",
+  "@vercel/sandbox",
+  "askweb",
+  "evalite",
+  "files-sdk",
+  "openworkflow",
+  "vitest",
+  "workflow",
+]
+
+interface PackageManifest {
+  bin?: Record<string, string>
+  dependencies?: Record<string, string>
+  devDependencies?: Record<string, string>
+  exports?: Record<string, string | Record<string, string>>
+  name: string
+  optionalDependencies?: Record<string, string>
+  peerDependencies?: Record<string, string>
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>
+  types?: string
+  version: string
+}
+
+async function run(command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv = process.env) {
+  console.log(`[consumer] ${command} ${args.join(" ")}`)
+  try {
+    const result = await execFileAsync(command, args, {
+      cwd,
+      env,
+      maxBuffer,
+    })
+    return {
+      stderr: String(result.stderr || ""),
+      stdout: String(result.stdout || ""),
+    }
+  }
+  catch (error) {
+    const failed = error as Error & { stderr?: string | Buffer, stdout?: string | Buffer }
+    const output = `${failed.stdout || ""}${failed.stderr || ""}`
+    throw new Error(`${command} ${args.join(" ")} failed${output ? `\n${output}` : ""}`, { cause: error })
+  }
+}
+
+function packageTarballName(name: string, version: string) {
+  return `${name.replace(/^@/, "").replaceAll("/", "-")}-${version}.tgz`
+}
+
+function dependencySections(manifest: PackageManifest) {
+  return [
+    manifest.dependencies,
+    manifest.devDependencies,
+    manifest.optionalDependencies,
+    manifest.peerDependencies,
+  ].filter((section): section is Record<string, string> => Boolean(section))
+}
+
+function exportTargets(value: string | Record<string, string>) {
+  return typeof value === "string" ? [value] : Object.values(value)
+}
+
+function declarationPath(importer: string, specifier: string, files: Set<string>) {
+  const path = posix.normalize(posix.join(posix.dirname(importer), specifier))
+  const candidates = [
+    path.replace(/\.mjs$/, ".d.mts"),
+    path.replace(/\.cjs$/, ".d.cts"),
+    path.replace(/\.js$/, ".d.ts"),
+    `${path}.d.ts`,
+    posix.join(path, "index.d.ts"),
+  ]
+  return candidates.find(candidate => files.has(candidate))
+}
+
+async function assertRootDeclarationsAvoidOptionalPeers(tarball: string, manifest: PackageManifest) {
+  const optionalPeers = Object.entries(manifest.peerDependenciesMeta || {})
+    .filter(([name, meta]) => name !== "vite" && meta.optional)
+    .map(([name]) => name)
+  if (!manifest.types || !optionalPeers.length) return
+
+  const { stdout: listing } = await run("tar", ["-tzf", tarball], repoRoot)
+  const files = new Set(listing.split("\n").filter(Boolean))
+  const pending = [`package/${manifest.types.replace(/^\.\//, "")}`]
+  const visited = new Set<string>()
+  const imports = new Set<string>()
+  const importPattern = /(?:\bfrom\s+|\bimport\s*\(\s*)["']([^"']+)["']/g
+
+  while (pending.length) {
+    const file = pending.pop()
+    if (!file || visited.has(file)) continue
+    visited.add(file)
+    const { stdout: source } = await run("tar", ["-xOf", tarball, file], repoRoot)
+
+    for (const match of source.matchAll(importPattern)) {
+      const specifier = match[1]
+      if (!specifier) continue
+      if (specifier.startsWith(".")) {
+        const target = declarationPath(file, specifier, files)
+        if (target) pending.push(target)
+        continue
+      }
+      imports.add(specifier)
+    }
+  }
+
+  const leaks = [...imports].filter(specifier =>
+    optionalPeers.some(name => specifier === name || specifier.startsWith(`${name}/`)),
+  )
+  expect(leaks, `${manifest.name} root declarations require optional peers`).toEqual([])
+}
+
+async function packedManifest(tarball: string) {
+  const { stdout } = await run("tar", ["-xOf", tarball, "package/package.json"], repoRoot)
+  return JSON.parse(stdout) as PackageManifest
+}
+
+async function assertPackedPackage(tarball: string, framework: boolean) {
+  const manifest = await packedManifest(tarball)
+
+  for (const section of dependencySections(manifest)) {
+    for (const [name, spec] of Object.entries(section)) {
+      expect(spec, `${manifest.name} leaves ${name} on a workspace-only protocol`).not.toMatch(/^(?:catalog|workspace):/)
+    }
+  }
+
+  await assertRootDeclarationsAvoidOptionalPeers(tarball, manifest)
+
+  if (manifest.name === "@vite-hub/vite") {
+    expect(manifest.peerDependencies?.["vite-hub"], "compatibility package must require the canonical framework release")
+      .toBe(manifest.version)
+  }
+
+  if (!framework) return
+
+  for (const [name, spec] of Object.entries(manifest.dependencies || {})) {
+    if (name.startsWith("@vite-hub/")) {
+      expect(spec, `${manifest.name} should pin ${name} to its tested release matrix`).toBe(manifest.version)
+    }
+  }
+
+  const { stdout } = await run("tar", ["-tzf", tarball], repoRoot)
+  const files = new Set(stdout.split("\n").filter(Boolean))
+  for (const value of Object.values(manifest.exports || {})) {
+    for (const target of exportTargets(value)) {
+      expect(files, `${manifest.name} is missing packed export ${target}`).toContain(`package/${target.replace(/^\.\//, "")}`)
+    }
+  }
+  for (const target of Object.values(manifest.bin || {})) {
+    expect(files, `${manifest.name} is missing packed binary ${target}`).toContain(`package/${target.replace(/^\.\//, "")}`)
+  }
+}
+
+async function packWorkspacePackages(packDir: string) {
+  const specs: Record<string, string> = {}
+  const infos = listWorkspacePackageInfos(repoRoot).filter(info => !info.private)
+
+  for (const info of infos) {
+    const source = JSON.parse(await readFile(join(info.dir, "package.json"), "utf8")) as PackageManifest
+    await run("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
+    const tarball = join(packDir, packageTarballName(info.packageName, source.version))
+    expect(existsSync(tarball), `Missing tarball for ${info.packageName}`).toBe(true)
+    await assertPackedPackage(tarball, info.packageName === "vite-hub")
+    specs[info.packageName] = `file:${tarball}`
+  }
+
+  return specs
+}
+
+function workspaceConfig(specs: Record<string, string>) {
+  const overrides = Object.entries(specs)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`)
+
+  return [
+    "packages:",
+    "  - .",
+    "allowBuilds:",
+    "  esbuild: true",
+    "overrides:",
+    ...overrides,
+    "",
+  ].join("\n")
+}
+
+function isViteHubPackage(name: string) {
+  return name === "vite-hub" || name.startsWith("@vite-hub/")
+}
+
+async function assertOnlyViteHubDependencies(appDir: string, expected: string[]) {
+  const manifest = JSON.parse(await readFile(join(appDir, "package.json"), "utf8")) as PackageManifest
+  const directViteHubPackages = dependencySections(manifest)
+    .flatMap(section => Object.keys(section))
+    .filter(isViteHubPackage)
+    .sort()
+
+  expect(directViteHubPackages).toEqual(expected)
+}
+
+async function readJavaScript(dir: string): Promise<string> {
+  const chunks: string[] = []
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) chunks.push(await readJavaScript(path))
+    else if (entry.name.endsWith(".js") || entry.name.endsWith(".mjs")) chunks.push(await readFile(path, "utf8"))
+  }
+  return chunks.join("\n")
+}
+
+async function readJavaScriptSources(dir: string, root = dir): Promise<Record<string, string>> {
+  const sources: Record<string, string> = {}
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) Object.assign(sources, await readJavaScriptSources(path, root))
+    else if (entry.name.endsWith(".js") || entry.name.endsWith(".mjs")) sources[relative(root, path).replaceAll("\\", "/")] = await readFile(path, "utf8")
+  }
+  return sources
+}
+
+async function readGeneratedSources(dir: string, root = dir): Promise<Record<string, string>> {
+  const sources: Record<string, string> = {}
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) Object.assign(sources, await readGeneratedSources(path, root))
+    else if (/\.[cm]?[jt]s$/.test(entry.name)) sources[relative(root, path).replaceAll("\\", "/")] = await readFile(path, "utf8")
+  }
+  return sources
+}
+
+async function assertOptionalPackagesAbsent(appDir: string) {
+  const virtualStore = join(appDir, "node_modules/.pnpm")
+  const entries = await readdir(virtualStore)
+
+  for (const name of optionalPackages) {
+    const installed = entries.some(entry => existsSync(join(virtualStore, entry, "node_modules", ...name.split("/"))))
+    expect(installed, `${name} should remain opt-in`).toBe(false)
+  }
+}
+
+function importSpecifierOccurrences(source: string) {
+  const pattern = /\b(?:from\s*|import\s*(?:\(\s*)?|require\s*\(\s*)["']([^"']+)["']/g
+  return [...source.matchAll(pattern)].map(match => ({
+    line: source.slice(0, match.index).split("\n").length,
+    specifier: match[1]!,
+  }))
+}
+
+function isOptionalPackageSpecifier(specifier: string) {
+  return optionalPackages.some(name => specifier === name || specifier.startsWith(`${name}/`))
+}
+
+async function resolveEsmSpecifiers(entries: Array<{ parent: string, specifier: string }>) {
+  const script = [
+    "const entries = JSON.parse(process.argv[1])",
+    "const results = entries.map(({ parent, specifier }) => {",
+    "  try { return { resolved: import.meta.resolve(specifier, parent) } }",
+    "  catch (error) { return { error: error instanceof Error ? error.message : String(error) } }",
+    "})",
+    "process.stdout.write(JSON.stringify(results))",
+  ].join("\n")
+  const { stdout } = await execFileAsync(process.execPath, [
+    "--experimental-import-meta-resolve",
+    "--input-type=module",
+    "--eval",
+    script,
+    JSON.stringify(entries),
+  ], { maxBuffer })
+  return JSON.parse(String(stdout)) as Array<{ error?: string, resolved?: string }>
+}
+
+async function assertVercelOwnerImportsResolveInside(
+  functionsRoot: string,
+  sources: Record<string, string>,
+  message: string,
+) {
+  const ownerImports = Object.entries(sources).flatMap(([file, source]) =>
+    importSpecifierOccurrences(source)
+      .filter(({ specifier }) => specifier.startsWith("@vite-hub/"))
+      .map(occurrence => ({ file, ...occurrence })),
+  ).map((occurrence) => {
+    const functionSegment = occurrence.file.split("/").findIndex(segment => segment.endsWith(".func"))
+    if (functionSegment < 0) return { ...occurrence }
+    const functionDir = join(functionsRoot, ...occurrence.file.split("/").slice(0, functionSegment + 1))
+    const importer = join(functionsRoot, occurrence.file)
+    return { ...occurrence, functionDir, importer }
+  })
+  const invalid = ownerImports
+    .filter(entry => !("functionDir" in entry) || !("importer" in entry))
+    .map(entry => ({ ...entry, reason: "importer is outside a Vercel function" }))
+  const contained = ownerImports.filter(
+    (entry): entry is typeof entry & { functionDir: string, importer: string } => "functionDir" in entry && "importer" in entry,
+  )
+  const resolutions = await resolveEsmSpecifiers(contained.map(entry => ({
+    parent: pathToFileURL(entry.importer).href,
+    specifier: entry.specifier,
+  })))
+
+  for (const [index, entry] of contained.entries()) {
+    const resolution = resolutions[index]
+    if (!resolution?.resolved) {
+      invalid.push({ ...entry, reason: resolution?.error || "specifier did not resolve" })
+      continue
+    }
+    const resolved = await realpath(fileURLToPath(resolution.resolved))
+    const functionDir = await realpath(entry.functionDir)
+    const fromFunction = relative(functionDir, resolved)
+    if (fromFunction === ".." || fromFunction.startsWith(`..${sep}`) || isAbsolute(fromFunction)) {
+      invalid.push({ ...entry, reason: `resolved outside function to ${resolved}` })
+    }
+  }
+
+  expect(invalid, message).toEqual([])
+}
+
+describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-hub consumer contract", () => {
+  it("installs, typechecks, builds, and runs without workspace or hoisting access", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vite-hub-consumer-"))
+    const appDir = join(root, "app")
+    const compatAppDir = join(root, "compat-app")
+    const packDir = join(root, "packs")
+
+    try {
+      await Promise.all([
+        cp(fixtureRoot, appDir, { recursive: true }),
+        cp(compatFixtureRoot, compatAppDir, { recursive: true }),
+        mkdir(packDir, { recursive: true }),
+      ])
+      await assertOnlyViteHubDependencies(appDir, ["vite-hub"])
+      await assertOnlyViteHubDependencies(compatAppDir, ["@vite-hub/vite", "vite-hub"])
+
+      const specs = await packWorkspacePackages(packDir)
+      await Promise.all([
+        writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
+        writeFile(join(compatAppDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
+      ])
+      await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
+
+      expect(existsSync(join(appDir, "node_modules/@vite-hub")), "owner packages must not be visible at the consumer root").toBe(false)
+      await run("node", [
+        "--input-type=module",
+        "--eval",
+        "let resolved = false; try { import.meta.resolve('@vite-hub/agent'); resolved = true } catch {} if (resolved) throw new Error('owner package resolved from the consumer root')",
+      ], appDir)
+      await assertOptionalPackagesAbsent(appDir)
+
+      await run("pnpm", ["run", "typecheck"], appDir)
+      await run("pnpm", ["run", "build"], appDir)
+      await run("pnpm", ["run", "typecheck"], appDir)
+
+      const [agentRoute, authTypes, blobPlugin, envServer, scheduleRegistryTypes, workflowRegistry, workspacePlugin] = await Promise.all([
+        readFile(join(appDir, ".vitehub/agent/chat-webhook-route.ts"), "utf8"),
+        readFile(join(appDir, ".vitehub/types/auth.d.ts"), "utf8"),
+        readFile(join(appDir, ".vitehub/nitro/blob/plugin.ts"), "utf8"),
+        readFile(join(appDir, ".vitehub/env/server.mjs"), "utf8"),
+        readFile(join(appDir, ".vitehub/schedule/registry.d.ts"), "utf8"),
+        readFile(join(appDir, ".vitehub/workflow/registry.mjs"), "utf8"),
+        readFile(join(appDir, ".vitehub/nitro/workspace/plugin.ts"), "utf8"),
+      ])
+      const generatedSources = await readGeneratedSources(join(appDir, ".vitehub"))
+      const bareOwnerPackageSpecifiers = Object.entries(generatedSources).flatMap(([file, source]) =>
+        source.split("\n")
+          .map((line, index) => ({ file, line: index + 1, source: line.trim() }))
+          .filter(line => /["']@vite-hub\/[^"']+["']/.test(line.source)),
+      )
+      expect(bareOwnerPackageSpecifiers, "generated app-local code must not expose bare owner-package specifiers").toEqual([])
+
+      expect(agentRoute).toContain("vite-hub/_internal/agent")
+      expect(agentRoute).toContain("vite-hub/_internal/workspace/runtime")
+      expect(authTypes).toContain("namespace ViteHub")
+      expect(authTypes).toContain("vite-hub/auth/server")
+      expect(blobPlugin).toContain("vite-hub/_internal/blob/runtime/state")
+      expect(envServer).toContain("vite-hub/env/server")
+      expect(scheduleRegistryTypes).toContain("vite-hub/_internal/schedule")
+      expect(workflowRegistry).toContain("vite-hub/_internal/agent")
+      expect(workflowRegistry).toContain("setAgentWorkflowRuntimeLoaders")
+      expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/execute")
+      expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/state")
+      expect(workflowRegistry).toContain("setWorkspaceDependencyRuntimeLoaders")
+      expect(workflowRegistry).not.toContain("vite-hub/_internal/sandbox/runtime/state")
+      expect(workflowRegistry).toContain("vite-hub/shell/workspace")
+      expect(workspacePlugin).toContain("vite-hub/_internal/workspace/runtime")
+
+      const vercelFunctionsRoot = join(appDir, ".vercel/output/functions")
+      const [vercelSources, cloudflareSources] = await Promise.all([
+        readJavaScriptSources(vercelFunctionsRoot),
+        readJavaScriptSources(join(appDir, "dist/app")),
+      ])
+      const vercelImports = Object.entries(vercelSources).flatMap(([file, source]) =>
+        importSpecifierOccurrences(source).map(occurrence => ({ file, ...occurrence })),
+      )
+      const vercelOptionalImports = vercelImports.filter(({ specifier }) => isOptionalPackageSpecifier(specifier))
+      expect(vercelOptionalImports, "Vercel functions must not ship opt-in packages").toEqual([])
+
+      await assertVercelOwnerImportsResolveInside(
+        vercelFunctionsRoot,
+        vercelSources,
+        "Vercel owner imports must resolve inside their own function output",
+      )
+
+      const cloudflareExternalImports = Object.entries(cloudflareSources).flatMap(([file, source]) =>
+        importSpecifierOccurrences(source)
+          .filter(({ specifier }) => specifier.startsWith("@vite-hub/") || isOptionalPackageSpecifier(specifier))
+          .map(occurrence => ({ file, ...occurrence })),
+      )
+      expect(cloudflareExternalImports, "Cloudflare output must bundle owner packages and exclude opt-in packages").toEqual([])
+
+      const smoke = await run("pnpm", ["run", "smoke"], appDir)
+      expect(smoke.stdout).toContain("vite-hub runtime smoke ok")
+
+      await run("pnpm", ["exec", "vite", "build"], appDir, {
+        ...process.env,
+        VITEHUB_CONSUMER_DISABLE_WORKSPACE: "1",
+      })
+      const workspaceDisabledVercelSources = await readJavaScriptSources(vercelFunctionsRoot)
+      const workspaceDisabledVercelImports = Object.entries(workspaceDisabledVercelSources).flatMap(([file, source]) =>
+        importSpecifierOccurrences(source)
+          .filter(({ specifier }) => specifier === "@vite-hub/workspace" || specifier.startsWith("@vite-hub/workspace/"))
+          .map(occurrence => ({ file, ...occurrence })),
+      )
+      expect(workspaceDisabledVercelImports, "canonical Workflow output must bundle Workspace when its Vite plugin is disabled").toEqual([])
+
+      await run("pnpm", ["exec", "vite", "build"], appDir, { ...process.env, VITEHUB_HOSTING: "netlify" })
+      const netlifyFunctionPath = join(appDir, ".netlify/v1/functions/vitehub-agent.mjs")
+      const netlifyFunctionSource = await readFile(netlifyFunctionPath, "utf8")
+      const netlifyProviderImports = importSpecifierOccurrences(netlifyFunctionSource)
+        .filter(({ specifier }) => specifier === "vite-hub" || specifier.startsWith("vite-hub/") || specifier.startsWith("@vite-hub/"))
+      expect(netlifyProviderImports, "Netlify Agent output must bundle canonical and owner-package imports").toEqual([])
+      const netlifyFunction = await import(`${pathToFileURL(netlifyFunctionPath).href}?contract=${Date.now()}`) as {
+        default: (request: Request, context: { waitUntil: (task: Promise<unknown>) => void }) => Promise<Response>
+      }
+      const netlifyTasks: Promise<unknown>[] = []
+      const netlifyResponse = await netlifyFunction.default(new Request("https://example.com/api/_vitehub/agents/echo/chat", {
+        body: JSON.stringify({
+          messages: [{ id: "user-1", parts: [{ text: "netlify", type: "text" }], role: "user" }],
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }), {
+        waitUntil(task) {
+          netlifyTasks.push(task)
+        },
+      })
+      expect(netlifyResponse.status).toBe(200)
+      expect(await netlifyResponse.text()).toContain("VITE_HUB_SERVER_ONLY:/workspace")
+      await Promise.all(netlifyTasks)
+
+      for (const alias of ["vitehub", "vite-hub"]) {
+        const help = await run("pnpm", ["exec", alias, "--help"], appDir)
+        expect(help.stdout).toContain("Usage: vitehub")
+      }
+
+      expect(workflowRegistry).toContain('"roundtrip"')
+      await expect(readFile(join(appDir, ".vitehub/types/workspace.d.ts"), "utf8")).resolves.toContain('"docs"')
+
+      const client = await readJavaScript(join(appDir, "dist/client"))
+      expect(client).toContain("VITE_HUB_CONSUMER_CLIENT")
+      for (const forbidden of [
+        "VITE_HUB_SERVER_ONLY",
+        "node:fs",
+        "node:path",
+        "@vite-hub/agent",
+        "@vite-hub/workflow",
+        "@vite-hub/workspace",
+        "@cloudflare/",
+        "@vercel/",
+      ]) {
+        expect(client, `browser output contains server-only edge ${forbidden}`).not.toContain(forbidden)
+      }
+
+      await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], compatAppDir)
+      expect(existsSync(join(compatAppDir, "node_modules/vite-hub")), "compatibility applications must expose the canonical framework for generated imports").toBe(true)
+      await run("pnpm", ["run", "typecheck"], compatAppDir)
+      await run("pnpm", ["run", "build"], compatAppDir)
+      await run("pnpm", ["run", "typecheck"], compatAppDir)
+      const compatVercelFunctionsRoot = join(compatAppDir, ".vercel/output/functions")
+      const compatVercelSources = await readJavaScriptSources(compatVercelFunctionsRoot)
+      const compatCanonicalImports = Object.entries(compatVercelSources).flatMap(([file, source]) =>
+        importSpecifierOccurrences(source)
+          .filter(({ specifier }) => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
+          .map(occurrence => ({ file, ...occurrence })),
+      )
+      expect(compatCanonicalImports, "@vite-hub/vite provider output must bundle its nested canonical framework dependency").toEqual([])
+      await assertVercelOwnerImportsResolveInside(
+        compatVercelFunctionsRoot,
+        compatVercelSources,
+        "@vite-hub/vite provider owner imports must resolve inside the generated function",
+      )
+      const compatClient = await readJavaScript(join(compatAppDir, "dist"))
+      expect(compatClient).toContain("VITE_HUB_COMPAT_CONSUMER_CLIENT")
+      expect(compatClient).toContain("VITE_HUB_COMPAT_CONSUMER_SERVER")
+      await expect(readFile(join(compatAppDir, ".vitehub/types/auth.d.ts"), "utf8"))
+        .resolves.toContain("vite-hub/auth/server")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 600_000)
+})

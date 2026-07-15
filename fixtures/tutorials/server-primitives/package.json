@@ -7,8 +7,8 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@vite-hub/kv": "workspace:*",
     "h3": "catalog:unjs",
+    "vite-hub": "workspace:*",
     "vite": "catalog:vite"
   }
 }

@@ -26,9 +26,20 @@ describe("workspace inventory", () => {
       "shell",
       "source",
       "vite",
+      "vite-hub",
       "workflow",
       "workspace",
     ])
+  })
+
+  it("maps the framework workspace to the unscoped npm package", () => {
+    expect(listWorkspacePackageInfos(repoRoot).find(entry => entry.name === "vite-hub")).toEqual(
+      expect.objectContaining({
+        name: "vite-hub",
+        packageName: "vite-hub",
+        private: false,
+      }),
+    )
   })
 
   it("maps the cli workspace to the scoped npm package", () => {

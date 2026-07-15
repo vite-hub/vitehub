@@ -93,6 +93,22 @@ describe("hubAuth", () => {
     await expect(readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")).resolves.toContain("declare module \"#vitehub/auth/server\"")
   })
 
+  it("uses a configured package base in generated Auth runtime and type imports", async () => {
+    const root = await createTempProject()
+    await writeAuth(root)
+
+    const plugin = hubAuth({ importBase: "vite-hub/auth" } as never)
+    await resolvePluginConfig(plugin, root, [{ name: "@vite-hub/env/vite" }])
+
+    expect(loadAuthServer(plugin)).toContain("from \"vite-hub/auth/server\"")
+    expect(loadAuthServer(plugin)).not.toContain("@vite-hub/auth")
+    const ambientTypes = await readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")
+    expect(ambientTypes).toContain("namespace ViteHub")
+    expect(ambientTypes).not.toContain("@vite-hub/auth")
+    expect(ambientTypes).toContain("from \"vite-hub/auth/server\"")
+    expect(ambientTypes).not.toContain("from \"@vite-hub/auth/server\"")
+  })
+
   it("connects the virtual Auth server helper to ViteHub Env when available", async () => {
     const root = await createTempProject()
     await writeAuth(root)

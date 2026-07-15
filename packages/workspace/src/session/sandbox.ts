@@ -2,6 +2,7 @@ import { posix } from "node:path"
 
 import { WorkspaceError } from "../core/errors.ts"
 import { contentToBytes, decodeFile, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { loadWorkspaceSandboxModule, loadWorkspaceSandboxRuntimeStateModule } from "../runtime/dependency-loaders.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../storage/utils.ts"
 import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDiff, filterSessionEntries, isMissingWorkspacePathError, scopedSearchQuery } from "./scope.ts"
 
@@ -27,8 +28,6 @@ type SandboxPackage = typeof import("@vite-hub/sandbox")
 type SandboxRuntimeStateModule = typeof import("@vite-hub/sandbox/runtime/state")
 
 const sandboxCwd = "/workspace"
-const sandboxPackageSpecifier = "@vite-hub/sandbox"
-const sandboxRuntimeStateSpecifier = "@vite-hub/sandbox/runtime/state"
 
 function normalizeSearchRoot(path: string) {
   const normalized = posix.normalize(path.replace(/\\/g, "/"))
@@ -209,10 +208,10 @@ export async function createSandboxWorkspaceSession(
   workspace: Workspace,
   options?: WorkspaceSessionOptions,
 ): Promise<WorkspaceSession> {
-  const sandboxPackage = await import(/* @vite-ignore */ sandboxPackageSpecifier).catch((error) => {
+  const sandboxPackage = await loadWorkspaceSandboxModule().catch((error) => {
     throw new WorkspaceError(`[vitehub] Sandbox workspace runtime requires @vite-hub/sandbox. ${error instanceof Error ? error.message : String(error)}`)
   }) as SandboxPackage
-  const sandboxConfig = (await import(/* @vite-ignore */ sandboxRuntimeStateSpecifier) as SandboxRuntimeStateModule).getSandboxRuntimeConfig()
+  const sandboxConfig = (await loadWorkspaceSandboxRuntimeStateModule() as SandboxRuntimeStateModule).getSandboxRuntimeConfig()
 
   if (!sandboxConfig) {
     throw new WorkspaceError("[vitehub] Workspace runtime `sandbox` requires app-level `sandbox` config.")

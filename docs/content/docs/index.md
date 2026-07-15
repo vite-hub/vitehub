@@ -60,8 +60,9 @@ Agents may compose Server Primitives through explicit Capabilities and Workspace
 Most ViteHub features follow the same shape:
 
 1. Start with [Installation](/docs/getting-started/installation).
-2. Install the package that owns the primitive or Agent surface.
-3. Register the package's Vite Integration in `vite.config.ts`.
+2. Install `vite-hub` for an application, or an owner package for a focused library integration.
+3. Register `vitehub()` for the framework distribution, or the owner package's
+   `hubX()` integration when a focused composition needs one.
 4. Define named work when the primitive needs a Definition.
 5. Let the integration generate Provider Output when the package supports the selected host.
 6. Call a stable Runtime Helper from server code.
