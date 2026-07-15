@@ -719,7 +719,7 @@ async function prepareHarnessGlobalSkills(
   const quotedDirectory = `'${directory.replace(/'/g, "'\\''")}'`
   const ensure = await (session as HarnessGlobalSkillsSandbox).run({
     abortSignal,
-    command: `mkdir -p -- ${quotedDirectory}`,
+    command: `rm -rf -- ${quotedDirectory} && mkdir -p -- ${quotedDirectory}`,
   })
   if (ensure.exitCode !== 0) {
     throw new Error(`[vitehub] Failed to prepare global Skill directory: ${ensure.stderr || "sandbox command failed"}`)
@@ -737,7 +737,7 @@ async function prepareHarnessGlobalSkills(
   })
   const install = await (session as HarnessGlobalSkillsSandbox).run({
     abortSignal,
-    command: `rm -rf -- ${skillDirectories} && cp -R ${quotedStagingDirectory}/. ${quotedDirectory} && rm -rf -- ${quotedStagingDirectory} && find ${skillDirectories} -type f -path "*/scripts/*" -exec chmod +x {} +`,
+    command: `cp -R ${quotedStagingDirectory}/. ${quotedDirectory} && rm -rf -- ${quotedStagingDirectory} && find ${skillDirectories} -type f -path "*/scripts/*" -exec chmod +x {} +`,
   })
   if (install.exitCode !== 0) {
     const error = new Error(`[vitehub] Failed to refresh global Skills: ${install.stderr || "sandbox command failed"}`)

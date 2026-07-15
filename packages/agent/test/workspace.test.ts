@@ -792,7 +792,7 @@ describe("defineAgent workspace option", () => {
       sessionWorkDir: expect.stringMatching(/^tmp\/harness\/codex-home\/skills\.vitehub-global-skills-/),
     }))
     expect(harnessFileSession.run).toHaveBeenCalledWith(expect.objectContaining({
-      command: expect.stringContaining("rm -rf -- 'tmp/harness/codex-home/skills/ponytail' 'tmp/harness/codex-home/skills/code-review' && cp -R 'tmp/harness/codex-home/skills.vitehub-global-skills-"),
+      command: expect.stringContaining("cp -R 'tmp/harness/codex-home/skills.vitehub-global-skills-"),
     }))
   })
 
@@ -948,7 +948,7 @@ describe("defineAgent workspace option", () => {
     expect(harnessCreateSession).not.toHaveBeenCalled()
   })
 
-  it("preserves a reused harness profile when no global Skills are configured", async () => {
+  it("clears a reused harness Skill directory when no global Skills are configured", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       driver: {
@@ -961,10 +961,7 @@ describe("defineAgent workspace option", () => {
 
     await expect(runAgent(agent, context(), { prompt: "review" })).resolves.toMatchObject({ text: "ok" })
     expect(harnessFileSession.run).toHaveBeenCalledWith(expect.objectContaining({
-      command: "mkdir -p -- 'tmp/harness/codex-home/skills'",
-    }))
-    expect(harnessFileSession.run).not.toHaveBeenCalledWith(expect.objectContaining({
-      command: expect.stringContaining("rm -rf -- 'tmp/harness/codex-home/skills'"),
+      command: "rm -rf -- 'tmp/harness/codex-home/skills' && mkdir -p -- 'tmp/harness/codex-home/skills'",
     }))
   })
 
