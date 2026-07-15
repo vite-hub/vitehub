@@ -41,7 +41,6 @@ interface VercelWorkflowBuilders {
     workingDir: string
   }) => { build: () => Promise<void> }
   createSwcPlugin: (options: { mode: "workflow", projectRoot: string }) => Plugin
-  detectWorkflowPatterns: (source: string) => { hasUseWorkflow: boolean }
 }
 
 async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | undefined> {
@@ -65,29 +64,36 @@ async function createVercelWorkflowTransformPlugin(rootDir: string): Promise<Plu
 
 async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[]): Promise<void> {
   const builders = await loadVercelWorkflowBuilders()
-  if (!builders || !definitions.length) return
+  if (!definitions.length) return
   const definitionDirs = [...new Set(definitions.map(definition => dirname(definition.handler)))]
   let hasNativeEntry = false
-  const visit = (directory: string) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue
-      const file = join(directory, entry.name)
-      if (entry.isDirectory()) visit(file)
-      else if (entry.isFile() && /\.(?:c|m)?[jt]sx?$/.test(entry.name)
-        && builders.detectWorkflowPatterns(readFileSync(file, "utf8")).hasUseWorkflow) {
-        const colocated = definitionDirs.some((definitionDir) => {
-          const path = relative(definitionDir, file)
-          return path && !path.startsWith("..") && !isAbsolute(path)
-        })
-        if (!colocated) {
-          throw new Error(`Native Vercel workflow entry ${JSON.stringify(relative(rootDir, file))} must be colocated with its discovered workflow definition.`)
-        }
-        hasNativeEntry = true
+  const visited = new Set<string>()
+  const visit = (file: string) => {
+    if (visited.has(file)) return
+    visited.add(file)
+    const source = readFileSync(file, "utf8")
+    if (/^\s*["']use workflow["'];?/m.test(source)) {
+      const colocated = definitionDirs.some((definitionDir) => {
+        const path = relative(definitionDir, file)
+        return !path.startsWith("..") && !isAbsolute(path)
+      })
+      if (!colocated) {
+        throw new Error(`Native Vercel workflow entry ${JSON.stringify(relative(rootDir, file))} must be colocated with its discovered workflow definition.`)
       }
+      hasNativeEntry = true
+    }
+    for (const match of source.matchAll(/(?:from\s*|import\s*\(\s*)["'](\.[^"']+)["']/g)) {
+      const imported = resolve(dirname(file), match[1])
+      const candidate = [imported, ...[".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"].map(extension => `${imported}${extension}`)]
+        .find(path => existsSync(path) && statSync(path).isFile())
+      if (candidate) visit(candidate)
     }
   }
-  visit(rootDir)
+  for (const definition of definitions) visit(definition.handler)
   if (!hasNativeEntry) return
+  if (!builders) {
+    throw new Error("Native Vercel workflows require the optional workflow and @workflow/builders peer dependencies.")
+  }
 
   const outputConfigFile = resolve(rootDir, ".vercel", "output", "config.json")
   const viteHubConfig = JSON.parse(await readFile(outputConfigFile, "utf8")) as { routes?: unknown[] }
