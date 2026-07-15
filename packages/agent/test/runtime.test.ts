@@ -1378,6 +1378,33 @@ describe("agent message protocol", () => {
     expect(session.destroy).toHaveBeenCalledTimes(1)
   })
 
+  it("guides harnesses with optional Standard JSON Schema and validates their final output", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({ text: "{\"title\":\"Weekly sync\"}" })
+    const schema = {
+      "~standard": {
+        jsonSchema: {
+          input: () => ({ type: "object" }),
+          output: () => ({ properties: { title: { type: "string" } }, required: ["title"], type: "object" }),
+        },
+        validate: (value: unknown) => ({ value: value as { title: string } }),
+        vendor: "vitehub-test",
+        version: 1 as const,
+      },
+    }
+    const agent = defineAgent({
+      driver: { harness: { provider: "codex" } },
+      output: { schema },
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "summarize" })).resolves.toEqual({ title: "Weekly sync" })
+    expect(harnessAgentSettings.at(-1)?.instructions).toContain("Return only one valid JSON value")
+    expect(harnessAgentSettings.at(-1)?.instructions).toContain('"title"')
+  })
+
   it("requires explicit harness sandboxes on runtimes without local processes", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({ driver: { harness: { provider: "codex" } } })
