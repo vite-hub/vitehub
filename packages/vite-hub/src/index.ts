@@ -154,6 +154,8 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
   configureProviderOptionalImportAliases(providerImportAliases, options)
   const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(Boolean(options.sandbox))
 
+  plugins.push(frameworkDependencyResolver(options, providerImportAliases))
+
   if (options.env !== false) {
     const envOptions = options.env ?? {}
     plugins.push(hubEnv({
@@ -230,7 +232,6 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
     } as WorkspaceModuleOptions))
   }
   if (options.devtools !== false) plugins.push(hubDevtools(options.devtools))
-  plugins.push(frameworkDependencyResolver(options, providerImportAliases))
 
   return plugins as PluginOption[]
 }

@@ -57,6 +57,7 @@ function dependencyPlugin(options: Parameters<typeof vitehub>[0] = {}): Plugin {
 describe("vitehub", () => {
   it("keeps coherent defaults and opt-in integrations", () => {
     expect(pluginNames(vitehub())).toEqual([
+      "vite-hub/dependencies",
       "@vite-hub/env/vite",
       "@vite-hub/agent/vite",
       "@vite-hub/database/vite",
@@ -65,10 +66,10 @@ describe("vitehub", () => {
       "@vite-hub/workflow/vite",
       "@vite-hub/workspace/vite",
       "@vite-hub/devtools",
-      "vite-hub/dependencies",
     ])
 
     expect(pluginNames(vitehub({ auth: true, kv: true, sandbox: true, schedule: true }))).toEqual([
+      "vite-hub/dependencies",
       "@vite-hub/env/vite",
       "@vite-hub/auth/vite",
       "@vite-hub/agent/vite",
@@ -80,7 +81,6 @@ describe("vitehub", () => {
       "@vite-hub/workflow/vite",
       "@vite-hub/workspace/vite",
       "@vite-hub/devtools",
-      "vite-hub/dependencies",
     ])
 
     vitehub({ schedule: true })
