@@ -2403,10 +2403,10 @@ export async function runAgentInline<
         ? renderedResult ? result : await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
         : result
       const final = renderOutput ? await applyFinalOutputRenderers(rendered, runContext, outputExtensions) : rendered
-      const structuredFinal = runContext.output ? await materializeAgentStructuredOutput(final) : final
-      const structuredUsageRecord = runContext.output ? await resolveFinishUsageRecord(runContext, structuredFinal) : driverUsageRecord
+      const structuredFinal = renderOutput && runContext.output ? await materializeAgentStructuredOutput(final) : final
+      const structuredUsageRecord = renderOutput && runContext.output ? await resolveFinishUsageRecord(runContext, structuredFinal) : driverUsageRecord
       const value = renderOutput && runContext.output
-        ? await validateAgentOutput(runContext.output, structuredFinal, { allowMaterializedObject: true })
+        ? await validateAgentOutput(runContext.output, structuredFinal, { allowMaterializedObject: structuredFinal === final })
         : final
       return {
         finishResult: runContext.output ? value : hasFinishWork(runContext) ? resultWithUsageRecord(final, driverUsageRecord) : final,
@@ -2439,10 +2439,10 @@ export async function runAgentInline<
     const driverUsageRecord = await resolveFinishUsageRecord(adapterContext, result)
     const rendered = renderOutput ? await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions) : result
     const final = renderOutput ? await applyFinalOutputRenderers(rendered, adapterContext, outputExtensions) : rendered
-    const structuredFinal = adapterContext.output ? await materializeAgentStructuredOutput(final) : final
-    const structuredUsageRecord = adapterContext.output ? await resolveFinishUsageRecord(adapterContext, structuredFinal) : driverUsageRecord
+    const structuredFinal = renderOutput && adapterContext.output ? await materializeAgentStructuredOutput(final) : final
+    const structuredUsageRecord = renderOutput && adapterContext.output ? await resolveFinishUsageRecord(adapterContext, structuredFinal) : driverUsageRecord
     const runResult = renderOutput && adapterContext.output
-      ? await validateAgentOutput(adapterContext.output, structuredFinal, { allowMaterializedObject: final !== result })
+      ? await validateAgentOutput(adapterContext.output, structuredFinal, { allowMaterializedObject: structuredFinal === final && final !== result })
       : renderOutput ? toAgentRunResult(final) : final
     return {
       finishResult: adapterContext.output ? runResult : hasFinishWork(adapterContext) ? resultWithUsageRecord(final, driverUsageRecord) : final,

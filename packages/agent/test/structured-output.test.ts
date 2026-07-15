@@ -207,6 +207,23 @@ describe("Agent structured output", () => {
     ])
   })
 
+  it("preserves raw stream-result wrappers without consuming them", async () => {
+    const stream = (async function* () {
+      yield { text: "not json", type: "text-delta" as const }
+    })()
+    const wrapper = { stream }
+    const agent = defineAgent({
+      driver: { run: () => wrapper },
+      output: { schema: summarySchema() },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime(), {}, { output: "raw" })).resolves.toBe(wrapper)
+    const events: unknown[] = []
+    for await (const event of stream) events.push(event)
+    expect(events).toEqual([{ text: "not json", type: "text-delta" }])
+  })
+
   it("preserves usage for non-stream structured stream results", async () => {
     const finish = vi.fn()
     const agent = defineAgent({
