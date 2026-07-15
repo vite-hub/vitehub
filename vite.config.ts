@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { hubAgent } from '@vite-hub/agent/vite'
 import { env, hubEnv } from '@vite-hub/env/vite'
 import { hubKv } from '@vite-hub/kv/vite'
@@ -15,7 +15,7 @@ export default defineConfig({
       vitehub: {
         repository: 'vite-hub/vitehub',
         repositoryPath: env({ default: repositoryPath }),
-        worktreesPath: env({ default: join(dirname(repositoryPath), 'worktrees') }),
+        worktreesPath: env({ required: true }),
       },
     },
   },
