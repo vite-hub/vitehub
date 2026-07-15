@@ -1,6 +1,6 @@
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import type { HarnessV1SandboxProvider } from "@ai-sdk/harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -14,6 +14,22 @@ afterEach(async () => {
 });
 
 describe("trustedHost", () => {
+  it("materializes a relative workspace from the process directory", async () => {
+    const root = await temporaryRoot();
+    const workspace = join(root, "workspace");
+    await mkdir(workspace);
+    await writeFile(join(workspace, "marker.txt"), "workspace");
+
+    const box = await resolveBox(
+      { cwd: relative(process.cwd(), workspace), runtime: trustedHost() },
+      {},
+    );
+    const session = await (box.sandbox as HarnessV1SandboxProvider).createSession();
+
+    await expect(session.readTextFile({ path: "workspace/marker.txt" })).resolves.toBe("workspace");
+    await session.destroy?.();
+  });
+
   it("materializes one private environment for every Box command", async () => {
     const root = await temporaryRoot();
     const workspace = join(root, "workspace");

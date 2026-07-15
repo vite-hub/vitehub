@@ -109,7 +109,7 @@ export function trustedHost(options: TrustedHostOptions = {}): BoxRuntime {
         if (pathsOverlap(workspace, stateRoot))
           throw new Error("[vitehub] Box stateRoot must be outside the authoritative workspace.");
       }
-      const sandbox = createTrustedHostSandbox(input, { stateRoot });
+      const sandbox = createTrustedHostSandbox({ ...input, ...(cwd ? { cwd } : {}) }, { stateRoot });
       const environment = {} as ResolvedBox["environment"];
       Object.defineProperty(environment, "env", { enumerable: false, value: Object.freeze({}) });
       const box = {
