@@ -264,21 +264,40 @@ describe("agent Vite plugin", () => {
       expect(registry).toContain(JSON.stringify("Use support instructions.\n"))
       expect(registry).toContain('__vitehubAgentInstructions')
       expect(registry).not.toContain("cron:")
+      expect(registry).not.toContain("setAgentWorkflowRuntimeLoaders")
       expect(targets).toContain('scheduleTargetNames.push("agent/digest")')
       expect(targets).toContain('scheduleTargetNames.push("agent/support")')
 
-      const filteredPlugin = hubAgent()
+      const filteredPlugin = hubAgent({
+        importBase: "vite-hub/_internal/agent",
+        runtimeCapabilityImports: {
+          blob: "vite-hub/_internal/blob",
+          kv: "vite-hub/_internal/kv",
+        },
+        workflowImportBase: "vite-hub/_internal/workflow",
+        workspaceDependencyRuntimeImports: {
+          sandbox: "@vite-hub/sandbox",
+          sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
+          shellWorkspace: "vite-hub/shell/workspace",
+        },
+        workspaceImportBase: "vite-hub/_internal/workspace",
+      } as never)
       const filteredConfigResolved = filteredPlugin.configResolved as unknown as typeof configResolved
       const filteredTransform = filteredPlugin.transform as typeof transform
       await filteredConfigResolved({
         command: "serve",
-        createResolver: () => async id => id === "@vite-hub/kv" ? `/app/node_modules/${id}` : undefined,
+        createResolver: () => async id => id === "vite-hub/_internal/kv" ? `/app/node_modules/${id}` : undefined,
         plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/kv/vite" }],
         root,
       })
       const filteredRegistry = await filteredTransform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")
-      expect(filteredRegistry).not.toContain('from "@vite-hub/blob"')
+      expect(filteredRegistry).not.toContain('vite-hub/_internal/blob')
+      expect(filteredRegistry).toContain('import { kv as vitehubKv } from "vite-hub/_internal/kv"')
       expect(filteredRegistry).toContain('{ agentIdentity: {"name":"digest"}, capabilities: { kv: vitehubKv, schedule: { schedules: vitehubSchedules } } }')
+      expect(filteredRegistry).toContain('import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from "vite-hub/_internal/agent/server/internal"')
+      expect(filteredRegistry).toContain('workflow: () => import("vite-hub/_internal/workflow")')
+      expect(filteredRegistry).toContain('import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from "vite-hub/_internal/workspace/runtime"')
+      expect(filteredRegistry).toContain('sandbox: () => import("@vite-hub/sandbox")')
     }
     finally {
       await rm(root, { force: true, recursive: true })

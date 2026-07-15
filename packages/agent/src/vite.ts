@@ -143,9 +143,12 @@ async function resolveGeneratedAgentRuntimeCapabilities(
     }))
   }
   const importer = join(config.root, ".vitehub", "agent", "runtime-capabilities.js")
-  const resolved = await Promise.all(candidates.map(async capability => await resolveImport(capability.packageName, importer)
-    ? { ...capability, packageName: packageImports[capability.name] ?? capability.packageName }
-    : undefined))
+  const resolved = await Promise.all(candidates.map(async (capability) => {
+    const packageName = packageImports[capability.name] ?? capability.packageName
+    return await resolveImport(packageName, importer)
+      ? { ...capability, packageName }
+      : undefined
+  }))
   return resolved.filter((capability): capability is GeneratedAgentRuntimeCapability => capability !== undefined)
 }
 
@@ -263,6 +266,7 @@ async function transformScheduleRegistry(
   importAnchor?: string,
   runtimeCapabilities: GeneratedAgentRuntimeCapability[] = [],
   scheduleRuntimeSpecifier = scheduleRuntimeImport,
+  generatedImportOptions: AgentGeneratedImportOptions = {},
 ): Promise<string | undefined> {
   if (!definitions.length) return
   if (!/\b(?:const|let|var)\s+registry\b/.test(code)) {
@@ -280,9 +284,16 @@ async function transformScheduleRegistry(
       "}",
     ]
   }))).flat()
+  const workflowRuntime = generatedAgentWorkflowRuntime(generatedImportOptions, agentImportBase)
+  const workspaceRuntime = generatedAgentWorkspaceDependencyRuntime(
+    generatedImportOptions,
+    generatedImportOptions.workspaceImportBase ?? workspacePackageName,
+  )
   return [
     `import { workspaceDefinitionFromOptions as vitehubWorkspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
     `import { defineScheduledAgentTarget as vitehubDefineScheduledAgentTarget } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    ...workflowRuntime.imports,
+    ...workspaceRuntime.imports,
     ...generatedAgentRuntimeCapabilityImports(runtimeCapabilities),
     `import { schedules as vitehubSchedules } from ${JSON.stringify(scheduleRuntimeSpecifier)}`,
     code,
@@ -290,6 +301,8 @@ async function transformScheduleRegistry(
     "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
     "}",
     ...generatedWorkspaceSourceRootHelper("vitehubWithWorkspaceSourceRoot", "vitehubWorkspaceDefinitionFromOptions"),
+    ...workflowRuntime.setup,
+    ...workspaceRuntime.setup,
     ...entries,
     "",
   ].join("\n")
@@ -301,10 +314,11 @@ async function writeStandaloneAgentScheduleRegistry(
   agentImportBase: string,
   runtimeCapabilities: GeneratedAgentRuntimeCapability[] = [],
   scheduleRuntimeSpecifier = scheduleRuntimeImport,
+  generatedImportOptions: AgentGeneratedImportOptions = {},
 ): Promise<string> {
   const registryPath = join(root, generatedAgentScheduleRegistry)
   const base = ["const registry = {}", "", "export default registry", ""].join("\n")
-  const contents = await transformScheduleRegistry(base, definitions, agentImportBase, registryPath, runtimeCapabilities, scheduleRuntimeSpecifier) ?? base
+  const contents = await transformScheduleRegistry(base, definitions, agentImportBase, registryPath, runtimeCapabilities, scheduleRuntimeSpecifier, generatedImportOptions) ?? base
   await mkdir(dirname(registryPath), { recursive: true })
   await writeFile(registryPath, contents, "utf8")
   return registryPath
@@ -1264,6 +1278,7 @@ async function writeAgentDenoServer(
         options.agentImportBase ?? agentPackageName,
         options.runtimeCapabilities,
         options.scheduleRuntimeImport,
+        options,
       ))
     : undefined
   await mkdir(dirname(handlerPath), { recursive: true })
@@ -1289,6 +1304,7 @@ async function writeAgentNetlifyFunctionRouteHandler(
         options.agentImportBase ?? agentPackageName,
         options.runtimeCapabilities,
         options.scheduleRuntimeImport,
+        options,
       ))
     : undefined
   await mkdir(dirname(handlerPath), { recursive: true })
@@ -1491,6 +1507,11 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             undefined,
             runtimeCapabilities,
             getScheduleRuntimeImport(agent, frameworkOptions),
+            {
+              workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
+              workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
+              workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
+            },
           )
         : transformScheduleTargets(code, definitions)
     },

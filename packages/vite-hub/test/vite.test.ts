@@ -107,7 +107,7 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubAgent).toHaveBeenCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
-        sandbox: "vite-hub/sandbox",
+        sandbox: "@vite-hub/sandbox",
         sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
         shellWorkspace: "vite-hub/shell/workspace",
       },
@@ -140,7 +140,7 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
-        sandbox: "vite-hub/sandbox",
+        sandbox: "@vite-hub/sandbox",
         sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
         shellWorkspace: "vite-hub/shell/workspace",
       },
