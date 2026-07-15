@@ -176,6 +176,27 @@ describe("Box checkout", () => {
     expect(commands[2].slice(-3)).toEqual(["origin", "--", "--upload-pack=payload"]);
   });
 
+  it("initializes SHA-256 repositories for SHA-256 revisions", async () => {
+    const commands: string[][] = [];
+    await materializeGitCheckout(
+      { ref: "refs/heads/main", remote: "https://example.com/repository.git", sha: "a".repeat(64) },
+      "/workspace",
+      {
+        async run(args) {
+          commands.push([...args]);
+          return { stdout: args.includes("rev-parse") ? `${"a".repeat(64)}\n` : "" };
+        },
+      },
+    );
+
+    expect(commands[0]).toEqual([
+      "init",
+      "--quiet",
+      "--object-format=sha256",
+      "/workspace",
+    ]);
+  });
+
   it("rejects cwd composition before resolving invocation values", async () => {
     let resolutions = 0;
 

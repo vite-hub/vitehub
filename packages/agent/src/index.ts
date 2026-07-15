@@ -1538,7 +1538,7 @@ async function createAgentInvocationContext<
           requires: (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentBoxRequirements],
         })
       : undefined
-    if (box?.workspace.workDir && workspaceOptions) {
+    if ((box?.workspace.path || box?.workspace.workDir) && workspaceOptions) {
       throw new Error("[vitehub] defineAgent({ box.cwd or box.checkout, workspace }) is not supported because a Box-owned working tree must not be reset by Workspace materialization.")
     }
     const harnessSandboxProvider = box?.sandbox || (box

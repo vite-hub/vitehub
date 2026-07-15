@@ -245,6 +245,38 @@ describe("Agent Box", () => {
       waitUntil: vi.fn(),
     }, { prompt: "Repair the project." })).rejects.toThrow("Box-owned working tree")
   })
+
+  it("rejects an authoritative Box path with Agent Workspace materialization", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { codexDriver } = await import("../src/harness/codex.ts")
+    const agent = defineAgent({
+      box: {
+        cwd: "/workspace",
+        runtime: {
+          name: "path-only",
+          async resolve({ cwd, identity }: { cwd?: string, identity: string }) {
+            return {
+              cache: { state: "disposable" as const },
+              environment: { env: {} },
+              identity,
+              isolation: "none" as const,
+              requirements: [],
+              runtime: "path-only",
+              workspace: { path: cwd, state: "authoritative" as const },
+            }
+          },
+        },
+      },
+      driver: codexDriver(),
+      workspace: { mode: "write", store: { provider: "memory" } },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "Repair the project." })).rejects.toThrow("Box-owned working tree")
+  })
 })
 
 async function temporaryRoot() {
