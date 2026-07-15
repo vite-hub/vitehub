@@ -116,6 +116,9 @@ describe("trustedHost", () => {
     await expect(session.run({ command: "true", env: { HOME: ambientHome } })).rejects.toThrow(
       "cannot override HOME",
     );
+    await expect(session.run({ command: "true", env: { CODEX_HOME: ambientHome } })).rejects.toThrow(
+      "cannot override CODEX_HOME",
+    );
     await session.destroy?.();
   });
 

@@ -64,6 +64,7 @@ interface CrabboxStateLease {
 
 const workspaceSessions = new Map<string, Promise<void>>();
 const runtimeEnvironmentKeys = new Set([
+  "CODEX_HOME",
   "HOME",
   "INIT_CWD",
   "OLDPWD",

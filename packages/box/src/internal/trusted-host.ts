@@ -19,7 +19,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
-import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { promisify } from "node:util";
 
@@ -76,6 +76,7 @@ const baseEnvironmentKeys = [
 ] as const;
 
 const runtimeEnvironmentKeys = new Set([
+  "CODEX_HOME",
   "HOME",
   "INIT_CWD",
   "OLDPWD",
@@ -266,7 +267,7 @@ async function reconcileProjections(state: PreparedState) {
     });
     if (!parent) continue;
     const relativeParent = relative(state.persistent, parent);
-    if (relativeParent === ".." || relativeParent.startsWith(`..${delimiter}`) || isAbsolute(relativeParent)) {
+    if (relativeParent === ".." || relativeParent.startsWith(`..${sep}`) || isAbsolute(relativeParent)) {
       throw new Error(`[vitehub] Box projected path escapes writable state: ${state.path}/${path}`);
     }
     await rm(target, { force: true, recursive: true });
