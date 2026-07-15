@@ -1858,7 +1858,7 @@ async function finishStreamAgentInvocation<
   let finishUsage: AgentUsageRecord | undefined
   try {
     const usageRecord = await resolveFinishUsageRecord(context, result)
-    finishUsage = usageRecord
+    finishUsage = usageRecord ? await resolveAgentUsageRecord({ usageRecord }, context.run) : undefined
     finishResult = await applyFinalOutputRenderers(result, context, outputExtensions)
     finishResult = context.output
       ? await validateAgentOutput(context.output, await materializeAgentStructuredOutput(finishResult), { allowMaterializedObject: finishResult !== result })
