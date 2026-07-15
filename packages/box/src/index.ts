@@ -1,173 +1,394 @@
-import { execFile } from "node:child_process"
-import { constants } from "node:fs"
-import { access, stat } from "node:fs/promises"
-import { homedir } from "node:os"
-import { delimiter, isAbsolute, join, resolve } from "node:path"
-import { promisify } from "node:util"
+import { createHash } from "node:crypto";
+import { readFile, realpath } from "node:fs/promises";
+import { isAbsolute, posix, relative, resolve } from "node:path";
 
-export type BoxRequirement = "codex" | "codex-cli" | "github" | (string & {})
+export type BoxRequirement =
+  | string
+  | {
+      args?: readonly string[];
+      command: string;
+      name?: string;
+    };
 
-export type BoxValue<T, Context> = T | ((context: Context) => T | undefined | Promise<T | undefined>)
+export type BoxValue<T, Context> =
+  | T
+  | ((context: Context) => T | undefined | Promise<T | undefined>);
+
+export type BoxFile<Context> =
+  | { contents: BoxValue<string | Uint8Array, Context> }
+  | { from: string };
+
+export interface BoxHome<Context> {
+  files?: Readonly<Record<string, BoxFile<Context>>>;
+  state?: Readonly<
+    Record<
+      string,
+      {
+        key: string;
+        seed?: Readonly<Record<string, BoxFile<Context>>>;
+      }
+    >
+  >;
+}
 
 export interface BoxDefinition<Context = unknown> {
-  cwd?: BoxValue<string, Context>
-  home?: BoxValue<string, Context>
-  requires?: readonly BoxRequirement[]
-  runtime: BoxRuntime
+  cwd?: BoxValue<string, Context>;
+  env?: Readonly<Record<string, BoxValue<string, Context>>>;
+  home?: BoxHome<Context>;
+  requires?: readonly BoxRequirement[];
+  runtime: BoxRuntime;
 }
 
 export interface BoxRuntime {
-  readonly name: string
-  resolve(input: ResolvedBoxInput): Promise<ResolvedBox>
+  readonly name: string;
+  resolve(input: ResolvedBoxInput): Promise<ResolvedBox>;
+}
+
+export interface ResolvedBoxFile {
+  readonly resolve: () => Promise<Uint8Array>;
+}
+
+export interface ResolvedBoxState {
+  readonly key: string;
+  readonly path: string;
+  readonly seed: Readonly<Record<string, ResolvedBoxFile>>;
+}
+
+export interface ResolvedBoxPlan {
+  readonly env: Readonly<Record<string, () => Promise<string>>>;
+  readonly files: Readonly<Record<string, ResolvedBoxFile>>;
+  readonly state: readonly ResolvedBoxState[];
+}
+
+export interface ResolvedBoxRequirementInput {
+  readonly args: readonly string[];
+  readonly command: string;
+  readonly name: string;
 }
 
 export interface ResolvedBoxInput {
-  cwd?: string
-  home?: string
-  requirements: readonly BoxRequirement[]
+  cwd?: string;
+  identity: string;
+  plan: ResolvedBoxPlan;
+  requirements: readonly ResolvedBoxRequirementInput[];
 }
 
 export interface ResolvedBoxEnvironment {
-  readonly env: Readonly<Record<string, string | undefined>>
-  readonly home?: string
+  readonly env: Readonly<Record<string, string | undefined>>;
 }
 
 export interface ResolvedBoxRequirement {
-  readonly command: string
-  readonly name: BoxRequirement
+  readonly command: string;
+  readonly name: string;
 }
 
 export interface ResolvedBox {
   readonly cache: {
-    readonly state: "disposable"
-  }
-  readonly environment: ResolvedBoxEnvironment
-  readonly isolation: "none"
-  readonly requirements: readonly ResolvedBoxRequirement[]
-  readonly runtime: string
-  readonly sandbox?: object
+    readonly state: "disposable";
+  };
+  readonly environment: ResolvedBoxEnvironment;
+  readonly identity: string;
+  readonly isolation: "none";
+  readonly requirements: readonly ResolvedBoxRequirement[];
+  readonly runtime: string;
+  readonly sandbox?: object;
   readonly workspace: {
-    readonly path?: string
-    readonly state: "authoritative" | "disposable"
-  }
+    readonly path?: string;
+    readonly state: "authoritative" | "disposable";
+  };
 }
 
 export interface ResolveBoxOptions {
-  requires?: readonly BoxRequirement[]
+  requires?: readonly BoxRequirement[];
 }
+
+const reservedEnvironment = new Set([
+  "HOME",
+  "INIT_CWD",
+  "OLDPWD",
+  "PWD",
+  "XDG_CACHE_HOME",
+  "XDG_CONFIG_HOME",
+  "XDG_STATE_HOME",
+]);
 
 export async function resolveBox<Context>(
   definition: BoxDefinition<Context>,
   context: Context,
   options: ResolveBoxOptions = {},
 ): Promise<ResolvedBox> {
-  if (!definition || typeof definition !== "object" || !definition.runtime || typeof definition.runtime.resolve !== "function") {
-    throw new TypeError("[vitehub] Box requires a runtime.")
+  if (
+    !definition ||
+    typeof definition !== "object" ||
+    !definition.runtime ||
+    typeof definition.runtime.resolve !== "function"
+  ) {
+    throw new TypeError("[vitehub] Box requires a runtime.");
   }
-  const [cwd, home] = await Promise.all([
-    resolveValue(definition.cwd, context),
-    resolveValue(definition.home, context),
-  ])
+  const cwdValue = await resolveValue(definition.cwd, context);
+  const cwd = cwdValue === undefined ? undefined : resolveString(cwdValue, "cwd");
+  const plan = resolvePlan(definition, context, cwd || process.cwd());
+  const requirements = normalizeRequirements([
+    ...(definition.requires || []),
+    ...(options.requires || []),
+  ]);
   return await definition.runtime.resolve({
     ...(cwd ? { cwd } : {}),
-    ...(home ? { home } : {}),
-    requirements: [...new Set([...(definition.requires || []), ...(options.requires || [])])],
-  })
+    identity: planIdentity(plan, requirements),
+    plan,
+    requirements,
+  });
 }
 
-export function trustedHost(): BoxRuntime {
-  return {
-    name: "trusted-host",
-    async resolve(input) {
-      const cwd = input.cwd ? resolve(input.cwd) : undefined
-      const home = input.home ? resolve(input.home) : process.env.HOME || homedir()
-      await Promise.all([
-        cwd ? assertDirectory(cwd, "workspace") : undefined,
-        input.home ? assertDirectory(home!, "Home") : undefined,
-      ])
-      const env = {
-        ...process.env,
-        ...(home ? { HOME: home } : {}),
-        ...(input.home
-          ? {
-              CODEX_HOME: join(home!, ".codex"),
-              XDG_CONFIG_HOME: join(home!, ".config"),
-            }
-          : {}),
+function planIdentity(plan: ResolvedBoxPlan, requirements: readonly ResolvedBoxRequirementInput[]) {
+  const value = JSON.stringify({
+    env: Object.keys(plan.env).toSorted(),
+    files: Object.keys(plan.files).toSorted(),
+    requirements,
+    state: plan.state
+      .map(({ key, path, seed }) => ({ key, path, seed: Object.keys(seed).toSorted() }))
+      .toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
+  });
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function resolvePlan<Context>(
+  definition: BoxDefinition<Context>,
+  context: Context,
+  sourceRoot: string,
+): ResolvedBoxPlan {
+  if (
+    definition.home !== undefined &&
+    (!definition.home || typeof definition.home !== "object" || Array.isArray(definition.home))
+  ) {
+    throw new TypeError("[vitehub] Box home must be a declarative object.");
+  }
+  const env = Object.fromEntries(
+    Object.entries(optionalRecord(definition.env, "env")).map(([name, value]) => {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+        throw new TypeError(`[vitehub] Invalid Box environment variable: ${name}`);
+      if (reservedEnvironment.has(name))
+        throw new TypeError(`[vitehub] ${name} is managed by the Box runtime.`);
+      return [
+        name,
+        async () => {
+          const resolved = await resolveValue(value, context);
+          if (resolved === undefined)
+            throw new Error(`[vitehub] Box environment value ${name} is required.`);
+          return resolveString(resolved, `environment value ${name}`);
+        },
+      ];
+    }),
+  );
+  const files = normalizeFiles(definition.home?.files, context, "home.files", sourceRoot);
+  const state = Object.entries(optionalRecord(definition.home?.state, "home.state")).map(
+    ([path, value]) => {
+      const target = relativePath(path, "home.state target");
+      if (
+        !value ||
+        typeof value !== "object" ||
+        typeof value.key !== "string" ||
+        !value.key.trim()
+      ) {
+        throw new TypeError(`[vitehub] Box state ${path} requires a non-empty key.`);
       }
-      const requirements = []
-      for (const name of input.requirements) requirements.push(await resolveRequirement(name, env, cwd))
-      const environment = { home } as ResolvedBoxEnvironment
-      Object.defineProperty(environment, "env", { enumerable: false, value: Object.freeze(env) })
       return {
-        cache: { state: "disposable" },
-        environment,
-        isolation: "none",
-        requirements,
-        runtime: "trusted-host",
-        workspace: cwd ? { path: cwd, state: "authoritative" } : { state: "disposable" },
-      }
+        key: value.key.trim(),
+        path: target,
+        seed: normalizeFiles(value.seed, context, `home.state ${path} seed`, sourceRoot),
+      };
     },
+  );
+  const stateKeys = new Set<string>();
+  for (const value of state) {
+    if (stateKeys.has(value.key))
+      throw new TypeError(`[vitehub] Box state keys must be unique: ${value.key}`);
+    stateKeys.add(value.key);
+  }
+  validateTargets(
+    Object.keys(files),
+    state.map((value) => value.path),
+  );
+  for (const value of state) {
+    const projectedFiles = Object.keys(files)
+      .filter((file) => isDescendant(file, value.path))
+      .map((file) => file.slice(value.path.length + 1));
+    validateFileTargets(
+      [...Object.keys(value.seed), ...projectedFiles],
+      `home.state ${value.path} projected`,
+    );
+  }
+  return {
+    env: Object.freeze(env),
+    files: Object.freeze(files),
+    state: Object.freeze(state),
+  };
+}
+
+function normalizeFiles<Context>(
+  input: Readonly<Record<string, BoxFile<Context>>> | undefined,
+  context: Context,
+  label: string,
+  sourceRoot: string,
+): Record<string, ResolvedBoxFile> {
+  const files = Object.fromEntries(
+    Object.entries(optionalRecord(input, label)).map(([path, value]) => {
+      const target = relativePath(path, `${label} target`);
+      if (!value || typeof value !== "object")
+        throw new TypeError(`[vitehub] Box file ${path} requires from or contents.`);
+      if ("from" in value) {
+        if (Object.keys(value).length !== 1 || typeof value.from !== "string")
+          throw new TypeError(
+            `[vitehub] Box file ${path} requires exactly one of from or contents.`,
+          );
+        const source = relativePath(value.from, `${label} source`);
+        return [target, { resolve: async () => await readProjectFile(source) }];
+      }
+      if (!("contents" in value) || Object.keys(value).length !== 1)
+        throw new TypeError(`[vitehub] Box file ${path} requires exactly one of from or contents.`);
+      return [
+        target,
+        {
+          resolve: async () => {
+            const resolved = await resolveValue(value.contents, context);
+            if (resolved === undefined) throw new Error(`[vitehub] Box file ${path} is required.`);
+            if (typeof resolved === "string") return new TextEncoder().encode(resolved);
+            if (resolved instanceof Uint8Array) return resolved;
+            throw new TypeError(`[vitehub] Box file ${path} must resolve to text or bytes.`);
+          },
+        },
+      ];
+    }),
+  );
+  validateFileTargets(Object.keys(files), label);
+  return files;
+
+  async function readProjectFile(path: string) {
+    const root = await realpath(sourceRoot).catch(() => resolve(sourceRoot));
+    const source = await realpath(resolve(root, path)).catch(() => undefined);
+    const sourcePath = source ? relative(root, source) : undefined;
+    if (!source || !sourcePath || sourcePath.startsWith("..") || isAbsolute(sourcePath)) {
+      throw new Error(`[vitehub] Box project file is unavailable: ${path}`);
+    }
+    return new Uint8Array(await readFile(source));
   }
 }
 
-async function resolveValue<T, Context>(value: BoxValue<T, Context> | undefined, context: Context): Promise<T | undefined> {
+function validateFileTargets(files: readonly string[], label: string) {
+  for (let index = 0; index < files.length; index++) {
+    for (let other = index + 1; other < files.length; other++) {
+      if (isDescendant(files[index], files[other]) || isDescendant(files[other], files[index])) {
+        throw new TypeError(
+          `[vitehub] Box ${label} targets conflict: ${files[index]} and ${files[other]}`,
+        );
+      }
+    }
+  }
+}
+
+function validateTargets(files: readonly string[], state: readonly string[]) {
+  for (let index = 0; index < state.length; index++) {
+    for (let other = index + 1; other < state.length; other++) {
+      if (isDescendant(state[index], state[other]) || isDescendant(state[other], state[index])) {
+        throw new TypeError(
+          `[vitehub] Box state targets overlap: ${state[index]} and ${state[other]}`,
+        );
+      }
+    }
+  }
+  for (const file of files) {
+    for (const directory of state) {
+      if (file === directory || isDescendant(directory, file)) {
+        throw new TypeError(
+          `[vitehub] Box file and state targets conflict: ${file} and ${directory}`,
+        );
+      }
+    }
+  }
+}
+
+function isDescendant(path: string, parent: string) {
+  return path.startsWith(`${parent}/`);
+}
+
+function optionalRecord<T>(
+  value: Readonly<Record<string, T>> | undefined,
+  label: string,
+): Readonly<Record<string, T>> {
+  if (value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new TypeError(`[vitehub] Box ${label} must be an object.`);
+  return value;
+}
+
+function relativePath(value: string, label: string) {
+  if (
+    typeof value !== "string" ||
+    !value ||
+    value.includes("\0") ||
+    value.includes("\\") ||
+    isAbsolute(value)
+  ) {
+    throw new TypeError(`[vitehub] Box ${label} must be a non-empty relative POSIX path.`);
+  }
+  const normalized = posix.normalize(value);
+  if (
+    normalized === "." ||
+    normalized === ".." ||
+    normalized.startsWith("../") ||
+    normalized !== value
+  ) {
+    throw new TypeError(`[vitehub] Box ${label} must be a non-empty relative POSIX path.`);
+  }
+  return normalized;
+}
+
+function normalizeRequirements(
+  input: readonly BoxRequirement[],
+): readonly ResolvedBoxRequirementInput[] {
+  const requirements = input.map((value): ResolvedBoxRequirementInput => {
+    if (typeof value === "string") {
+      if (!value.trim())
+        throw new TypeError("[vitehub] Box requirements must be non-empty commands.");
+      const command = value.trim();
+      if (command.includes("\0"))
+        throw new TypeError("[vitehub] Box requirement commands and arguments cannot contain NUL.");
+      return { args: [], command, name: command };
+    }
+    if (
+      !value ||
+      typeof value !== "object" ||
+      typeof value.command !== "string" ||
+      !value.command.trim()
+    ) {
+      throw new TypeError("[vitehub] Box requirements must be commands or direct command checks.");
+    }
+    const args = value.args === undefined ? [] : [...value.args];
+    if (args.some((argument) => typeof argument !== "string"))
+      throw new TypeError("[vitehub] Box requirement arguments must be strings.");
+    const command = value.command.trim();
+    if (command.includes("\0") || args.some((argument) => argument.includes("\0")))
+      throw new TypeError("[vitehub] Box requirement commands and arguments cannot contain NUL.");
+    const name = value.name?.trim() || [command, ...args].join(" ");
+    return { args, command, name };
+  });
+  return [...new Map(requirements.map((value) => [JSON.stringify(value), value])).values()];
+}
+
+function resolveString(value: unknown, label: string) {
+  if (typeof value !== "string" || !value)
+    throw new TypeError(`[vitehub] Box ${label} must resolve to a non-empty string.`);
+  if (value.includes("\0")) throw new TypeError(`[vitehub] Box ${label} cannot contain NUL.`);
+  return value;
+}
+
+async function resolveValue<T, Context>(
+  value: BoxValue<T, Context> | undefined,
+  context: Context,
+): Promise<T | undefined> {
   return typeof value === "function"
     ? await (value as (context: Context) => T | undefined | Promise<T | undefined>)(context)
-    : value
+    : value;
 }
 
-async function assertDirectory(path: string, label: string) {
-  const item = await stat(path).catch(() => undefined)
-  if (!item?.isDirectory()) throw new Error(`[vitehub] Box ${label} directory does not exist: ${path}`)
-}
-
-const requirementCommands: Record<string, { args: string[], command: string }> = {
-  codex: { args: ["login", "status"], command: "codex" },
-  "codex-cli": { args: [], command: "codex" },
-  github: { args: ["auth", "status"], command: "gh" },
-}
-
-async function resolveRequirement(
-  name: BoxRequirement,
-  env: Record<string, string | undefined>,
-  cwd: string | undefined,
-): Promise<ResolvedBoxRequirement> {
-  if (!name.trim()) throw new Error("[vitehub] Box requirements must be non-empty names.")
-  const check = requirementCommands[name] || { args: [], command: name }
-  const executable = await findExecutable(check.command, env.PATH, env.PATHEXT)
-  if (!executable) {
-    throw new Error(`[vitehub] Box requirement "${name}" is unavailable: ${check.command} is not on PATH.`)
-  }
-  if (check.args.length) {
-    try {
-      await promisify(execFile)(executable, check.args, { cwd, env, shell: isWindowsCommandShim(executable), timeout: 10_000 })
-    }
-    catch (error) {
-      const detail = typeof error === "object" && error && "stderr" in error
-        ? String(error.stderr).trim()
-        : error instanceof Error ? error.message : String(error)
-      throw new Error(`[vitehub] Box requirement "${name}" failed${detail ? `: ${detail}` : "."}`, { cause: error })
-    }
-  }
-  return { command: check.command, name }
-}
-
-async function findExecutable(command: string, path: string | undefined, pathExt: string | undefined) {
-  const names = [
-    command,
-    ...(pathExt || "").split(";").map(extension => extension.trim()).filter(Boolean).flatMap((extension) => {
-      return command.toLowerCase().endsWith(extension.toLowerCase()) ? [] : [`${command}${extension}`]
-    }),
-  ]
-  const candidates = command.includes("/") || command.includes("\\") || isAbsolute(command)
-    ? names.map(name => resolve(name))
-    : (path || "").split(delimiter).filter(Boolean).flatMap(directory => names.map(name => join(directory, name)))
-  for (const candidate of candidates) {
-    if (await access(candidate, constants.X_OK).then(() => true, () => false)) return candidate
-  }
-}
-
-function isWindowsCommandShim(path: string) {
-  return process.platform === "win32" && /\.(?:bat|cmd)$/i.test(path)
-}
+export { trustedHost, type TrustedHostOptions } from "./internal/trusted-host.ts";

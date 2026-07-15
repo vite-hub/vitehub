@@ -36,10 +36,10 @@ pnpm add @ai-sdk/harness @ai-sdk/harness-claude-code
 
 ```ts
 // server/agents/support/agent.ts
-import { gateway } from "@ai-sdk/gateway"
-import { defineAgent } from "@vite-hub/agent"
-import { chat, workspaceShell } from "@vite-hub/agent/capabilities"
-import { file } from "@vite-hub/workspace"
+import { gateway } from "@ai-sdk/gateway";
+import { defineAgent } from "@vite-hub/agent";
+import { chat, workspaceShell } from "@vite-hub/agent/capabilities";
+import { file } from "@vite-hub/workspace";
 
 export default defineAgent({
   driver: {
@@ -57,7 +57,7 @@ export default defineAgent({
       }),
     },
   },
-})
+});
 ```
 
 ## Harness drivers
@@ -66,9 +66,9 @@ Harness-backed agents use AI SDK `HarnessAgent` behind the ViteHub Agent Driver 
 
 ```ts
 // server/agents/codex/agent.ts
-import { defineAgent } from "@vite-hub/agent"
-import { codexDriver } from "@vite-hub/agent/harness/codex"
-import { file } from "@vite-hub/workspace"
+import { defineAgent } from "@vite-hub/agent";
+import { codexDriver } from "@vite-hub/agent/harness/codex";
+import { file } from "@vite-hub/workspace";
 
 export default defineAgent({
   driver: codexDriver({
@@ -83,7 +83,7 @@ export default defineAgent({
       guide: file("AGENTS.md"),
     },
   },
-})
+});
 ```
 
 Put Agent-owned Skills under `server/agents/codex/skills/`; discovery materializes them into the Harness Workspace and the isolated Codex profile automatically. Use `skills()` for Workspace-backed or external Source Skills.
@@ -94,34 +94,54 @@ For Claude Code, use `claudeCodeDriver()` from `@vite-hub/agent/harness/claude-c
 
 ## Boxes
 
-Use a Box when a harness Agent should boot in an explicit execution environment. A trusted-host Box can run Codex in an existing checkout with the host's tools and Home:
+Use a Box when a harness Agent should boot in one project-declared execution environment. A trusted-host Box uses the host's installed tools while materializing a private Home and sanitized process environment:
 
 ```ts
-import { trustedHost } from "@vite-hub/box"
+import { defineAgent } from "@vite-hub/agent";
+import { codexDriver } from "@vite-hub/agent/harness/codex";
+import { trustedHost } from "@vite-hub/box";
+import { useServerEnv } from "#vitehub/env/server";
 
 export default defineAgent<any, { worktreePath: string }>({
   box: {
-    runtime: trustedHost(),
+    runtime: trustedHost({ stateRoot: "/var/lib/vitehub/boxes" }),
     cwd: ({ input }) => input.options?.worktreePath,
-    requires: ["github", "pnpm"],
+    env: {
+      GH_TOKEN: () => useServerEnv().githubToken.unseal(),
+    },
+    home: {
+      files: {
+        ".gitconfig": { from: ".vitehub/box/gitconfig" },
+        ".codex/config.toml": { from: ".vitehub/box/codex.toml" },
+      },
+      state: {
+        ".codex": {
+          key: "babysitter/codex",
+          seed: {
+            "auth.json": { contents: () => useServerEnv().codexAuthJson.unseal() },
+          },
+        },
+      },
+    },
+    requires: [{ command: "gh", args: ["auth", "status"] }, "pnpm"],
   },
   driver: codexDriver(),
-})
+});
 ```
 
-`codexDriver()` contributes an authenticated `codex` requirement for ambient auth and an executable-only `codex-cli` requirement for explicit auth. `trustedHost()` checks required tools and named authentication before execution, inherits the ambient Home when `home` is omitted, and provides no filesystem, credential, or process isolation. Set `box.home` to use a managed portable Home. Do not combine an explicit `box.cwd` with Agent Workspace materialization in this first slice.
+`env` and `home.files` are immutable boot inputs. `home.state` is writable, persists CLI refreshes under an exclusive session lease, and resolves its seed only when state does not exist. Every Box gets a private Home; missing declarations fail instead of falling back to the machine's normal Home. `codexDriver()` contributes a generic `codex login status` check, and other CLIs use string or direct-argv `requires` entries without provider-specific Box APIs. Do not combine an explicit `box.cwd` with Agent Workspace materialization.
 
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
 
 ```ts
 // vite.config.ts
-import { hubAgent } from "@vite-hub/agent/vite"
-import { hubWorkspace } from "@vite-hub/workspace/vite"
-import { defineConfig } from "vite"
+import { hubAgent } from "@vite-hub/agent/vite";
+import { hubWorkspace } from "@vite-hub/workspace/vite";
+import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [hubWorkspace(), hubAgent()],
-})
+});
 ```
 
 ## DevTools inspection
@@ -144,7 +164,7 @@ Pass `--json` for the structured inspection contract.
 - `skills()`, `access()`, `memory()`, `fetch()`, `llmRoute()`, and `llmGate()` cover prompt skills, workspace scope, durable notes, HTTP reads, and pre-run decisions.
 
 ```ts
-import { openapi } from "@vite-hub/agent/capabilities"
+import { openapi } from "@vite-hub/agent/capabilities";
 
 openapi({
   spec: "https://api.example.com/openapi.json",
@@ -162,8 +182,11 @@ openapi({
         request.body = {
           ...(request.body as Record<string, unknown> | undefined),
           tenantId: context.get<{ tenantId: string }>("billing")?.tenantId,
-        }
-        request.headers.set("authorization", `Bearer ${context.get<{ token: string }>("billing")?.token}`)
+        };
+        request.headers.set(
+          "authorization",
+          `Bearer ${context.get<{ token: string }>("billing")?.token}`,
+        );
       },
     },
   },
@@ -171,7 +194,7 @@ openapi({
     operationId: operation.id,
     response,
   }),
-})
+});
 ```
 
 `spec` can be a callback when the OpenAPI document comes from the current Agent Invocation context. Request servers come from OpenAPI `servers`; use `server` only as an override escape hatch when the spec has no usable server.
@@ -193,7 +216,7 @@ export default defineConfig({
       },
     },
   },
-})
+});
 ```
 
 `provider: "sqlite"` uses the built-in libSQL-compatible state backend, so `file:` URLs work for local SQLite and hosted libSQL URLs work for remote deployments.
@@ -201,13 +224,14 @@ export default defineConfig({
 You can also wire the adapter manually when `chat({ state })` should own the state provider:
 
 ```ts
-import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite"
+import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite";
 
 chat({
-  state: () => createLibsqlAgentState({
-    url: process.env.VITEHUB_AGENT_STATE_URL!,
-  }),
-})
+  state: () =>
+    createLibsqlAgentState({
+      url: process.env.VITEHUB_AGENT_STATE_URL!,
+    }),
+});
 ```
 
 This is not the Database Capability. It is Agent-owned runtime state for chat behavior.

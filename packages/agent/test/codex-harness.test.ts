@@ -1,7 +1,3 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-
 import { describe, expect, it, vi } from "vitest"
 
 const createCodex = vi.hoisted(() => vi.fn(settings => ({ provider: "codex", settings })))
@@ -20,7 +16,7 @@ describe("codexDriver", () => {
     expect(driver).toMatchObject({
       credentials: { label: "Codex", source: "ambient" },
       harness: { provider: "codex" },
-      requires: ["codex"],
+      requires: [{ name: "Codex", command: "codex", args: ["login", "status"] }],
     })
     expect(driver.sandbox).toBeUndefined()
   })
@@ -107,32 +103,6 @@ describe("codexDriver", () => {
     }
   })
 
-  it("uses ambient local Codex auth when explicit auth is omitted", async () => {
-    const originalHome = process.env.HOME
-    const home = await mkdtemp(join(tmpdir(), "vitehub-codex-home-"))
-    await mkdir(join(home, ".codex"), { recursive: true })
-    await writeFile(join(home, ".codex", "auth.json"), "{\"token\":\"local\"}\n")
-    process.env.HOME = home
-
-    try {
-      const { codexDriver } = await import("../src/harness/codex.ts")
-      const driver = codexDriver({ sandbox: {} }) as { sandbox?: { createSession: () => Promise<{ destroy: () => Promise<void>, env: Record<string, string> }> } }
-      const session = await driver.sandbox?.createSession()
-
-      try {
-        expect(session?.env.CODEX_HOME).toContain("vitehub-codex-home-")
-        await expect(readFile(join(session!.env.CODEX_HOME, "auth.json"), "utf8")).resolves.toBe("{\"token\":\"local\"}\n")
-      }
-      finally {
-        await session?.destroy()
-      }
-    }
-    finally {
-      restoreEnv("HOME", originalHome)
-      await rm(home, { force: true, recursive: true })
-    }
-  })
-
   it("creates isolated default local sandbox sessions", async () => {
     const { codexDriver } = await import("../src/harness/codex.ts")
     const driver = codexDriver({ sandbox: {} }) as { sandbox?: { createSession: () => Promise<{ defaultWorkingDirectory: string, destroy: () => Promise<void> }> } }
@@ -184,7 +154,7 @@ describe("codexDriver", () => {
 
     expect(createCodex).toHaveBeenLastCalledWith({ auth: { gateway: { apiKey: "gateway-key" } }, model: "" })
     expect(driver.sandbox).toBeUndefined()
-    expect(driver.requires).toEqual(["codex-cli"])
+    expect(driver.requires).toEqual(["codex"])
   })
 
   it("does not adapt explicit local Codex sandboxes twice", async () => {
@@ -246,12 +216,15 @@ describe("codexDriver", () => {
   it("exposes an isolated global skill directory", async () => {
     const { codexDriver } = await import("../src/harness/codex.ts")
     const driver = codexDriver({ sandbox: false })
+    const directory = (driver.harness as Record<PropertyKey, unknown>)[
+      Symbol.for("vitehub.harnessGlobalSkillsDirectory")
+    ] as (context: { box?: unknown }) => string
 
-    expect((driver.harness as Record<PropertyKey, unknown>)[Symbol.for("vitehub.harnessGlobalSkillsDirectory")])
-      .toBe("tmp/harness/codex-home/skills")
+    expect(directory({})).toBe("tmp/harness/codex-home/skills")
+    expect(directory({ box: {} })).toBe("home/.codex/skills")
   })
 
-  it("isolates Codex config while preserving sandbox authentication", async () => {
+  it("uses Box-owned Codex Home without replacing its authentication state", async () => {
     const { codexDriver } = await import("../src/harness/codex.ts")
     const run = vi.fn(async (_options: { command: string, env?: Record<string, string | undefined> }) => ({ exitCode: 0, stderr: "" }))
     const restrictedRun = vi.fn(async (_options: { command: string, env?: Record<string, string | undefined> }) => ({ exitCode: 0, stderr: "" }))
@@ -277,22 +250,13 @@ describe("codexDriver", () => {
     await prepareSession(session)
 
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
-      command: expect.stringContaining('rm -f "$CODEX_HOME/auth.json"'),
-      env: {
-        CODEX_HOME: "/sandbox/run-1/tmp/harness/codex-home",
-        VITEHUB_CODEX_AUTH_HOME: "/box/.codex",
-      },
+      command: expect.stringContaining("CODEX_HOME:-$HOME/.codex"),
     }))
+    expect(run.mock.calls[0][0].command).not.toContain("auth.json")
     await session.run({ command: "codex exec" })
-    expect(run).toHaveBeenLastCalledWith({
-      command: "codex exec",
-      env: { CODEX_HOME: "/sandbox/run-1/tmp/harness/codex-home" },
-    })
+    expect(run).toHaveBeenLastCalledWith({ command: "codex exec" })
     await session.restricted().run({ command: "codex exec" })
-    expect(restrictedRun).toHaveBeenCalledWith({
-      command: "codex exec",
-      env: { CODEX_HOME: "/sandbox/run-1/tmp/harness/codex-home" },
-    })
+    expect(restrictedRun).toHaveBeenCalledWith({ command: "codex exec" })
   })
 
   it("forwards invocation-scoped harness configuration without treating it as Codex settings", async () => {
