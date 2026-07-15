@@ -124,7 +124,10 @@ describe("elevenLabsScribe", () => {
           language_code: "th",
           language_probability: 0.98,
           text: "สวัสดี",
-          words: [{ channel_index: 0, end: 0.5, speaker_id: "speaker_0", start: 0, text: "สวัสดี", type: "word" }],
+          words: [
+            { channel_index: 0, end: 0.5, speaker_id: "speaker_0", start: 0, text: "สวัสดี", type: "word" },
+            { end: 0.6, start: 0.5, text: " ", type: "spacing" },
+          ],
         },
         webhook_metadata: { attempt_nonce: "attempt-1", hook_token: "hook-1", job_id: "job-1" },
       },
@@ -138,7 +141,10 @@ describe("elevenLabsScribe", () => {
         language: "th",
         languageConfidence: 0.98,
         text: "สวัสดี",
-        words: [{ channel: 0, end: 0.5, speaker: "speaker_0", start: 0, text: "สวัสดี", type: "word" }],
+        words: [
+          { channel: 0, end: 0.5, speaker: "speaker_0", start: 0, text: "สวัสดี", type: "word" },
+          { end: 0.6, start: 0.5, text: " ", type: "spacing" },
+        ],
       },
     })
   })

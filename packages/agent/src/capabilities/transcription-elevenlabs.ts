@@ -68,7 +68,7 @@ function assertOptions(options: ElevenLabsScribeOptions): void {
 }
 
 function mapWord(value: ElevenLabsWord): TranscriptionWord | undefined {
-  if (!nonEmptyString(value.text) || !nonEmptyString(value.type)) return
+  if (typeof value.text !== "string" || !nonEmptyString(value.type)) return
   return {
     ...(typeof value.channel_index === "number" && Number.isFinite(value.channel_index) ? { channel: value.channel_index } : {}),
     ...(typeof value.end === "number" && Number.isFinite(value.end) ? { end: value.end } : {}),
