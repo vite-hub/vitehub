@@ -14,7 +14,9 @@ const defaultWorkspaceDependencyRuntimeLoaders: WorkspaceDependencyRuntimeLoader
   shellWorkspace: () => import(/* @vite-ignore */ shellWorkspaceSpecifier),
 }
 
-const workspaceDependencyRuntimeLoadersKey = Symbol.for("vitehub.workspace.dependencyRuntimeLoaders")
+function workspaceDependencyRuntimeLoadersKey(): symbol {
+  return Symbol.for("vitehub.workspace.dependencyRuntimeLoaders")
+}
 
 type WorkspaceDependencyRuntimeLoadersGlobal = typeof globalThis & Record<symbol, WorkspaceDependencyRuntimeLoaders | undefined>
 
@@ -23,13 +25,13 @@ function workspaceDependencyRuntimeLoadersGlobal(): WorkspaceDependencyRuntimeLo
 }
 
 export function setWorkspaceDependencyRuntimeLoaders(loaders: Partial<WorkspaceDependencyRuntimeLoaders> | undefined): void {
-  workspaceDependencyRuntimeLoadersGlobal()[workspaceDependencyRuntimeLoadersKey] = loaders
+  workspaceDependencyRuntimeLoadersGlobal()[workspaceDependencyRuntimeLoadersKey()] = loaders
     ? { ...defaultWorkspaceDependencyRuntimeLoaders, ...loaders }
     : undefined
 }
 
 export function getWorkspaceDependencyRuntimeLoaders(): WorkspaceDependencyRuntimeLoaders {
-  return workspaceDependencyRuntimeLoadersGlobal()[workspaceDependencyRuntimeLoadersKey] ?? defaultWorkspaceDependencyRuntimeLoaders
+  return workspaceDependencyRuntimeLoadersGlobal()[workspaceDependencyRuntimeLoadersKey()] ?? defaultWorkspaceDependencyRuntimeLoaders
 }
 
 export function loadWorkspaceSandboxModule(): Promise<unknown> {
