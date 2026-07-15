@@ -21,7 +21,6 @@ import { resolveInstructionImports } from "./instruction-composition.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 import { readColocatedAgentSkills } from "./vite/colocated-agent-skills.ts"
 
-import type { DevToolsPluginOptions } from "@vitejs/devtools-kit"
 import type { Plugin, ResolvedConfig } from "vite"
 import type { CloudflareAgentStateMigration, CloudflareAgentStateRollupTarget, CloudflareAgentStateTarget } from "./cloudflare.ts"
 import type { AgentModuleOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "./types.ts"
@@ -32,7 +31,7 @@ interface AgentCliContributingPlugin {
   }
 }
 
-export type AgentVitePlugin = Plugin & AgentCliContributingPlugin & { devtools?: DevToolsPluginOptions }
+export type AgentVitePlugin = Plugin & AgentCliContributingPlugin & { devtools?: unknown }
 
 const agentPackageName = "@vite-hub/agent"
 const mergeNoExternal = createNoExternalMerger(agentPackageName)

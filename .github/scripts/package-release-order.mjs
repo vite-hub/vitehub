@@ -33,6 +33,7 @@ function visit(pkg) {
   const dependencies = {
     ...pkg.manifest.dependencies,
     ...pkg.manifest.optionalDependencies,
+    ...pkg.manifest.peerDependencies,
   }
   for (const dependency of Object.keys(dependencies).sort()) {
     const owner = byName.get(dependency)

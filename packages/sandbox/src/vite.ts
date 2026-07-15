@@ -274,7 +274,9 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     generatedFiles = prepared.files
     definitions = prepared.definitions
     if (internalOptions?.providerImportAliases && internalOptions.providerImportSpecifier) {
-      internalOptions.providerImportAliases[internalOptions.providerImportSpecifier] = generatedAliases[SANDBOX_PACKAGE_ID]!
+      const facade = generatedAliases[SANDBOX_PACKAGE_ID]!
+      internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID] = facade
+      internalOptions.providerImportAliases[internalOptions.providerImportSpecifier] = facade
     }
     return prepared
   }

@@ -98,6 +98,7 @@ describe("package manifest contracts", () => {
       const dependencies = {
         ...manifest.dependencies,
         ...manifest.optionalDependencies,
+        ...manifest.peerDependencies,
       }
       for (const dependency of Object.keys(dependencies)) {
         if (!positions.has(dependency)) continue
