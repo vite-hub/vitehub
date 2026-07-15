@@ -84,6 +84,12 @@ describe("storage capabilities", () => {
     expect(Object.keys(tools)).toEqual(["cronjob"])
     expect(tools.cronjob!.policy).toBeUndefined()
 
+    const guardedTools = await resolveTools([schedule({ mode: "write", policy: "deny", targets: ["reports"] })], { schedule: { schedules } })
+    const guardedPolicy = guardedTools.cronjob!.policy
+    if (typeof guardedPolicy !== "function") throw new TypeError("Expected Schedule policy to dispatch by operation.")
+    expect(await guardedPolicy({ input: { operation: "list" }, name: "cronjob" })).toBe("allow")
+    expect(await guardedPolicy({ input: { operation: "create" }, name: "cronjob" })).toBe("deny")
+
     await expect(tools.cronjob!.execute?.({ operation: "targets" })).resolves.toEqual({ targets: ["reports"] })
     await expect(tools.cronjob!.execute?.({ operation: "list" })).resolves.toEqual([records[0]])
     await expect(tools.cronjob!.execute?.({ id: "daily", operation: "get" })).resolves.toEqual(records[0])

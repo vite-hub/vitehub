@@ -109,6 +109,11 @@ describe("agent memory capability", () => {
               scope: { agent: "support" },
               write: { mode: "tool" },
             },
+            guarded: {
+              adapter: writable,
+              scope: { agent: "support" },
+              write: { mode: "tool", policy: "deny" },
+            },
             readonly: {
               adapter: readonly,
               scope: { agent: "support" },
@@ -119,7 +124,8 @@ describe("agent memory capability", () => {
     })
 
     await runAgent(agent, runtime(), {})
-    expect(capturedTools.memory_remember!.policy).toBeUndefined()
+    expect(await capturedTools.memory_remember!.policy!({ input: { store: "agent" } })).toBe("allow")
+    expect(await capturedTools.memory_remember!.policy!({ input: { store: "guarded" } })).toBe("deny")
     await expect(Promise.resolve().then(() => capturedTools.memory_remember!.execute({ content: "Keep this.", kind: "semantic", store: "readonly" }))).rejects.toThrow("does not allow writes")
     await expect(Promise.resolve().then(() => capturedTools.memory_delete!.execute({ id: "mem_1", store: "readonly" }))).rejects.toThrow("does not allow writes")
     expect(readonly.append).not.toHaveBeenCalled()
