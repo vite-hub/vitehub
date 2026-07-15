@@ -659,6 +659,37 @@ describe("sources, loaders, and publishers", () => {
     })
   })
 
+  it("loads public and /@fs/ raw paths with Vite semantics", async () => {
+    const root = await createRoot()
+    const outsideRoot = await createRoot()
+    const directory = join(root, "server", "agents", "review")
+    const outsidePath = join(outsideRoot, "outside.md")
+    await mkdir(join(root, "public"), { recursive: true })
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(root, "robots.txt"), "root robots\n")
+    await writeFile(join(root, "public", "robots.txt"), "public robots\n")
+    await writeFile(outsidePath, "outside context\n")
+    await writeFile(join(directory, "config.ts"), [
+      `import robots from "/robots.txt?raw"`,
+      `import outside from ${JSON.stringify(`/@fs/${outsidePath}?raw`)}`,
+      `export default { rootDir: [robots.trim(), outside.trim()].join("|") }`,
+      ``,
+    ].join("\n"))
+
+    const definition = {
+      handler: join(directory, "config.ts"),
+      name: "review",
+      path: join(directory, "config.ts"),
+      source: "test",
+      sourceRootDir: directory,
+    }
+    const loader = createWorkspaceDefinitionLoader(root)
+
+    await expect(loadDiscoveredWorkspaceDefinition(loader, definition)).resolves.toMatchObject({
+      rootDir: "public robots|outside context",
+    })
+  })
+
   it("ignores stale default Jiti transforms when loading raw imports", async () => {
     const root = await createRoot()
     const directory = join(root, "server", "agents", "review")

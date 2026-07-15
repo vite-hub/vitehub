@@ -99,6 +99,15 @@ function createWorkspaceDefinitionTransform() {
   })
 }
 
+function resolveWorkspaceRawSpecifier(path: string, rootDir: string): string {
+  if (path.startsWith("/@fs/")) return path.slice("/@fs/".length)
+  if (!path.startsWith("/")) return path
+
+  const rootRelativePath = path.slice(1)
+  const publicPath = join(rootDir, "public", rootRelativePath)
+  return existsSync(publicPath) ? publicPath : join(rootDir, rootRelativePath)
+}
+
 export function createWorkspaceDefinitionLoader(rootDir: string, alias: Record<string, string> = {}) {
   let loader: ReturnType<typeof createJiti>
   const virtualModules = new Proxy<Record<string, unknown>>(Object.create(null), {
@@ -106,7 +115,7 @@ export function createWorkspaceDefinitionLoader(rootDir: string, alias: Record<s
       if (typeof id !== "string" || !id.startsWith(rawImportVirtualModulePrefix)) return
       const reference = id.slice(rawImportVirtualModulePrefix.length)
       const [importer, path] = JSON.parse(Buffer.from(reference, "base64url").toString("utf8")) as [string, string]
-      const specifier = path.startsWith("/") ? join(rootDir, path.slice(1)) : path
+      const specifier = resolveWorkspaceRawSpecifier(path, rootDir)
       const resolved = loader.esmResolve(specifier, pathToFileURL(importer).href)
       return { __esModule: true, default: readFileSync(fileURLToPath(resolved), "utf8") }
     },
