@@ -25,6 +25,9 @@ type PullRequest = {
 
 const pullRequestFields = 'body,headRefName,headRefOid,isDraft,mergeStateStatus,number,reviewDecision,state,statusCheckRollup,title,updatedAt,url'
 
+/**
+ * Reconciles exact-head worktrees and returns changed, unowned pull requests.
+ */
 export async function reconcileWorktrees(activePullRequests = new Set<number>()) {
   const { repository, repositoryPath, worktreesPath } = useServerEnv().vitehub
   await mkdir(worktreesPath, { recursive: true })
@@ -80,14 +83,23 @@ export async function reconcileWorktrees(activePullRequests = new Set<number>())
   return jobs
 }
 
+/**
+ * Reads the current GitHub state for a pull request.
+ */
 export async function readPullRequest(repository: string, number: number) {
   return JSON.parse((await exec('gh', ['pr', 'view', String(number), '--repo', repository, '--json', pullRequestFields])).stdout) as PullRequest
 }
 
+/**
+ * Fingerprints the observed pull request state used to decide whether to rerun it.
+ */
 export function pullRequestFingerprint(pullRequest: PullRequest) {
   return createHash('sha256').update(JSON.stringify(pullRequest)).digest('hex').slice(0, 16)
 }
 
+/**
+ * Returns the repository-scoped key for persisted completion state.
+ */
 function completionKey(repository: string, number: number) {
   return `babysitter/${repository}/pull-requests/${number}`
 }

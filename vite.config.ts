@@ -7,14 +7,12 @@ import { hubSchedule } from '@vite-hub/schedule/vite'
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
-const repositoryPath = join(homedir(), 'vitehub/vitehub')
-
 export default defineConfig({
   env: {
     server: {
       vitehub: {
         repository: 'vite-hub/vitehub',
-        repositoryPath: env({ default: repositoryPath }),
+        repositoryPath: env({ default: join(homedir(), 'vitehub/vitehub') }),
         worktreesPath: env({ required: true }),
       },
     },

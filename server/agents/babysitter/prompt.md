@@ -37,14 +37,7 @@ Immediately before merging, re-read the exact-head review request, its reactions
 
 A blocker is an external dependency, unavailable credential or service, or product decision that cannot be resolved from the pull request intent and repository evidence. Exhaust reasonable fixes first. When genuinely blocked, preserve the rest of the pull request body and upsert exactly one block in this form:
 
-```md
-<!-- babysitter:blocker:v1 -->
-> [!WARNING]
-> **Babysitter is blocked:** concise reason.
->
-> State the exact external action or decision that will unblock the pull request.
-<!-- /babysitter:blocker:v1 -->
-```
+{{{ blocker }}}
 
 Remove that block as soon as the blocker clears. Do not use it for failing checks, merge conflicts, review feedback, missing documentation, branch cleanup, or work you can perform yourself.
 
