@@ -1,6 +1,14 @@
 # `@vite-hub/email`
 
-`@vite-hub/email` sends transactional email through a ViteHub-owned message and driver contract. The core works with any host or provider driver; the optional SMTP driver uses Nodemailer on Node.js.
+`@vite-hub/email` sends outbound transactional email through one portable message and driver contract. Use the discovered `email` Runtime Helper in a ViteHub app, create an explicit client for manual integration, or provide your own delivery driver.
+
+## Requirements
+
+- Node.js 24 or later.
+- Vite 8 or later when you use Email Definition discovery.
+- Nodemailer 9 only when you use the optional SMTP driver.
+
+The package does not choose an email provider or read credentials from Vite config. Your Email Definition owns the driver and its server-only credentials.
 
 ## Quickstart
 
@@ -22,9 +30,10 @@ export default defineConfig({
 })
 ```
 
-Define the delivery driver in `server/email.ts`:
+Set `SMTP_URL` in the server runtime environment, then define the delivery driver:
 
 ```ts
+// server/email.ts
 import { defineEmail } from "@vite-hub/email"
 import { smtp } from "@vite-hub/email/drivers/smtp"
 
@@ -36,26 +45,29 @@ export default defineEmail({
 })
 ```
 
+Keep `SMTP_URL` in a local or deployment secret store. Do not expose it through a `VITE_`-prefixed environment variable.
+
 Server code can now use the discovered Runtime Helper:
 
 ```ts
 import { email } from "@vite-hub/email/server"
 
-await email.send({
+const result = await email.send({
   from: "hello@example.com",
-  to: "maxi@example.com",
+  to: "you@example.com",
   subject: "Welcome",
   text: "Welcome to ViteHub.",
 })
 ```
 
-Successful sends return a provider message ID and the driver name. Delivery failures throw `EmailError` with a stable code.
+A successful send returns `{ id, driver: "smtp" }`; the provider supplies `id`. Invalid messages and delivery failures throw `EmailError` with a stable `code`. SMTP and core-wrapped provider failures keep the raw failure in `cause` while exposing a safe message. Custom drivers must follow the same rule when they throw `EmailError` directly.
 
-## Render Dynamic Markdown
+## Compose dynamic Markdown
 
-`renderEmailMarkdown()` composes `@vite-hub/markdown-template` data, conditions, fragments, and caller-resolved imports before Comark renders the HTML body.
+`renderEmailMarkdown()` resolves `@vite-hub/markdown-template` data, conditions, fragments, and caller-provided imports before Comark renders the HTML body.
 
 ```ts
+import { email } from "@vite-hub/email/server"
 import { renderEmailMarkdown } from "@vite-hub/email/markdown"
 
 const body = await renderEmailMarkdown("# Welcome {{ user.name }}\n\nYour workspace is ready.", {
@@ -65,33 +77,43 @@ const body = await renderEmailMarkdown("# Welcome {{ user.name }}\n\nYour worksp
 await email.send({
   ...body,
   from: "hello@example.com",
-  to: "maxi@example.com",
+  to: "you@example.com",
   subject: "Your workspace is ready",
 })
 ```
 
-The `html` body contains rendered HTML. The `text` fallback contains the fully composed Markdown, so it stays readable without adding a second conversion policy.
+`html` contains rendered HTML. `text` contains the fully composed Markdown, which remains readable in text clients and keeps composition deterministic. Supply your own `text` when you need a marker-free plain-text version.
 
-## Test without delivering
+The renderer does not sanitize authored HTML, trusted Markdown fragments, or imported templates, and it does not inline email CSS. Use scalar `{{ value }}` bindings for untrusted text, and sanitize untrusted content before passing it through a `{{{ fragment }}}` binding or import.
+
+## Test without delivery
+
+`createTestEmail()` uses an isolated in-memory mailbox and the same validation path as a production client:
 
 ```ts
+import { expect, it } from "vitest"
 import { createTestEmail } from "@vite-hub/email/test"
 
-const mail = createTestEmail()
-await mail.send({
-  from: "hello@example.com",
-  to: "maxi@example.com",
-  subject: "Welcome",
-  text: "Hello",
-})
+it("sends a welcome email", async () => {
+  const mail = createTestEmail()
 
-expect(mail.messages[0]?.subject).toBe("Welcome")
+  await expect(mail.send({
+    from: "hello@example.com",
+    to: "you@example.com",
+    subject: "Welcome",
+    text: "Hello",
+  })).resolves.toEqual({ driver: "memory", id: "memory-1" })
+
+  expect(mail.messages[0]?.subject).toBe("Welcome")
+})
 ```
 
-Each test client owns an isolated mailbox. Captured messages are copied before storage, and `clear()` resets the mailbox and deterministic message IDs.
+Captured messages are cloned before storage. `clear()` empties the mailbox and restarts deterministic IDs at `memory-1`.
 
-## Bring another provider
+## Use another provider
 
-Implement `EmailDriver` and pass it to `createEmail({ driver })`, or return it from the discovered Email Definition. Provider SDK types and response payloads stay behind the driver boundary.
+Implement `EmailDriver.send(message)` and return `{ id }`, then pass the driver to `createEmail({ driver })` or expose it from the discovered Email Definition. ViteHub validates the portable message before delivery and normalizes the public result to `{ id, driver }`; provider SDK types and response payloads stay inside the adapter.
 
-This first release owns outbound transactional delivery, in-memory attachments, Markdown composition, and test capture. It does not own queues, retries, scheduling, provider templates, inbound email, webhooks, suppression lists, or tracking. Compose those workflows with their owning primitives.
+This release owns outbound transactional delivery, in-memory attachments, dynamic Markdown composition, and test capture. Queues, retries, scheduling, provider templates, inbound email, webhooks, suppression lists, and tracking remain with their owning primitives or delivery providers.
+
+Read the complete [Email guide and API reference](https://vitehub.dev/docs/server-primitives/email).

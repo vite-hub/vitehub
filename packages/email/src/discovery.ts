@@ -9,8 +9,8 @@ export interface DiscoveredEmailDefinition {
 
 const emailDefinitionExtensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"]
 
-function emailDefinitionCandidates(root: string): DiscoveredEmailDefinition[] {
-  return emailDefinitionExtensions.flatMap(extension => [
+export function discoverEmailDefinition(root: string): DiscoveredEmailDefinition | undefined {
+  const definitions = emailDefinitionExtensions.flatMap(extension => [
     {
       handler: resolve(root, "server", `email${extension}`),
       name: "default" as const,
@@ -21,20 +21,12 @@ function emailDefinitionCandidates(root: string): DiscoveredEmailDefinition[] {
       name: "default" as const,
       source: "server-email-suffix" as const,
     },
-  ])
-}
-
-export function discoverEmailDefinitions(root: string): DiscoveredEmailDefinition[] {
-  const definitions = emailDefinitionCandidates(root).filter(definition => existsSync(definition.handler))
+  ]).filter(definition => existsSync(definition.handler))
   if (definitions.length > 1) {
     throw new Error([
       "[vitehub] Only one Email Definition is allowed. Found:",
       ...definitions.map(definition => `  - ${definition.handler}`),
     ].join("\n"))
   }
-  return definitions
-}
-
-export function discoverEmailDefinition(root: string): DiscoveredEmailDefinition | undefined {
-  return discoverEmailDefinitions(root)[0]
+  return definitions[0]
 }

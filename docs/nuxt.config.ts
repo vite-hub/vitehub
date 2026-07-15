@@ -128,6 +128,11 @@ export default defineNuxtConfig({
   devtools: {
     enabled: false,
   },
+  nitro: {
+    prerender: {
+      failOnError: true,
+    },
+  },
   future: {
     compatibilityVersion: 4,
   },

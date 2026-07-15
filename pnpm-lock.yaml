@@ -266,6 +266,8 @@ overrides:
   vite: npm:@voidzero-dev/vite-plus-core@0.1.24
   vitest: npm:@voidzero-dev/vite-plus-test@0.1.24
 
+packageExtensionsChecksum: sha256-nXN3zsjYbryO1ExQdeIkna3umuJ8ZZ87xxqQXLFrP4M=
+
 importers:
 
   .:
@@ -15576,6 +15578,7 @@ snapshots:
       defu: 6.1.7
       destr: 2.0.5
       git-url-parse: 16.1.0
+      h3: 1.15.11
       hookable: 5.5.3
       isomorphic-git: 1.38.3
       jiti: 2.7.0

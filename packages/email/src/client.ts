@@ -6,7 +6,7 @@ import type {
   EmailAddressList,
   EmailAttachment,
   EmailClient,
-  EmailClientOptions,
+  EmailDefinition,
   EmailDriverResult,
   EmailMessage,
   EmailSendResult,
@@ -23,7 +23,7 @@ function validAddress(value: unknown): value is EmailAddress {
 
 function validAddressList(value: unknown): value is EmailAddressList {
   const addresses = Array.isArray(value) ? value : [value]
-  return addresses.length > 0 && addresses.every(validAddress)
+  return addresses.length > 0 && Array.from(addresses).every(validAddress)
 }
 
 function validAttachment(value: unknown): value is EmailAttachment {
@@ -76,7 +76,7 @@ function assertEmailMessage(message: EmailMessage, driver: string): void {
   if (input.headers !== undefined && !validHeaders(input.headers)) {
     throw new EmailError("invalid-message", "[vitehub] Email message headers must contain string values.", { driver })
   }
-  if (input.attachments !== undefined && (!Array.isArray(input.attachments) || input.attachments.some(attachment => !validAttachment(attachment)))) {
+  if (input.attachments !== undefined && (!Array.isArray(input.attachments) || !Array.from(input.attachments).every(validAttachment))) {
     throw new EmailError("invalid-message", "[vitehub] Email attachments require a filename and in-memory content.", { driver })
   }
 }
@@ -85,7 +85,7 @@ function validDriverResult(result: EmailDriverResult): boolean {
   return Boolean(result) && typeof result.id === "string" && result.id.trim().length > 0
 }
 
-export function createEmail(options: EmailClientOptions): EmailClient {
+export function createEmail(options: EmailDefinition): EmailClient {
   assertEmailDriver(options?.driver)
   const driver = options.driver
 

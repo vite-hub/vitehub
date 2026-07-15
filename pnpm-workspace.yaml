@@ -122,3 +122,8 @@ catalogs:
 overrides:
   vite: npm:@voidzero-dev/vite-plus-core@0.1.24
   vitest: npm:@voidzero-dev/vite-plus-test@0.1.24
+
+packageExtensions:
+  "@nuxt/content@3":
+    dependencies:
+      h3: ^1.15.11

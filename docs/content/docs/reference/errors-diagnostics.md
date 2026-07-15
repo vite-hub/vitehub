@@ -46,8 +46,7 @@ Use the error family to choose the next proof path before changing implementatio
 
 ## Local response
 
-Start with the owning package and the failing proof path.
-For provider failures, inspect generated output before changing runtime code.
+Start with the owning package and the failing proof path. For packages that generate Provider Output, inspect that output before changing runtime code. Email emits no Provider Output; inspect `EmailError.code` and `driver`, then use `cause` only in protected server-side diagnostics.
 
 ```bash [Terminal]
 pnpm vitehub provision run --provider cloudflare --dry-run

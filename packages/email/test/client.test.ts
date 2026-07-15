@@ -18,6 +18,9 @@ const message: EmailMessage = {
   to: ["maxi@example.com"],
 }
 
+const sparseArray: unknown[] = []
+sparseArray.length = 1
+
 function fixtureDriver(send = vi.fn(async () => ({ id: "provider-1" }))): EmailDriver {
   return { name: "fixture", send }
 }
@@ -35,6 +38,7 @@ describe("createEmail", () => {
     [{ ...message, from: "" }, "from"],
     [{ ...message, subject: "" }, "subject"],
     [{ ...message, to: [] }, "to"],
+    [{ ...message, to: sparseArray }, "to"],
     [{ ...message, html: undefined, text: undefined }, "html or text"],
     [{ ...message, html: 1 }, "html"],
     [{ ...message, text: 1 }, "text"],
@@ -42,6 +46,7 @@ describe("createEmail", () => {
     [{ ...message, headers: { "X-Trace-Id": 1 } }, "headers"],
     [{ ...message, attachments: {} }, "attachments"],
     [{ ...message, attachments: null }, "attachments"],
+    [{ ...message, attachments: sparseArray }, "attachments"],
     [{ ...message, attachments: [{ content: {}, filename: "report.bin" }] }, "attachments"],
     [{ ...message, attachments: [{ content: "report", contentDisposition: "download", filename: "report.txt" }] }, "attachments"],
   ])("rejects an invalid message before delivery", async (invalid, field) => {

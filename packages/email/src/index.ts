@@ -7,7 +7,6 @@ export type {
   EmailAddressList,
   EmailAttachment,
   EmailClient,
-  EmailClientOptions,
   EmailDefinition,
   EmailDriver,
   EmailDriverResult,
