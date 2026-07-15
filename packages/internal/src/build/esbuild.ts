@@ -2,6 +2,7 @@ import { readFile, stat } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { build as bundle, type Plugin } from "esbuild"
+import { extractMarkdownTemplateImportSpecifiers } from "@vite-hub/markdown-template/internal/vite"
 
 interface BundleEsmEntryOptions {
   alias?: Record<string, string>
@@ -119,8 +120,7 @@ function createViteRawPlugin(rootDir: string | undefined): Plugin {
           const imports: Record<string, { id: string, template: string }> = {}
           const visited = new Set([args.path])
           const visit = async (source: string, importer: string): Promise<void> => {
-            for (const match of source.matchAll(/@(\.\.?\/[^\s<>{}[\]]+)/g)) {
-              const specifier = match[1]!
+            for (const specifier of await extractMarkdownTemplateImportSpecifiers(source)) {
               const key = `${importer}\0${specifier}`
               if (imports[key]) continue
               const resolved = await build.resolve(specifier, { importer, kind: "import-statement", resolveDir: dirname(importer) })

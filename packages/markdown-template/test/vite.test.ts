@@ -35,7 +35,7 @@ describe("hubMarkdownTemplate", () => {
     const template = join(root, "prompt.md")
     const partial = join(root, "context.md")
     const outfile = join(root, "dist", "schedule.mjs")
-    await writeFile(template, "# Babysitter\n\n@./context.md\n\n{{{ blocker }}}\n", "utf8")
+    await writeFile(template, "# Babysitter\n\n@./context.md.\n\n`@./missing.md`\n\n{{{ blocker }}}\n", "utf8")
     await writeFile(partial, "Review PR {{ context.number }}.", "utf8")
     await writeFile(entry, [
       `import prompt from "./prompt.md?markdown-template"`,
@@ -61,7 +61,7 @@ describe("hubMarkdownTemplate", () => {
 
     await Promise.all([rm(template), rm(partial)])
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
-    await expect(bundled.default()).resolves.toBe("# Babysitter\n\nReview PR 42.\n\n> Waiting")
+    await expect(bundled.default()).resolves.toBe("# Babysitter\n\nReview PR 42..\n\n`@./missing.md`\n\n> Waiting")
     const typesPath = join(root, ".vitehub", "types", "markdown-template.d.ts")
     await expect(readFile(typesPath, "utf8")).resolves.toContain(`declare module "*?markdown-template"`)
 

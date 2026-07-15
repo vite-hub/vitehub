@@ -1,3 +1,7 @@
+import { extractMarkdownTemplateImportSpecifiers } from "../imports.ts"
+
+export { extractMarkdownTemplateImportSpecifiers } from "../imports.ts"
+
 export const markdownTemplateQuery = "markdown-template"
 export const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
@@ -39,8 +43,7 @@ export async function bundleMarkdownTemplateImports(
   const visited = new Set([sourceId])
 
   async function visit(template: string, importer: string): Promise<void> {
-    for (const match of template.matchAll(/@(\.\.?\/[^\s<>{}[\]]+)/g)) {
-      const specifier = match[1]!
+    for (const specifier of await extractMarkdownTemplateImportSpecifiers(template)) {
       const key = `${importer}\0${specifier}`
       if (imports[key]) continue
       const resolved = await load(specifier, importer)

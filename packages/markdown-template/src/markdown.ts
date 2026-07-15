@@ -20,7 +20,7 @@ export function createMarkdownTemplateRuntime(nonce: string): MarkdownTemplateRu
   }
 }
 
-export async function parseTemplateMarkdown(template: string, bindings = false) {
+export async function parseTemplateMarkdown(template: string, bindings = false): ReturnType<typeof parse> {
   return await parse(template, {
     autoClose: false,
     autoUnwrap: false,
