@@ -90,13 +90,15 @@ describe("Vite workflow provider outputs", () => {
     await mkdir(join(rootDir, "server", "agents", "workspace"), { recursive: true })
     await mkdir(inlineAgentDir, { recursive: true })
     await writeFile(join(agentDir, "repository-host-context.md"), "Repository host context loaded through Vite raw semantics.\n")
+    await writeFile(join(agentDir, "prompt.md"), "Review {{ repository }} through a bundled Markdown template.\n")
     await writeFile(join(agentDir, "agent.ts"), [
       `import { defineAgent } from "@vite-hub/agent"`,
       `import repositoryHostContext from "./repository-host-context.md?raw"`,
+      `import prompt from "./prompt.md?markdown-template"`,
       "",
       "export default defineAgent({",
       "  workspace: {},",
-      `  run: () => repositoryHostContext,`,
+      `  run: async () => [repositoryHostContext, await prompt({ repository: "ViteHub" })].join("\\n"),`,
       "})",
       "",
     ].join("\n"))
@@ -167,6 +169,7 @@ describe("Vite workflow provider outputs", () => {
     const cloudflareWorkerBundleContents = await readFile(cloudflareWorkerBundle, "utf8")
     expect(cloudflareWorkerBundleContents).toContain("runViteHubWorkflowDefinition")
     expect(cloudflareWorkerBundleContents).toContain("Repository host context loaded through Vite raw semantics.")
+    expect(cloudflareWorkerBundleContents).toContain("bundled Markdown template")
     expect(cloudflareWorkerBundleContents).not.toMatch(/\b(?:from\s*|import\s*\(\s*)["']@vite-hub\/workspace(?:\/[^"']*)?["']/)
     const registry = await readFile(join(rootDir, ".vitehub", "workflow", "registry.mjs"), "utf8")
     expect(registry).toContain("runAgentWorkflowDefinition")
@@ -187,6 +190,7 @@ describe("Vite workflow provider outputs", () => {
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
     expect(await readFile(vercelServer, "utf8")).toContain("Repository host context loaded through Vite raw semantics.")
+    expect(await readFile(vercelServer, "utf8")).toContain("bundled Markdown template")
   }, buildOutputTestTimeout)
 
   it("does not emit Cloudflare workflow artifacts for Vercel provider overrides", async () => {

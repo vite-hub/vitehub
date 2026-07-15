@@ -8,6 +8,7 @@ const integrationMocks = vi.hoisted(() => ({
   hubEnv: vi.fn(() => ({ name: "@vite-hub/env/vite" })),
   hubKv: vi.fn(() => ({ name: "@vite-hub/kv/vite" })),
   hubKvOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/kv/optional-peers" })),
+  hubMarkdownTemplate: vi.fn(() => ({ name: "@vite-hub/markdown-template/vite" })),
   resolveKVViteConfig: vi.fn((kv?: { driver?: string }) => ({
     kv: { store: { driver: kv?.driver ?? "fs-lite" } },
   })),
@@ -30,6 +31,7 @@ vi.mock("@vite-hub/kv/vite", () => ({
   hubKvOptionalPeerResolver: integrationMocks.hubKvOptionalPeerResolver,
   resolveKVViteConfig: integrationMocks.resolveKVViteConfig,
 }))
+vi.mock("@vite-hub/markdown-template/vite", () => ({ hubMarkdownTemplate: integrationMocks.hubMarkdownTemplate }))
 vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue }))
 vi.mock("@vite-hub/sandbox/vite", () => ({ hubSandbox: integrationMocks.hubSandbox }))
 vi.mock("@vite-hub/schedule/vite", () => ({ hubSchedule: integrationMocks.hubSchedule }))
@@ -60,6 +62,7 @@ describe("vitehub", () => {
   it("keeps coherent defaults and opt-in integrations", () => {
     expect(pluginNames(vitehub())).toEqual([
       "vite-hub/dependencies",
+      "@vite-hub/markdown-template/vite",
       "@vite-hub/env/vite",
       "@vite-hub/agent/vite",
       "@vite-hub/database/vite",
@@ -72,6 +75,7 @@ describe("vitehub", () => {
 
     expect(pluginNames(vitehub({ auth: true, email: true, kv: true, sandbox: true, schedule: true }))).toEqual([
       "vite-hub/dependencies",
+      "@vite-hub/markdown-template/vite",
       "@vite-hub/env/vite",
       "@vite-hub/auth/vite",
       "@vite-hub/sandbox/vite",
@@ -88,6 +92,9 @@ describe("vitehub", () => {
 
     vitehub({ schedule: true })
 
+    expect(integrationMocks.hubMarkdownTemplate).toHaveBeenLastCalledWith({
+      runtimeImport: "vite-hub/_internal/markdown-template",
+    })
     expect(integrationMocks.hubAuth).toHaveBeenLastCalledWith({
       importBase: "vite-hub/auth",
     })

@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync } from "node:fs"
 import { mkdir, rm, writeFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createViteHubEnvImportAliases } from "@vite-hub/internal/build/vite"
 import { createImportPath } from "@vite-hub/internal/build/paths"
+import { renderMarkdownTemplate } from "@vite-hub/markdown-template"
+import { parseMarkdownTemplateRequest } from "@vite-hub/markdown-template/internal/vite"
 import { resolveModulePath } from "exsolve"
 import { createJiti } from "jiti"
 
@@ -53,24 +55,28 @@ function generatedViteHubImportAliases(rootDir: string) {
 
 const rawImportVirtualModulePrefix = "vitehub:workspace-raw:"
 
+type StaticTextImportKind = "markdown-template" | "raw"
+
 interface BabelSourceDeclarationPath {
   node: { source?: { type?: string, value?: unknown } | null }
 }
 
-function rawImportPath(specifier: string) {
+function staticTextImport(specifier: string): { kind: StaticTextImportKind, path: string } | undefined {
+  const markdownTemplate = parseMarkdownTemplateRequest(specifier)
+  if (markdownTemplate) return { kind: "markdown-template", path: markdownTemplate.path }
   const queryIndex = specifier.indexOf("?")
   if (queryIndex === -1 || !/(?:^|&)raw(?:&|$)/.test(specifier.slice(queryIndex + 1))) return
 
-  return specifier.slice(0, queryIndex)
+  return { kind: "raw", path: specifier.slice(0, queryIndex) }
 }
 
 function createRawImportTransformPlugin(importer: string | undefined) {
   function rewriteRawSpecifier(path: BabelSourceDeclarationPath) {
     if (!importer || path.node.source?.type !== "StringLiteral" || typeof path.node.source.value !== "string") return
-    const rawPath = rawImportPath(path.node.source.value)
-    if (rawPath === undefined) return
+    const textImport = staticTextImport(path.node.source.value)
+    if (!textImport) return
 
-    const reference = Buffer.from(JSON.stringify([importer, rawPath])).toString("base64url")
+    const reference = Buffer.from(JSON.stringify([importer, textImport.path, textImport.kind])).toString("base64url")
     path.node.source.value = `${rawImportVirtualModulePrefix}${reference}`
   }
 
@@ -114,10 +120,30 @@ export function createWorkspaceDefinitionLoader(rootDir: string, alias: Record<s
     get(_target, id) {
       if (typeof id !== "string" || !id.startsWith(rawImportVirtualModulePrefix)) return
       const reference = id.slice(rawImportVirtualModulePrefix.length)
-      const [importer, path] = JSON.parse(Buffer.from(reference, "base64url").toString("utf8")) as [string, string]
+      const [importer, path, kind = "raw"] = JSON.parse(Buffer.from(reference, "base64url").toString("utf8")) as [string, string, StaticTextImportKind?]
       const specifier = resolveWorkspaceRawSpecifier(path, rootDir)
       const resolved = loader.esmResolve(specifier, pathToFileURL(importer).href)
-      return { __esModule: true, default: readFileSync(fileURLToPath(resolved), "utf8") }
+      const templatePath = fileURLToPath(resolved)
+      const template = readFileSync(templatePath, "utf8")
+      return {
+        __esModule: true,
+        default: kind === "markdown-template"
+          ? (data: Record<string, unknown> = {}) => renderMarkdownTemplate(template, {
+              data,
+              sourceId: templatePath,
+              resolveImport(specifier, importer) {
+                const importedPath = resolve(dirname(importer), specifier)
+                try {
+                  return { id: importedPath, template: readFileSync(importedPath, "utf8") }
+                }
+                catch (error) {
+                  if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+                  throw error
+                }
+              },
+            })
+          : template,
+      }
     },
     has(_target, id) {
       return typeof id === "string" && id.startsWith(rawImportVirtualModulePrefix)

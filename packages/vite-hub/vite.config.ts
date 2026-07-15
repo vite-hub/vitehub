@@ -20,6 +20,7 @@ export default defineConfig({
       "src/_internal/blob/runtime/state.ts",
       "src/_internal/kv.ts",
       "src/_internal/kv/runtime/disabled-upstash.ts",
+      "src/_internal/markdown-template.ts",
       "src/_internal/schedule.ts",
       "src/_internal/schedule/runtime.ts",
       "src/_internal/schedule/runtime/driver.ts",
