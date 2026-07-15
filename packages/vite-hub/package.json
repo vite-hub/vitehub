@@ -44,6 +44,7 @@
     "./_internal/blob/runtime/state": "./dist/_internal/blob/runtime/state.js",
     "./_internal/kv": "./dist/_internal/kv.js",
     "./_internal/kv/runtime/disabled-upstash": "./dist/_internal/kv/runtime/disabled-upstash.js",
+    "./_internal/markdown-template": "./dist/_internal/markdown-template.js",
     "./_internal/sandbox/runtime/state": "./dist/_internal/sandbox/runtime/state.js",
     "./_internal/schedule": "./dist/_internal/schedule.js",
     "./_internal/schedule/runtime": "./dist/_internal/schedule/runtime.js",

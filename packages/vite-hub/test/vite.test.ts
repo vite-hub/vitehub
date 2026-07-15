@@ -92,6 +92,9 @@ describe("vitehub", () => {
 
     vitehub({ schedule: true })
 
+    expect(integrationMocks.hubMarkdownTemplate).toHaveBeenLastCalledWith({
+      runtimeImport: "vite-hub/_internal/markdown-template",
+    })
     expect(integrationMocks.hubAuth).toHaveBeenLastCalledWith({
       importBase: "vite-hub/auth",
     })

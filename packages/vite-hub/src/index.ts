@@ -161,7 +161,7 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
   const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(Boolean(options.sandbox))
 
   plugins.push(frameworkDependencyResolver(options, providerImportAliases))
-  plugins.push(hubMarkdownTemplate())
+  plugins.push(hubMarkdownTemplate({ runtimeImport: `${generatedImportBase}/markdown-template` }))
 
   if (options.env !== false) {
     const envOptions = options.env ?? {}

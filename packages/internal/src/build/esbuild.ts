@@ -20,7 +20,6 @@ const viteRawNamespace = "vitehub-vite-raw"
 const viteMarkdownTemplateNamespace = "vitehub-markdown-template"
 const markdownTemplateQuery = "markdown-template"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
-const markdownTemplateRuntime = fileURLToPath(import.meta.resolve(markdownTemplateRuntimeSpecifier))
 
 function extractMarkdownTemplateImportSpecifiers(template: string): string[] {
   const visible = template
@@ -79,11 +78,18 @@ async function resolveViteRawSpecifier(path: string, rootDir: string | undefined
   }
 }
 
-function createViteRawPlugin(rootDir: string | undefined): Plugin {
+function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: boolean): Plugin {
   return {
     name: "vitehub-vite-raw",
     setup(build) {
-      build.onResolve({ filter: /^@vite-hub\/markdown-template$/ }, () => ({ path: markdownTemplateRuntime }))
+      build.onResolve({ filter: /^@vite-hub\/markdown-template$/, namespace: viteMarkdownTemplateNamespace }, async (args) => {
+        if (!frameworkRuntime) return { path: fileURLToPath(import.meta.resolve(markdownTemplateRuntimeSpecifier)) }
+        return build.resolve("vite-hub/_internal/markdown-template", {
+          importer: args.importer,
+          kind: args.kind,
+          resolveDir: args.resolveDir,
+        })
+      })
       build.onResolve({ filter: /\?/ }, async (args) => {
         const markdownTemplate = parseMarkdownTemplateRequest(args.path)
         const raw = hasViteRawQuery(args.path)
@@ -170,6 +176,7 @@ export async function bundleEsmEntry(
 ): Promise<void> {
   const format = options.format || "esm"
   const platform = options.platform || "neutral"
+  const frameworkRuntime = Object.keys(options.alias || {}).some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
 
   await bundle({
     alias: options.alias,
@@ -195,7 +202,7 @@ export async function bundleEsmEntry(
     minifyIdentifiers: options.minifyIdentifiers,
     outfile,
     platform,
-    plugins: [...(options.plugins ?? []), createViteRawPlugin(options.rootDir)],
+    plugins: [...(options.plugins ?? []), createViteRawPlugin(options.rootDir, frameworkRuntime)],
     sourcemap: false,
     target: "es2022",
     write: true,

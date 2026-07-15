@@ -13,16 +13,21 @@ import {
 
 import type { Plugin } from "vite"
 
-const markdownTemplateRuntime = fileURLToPath(import.meta.resolve(markdownTemplateRuntimeSpecifier))
+export interface HubMarkdownTemplateOptions {
+  runtimeImport?: string
+}
 
-export function hubMarkdownTemplate(): Plugin {
+export function hubMarkdownTemplate(options: HubMarkdownTemplateOptions = {}): Plugin {
+  const runtimeImport = options.runtimeImport || markdownTemplateRuntimeSpecifier
+  const runtimeAlias = options.runtimeImport ? undefined : fileURLToPath(import.meta.resolve(markdownTemplateRuntimeSpecifier))
   return {
     name: "@vite-hub/markdown-template/vite",
     enforce: "pre",
     config() {
+      if (!runtimeAlias) return
       return {
         resolve: {
-          alias: [{ find: /^@vite-hub\/markdown-template$/, replacement: markdownTemplateRuntime }],
+          alias: [{ find: /^@vite-hub\/markdown-template$/, replacement: runtimeAlias }],
         },
       }
     },
@@ -48,7 +53,7 @@ export function hubMarkdownTemplate(): Plugin {
       })
       this.addWatchFile(request.path)
       return {
-        code: renderMarkdownTemplateModule(template, request.path, imports),
+        code: renderMarkdownTemplateModule(template, request.path, imports, runtimeImport),
         map: null,
       }
     },

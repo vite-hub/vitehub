@@ -29,9 +29,9 @@ export function extractMarkdownTemplateImportSpecifiers(template: string): strin
   return [...specifiers]
 }
 
-export function renderMarkdownTemplateModule(template: string, sourceId?: string, imports: Record<string, BundledMarkdownTemplate> = {}): string {
+export function renderMarkdownTemplateModule(template: string, sourceId?: string, imports: Record<string, BundledMarkdownTemplate> = {}, runtimeSpecifier: string = markdownTemplateRuntimeSpecifier): string {
   return [
-    `import { renderMarkdownTemplate as vitehubRenderMarkdownTemplate } from ${JSON.stringify(markdownTemplateRuntimeSpecifier)}`,
+    `import { renderMarkdownTemplate as vitehubRenderMarkdownTemplate } from ${JSON.stringify(runtimeSpecifier)}`,
     `const vitehubMarkdownTemplate = ${JSON.stringify(template)}`,
     `const vitehubMarkdownTemplateSourceId = ${JSON.stringify(sourceId)}`,
     `const vitehubMarkdownTemplateImports = ${JSON.stringify(imports)}`,
