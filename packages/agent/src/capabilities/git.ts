@@ -470,7 +470,7 @@ async function cleanWorkingTree(session: WorkspaceSession, cwd: string, timeout:
   if (result.stdout.trim()) throw new Error("[vitehub] git write commands require a clean working tree.")
 }
 
-function gitShellPolicy(policy: GitCapabilityToolPolicy | undefined, defaultCwd: string | undefined): GitCapabilityToolPolicy {
+function gitShellPolicy(policy: GitCapabilityToolPolicy, defaultCwd: string | undefined): GitCapabilityToolPolicy {
   return async (context) => {
     let args: string[] | undefined
     try {
@@ -487,7 +487,7 @@ function gitShellPolicy(policy: GitCapabilityToolPolicy | undefined, defaultCwd:
         input: normalizeGitToolInput(context.input, defaultCwd),
       })
     }
-    return policy || "require-approval"
+    return policy
   }
 }
 
@@ -536,7 +536,7 @@ function gitTools(
         ? "Git shell command, for example `git status --short`, `git diff --stat`, `git log --oneline -n 20`, `git fetch origin pull/123/head`, or `git switch main`. Bare git subcommands are accepted and normalized to start with `git`. Pass one command only; do not use shell composition such as `&&` or `|`."
         : "Read-only git shell command, for example `git status --short`, `git diff --stat`, or `git log --oneline -n 20`. Bare git subcommands are accepted and normalized to start with `git`. Pass one command only; do not use shell composition such as `&&` or `|`."),
       name: "shell",
-      ...(mode === "write" ? { policy: gitShellPolicy(options.policy, defaultCwd) } : {}),
+      policy: mode === "write" && options.policy ? gitShellPolicy(options.policy, defaultCwd) : undefined,
     },
   }
 }

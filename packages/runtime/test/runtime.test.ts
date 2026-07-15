@@ -81,6 +81,7 @@ describe("@vite-hub/runtime", () => {
   })
 
   it("resolves policy decisions", async () => {
+    await expect(resolveCapabilityPolicy(undefined, { capability: "email" })).resolves.toBe("allow")
     await expect(resolveCapabilityPolicy("deny", { capability: "email" })).resolves.toBe("deny")
     await expect(resolveCapabilityPolicy(ctx => ctx.input ? "require-approval" : "allow", {
       capability: "refund",

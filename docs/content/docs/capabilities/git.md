@@ -42,6 +42,7 @@ Read mode allows source-history commands such as `status`, `diff`, `log`, `show`
 
 Write mode supports only `fetch`, `checkout`, and `switch` on a clean working tree.
 It blocks commit, push, reset, rebase, tag, arbitrary remote URLs, shell composition, and path escapes outside the Workspace.
+Supported write commands are allowed by default after the developer enables write mode. An explicit policy can require approval or deny them, but it cannot enable blocked commands.
 
 ## Requirements
 
@@ -62,7 +63,7 @@ The Workspace requirement is write-mode because ViteHub may need session-local G
 | --- | --- | --- | --- |
 | `mode` | `"read" \| "write"` | `"read"` | Allows local `fetch`, `checkout`, and `switch` commands through `shell` when set to `"write"`. |
 | `maxOutputLength` | `number` | `30000` | Maximum stdout/stderr characters returned per command. |
-| `policy` | `AgentToolPolicyDecision \| function` | `"require-approval"` | Policy for write-mode `shell` commands. Read-only Git commands are allowed without approval. |
+| `policy` | `AgentToolPolicyDecision \| function` | `"allow"` | Policy for write-mode `shell` commands. Read-only Git commands remain allowed. |
 | `timeout` | `number` | none | Execution timeout passed to Workspace Session git commands. |
 
 ## Inspect and verify

@@ -375,7 +375,7 @@ describe("defineAgent workspace option", () => {
     })
 
     const agent = withExplicitWorkspaceName(defineAgent({
-      capabilities: [blob({ mode: "write", policy: "allow" })],
+      capabilities: [blob({ mode: "write" })],
       driver: {
         harness: { provider: "codex" },
       },

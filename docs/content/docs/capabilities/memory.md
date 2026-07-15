@@ -50,7 +50,8 @@ export default defineAgent({
 During input, `memory()` can preload records from configured stores for model-backed behavior.
 During resolve, it creates read tools for stores that allow reading and write tools for stores that opt into tool writes.
 
-Write tools add provenance from the current Agent Invocation and require approval by default unless the store policy changes it.
+Write tools add provenance from the current Agent Invocation and allow writes by default after a store opts into `write.mode: 'tool'`.
+Set the store policy to `require-approval` or `deny` when writes need an additional gate.
 
 ## Requirements
 
@@ -87,7 +88,7 @@ For the workspace JSONL store, inspect the configured Workspace file and verify 
 | `stores.*.read.tools.read` | `boolean` | `true` | Expose exact memory read. |
 | `stores.*.read.preload` | `Array` | none | Preload scoped memories into instructions. |
 | `stores.*.write.mode` | `"off" \| "tool"` | `"off"` | Expose remember/delete tools when set to `"tool"`. |
-| `stores.*.write.policy` | `AgentToolPolicyDecision` | `"require-approval"` | Policy for write tools. |
+| `stores.*.write.policy` | `AgentToolPolicyDecision` | `"allow"` | Policy for write tools. |
 | `stores.*.retention.export` | `boolean` | `false` | Allow export operations. |
 | `stores.*.retention.hardDelete` | `boolean` | `false` | Allow hard delete behavior when supported. |
 

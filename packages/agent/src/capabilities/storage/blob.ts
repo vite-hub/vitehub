@@ -287,7 +287,7 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
         },
         inputSchema: blobEditInputSchema,
         name: "blob_edit",
-        policy: options.policy || "require-approval",
+        policy: options.policy,
       })
     }
     return tools

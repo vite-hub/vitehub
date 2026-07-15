@@ -75,7 +75,7 @@ function kvTools(mode: AgentCapabilityMode, options: KVCapabilityOptions): Agent
         },
         inputSchema: kvEditInputSchema,
         name: "kv_edit",
-        policy: options.policy || "require-approval",
+        policy: options.policy,
       })
     }
     return tools

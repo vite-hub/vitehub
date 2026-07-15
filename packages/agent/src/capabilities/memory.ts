@@ -517,8 +517,9 @@ export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinit
       const writePolicy = ({ input }: { input?: unknown }) => {
         const selected = getStore((input as { store?: string } | undefined)?.store)
         assertWriteAllowed(selected)
-        return selected.options.write?.policy || "require-approval"
+        return selected.options.write?.policy || "allow"
       }
+      const hasWritePolicy = [...resolved.values()].some(store => store.options.write?.policy !== undefined)
       const tools: AgentToolSet = {}
       if ([...resolved.values()].some(store => readSearchAllowed(store.options))) {
         tools.memory_search = createTool({
@@ -573,7 +574,7 @@ export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinit
           },
           inputSchema: memoryRememberInputSchema,
           name: "memory_remember",
-          policy: writePolicy,
+          policy: hasWritePolicy ? writePolicy : undefined,
         })
         tools.memory_delete = createTool({
           description: "Soft-delete one durable memory record.",
@@ -584,7 +585,7 @@ export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinit
           },
           inputSchema: memoryDeleteInputSchema,
           name: "memory_delete",
-          policy: writePolicy,
+          policy: hasWritePolicy ? writePolicy : undefined,
         })
       }
       context.tools.add(tools)

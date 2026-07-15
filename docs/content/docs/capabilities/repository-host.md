@@ -45,6 +45,7 @@ Operations that target a single Change Request, issue, comment, check, or status
 
 `repository_host_write` requires write mode and a client with `write()`.
 Comment writes require a `body`; all writes require a target id.
+Supported writes are allowed by default after the developer enables write mode. Set an explicit policy when comments or reactions need approval or must be denied at runtime.
 
 ## Requirements
 
@@ -65,13 +66,13 @@ The client must expose `read()`, and write mode also requires `write()` before t
 | --- | --- | --- | --- |
 | `client` | `RepositoryHostClient \| function` | primitive | Provider client with `read()` and optional `write()`. |
 | `mode` | `"read" \| "write"` | `"read"` | Adds `repository_host_write` when set to `"write"`. |
-| `policy` | `AgentToolPolicyDecision \| function` | `"require-approval"` | Policy for `repository_host_write`. |
+| `policy` | `AgentToolPolicyDecision \| function` | `"allow"` | Policy for `repository_host_write`. |
 | `provider` | `"github" \| "gitlab" \| "bitbucket" \| string` | client provider | Provider metadata for inspection. |
 
 ## Inspect and verify
 
 Inspect the Agent tool list in DevTools.
-Read one repository or Change Request through `repository_host_read`, then verify write mode requires approval before posting comments or reactions.
+Read one repository or Change Request through `repository_host_read`, then verify read mode exposes no write tool. When using an explicit approval policy, verify that posting comments or reactions requests approval.
 
 ## Reference
 

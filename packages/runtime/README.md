@@ -44,6 +44,8 @@ const decision = await resolveCapabilityPolicy("require-approval", {
 })
 ```
 
+An omitted policy resolves to `allow`. Pass `require-approval` or `deny` when an operation needs an explicit gate.
+
 ## Used by
 
 Feature packages use Runtime Capability handles instead of passing every provider client through every API. Agent Capabilities consume these handles when they expose KV, Blob, DB, sandbox, shell, or workspace behavior.

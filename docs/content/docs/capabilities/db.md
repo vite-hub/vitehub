@@ -50,7 +50,8 @@ The primitive must expose raw string `query()` for reads and `exec()` for mutati
 
 Mutation tools require write mode.
 DDL requires schema write mode.
-Writes require approval by default.
+Enabled mutations are allowed by default, while the single-statement, rationale, and SQL-kind checks still apply.
+Set `policy: 'require-approval'` or `policy: 'deny'` when the product needs an additional gate.
 
 ## Driver support
 
@@ -75,7 +76,7 @@ The Capability should reject it before it reaches the database primitive.
 | `database` | `string` | `"default"` | Selects a named database when the DB primitive supports `database()`. |
 | `mode` | `"read" \| "write"` | `"read"` | Allows data mutation through `db_exec` when set to `"write"`. |
 | `schemaMode` | `"read" \| "write"` | `"read"` | Allows DDL through `db_exec` when set to `"write"`. |
-| `policy` | `AgentToolPolicyDecision \| function` | `"require-approval"` | Policy for `db_exec`. |
+| `policy` | `AgentToolPolicyDecision \| function` | `"allow"` | Policy for `db_exec`. |
 
 ## Reference
 
