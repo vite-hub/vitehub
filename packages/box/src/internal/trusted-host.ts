@@ -33,6 +33,7 @@ import type {
   ResolvedBoxRequirementInput,
   ResolvedBoxState,
 } from "../index.ts";
+import { materializeGitCheckout } from "./git-checkout.ts";
 
 export interface TrustedHostOptions {
   stateRoot?: string;
@@ -123,8 +124,10 @@ export function trustedHost(options: TrustedHostOptions = {}): BoxRuntime {
         runtime: "trusted-host",
         sandbox,
         workspace: cwd
-          ? { path: cwd, state: "authoritative" as const }
-          : { state: "disposable" as const },
+          ? { path: cwd, state: "authoritative" as const, workDir: "workspace" as const }
+          : input.checkout
+            ? { state: "disposable" as const, workDir: "workspace" as const }
+            : { state: "disposable" as const },
       } as const;
       Object.defineProperty(box, "sandbox", { enumerable: false, value: sandbox });
       return box;
@@ -176,6 +179,19 @@ async function createSession(
     const env = await resolveEnvironment(home, input.plan.env);
     await materializeState(home, states);
     await materializeFiles(home, files);
+    const checkout = input.checkout ? join(root, "workspace") : undefined;
+    if (input.checkout && checkout) {
+      await materializeGitCheckout(input.checkout, checkout, {
+        abortSignal: createOptions.abortSignal,
+        async run(args) {
+          const result = await promisify(execFile)("git", [...args], {
+            env,
+            signal: createOptions.abortSignal,
+          });
+          return { stdout: result.stdout };
+        },
+      });
+    }
     session = await createTrustedHostSession({
       env,
       home,
@@ -184,7 +200,7 @@ async function createSession(
       sessionId: createOptions.sessionId,
       workspace: input.cwd,
     });
-    await validateRequirements(input.requirements, env, input.cwd ?? root);
+    await validateRequirements(input.requirements, env, checkout ?? input.cwd ?? root);
     await createOptions.onFirstCreate?.(session, { abortSignal: createOptions.abortSignal });
     return session;
   } catch (error) {

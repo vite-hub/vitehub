@@ -31,7 +31,14 @@ export interface BoxHome<Context> {
   >;
 }
 
+export interface BoxCheckout<Context> {
+  ref: BoxValue<string, Context>;
+  remote: BoxValue<string, Context>;
+  sha: BoxValue<string, Context>;
+}
+
 export interface BoxDefinition<Context = unknown> {
+  checkout?: BoxCheckout<Context>;
   cwd?: BoxValue<string, Context>;
   env?: Readonly<Record<string, BoxValue<string, Context>>>;
   home?: BoxHome<Context>;
@@ -68,10 +75,17 @@ export interface ResolvedBoxRequirementInput {
 }
 
 export interface ResolvedBoxInput {
+  checkout?: ResolvedBoxCheckout;
   cwd?: string;
   identity: string;
   plan: ResolvedBoxPlan;
   requirements: readonly ResolvedBoxRequirementInput[];
+}
+
+export interface ResolvedBoxCheckout {
+  readonly ref: string;
+  readonly remote: string;
+  readonly sha: string;
 }
 
 export interface ResolvedBoxEnvironment {
@@ -96,6 +110,7 @@ export interface ResolvedBox {
   readonly workspace: {
     readonly path?: string;
     readonly state: "authoritative" | "disposable";
+    readonly workDir?: "workspace";
   };
 }
 
@@ -127,23 +142,43 @@ export async function resolveBox<Context>(
   ) {
     throw new TypeError("[vitehub] Box requires a runtime.");
   }
+  if (definition.cwd !== undefined && definition.checkout !== undefined) {
+    throw new TypeError("[vitehub] Box checkout cannot be combined with cwd.");
+  }
   const cwdValue = await resolveValue(definition.cwd, context);
   const cwd = cwdValue === undefined ? undefined : resolve(resolveString(cwdValue, "cwd"));
+  const checkout = definition.checkout
+    ? {
+        ref: resolveString(await resolveValue(definition.checkout.ref, context), "checkout ref"),
+        remote: resolveString(
+          await resolveValue(definition.checkout.remote, context),
+          "checkout remote",
+        ),
+        sha: resolveSha(await resolveValue(definition.checkout.sha, context)),
+      }
+    : undefined;
   const plan = resolvePlan(definition, context, cwd || process.cwd());
   const requirements = normalizeRequirements([
+    ...(checkout ? ["git"] : []),
     ...(definition.requires || []),
     ...(options.requires || []),
   ]);
   return await definition.runtime.resolve({
+    ...(checkout ? { checkout } : {}),
     ...(cwd ? { cwd } : {}),
-    identity: planIdentity(plan, requirements),
+    identity: planIdentity(plan, requirements, checkout),
     plan,
     requirements,
   });
 }
 
-function planIdentity(plan: ResolvedBoxPlan, requirements: readonly ResolvedBoxRequirementInput[]) {
+function planIdentity(
+  plan: ResolvedBoxPlan,
+  requirements: readonly ResolvedBoxRequirementInput[],
+  checkout: ResolvedBoxCheckout | undefined,
+) {
   const value = JSON.stringify({
+    checkout,
     env: Object.keys(plan.env).toSorted(),
     files: Object.keys(plan.files).toSorted(),
     requirements,
@@ -388,6 +423,14 @@ function resolveString(value: unknown, label: string) {
     throw new TypeError(`[vitehub] Box ${label} must resolve to a non-empty string.`);
   if (value.includes("\0")) throw new TypeError(`[vitehub] Box ${label} cannot contain NUL.`);
   return value;
+}
+
+function resolveSha(value: unknown) {
+  const sha = resolveString(value, "checkout sha").toLowerCase();
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(sha)) {
+    throw new TypeError("[vitehub] Box checkout sha must be a full Git object id.");
+  }
+  return sha;
 }
 
 async function resolveValue<T, Context>(

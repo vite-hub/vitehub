@@ -1,6 +1,8 @@
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -44,6 +46,7 @@ vi.mock("@ai-sdk/harness/agent", () => ({
 }))
 
 const roots: string[] = []
+const exec = promisify(execFile)
 
 afterEach(async () => {
   harnessSettings.length = 0
@@ -129,6 +132,82 @@ describe("Agent Box", () => {
     }
   })
 
+  it("runs Codex in a Box-owned disposable Git checkout", async () => {
+    const root = await temporaryRoot()
+    const repository = join(root, "repository")
+    const stateRoot = join(root, "state")
+    const bin = join(root, "bin")
+    await Promise.all([mkdir(repository), mkdir(bin)])
+    await exec("git", ["init", "--quiet", "--initial-branch=main", repository])
+    await writeFile(join(repository, "AGENTS.md"), "Repository instructions.\n")
+    await exec("git", ["-C", repository, "add", "AGENTS.md"])
+    await exec("git", [
+      "-C", repository,
+      "-c", "user.name=Fixture",
+      "-c", "user.email=fixture@example.com",
+      "commit", "--quiet", "-m", "initial",
+    ])
+    const sha = (await exec("git", ["-C", repository, "rev-parse", "HEAD"])).stdout.trim()
+    await Promise.all([
+      executable(bin, "codex", "exit 0"),
+      executable(bin, "gh", "exit 0"),
+      executable(bin, "pnpm", "exit 0"),
+    ])
+
+    const originalPath = process.env.PATH
+    process.env.PATH = [bin, originalPath].filter(Boolean).join(":")
+    try {
+      const { trustedHost } = await import("@vite-hub/box")
+      const { custom } = await import("@vite-hub/workspace")
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { skills } = await import("../src/capabilities.ts")
+      const { codexDriver } = await import("../src/harness/codex.ts")
+      const agent = defineAgent({
+        box: {
+          checkout: { ref: "refs/heads/main", remote: repository, sha },
+          home: {
+            files: {
+              ".codex/config.toml": {
+                contents: 'model = "configured-model"\ncli_auth_credentials_store = "file"\n',
+              },
+            },
+            state: {
+              ".codex": {
+                key: "agent-box-test/checkout-codex",
+                seed: { "auth.json": { contents: '{"token":"box"}\n' } },
+              },
+            },
+          },
+          requires: [{ command: "gh", args: ["auth", "status"] }, "pnpm"],
+          runtime: trustedHost({ stateRoot }),
+        },
+        capabilities: [
+          skills({
+            path: "skills/global",
+            scope: "global",
+            source: custom({ files: [{ content: "Global skill.\n", path: "SKILL.md" }] }),
+          }),
+        ],
+        driver: codexDriver(),
+      })
+
+      const result = await runAgent(agent, {
+        memo: vi.fn((_key, create) => create()),
+        runtime: "vite",
+        waitUntil: vi.fn(),
+      }, { prompt: "Repair the project." }) as { text: string }
+      const [reportedCheckout] = result.text.trim().split("\n")
+
+      expect(reportedCheckout).toMatch(/\/vitehub-box-[^/]+\/workspace$/)
+      await expect(stat(join(reportedCheckout, ".."))).rejects.toMatchObject({ code: "ENOENT" })
+      expect(harnessSettings.at(-1)?.sandboxConfig).toMatchObject({ workDir: "workspace" })
+    }
+    finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+    }
+  })
+
   it("rejects overlapping Box and harness execution configuration", async () => {
     const { trustedHost } = await import("@vite-hub/box")
     const { defineAgent } = await import("../src/index.ts")
@@ -141,6 +220,30 @@ describe("Agent Box", () => {
       box: { runtime: trustedHost() },
       driver: { harness: {}, workDir: "repository" },
     })).toThrow("defineAgent({ box }) owns harness execution")
+  })
+
+  it("rejects Box checkout with Agent Workspace materialization", async () => {
+    const { trustedHost } = await import("@vite-hub/box")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { codexDriver } = await import("../src/harness/codex.ts")
+    const agent = defineAgent({
+      box: {
+        checkout: {
+          ref: "refs/heads/main",
+          remote: "https://example.com/repository.git",
+          sha: "0".repeat(40),
+        },
+        runtime: trustedHost(),
+      },
+      driver: codexDriver(),
+      workspace: { mode: "write", store: { provider: "memory" } },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "Repair the project." })).rejects.toThrow("Box-owned working tree")
   })
 })
 

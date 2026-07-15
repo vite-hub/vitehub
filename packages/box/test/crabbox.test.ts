@@ -51,6 +51,47 @@ describe("crabbox", () => {
     expect(JSON.stringify(box)).not.toContain("sandbox")
   })
 
+  it("materializes a disposable exact Git checkout without workspace synchronization", async () => {
+    const root = await temporaryRoot()
+    const repository = join(root, "repository")
+    const bin = join(root, "bin")
+    const log = join(root, "crabbox.log")
+    await Promise.all([mkdir(repository), mkdir(bin)])
+    await fakeCrabbox(bin)
+    await runGit(repository, ["init", "--initial-branch=main"])
+    await writeFile(join(repository, "README.md"), "checkout\n")
+    await runGit(repository, ["add", "README.md"])
+    await runGit(repository, [
+      "-c", "user.name=Fixture",
+      "-c", "user.email=fixture@example.com",
+      "commit", "-m", "initial",
+    ])
+    const sha = (await execFileAsync("git", ["-C", repository, "rev-parse", "HEAD"])).stdout.trim()
+
+    await withEnvironment(
+      { CRABBOX_TEST_LOG: log, PATH: `${bin}:${process.env.PATH || ""}` },
+      async () => {
+        const box = await resolveBox({
+          checkout: { ref: "refs/heads/main", remote: repository, sha },
+          runtime: crabbox({ profile: "babysitter" }),
+        }, {})
+        expect(box.workspace).toEqual({ state: "disposable", workDir: "workspace" })
+        const session = await (box.sandbox as HarnessV1SandboxProvider).createSession()
+        const sessionRoot = session.defaultWorkingDirectory
+        await expect(session.run({
+          command: "git rev-parse HEAD",
+          workingDirectory: join(sessionRoot, "workspace"),
+        })).resolves.toMatchObject({ exitCode: 0, stdout: `${sha}\n` })
+        await session.destroy?.()
+        await expect(stat(sessionRoot)).rejects.toMatchObject({ code: "ENOENT" })
+
+        const invocations = await readFile(log, "utf8")
+        expect(invocations).toContain("--no-sync")
+        expect(invocations).not.toContain("|cp|")
+      },
+    )
+  }, 30_000)
+
   it("rejects invalid Box requirement names", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")

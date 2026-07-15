@@ -9,11 +9,13 @@ import type { HarnessV1NetworkSandboxSession, HarnessV1SandboxProvider } from "@
 
 import type {
   BoxRuntime,
+  ResolvedBoxCheckout,
   ResolvedBoxFile,
   ResolvedBoxInput,
   ResolvedBoxPlan,
   ResolvedBoxRequirementInput,
 } from "../index.ts"
+import { materializeGitCheckout } from "./git-checkout.ts"
 
 export interface CrabboxOptions {
   /** Enables loopback port URLs when the target shares the ViteHub process network namespace. */
@@ -26,9 +28,10 @@ export interface CrabboxOptions {
 }
 
 interface CrabboxSandboxOptions extends CrabboxOptions {
+  checkout?: ResolvedBoxCheckout
   plan: ResolvedBoxPlan;
   requirements: readonly ResolvedBoxRequirementInput[]
-  workspace: string
+  workspace?: string
 }
 
 interface CrabboxSessionOptions extends CrabboxSandboxOptions {
@@ -79,7 +82,7 @@ export function crabbox(options: CrabboxOptions = {}): BoxRuntime {
     name: "crabbox",
     async resolve(input: ResolvedBoxInput) {
       const cwd = input.cwd
-      if (!cwd) throw new Error("[vitehub] crabbox() requires box.cwd.")
+      if (!cwd && !input.checkout) throw new Error("[vitehub] crabbox() requires box.cwd or box.checkout.")
       if (input.plan.state.length && (!options.stateRoot || !posix.isAbsolute(options.stateRoot))) {
         throw new Error(
           "[vitehub] crabbox({ stateRoot }) requires an absolute target path when box.home.state is declared.",
@@ -94,10 +97,12 @@ export function crabbox(options: CrabboxOptions = {}): BoxRuntime {
           "[vitehub] Box stateRoot must be a dedicated directory, not the filesystem root.",
         );
       }
-      const requestedWorkspace = resolve(cwd)
-      const workspace = await realpath(requestedWorkspace).catch(() => requestedWorkspace)
-      const item = await stat(workspace).catch(() => undefined)
-      if (!item?.isDirectory()) throw new Error(`[vitehub] Box workspace directory does not exist: ${workspace}`)
+      const requestedWorkspace = cwd ? resolve(cwd) : undefined
+      const workspace = requestedWorkspace
+        ? await realpath(requestedWorkspace).catch(() => requestedWorkspace)
+        : undefined
+      const item = workspace ? await stat(workspace).catch(() => undefined) : undefined
+      if (workspace && !item?.isDirectory()) throw new Error(`[vitehub] Box workspace directory does not exist: ${workspace}`)
       const requirements = input.requirements;
       const environment = {} as { env: Readonly<Record<string, string | undefined>> }
       Object.defineProperty(environment, "env", { enumerable: false, value: Object.freeze({}) })
@@ -110,11 +115,14 @@ export function crabbox(options: CrabboxOptions = {}): BoxRuntime {
         runtime: "crabbox",
         sandbox: createCrabboxSandbox({
           ...options,
+          ...(input.checkout ? { checkout: input.checkout } : {}),
           plan: input.plan,
           requirements,
-          workspace,
+          ...(workspace ? { workspace } : {}),
         }),
-        workspace: { path: workspace, state: "authoritative" as const },
+        workspace: workspace
+          ? { path: workspace, state: "authoritative" as const, workDir: "workspace" as const }
+          : { state: "disposable" as const, workDir: "workspace" as const },
       } as const
       Object.defineProperty(box, "sandbox", { enumerable: false, value: box.sandbox })
       return box
@@ -140,14 +148,14 @@ function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxP
       let leaseId: string | undefined;
       let remoteRoot: string | undefined;
       try {
-        releaseWorkspace = await acquireWorkspace(options.workspace, createOptions.abortSignal);
+        if (options.workspace) releaseWorkspace = await acquireWorkspace(options.workspace, createOptions.abortSignal);
         leaseId = await warmup(sessionOptions, createOptions.abortSignal)
         const hasState = options.plan.state.length > 0;
         const setup = await runCrabbox(sessionOptions, leaseId, {
           abortSignal: createOptions.abortSignal,
-          command: sessionSetupCommand(hasState ? options.stateRoot : undefined),
-          localWorkingDirectory: options.workspace,
-          sync: true,
+          command: sessionSetupCommand(hasState ? options.stateRoot : undefined, Boolean(options.workspace)),
+          ...(options.workspace ? { localWorkingDirectory: options.workspace } : {}),
+          sync: Boolean(options.workspace),
         })
         if (setup.exitCode !== 0) throw crabboxError("create disposable Box cache", setup)
         const [root, remoteWorkspace, remotePath, remoteUser, remoteStateRoot] = lastLines(setup.stdout,
@@ -179,9 +187,22 @@ function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxP
           remoteUser,
           bootstrapSignal,
         );
-        const syncedWorkspacePaths = await listRemoteWorkspacePaths(sessionOptions, leaseId, remoteWorkspace,
-          bootstrapSignal,
-        );
+        if (options.checkout) {
+          await materializeGitCheckout(options.checkout, remoteWorkspace, {
+            abortSignal: bootstrapSignal,
+            async run(args) {
+              const result = await runCrabbox(sessionOptions, leaseId!, {
+                abortSignal: bootstrapSignal,
+                command: `${shellQuote(materialized.environmentFile)} git ${args.map(shellQuote).join(" ")}`,
+              })
+              if (result.exitCode !== 0) throw new Error("Git command failed.")
+              return { stdout: result.stdout }
+            },
+          })
+        }
+        const syncedWorkspacePaths = options.workspace
+          ? await listRemoteWorkspacePaths(sessionOptions, leaseId, remoteWorkspace, bootstrapSignal)
+          : [];
         const session = createCrabboxSession({
             environmentFile: materialized.environmentFile,
             leaseId,
@@ -221,14 +242,17 @@ function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxP
   }
 }
 
-function sessionSetupCommand(stateRoot: string | undefined) {
+function sessionSetupCommand(stateRoot: string | undefined, authoritativeWorkspace: boolean) {
   const state = stateRoot
     ? ` && mkdir -p -- ${shellQuote(stateRoot)} && state_root=$(realpath -- ${shellQuote(stateRoot)})`
     : "";
   const output = stateRoot
     ? `printf '%s\\n%s\\n%s\\n%s\\n%s\\n' "$root" "$workspace" "$PATH" "$(id -un)" "$state_root"`
     : `printf '%s\\n%s\\n%s\\n%s\\n' "$root" "$workspace" "$PATH" "$(id -un)"`;
-  return `root=$(mktemp -d /tmp/vitehub-box.XXXXXX) && trap 'rm -rf -- "$root"' EXIT && umask 077 && workspace=$(pwd -P) && home="$root/home" && mkdir -m 700 "$home" && ln -s "$workspace" "$root/workspace"${state} && trap - EXIT && ${output}`;
+  const workspace = authoritativeWorkspace
+    ? `workspace=$(pwd -P) && ln -s "$workspace" "$root/workspace"`
+    : `workspace="$root/workspace" && mkdir -m 700 "$workspace"`;
+  return `root=$(mktemp -d /tmp/vitehub-box.XXXXXX) && trap 'rm -rf -- "$root"' EXIT && umask 077 && ${workspace} && home="$root/home" && mkdir -m 700 "$home"${state} && trap - EXIT && ${output}`;
 }
 
 async function materializePlan(
@@ -578,7 +602,7 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       try {
         await this.stop();
         state.stateLease.assertActive();
-        await syncWorkspaceBack(state)
+        if (state.options.workspace) await syncWorkspaceBack(state)
       }
       catch (error) {
         failure = error
@@ -915,6 +939,8 @@ async function acquireWorkspace(workspace: string, abortSignal?: AbortSignal) {
 }
 
 async function syncWorkspaceBack(state: CrabboxSessionState) {
+  const workspace = state.options.workspace
+  if (!workspace) return
   const abortSignal = stateAbortSignal(state);
   const initialManifest = Buffer.from(state.syncedWorkspacePaths.map(path => `${path}\0`).join("")).toString("base64")
   const result = await runCrabboxScript(state.options, state.leaseId, {
@@ -922,23 +948,23 @@ async function syncWorkspaceBack(state: CrabboxSessionState) {
     script: `temporary=$(mktemp -d /tmp/vitehub-workspace.XXXXXX) && archive="$temporary/workspace.tar" && manifest="$temporary/manifest" && existing_manifest="$temporary/existing-manifest" && ignore_failed_read=$(tar --ignore-failed-read -cf /dev/null -T /dev/null >/dev/null 2>&1 && printf %s --ignore-failed-read || true) && trap 'rm -rf -- "$temporary"' EXIT && if git -C ${shellQuote(state.remoteWorkspace)} rev-parse --is-inside-work-tree >/dev/null 2>&1; then printf %s ${shellQuote(initialManifest)} | base64 -d > "$manifest" && git -C ${shellQuote(state.remoteWorkspace)} ls-files -z --cached --others --exclude-standard >> "$manifest" && (cd ${shellQuote(state.remoteWorkspace)} && xargs -0 sh -c 'for path do if test -e "$path" || test -L "$path"; then printf "%s\\0" "$path"; fi; done' sh < "$manifest") > "$existing_manifest" && tar $ignore_failed_read --no-recursion --null -C ${shellQuote(state.remoteWorkspace)} -cf "$archive" -T "$existing_manifest"; else tar -C ${shellQuote(state.remoteWorkspace)} --exclude ./.git --exclude .git -cf "$archive" .; fi && base64 < "$archive"`,
   })
   const archive = Buffer.from(result.stdout.replace(/\s+/g, ""), "base64")
-  const transactionRoot = await mkdtemp(join(dirname(state.options.workspace), ".vitehub-workspace-"))
+  const transactionRoot = await mkdtemp(join(dirname(workspace), ".vitehub-workspace-"))
   const stagedWorkspace = join(transactionRoot, "workspace")
   const backupWorkspace = join(transactionRoot, "backup")
   await withTemporaryFile(async (localPath) => {
     try {
       await writeFile(localPath, archive)
-      await cp(state.options.workspace, stagedWorkspace, { recursive: true })
+      await cp(workspace, stagedWorkspace, { recursive: true })
       await rejectSymlinkedArchiveParents(stagedWorkspace, localPath)
       await pruneWorkspaceForArchive(stagedWorkspace, localPath, state.syncedWorkspacePaths)
       const extract = await runProcess(spawnChildProcess("tar", ["--no-same-owner", "--no-same-permissions", "-xf", localPath, "-C", stagedWorkspace]))
       if (extract.exitCode !== 0) throw crabboxError("extract Crabbox workspace", extract)
-      await rename(state.options.workspace, backupWorkspace)
+      await rename(workspace, backupWorkspace)
       try {
-        await rename(stagedWorkspace, state.options.workspace)
+        await rename(stagedWorkspace, workspace)
       }
       catch (error) {
-        await rename(backupWorkspace, state.options.workspace)
+        await rename(backupWorkspace, workspace)
         throw error
       }
     }
