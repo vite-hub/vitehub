@@ -14,6 +14,7 @@ import {
 import { build } from "vite"
 import { afterEach, describe, expect, it } from "vitest"
 
+import { extractMarkdownTemplateImportSpecifiers } from "../src/internal/vite.ts"
 import { hubMarkdownTemplate } from "../src/vite.ts"
 
 const tempDirs: string[] = []
@@ -29,6 +30,11 @@ afterEach(async () => {
 })
 
 describe("hubMarkdownTemplate", () => {
+  it("extracts imports from indented paragraph continuations", () => {
+    expect(extractMarkdownTemplateImportSpecifiers("Intro\n    @./context.md\n")).toEqual(["./context.md"])
+    expect(extractMarkdownTemplateImportSpecifiers("    @./example.md\n")).toEqual([])
+  })
+
   it("bundles caller-relative templates as typed render functions", async () => {
     const root = await createRoot()
     const entry = join(root, "babysitter.schedule.ts")
