@@ -5,8 +5,8 @@ export interface RuntimeEnvDeclarationLike {
   default?: unknown
   kind: "env-variable"
   source?: {
-    kind: "env"
-    name: string
+    kind: string
+    name?: string
     names?: string[]
   }
 }
