@@ -111,7 +111,7 @@ describe("KV Vite output", () => {
 
     expect(output).toContain(`import "preserved-external"`)
     expect(output).not.toContain(`from "@upstash/redis"`)
-    expect(output).toContain(`import("unstorage/drivers/upstash")`)
+    expect(output).toContain(`import("@vite-hub/kv/runtime/upstash-driver")`)
     expect(output).not.toContain("__vite-optional-peer-dep")
     expect(output).not.toContain(`from "unstorage/drivers/fs-lite"`)
     await expect(worker.default()).resolves.toBeNull()

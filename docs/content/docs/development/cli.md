@@ -10,13 +10,17 @@ Commands stay owned by the package that understands the workflow, while `vitehub
 
 ## Install and open help
 
-Install the CLI in the app that uses ViteHub packages.
-The command reads active Vite plugins, so a missing package integration also means a missing package-owned command.
+The `vite-hub` framework distribution includes the CLI. The command reads
+active Vite plugins, so a missing package integration also means a missing
+package-owned command.
 
 ```bash [Terminal]
-pnpm add -D @vite-hub/cli
+pnpm add vite-hub
 pnpm vitehub --help
 ```
+
+Libraries and advanced integrations that do not use the framework distribution
+can install `@vite-hub/cli` directly.
 
 Expected help lists available namespaces.
 The Agent Package contributes the `agent` namespace when `hubAgent()` is active, the Workspace Package contributes the `workspace` namespace when `hubWorkspace()` is active, and the CLI includes the built-in `provision` namespace.
@@ -33,7 +37,7 @@ Available namespaces:
 
 | Command | Status | Owner | Use it for |
 | --- | --- | --- | --- |
-| `vitehub agent eval` | Available | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
+| `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
 | `vitehub workspace dev` | Available | Workspace Package | Run commands through a Workspace Session exposed by a Compatible Vite Development Server. |
@@ -42,7 +46,13 @@ Available namespaces:
 ## Run Agent Evals
 
 Use `vitehub agent eval` when the proof is Agent behavior, not just TypeScript.
-The optional path narrows the Agent Eval Target.
+The Agent namespace includes the command, while Eval authoring and execution keep
+their test-only dependencies explicit. Install them before creating an Eval; the
+optional path then narrows the Agent Eval Target.
+
+```bash [Terminal]
+pnpm add -D @vite-hub/agent evalite vitest
+```
 
 ```bash [Terminal]
 pnpm vitehub agent eval

@@ -49,6 +49,16 @@ jobs:
       - run: vp run --filter vitehub-docs test
       - run: vp run docs:build
 
+  consumer:
+    name: consumer
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+
+      - run: vp run test:consumer
+
   verify-cloudflare:
     name: verify (cloudflare)
     runs-on: ubuntu-latest

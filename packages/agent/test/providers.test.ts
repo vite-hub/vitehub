@@ -371,6 +371,9 @@ describe("agent Vite plugin", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const agentOptions = {
+        providerImportAliases: {
+          "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
+        },
         providers: {
           state: {
             authToken: "build-token",
@@ -380,8 +383,15 @@ describe("agent Vite plugin", () => {
           },
         },
         routes: { discordGateway: true },
+        workflowImportBase: "vite-hub/_internal/workflow",
+        workspaceDependencyRuntimeImports: {
+          sandbox: "vite-hub/sandbox",
+          sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
+          shellWorkspace: "vite-hub/shell/workspace",
+        },
+        workspaceImportBase: "vite-hub/_internal/workspace",
       }
-      const plugin = hubAgent(agentOptions)
+      const plugin = hubAgent(agentOptions as never)
       const configResolved = plugin.configResolved as (config: { agent?: unknown, build?: { outDir?: string }, command: "build", resolve: { alias: Array<{ find: string, replacement: string }> }, root: string }) => Promise<void>
       const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
@@ -398,6 +408,13 @@ describe("agent Vite plugin", () => {
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(wrapper).toContain("export default async function viteHubAgentNetlifyFunction(request, context)")
       expect(wrapper).toContain("import { createChannelChatRouteHandler, createChannelWebhookRouteHandler, createDiscordGatewayRouteHandler, hasChannelChatRoute } from \"@vite-hub/agent/server/internal\"")
+      expect(wrapper).toContain("import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from \"@vite-hub/agent/server/internal\"")
+      expect(wrapper).toContain("state: () => import(\"vite-hub/_internal/workflow/runtime/state\")")
+      expect(wrapper).toContain("workflow: () => import(\"vite-hub/_internal/workflow\")")
+      expect(wrapper).toContain("import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from \"vite-hub/_internal/workspace/runtime\"")
+      expect(wrapper).toContain("sandbox: () => import(\"vite-hub/sandbox\")")
+      expect(wrapper).toContain("sandboxRuntimeState: () => import(\"vite-hub/_internal/sandbox/runtime/state\")")
+      expect(wrapper).toContain("shellWorkspace: () => import(\"vite-hub/shell/workspace\")")
       expect(wrapper).toContain("import { setWorkspaceRuntimeRegistry } from \"@vite-hub/agent/server/workspace\"")
       expect(wrapper).not.toContain("@vite-hub/workspace/internal/runtime/state")
       expect(wrapper).toContain("process.env.VITEHUB_HOSTING = 'netlify'")
@@ -422,18 +439,15 @@ describe("agent Vite plugin", () => {
           functions: [{
             bundleEntry: join(root, ".vitehub/agent/netlify-function.mjs"),
             bundleOptions: {
-              alias: { "#support": join(root, "support.ts") },
+              alias: {
+                "#support": join(root, "support.ts"),
+                "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
+              },
               external: [
                 "@ai-sdk/harness",
                 "@ai-sdk/harness/*",
                 "@ai-sdk/mcp",
                 "@modelcontextprotocol/sdk/*",
-                "@vite-hub/sandbox",
-                "@vite-hub/sandbox/*",
-                "@vite-hub/shell",
-                "@vite-hub/shell/*",
-                "@vite-hub/workflow",
-                "@vite-hub/workflow/*",
                 "agents",
                 "evalite/*",
                 ...optionalMessageAdapterRuntimeExternals,
@@ -477,7 +491,11 @@ describe("agent Vite plugin", () => {
       process.env.NETLIFY_DEV = "true"
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-      const plugin = hubAgent()
+      const plugin = hubAgent({
+        providerImportAliases: {
+          "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
+        },
+      } as never)
       const configResolved = plugin.configResolved as (config: { build?: { outDir?: string }, command: "serve", resolve: { alias: Array<{ find: string, replacement: string }> }, root: string }) => Promise<void>
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
 
@@ -494,6 +512,16 @@ describe("agent Vite plugin", () => {
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith(expect.objectContaining({
         netlify: expect.objectContaining({
           functions: [expect.objectContaining({
+            bundleOptions: expect.objectContaining({
+              alias: {
+                "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
+              },
+              external: expect.arrayContaining([
+                "@vite-hub/sandbox",
+                "@vite-hub/shell/*",
+                "@vite-hub/workflow",
+              ]),
+            }),
             config: expect.objectContaining({
               path: [
                 "/api/_vitehub/agents/:agent/chat",
@@ -808,6 +836,36 @@ describe("agent Vite plugin", () => {
       rolldownOptions: { external: ["existing", ...optionalMessageAdapterRuntimeExternals] },
       rollupOptions: { external: optionalMessageAdapterRuntimeExternals },
     })
+  })
+
+  it("uses a configured import in the Cloudflare Agent state Rollup entry", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({
+      cloudflareStateImport: "vite-hub/_internal/agent/cloudflare/state",
+    } as never)
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, {
+          preset: "cloudflare",
+          root: hostedAgentRoot,
+        } as never, { command: "build", mode: "production" })
+      : undefined
+    const output = result as {
+      nitro?: {
+        rollupConfig?: {
+          plugins?: Array<{
+            load?: (id: string) => string | undefined
+            name?: string
+            resolveId?: (id: string) => string | undefined
+          }>
+        }
+      }
+    }
+    const statePlugin = output.nitro?.rollupConfig?.plugins?.find(plugin => plugin.name === "vitehub-agent-cloudflare-state-exports:ViteHubAgentStateDO")
+    const resolvedId = statePlugin?.resolveId?.("virtual:vitehub-agent-cloudflare-state-exports")
+    const source = resolvedId ? statePlugin?.load?.(resolvedId) : undefined
+
+    expect(source).toContain('from "vite-hub/_internal/agent/cloudflare/state"')
+    expect(source).not.toContain("@vite-hub/agent")
   })
 
   it("keeps automatic chat state host-neutral for Vercel hosting", async () => {
@@ -1333,10 +1391,16 @@ describe("agent Vite plugin", () => {
 
     expect(pkg.peerDependencies?.agents).toBeUndefined()
     expect(pkg.peerDependencies?.["@vite-hub/workflow"]).toBe("workspace:*")
-    expect(pkg.peerDependencies?.evalite).toBeUndefined()
+    expect(pkg.peerDependencies?.["@vercel/functions"]).toBe("catalog:vercel")
+    expect(pkg.peerDependencies?.askweb).toBe("catalog:ai")
+    expect(pkg.peerDependencies?.evalite).toBe("catalog:ai")
+    expect(pkg.peerDependencies?.vitest).toBe("catalog:tooling")
     expect(pkg.peerDependenciesMeta?.agents).toBeUndefined()
-    expect(pkg.peerDependenciesMeta?.["@vite-hub/workflow"]).toBeUndefined()
-    expect(pkg.peerDependenciesMeta?.evalite).toBeUndefined()
+    expect(pkg.peerDependenciesMeta?.["@vite-hub/workflow"]).toEqual({ optional: true })
+    expect(pkg.peerDependenciesMeta?.["@vercel/functions"]).toEqual({ optional: true })
+    expect(pkg.peerDependenciesMeta?.askweb).toEqual({ optional: true })
+    expect(pkg.peerDependenciesMeta?.evalite).toEqual({ optional: true })
+    expect(pkg.peerDependenciesMeta?.vitest).toEqual({ optional: true })
     expect(pkg.peerDependencies?.ai).toBe("catalog:ai-compat")
     expect(pkg.dependencies?.["@types/json-schema"]).toBe("catalog:ai")
     expect(builtJs).not.toContain("import(\"@vite-hub/workflow\")")

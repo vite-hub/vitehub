@@ -16,8 +16,8 @@ import {
 import { readChatDevtoolsStream } from "./devtools-stream.ts"
 
 import type { Adapter, AdapterPostableMessage, FormattedContent, Message as ChatMessage, RawMessage } from "chat"
+import type { DevToolsPluginOptions, DevToolsRpcServerFunctions, ViteDevToolsNodeContext } from "@vitejs/devtools-kit"
 import type { Plugin } from "vite"
-import type { DevToolsRpcServerFunctions, ViteDevToolsNodeContext } from "@vitejs/devtools-kit"
 import type {
   ChatDevtoolsClearInput,
   ChatDevtoolsConversation,
@@ -109,8 +109,8 @@ export interface ChatDevToolsOptions {
   devtools?: false
 }
 
-export type ChatDevToolsPlugin = Plugin
-export type ChatDevToolsPanelPlugin = Plugin
+export type ChatDevToolsPlugin = Plugin & { devtools?: DevToolsPluginOptions }
+export type ChatDevToolsPanelPlugin = Plugin & { devtools?: DevToolsPluginOptions }
 
 export type ChatDevtoolsBridgeRequest =
   | { action: "get-state", chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown> }

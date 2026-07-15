@@ -36,7 +36,7 @@ async function createRuntimeDriver(store: ResolvedKVStoreConfig): Promise<Driver
       return factory(store)
     }
     case "upstash": {
-      const { default: factory } = await import("unstorage/drivers/upstash")
+      const { default: factory } = await import("@vite-hub/kv/runtime/upstash-driver")
       return factory(store)
     }
   }

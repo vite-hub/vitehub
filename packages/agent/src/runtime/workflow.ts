@@ -3,6 +3,7 @@ import { getActiveCloudflareEnv, getCloudflareEnv } from "@vite-hub/internal/run
 import { createAgentRuntimeContext } from "./context.ts"
 import { workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
+import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 
 import type {
   AgentHostIdentity,
@@ -21,8 +22,6 @@ export { workspaceAgentWithSourceRoot }
 export function agentWithColocatedSkills<Agent>(agent: Agent, sources: Parameters<typeof decodeColocatedAgentSkills>[0]): Agent {
   return withColocatedAgentSkills(agent, decodeColocatedAgentSkills(sources))
 }
-
-const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
 
 export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   agentIdentity?: AgentHostIdentity
@@ -60,7 +59,7 @@ export async function runAgentWorkflowDefinition<
   runAgentInline: AgentWorkflowRunner<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<Response | AgentRunResult | unknown> {
   const payload = context.payload || {}
-  const { getWorkflowRuntimeEvent } = await import(/* @vite-ignore */ workflowRuntimeStateSpecifier)
+  const { getWorkflowRuntimeEvent } = await loadAgentWorkflowRuntimeStateModule()
   const cloudflareEnv = context.provider === "cloudflare"
     ? getActiveCloudflareEnv() || getCloudflareEnv(getWorkflowRuntimeEvent())
     : undefined

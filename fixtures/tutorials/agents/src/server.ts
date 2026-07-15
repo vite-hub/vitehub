@@ -1,8 +1,8 @@
 import { createServer } from "node:http"
 
-import { runAgent } from "@vite-hub/agent"
 import { H3, readBody } from "h3"
 import { toNodeHandler } from "h3/node"
+import { runAgent } from "vite-hub/agent"
 import greeting from "../server/agents/greeting"
 import { createMemo } from "./memo"
 

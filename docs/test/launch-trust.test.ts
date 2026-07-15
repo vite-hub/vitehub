@@ -70,17 +70,20 @@ describe("launch documentation trust boundaries", () => {
     }
   });
 
-  it("documents the composition-only preset and its public import boundary", () => {
-    const readme = readFileSync(resolve(repoRoot, "packages/vite/README.md"), "utf8");
+  it("documents the canonical distribution and composition-only compatibility package", () => {
+    const rootReadme = readFileSync(resolve(repoRoot, "README.md"), "utf8");
+    const installation = readFileSync(resolve(docsRoot, "getting-started/installation.md"), "utf8");
+    const migration = readFileSync(resolve(docsRoot, "getting-started/migration.md"), "utf8");
+    const compatibilityReadme = readFileSync(resolve(repoRoot, "packages/vite/README.md"), "utf8");
 
-    expect(readme).toMatch(/import \{ vitehub \} from ["']@vite-hub\/vite["']/);
-    expect(readme).toMatch(/composition preset/i);
-    expect(readme).toMatch(/KV, Queue, Sandbox, and Schedule are opt-in/i);
-    expect(readme).toContain("kv: true");
-    expect(readme).toContain("queue: true");
-    expect(readme).toContain("sandbox: true");
-    expect(readme).toContain("schedule: true");
-    expect(readme).toMatch(/does not re-export/i);
+    expect(rootReadme).toMatch(/pnpm add vite-hub/);
+    expect(rootReadme).toMatch(/import \{ vitehub \} from ["']vite-hub["']/);
+    expect(installation).toContain("supported as a root-only compatibility import");
+    expect(migration).toMatch(/Every owner\s+package remains independently installable and supported/);
+    expect(compatibilityReadme).toMatch(/import \{ vitehub \} from ["']@vite-hub\/vite["']/);
+    expect(compatibilityReadme).toMatch(/compatibility import/i);
+    expect(compatibilityReadme).toMatch(/forwards the same `vitehub\(\)` function/i);
+    expect(compatibilityReadme).toMatch(/There are no `@vite-hub\/vite\/\*` feature exports/);
   });
 
   it("records current preset and discovery defaults", () => {

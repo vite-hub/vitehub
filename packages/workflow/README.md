@@ -16,6 +16,7 @@ pnpm add @vite-hub/workflow
 ```
 
 Add the provider dependency for the workflow provider you configure.
+OpenWorkflow worker lifecycle helpers live at `@vite-hub/workflow/runtime/openworkflow-worker`, so importing the provider-agnostic package root does not require OpenWorkflow's types.
 
 ## Minimal API
 

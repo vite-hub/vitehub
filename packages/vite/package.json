@@ -1,7 +1,7 @@
 {
   "name": "@vite-hub/vite",
   "version": "0.0.1",
-  "description": "Preset Vite integration for ViteHub primitives.",
+  "description": "Compatibility import for the vite-hub framework package.",
   "keywords": [
     "vite",
     "vitehub"
@@ -33,18 +33,7 @@
     "test": "vp run -t @vite-hub/vite#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/agent": "workspace:*",
-    "@vite-hub/blob": "workspace:*",
-    "@vite-hub/database": "workspace:*",
-    "@vite-hub/devtools": "workspace:*",
-    "@vite-hub/email": "workspace:*",
-    "@vite-hub/env": "workspace:*",
-    "@vite-hub/kv": "workspace:*",
-    "@vite-hub/queue": "workspace:*",
-    "@vite-hub/sandbox": "workspace:*",
-    "@vite-hub/schedule": "workspace:*",
-    "@vite-hub/workflow": "workspace:*",
-    "@vite-hub/workspace": "workspace:*"
+    "vite-hub": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

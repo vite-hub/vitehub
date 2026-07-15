@@ -141,6 +141,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vercel/blob": "catalog:storage",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
@@ -155,10 +156,22 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "@vercel/blob": "catalog:storage",
+    "@vite-hub/sandbox": "workspace:*",
+    "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@vercel/blob": {
+      "optional": true
+    },
+    "@vite-hub/sandbox": {
+      "optional": true
+    },
+    "@vite-hub/shell": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }

@@ -68,7 +68,7 @@ export default defineEventHandler(async () => {
 | `QueueError` from `@vite-hub/queue` | Catch Queue-specific runtime errors. |
 | `createCloudflareQueueBatchHandler` from `@vite-hub/queue` | Build a Cloudflare batch handler outside generated Provider Output. |
 | `getCloudflareQueueName`, `getCloudflareQueueBindingName`, `getCloudflareQueueDefinitionName`, `getVercelQueueTopicName` from `@vite-hub/queue` | Inspect provider-derived names. Application code should not persist these names as source authority. |
-| `handleHostedVercelQueueCallback`, `createQueueCloudflareWorker` from `@vite-hub/queue` | Host adapter helpers used by generated Provider Output. |
+| `handleHostedVercelQueueCallback` from `@vite-hub/queue/runtime/hosted`, `createQueueCloudflareWorker` from `@vite-hub/queue` | Host adapter helpers used by generated Provider Output. Install `@vercel/functions` when importing the Vercel-specific runtime. |
 | `hubQueue`, `createCloudflareQueueConfig` from `@vite-hub/queue/vite` | Register the Vite Integration and emit Cloudflare queue config. |
 
 All Queue option, client, job, provider, and result types are exported from `@vite-hub/queue`.

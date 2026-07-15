@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 
-import { hubKv } from "@vite-hub/kv/vite"
 import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
 
 export default defineConfig({
   root: import.meta.dirname,
@@ -15,6 +15,15 @@ export default defineConfig({
     ssr: true,
   },
   plugins: [
-    hubKv({ driver: "fs-lite", base: ".data/kv" }),
+    vitehub({
+      agent: false,
+      blob: false,
+      database: false,
+      devtools: false,
+      env: false,
+      kv: { driver: "fs-lite", base: ".data/kv" },
+      workflow: false,
+      workspace: false,
+    }),
   ],
 })

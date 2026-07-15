@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createWorkspaceTools, type WorkspaceShellResult } from "../src/ai.ts"
 import { fetch, useWorkspace } from "../src/index.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
+import { getWorkspaceDependencyRuntimeLoaders, setWorkspaceDependencyRuntimeLoaders } from "../src/runtime/dependency-loaders.ts"
 import { setWorkspaceRuntimeAssetsRegistry } from "../src/runtime/state.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
 
@@ -56,11 +57,33 @@ function createProvider(stdout: string): ShellExecutionProvider {
 }
 
 afterEach(() => {
+  setWorkspaceDependencyRuntimeLoaders(undefined)
   setWorkspaceRuntimeAssetsRegistry({})
   vi.restoreAllMocks()
 })
 
 describe("createWorkspaceTools", () => {
+  it("uses configured generated-host shell loaders", async () => {
+    const createReadonlyWorkspaceFs = vi.fn(() => ({}))
+    const runWorkspaceInspectionCommand = vi.fn(async () => ({
+      event: "command_finished" as const,
+      exitCode: 0,
+      stderr: "",
+      stdout: "configured\n",
+    }))
+    setWorkspaceDependencyRuntimeLoaders({
+      ...getWorkspaceDependencyRuntimeLoaders(),
+      shellWorkspace: async () => ({ createReadonlyWorkspaceFs, runWorkspaceInspectionCommand }),
+    })
+
+    await expect(runShell(createWorkspaceTools(createAssets({ "README.md": "# Docs\n" })), "cat README.md")).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "configured\n",
+    })
+    expect(createReadonlyWorkspaceFs).toHaveBeenCalledOnce()
+    expect(runWorkspaceInspectionCommand).toHaveBeenCalledOnce()
+  })
+
   it("runs real read-only shell inspection commands", async () => {
     const tools = createWorkspaceTools(createAssets({
       "README.md": "# Docs\n",

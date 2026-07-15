@@ -5,68 +5,8 @@
     "rootDir": "..",
     "baseUrl": "../..",
     "paths": {
-      "@vite-hub/agent": [
-        "packages/agent/src/index.ts"
-      ],
-      "@vite-hub/agent/*": [
-        "packages/agent/src/*"
-      ],
-      "@vite-hub/blob": [
-        "packages/blob/src/index.ts"
-      ],
-      "@vite-hub/blob/*": [
-        "packages/blob/src/*"
-      ],
-      "@vite-hub/database": [
-        "packages/database/src/index.ts"
-      ],
-      "@vite-hub/database/*": [
-        "packages/database/src/*"
-      ],
-      "@vite-hub/devtools": [
-        "packages/devtools/src/index.ts"
-      ],
-      "@vite-hub/email": [
-        "packages/email/src/index.ts"
-      ],
-      "@vite-hub/email/*": [
-        "packages/email/src/*.ts"
-      ],
-      "@vite-hub/env": [
-        "packages/env/src/index.ts"
-      ],
-      "@vite-hub/env/*": [
-        "packages/env/src/*"
-      ],
-      "@vite-hub/kv": [
-        "packages/kv/src/index.ts"
-      ],
-      "@vite-hub/kv/*": [
-        "packages/kv/src/*"
-      ],
-      "@vite-hub/queue": [
-        "packages/queue/src/index.ts"
-      ],
-      "@vite-hub/queue/*": [
-        "packages/queue/src/*"
-      ],
-      "@vite-hub/schedule": [
-        "packages/schedule/src/index.ts"
-      ],
-      "@vite-hub/schedule/*": [
-        "packages/schedule/src/*"
-      ],
-      "@vite-hub/workflow": [
-        "packages/workflow/src/index.ts"
-      ],
-      "@vite-hub/workflow/*": [
-        "packages/workflow/src/*"
-      ],
-      "@vite-hub/workspace": [
-        "packages/workspace/src/index.ts"
-      ],
-      "@vite-hub/workspace/*": [
-        "packages/workspace/src/*"
+      "vite-hub": [
+        "packages/vite-hub/src/index.ts"
       ]
     }
   },

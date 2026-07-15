@@ -21,6 +21,7 @@ import { resolveInstructionImports } from "./instruction-composition.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 import { readColocatedAgentSkills } from "./vite/colocated-agent-skills.ts"
 
+import type { DevToolsPluginOptions } from "@vitejs/devtools-kit"
 import type { Plugin, ResolvedConfig } from "vite"
 import type { CloudflareAgentStateMigration, CloudflareAgentStateRollupTarget, CloudflareAgentStateTarget } from "./cloudflare.ts"
 import type { AgentModuleOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "./types.ts"
@@ -31,7 +32,7 @@ interface AgentCliContributingPlugin {
   }
 }
 
-export type AgentVitePlugin = Plugin & AgentCliContributingPlugin
+export type AgentVitePlugin = Plugin & AgentCliContributingPlugin & { devtools?: DevToolsPluginOptions }
 
 const agentPackageName = "@vite-hub/agent"
 const mergeNoExternal = createNoExternalMerger(agentPackageName)
@@ -70,17 +71,50 @@ const optionalNetlifyAgentBundleExternals = [
   "vitest/*",
 ]
 
+function resolveNetlifyAgentBundleExternals(options: AgentGeneratedImportOptions): string[] {
+  const bundled = new Set<string>()
+  if (options.workflowImportBase) {
+    bundled.add("@vite-hub/workflow")
+    bundled.add("@vite-hub/workflow/*")
+  }
+  if (options.workspaceDependencyRuntimeImports?.sandbox || options.workspaceDependencyRuntimeImports?.sandboxRuntimeState) {
+    bundled.add("@vite-hub/sandbox")
+    bundled.add("@vite-hub/sandbox/*")
+  }
+  if (options.workspaceDependencyRuntimeImports?.shellWorkspace) {
+    bundled.add("@vite-hub/shell")
+    bundled.add("@vite-hub/shell/*")
+  }
+  return optionalNetlifyAgentBundleExternals.filter(specifier => !bundled.has(specifier))
+}
+
 interface InternalAgentModuleOptions extends AgentModuleOptions {
+  cloudflareStateImport?: string
   importBase?: string
+  providerImportAliases?: Record<string, string>
+  runtimeCapabilityImports?: Record<string, string>
+  scheduleRuntimeImport?: string
+  workflowImportBase?: string
+  workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
 }
 
 interface AgentGeneratedImportOptions {
   agentImportBase?: string
+  providerImportAliases?: Record<string, string>
   runtimeCapabilities?: GeneratedAgentRuntimeCapability[]
   schedule?: boolean
   scheduleRegistryImport?: string
+  scheduleRuntimeImport?: string
+  workflowImportBase?: string
+  workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
+}
+
+interface WorkspaceDependencyRuntimeImports {
+  sandbox?: string
+  sandboxRuntimeState?: string
+  shellWorkspace?: string
 }
 
 interface GeneratedAgentRuntimeCapability {
@@ -97,13 +131,21 @@ const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapabilit
 
 async function resolveGeneratedAgentRuntimeCapabilities(
   config: Pick<ResolvedConfig, "plugins" | "root"> & Partial<Pick<ResolvedConfig, "createResolver">>,
+  packageImports: Record<string, string> = {},
 ): Promise<GeneratedAgentRuntimeCapability[]> {
   const pluginNames = new Set(config.plugins?.map(plugin => plugin.name))
   const candidates = generatedAgentRuntimeCapabilityDefinitions.filter(capability => pluginNames.has(capability.pluginName))
   const resolveImport = config.createResolver?.()
-  if (!resolveImport) return candidates
+  if (!resolveImport) {
+    return candidates.map(capability => ({
+      ...capability,
+      packageName: packageImports[capability.name] ?? capability.packageName,
+    }))
+  }
   const importer = join(config.root, ".vitehub", "agent", "runtime-capabilities.js")
-  const resolved = await Promise.all(candidates.map(async capability => await resolveImport(capability.packageName, importer) ? capability : undefined))
+  const resolved = await Promise.all(candidates.map(async capability => await resolveImport(capability.packageName, importer)
+    ? { ...capability, packageName: packageImports[capability.name] ?? capability.packageName }
+    : undefined))
   return resolved.filter((capability): capability is GeneratedAgentRuntimeCapability => capability !== undefined)
 }
 
@@ -125,12 +167,38 @@ function getInternalAgentOptions(options: AgentModuleOptions | false | undefined
   return options && typeof options === "object" ? options as InternalAgentModuleOptions : undefined
 }
 
-function getAgentImportBase(options: AgentModuleOptions | false | undefined): string {
-  return getInternalAgentOptions(options)?.importBase ?? agentPackageName
+function getAgentImportBase(options: AgentModuleOptions | false | undefined, fallback?: InternalAgentModuleOptions): string {
+  return getInternalAgentOptions(options)?.importBase ?? fallback?.importBase ?? agentPackageName
 }
 
-function getWorkspaceImportBase(options: AgentModuleOptions | false | undefined): string {
-  return getInternalAgentOptions(options)?.workspaceImportBase ?? workspacePackageName
+function getProviderImportAliases(
+  options: AgentModuleOptions | false | undefined,
+  fallback?: InternalAgentModuleOptions,
+): Record<string, string> | undefined {
+  return getInternalAgentOptions(options)?.providerImportAliases ?? fallback?.providerImportAliases
+}
+
+function getWorkspaceImportBase(options: AgentModuleOptions | false | undefined, fallback?: InternalAgentModuleOptions): string {
+  return getInternalAgentOptions(options)?.workspaceImportBase ?? fallback?.workspaceImportBase ?? workspacePackageName
+}
+
+function getScheduleRuntimeImport(options: AgentModuleOptions | false | undefined, fallback?: InternalAgentModuleOptions): string {
+  return getInternalAgentOptions(options)?.scheduleRuntimeImport ?? fallback?.scheduleRuntimeImport ?? scheduleRuntimeImport
+}
+
+function getCloudflareStateImport(options: AgentModuleOptions | false | undefined, fallback?: InternalAgentModuleOptions): string {
+  return getInternalAgentOptions(options)?.cloudflareStateImport ?? fallback?.cloudflareStateImport ?? "@vite-hub/agent/cloudflare/state"
+}
+
+function getWorkflowImportBase(options: AgentModuleOptions | false | undefined, fallback?: InternalAgentModuleOptions): string | undefined {
+  return getInternalAgentOptions(options)?.workflowImportBase ?? fallback?.workflowImportBase
+}
+
+function getWorkspaceDependencyRuntimeImports(
+  options: AgentModuleOptions | false | undefined,
+  fallback?: InternalAgentModuleOptions,
+): WorkspaceDependencyRuntimeImports | undefined {
+  return getInternalAgentOptions(options)?.workspaceDependencyRuntimeImports ?? fallback?.workspaceDependencyRuntimeImports
 }
 
 function generatedAgentRouteCapabilities(options: AgentGeneratedImportOptions) {
@@ -142,7 +210,7 @@ function generatedAgentRouteCapabilities(options: AgentGeneratedImportOptions) {
       ...(options.schedule
         ? [
             `import vitehubAgentScheduleRegistry from ${JSON.stringify(options.scheduleRegistryImport ?? scheduleRegistryId)}`,
-            `import { schedules as vitehubSchedules, setScheduleRuntimeRegistry as vitehubSetScheduleRuntimeRegistry } from ${JSON.stringify(scheduleRuntimeImport)}`,
+            `import { schedules as vitehubSchedules, setScheduleRuntimeRegistry as vitehubSetScheduleRuntimeRegistry } from ${JSON.stringify(options.scheduleRuntimeImport ?? scheduleRuntimeImport)}`,
           ]
         : []),
     ],
@@ -194,6 +262,7 @@ async function transformScheduleRegistry(
   agentImportBase: string,
   importAnchor?: string,
   runtimeCapabilities: GeneratedAgentRuntimeCapability[] = [],
+  scheduleRuntimeSpecifier = scheduleRuntimeImport,
 ): Promise<string | undefined> {
   if (!definitions.length) return
   if (!/\b(?:const|let|var)\s+registry\b/.test(code)) {
@@ -215,7 +284,7 @@ async function transformScheduleRegistry(
     `import { workspaceDefinitionFromOptions as vitehubWorkspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
     `import { defineScheduledAgentTarget as vitehubDefineScheduledAgentTarget } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     ...generatedAgentRuntimeCapabilityImports(runtimeCapabilities),
-    `import { schedules as vitehubSchedules } from ${JSON.stringify(scheduleRuntimeImport)}`,
+    `import { schedules as vitehubSchedules } from ${JSON.stringify(scheduleRuntimeSpecifier)}`,
     code,
     "function vitehubResolveScheduledAgentModule(module) {",
     "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
@@ -231,10 +300,11 @@ async function writeStandaloneAgentScheduleRegistry(
   definitions: DiscoveredAgentDefinition[],
   agentImportBase: string,
   runtimeCapabilities: GeneratedAgentRuntimeCapability[] = [],
+  scheduleRuntimeSpecifier = scheduleRuntimeImport,
 ): Promise<string> {
   const registryPath = join(root, generatedAgentScheduleRegistry)
   const base = ["const registry = {}", "", "export default registry", ""].join("\n")
-  const contents = await transformScheduleRegistry(base, definitions, agentImportBase, registryPath, runtimeCapabilities) ?? base
+  const contents = await transformScheduleRegistry(base, definitions, agentImportBase, registryPath, runtimeCapabilities, scheduleRuntimeSpecifier) ?? base
   await mkdir(dirname(registryPath), { recursive: true })
   await writeFile(registryPath, contents, "utf8")
   return registryPath
@@ -254,6 +324,36 @@ function transformScheduleTargets(code: string, definitions: DiscoveredAgentDefi
 
 function subpath(base: string, path: string): string {
   return `${base}/${path}`
+}
+
+function generatedAgentWorkflowRuntime(options: AgentGeneratedImportOptions, agentImportBase: string) {
+  if (!options.workflowImportBase) return { imports: [] as string[], setup: [] as string[] }
+  return {
+    imports: [`import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`],
+    setup: [
+      "vitehubSetAgentWorkflowRuntimeLoaders({",
+      `  state: () => import(${JSON.stringify(subpath(options.workflowImportBase, "runtime/state"))}),`,
+      `  workflow: () => import(${JSON.stringify(options.workflowImportBase)}),`,
+      "})",
+      "",
+    ],
+  }
+}
+
+function generatedAgentWorkspaceDependencyRuntime(options: AgentGeneratedImportOptions, workspaceImportBase: string) {
+  const imports = options.workspaceDependencyRuntimeImports
+  if (!imports) return { imports: [] as string[], setup: [] as string[] }
+  return {
+    imports: [`import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from ${JSON.stringify(subpath(workspaceImportBase, "runtime"))}`],
+    setup: [
+      "vitehubSetWorkspaceDependencyRuntimeLoaders({",
+      ...(imports.sandbox ? [`  sandbox: () => import(${JSON.stringify(imports.sandbox)}),`] : []),
+      ...(imports.sandboxRuntimeState ? [`  sandboxRuntimeState: () => import(${JSON.stringify(imports.sandboxRuntimeState)}),`] : []),
+      ...(imports.shellWorkspace ? [`  shellWorkspace: () => import(${JSON.stringify(imports.shellWorkspace)}),`] : []),
+      "})",
+      "",
+    ],
+  }
 }
 
 type NitroConfig = Record<string, unknown> & CloudflareAgentStateRollupTarget & CloudflareAgentStateTarget
@@ -414,10 +514,10 @@ function cloneNitroConfig(value: unknown): NitroConfig {
   return nitro as NitroConfig
 }
 
-function mergeCloudflareAgentStateNitroConfig(value: unknown): NitroConfig {
+function mergeCloudflareAgentStateNitroConfig(value: unknown, stateImport: string): NitroConfig {
   const nitro = cloneNitroConfig(value)
   configureCloudflareAgentState(nitro)
-  installCloudflareAgentStateEntrypoint(nitro)
+  installCloudflareAgentStateEntrypoint(nitro, { stateImport } as never)
   nitro.rollupConfig ||= {}
   nitro.rollupConfig.external = mergeCloudflareWorkersExternal(nitro.rollupConfig.external as RollupExternalOption | undefined)
   return nitro
@@ -646,6 +746,8 @@ async function generateAgentWebhookRouteHandler(
   const agentImportBase = options.agentImportBase ?? agentPackageName
   const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
   const routeCapabilities = generatedAgentRouteCapabilities(options)
+  const workflowRuntime = generatedAgentWorkflowRuntime(options, agentImportBase)
+  const workspaceDependencyRuntime = generatedAgentWorkspaceDependencyRuntime(options, workspaceImportBase)
   const runtimeRouteOption = options.runtime === "vite" ? ", runtime: 'vite'" : ""
   const imports = definitions
     .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
@@ -685,12 +787,16 @@ async function generateAgentWebhookRouteHandler(
     ...(options.cloudflareState ? [`import { createCloudflareAgentState } from ${JSON.stringify(subpath(agentImportBase, "cloudflare"))}`] : []),
     ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
     `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler, hasChannelChatRoute } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    ...workflowRuntime.imports,
+    ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
     `import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(workspaceImportBase, "runtime"))}`,
     ...hostedWorkspaceRuntime.imports,
     "import { createError, defineEventHandler, getRequestHeaders, getRequestURL, getRouterParam, readRawBody } from 'h3'",
     imports,
     "",
+    ...workflowRuntime.setup,
+    ...workspaceDependencyRuntime.setup,
     "function resolveAgentModule(module) {",
     "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
     "}",
@@ -758,6 +864,8 @@ async function generateAgentNetlifyFunctionRouteHandler(
   const agentImportBase = options.agentImportBase ?? agentPackageName
   const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
   const routeCapabilities = generatedAgentRouteCapabilities(options)
+  const workflowRuntime = generatedAgentWorkflowRuntime(options, agentImportBase)
+  const workspaceDependencyRuntime = generatedAgentWorkspaceDependencyRuntime(options, workspaceImportBase)
   const runtimeRouteOption = options.runtime === "vite" ? ", runtime: 'vite'" : ""
   const imports = definitions
     .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
@@ -790,11 +898,15 @@ async function generateAgentNetlifyFunctionRouteHandler(
     `import { workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
     ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
     `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler, createDiscordGatewayRouteHandler, hasChannelChatRoute } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    ...workflowRuntime.imports,
+    ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
     `import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(agentImportBase, "server/workspace"))}`,
     ...hostedWorkspaceRuntime.imports,
     imports,
     "",
+    ...workflowRuntime.setup,
+    ...workspaceDependencyRuntime.setup,
     "function resolveAgentModule(module) {",
     "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
     "}",
@@ -897,7 +1009,10 @@ async function generateAgentDiscordGatewayRouteHandler(
   options: { discordGatewayRoute?: false | string, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
   const agentImportBase = options.agentImportBase ?? agentPackageName
+  const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
   const routeCapabilities = generatedAgentRouteCapabilities(options)
+  const workflowRuntime = generatedAgentWorkflowRuntime(options, agentImportBase)
+  const workspaceDependencyRuntime = generatedAgentWorkspaceDependencyRuntime(options, workspaceImportBase)
   const runtimeRouteOption = options.runtime === "vite" ? ", runtime: 'vite'" : ""
   const imports = definitions
     .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
@@ -915,10 +1030,14 @@ async function generateAgentDiscordGatewayRouteHandler(
   return [
     `import { workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
     `import { createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server"))}`,
+    ...workflowRuntime.imports,
+    ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
     "import { createError, defineEventHandler, getRequestHeader, getRequestHeaders, getRequestURL, getRouterParam } from 'h3'",
     imports,
     "",
+    ...workflowRuntime.setup,
+    ...workspaceDependencyRuntime.setup,
     "function resolveAgentModule(module) {",
     "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
     "}",
@@ -998,6 +1117,8 @@ async function generateAgentDenoServer(
   const agentImportBase = options.agentImportBase ?? agentPackageName
   const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
   const routeCapabilities = generatedAgentRouteCapabilities(options)
+  const workflowRuntime = generatedAgentWorkflowRuntime(options, agentImportBase)
+  const workspaceDependencyRuntime = generatedAgentWorkspaceDependencyRuntime(options, workspaceImportBase)
   const imports = definitions
     .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
     .join("\n")
@@ -1032,10 +1153,14 @@ async function generateAgentDenoServer(
   return [
     `import { workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
     `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler, hasChannelChatRoute } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    ...workflowRuntime.imports,
+    ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
     ...workspaceRuntimeImports,
     imports,
     "",
+    ...workflowRuntime.setup,
+    ...workspaceDependencyRuntime.setup,
     "await import('../schedule/deno-cron.mjs').catch((error) => {",
     "  if (error instanceof TypeError && String(error.message).includes('deno-cron.mjs')) return",
     "  throw error",
@@ -1133,7 +1258,13 @@ async function writeAgentDenoServer(
     scanDirs: [join(root, "server")],
   })
   const scheduleRegistryImport = options.schedule
-    ? moduleImportSpecifier(handlerPath, await writeStandaloneAgentScheduleRegistry(root, definitions, options.agentImportBase ?? agentPackageName, options.runtimeCapabilities))
+    ? moduleImportSpecifier(handlerPath, await writeStandaloneAgentScheduleRegistry(
+        root,
+        definitions,
+        options.agentImportBase ?? agentPackageName,
+        options.runtimeCapabilities,
+        options.scheduleRuntimeImport,
+      ))
     : undefined
   await mkdir(dirname(handlerPath), { recursive: true })
   await writeFile(handlerPath, await generateAgentDenoServer(definitions, handlerPath, {
@@ -1152,7 +1283,13 @@ async function writeAgentNetlifyFunctionRouteHandler(
     scanDirs: [join(root, "server")],
   })
   const scheduleRegistryImport = options.schedule
-    ? moduleImportSpecifier(handlerPath, await writeStandaloneAgentScheduleRegistry(root, definitions, options.agentImportBase ?? agentPackageName, options.runtimeCapabilities))
+    ? moduleImportSpecifier(handlerPath, await writeStandaloneAgentScheduleRegistry(
+        root,
+        definitions,
+        options.agentImportBase ?? agentPackageName,
+        options.runtimeCapabilities,
+        options.scheduleRuntimeImport,
+      ))
     : undefined
   await mkdir(dirname(handlerPath), { recursive: true })
   await writeFile(handlerPath, await generateAgentNetlifyFunctionRouteHandler(definitions, handlerPath, {
@@ -1194,8 +1331,11 @@ async function writeNetlifyAgentProviderOutput(
       functions: [{
         bundleEntry: handlerPath,
         bundleOptions: {
-          alias: resolveStringAliases(config),
-          external: optionalNetlifyAgentBundleExternals,
+          alias: {
+            ...resolveStringAliases(config),
+            ...generatedOptions.providerImportAliases,
+          },
+          external: resolveNetlifyAgentBundleExternals(generatedOptions),
           format: "esm",
           platform: "node",
         },
@@ -1224,6 +1364,7 @@ async function cleanupNetlifyAgentProviderOutput(config: ResolvedConfig): Promis
 }
 
 export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
+  const frameworkOptions = getInternalAgentOptions(options)
   let agent: AgentModuleOptions | false | undefined = options
   let runtimeCapabilities: GeneratedAgentRuntimeCapability[] = []
   let resolved: ResolvedConfig | undefined
@@ -1235,45 +1376,58 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     if (normalized && hasHostedAgents) {
       if (normalized.runtime === "deno") {
         await writeAgentDenoServer(config.root, {
-          agentImportBase: getAgentImportBase(agent),
+          agentImportBase: getAgentImportBase(agent, frameworkOptions),
           chatRoute: normalized.routes.chat,
           runtimeCapabilities,
           schedule,
-          workspaceImportBase: getWorkspaceImportBase(agent),
+          scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
+          workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
+          workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
+          workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
           webhookRoute: normalized.routes.webhooks,
         })
       }
       else {
         await writeAgentWebhookRouteHandler(config.root, {
-          agentImportBase: getAgentImportBase(agent),
+          agentImportBase: getAgentImportBase(agent, frameworkOptions),
           chatRoute: normalized.routes.chat,
           cloudflareState: shouldInstallCloudflareAgentState(normalized, config),
           libsqlState: resolveLibsqlAgentState(normalized),
           ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
           runtimeCapabilities,
           schedule,
-          workspaceImportBase: getWorkspaceImportBase(agent),
+          scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
+          workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
+          workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
+          workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
           webhookRoute: normalized.routes.webhooks,
         })
         if (normalized.routes.discordGateway) {
           await writeAgentDiscordGatewayRouteHandler(config.root, {
-            agentImportBase: getAgentImportBase(agent),
+            agentImportBase: getAgentImportBase(agent, frameworkOptions),
             discordGatewayRoute: normalized.routes.discordGateway,
             ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
             runtimeCapabilities,
             schedule,
-            workspaceImportBase: getWorkspaceImportBase(agent),
+            scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
+            workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
+            workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
+            workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
             webhookRoute: normalized.routes.webhooks,
           })
         }
         if (config.command === "serve" && isNetlifyHosting(config)) {
           await writeNetlifyAgentProviderOutput(config, normalized, {
-            agentImportBase: getAgentImportBase(agent),
+            agentImportBase: getAgentImportBase(agent, frameworkOptions),
             libsqlState: resolveLibsqlAgentState(normalized),
+            providerImportAliases: getProviderImportAliases(agent, frameworkOptions),
             runtime: "vite",
             runtimeCapabilities,
             schedule,
-            workspaceImportBase: getWorkspaceImportBase(agent),
+            scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
+            workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
+            workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
+            workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
           })
         }
       }
@@ -1330,7 +1484,14 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       if (!isScheduleRegistryId(id) && id !== resolvedScheduleTargetsId) return
       const definitions = discoverScheduledAgentDefinitions(resolved.root)
       return isScheduleRegistryId(id)
-        ? await transformScheduleRegistry(code, definitions, getAgentImportBase(agent), undefined, runtimeCapabilities)
+        ? await transformScheduleRegistry(
+            code,
+            definitions,
+            getAgentImportBase(agent, frameworkOptions),
+            undefined,
+            runtimeCapabilities,
+            getScheduleRuntimeImport(agent, frameworkOptions),
+          )
         : transformScheduleTargets(code, definitions)
     },
     vitehub: {
@@ -1367,7 +1528,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           : []),
       ]
       const nitro = installCloudflareState
-        ? mergeCloudflareAgentStateNitroConfig((config as { nitro?: unknown }).nitro)
+        ? mergeCloudflareAgentStateNitroConfig(
+            (config as { nitro?: unknown }).nitro,
+            getCloudflareStateImport(agent, frameworkOptions),
+          )
         : cloneNitroConfig((config as { nitro?: unknown }).nitro)
       const mergedNitro = mergeNitroHandlers(nitro, nitroHandlers)
       return {
@@ -1392,7 +1556,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     async configResolved(config) {
       resolved = config
       agent = config.agent ?? agent
-      runtimeCapabilities = await resolveGeneratedAgentRuntimeCapabilities(config)
+      runtimeCapabilities = await resolveGeneratedAgentRuntimeCapabilities(
+        config,
+        getInternalAgentOptions(agent)?.runtimeCapabilityImports ?? frameworkOptions?.runtimeCapabilityImports,
+      )
       await writeGeneratedAgentOutputs(config)
       if (agent === false || agent?.eval === false) {
         return
@@ -1423,11 +1590,15 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         if (normalized && normalized.runtime === "deno") return
         if (normalized && hasHostedAgentDefinitions(resolved.root) && isNetlifyHosting(resolved)) {
           await writeNetlifyAgentProviderOutput(resolved, normalized, {
-            agentImportBase: getAgentImportBase(agent),
+            agentImportBase: getAgentImportBase(agent, frameworkOptions),
             libsqlState: resolveLibsqlAgentState(normalized),
+            providerImportAliases: getProviderImportAliases(agent, frameworkOptions),
             runtimeCapabilities,
             schedule: hasScheduleVitePlugin(resolved),
-            workspaceImportBase: getWorkspaceImportBase(agent),
+            scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
+            workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
+            workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
+            workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
           })
         } else if (isNetlifyHosting(resolved)) {
           await cleanupNetlifyAgentProviderOutput(resolved)

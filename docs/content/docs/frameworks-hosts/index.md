@@ -34,18 +34,22 @@ Host support remains package-specific. A host can support one primitive without 
 
 ## Compose integrations
 
-Use `@vite-hub/vite` when the application wants one composition preset. Queue remains opt-in, and every package keeps ownership of its public application imports.
+Use `vite-hub` when the application wants the canonical framework
+distribution. Queue remains opt-in, and application APIs stay separated by
+intentional feature subpaths.
 
 ```ts [vite.config.ts]
-import { vitehub } from '@vite-hub/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub()],
 })
 ```
 
-Register individual `hubX()` integrations instead when the application needs a smaller dependency or configuration surface.
+Register individual `hubX()` integrations from their `@vite-hub/*/vite` owner
+packages instead when a library or advanced integration needs direct package
+control.
 
 ## Keep runtime imports stable
 
@@ -53,7 +57,7 @@ Application code should import Runtime Helpers and generated surfaces through Vi
 Do not import framework virtual modules or generated files unless a package reference marks that path public.
 
 ```ts [server/settings.ts]
-import { kv } from '@vite-hub/kv'
+import { kv } from 'vite-hub/kv'
 
 export async function saveSettings(settings: Record<string, unknown>) {
   await kv.set('settings', settings)

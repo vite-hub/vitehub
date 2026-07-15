@@ -27,7 +27,7 @@ Lane selection is complete when every requested behavior belongs to the chosen l
 ## 3. Inspect The Installed Contract
 
 - Read each installed package's `package.json`, exports, and relevant types before writing imports or options.
-- For a fresh installation, follow the installation page, install the selected packages, then inspect the resulting contract.
+- For a fresh application, follow the installation page, install `vite-hub`, then inspect its root and feature-subpath exports. Use direct owner packages only for a focused library or advanced composition.
 - When live docs, installed types, and exports disagree, implement the installed contract and report the mismatch with both versions or sources. Do not invent a missing API.
 
 Contract inspection is complete when every planned import, option, and runtime entry exists in the installed version.
@@ -36,8 +36,8 @@ Contract inspection is complete when every planned import, option, and runtime e
 
 ### Server primitive lane
 
-1. Install only the primitive packages the application uses.
-2. Register each package's Vite Integration in the existing Vite config.
+1. Install `vite-hub` for an application, or the primitive owner package for a focused library integration.
+2. Register `vitehub()` in the existing Vite config. Use an owner package's `hubX()` integration only when direct package control is intentional.
 3. Add a named Definition only when the primitive relies on discovery.
 4. Call the primitive from application or server code through its Runtime Helper.
 5. Keep primitive authority in application code unless the task explicitly grants it to an Agent through a Capability.

@@ -103,6 +103,11 @@ export default defineConfig({
         cache: false,
         command: "vp test",
       },
+      "test:consumer": {
+        cache: false,
+        command: "VITEHUB_CONSUMER_CONTRACT=1 vp test test/consumer/vite-hub.test.ts",
+        dependsOn: ["build"],
+      },
       "test:output": {
         cache: false,
         command: "vp test --config test/output/vitest.config.ts",
@@ -121,7 +126,7 @@ export default defineConfig({
       },
       verify: {
         cache: false,
-        command: "vp run fallow:dead-code && vp run lint && vp run typecheck && vp run test:contracts && vp run test && vp run build",
+        command: "vp run fallow:dead-code && vp run lint && vp run typecheck && vp run test:contracts && vp run test && vp run test:consumer",
       },
       "workflow:e2e": {
         cache: false,

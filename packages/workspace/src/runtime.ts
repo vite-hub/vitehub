@@ -7,6 +7,11 @@ export {
   setWorkspaceHostedStoreLoader,
 } from "./runtime/hosted-store-loader.ts"
 export {
+  getWorkspaceDependencyRuntimeLoaders,
+  setWorkspaceDependencyRuntimeLoaders,
+} from "./runtime/dependency-loaders.ts"
+export type { WorkspaceDependencyRuntimeLoaders } from "./runtime/dependency-loaders.ts"
+export {
   registerWorkspace,
   resetWorkspaceStoreCache,
   resolveRegisteredWorkspaceDefinition,

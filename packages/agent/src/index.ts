@@ -1,6 +1,7 @@
 import agentRegistry from "#vitehub/agent/registry"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { cloneWithPropertyDescriptors } from "./internal/stream-result.ts"
+import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { agentErrorDetails, agentErrorMessage } from "./agent-error.ts"
 import {
   createReactionDeliveryEffectIntent,
@@ -427,9 +428,7 @@ const baseAgentModel = Symbol.for("vitehub.baseAgentModel")
 const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
 const baseAgentBoxRequirements = Symbol.for("vitehub.baseAgentBoxRequirements")
 const baseAgentCapabilitiesResolver = Symbol.for("vitehub.baseAgentCapabilitiesResolver")
-const workflowSpecifier = "@vite-hub/workflow"
-const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
-
+type NormalizedCapability = AgentCapabilityDefinition & { mode?: AgentCapabilityMode }
 type WorkspaceSourceNames<TWorkspace> =
   TWorkspace extends { sources: infer TSources }
     ? Extract<keyof NonNullable<TSources>, string>
@@ -681,8 +680,8 @@ async function getAgentWorkflowHandle<
   const existing = handles.get(cacheKey)
   if (existing) return existing as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>
 
-  const { createWorkflow } = await import(/* @vite-ignore */ workflowSpecifier) as typeof import("@vite-hub/workflow")
-  const { getInlineWorkflowDefinitions, getWorkflowRuntimeRegistry } = await import(/* @vite-ignore */ workflowRuntimeStateSpecifier) as typeof import("@vite-hub/workflow/runtime/state")
+  const { createWorkflow } = await loadAgentWorkflowModule()
+  const { getInlineWorkflowDefinitions, getWorkflowRuntimeRegistry } = await loadAgentWorkflowRuntimeStateModule()
   const handle = (reuseRegistry && getWorkflowRuntimeRegistry()?.[name]) || (agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name))
     ? createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>(name)
     : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>(name, async (workflowContext) => {
@@ -706,7 +705,7 @@ async function runAgentAsWorkflow<
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
   if (!binding || ("discoveryDefault" in binding && !context.agentIdentity)) return undefined
   if ("discoveryDefault" in binding) {
-    const { getWorkflowRuntimeConfig } = await import(/* @vite-ignore */ workflowRuntimeStateSpecifier) as typeof import("@vite-hub/workflow/runtime/state")
+    const { getWorkflowRuntimeConfig } = await loadAgentWorkflowRuntimeStateModule()
     if (!getWorkflowRuntimeConfig()) return undefined
   }
   if ("discoveryDefault" in binding && context.agentIdentity) {
@@ -734,7 +733,7 @@ async function runAgentAsWorkflow<
       waitUntil: context.waitUntil,
     },
   }
-  const { runWithWorkflowRuntimeEvent } = await import(/* @vite-ignore */ workflowRuntimeStateSpecifier) as typeof import("@vite-hub/workflow/runtime/state")
+  const { runWithWorkflowRuntimeEvent } = await loadAgentWorkflowRuntimeStateModule()
   return await runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(payload, context.run?.runId ? { id: context.run.runId } : {}))
 }
 

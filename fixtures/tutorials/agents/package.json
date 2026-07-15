@@ -7,8 +7,18 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@vite-hub/agent": "workspace:*",
     "h3": "catalog:unjs",
+    "vite-hub": "workspace:*",
     "vite": "catalog:vite"
+  },
+  "imports": {
+    "#vitehub/env/public": {
+      "types": "./.vitehub/env/public.d.ts",
+      "default": "./.vitehub/env/public.mjs"
+    },
+    "#vitehub/env/server": {
+      "types": "./.vitehub/env/server.d.ts",
+      "default": "./.vitehub/env/server.mjs"
+    }
   }
 }

@@ -2,6 +2,7 @@ ignorePatterns = []
 
 dynamicallyLoaded = [
   ".github/scripts/*.mjs",
+  "fixtures/consumer/vite-hub/runtime-smoke.mjs",
   "test/local/vercel-bridge-server.mjs",
   "test/local/local.mjs",
   "test/local/netlify-real-project.mjs",
@@ -33,6 +34,7 @@ dynamicallyLoaded = [
   "packages/env/examples/**/src/server.ts",
   "packages/queue/test/e2e-live.mjs",
   "packages/queue/test/**/*.test-d.ts",
+  "packages/vite-hub/test/**/*.test-d.ts",
   "packages/schedule/test/e2e-live.mjs",
   "packages/schedule/test/**/*.test-d.ts",
   "packages/schedule/examples/**/server/**",
@@ -109,6 +111,7 @@ ignoreDependencies = [
   "chat-state-cloudflare-do",
   "agents",
   "ai",
+  "askweb",
   "publint",
   "@iconify-json/lucide",
   "@iconify-json/ph",
@@ -121,6 +124,7 @@ ignoreDependencies = [
 ]
 
 publicPackages = [
+  "vite-hub",
   "@vite-hub/agent",
   "@vite-hub/email",
   "@vite-hub/markdown-template",

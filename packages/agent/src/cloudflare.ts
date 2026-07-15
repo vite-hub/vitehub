@@ -47,6 +47,10 @@ export interface CloudflareAgentStateEntrypointOptions {
   migrationTag?: string
 }
 
+interface InternalCloudflareAgentStateEntrypointOptions extends CloudflareAgentStateEntrypointOptions {
+  stateImport?: string
+}
+
 function resolveCloudflareAgentStateEntrypointOptions(options: CloudflareAgentStateEntrypointOptions = {}) {
   return {
     binding: options.binding || defaultCloudflareAgentStateBinding,
@@ -104,6 +108,7 @@ export function configureCloudflareAgentState(target: CloudflareAgentStateTarget
 
 function createCloudflareAgentStateEntrypointPlugin(options: CloudflareAgentStateEntrypointOptions = {}): Plugin {
   const { className } = resolveCloudflareAgentStateEntrypointOptions(options)
+  const stateImport = (options as InternalCloudflareAgentStateEntrypointOptions).stateImport ?? "@vite-hub/agent/cloudflare/state"
   const moduleId = "virtual:vitehub-agent-cloudflare-state-exports"
   const resolvedModuleId = "\0virtual:vitehub-agent-cloudflare-state-exports"
 
@@ -122,7 +127,7 @@ function createCloudflareAgentStateEntrypointPlugin(options: CloudflareAgentStat
     load(id: string) {
       if (id === resolvedModuleId) {
         return [
-          `export { ${className} } from "@vite-hub/agent/cloudflare/state"`,
+          `export { ${className} } from ${JSON.stringify(stateImport)}`,
           "",
         ].join("\n")
       }
@@ -148,7 +153,10 @@ export function installCloudflareAgentStateEntrypoint(target: CloudflareAgentSta
     return
   }
 
-  const plugin = createCloudflareAgentStateEntrypointPlugin({ className })
+  const plugin = createCloudflareAgentStateEntrypointPlugin({
+    ...(options as InternalCloudflareAgentStateEntrypointOptions),
+    className,
+  })
   plugin.name = pluginName
   plugins.push(plugin)
 }

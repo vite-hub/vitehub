@@ -4,10 +4,7 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
-      neverBundle: [
-        "vite",
-        /^@vite-hub\/(?:agent|blob|database|devtools|email|env|kv|queue|sandbox|schedule|workflow|workspace)(?:\/.*)?$/,
-      ],
+      neverBundle: ["vite-hub"],
       onlyBundle: false,
     },
     entry: ["src/index.ts"],

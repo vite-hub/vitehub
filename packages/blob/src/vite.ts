@@ -35,6 +35,10 @@ interface BlobProvisionContributingPlugin {
 
 export type BlobVitePlugin = Plugin & BlobProvisionContributingPlugin & { api: BlobVitePluginAPI }
 
+type InternalBlobModuleOptions = BlobModuleOptions & {
+  importBase?: string
+}
+
 const mergeNoExternal = createNoExternalMerger(blobPackageName)
 
 function serializeVirtualConfig(config: BlobViteRuntimeConfig): string {
@@ -73,9 +77,9 @@ function mergeNitroBlobConfig(value: unknown, serve?: BlobServeConfig): Record<s
   }
 }
 
-function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"]): string {
+function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], importBase = blobPackageName): string {
   return [
-    "import { setBlobRuntimeConfig } from '@vite-hub/blob/runtime/state'",
+    `import { setBlobRuntimeConfig } from '${importBase}/runtime/state'`,
     "",
     `const blobConfig = ${JSON.stringify(blob)}`,
     "",
@@ -86,9 +90,9 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"]): string {
   ].join("\n")
 }
 
-function renderBlobServeRouteHandler(serve: BlobServeConfig): string {
+function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPackageName): string {
   return [
-    "import { blob } from '@vite-hub/blob'",
+    `import { blob } from '${importBase}'`,
     "import { createError, defineEventHandler, getRouterParam } from 'h3'",
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
@@ -102,15 +106,16 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig): string {
   ].join("\n")
 }
 
-async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConfig["blob"]): Promise<void> {
-  await writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob))
+async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConfig["blob"], importBase = blobPackageName): Promise<void> {
+  await writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, importBase))
   const serve = blob ? blob.serve : undefined
   if (!serve) return
   const file = resolve(root, generatedBlobServeRouteHandler)
-  await writeFileIfChanged(file, renderBlobServeRouteHandler(serve))
+  await writeFileIfChanged(file, renderBlobServeRouteHandler(serve, importBase))
 }
 
 export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
+  const importBase = (options as InternalBlobModuleOptions | undefined)?.importBase ?? blobPackageName
   let blob: BlobModuleOptions | undefined = options
   let clientOutDir = "dist"
   let command: "build" | "serve" = "serve"
@@ -148,7 +153,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       blob = config.blob ?? blob
       providerOutput = useComposedProviderOutput(config)
       runtimeConfig = resolveBlobViteConfig(blob)
-      await refreshBlobGeneratedFiles(config.root, runtimeConfig.blob)
+      await refreshBlobGeneratedFiles(config.root, runtimeConfig.blob, importBase)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {

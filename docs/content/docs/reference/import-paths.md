@@ -6,9 +6,48 @@ icon: i-lucide-route
 ---
 
 Stable ViteHub Import Paths are ViteHub-owned app-facing import specifiers.
-They may resolve to Runtime Registries, generated files, virtual modules, or package runtime code, but application code should not depend on that implementation detail.
+They may resolve to Runtime Registries, generated files, virtual modules, or
+owner-package runtime code, but application code should not depend on that
+implementation detail.
 
-## Stable app imports
+## Canonical application imports
+
+Applications that install `vite-hub` use the root only for framework
+composition and explicit feature subpaths for application APIs.
+
+| Import path | Use |
+| --- | --- |
+| `vite-hub` | Register the framework Vite Integration with `vitehub()`. |
+| `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Actor APIs. |
+| `vite-hub/agent/capabilities` | Official Capability factories. |
+| `vite-hub/agent/channels` | Official Channel Kind helpers. |
+| `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
+| `vite-hub/blob` | Blob Runtime Helpers and Blob Store access. |
+| `vite-hub/box` | Box Definitions and trusted-host execution contracts. |
+| `vite-hub/database` and `vite-hub/database/drizzle` | Database Definitions and generated Drizzle access. |
+| `vite-hub/env` | Env Declaration helpers and authoring types. |
+| `vite-hub/env/presets` and `vite-hub/env/schema` | Reusable Env presets and schema helpers. |
+| `vite-hub/env/secret` and `vite-hub/env/server` | Secret declarations and server-only Env access. |
+| `vite-hub/kv` | KV Runtime Helper. |
+| `vite-hub/queue` | Queue Definitions and dispatch helpers. |
+| `vite-hub/runtime` | Runtime Host Context, policy, approval, trace, and capability APIs. |
+| `vite-hub/sandbox` | Sandbox Definitions and Sandbox Run helpers. |
+| `vite-hub/schedule` and `vite-hub/schedule/runtime` | Static and runtime Schedule APIs. |
+| `vite-hub/shell` | Shell runtime and command analysis APIs. |
+| `vite-hub/shell/workspace` | Workspace-backed Shell execution helpers. |
+| `vite-hub/source` | Source Definitions, loaders, and registry APIs. |
+| `vite-hub/workflow` | Workflow Definitions and run helpers. |
+| `vite-hub/workspace` and `vite-hub/workspace/runtime` | Workspace Definitions, Sources, runtime facades, and registry APIs. |
+
+Third-party model providers, chat adapters, and harness packages remain explicit
+dependencies. Workflow retains its Vercel Functions runtime default; other
+provider-specific and host-specific ViteHub subpaths stay on their owner packages
+unless this reference promotes them.
+
+## Direct owner-package imports
+
+Every owner package remains independently installable. These paths are stable
+for libraries, focused integrations, and advanced composition.
 
 | Import path | Owner | Use |
 | --- | --- | --- |
@@ -17,6 +56,7 @@ They may resolve to Runtime Registries, generated files, virtual modules, or pac
 | `@vite-hub/agent/channels` | Agent Package | Official Channel Kind helpers such as `github()`, `teams()`, `telegram()`, `webChat()`, and `defineChannel()`. |
 | `@vite-hub/agent/eval` | Agent Package | Agent Eval authoring helpers. |
 | `@vite-hub/agent/test` | Agent Package | Agent test runner helpers for local and CI Agent Invocation checks. |
+| `@vite-hub/agent/harness/codex` | Agent Package | Codex harness integration; install its third-party harness dependencies explicitly. |
 | `@vite-hub/agent/harness/local-sandbox` | Agent Package | Trusted local harness sandbox helper for development and Agent Evals. |
 | `@vite-hub/agent/cloudflare` | Agent Package | Cloudflare Agent state helpers. |
 | `@vite-hub/auth` | Auth Package | Auth Definition helpers. |
@@ -38,6 +78,7 @@ They may resolve to Runtime Registries, generated files, virtual modules, or pac
 | `@vite-hub/schedule/runtime/driver` | Schedule Package | Host integration boundary for reconciling stored Runtime Schedules with native wake registrations. |
 | `#vitehub/schedule/registry` | Schedule Package | Generated static schedule registry for host bridges. |
 | `@vite-hub/workflow` | Workflow Package | Workflow Definition and run helpers. |
+| `@vite-hub/workflow/runtime/openworkflow-worker` | Workflow Package | OpenWorkflow-specific worker lifecycle helpers; install `openworkflow` explicitly. |
 | `@vite-hub/workspace` | Workspace Package | Workspace Definition, Source helpers, Workspace facade access, and authoring types. |
 | `@vite-hub/workspace/runtime` | Workspace Package | Workspace runtime registry, `useWorkspace()`, and source resolution/request helpers for integrations. |
 
@@ -45,7 +86,8 @@ They may resolve to Runtime Registries, generated files, virtual modules, or pac
 
 | Import path | Use |
 | --- | --- |
-| `@vite-hub/vite` | Register the preset Vite Integration with `vitehub()`. It composes package-owned integrations but does not re-export their application APIs. |
+| `vite-hub` | Canonical application import for `vitehub()`. |
+| `@vite-hub/vite` | Supported root-only compatibility import for `vitehub()`. It has no feature subpaths. |
 | `@vite-hub/agent/vite` | Register the Agent Vite Integration. |
 | `@vite-hub/auth/vite` | Register the Auth Vite Integration. |
 | `@vite-hub/blob/vite` | Register the Blob Vite Integration. |
@@ -68,9 +110,14 @@ They may resolve to Runtime Registries, generated files, virtual modules, or pac
 | `.netlify/v1/**` | Generated Provider Output | Deploy or inspect as Netlify function output. |
 | `dist/**/wrangler.json` | Generated Provider Output | Deploy or inspect as Cloudflare output. |
 | Vite virtual module ids with `\0` prefixes | Internal | Never import directly. |
+| `vite-hub/_internal/*` | Internal | Generated ViteHub code only; application imports are unsupported. |
 | `@vite-hub/internal/*` | Internal | Package implementation only. |
 
 The Agent Package does not expose an `@vite-hub/agent/netlify` application import. Netlify Agent output is generated Provider Output under `.netlify/v1` plus the `.vitehub/agent/netlify-function.mjs` source wrapper.
+
+The framework distribution does not introduce public `vite-hub/*/vite` or
+provider-specific application aliases. Use root `vitehub()` for framework
+composition and the owner-package paths above for advanced integration control.
 
 ## Related
 
@@ -78,3 +125,4 @@ The Agent Package does not expose an `@vite-hub/agent/netlify` application impor
 - [File conventions](/docs/reference/file-conventions)
 - [Package reference](/docs/reference)
 - [Runtime and host support](/docs/frameworks-hosts/support-matrix)
+- [Migrate to `vite-hub`](/docs/getting-started/migration)

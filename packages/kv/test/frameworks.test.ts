@@ -9,6 +9,25 @@ describe("package surface", () => {
 })
 
 describe("hubKv", () => {
+  it("scopes the disabled KV optional-peer resolver to ViteHub's own imports", async () => {
+    const { hubKvOptionalPeerResolver } = await import("../src/vite.ts")
+    const plugin = hubKvOptionalPeerResolver()
+    const resolveId = plugin.resolveId as unknown as (
+      id: string,
+      importer: string | undefined,
+      options: { ssr: boolean },
+    ) => unknown | Promise<unknown>
+
+    expect(await resolveId("@vite-hub/kv/runtime/upstash-driver", "/app/node_modules/@vite-hub/kv/dist/index.js", { ssr: true })).toEqual({
+      external: true,
+      id: "@vite-hub/kv/runtime/upstash-driver",
+    })
+    expect(await resolveId("@upstash/redis", "/app/node_modules/unstorage/dist/drivers/upstash.mjs", { ssr: true })).toBeUndefined()
+    expect(await resolveId("@vite-hub/kv/runtime/upstash-driver", "/app/server/storage.ts", { ssr: true })).toBeUndefined()
+    expect(await resolveId("@vite-hub/kv/runtime/upstash-driver", "/app/node_modules/@vite-hub/kv/dist/index.js", { ssr: false })).toBeUndefined()
+    expect(await resolveId("unstorage/drivers/upstash", "/app/server/storage.ts", { ssr: true })).toBeUndefined()
+  })
+
   it("resolves KV config from the Vite layer", async () => {
     const { hubKv } = await import("../src/vite.ts")
     const plugin = hubKv({ driver: "fs-lite", base: ".cache/kv" })
@@ -57,7 +76,7 @@ describe("hubKv", () => {
     expect(code).toContain(".virtual/kv")
   })
 
-  it("externalizes the unused Upstash driver and its optional peer in server builds", async () => {
+  it("externalizes only the unused package-owned Upstash driver in server builds", async () => {
     const { hubKv } = await import("../src/vite.ts")
     const plugin = hubKv({ driver: "fs-lite" })
     const resolveId = plugin.resolveId as unknown as (
@@ -66,22 +85,20 @@ describe("hubKv", () => {
       options: { ssr: boolean },
     ) => unknown | Promise<unknown>
 
-    expect(await resolveId("@upstash/redis", "/app/node_modules/unstorage/dist/drivers/upstash.mjs", { ssr: true })).toEqual({
+    expect(await resolveId("@upstash/redis", "/app/node_modules/unstorage/dist/drivers/upstash.mjs", { ssr: true })).toBeUndefined()
+    expect(await resolveId("@vite-hub/kv/runtime/upstash-driver", "/app/node_modules/@vite-hub/kv/dist/index.js", { ssr: true })).toEqual({
       external: true,
-      id: "@upstash/redis",
-    })
-    expect(await resolveId("unstorage/drivers/upstash", "/app/node_modules/@vite-hub/kv/dist/index.js", { ssr: true })).toEqual({
-      external: true,
-      id: "unstorage/drivers/upstash",
+      id: "@vite-hub/kv/runtime/upstash-driver",
     })
     expect(await resolveId("@upstash/redis", undefined, { ssr: false })).toBeUndefined()
     expect(await resolveId("unstorage/drivers/fs-lite", undefined, { ssr: true })).toBeUndefined()
     expect(await resolveId("@upstash/redis", "/app/server/redis.ts", { ssr: true })).toBeUndefined()
+    expect(await resolveId("@vite-hub/kv/runtime/upstash-driver", "/app/server/storage.ts", { ssr: true })).toBeUndefined()
     expect(await resolveId("unstorage/drivers/upstash", "/app/server/storage.ts", { ssr: true })).toBeUndefined()
 
     const upstashPlugin = hubKv({ driver: "upstash" })
     const resolveUpstashId = upstashPlugin.resolveId as typeof resolveId
-    expect(await resolveUpstashId("unstorage/drivers/upstash", "/app/node_modules/@vite-hub/kv/dist/index.js", { ssr: true })).toBeUndefined()
+    expect(await resolveUpstashId("@vite-hub/kv/runtime/upstash-driver", "/app/node_modules/@vite-hub/kv/dist/index.js", { ssr: true })).toBeUndefined()
   })
 
   it("anchors generated Cloudflare runtime imports to the KV package", async () => {

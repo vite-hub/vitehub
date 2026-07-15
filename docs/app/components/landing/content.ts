@@ -10,25 +10,25 @@ export const installOptions = {
       label: "pnpm",
       value: "pnpm",
       icon: "i-simple-icons-pnpm",
-      command: "pnpm add @vite-hub/agent h3 vite",
+      command: "pnpm add vite-hub h3 vite",
     },
     {
       label: "npm",
       value: "npm",
       icon: "i-simple-icons-npm",
-      command: "npm install @vite-hub/agent h3 vite",
+      command: "npm install vite-hub h3 vite",
     },
     {
       label: "bun",
       value: "bun",
       icon: "i-simple-icons-bun",
-      command: "bun add @vite-hub/agent h3 vite",
+      command: "bun add vite-hub h3 vite",
     },
     {
       label: "yarn",
       value: "yarn",
       icon: "i-simple-icons-yarn",
-      command: "yarn add @vite-hub/agent h3 vite",
+      command: "yarn add vite-hub h3 vite",
     },
   ],
 } as const;
@@ -42,7 +42,7 @@ export const landingPaths = [
     tutorialPath: "/docs/getting-started/first-agent",
     action: "Build your first Agent",
     codeLabel: "server/agents/review.ts",
-    code: `import { defineAgent } from "@vite-hub/agent"
+    code: `import { defineAgent } from "vite-hub/agent"
 
 export default defineAgent({
   description: "Reviews one repository change.",
@@ -61,7 +61,7 @@ export default defineAgent({
     tutorialPath: "/docs/getting-started/first-server-primitive",
     action: "Try a Server Primitive",
     codeLabel: "server/api/settings.put.ts",
-    code: `import { kv } from "@vite-hub/kv"
+    code: `import { kv } from "vite-hub/kv"
 
 export default defineEventHandler(async (event) => {
   await kv.set("settings", await readBody(event))

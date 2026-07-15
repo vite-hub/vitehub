@@ -39,6 +39,10 @@ export interface AuthVitePluginAPI {
 
 export type AuthVitePlugin = Plugin & { api: AuthVitePluginAPI }
 
+type InternalAuthModuleOptions = AuthModuleOptions & {
+  importBase?: string
+}
+
 interface RequestInitWithDuplex extends RequestInit {
   duplex?: "half"
 }
@@ -55,18 +59,20 @@ function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined):
   ].join("\n")
 }
 
-function renderAuthServerModule(options: { serverEnv: boolean } = { serverEnv: false }): string {
+function renderAuthServerModule(options: { importBase?: string, serverEnv: boolean } = { serverEnv: false }): string {
+  const importBase = options.importBase ?? authPackageName
+  const serverImport = `${importBase}/server`
   return [
     ...(options.serverEnv
       ? [
-          `import { setAuthRuntimeEnvResolver } from ${JSON.stringify("@vite-hub/auth/server")}`,
+          `import { setAuthRuntimeEnvResolver } from ${JSON.stringify(serverImport)}`,
           `import { useServerEnv } from ${JSON.stringify(envServerModuleId)}`,
           "setAuthRuntimeEnvResolver(useServerEnv)",
           "",
         ]
       : []),
-    `export * from ${JSON.stringify("@vite-hub/auth/server")}`,
-    `export { handleAuth as default } from ${JSON.stringify("@vite-hub/auth/server")}`,
+    `export * from ${JSON.stringify(serverImport)}`,
+    `export { handleAuth as default } from ${JSON.stringify(serverImport)}`,
     "",
   ].join("\n")
 }
@@ -111,30 +117,32 @@ function authAmbientTypesPath(root: string): string {
   return resolve(root, ".vitehub", "types", "auth.d.ts")
 }
 
-function renderAuthAmbientTypes(options: { serverEnv: boolean } = { serverEnv: false }): string {
+function renderAuthAmbientTypes(options: { importBase?: string, serverEnv: boolean } = { serverEnv: false }): string {
+  const importBase = options.importBase ?? authPackageName
+  const serverImport = `${importBase}/server`
   return [
     ...(options.serverEnv
       ? [
           `import type { ServerEnv } from ${JSON.stringify(envServerModuleId)}`,
           "",
-          `declare module ${JSON.stringify("@vite-hub/auth")} {`,
+          `declare module ${JSON.stringify(importBase)} {`,
           "  interface AuthRuntimeEnv extends ServerEnv {}",
           "}",
           "",
         ]
       : []),
     `declare module ${JSON.stringify(AUTH_SERVER_ID)} {`,
-    `  export * from ${JSON.stringify("@vite-hub/auth/server")}`,
-    `  export { handleAuth as default } from ${JSON.stringify("@vite-hub/auth/server")}`,
+    `  export * from ${JSON.stringify(serverImport)}`,
+    `  export { handleAuth as default } from ${JSON.stringify(serverImport)}`,
     "}",
     "",
   ].join("\n")
 }
 
-async function refreshAuthGeneratedFiles(root: string, config?: ResolvedAuthViteConfig, options: { serverEnv?: boolean } = {}): Promise<void> {
+async function refreshAuthGeneratedFiles(root: string, config?: ResolvedAuthViteConfig, options: { importBase?: string, serverEnv?: boolean } = {}): Promise<void> {
   await Promise.all([
     writeFileIfChanged(resolve(root, generatedAuthAccessMiddlewareHandler), renderAuthAccessMiddlewareHandler(config)),
-    writeFileIfChanged(authAmbientTypesPath(root), renderAuthAmbientTypes({ serverEnv: Boolean(options.serverEnv) })),
+    writeFileIfChanged(authAmbientTypesPath(root), renderAuthAmbientTypes({ importBase: options.importBase, serverEnv: Boolean(options.serverEnv) })),
     writeFileIfChanged(resolve(root, generatedAuthRouteHandler), renderAuthRouteHandler()),
   ])
 }
@@ -248,6 +256,7 @@ function loadAuthDefinitionModule(module: unknown): AuthDefinition | undefined {
 }
 
 export function hubAuth(options?: AuthModuleOptions): AuthVitePlugin {
+  const importBase = (options as InternalAuthModuleOptions | undefined)?.importBase ?? authPackageName
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedAuthViteConfig | undefined
   let serverEnv = false
@@ -295,7 +304,7 @@ export function hubAuth(options?: AuthModuleOptions): AuthVitePlugin {
       resolved = config
       serverEnv = hasServerEnvIntegration(config)
       const runtimeConfig = refreshRuntimeConfig()
-      await refreshAuthGeneratedFiles(config.root, runtimeConfig, { serverEnv })
+      await refreshAuthGeneratedFiles(config.root, runtimeConfig, { importBase, serverEnv })
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
@@ -364,7 +373,7 @@ export function hubAuth(options?: AuthModuleOptions): AuthVitePlugin {
     },
     load(id) {
       if (id === RESOLVED_AUTH_DEFINITION_ID) return renderAuthDefinitionModule(runtimeConfig)
-      if (id === RESOLVED_AUTH_SERVER_ID) return renderAuthServerModule({ serverEnv })
+      if (id === RESOLVED_AUTH_SERVER_ID) return renderAuthServerModule({ importBase, serverEnv })
     },
   }
 }

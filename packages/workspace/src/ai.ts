@@ -1,5 +1,6 @@
 import { normalizeSafeWorkspacePath } from "./core/path.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
+import { loadWorkspaceShellModule } from "./runtime/dependency-loaders.ts"
 import { getWorkspaceSourceRequestExecution } from "./sources/request-execution.ts"
 
 import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./core/types.ts"
@@ -175,8 +176,9 @@ export type WorkspaceTools<Operations = undefined> = ((ShellEnabled<Operations> 
 
 const defaultMaxOutputLength = 30_000
 const workspaceMountPoint = "/workspace"
-const shellWorkspaceSpecifier = "@vite-hub/shell/workspace"
 const aiSchemaSymbol = Symbol.for("vercel.ai.schema")
+
+type WorkspaceShellModule = typeof import("@vite-hub/shell/workspace")
 
 type ValidationResult<T> =
   | { success: true, value: T }
@@ -366,7 +368,7 @@ async function runShellCommand(
   options: { broadSearchPaths: string[], commands: string[], cwd: string, executionProvider?: WorkspaceToolOptions["executionProvider"], maxOutputLength: number, timeout?: number },
 ): Promise<WorkspaceShellResult> {
   const networkGrants = getWorkspaceSourceRequestExecution(input)
-  const { createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } = await import(/* @vite-ignore */ shellWorkspaceSpecifier)
+  const { createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } = await loadWorkspaceShellModule() as WorkspaceShellModule
   const inspectionOptions = {
     broadSearchPaths: options.broadSearchPaths,
     commands: networkGrants ? [...options.commands, "curl"] : options.commands,

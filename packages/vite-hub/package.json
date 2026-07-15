@@ -1,0 +1,134 @@
+{
+  "name": "vite-hub",
+  "version": "0.0.1",
+  "description": "The cohesive ViteHub framework distribution for Vite applications and agents.",
+  "keywords": [
+    "agent",
+    "server",
+    "vite",
+    "vitehub"
+  ],
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/vite-hub"
+  },
+  "bin": {
+    "vite-hub": "./dist/bin.js",
+    "vitehub": "./dist/bin.js"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "type": "module",
+  "sideEffects": [
+    "./dist/bin.js"
+  ],
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./_internal/agent": "./dist/_internal/agent.js",
+    "./_internal/agent/cloudflare": "./dist/_internal/agent/cloudflare.js",
+    "./_internal/agent/cloudflare/state": "./dist/_internal/agent/cloudflare/state.js",
+    "./_internal/agent/runtime/workflow": "./dist/_internal/agent/runtime/workflow.js",
+    "./_internal/agent/server": "./dist/_internal/agent/server.js",
+    "./_internal/agent/server/internal": "./dist/_internal/agent/server/internal.js",
+    "./_internal/agent/server/workspace": "./dist/_internal/agent/server/workspace.js",
+    "./_internal/agent/state/sqlite": "./dist/_internal/agent/state/sqlite.js",
+    "./_internal/blob": "./dist/_internal/blob.js",
+    "./_internal/blob/runtime/state": "./dist/_internal/blob/runtime/state.js",
+    "./_internal/kv": "./dist/_internal/kv.js",
+    "./_internal/kv/runtime/disabled-upstash": "./dist/_internal/kv/runtime/disabled-upstash.js",
+    "./_internal/sandbox/runtime/state": "./dist/_internal/sandbox/runtime/state.js",
+    "./_internal/schedule": "./dist/_internal/schedule.js",
+    "./_internal/schedule/runtime": "./dist/_internal/schedule/runtime.js",
+    "./_internal/schedule/runtime/driver": "./dist/_internal/schedule/runtime/driver.js",
+    "./_internal/schedule/runtime/process": "./dist/_internal/schedule/runtime/process.js",
+    "./_internal/schedule/runtime/static": "./dist/_internal/schedule/runtime/static.js",
+    "./_internal/workflow": "./dist/_internal/workflow.js",
+    "./_internal/workflow/runtime/execute": "./dist/_internal/workflow/runtime/execute.js",
+    "./_internal/workflow/runtime/state": "./dist/_internal/workflow/runtime/state.js",
+    "./_internal/workspace": "./dist/_internal/workspace.js",
+    "./_internal/workspace/internal/runtime/hosted": "./dist/_internal/workspace/internal/runtime/hosted.js",
+    "./_internal/workspace/internal/runtime/hosted-vercel-blob": "./dist/_internal/workspace/internal/runtime/hosted-vercel-blob.js",
+    "./_internal/workspace/runtime": "./dist/_internal/workspace/runtime.js",
+    "./agent": "./dist/agent.js",
+    "./agent/capabilities": "./dist/agent/capabilities.js",
+    "./agent/channels": "./dist/agent/channels.js",
+    "./auth": "./dist/auth.js",
+    "./auth/server": "./dist/auth/server.js",
+    "./blob": "./dist/blob.js",
+    "./box": "./dist/box.js",
+    "./database": "./dist/database.js",
+    "./database/drizzle": "./dist/database/drizzle.js",
+    "./env": "./dist/env.js",
+    "./env/presets": "./dist/env/presets.js",
+    "./env/schema": "./dist/env/schema.js",
+    "./env/secret": "./dist/env/secret.js",
+    "./env/server": "./dist/env/server.js",
+    "./kv": "./dist/kv.js",
+    "./queue": "./dist/queue.js",
+    "./runtime": "./dist/runtime.js",
+    "./sandbox": "./dist/sandbox.js",
+    "./schedule": "./dist/schedule.js",
+    "./schedule/runtime": "./dist/schedule/runtime.js",
+    "./shell": "./dist/shell.js",
+    "./shell/workspace": "./dist/shell/workspace.js",
+    "./source": "./dist/source.js",
+    "./workflow": "./dist/workflow.js",
+    "./workspace": "./dist/workspace.js",
+    "./workspace/runtime": "./dist/workspace/runtime.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "test": "vp run -t vite-hub#build && vp test"
+  },
+  "dependencies": {
+    "@vite-hub/agent": "workspace:*",
+    "@vite-hub/auth": "workspace:*",
+    "@vite-hub/blob": "workspace:*",
+    "@vite-hub/box": "workspace:*",
+    "@vite-hub/cli": "workspace:*",
+    "@vite-hub/database": "workspace:*",
+    "@vite-hub/devtools": "workspace:*",
+    "@vite-hub/env": "workspace:*",
+    "@vite-hub/kv": "workspace:*",
+    "@vite-hub/queue": "workspace:*",
+    "@vite-hub/runtime": "workspace:*",
+    "@vite-hub/sandbox": "workspace:*",
+    "@vite-hub/schedule": "workspace:*",
+    "@vite-hub/shell": "workspace:*",
+    "@vite-hub/source": "workspace:*",
+    "@vite-hub/workflow": "workspace:*",
+    "@vite-hub/workspace": "workspace:*",
+    "drizzle-kit": "catalog:database",
+    "drizzle-orm": "catalog:database"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
+  },
+  "peerDependencies": {
+    "vite": "catalog:vite-compat"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

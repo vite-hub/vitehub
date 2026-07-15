@@ -6,7 +6,6 @@ export { getVercelWorkflowName } from "./integrations/vercel.ts"
 export { createWorkflow, deferWorkflow, getWorkflowRun, runWorkflow } from "./runtime/client.ts"
 export { readRequestPayload, readValidatedPayload, validatePayload } from "./runtime/payload.ts"
 export { createWorkflowCloudflareWorker } from "./runtime/cloudflare-vite.ts"
-export { createOpenWorkflowWorker, startOpenWorkflowWorker } from "./runtime/openworkflow-worker.ts"
 
 export type {
   CloudflareWorkflowBinding,

@@ -40,7 +40,7 @@ describe("crabbox", () => {
         { command: "pnpm", name: "pnpm" },
         { command: "codex", name: "codex" },
       ],
-      workspace: { path: workspace, state: "authoritative" },
+      workspace: { path: await realpath(workspace), state: "authoritative" },
     })
     expect(box.sandbox).toMatchObject({ providerId: "crabbox" })
     expect(JSON.stringify(box)).not.toContain("sandbox")
@@ -99,13 +99,15 @@ describe("crabbox", () => {
   it("rejects unsafe workspace archive paths", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")
-    const source = join(root, "source")
+    const bin = join(root, "bin")
     const archive = join(root, "workspace.tar")
-    await Promise.all([mkdir(workspace), mkdir(source)])
-    await writeFile(join(source, "file.txt"), "remote")
-    await execFileAsync("tar", ["-cf", archive, "--transform=s|file.txt|../outside.txt|", "-C", source, "file.txt"])
+    await Promise.all([mkdir(workspace), mkdir(bin)])
+    await writeFile(archive, "")
+    await executable(bin, "tar", `test "$1" = -tf || exit 2\nprintf '%s\\n' '../outside.txt'`)
 
-    await expect(rejectSymlinkedArchiveParents(workspace, archive)).rejects.toThrow("archive contains an invalid path")
+    await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      await expect(rejectSymlinkedArchiveParents(workspace, archive)).rejects.toThrow("archive contains an invalid path")
+    })
   })
 
   it("removes empty parents before extracting replacement entries", async () => {

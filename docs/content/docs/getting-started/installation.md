@@ -1,13 +1,13 @@
 ---
 title: Installation
-description: Install one ViteHub package or register the full Vite preset.
+description: Install the ViteHub framework distribution or choose a direct owner package for advanced composition.
 navigation.order: 2
 icon: i-lucide-download
 ---
 
-ViteHub packages are composable. Install the package that owns your first
-feature, or use the preset when you want to explore several primitives in one
-application.
+Install `vite-hub` for the normal application path. It provides the main Vite
+Integration and intentional feature subpaths while keeping one direct ViteHub
+dependency in the application manifest.
 
 ## Prerequisites
 
@@ -20,34 +20,18 @@ Model providers and hosted primitives may require credentials. Each feature
 guide lists its own environment, network, and billing prerequisites before the
 first call.
 
-## Install one package
+## Install the framework distribution
 
-Direct packages keep the first integration small. The quickstarts install
-their HTTP server and Vite dependencies explicitly so every boundary remains
-reproducible.
-
-| Path | Install | Continue |
-| --- | --- | --- |
-| Server Primitives | `pnpm add @vite-hub/kv h3 vite` | [First Server Primitive](/docs/getting-started/first-server-primitive) |
-| Agents | `pnpm add @vite-hub/agent h3 vite` | [First Agent](/docs/getting-started/first-agent) |
-
-Other feature pages provide the matching package and Vite Integration. For
-example, Blob uses `@vite-hub/blob` with `hubBlob()`, while Queue uses
-`@vite-hub/queue` with `hubQueue()`.
-
-## Use the preset
-
-Install `@vite-hub/vite` when one application needs several ViteHub packages
-and you prefer one integration entry point.
+Add `vite-hub` to an existing Vite application.
 
 ```bash [Terminal]
-pnpm add @vite-hub/vite vite
+pnpm add vite-hub
 ```
 
-Register the preset in Vite.
+Register the framework integration in Vite.
 
 ```ts [vite.config.ts]
-import { vitehub } from "@vite-hub/vite"
+import { vitehub } from "vite-hub"
 import { defineConfig } from "vite"
 
 export default defineConfig({
@@ -57,13 +41,38 @@ export default defineConfig({
 })
 ```
 
-The preset composes package integrations. Product code still imports Runtime
-Helpers from the package that owns the feature.
+Import application APIs from explicit feature subpaths.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from "vite-hub/agent"
+import { access } from "vite-hub/agent/capabilities"
+import { defineWorkspace } from "vite-hub/workspace"
+```
+
+Model providers, chat adapters, and harness adapters remain explicit
+dependencies because the application chooses them. Workflow's existing Vercel
+Functions runtime is a deliberate framework default; other provider SDKs stay
+package-owned and explicit.
+
+## Install an owner package directly
+
+Every `@vite-hub/*` owner package remains independently installable. Use one
+directly for a library, a focused integration, or an advanced composition that
+does not want the framework distribution.
+
+| Path | Direct install | Integration |
+| --- | --- | --- |
+| Server Primitives | `pnpm add @vite-hub/kv vite` | `hubKv()` from `@vite-hub/kv/vite` |
+| Agents | `pnpm add @vite-hub/agent vite` | `hubAgent()` from `@vite-hub/agent/vite` |
 
 ::tip
-Prefer a direct package for the first proof. Add the preset when it removes
-real integration repetition from an application that uses several packages.
+New applications should start with `vite-hub`. Direct owner packages are the
+escape hatch when package-level control is the goal.
 ::
+
+`@vite-hub/vite` remains supported as a root-only compatibility import for
+`vitehub()`. It does not expose feature subpaths. See [Migrate to
+`vite-hub`](/docs/getting-started/migration) for the before-and-after imports.
 
 ## Add generated types
 
@@ -96,3 +105,4 @@ The two first-success guides include complete build and runtime commands:
 - Read [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output) to understand integration ownership.
 - Open [Server Primitives](/docs/server-primitives) to choose infrastructure.
 - Open [Agents](/docs/agents) to choose an Agent Driver and Capabilities.
+- Read [Migrate to `vite-hub`](/docs/getting-started/migration) for existing applications.
