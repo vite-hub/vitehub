@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises"
+import { readFile, stat } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { build as bundle, type Plugin } from "esbuild"
@@ -22,6 +22,22 @@ function hasViteRawQuery(path: string): boolean {
   return queryIndex !== -1 && /(?:^|&)raw(?:&|$)/.test(path.slice(queryIndex + 1))
 }
 
+async function resolveViteRawSpecifier(path: string, rootDir: string | undefined): Promise<string> {
+  if (path.startsWith("/@fs/")) return path.slice("/@fs/".length)
+  if (!rootDir || !path.startsWith("/")) return path
+
+  const rootRelativePath = path.slice(1)
+  const publicPath = resolve(rootDir, "public", rootRelativePath)
+  try {
+    await stat(publicPath)
+    return publicPath
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    return resolve(rootDir, rootRelativePath)
+  }
+}
+
 function createViteRawPlugin(rootDir: string | undefined): Plugin {
   return {
     name: "vitehub-vite-raw",
@@ -29,7 +45,7 @@ function createViteRawPlugin(rootDir: string | undefined): Plugin {
       build.onResolve({ filter: /\?/ }, async (args) => {
         if (!hasViteRawQuery(args.path)) return
         const path = args.path.slice(0, args.path.indexOf("?"))
-        const specifier = rootDir && path.startsWith("/") ? resolve(rootDir, path.slice(1)) : path
+        const specifier = await resolveViteRawSpecifier(path, rootDir)
         const resolved = await build.resolve(specifier, {
           importer: args.importer,
           kind: args.kind,

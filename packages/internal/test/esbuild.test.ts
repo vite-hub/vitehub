@@ -55,6 +55,30 @@ describe("bundleEsmEntry", () => {
     expect(loaded.default).toBe("# Root context\n")
   })
 
+  it("resolves public and /@fs/ raw imports with Vite semantics", async () => {
+    const rootDir = await createTempDir()
+    const publicDir = join(rootDir, "public")
+    const entry = join(rootDir, "entry.mjs")
+    const outsideRoot = join(await createTempDir(), "outside.md")
+    const outfile = join(rootDir, "bundle.mjs")
+    await mkdir(publicDir, { recursive: true })
+    await writeFile(join(rootDir, "robots.txt"), "root robots\n", "utf8")
+    await writeFile(join(publicDir, "robots.txt"), "public robots\n", "utf8")
+    await writeFile(outsideRoot, "outside context\n", "utf8")
+    await writeFile(entry, [
+      `import robots from "/robots.txt?raw"`,
+      `import outside from ${JSON.stringify(`/@fs/${outsideRoot}?raw`)}`,
+      `export default { outside, robots }`,
+      ``,
+    ].join("\n"), "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
+
+    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: { outside: string, robots: string } }
+    expect(loaded.default).toEqual({ outside: "outside context\n", robots: "public robots\n" })
+  })
+
   it("lets caller plugins handle raw queries before the fallback", async () => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "entry.mjs")
