@@ -54,6 +54,7 @@ interface PreparedState {
   initialize: boolean;
   path: string;
   persistent: string;
+  projections: readonly string[];
   seed: readonly MaterializedFile[];
 }
 
@@ -213,6 +214,7 @@ async function prepareState(
       initialize: !existing,
       path: state.path,
       persistent,
+      projections: state.projections,
       seed: existing ? [] : await resolveFiles(state.seed),
     });
   }
@@ -231,11 +233,45 @@ async function materializeState(home: string, states: readonly PreparedState[]) 
         await rm(staging, { force: true, recursive: true }).catch(() => undefined);
       }
     }
+    await reconcileProjections(state);
     await chmod(state.persistent, 0o700);
     const target = join(home, ...state.path.split("/"));
     await mkdir(dirname(target), { mode: 0o700, recursive: true });
     await symlink(state.persistent, target, "dir");
   }
+}
+
+async function reconcileProjections(state: PreparedState) {
+  const manifest = `${state.persistent}.projections`;
+  const previous = await readFile(manifest, "utf8").then(
+    (value) => {
+      const parsed = JSON.parse(value) as unknown;
+      if (!Array.isArray(parsed) || parsed.some((path) => typeof path !== "string")) {
+        throw new Error(`[vitehub] Box projection manifest is invalid: ${state.path}`);
+      }
+      return parsed as string[];
+    },
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    },
+  );
+  const current = new Set(state.projections);
+  for (const path of previous) {
+    if (current.has(path)) continue;
+    const target = join(state.persistent, ...path.split("/"));
+    const parent = await realpath(dirname(target)).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    });
+    if (!parent) continue;
+    const relativeParent = relative(state.persistent, parent);
+    if (relativeParent === ".." || relativeParent.startsWith(`..${delimiter}`) || isAbsolute(relativeParent)) {
+      throw new Error(`[vitehub] Box projected path escapes writable state: ${state.path}/${path}`);
+    }
+    await rm(target, { force: true, recursive: true });
+  }
+  await writePrivateFile(manifest, new TextEncoder().encode(JSON.stringify(state.projections)));
 }
 
 async function resolveFiles(

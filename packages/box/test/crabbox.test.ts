@@ -123,6 +123,20 @@ describe("crabbox", () => {
           { stdout: "refreshed" },
         );
         await second.destroy?.();
+
+        const withoutProjection = await resolveBox(
+          {
+            cwd: workspace,
+            home: { state: { ".acme": { key: "portable-box-test/acme" } } },
+            runtime: crabbox({ profile: "babysitter", stateRoot }),
+          },
+          {},
+        );
+        const third = await (withoutProjection.sandbox as HarnessV1SandboxProvider).createSession();
+        await expect(
+          third.run({ command: 'test ! -e "$HOME/.acme/config.toml" && cat "$HOME/.acme/auth.json"' }),
+        ).resolves.toMatchObject({ stdout: "refreshed" });
+        await third.destroy?.();
         expect((await stat(stateRoot)).mode & 0o777).toBe(0o755);
 
         const invocations = await readFile(log, "utf8");

@@ -156,6 +156,28 @@ describe("trustedHost", () => {
     await second.destroy?.();
   });
 
+  it("removes static projections that leave writable state", async () => {
+    const root = await temporaryRoot();
+    const stateRoot = join(root, "state");
+    const definition = (project: boolean) => ({
+      home: {
+        ...(project ? { files: { ".codex/config.toml": { contents: "projected" } } } : {}),
+        state: { ".codex": { key: "portable-box-test/projections" } },
+      },
+      runtime: trustedHost({ stateRoot }),
+    });
+
+    const firstBox = await resolveBox(definition(true), {});
+    const first = (await (firstBox.sandbox as HarnessV1SandboxProvider).createSession()) as typeof sessionWithEnv;
+    await expect(readFile(join(first.env.HOME, ".codex", "config.toml"), "utf8")).resolves.toBe("projected");
+    await first.destroy?.();
+
+    const secondBox = await resolveBox(definition(false), {});
+    const second = (await (secondBox.sandbox as HarnessV1SandboxProvider).createSession()) as typeof sessionWithEnv;
+    await expect(stat(join(second.env.HOME, ".codex", "config.toml"))).rejects.toMatchObject({ code: "ENOENT" });
+    await second.destroy?.();
+  });
+
   it("serializes sessions sharing writable state", async () => {
     const root = await temporaryRoot();
     const box = await resolveBox(
@@ -365,6 +387,15 @@ describe("trustedHost", () => {
         {},
       ),
     ).rejects.toThrow("HOME is managed by the Box runtime");
+    await expect(
+      resolveBox(
+        {
+          env: { CODEX_HOME: "/ambient" },
+          runtime: trustedHost(),
+        },
+        {},
+      ),
+    ).rejects.toThrow("CODEX_HOME is managed by the Box runtime");
     await expect(
       resolveBox(
         {
