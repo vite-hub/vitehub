@@ -1723,6 +1723,7 @@ type InvocationRunContext<
   finishHook?: (event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   hooks?: AgentHookObserverHooks
   input: AgentRunInput<CALL_OPTIONS>
+  output?: AgentOutputDefinition
   outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
   startTask?: Promise<void>
   actor: AgentInvoker
@@ -1857,7 +1858,9 @@ async function finishStreamAgentInvocation<
   try {
     const usageRecord = await resolveFinishUsageRecord(context, result)
     finishResult = await applyFinalOutputRenderers(result, context, outputExtensions)
-    finishResult = resultWithUsageRecord(finishResult, usageRecord)
+    finishResult = context.output
+      ? await validateAgentOutput(context.output, await materializeAgentStructuredOutput(finishResult), { allowMaterializedObject: finishResult !== result })
+      : resultWithUsageRecord(finishResult, usageRecord)
   }
   catch (finishError) {
     await finishFailedAgentInvocation(context, finishError, failureMessage)
@@ -1987,7 +1990,7 @@ function shouldDeferFinish<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS> & { hasCapabilityCleanup: boolean }): boolean {
-  return context.hasCapabilityCleanup || hasFinishWork(context) || Boolean(context.finalOutputRenderers.length) || hasWorkspaceAutoCommit(context)
+  return context.hasCapabilityCleanup || hasFinishWork(context) || Boolean(context.finalOutputRenderers.length) || Boolean(context.output) || hasWorkspaceAutoCommit(context)
 }
 
 function shouldWrapInvocationOutput<
@@ -2297,7 +2300,7 @@ async function finalizeAgentInvocationResult<
       const stream = options.wrapStream?.(result) || result
       if (shouldWrapOutput) {
         const streamed = withStreamedResult(stream, result)
-        if (!context.finalOutputRenderers.length) {
+        if (!context.finalOutputRenderers.length && !context.output) {
           return withCapabilityCleanup(streamed.stream, async (outcome) => {
             const finishOutcome = finishOutcomeFromCleanup(outcome, result)
             const usage = streamed.finishUsage()
@@ -2325,6 +2328,7 @@ async function finalizeAgentInvocationResult<
 
 async function materializeAgentStructuredOutput(result: unknown): Promise<unknown> {
   if (!isAsyncIterable(result)) return result
+  if (toAgentRunResult(result).text !== undefined) return result
   let text = ""
   for await (const event of streamAgentOutputToEvents(result)) {
     if (event.type === "error") throw new Error(event.error)
@@ -2546,7 +2550,10 @@ export async function streamAgentInline<
       const isStream = isAsyncIterable(rendered) || isStreamResult
       if (!isStream) {
         const final = await applyFinalOutputRenderers(rendered, runContext, outputExtensions)
-        return { finishResult: final, value: final }
+        const value = runContext.output
+          ? await validateAgentOutput(runContext.output, final, { allowMaterializedObject: true })
+          : final
+        return { finishResult: value, value }
       }
       const stream = isStreamResult
         ? streamAgentOutputToEvents(rendered)

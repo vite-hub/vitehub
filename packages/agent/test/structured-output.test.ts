@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { AgentOutputValidationError, defineAgent, runAgentInline } from "../src/index.ts"
+import { AgentOutputValidationError, defineAgent, runAgentInline, streamAgentInline } from "../src/index.ts"
 
 import type { AgentRuntimeContext } from "../src/index.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
@@ -147,6 +147,28 @@ describe("Agent structured output", () => {
       summary: "Decisions",
       title: "Weekly sync",
     })
+  })
+
+  it("validates structured streams before running the finish lifecycle", async () => {
+    const finish = vi.fn()
+    const agent = defineAgent({
+      driver: {
+        run: async function* () {
+          yield { text: "{\"summary\":\"Decisions\",", type: "text-delta" as const }
+          yield { text: "\"title\":\"Weekly sync\"}", type: "text-delta" as const }
+        },
+      },
+      hooks: { "agent:finish": finish },
+      output: { schema: summarySchema() },
+      runtime: false,
+    })
+
+    const result = await streamAgentInline(agent, runtime(), {})
+    expect(typeof (result as AsyncIterable<unknown>)[Symbol.asyncIterator]).toBe("function")
+    for await (const _event of result as AsyncIterable<unknown>) {}
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      result: { summary: "Decisions", title: "Weekly sync" },
+    }))
   })
 
   it("reports Standard Schema failures separately from JSON decoding", async () => {
