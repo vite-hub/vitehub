@@ -174,6 +174,13 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
       importBase: "vite-hub/auth",
     } as unknown as AuthModuleOptions))
   }
+  if (options.sandbox) {
+    plugins.push(hubSandbox({
+      ...(options.sandbox === true ? {} : options.sandbox),
+      providerImportAliases,
+      providerImportSpecifier: "vite-hub/sandbox",
+    } as unknown as SandboxPublicOptions))
+  }
   if (options.agent !== false) {
     plugins.push(hubAgent({
       ...options.agent,
@@ -200,13 +207,6 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
   if (options.kv) plugins.push(hubKv(options.kv === true ? undefined : options.kv))
   else plugins.push(hubKvOptionalPeerResolver())
   if (options.queue) plugins.push(hubQueue(options.queue === true ? {} : options.queue))
-  if (options.sandbox) {
-    plugins.push(hubSandbox({
-      ...(options.sandbox === true ? {} : options.sandbox),
-      providerImportAliases,
-      providerImportSpecifier: "vite-hub/sandbox",
-    } as unknown as SandboxPublicOptions))
-  }
   if (options.schedule) {
     plugins.push(hubSchedule({
       ...(options.schedule === true ? {} : options.schedule),
