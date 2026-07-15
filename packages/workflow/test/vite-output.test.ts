@@ -202,7 +202,7 @@ describe("Vite workflow provider outputs", () => {
     ].join("\n"))
     await writeFile(join(rootDir, "server", "workflows", "native.ts"), [
       `import { defineWorkflow } from "@vite-hub/workflow"`,
-      `import { durable } from "./durable"`,
+      `import { durable } from "./durable.js"`,
       `export default defineWorkflow(async () => "inline", { native: durable })`,
     ].join("\n"))
 

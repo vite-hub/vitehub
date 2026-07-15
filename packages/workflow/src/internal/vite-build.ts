@@ -92,7 +92,13 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
     }
     for (const match of source.matchAll(/(?:from\s*|import\s*\(\s*)["'](\.[^"']+)["']/g)) {
       const imported = resolve(dirname(file), match[1])
-      const candidate = [imported, ...[".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"].map(extension => `${imported}${extension}`)]
+      const extensions = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]
+      const sourceBase = imported.replace(/\.(?:m|c)?js$/, "")
+      const candidate = [
+        imported,
+        ...extensions.map(extension => `${sourceBase}${extension}`),
+        ...extensions.map(extension => join(imported, `index${extension}`)),
+      ]
         .find(path => existsSync(path) && statSync(path).isFile())
       if (candidate) visit(candidate)
     }
