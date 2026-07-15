@@ -143,17 +143,8 @@ body {
   }
 }
 
-.docs-content .u-page-grid {
-  gap: 0.75rem;
-}
-
-.docs-content .u-page-card,
 .docs-content .code-block-wrapper {
   border-radius: 0.125rem;
-}
-
-.docs-content .u-page-card {
-  box-shadow: none;
 }
 
 .docs-content [data-reka-tabs-content] .code-block-wrapper {

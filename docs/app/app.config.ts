@@ -85,6 +85,22 @@ export default defineAppConfig({
     pageBody: {
       base: "mt-0 px-4 pb-24 sm:px-8 lg:px-8 xl:px-12",
     },
+    pageGrid: {
+      base: "grid-cols-1 gap-px border border-default bg-[var(--ui-border)] sm:grid-cols-2 lg:grid-cols-2",
+    },
+    pageCard: {
+      defaultVariants: {
+        variant: "ghost",
+      },
+      slots: {
+        root: "group rounded-none bg-default",
+        container: "gap-0 p-4 sm:p-5",
+        leading: "mb-3 size-8 items-center justify-center border border-default bg-muted/30",
+        leadingIcon: "size-4 text-muted transition-colors group-hover:text-highlighted",
+        title: "text-sm font-semibold",
+        description: "mt-1 text-sm/6 text-muted",
+      },
+    },
     contentSearchButton: {
       defaultVariants: {
         collapsed: false,
