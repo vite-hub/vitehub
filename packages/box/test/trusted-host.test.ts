@@ -376,7 +376,7 @@ describe("trustedHost", () => {
     await session.destroy?.();
   });
 
-  it("keeps identity stable across secret rotation and rejects project-file escapes", async () => {
+  it("invalidates resumable identity for resolved inputs without exposing secrets", async () => {
     const root = await temporaryRoot();
     const workspace = join(root, "workspace");
     const outside = join(root, "outside");
@@ -401,7 +401,7 @@ describe("trustedHost", () => {
       {},
     );
 
-    expect(rotated.identity).toBe(first.identity);
+    expect(rotated.identity).not.toBe(first.identity);
     expect(differentState.identity).not.toBe(first.identity);
     expect(JSON.stringify(first)).not.toContain("secret-one");
     await expect((first.sandbox as HarnessV1SandboxProvider).createSession()).rejects.toThrow(

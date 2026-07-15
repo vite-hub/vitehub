@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, posix, relative, resolve } from "node:path";
 
@@ -151,7 +151,12 @@ function planIdentity(plan: ResolvedBoxPlan, requirements: readonly ResolvedBoxR
       .map(({ key, path, seed }) => ({ key, path, seed: Object.keys(seed).toSorted() }))
       .toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
   });
-  return createHash("sha256").update(value).digest("hex");
+  const fingerprint = createHash("sha256").update(value).digest("hex");
+  const hasResolvedInputs =
+    Object.keys(plan.env).length > 0 ||
+    Object.keys(plan.files).length > 0 ||
+    plan.state.some(({ seed }) => Object.keys(seed).length > 0);
+  return hasResolvedInputs ? `${fingerprint}-${randomUUID()}` : fingerprint;
 }
 
 function resolvePlan<Context>(

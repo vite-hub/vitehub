@@ -684,6 +684,7 @@ async function prepareHarnessColocatedSkills(
   target: "." | "skills",
   abortSignal?: AbortSignal,
   refresh = false,
+  workingDirectory = destination,
 ): Promise<boolean> {
   if (!workspace) return false
   const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
@@ -701,7 +702,7 @@ async function prepareHarnessColocatedSkills(
     const result = await (session as HarnessGlobalSkillsSandbox).run({
       abortSignal,
       command: `find .vitehub-agent-skills/skills -type f -path "*/scripts/*" -exec chmod +x {} + && mkdir -p ${target} && ${refreshCommand}cp -Rn .vitehub-agent-skills/skills/. ${target} && rm -rf .vitehub-agent-skills`,
-      workingDirectory: destination,
+      workingDirectory,
     })
     if (result.exitCode !== 0) throw new Error(result.stderr || "sandbox command failed")
   }
@@ -718,17 +719,9 @@ async function prepareHarnessGlobalSkills(
   session: unknown,
   directory: unknown,
   abortSignal?: AbortSignal,
-  allowParent = false,
+  workingDirectory?: string,
 ): Promise<{ close: (error?: unknown) => MaybePromise<void> } | undefined> {
-  if (
-    !isHarnessRelativeDirectory(directory) &&
-    !(
-      allowParent &&
-      typeof directory === "string" &&
-      directory.startsWith("../") &&
-      isHarnessRelativeDirectory(directory.slice(3))
-    )
-  ) {
+  if (!isHarnessRelativeDirectory(directory)) {
     if (!resolved) return
     throw new Error("[vitehub] This Harness Agent Driver does not support skills({ scope: \"global\" }).")
   }
@@ -737,6 +730,7 @@ async function prepareHarnessGlobalSkills(
   const quotedManagedManifest = `'${managedManifest.replace(/'/g, "'\\''")}'`
   const ensure = await (session as HarnessGlobalSkillsSandbox).run({
     abortSignal,
+    ...(workingDirectory ? { workingDirectory } : {}),
     command: `mkdir -p -- ${quotedDirectory} && if [ -f ${quotedManagedManifest} ]; then while IFS= read -r encoded || [ -n "$encoded" ]; do managed=$(printf '%s' "$encoded" | base64 -d) || exit 1; case "$managed" in ''|/*|..|../*|*/..|*/../*) printf '%s\\n' 'Invalid ViteHub-managed Skill path.' >&2; exit 1 ;; esac; rm -rf -- ${quotedDirectory}/"$managed"; done < ${quotedManagedManifest}; fi && rm -f -- ${quotedManagedManifest}`,
   })
   if (ensure.exitCode !== 0) {
@@ -755,6 +749,7 @@ async function prepareHarnessGlobalSkills(
   })
   const install = await (session as HarnessGlobalSkillsSandbox).run({
     abortSignal,
+    ...(workingDirectory ? { workingDirectory } : {}),
     command: `cp -R ${quotedStagingDirectory}/. ${quotedDirectory} && rm -rf -- ${quotedStagingDirectory} && find ${skillDirectories} -type f -path "*/scripts/*" -exec chmod +x {} + && printf '%s\\n' ${resolved.paths.map(path => `'${Buffer.from(path).toString("base64")}'`).join(" ")} > ${quotedManagedManifest}`,
   })
   if (install.exitCode !== 0) {
@@ -762,6 +757,7 @@ async function prepareHarnessGlobalSkills(
     try {
       await (session as HarnessGlobalSkillsSandbox).run({
         abortSignal,
+        ...(workingDirectory ? { workingDirectory } : {}),
         command: `rm -rf -- ${quotedStagingDirectory}`,
       })
     }
@@ -1049,10 +1045,8 @@ export function createHarnessAgentAdapter<
     let globalSkillsSession: { close: (error?: unknown) => MaybePromise<void> } | undefined
     const colocatedSkillsWorkspace = await resolveHarnessColocatedSkills(context)
     const resolved = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal, globalSkillsDirectory, globalSkillsWorkspace, sessionPrepare) => {
-      const operationalGlobalSkillsDirectory =
-        context.box?.runtime === "trusted-host" && !context.box.workspace.path && isHarnessRelativeDirectory(globalSkillsDirectory)
-          ? posix.join("..", globalSkillsDirectory)
-          : globalSkillsDirectory
+      const globalSkillsWorkingDirectory =
+        context.box?.runtime === "trusted-host" && !context.box.workspace.path ? ".." : undefined
       const harnessInstructions = context.workspace ? await resolveHarnessInstructions(context) : undefined
       try {
         if (context.workspace) {
@@ -1075,19 +1069,22 @@ export function createHarnessAgentAdapter<
         globalSkillsSession = await prepareHarnessGlobalSkills(
           globalSkillsWorkspace,
           session,
-          operationalGlobalSkillsDirectory,
+          globalSkillsDirectory,
           abortSignal,
-          operationalGlobalSkillsDirectory !== globalSkillsDirectory,
+          globalSkillsWorkingDirectory,
         )
         const installedWorkspaceSkills = await prepareHarnessColocatedSkills(colocatedSkillsWorkspace, session, sessionWorkDir, "skills", abortSignal)
         if (isHarnessRelativeDirectory(globalSkillsDirectory)) {
           await prepareHarnessColocatedSkills(
             colocatedSkillsWorkspace,
             session,
-            operationalGlobalSkillsDirectory as string,
+            globalSkillsDirectory,
             ".",
             abortSignal,
             true,
+            globalSkillsWorkingDirectory
+              ? posix.join(globalSkillsWorkingDirectory, globalSkillsDirectory)
+              : globalSkillsDirectory,
           )
         }
         if (installedWorkspaceSkills) await workspaceSession?.refreshGitBaseline?.()
