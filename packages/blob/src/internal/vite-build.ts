@@ -45,6 +45,7 @@ interface GenerateProviderOutputsOptions {
   clientOutDir: string
   providerOutput?: ComposedProviderOutput
   rootDir: string
+  serverFunctionName?: string
 }
 
 interface GeneratedBlobArtifacts {
@@ -331,7 +332,11 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
   }
 }
 
-function createVercelOutput(artifacts: GeneratedBlobArtifacts, providerOutput: ComposedProviderOutput | undefined): VercelProviderDeploymentOutput {
+function createVercelOutput(
+  artifacts: GeneratedBlobArtifacts,
+  providerOutput: ComposedProviderOutput | undefined,
+  serverFunctionName?: string,
+): VercelProviderDeploymentOutput {
   const databaseRuntime = getProviderRuntimeModule(providerOutput, "database", "vercel")
 
   return {
@@ -366,6 +371,7 @@ function createVercelOutput(artifacts: GeneratedBlobArtifacts, providerOutput: C
       format: "esm",
       platform: "node",
     },
+    ...(serverFunctionName ? { config: {}, serverFunctionName } : {}),
   }
 }
 
@@ -396,7 +402,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     clientOutDir: options.clientOutDir,
     cloudflare: localOnly ? undefined : createCloudflareOutput(options.blob, artifacts, options.providerOutput),
     rootDir: options.rootDir,
-    vercel: localOnly ? undefined : createVercelOutput(artifacts, options.providerOutput),
+    vercel: localOnly ? undefined : createVercelOutput(artifacts, options.providerOutput, options.serverFunctionName),
   })
   return artifacts
 }

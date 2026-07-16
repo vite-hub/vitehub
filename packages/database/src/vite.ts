@@ -1,6 +1,6 @@
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { resetComposedProviderOutput, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 
 import { createDbCliContributor } from "./cli.ts"
@@ -218,6 +218,11 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         providerOutput,
         rootDir: resolved.root,
         runtimeConfig,
+        serverFunctionName: resolveNitroVercelFunctionName(
+          resolved.plugins,
+          "database",
+          (resolved as typeof resolved & { nitro?: { preset?: string } }).nitro?.preset,
+        ),
       })
     },
   }

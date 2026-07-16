@@ -254,4 +254,64 @@ describe("bundleEsmEntry", () => {
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
     expect(loaded.default).toBe("neutral-main")
   })
+
+  it("omits Vite prefix aliases that esbuild cannot represent", async () => {
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "entry.mjs")
+    const target = join(rootDir, "target.mjs")
+    const outfile = join(rootDir, "bundle.mjs")
+    await writeFile(entry, 'import value from "exact-alias"\nexport default value\n', "utf8")
+    await writeFile(target, 'export default "aliased"\n', "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: {
+        "@/": `${rootDir}/`,
+        "exact-alias": target,
+      },
+      format: "esm",
+      platform: "node",
+    })
+
+    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
+    expect(loaded.default).toBe("aliased")
+  })
+
+  it("prefers Node exports over module exports in Node bundles", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = join(rootDir, "node_modules", "conditional-package")
+    const entry = join(rootDir, "entry.mjs")
+    const outfile = join(rootDir, "bundle.mjs")
+    const requireEntry = join(rootDir, "require-entry.cjs")
+    const requireOutfile = join(rootDir, "require-bundle.mjs")
+    await mkdir(packageDir, { recursive: true })
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({
+      exports: {
+        ".": {
+          module: "./module.mjs",
+          require: "./require.cjs",
+          node: "./node.mjs",
+          default: "./default.mjs",
+        },
+      },
+      name: "conditional-package",
+      type: "module",
+    }), "utf8")
+    await writeFile(join(packageDir, "module.mjs"), 'export default "module"\n', "utf8")
+    await writeFile(join(packageDir, "node.mjs"), 'export default "node"\n', "utf8")
+    await writeFile(join(packageDir, "require.cjs"), 'module.exports = "require"\n', "utf8")
+    await writeFile(join(packageDir, "default.mjs"), 'export default "default"\n', "utf8")
+    await writeFile(entry, 'import value from "conditional-package"\nexport default value\n', "utf8")
+    await writeFile(requireEntry, 'module.exports = require("conditional-package")\n', "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node" })
+
+    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
+    expect(loaded.default).toBe("node")
+
+    await bundleEsmEntry(requireEntry, requireOutfile, { format: "esm", platform: "node" })
+    const requireLoaded = await import(`${pathToFileURL(requireOutfile).href}?t=${Date.now()}`) as { default: string }
+    expect(requireLoaded.default).toBe("require")
+  })
 })

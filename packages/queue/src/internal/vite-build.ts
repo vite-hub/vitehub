@@ -76,6 +76,7 @@ interface GenerateProviderOutputsOptions {
   clientOutDir: string
   queue: QueueModuleOptions | undefined
   rootDir: string
+  serverFunctionName?: string
 }
 
 export interface CloudflareQueueConfigOptions {
@@ -255,13 +256,14 @@ function createVercelQueueWrapperContents(file: string, registryFile: string, na
   ].join("\n")
 }
 
-function createVercelOutput(artifacts: GeneratedQueueArtifacts): VercelProviderDeploymentOutput {
+function createVercelOutput(artifacts: GeneratedQueueArtifacts, serverFunctionName?: string): VercelProviderDeploymentOutput {
   return {
     bundleEntry: artifacts.vercelServerFile,
     bundleOptions: {
       format: "esm",
       platform: "node",
     },
+    ...(serverFunctionName ? { config: {}, serverFunctionName } : {}),
   }
 }
 
@@ -325,10 +327,10 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     clientOutDir: options.clientOutDir,
     cloudflare: createCloudflare ? createCloudflareOutput(artifacts) : undefined,
     cleanup: {
-      vercel: { serverFunctionName: "__server.func" },
+      vercel: { serverFunctionName: options.serverFunctionName ?? "__server.func" },
     },
     rootDir: options.rootDir,
-    vercel: createVercel ? createVercelOutput(artifacts) : undefined,
+    vercel: createVercel ? createVercelOutput(artifacts, options.serverFunctionName) : undefined,
   })
   await writeVercelQueueFunctions(options.rootDir, options.queue, artifacts)
   return artifacts

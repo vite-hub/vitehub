@@ -1,6 +1,6 @@
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
 
 import { generateProviderOutputs, workflowPackageName } from "./internal/vite-build.ts"
 
@@ -68,6 +68,11 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
           ...internalOptions?.providerImportAliases,
         },
         rootDir: resolved.root,
+        serverFunctionName: resolveNitroVercelFunctionName(
+          resolved.plugins,
+          "workflow",
+          (resolved as typeof resolved & { nitro?: { preset?: string } }).nitro?.preset,
+        ),
         workflow,
         workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
         workspaceImportBase: internalOptions?.workspaceImportBase,
