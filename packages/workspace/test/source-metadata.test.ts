@@ -182,6 +182,21 @@ describe("Workspace Source metadata", () => {
     expect(workspaceSourceGrantPaths("customers/acme", {} as never)).toEqual([
       "customers/acme",
     ])
+    expect(workspaceSourceGrantPaths("instructions", {
+      probeKeys: ["AGENTS.md"],
+      source: custom({
+        mount: "",
+        async getKeys() {
+          return []
+        },
+        async getItem(key) {
+          return { content: "", key }
+        },
+      }),
+    })).toEqual([
+      "AGENTS.md",
+      ".vitehub/sources/instructions.json",
+    ])
     expect(() => workspaceSourceGrantPaths("root", custom({
       mount: "",
       async getKeys() {
