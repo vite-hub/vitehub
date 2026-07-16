@@ -7,11 +7,9 @@ export const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 export function parseMarkdownTemplateRequest(id: string): { path: string } | undefined {
   const queryIndex = id.indexOf("?")
   const path = id.split(/[?#]/, 1)[0]!
-  if (!path.endsWith(markdownTemplateFileSuffix)) {
-    if (queryIndex === -1) return
-    const query = id.slice(queryIndex + 1).split("#", 1)[0]!
-    if (!new URLSearchParams(query).has(markdownTemplateModuleQuery)) return
-  }
+  if (queryIndex === -1) return path.endsWith(markdownTemplateFileSuffix) ? { path } : undefined
+  const query = id.slice(queryIndex + 1).split("#", 1)[0]!
+  if (!new URLSearchParams(query).has(markdownTemplateModuleQuery)) return
   return { path }
 }
 

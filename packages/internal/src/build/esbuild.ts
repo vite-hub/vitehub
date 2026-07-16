@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url"
 
 import { build as bundle, type Plugin } from "esbuild"
 
+import { resolveViteHubProjectRoot } from "./vite.ts"
+
 interface BundleEsmEntryOptions {
   alias?: Record<string, string>
   conditions?: string[]
@@ -76,11 +78,9 @@ function extractMarkdownTemplateImportSpecifiers(template: string): string[] {
 function parseMarkdownTemplateRequest(id: string): { path: string } | undefined {
   const queryIndex = id.indexOf("?")
   const path = id.split(/[?#]/, 1)[0]!
-  if (!path.endsWith(markdownTemplateFileSuffix)) {
-    if (queryIndex === -1) return
-    const query = id.slice(queryIndex + 1).split("#", 1)[0]!
-    if (!new URLSearchParams(query).has(markdownTemplateModuleQuery)) return
-  }
+  if (queryIndex === -1) return path.endsWith(markdownTemplateFileSuffix) ? { path } : undefined
+  const query = id.slice(queryIndex + 1).split("#", 1)[0]!
+  if (!new URLSearchParams(query).has(markdownTemplateModuleQuery)) return
   return { path }
 }
 
@@ -230,8 +230,9 @@ export async function bundleEsmEntry(
 ): Promise<void> {
   const format = options.format || "esm"
   const platform = options.platform || "neutral"
+  const markdownTemplateRoot = options.rootDir && resolveViteHubProjectRoot(options.rootDir)
   const aliases = resolveEsbuildAliases({
-    ...(options.rootDir ? { [markdownTemplateRegistryId]: resolve(options.rootDir, markdownTemplateRegistryPath) } : {}),
+    ...(markdownTemplateRoot ? { [markdownTemplateRegistryId]: resolve(markdownTemplateRoot, markdownTemplateRegistryPath) } : {}),
     ...options.alias,
   })
   const frameworkRuntime = Object.keys(aliases || {}).some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))

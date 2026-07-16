@@ -66,18 +66,22 @@ describe("bundleEsmEntry", () => {
   })
 
   it("bundles the generated named-template registry", async () => {
-    const rootDir = await createTempDir()
+    const projectRoot = await createTempDir()
+    const rootDir = join(projectRoot, "app")
     const entry = join(rootDir, "entry.mjs")
-    const registry = join(rootDir, ".vitehub", "markdown-template", "templates.mjs")
+    const registry = join(projectRoot, ".vitehub", "markdown-template", "templates.mjs")
     const outfile = join(rootDir, "bundle.mjs")
     await mkdir(dirname(registry), { recursive: true })
+    await mkdir(rootDir, { recursive: true })
+    await writeFile(join(projectRoot, "package.json"), "{}", "utf8")
+    await mkdir(join(projectRoot, "server", "templates"), { recursive: true })
     await writeFile(registry, `export async function renderTemplate(name, data) { return name + ":" + data.value }\n`, "utf8")
     await writeFile(entry, `import { renderTemplate } from "#vitehub/templates"\nexport default () => renderTemplate("review", { value: 42 })\n`, "utf8")
 
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
 
-    await rm(join(rootDir, ".vitehub"), { force: true, recursive: true })
+    await rm(join(projectRoot, ".vitehub"), { force: true, recursive: true })
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
     await expect(bundled.default()).resolves.toBe("review:42")
   })

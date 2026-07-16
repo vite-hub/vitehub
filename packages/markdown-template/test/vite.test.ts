@@ -14,7 +14,7 @@ import {
 import { build } from "vite"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { extractMarkdownTemplateImportSpecifiers } from "../src/internal/vite.ts"
+import { extractMarkdownTemplateImportSpecifiers, parseMarkdownTemplateRequest } from "../src/internal/vite.ts"
 import { hubMarkdownTemplate } from "../src/vite.ts"
 
 const tempDirs: string[] = []
@@ -31,6 +31,12 @@ afterEach(async () => {
 })
 
 describe("hubMarkdownTemplate", () => {
+  it("leaves explicit Vite queries on direct templates untouched", () => {
+    expect(parseMarkdownTemplateRequest("./prompt.template.md?raw")).toBeUndefined()
+    expect(parseMarkdownTemplateRequest("./prompt.template.md?url")).toBeUndefined()
+    expect(parseMarkdownTemplateRequest("./prompt.template.md?markdown-template")).toEqual({ path: "./prompt.template.md" })
+  })
+
   it("extracts imports from indented paragraph continuations", () => {
     expect(extractMarkdownTemplateImportSpecifiers("Intro\n    @./context.md\n")).toEqual(["./context.md"])
     expect(extractMarkdownTemplateImportSpecifiers("    @./example.md\n")).toEqual([])
@@ -148,6 +154,7 @@ describe("hubMarkdownTemplate", () => {
     const templates = join(root, "server", "templates")
     await mkdir(app, { recursive: true })
     await mkdir(templates, { recursive: true })
+    await writeFile(join(app, "package.json"), "{}", "utf8")
     await writeFile(join(templates, "prompt.md"), "Hello.", "utf8")
     await writeFile(join(app, "entry.ts"), 'export { renderTemplate } from "#vitehub/templates"\n', "utf8")
 

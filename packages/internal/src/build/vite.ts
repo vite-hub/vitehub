@@ -9,6 +9,7 @@ const generatedViteHubFilesPattern = "**/.vitehub/**"
 const projectRootDirectoryMarkers = [
   ["server", "agents"],
   ["server", "schedules"],
+  ["server", "templates"],
   ["server", "workspaces"],
 ]
 const projectRootDefinitionFileMarkers = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"].flatMap(extension => [
