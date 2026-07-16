@@ -9,6 +9,7 @@ import {
   assertWorkspaceSourceRequestDescriptorKey,
   getWorkspaceSourceRequestDescriptor,
   isWorkspaceSourceRequestOnly,
+  workspaceSourceRequestDescriptorPath,
 } from "./request-metadata.ts"
 
 import type {
@@ -44,6 +45,11 @@ export interface ResolvedWorkspaceSource {
   requestDescriptor?: WorkspaceSourceRequestDescriptor
   requestOnly?: boolean
 }
+
+export type WorkspaceSourceMetadata = Pick<
+  ResolvedWorkspaceSource,
+  "cache" | "key" | "materialize" | "mountPath" | "probeKeys" | "requestOnly" | "source" | "sync"
+>
 
 export {
   getWorkspaceSourceRequestDescriptor,
@@ -135,6 +141,58 @@ export function normalizeWorkspaceSource(key: string, input: WorkspaceSourceInpu
     requestDescriptor,
     requestOnly: isWorkspaceSourceRequestOnly(source),
   }
+}
+
+export function normalizeWorkspaceSourcesMetadata(sources: WorkspaceDefinition["sources"]): WorkspaceSourceMetadata[] {
+  return normalizeWorkspaceSources(sources).map(toWorkspaceSourceMetadata)
+}
+
+export function normalizeWorkspaceSourceMetadata(key: string, input: WorkspaceSourceInput): WorkspaceSourceMetadata {
+  return toWorkspaceSourceMetadata(normalizeWorkspaceSource(key, input))
+}
+
+export function workspaceSourceGrantPaths(key: string, input: WorkspaceSourceInput): string[] {
+  const source = normalizeWorkspaceSourceMetadata(key, input)
+  const descriptorPath = safeWorkspaceSourceRequestDescriptorPath(key)
+  if (source.requestOnly) {
+    if (!descriptorPath) {
+      throw new Error(`[vitehub] Workspace Scope source grant "${key}" is request-only without a Source Request descriptor.`)
+    }
+    return [descriptorPath]
+  }
+
+  const probePaths = source.probeKeys?.map(sourcePath => joinSourcePath(source.mountPath, sourcePath)).filter(Boolean) || []
+  const paths = probePaths.length ? probePaths : source.mountPath ? [source.mountPath] : []
+  if (!paths.length) {
+    throw new Error(`[vitehub] Workspace Scope source grant "${key}" is root-mounted; grant explicit paths instead.`)
+  }
+  return descriptorPath ? [...paths, descriptorPath] : paths
+}
+
+function toWorkspaceSourceMetadata(source: ResolvedWorkspaceSource): WorkspaceSourceMetadata {
+  return {
+    cache: source.cache,
+    key: source.key,
+    materialize: source.materialize,
+    mountPath: source.mountPath,
+    ...(source.probeKeys?.length ? { probeKeys: source.probeKeys } : {}),
+    requestOnly: source.requestOnly,
+    source: source.source,
+    sync: source.sync,
+  }
+}
+
+function safeWorkspaceSourceRequestDescriptorPath(key: string): string | undefined {
+  try {
+    return workspaceSourceRequestDescriptorPath(key)
+  }
+  catch {
+    return undefined
+  }
+}
+
+function joinSourcePath(mountPath: string, sourcePath: string): string {
+  return [mountPath, sourcePath].filter(Boolean).join("/")
 }
 
 export function sourceMountContainsPath(source: Pick<ResolvedWorkspaceSource, "mountPath">, workspacePath: string): boolean {
@@ -277,14 +335,17 @@ async function loadInferredWorkspaceSource(family: WorkspaceSourceFamily, input:
 
 function inferredSourceDefaults(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): Partial<WorkspaceSource> {
   if (!isPlainRecord(input)) {
-    return family === "file" ? { mount: "" } : {}
+    return family === "file" ? { mount: "", probeKeys: [inferredFileSourceKey(input)] } : {}
   }
 
   if (family === "file") {
     const mount = typeof input.mount === "object" && input.mount && !("path" in input.mount)
       ? { ...input.mount, path: "" }
       : input.mount ?? ""
-    return copySourceRuntimeOptions(input, { mount })
+    return copySourceRuntimeOptions(input, {
+      mount,
+      probeKeys: [inferredFileSourceKey(input)],
+    })
   }
 
   if (family === "fetch") {
@@ -316,9 +377,18 @@ function copySourceRuntimeOptions(input: Record<string, unknown>, defaults: Part
     cache: input.cache as WorkspaceSource["cache"] ?? defaults.cache,
     materialize: input.materialize as WorkspaceSource["materialize"] ?? defaults.materialize,
     mount: input.mount as WorkspaceSource["mount"] ?? defaults.mount,
+    probeKeys: input.probeKeys as WorkspaceSource["probeKeys"] ?? defaults.probeKeys,
     sync: input.sync as WorkspaceSource["sync"] ?? defaults.sync,
     validate: input.validate as WorkspaceSource["validate"] ?? defaults.validate,
   }
+}
+
+function inferredFileSourceKey(input: WorkspaceSourceInput): string {
+  if (typeof input === "string") return normalizeSafeWorkspacePath(input)
+  const options = input as unknown as Record<string, unknown>
+  if (typeof options.workspacePath === "string") return normalizeSafeWorkspacePath(options.workspacePath)
+  if (typeof options.path === "string") return normalizeSafeWorkspacePath(options.path)
+  throw new TypeError("[vitehub] file requires a path or workspacePath.")
 }
 
 function inferredLivePaths(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): Record<string, string> | undefined {
@@ -388,12 +458,13 @@ function applyWorkspaceBinding(source: WorkspaceSource, input: WorkspaceSourceIn
   copyDefinedWorkspaceBindingOption(next, input, "cache")
   copyDefinedWorkspaceBindingOption(next, input, "materialize")
   copyDefinedWorkspaceBindingOption(next, input, "mount")
+  copyDefinedWorkspaceBindingOption(next, input, "probeKeys")
   copyDefinedWorkspaceBindingOption(next, input, "sync")
   copyDefinedWorkspaceBindingOption(next, input, "validate")
   return next
 }
 
-function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" | "mount" | "sync" | "validate">(
+function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" | "mount" | "probeKeys" | "sync" | "validate">(
   target: WorkspaceSource,
   input: Record<string, unknown>,
   key: TKey,
