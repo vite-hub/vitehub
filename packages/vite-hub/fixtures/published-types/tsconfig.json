@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "paths": {
+      "vite": ["../../node_modules/vite"],
+      "vite-hub": ["../../dist/index.d.ts"],
+      "vite-hub/*": ["../../dist/*"]
+    },
+    "skipLibCheck": true,
+    "strict": true,
+    "types": []
+  },
+  "files": [
+    "consumer.ts"
+  ]
+}
