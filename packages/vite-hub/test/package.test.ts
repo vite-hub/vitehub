@@ -10,6 +10,7 @@ import * as framework from "vite-hub"
 import * as frameworkAgent from "vite-hub/agent"
 import * as frameworkCapabilities from "vite-hub/agent/capabilities"
 import frameworkAuthHandler from "vite-hub/auth/server"
+import { distributionBinEntries, distributionEntriesFromManifest } from "../vite.config.ts"
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
@@ -43,5 +44,33 @@ describe("framework package contract", () => {
     }
 
     expect(readFileSync(`${packageRoot}/${manifest.bin.vitehub}`, "utf8")).toMatch(/^#!\/usr\/bin\/env node/)
+  })
+
+  it("derives deduplicated binary entries from the package manifest", () => {
+    expect(distributionBinEntries).toEqual({
+      "vite-hub": "src/bin.ts",
+      vitehub: "src/bin.ts",
+    })
+    expect(distributionEntriesFromManifest(manifest.bin)).toEqual(["src/bin.ts"])
+  })
+
+  it("normalizes conditional export leaves into unique runtime entries", () => {
+    expect(distributionEntriesFromManifest({
+      ".": {
+        import: {
+          default: "./dist/index.js",
+          node: "./dist/index.js",
+        },
+        types: "./dist/index.d.ts",
+      },
+      "./feature": [
+        { types: "./dist/feature.d.ts" },
+        { import: "./dist/feature.js" },
+      ],
+      "./package.json": "./package.json",
+    })).toEqual([
+      "src/feature.ts",
+      "src/index.ts",
+    ])
   })
 })
