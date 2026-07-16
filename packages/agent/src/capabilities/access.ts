@@ -1,7 +1,6 @@
 import { markTrustedWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { agentInvocationSourceContext } from "../invocation-context.ts"
-import { workspaceSourceGrantPaths } from "../workspace-source-metadata.ts"
 import type { AccessCapabilityMetadata } from "./access-metadata.ts"
 
 import type {
@@ -46,6 +45,7 @@ type WorkspaceAccessRuntime = Pick<
   | "hasWorkspaceSourceResolvers"
   | "isWorkspaceSourceRequestOnly"
   | "resolveWorkspaceSources"
+  | "workspaceSourceGrantPaths"
   | "workspaceSourceRequestDescriptorPath"
 >
 
@@ -597,7 +597,7 @@ function sourceGrantPaths(
   }
   const definition = workspaceDefinition?.sources?.[source]
   if (!definition) return []
-  return workspaceSourceGrantPaths(source, definition, workspaceRuntime)
+  return workspaceRuntime.workspaceSourceGrantPaths(source, definition)
 }
 
 function normalizeScopePath(path = ""): string {

@@ -27,6 +27,7 @@ export default defineConfig({
       "src/nuxt.ts",
       "src/publish.ts",
       "src/runtime.ts",
+      "src/source-metadata.ts",
       "src/runtime/empty-assets-registry.ts",
       "src/runtime/empty-registry.ts",
       "src/runtime/assets.ts",

@@ -760,7 +760,7 @@ describe("access capability", () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
     const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
-    const { normalizeAgentWorkspaceSources } = await import("../src/workspace-source-metadata.ts")
+    const { normalizeWorkspaceSourcesMetadata } = await import("@vite-hub/workspace/runtime")
     const resolutions: Array<{ customer: string, scope: string | undefined, sources: readonly string[] | undefined }> = []
     const workspaceDefinition: WorkspaceDefinition = {
       name: "support",
@@ -800,7 +800,7 @@ describe("access capability", () => {
         context: invocationContext,
         workspaceDefinition,
       })
-      const [ingestion] = normalizeAgentWorkspaceSources(resolved.workspaceDefinition?.sources)
+      const [ingestion] = normalizeWorkspaceSourcesMetadata(resolved.workspaceDefinition?.sources)
 
       expect(ingestion).toMatchObject({
         key: "ingestion",
@@ -1175,32 +1175,6 @@ describe("access capability", () => {
 
     await expect(resolved.workspace!.fs.readFile("README.md")).resolves.toBe("root readme")
     await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(false)
-  })
-
-  it("derives probed source grant paths before broad mounts", async () => {
-    const { workspaceSourceGrantPaths } = await import("../src/workspace-source-metadata.ts")
-    const workspaceRuntime = await import("@vite-hub/workspace/runtime")
-
-    expect(workspaceSourceGrantPaths("docs", file({ path: "README.md", mount: "docs" }), workspaceRuntime)).toEqual([
-      "docs/README.md",
-      ".vitehub/sources/docs.json",
-    ])
-    expect(workspaceSourceGrantPaths("status", {
-      url: "https://status.example.com/health",
-      workspacePath: "external/status/health.json",
-    } as never, workspaceRuntime)).toEqual([
-      "external/status/health.json",
-      ".vitehub/sources/status.json",
-    ])
-  })
-
-  it("does not derive descriptor paths for non-request path-keyed sources", async () => {
-    const { workspaceSourceGrantPaths } = await import("../src/workspace-source-metadata.ts")
-    const workspaceRuntime = await import("@vite-hub/workspace/runtime")
-
-    expect(workspaceSourceGrantPaths("customers/acme", {} as never, workspaceRuntime)).toEqual([
-      "customers/acme",
-    ])
   })
 
   it("resolves access-granted resolver sources before applying final scope paths", async () => {

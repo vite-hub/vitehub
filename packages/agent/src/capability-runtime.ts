@@ -8,7 +8,6 @@ import {
 import { normalizeWorkspaceCommandEntries, workspaceCommandTools } from "./capabilities/workspace-command.ts"
 import { createMessage } from "./messages.ts"
 import { agentInvocationCallbackContextValues, agentInvocationSourceContext, createAgentInvocationContextStore } from "./invocation-context.ts"
-import { normalizeAgentWorkspaceSource, workspaceSourceGrantPaths } from "./workspace-source-metadata.ts"
 import {
   createFallbackAgentInvoker,
   ensureAgentInvokerContext,
@@ -459,27 +458,24 @@ function workspaceRulePatterns(definition: WorkspaceDefinition): string[] {
 type WorkspaceContributionRuntime = Pick<
   typeof import("@vite-hub/workspace/runtime"),
   | "createWorkspaceSourceResolutionFacade"
-  | "isWorkspaceSourceRequestOnly"
+  | "normalizeWorkspaceSourceMetadata"
   | "resolveWorkspaceSources"
+  | "workspaceSourceGrantPaths"
   | "workspaceSourceRequestDescriptorPath"
 >
-
-function isRequestOnlyWorkspaceSource(runtime: WorkspaceContributionRuntime, source: WorkspaceSource | undefined): boolean {
-  return Boolean(source && runtime.isWorkspaceSourceRequestOnly(source))
-}
 
 function normalizedContributionSource(
   key: string,
   source: WorkspaceSourceInput,
   runtime: WorkspaceContributionRuntime,
 ): { key: string, mountPath: string, probePaths?: string[], requestOnly: boolean, source?: WorkspaceSource } {
-  const metadata = normalizeAgentWorkspaceSource(key, source)
+  const metadata = runtime.normalizeWorkspaceSourceMetadata(key, source)
   return {
     key,
     mountPath: metadata.mountPath,
     ...(metadata.probeKeys?.length ? { probePaths: metadata.probeKeys.map(sourcePath => joinSourcePath(metadata.mountPath, sourcePath)) } : {}),
-    requestOnly: isRequestOnlyWorkspaceSource(runtime, metadata.source),
-    ...(metadata.source ? { source: metadata.source } : {}),
+    requestOnly: Boolean(metadata.requestOnly),
+    source: metadata.source,
   }
 }
 
@@ -687,7 +683,7 @@ function mergeSelectedWorkspaceSourceGrantPaths(
   if (!scope || scope.all || !scope.sources?.length) return scope
   const paths = scope.sources.flatMap((key) => {
     const source = definition.sources?.[key]
-    return source ? workspaceSourceGrantPaths(key, source, runtime) : []
+    return source ? runtime.workspaceSourceGrantPaths(key, source) : []
   })
   return mergeSelectedWorkspaceScopePaths(scope, paths)
 }

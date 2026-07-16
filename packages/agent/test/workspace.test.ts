@@ -1379,27 +1379,6 @@ describe("defineAgent workspace option", () => {
     await expect(agent.run!(context())).resolves.toBe("ok")
   })
 
-  it("uses full file source paths as probe keys", async () => {
-    const { normalizeAgentWorkspaceSource } = await import("../src/workspace-source-metadata.ts")
-
-    expect(normalizeAgentWorkspaceSource("summaryInstructions", { path: ".agents/summary/AGENTS.md" } as never).probeKeys).toEqual([".agents/summary/AGENTS.md"])
-  })
-
-  it("keeps GitHub source metadata mounts aligned with Workspace defaults", async () => {
-    const { github } = await import("@vite-hub/workspace")
-    const { normalizeAgentWorkspaceSource } = await import("../src/workspace-source-metadata.ts")
-
-    expect(normalizeAgentWorkspaceSource("forecastingEngine", {
-      repo: "onmax/forecasting-engine",
-    } as never).mountPath).toBe("forecastingEngine")
-    expect(normalizeAgentWorkspaceSource("0", {
-      repo: "onmax/forecasting-engine",
-    } as never).mountPath).toBe("forecasting-engine")
-    expect(normalizeAgentWorkspaceSource("0", github({
-      repo: "onmax/forecasting-engine",
-    }) as never).mountPath).toBe("forecasting-engine")
-  })
-
   it("requires writable workspace for write-mode skill shell execution", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
