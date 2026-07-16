@@ -2342,6 +2342,146 @@ async function materializeAgentStructuredOutput(result: unknown, abortSignal?: A
   return resultWithUsageRecord(text, usageRecord)
 }
 
+type AgentInvocationExecutionOptions =
+  | { kind: "run", renderOutput: boolean }
+  | { kind: "stream", output: "events" | "ui-message-stream" }
+
+async function executeAgentInvocation<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+  TOutput,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+  options: AgentInvocationExecutionOptions,
+): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  const customRun = hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)
+  const adapter = customRun ? undefined : await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
+  const definition = hasAgentDefinition(agent)
+    ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>
+    : undefined
+  const invocation = await createAgentInvocationContext(definition, context, input)
+  invocation.close = once(invocation.close)
+
+  const runFailureMessage = "[vitehub] Agent run failed and finish lifecycle also failed."
+  const streamFailureMessage = "[vitehub] Agent stream failed and finish lifecycle also failed."
+  const handledFailureMessage = options.kind === "run" ? runFailureMessage : streamFailureMessage
+  if (invocation.handledResponse) {
+    return await finalizeAgentInvocationResult(invocation, invocation.handledResponse, async result => ({ finishResult: result, value: result }), handledFailureMessage)
+  }
+
+  const executionFailureMessage = options.kind === "run" || customRun ? runFailureMessage : streamFailureMessage
+  let result: unknown
+  try {
+    if (customRun) {
+      result = await agent.run(invocation)
+    }
+    else if (options.kind === "stream" && adapter?.stream) {
+      result = await adapter.stream(toAgentAdapterRunContext(invocation) as never)
+    }
+    else {
+      result = await adapter!.generate(toAgentAdapterRunContext(invocation) as never)
+    }
+  }
+  catch (error) {
+    return await finishFailedAgentInvocation(invocation, error, executionFailureMessage)
+  }
+
+  const outputExtensions = new Map<string, unknown>()
+  let renderedResult = false
+  try {
+    const shouldRenderStream = options.kind === "run"
+      ? customRun && options.renderOutput && isAsyncIterable(result)
+      : isAsyncIterable(result) && options.output !== "ui-message-stream" && !invocation.finalOutputRenderers.length
+    if (shouldRenderStream) {
+      result = await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
+      renderedResult = true
+    }
+  }
+  catch (error) {
+    return await finishFailedAgentInvocation(invocation, error, executionFailureMessage)
+  }
+
+  if (options.kind === "run") {
+    return await finalizeAgentInvocationResult(invocation, result, async (result) => {
+      const driverUsageRecord = await resolveFinishUsageRecord(invocation, result)
+      const rendered = options.renderOutput
+        ? renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
+        : result
+      const final = options.renderOutput ? await applyFinalOutputRenderers(rendered, invocation, outputExtensions) : rendered
+      const structuredFinal = options.renderOutput && invocation.output ? await materializeAgentStructuredOutput(final, invocation.input.abortSignal) : final
+      const structuredUsageRecord = options.renderOutput && invocation.output
+        ? await resolveFinishUsageRecord(invocation, structuredFinal) ?? driverUsageRecord
+        : driverUsageRecord
+      const value = options.renderOutput && invocation.output
+        ? await validateAgentOutput(invocation.output, structuredFinal, {
+            allowMaterializedObject: customRun
+              ? structuredFinal === final
+              : structuredFinal === final && final !== result,
+          })
+        : customRun ? final : options.renderOutput ? toAgentRunResult(final) : final
+      return {
+        finishResult: invocation.output ? value : hasFinishWork(invocation) ? resultWithUsageRecord(final, driverUsageRecord) : final,
+        finishUsage: structuredUsageRecord,
+        value,
+      }
+    }, runFailureMessage, {
+      finalizeRawStreams: options.renderOutput && Boolean(invocation.output),
+      outputExtensions,
+      ...(customRun
+        ? { wrapStream: (stream: AsyncIterable<unknown>) => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, invocation) }
+        : {}),
+    })
+  }
+
+  return await finalizeAgentInvocationResult(invocation, result, async (result) => {
+    const driverUsageRecord = await resolveFinishUsageRecord(invocation, result)
+    const rendered = renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
+    if (options.output === "ui-message-stream") {
+      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, invocation), shouldWrapInvocationOutput(invocation), async (outcome, streamedText, streamedUsageRecord) => {
+        await finishStreamAgentInvocation(invocation, resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+      })
+    }
+
+    const isStreamResult = hasTraceableStreamResult(rendered)
+    if (customRun && !isAsyncIterable(rendered) && !isStreamResult) {
+      const final = await applyFinalOutputRenderers(rendered, invocation, outputExtensions)
+      const value = invocation.output
+        ? await validateAgentOutput(invocation.output, final, { allowMaterializedObject: true })
+        : final
+      return {
+        finishResult: value,
+        finishUsage: driverUsageRecord,
+        value,
+      }
+    }
+
+    const stream = isStreamResult
+      ? streamAgentOutputToEvents(rendered)
+      : customRun ? rendered as AsyncIterable<StreamEvent> : streamAgentOutputToEvents(rendered)
+    const streamed = withStreamedResult(stream, rendered, driverUsageRecord)
+    const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, invocation)
+    const shouldWrapOutput = shouldWrapInvocationOutput(invocation)
+    const value = shouldWrapOutput
+      ? withCapabilityCleanup(tracedStream, async (outcome) => {
+          await finishStreamAgentInvocation(invocation, streamed.finishResult(), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+        }, { abortSignal: invocation.input.abortSignal }) as AsyncIterable<StreamEvent>
+      : tracedStream
+    return {
+      deferFinish: shouldWrapOutput,
+      finishResult: rendered,
+      value: customRun ? withStreamResultProperties(value, rendered) : value,
+    }
+  }, executionFailureMessage, {
+    finalizeRawStreams: options.output === "ui-message-stream" || Boolean(invocation.finalOutputRenderers.length) || Boolean(invocation.output),
+    outputExtensions,
+    ...(customRun
+      ? { wrapStream: (stream: AsyncIterable<unknown>) => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, invocation) }
+      : {}),
+  })
+}
+
 export function runAgentInline<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -2373,89 +2513,9 @@ export async function runAgentInline<
   options: RunAgentInlineOptions = {},
 ): Promise<TOutput | Response> {
   context = withAgentIdentityOwner(agent, context)
-  const renderOutput = options.output !== "raw"
-  if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
-    const runContext = await createAgentInvocationContext(agent, context, input)
-    runContext.close = once(runContext.close)
-    if (runContext.handledResponse) {
-      return await finalizeAgentInvocationResult(runContext, runContext.handledResponse, async result => ({ finishResult: result, value: result }), "[vitehub] Agent run failed and finish lifecycle also failed.") as Response
-    }
-    let result: unknown
-    try {
-      result = await agent.run(runContext)
-    }
-    catch (error) {
-      return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
-    }
-    const outputExtensions = new Map<string, unknown>()
-    let renderedResult = false
-    try {
-      if (renderOutput && isAsyncIterable(result)) {
-        result = await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
-        renderedResult = true
-      }
-    }
-    catch (error) {
-      return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
-    }
-    return await finalizeAgentInvocationResult(runContext, result, async (result) => {
-      const driverUsageRecord = await resolveFinishUsageRecord(runContext, result)
-      const rendered = renderOutput
-        ? renderedResult ? result : await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
-        : result
-      const final = renderOutput ? await applyFinalOutputRenderers(rendered, runContext, outputExtensions) : rendered
-      const structuredFinal = renderOutput && runContext.output ? await materializeAgentStructuredOutput(final, runContext.input.abortSignal) : final
-      const structuredUsageRecord = renderOutput && runContext.output
-        ? await resolveFinishUsageRecord(runContext, structuredFinal) ?? driverUsageRecord
-        : driverUsageRecord
-      const value = renderOutput && runContext.output
-        ? await validateAgentOutput(runContext.output, structuredFinal, { allowMaterializedObject: structuredFinal === final })
-        : final
-      return {
-        finishResult: runContext.output ? value : hasFinishWork(runContext) ? resultWithUsageRecord(final, driverUsageRecord) : final,
-        finishUsage: structuredUsageRecord,
-        value,
-      }
-    }, "[vitehub] Agent run failed and finish lifecycle also failed.", {
-      finalizeRawStreams: renderOutput && Boolean(runContext.output),
-      outputExtensions,
-      wrapStream: stream => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, runContext),
-    }) as TOutput
-  }
-
-  const resolved = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
-  const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput> : undefined
-  const adapterContext = await createAgentInvocationContext(definition, context, input)
-  adapterContext.close = once(adapterContext.close)
-  if (adapterContext.handledResponse) {
-    return await finalizeAgentInvocationResult(adapterContext, adapterContext.handledResponse, async result => ({ finishResult: result, value: result }), "[vitehub] Agent run failed and finish lifecycle also failed.") as Response
-  }
-  let result: unknown
-  try {
-    result = await resolved.generate(toAgentAdapterRunContext(adapterContext) as never)
-  }
-  catch (error) {
-    return await finishFailedAgentInvocation(adapterContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
-  }
-  return await finalizeAgentInvocationResult(adapterContext, result, async (result) => {
-    const outputExtensions = new Map<string, unknown>()
-    const driverUsageRecord = await resolveFinishUsageRecord(adapterContext, result)
-    const rendered = renderOutput ? await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions) : result
-    const final = renderOutput ? await applyFinalOutputRenderers(rendered, adapterContext, outputExtensions) : rendered
-    const structuredFinal = renderOutput && adapterContext.output ? await materializeAgentStructuredOutput(final, adapterContext.input.abortSignal) : final
-    const structuredUsageRecord = renderOutput && adapterContext.output
-      ? await resolveFinishUsageRecord(adapterContext, structuredFinal) ?? driverUsageRecord
-      : driverUsageRecord
-    const runResult = renderOutput && adapterContext.output
-      ? await validateAgentOutput(adapterContext.output, structuredFinal, { allowMaterializedObject: structuredFinal === final && final !== result })
-      : renderOutput ? toAgentRunResult(final) : final
-    return {
-      finishResult: adapterContext.output ? runResult : hasFinishWork(adapterContext) ? resultWithUsageRecord(final, driverUsageRecord) : final,
-      finishUsage: structuredUsageRecord,
-      value: runResult,
-    }
-  }, "[vitehub] Agent run failed and finish lifecycle also failed.", {
-    finalizeRawStreams: renderOutput && Boolean(adapterContext.output),
+  return await executeAgentInvocation(agent, context, input, {
+    kind: "run",
+    renderOutput: options.output !== "raw",
   }) as TOutput
 }
 
@@ -2524,125 +2584,9 @@ export async function streamAgentInline<
   input: AgentRunInput<CALL_OPTIONS>,
   options: { output?: "events" | "ui-message-stream" } = {},
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
-  const output = options.output || "events"
-  if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
-    const runContext = await createAgentInvocationContext(agent, context, input)
-    runContext.close = once(runContext.close)
-    if (runContext.handledResponse) {
-      return await finalizeAgentInvocationResult(runContext, runContext.handledResponse, async result => ({ finishResult: result, value: result }), "[vitehub] Agent stream failed and finish lifecycle also failed.")
-    }
-    let result: unknown
-    try {
-      result = await agent.run(runContext)
-    }
-    catch (error) {
-      return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
-    }
-    const outputExtensions = new Map<string, unknown>()
-    let renderedResult = false
-    try {
-      if (isAsyncIterable(result) && output !== "ui-message-stream" && !runContext.finalOutputRenderers.length) {
-        result = await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
-        renderedResult = true
-      }
-    }
-    catch (error) {
-      return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
-    }
-    return await finalizeAgentInvocationResult(runContext, result, async (result) => {
-      const driverUsageRecord = await resolveFinishUsageRecord(runContext, result)
-      const rendered = renderedResult ? result : await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
-      if (output === "ui-message-stream") {
-        return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, runContext), shouldWrapInvocationOutput(runContext), async (outcome, streamedText, streamedUsageRecord) => {
-          await finishStreamAgentInvocation(runContext, resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), "[vitehub] Agent stream failed and finish lifecycle also failed.", outputExtensions)
-        })
-      }
-      const isStreamResult = hasTraceableStreamResult(rendered)
-      const isStream = isAsyncIterable(rendered) || isStreamResult
-      if (!isStream) {
-        const final = await applyFinalOutputRenderers(rendered, runContext, outputExtensions)
-        const value = runContext.output
-          ? await validateAgentOutput(runContext.output, final, { allowMaterializedObject: true })
-          : final
-        return {
-          finishResult: value,
-          finishUsage: driverUsageRecord,
-          value,
-        }
-      }
-      const stream = isStreamResult
-        ? streamAgentOutputToEvents(rendered)
-        : rendered as AsyncIterable<StreamEvent>
-      const shouldWrapOutput = shouldWrapInvocationOutput(runContext)
-      const streamed = withStreamedResult(stream, rendered, driverUsageRecord)
-      const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, runContext)
-      return {
-        deferFinish: isStream && shouldWrapOutput,
-        finishResult: rendered,
-        value: isStream
-          ? withStreamResultProperties(shouldWrapOutput
-            ? withCapabilityCleanup(tracedStream, async (outcome) => {
-                await finishStreamAgentInvocation(runContext, streamed.finishResult(), finishOutcomeFromCleanup(outcome), "[vitehub] Agent stream failed and finish lifecycle also failed.", outputExtensions)
-              }, { abortSignal: runContext.input.abortSignal }) as AsyncIterable<StreamEvent>
-            : tracedStream, rendered)
-          : rendered,
-      }
-    }, "[vitehub] Agent run failed and finish lifecycle also failed.", {
-      finalizeRawStreams: output === "ui-message-stream" || Boolean(runContext.finalOutputRenderers.length) || Boolean(runContext.output),
-      outputExtensions,
-      wrapStream: stream => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, runContext),
-    })
-  }
-
-  const resolved = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
-  const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
-  const adapterContext = await createAgentInvocationContext(definition, context, input)
-  adapterContext.close = once(adapterContext.close)
-  if (adapterContext.handledResponse) {
-    return await finalizeAgentInvocationResult(adapterContext, adapterContext.handledResponse, async result => ({ finishResult: result, value: result }), "[vitehub] Agent stream failed and finish lifecycle also failed.")
-  }
-  let result: unknown
-  try {
-    result = resolved.stream
-      ? await resolved.stream(toAgentAdapterRunContext(adapterContext) as never)
-      : await resolved.generate(toAgentAdapterRunContext(adapterContext) as never)
-  }
-  catch (error) {
-    return await finishFailedAgentInvocation(adapterContext, error, "[vitehub] Agent stream failed and finish lifecycle also failed.")
-  }
-  const outputExtensions = new Map<string, unknown>()
-  let renderedResult = false
-  try {
-    if (isAsyncIterable(result) && output !== "ui-message-stream" && !adapterContext.finalOutputRenderers.length) {
-      result = await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions)
-      renderedResult = true
-    }
-  }
-  catch (error) {
-    return await finishFailedAgentInvocation(adapterContext, error, "[vitehub] Agent stream failed and finish lifecycle also failed.")
-  }
-  return await finalizeAgentInvocationResult(adapterContext, result, async (result) => {
-    const driverUsageRecord = await resolveFinishUsageRecord(adapterContext, result)
-    const rendered = renderedResult ? result : await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions)
-    if (output === "ui-message-stream") {
-      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, adapterContext), shouldWrapInvocationOutput(adapterContext), async (outcome, streamedText, streamedUsageRecord) => {
-        await finishStreamAgentInvocation(adapterContext, resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), "[vitehub] Agent stream failed and finish lifecycle also failed.", outputExtensions)
-      })
-    }
-    const events = streamAgentOutputToEvents(rendered)
-    const streamed = withStreamedResult(events, rendered, driverUsageRecord)
-    const tracedEvents = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, adapterContext)
-    const shouldWrapOutput = shouldWrapInvocationOutput(adapterContext)
-    return {
-      deferFinish: shouldWrapOutput,
-      finishResult: rendered,
-      value: shouldWrapOutput ? withCapabilityCleanup(tracedEvents, async (outcome) => {
-        await finishStreamAgentInvocation(adapterContext, streamed.finishResult(), finishOutcomeFromCleanup(outcome), "[vitehub] Agent stream failed and finish lifecycle also failed.", outputExtensions)
-      }, { abortSignal: adapterContext.input.abortSignal }) : tracedEvents,
-    }
-  }, "[vitehub] Agent stream failed and finish lifecycle also failed.", {
-    finalizeRawStreams: output === "ui-message-stream" || Boolean(adapterContext.finalOutputRenderers.length) || Boolean(adapterContext.output),
-    outputExtensions,
+  return await executeAgentInvocation(agent, context, input, {
+    kind: "stream",
+    output: options.output || "events",
   })
 }
 
