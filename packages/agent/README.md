@@ -20,7 +20,7 @@ Keep the three pieces separate:
 pnpm add @vite-hub/agent @vite-hub/workspace ai
 ```
 
-`ai` is required for model-backed drivers and AI SDK-powered capabilities such as model-backed `chatTitle()`, `chatSummary()`, `llmGate()`, and `transcribe()`. Agents with `driver.run` can bundle without installing `ai`.
+`ai` is required for model-backed drivers and AI SDK-powered capabilities such as model-backed `title()`, `chatSummary()`, `llmGate()`, and `transcribe()`. Agents with `driver.run` can bundle without installing `ai`.
 
 Add the AI SDK model provider you pass to `model`.
 

@@ -14,13 +14,13 @@ import { createTraceEventLog, resolveRuntimeContext } from "@vite-hub/runtime"
 import { agentResultKind, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import {
-  finishMessageChannelChatTitleDelivery,
-  isMessageChannelChatTitleEffectIntent,
+  finishMessageChannelTitleDelivery,
+  isMessageChannelTitleEffectIntent,
   messageChannelTitleDeliveredContextKey,
-  prepareMessageChannelChatTitleDelivery,
+  prepareMessageChannelTitleDelivery,
   resolveAgentChannelChatOptions,
 } from "./internal/channels.ts"
-import type { MessageChannelChatTitleDeliveryAttempt } from "./internal/channels.ts"
+import type { MessageChannelTitleDeliveryAttempt } from "./internal/channels.ts"
 import {
   channelHasCustomTitleEffect,
   messageChannelSupportsTitleEffect,
@@ -872,13 +872,13 @@ async function applyChannelDeliveryEffectIntents<
       continue
     }
 
-    const titleDelivery = isMessageChannelChatTitleEffectIntent(intent)
-      ? await prepareMessageChannelChatTitleDelivery(context.context, context.run, intent).catch(async (error) => {
+    const titleDelivery = isMessageChannelTitleEffectIntent(intent)
+      ? await prepareMessageChannelTitleDelivery(context.context, context.run, intent).catch(async (error) => {
           await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, {
             ...metadata,
             "error.message": agentErrorMessage(error),
           })
-          return { deliver: true } as MessageChannelChatTitleDeliveryAttempt
+          return { deliver: true } as MessageChannelTitleDeliveryAttempt
         })
       : undefined
     if (titleDelivery?.error) {
@@ -934,7 +934,7 @@ async function applyChannelDeliveryEffectIntents<
     }
     if (titleDelivery) {
       try {
-        await finishMessageChannelChatTitleDelivery(titleDelivery, delivered, Boolean(finish))
+        await finishMessageChannelTitleDelivery(titleDelivery, delivered, Boolean(finish))
       }
       catch (error) {
         await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, {

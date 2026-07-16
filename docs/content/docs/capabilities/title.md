@@ -1,14 +1,14 @@
 ---
-title: Chat title
-description: Generate a short chat title and attach it to Agent output.
-navigation.title: Chat title
+title: Title
+description: Generate a short title and attach it to Agent output.
+navigation.title: Title
 navigation.order: 200
 navigation.group: Decisions and output
 icon: i-lucide-heading
 ---
 
-`chatTitle()` adds title generation for chat-style Agent output.
-It can use a model, a custom executor, or a local heuristic, then streams or returns the title as output metadata.
+`title()` generates a short title for an Agent Invocation.
+It can use a model, a custom executor, or a local heuristic, then streams or returns the title as output metadata and optionally delivers it to a Channel thread.
 
 ## Installation
 
@@ -18,38 +18,38 @@ Use the configuration example below as the starting point, then tighten modes, p
 ## What it adds
 
 The Capability reads the first user message, generates a short title, provides it as a finish extension, and injects title data into compatible streams.
+Applications can use the finish extension to name a job, run, artifact, or other durable record without depending on a chat surface.
 It can filter by Agent Trigger id when title generation should run only for selected triggers.
 
 ## Configuration
 
-Attach `chatTitle()` beside `chat()` for chat surfaces.
+Attach `title()` to any Agent Definition that needs a generated title.
 When no model is available to the Capability, ViteHub falls back to a short heuristic title.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
-import { chat, chatTitle } from '@vite-hub/agent/capabilities'
+import { title } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: { model },
   capabilities: [
-    chat(),
-    chatTitle(),
+    title(),
   ],
 })
 ```
 
 ## Runtime behavior
 
-`chatTitle()` runs in the output phase.
+`title()` runs in the output phase.
 It wraps compatible async streams or UI message streams so the title can arrive alongside the response, and it provides `{ title }` in the finish extension.
 
-For framework-managed Chat SDK message Channels, ViteHub generates and delivers the title once per thread by default, even when each webhook contains only the current message or the handler is recreated. Follow-up Channel invocations skip title generation after successful delivery. Set `channelDelivery: "always"` when the platform title should be refreshed on every invocation. Plain `runAgent()` and UI invocations without framework-managed Chat SDK delivery still receive stream data and finish extensions per invocation.
+For framework-managed Chat SDK message Channels, ViteHub also delivers the title once per thread by default, even when each webhook contains only the current message or the handler is recreated. Follow-up Channel invocations skip title generation after successful delivery. Set `channelDelivery: "always"` when the platform title should be refreshed on every invocation. Plain `runAgent()` and UI invocations without framework-managed Chat SDK delivery still receive stream data and finish extensions per invocation.
 
 The Capability avoids wrapping the same result twice.
 
 ## Requirements
 
-`chatTitle()` needs message-shaped input with at least one user message.
+`title()` needs message-shaped input with at least one user message.
 A model, custom executor, or heuristic path must be available.
 
 Use a custom template, variables, or executor when the title must include product-specific context.
@@ -64,7 +64,7 @@ Use a custom template, variables, or executor when the title must include produc
 
 ## Inspect and verify
 
-Send one chat message and inspect the stream for chat title data.
+Run one Agent Invocation and inspect the stream for title data.
 The finish extension should include `{ title }` when title generation succeeds.
 
 Test a vague first message and confirm the fallback title is used instead of an empty string.
@@ -76,8 +76,8 @@ Test a vague first message and confirm the fallback title is used instead of an 
 | `channelDelivery` | `"once-per-thread" \| "always"` | `"once-per-thread"` | Deliver framework-managed Chat SDK Channel titles once per thread, or on every invocation. |
 | `driver` | `AgentDriver` | none | Agent Driver used only for title generation. |
 | `execute` | `(input) => string \| { title?: string }` | none | Custom title generator. |
-| `fallback` | `string` | `"New Conversation"` | Title used when generation returns no usable text. |
-| `id` | `string` | `"chat-title"` | Capability id. |
+| `fallback` | `string` | `"Untitled"` | Title used when generation returns no usable text. |
+| `id` | `string` | `"title"` | Capability id. |
 | `instructions` | `string` | none | System instructions for model-backed title generation. |
 | `maxLength` | `number` | `80` | Maximum title length. |
 | `model` | `AgentModelResolver` | Agent model, then heuristic fallback | Model used for title generation. |
@@ -90,4 +90,4 @@ Test a vague first message and confirm the fallback title is used instead of an 
 
 - [chat()](/docs/capabilities/chat)
 - [chatSummary()](/docs/capabilities/chat-summary)
-- Source: `packages/agent/src/capabilities/chat-title.ts`
+- Source: `packages/agent/src/capabilities/title.ts`

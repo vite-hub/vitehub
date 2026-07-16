@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
 import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/runtime"
-import { chat, chatTitle, schedule, subagents } from "../src/capabilities.ts"
+import { chat, title, schedule, subagents } from "../src/capabilities.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 
 import type { AgentChannelDeliveryFinishEffectCallback, AgentFinishEvent } from "../src/index.ts"
@@ -3472,12 +3472,12 @@ describe("agent message protocol", () => {
     expect(delivered).toHaveBeenCalledWith("deliver me")
   })
 
-  it("delivers chat titles through message Channels", async () => {
+  it("delivers titles through message Channels", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
     const setAssistantTitle = vi.fn()
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute: () => "Prepared title", id: "thread-title" })],
+      capabilities: [title({ execute: () => "Prepared title", id: "thread-title" })],
       channels: {
         portal: defineChannel("portal", {
           adapter: {
@@ -3502,7 +3502,7 @@ describe("agent message protocol", () => {
     expect(setAssistantTitle).toHaveBeenCalledWith("thread-1", "thread-1", "Prepared title")
   })
 
-  it("starts and replaces provisional chat titles while the main driver is pending", async () => {
+  it("starts and replaces provisional titles while the main driver is pending", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
     let releaseDriver: () => void = () => {}
@@ -3525,7 +3525,7 @@ describe("agent message protocol", () => {
     const waitUntilTasks: Promise<unknown>[] = []
     const agent = defineAgent({
       capabilities: [
-        chatTitle({ execute }),
+        title({ execute }),
         defineCapability({
           id: "transcribed-input",
           input(context) {
@@ -3595,7 +3595,7 @@ describe("agent message protocol", () => {
     expect(titleEffect).toHaveBeenCalledTimes(2)
   })
 
-  it("retries chat title delivery at finish when any early delivery handler fails", async () => {
+  it("retries title delivery at finish when any early delivery handler fails", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
     let releaseDriver: () => void = () => {}
@@ -3609,7 +3609,7 @@ describe("agent message protocol", () => {
     const execute = vi.fn(() => "Prepared title")
     const waitUntilTasks: Promise<unknown>[] = []
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute })],
+      capabilities: [title({ execute })],
       channels: {
         portal: defineChannel("portal", {
           effects: {
@@ -3652,12 +3652,12 @@ describe("agent message protocol", () => {
     expect(retryingTitleEffect).toHaveBeenCalledTimes(2)
   })
 
-  it("delivers chat titles through Slack Assistant message Channels", async () => {
+  it("delivers titles through Slack Assistant message Channels", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
     const setAssistantTitle = vi.fn()
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute: () => "Prepared title", id: "thread-title" })],
+      capabilities: [title({ execute: () => "Prepared title", id: "thread-title" })],
       channels: {
         slack: defineChannel("slack", {
           adapter: {
@@ -3718,7 +3718,7 @@ describe("agent message protocol", () => {
     const execute = vi.fn(() => "Unused title")
     const agent = defineAgent({
       capabilities: [
-        chatTitle({ execute }),
+        title({ execute }),
         defineCapability({
           id: "remove-user-message",
           input(context) {
@@ -3785,12 +3785,12 @@ describe("agent message protocol", () => {
     expect(adapter).not.toHaveBeenCalled()
   })
 
-  it("ignores chat title delivery when message Channel adapters cannot set titles", async () => {
+  it("ignores title delivery when message Channel adapters cannot set titles", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
     const execute = vi.fn(() => "Prepared title")
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute })],
+      capabilities: [title({ execute })],
       channels: {
         portal: defineChannel("portal", {
           adapter: {
@@ -3814,13 +3814,13 @@ describe("agent message protocol", () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
-  it("preserves chat title finish extensions when message Channel title delivery is unsupported", async () => {
+  it("preserves title finish extensions when message Channel title delivery is unsupported", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
     const execute = vi.fn(() => "Prepared title")
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute })],
+      capabilities: [title({ execute })],
       channels: {
         portal: defineChannel("portal", {
           adapter: {
@@ -3845,16 +3845,16 @@ describe("agent message protocol", () => {
 
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
     expect(execute).toHaveBeenCalledOnce()
-    expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toEqual({ title: "Prepared title" })
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Prepared title" })
   })
 
-  it("delivers chat titles through custom message Channel title effects", async () => {
+  it("delivers titles through custom message Channel title effects", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
     const execute = vi.fn(() => "Prepared title")
     const titleEffect = vi.fn()
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute })],
+      capabilities: [title({ execute })],
       channels: {
         portal: defineChannel("portal", {
           adapter: {
@@ -3884,12 +3884,12 @@ describe("agent message protocol", () => {
     }))
   })
 
-  it("delivers chat titles through raw custom Channel title effects", async () => {
+  it("delivers titles through raw custom Channel title effects", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const execute = vi.fn(() => "Prepared title")
     const titleEffect = vi.fn()
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute })],
+      capabilities: [title({ execute })],
       channels: {
         portal: {
           effects: {
@@ -5322,13 +5322,13 @@ describe("agent message protocol", () => {
     expect(extension).not.toHaveBeenCalled()
   })
 
-  it("does not generate chat titles for plain agent runs without title delivery", async () => {
+  it("does not generate titles for plain agent runs without title delivery", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const execute = vi.fn(() => {
       throw new Error("title should not run")
     })
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute })],
+      capabilities: [title({ execute })],
       driver: { run: () => ({ text: "ok" }) },
     })
 
@@ -6363,11 +6363,11 @@ describe("agent message protocol", () => {
     }))
   })
 
-  it("emits chat title data for the first user message in streams", async () => {
+  it("emits title data for the first user message in streams", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const execute = vi.fn(({ text }) => `Title: ${text}`)
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute })],
+      capabilities: [title({ execute })],
       driver: { run: () => (async function* () {
           yield { text: "hello", type: "text-delta" }
           yield { type: "finish" }
@@ -6391,7 +6391,7 @@ describe("agent message protocol", () => {
       text: "First user request",
     }))
     expect(events).toContainEqual({
-      data: { title: "Title: First user request", type: "chat-title" },
+      data: { title: "Title: First user request", type: "title" },
       type: "data",
     })
     expect(events).toContainEqual({ text: "hello", type: "text-delta" })
@@ -6403,7 +6403,7 @@ describe("agent message protocol", () => {
     const execute = vi.fn(({ text }) => `Title: ${text}`)
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [chatTitle({ channelDelivery: "once-per-thread", execute })],
+      capabilities: [title({ channelDelivery: "once-per-thread", execute })],
       driver: { run: () => (async function* () {
           yield { text: "hello", type: "text-delta" }
           yield { type: "finish" }
@@ -6423,25 +6423,25 @@ describe("agent message protocol", () => {
       const events = []
       for await (const event of stream as AsyncIterable<unknown>) events.push(event)
       expect(events).toContainEqual({
-        data: { title: `Title: ${id}`, type: "chat-title" },
+        data: { title: `Title: ${id}`, type: "title" },
         type: "data",
       })
     }
     expect(execute).toHaveBeenCalledTimes(2)
-    expect(finish.mock.calls.map(([event]) => event.extensions.get("chat-title"))).toEqual([
+    expect(finish.mock.calls.map(([event]) => event.extensions.get("title"))).toEqual([
       { title: "Title: user-1" },
       { title: "Title: user-2" },
     ])
   })
 
-  it("streams agent output while chat title generation is pending", async () => {
+  it("streams agent output while title generation is pending", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     let resolveTitle: (title: string) => void = () => {}
     const delayedTitle = new Promise<string>((resolve) => {
       resolveTitle = resolve
     })
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute: () => delayedTitle })],
+      capabilities: [title({ execute: () => delayedTitle })],
       driver: { run: () => (async function* () {
           yield { text: "hello", type: "text-delta" }
           yield { type: "finish" }
@@ -6466,15 +6466,15 @@ describe("agent message protocol", () => {
 
     expect(rest).toContainEqual({ type: "finish" })
     expect(rest).toContainEqual({
-      data: { title: "Delayed title", type: "chat-title" },
+      data: { title: "Delayed title", type: "title" },
       type: "data",
     })
   })
 
-  it("keeps streaming when chat title generation fails", async () => {
+  it("keeps streaming when title generation fails", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute: () => { throw new Error("title failed") } })],
+      capabilities: [title({ execute: () => { throw new Error("title failed") } })],
       driver: { run: () => (async function* () {
           yield { text: "hello", type: "text-delta" }
           yield { type: "finish" }
@@ -6495,14 +6495,14 @@ describe("agent message protocol", () => {
     ])
   })
 
-  it("does not render chat title templates for heuristic fallback titles", async () => {
+  it("does not render title templates for heuristic fallback titles", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const template = vi.fn(() => "Rendered template")
     const variable = vi.fn(() => "Rendered variable")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [
-        chatTitle({
+        title({
           template,
           variables: {
             area: variable,
@@ -6521,10 +6521,10 @@ describe("agent message protocol", () => {
 
     expect(template).not.toHaveBeenCalled()
     expect(variable).not.toHaveBeenCalled()
-    expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toEqual({ title: "Need help with invoices today" })
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Need help with invoices today" })
   })
 
-  it("generates chat titles with the default template and agent model", async () => {
+  it("generates titles with the default template and agent model", async () => {
     const generateText = vi.fn(async () => ({ text: '"Generated invoice title"' }))
     const aiSdk = {
       generateText,
@@ -6542,7 +6542,7 @@ describe("agent message protocol", () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const finish = vi.fn()
       const agent = defineAgent({
-        capabilities: [chatTitle()],
+        capabilities: [title()],
         hooks: {
           "agent:finish": finish,
         },
@@ -6556,7 +6556,7 @@ describe("agent message protocol", () => {
       expect(generateText).toHaveBeenCalledWith({
         model: "agent-title-model",
         prompt: [
-          "Summarize the user's request as a short chat title.",
+          "Summarize the user's request as a short title.",
           "Return only the title.",
           "Use 4-8 words when possible.",
           "Keep it under 80 characters.",
@@ -6564,20 +6564,20 @@ describe("agent message protocol", () => {
           "Use the user's language.",
           "Do not use emoji.",
           "Ignore chat platform mention/channel markup, bot names, and user IDs.",
-          `Use "New Conversation" when the message is too vague.`,
+          `Use "Untitled" when the message is too vague.`,
           "",
           "User message:",
           "Need help with invoices",
         ].join("\n"),
       })
-      expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toEqual({ title: "Generated invoice title" })
+      expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Generated invoice title" })
     }
     finally {
       vi.doUnmock("ai")
     }
   })
 
-  it("cleans generated chat titles without cutting words", async () => {
+  it("cleans generated titles without cutting words", async () => {
     const generateText = vi.fn(async () => ({ text: "Compare Quiet Rainy Morning Cafe Museum Plans" }))
     const aiSdk = {
       generateText,
@@ -6596,7 +6596,7 @@ describe("agent message protocol", () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const finish = vi.fn()
       const agent = defineAgent({
-        capabilities: [chatTitle({ maxLength: 35 })],
+        capabilities: [title({ maxLength: 35 })],
         driver: { model: "agent-title-model" as never },
         hooks: {
           "agent:finish": finish,
@@ -6607,14 +6607,14 @@ describe("agent message protocol", () => {
         messages: [createMessage({ role: "user", text: "Compare a cafe morning and museum morning" })],
       })
 
-      expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toEqual({ title: "Compare Quiet Rainy Morning Cafe" })
+      expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Compare Quiet Rainy Morning Cafe" })
     }
     finally {
       vi.doUnmock("ai")
     }
   })
 
-  it("generates chat titles with a harness title driver", async () => {
+  it("generates titles with a harness title driver", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const session = { destroy: vi.fn() }
@@ -6624,7 +6624,7 @@ describe("agent message protocol", () => {
 
     const agent = defineAgent({
       capabilities: [
-        chatTitle({
+        title({
           driver: {
             harness: { provider: "codex" },
             sandbox,
@@ -6650,15 +6650,15 @@ describe("agent message protocol", () => {
       harness: { provider: "codex" },
       sandbox,
     })
-    expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toEqual({ title: "Como Estas" })
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Como Estas" })
   })
 
-  it("generates chat titles from stream-result title drivers", async () => {
+  it("generates titles from stream-result title drivers", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [
-        chatTitle({
+        title({
           driver: {
             run: () => ({
               stream: (async function* () {
@@ -6680,10 +6680,10 @@ describe("agent message protocol", () => {
       messages: [createMessage({ role: "user", text: "Need a sidebar title" })],
     })
 
-    expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toEqual({ title: "Streamed title" })
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Streamed title" })
   })
 
-  it("renders custom chat title templates and skips unmatched triggers", async () => {
+  it("renders custom title templates and skips unmatched triggers", async () => {
     const generateText = vi.fn(async () => ({ text: "Portal Forecast Help" }))
     vi.doMock("ai", () => ({ generateText, jsonSchema: vi.fn(schema => schema) }))
 
@@ -6692,7 +6692,7 @@ describe("agent message protocol", () => {
       const finish = vi.fn()
       const agent = defineAgent({
         capabilities: [
-          chatTitle({
+          title({
             model: "title-model" as never,
             template: "{{ trigger }} {{ area }}: {{ message }}",
             trigger: "portal.message",
@@ -6730,7 +6730,7 @@ describe("agent message protocol", () => {
 
       await runAgentTrigger(agent, runtime, "teams.message", { text: "Need help with forecast" })
       expect(generateText).not.toHaveBeenCalled()
-      expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toBeUndefined()
+      expect(finish.mock.calls[0]![0].extensions.get("title")).toBeUndefined()
 
       await runAgentTrigger(agent, runtime, "portal.message", { text: "Need help with forecast" })
 
@@ -6738,14 +6738,14 @@ describe("agent message protocol", () => {
         model: "title-model",
         prompt: "portal.message support: Need help with forecast",
       })
-      expect(finish.mock.calls[1]![0].extensions.get("chat-title")).toEqual({ title: "Portal Forecast Help" })
+      expect(finish.mock.calls[1]![0].extensions.get("title")).toEqual({ title: "Portal Forecast Help" })
     }
     finally {
       vi.doUnmock("ai")
     }
   })
 
-  it("emits chat title data for adapter text streams", async () => {
+  it("emits title data for adapter text streams", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
       ToolLoopAgent: class {
@@ -6766,7 +6766,7 @@ describe("agent message protocol", () => {
     try {
       const { defineAgent, streamAgent } = await import("../src/index.ts")
       const agent = defineAgent({
-        capabilities: [chatTitle({ execute: () => "Adapter title" })],
+        capabilities: [title({ execute: () => "Adapter title" })],
         driver: { model: {} as never },
       })
 
@@ -6778,7 +6778,7 @@ describe("agent message protocol", () => {
         events.push(event)
       }
 
-      expect(events).toContainEqual({ data: { title: "Adapter title", type: "chat-title" }, type: "data" })
+      expect(events).toContainEqual({ data: { title: "Adapter title", type: "title" }, type: "data" })
       expect(events).toContainEqual({ text: "hello", type: "text-delta" })
     }
     finally {
@@ -6786,7 +6786,7 @@ describe("agent message protocol", () => {
     }
   })
 
-  it("preserves stream result methods when adding chat title data to full streams", async () => {
+  it("preserves stream result methods when adding title data to full streams", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     class StreamResult {
@@ -6800,7 +6800,7 @@ describe("agent message protocol", () => {
       }
     }
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute: () => "Preserved title" })],
+      capabilities: [title({ execute: () => "Preserved title" })],
       hooks: {
         "agent:finish": finish,
       },
@@ -6815,7 +6815,7 @@ describe("agent message protocol", () => {
       events.push(event)
     }
 
-    expect(events).toContainEqual({ data: { title: "Preserved title", type: "chat-title" }, type: "data" })
+    expect(events).toContainEqual({ data: { title: "Preserved title", type: "title" }, type: "data" })
     expect(events).toContainEqual({ text: "hello", type: "text-delta" })
     expect(result).toBeInstanceOf(StreamResult)
     expect(result.metadata).toEqual({ id: "stream-result-1" })
@@ -6824,7 +6824,7 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].result).toBe(result)
   })
 
-  it("preserves readable stream results when adding chat title data", async () => {
+  it("preserves readable stream results when adding title data", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     class StreamResult {
       stream = new ReadableStream<unknown>({
@@ -6839,7 +6839,7 @@ describe("agent message protocol", () => {
       }
     }
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute: () => "Readable title" })],
+      capabilities: [title({ execute: () => "Readable title" })],
       driver: { run: () => new StreamResult() },
     })
 
@@ -6855,7 +6855,7 @@ describe("agent message protocol", () => {
     expect(result).toBeInstanceOf(StreamResult)
     expect(result.stream).toBeInstanceOf(ReadableStream)
     expect(stream).toBeInstanceOf(ReadableStream)
-    expect(events).toContainEqual({ data: { title: "Readable title", type: "chat-title" }, type: "data" })
+    expect(events).toContainEqual({ data: { title: "Readable title", type: "title" }, type: "data" })
     expect(events).toContainEqual({ text: "hello", type: "text-delta" })
   })
 
@@ -6864,7 +6864,7 @@ describe("agent message protocol", () => {
     const pull = vi.fn()
     const source = new ReadableStream<unknown>({ pull }, { highWaterMark: 0 })
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute: () => "Lazy title" })],
+      capabilities: [title({ execute: () => "Lazy title" })],
       driver: { run: () => ({ stream: source }) },
     })
 
@@ -6877,7 +6877,7 @@ describe("agent message protocol", () => {
     await result.stream.cancel("unused")
   })
 
-  it("keeps native UI message stream conversion available after chat title decoration", async () => {
+  it("keeps native UI message stream conversion available after title decoration", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     class StreamResult {
       stream = new ReadableStream<unknown>({
@@ -6896,7 +6896,7 @@ describe("agent message protocol", () => {
       }
     }
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute: () => "Native UI title" })],
+      capabilities: [title({ execute: () => "Native UI title" })],
       driver: { run: () => new StreamResult() },
     })
 
@@ -6908,7 +6908,7 @@ describe("agent message protocol", () => {
       events.push(event)
     }
 
-    expect(events).toContainEqual({ data: { title: "Native UI title", type: "chat-title" }, type: "data-chat-title" })
+    expect(events).toContainEqual({ data: { title: "Native UI title", type: "title" }, type: "data-title" })
     expect(events).toContainEqual({ delta: "hello", id: "text-1", type: "text-delta" })
   })
 
@@ -6930,7 +6930,7 @@ describe("agent message protocol", () => {
       }, { highWaterMark: 0 })
     }
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute: () => new Promise<string>(() => {}) })],
+      capabilities: [title({ execute: () => new Promise<string>(() => {}) })],
       driver: { run: () => new StreamResult() },
     })
 
@@ -6947,7 +6947,7 @@ describe("agent message protocol", () => {
     expect(cancel).toHaveBeenCalledWith("client disconnected")
   })
 
-  it("preserves text stream result metadata when adding chat title data", async () => {
+  it("preserves text stream result metadata when adding title data", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     class TextStreamResult {
@@ -6961,7 +6961,7 @@ describe("agent message protocol", () => {
       }
     }
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute: () => "Metadata title" })],
+      capabilities: [title({ execute: () => "Metadata title" })],
       hooks: {
         "agent:finish": finish,
       },
@@ -6976,7 +6976,7 @@ describe("agent message protocol", () => {
       events.push(event)
     }
 
-    expect(events).toContainEqual({ data: { title: "Metadata title", type: "chat-title" }, type: "data" })
+    expect(events).toContainEqual({ data: { title: "Metadata title", type: "title" }, type: "data" })
     expect(events).toContainEqual({ text: "hello", type: "text-delta" })
     expect(result).toBeInstanceOf(TextStreamResult)
     expect(result.metadata).toEqual({ usage: "kept" })
@@ -6998,7 +6998,7 @@ describe("agent message protocol", () => {
     const nativeResult = new TextStreamResult()
     const agent = defineAgent({
       capabilities: [
-        chatTitle({ execute }),
+        title({ execute }),
         defineCapability({
           id: "remove-user-message",
           input(context) {
@@ -7019,11 +7019,11 @@ describe("agent message protocol", () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
-  it("emits chat title data for UI message streams", async () => {
+  it("emits title data for UI message streams", async () => {
     const { createUIMessageStream, readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute: () => "Sidebar title" })],
+      capabilities: [title({ execute: () => "Sidebar title" })],
       driver: { run: () => ({
           toUIMessageStream() {
             return createUIMessageStream({
@@ -7048,7 +7048,7 @@ describe("agent message protocol", () => {
     }
 
     expect(messages.at(-1)?.parts).toEqual([
-      { data: { title: "Sidebar title", type: "chat-title" }, type: "data-chat-title" },
+      { data: { title: "Sidebar title", type: "title" }, type: "data-title" },
       { providerMetadata: undefined, state: "done", text: "answer", type: "text" },
     ])
   })
@@ -7433,11 +7433,11 @@ describe("agent message protocol", () => {
     expect(deriveTraceRuns(traceLog!.entries())).toMatchObject([{ status: "failed" }])
   })
 
-  it("emits one chat title data part when async event streams become UI message streams", async () => {
+  it("emits one title data part when async event streams become UI message streams", async () => {
     const { readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute: () => "Async title" })],
+      capabilities: [title({ execute: () => "Async title" })],
       driver: { run: () => (async function* () {
           yield { text: "answer", type: "text-delta" }
           yield { type: "finish" }
@@ -7452,10 +7452,10 @@ describe("agent message protocol", () => {
       messages.push(message)
     }
 
-    expect(messages.at(-1)?.parts.filter(part => part.type === "data-chat-title")).toEqual([
-      { data: { title: "Async title", type: "chat-title" }, type: "data-chat-title" },
+    expect(messages.at(-1)?.parts.filter(part => part.type === "data-title")).toEqual([
+      { data: { title: "Async title", type: "title" }, type: "data-title" },
     ])
-    expect(messages.at(-1)?.parts.map(part => part.type).sort()).toEqual(["data-chat-title", "text"])
+    expect(messages.at(-1)?.parts.map(part => part.type).sort()).toEqual(["data-title", "text"])
   })
 
   it("preserves data part ids when async event streams become UI message streams", async () => {
@@ -7510,7 +7510,7 @@ describe("agent message protocol", () => {
     let traceLog: ReturnType<typeof createTraceEventLog> | undefined
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute: () => "Run title" })],
+      capabilities: [title({ execute: () => "Run title" })],
       hooks: { "agent:finish": finish },
       driver: { run: (context) => {
         traceLog = context.traceLog
@@ -7529,17 +7529,17 @@ describe("agent message protocol", () => {
       events.push(event)
     }
 
-    expect(events).toContainEqual({ data: { title: "Run title", type: "chat-title" }, type: "data" })
+    expect(events).toContainEqual({ data: { title: "Run title", type: "title" }, type: "data" })
     expect(events).toContainEqual({ text: "answer", type: "text-delta" })
     expect(finish.mock.calls[0]![0].invocation.resultKind).toBe("stream")
     expect(deriveTraceRuns(traceLog!.entries())).toMatchObject([{ status: "completed" }])
   })
 
-  it("exposes chat title finish extension without registering command metadata", async () => {
+  it("exposes title finish extension without registering command metadata", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
-      capabilities: [chatTitle({ execute: ({ text }) => ({ title: `Title: ${text}` }) })],
+      capabilities: [title({ execute: ({ text }) => ({ title: `Title: ${text}` }) })],
       hooks: {
         "agent:finish": finish,
       },
@@ -7551,7 +7551,7 @@ describe("agent message protocol", () => {
     })
 
     const event = finish.mock.calls[0]![0]
-    expect(event.extensions.get("chat-title")).toEqual({ title: "Title: Explain invoices" })
+    expect(event.extensions.get("title")).toEqual({ title: "Title: Explain invoices" })
     expect(agent.capabilities?.[0]?.metadata).toBeUndefined()
   })
 
@@ -8079,7 +8079,7 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       driver: { run: () => (async function* () {
-          yield { data: { title: "Async title" }, type: "data-chat-title" }
+          yield { data: { title: "Async title" }, type: "data-title" }
           yield { text: "hello", type: "text-delta" }
           yield { id: "tool-1", input: { query: "users" }, name: "search", type: "tool-call" }
           yield { id: "tool-1", name: "search", output: "42", type: "tool-result" }
@@ -8095,10 +8095,10 @@ describe("agent message protocol", () => {
       messages.push(message)
     }
 
-    expect(messages.at(-1)?.parts.map(part => part.type)).toEqual(["data-chat-title", "text", "tool-search"])
+    expect(messages.at(-1)?.parts.map(part => part.type)).toEqual(["data-title", "text", "tool-search"])
     expect(messages.at(-1)?.parts[0]).toEqual({
       data: { title: "Async title" },
-      type: "data-chat-title",
+      type: "data-title",
     })
   })
 

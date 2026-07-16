@@ -1983,10 +1983,10 @@ function titleFromUIMessage(message: UIMessage): string | undefined {
   for (const part of message.parts || []) {
     const data = (part as { data?: unknown }).data
     if (
-      (part as { type?: unknown }).type === "data-chat-title"
+      (part as { type?: unknown }).type === "data-title"
       && data
       && typeof data === "object"
-      && (data as { type?: unknown }).type === "chat-title"
+      && (data as { type?: unknown }).type === "title"
       && typeof (data as { title?: unknown }).title === "string"
     ) {
       const title = (data as { title: string }).title.trim()

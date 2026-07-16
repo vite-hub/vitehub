@@ -38,7 +38,7 @@ describe("chatSummary", () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const execute = vi.fn(() => "User wants a sidebar title and a future summary command.")
 
-    const first = createMessage({ role: "user", text: "We need chat titles in the sidebar." })
+    const first = createMessage({ role: "user", text: "We need titles in the sidebar." })
     const assistant = createMessage({ role: "assistant", text: "Use metadata events." })
     const latest = createMessage({ id: "latest", role: "user", text: "/summary focus on decisions" })
     const resolved = await resolveAgentCapabilities({
@@ -49,7 +49,7 @@ describe("chatSummary", () => {
       args: "focus on decisions",
       messages: [first, assistant],
       text: [
-        "user: We need chat titles in the sidebar.",
+        "user: We need titles in the sidebar.",
         "assistant: Use metadata events.",
       ].join("\n"),
     }))

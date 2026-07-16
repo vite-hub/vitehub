@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentFinishEvent, type AgentHarnessDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentUsageRecord, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
-import { access, blob, browser, chat, chatTitle, db, email, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, openapi, papercuts, pullRequestContext, repositoryHost, repositoryHostContext, sandbox, schedule, skills, subagents, transcribe, webSearch, workspaceShell, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type PapercutReportContext, type PapercutReportEvent, type SubagentToolInput } from "../src/capabilities.ts"
+import { access, blob, browser, chat, title, db, email, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, openapi, papercuts, pullRequestContext, repositoryHost, repositoryHostContext, sandbox, schedule, skills, subagents, transcribe, webSearch, workspaceShell, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type PapercutReportContext, type PapercutReportEvent, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -418,7 +418,7 @@ describe("agent public types", () => {
             return "transcript"
           },
         }),
-        chatTitle({
+        title({
           channelDelivery: "once-per-thread",
           model: () => ({}),
           template({ fallback, maxLength, text, trigger }) {

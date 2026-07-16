@@ -90,6 +90,6 @@ For adapter-backed delivery, inspect the Channel-generated webhook registrations
 
 - [Agent triggers](/docs/agents/triggers)
 - [Chat History and sessions](/docs/agents/chat-history-sessions)
-- [chatTitle()](/docs/capabilities/chat-title)
+- [title()](/docs/capabilities/title)
 - [chatSummary()](/docs/capabilities/chat-summary)
 - Source: `packages/agent/src/chat-trigger.ts`
