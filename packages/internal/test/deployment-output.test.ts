@@ -136,6 +136,43 @@ describe("provider deployment outputs", () => {
     })
   })
 
+  it.each([
+    ["a top-level undefined value", { main: undefined }],
+    ["a nested undefined value", { assets: { directory: undefined } }],
+    ["a non-finite number", { limit: Number.POSITIVE_INFINITY }],
+    ["a bigint", { limit: 1n }],
+    ["a symbol", { binding: Symbol("binding") }],
+    ["a function", { resolve: () => undefined }],
+    ["a Date", new Date("2026-01-01")],
+    ["a Map", new Map([["binding", "SETTINGS"]])],
+    ["a class instance", new class ProviderConfig { binding = "SETTINGS" }()],
+    ["a nested non-plain object", { binding: new Date("2026-01-01") }],
+  ])("rejects provider config containing %s", async (_label, wranglerConfig) => {
+    const rootDir = await createTempProject()
+    const { writeCloudflareWranglerConfig } = await import("../src/build/cloudflare.ts")
+
+    await expect(writeCloudflareWranglerConfig({ rootDir, wranglerConfig })).rejects.toThrow(
+      "[vitehub] Provider output config must be a JSON object.",
+    )
+  })
+
+  it("accepts provider config with ordinary and null-prototype records", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeCloudflareWranglerConfig,
+    } = await import("../src/build/cloudflare.ts")
+    const nested = Object.assign(Object.create(null), { enabled: true })
+    const wranglerConfig = Object.assign(Object.create(null), { nested })
+
+    await writeCloudflareWranglerConfig({ rootDir, wranglerConfig })
+
+    const configFile = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+    await expect(readFile(configFile, "utf8").then(JSON.parse)).resolves.toEqual({
+      nested: { enabled: true },
+    })
+  })
+
   it("does not create Cloudflare output while cleaning absent owned config", async () => {
     const rootDir = await createTempProject()
     const {
@@ -145,8 +182,9 @@ describe("provider deployment outputs", () => {
 
     await writeCloudflareWranglerConfig({
       rootDir,
-      wranglerArrayMergeKeys: { kv_namespaces: "binding" },
-      wranglerArrayOwnedValues: { kv_namespaces: ["SETTINGS"] },
+      wranglerConfigOwnership: {
+        arrays: { kv_namespaces: { key: "binding", values: ["SETTINGS"] } },
+      },
     })
 
     expect(existsSync(createDefaultCloudflareOutputRoot(rootDir))).toBe(false)
@@ -170,9 +208,11 @@ describe("provider deployment outputs", () => {
 
     await writeCloudflareWranglerConfig({
       rootDir,
-      wranglerArrayMergeKeys: { kv_namespaces: "binding" },
       wranglerConfig: {
         kv_namespaces: [{ binding: "SETTINGS", id: "new-namespace" }],
+      },
+      wranglerConfigOwnership: {
+        arrays: { kv_namespaces: { key: "binding" } },
       },
     })
 
@@ -186,12 +226,72 @@ describe("provider deployment outputs", () => {
 
     await writeCloudflareWranglerConfig({
       rootDir,
-      wranglerArrayMergeKeys: { kv_namespaces: "binding" },
-      wranglerArrayOwnedValues: { kv_namespaces: ["SETTINGS"] },
+      wranglerConfigOwnership: {
+        arrays: { kv_namespaces: { key: "binding", values: ["SETTINGS"] } },
+      },
     })
 
     await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       kv_namespaces: [{ binding: "MANUAL", id: "manual-namespace" }],
+      triggers: { crons: ["0 0 * * *"] },
+    })
+  })
+
+  it("removes empty owned Cloudflare config arrays and output roots", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    const configFile = join(cloudflareDir, "wrangler.json")
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(configFile, "{\"kv_namespaces\":[]}\n")
+
+    await writeProviderDeploymentOutputs({
+      cleanup: {
+        cloudflare: {
+          wranglerConfigOwnership: {
+            arrays: { kv_namespaces: { key: "binding", values: ["SETTINGS"] } },
+          },
+        },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    expect(existsSync(configFile)).toBe(false)
+    expect(existsSync(cloudflareDir)).toBe(false)
+  })
+
+  it("removes empty owned Cloudflare config arrays independently of unrelated keys", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    const configFile = join(cloudflareDir, "wrangler.json")
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(configFile, `${JSON.stringify({
+      kv_namespaces: [],
+      triggers: { crons: ["0 0 * * *"] },
+    }, null, 2)}\n`)
+
+    await writeProviderDeploymentOutputs({
+      cleanup: {
+        cloudflare: {
+          wranglerConfigOwnership: {
+            arrays: { kv_namespaces: { key: "binding", values: ["SETTINGS"] } },
+          },
+        },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    expect(existsSync(cloudflareDir)).toBe(true)
+    await expect(readFile(configFile, "utf8").then(JSON.parse)).resolves.toEqual({
       triggers: { crons: ["0 0 * * *"] },
     })
   })
@@ -229,6 +329,61 @@ describe("provider deployment outputs", () => {
     })
   })
 
+  it("preserves host Vercel config when writing an isolated function", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultVercelOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const outputRoot = createDefaultVercelOutputRoot(rootDir)
+    const config = {
+      routes: [{ dest: "/__server", src: "/(.*)" }],
+      version: 3,
+    }
+    await mkdir(outputRoot, { recursive: true })
+    await writeFile(join(outputRoot, "config.json"), `${JSON.stringify(config, null, 2)}\n`, "utf8")
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "entry.mjs"),
+        bundleOptions: {},
+        function: { kind: "isolated", name: "__blob.func" },
+      },
+    })
+
+    await expect(readFile(join(outputRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual(config)
+    expect(existsSync(join(outputRoot, "functions", "__blob.func", ".vc-config.json"))).toBe(true)
+  })
+
+  it("replaces owned Vercel function config", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultVercelOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const outputRoot = createDefaultVercelOutputRoot(rootDir)
+    const functionDir = join(outputRoot, "functions", "__blob.func")
+    await mkdir(functionDir, { recursive: true })
+    await writeFile(join(functionDir, ".vc-config.json"), '{"stale":true}\n', "utf8")
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "entry.mjs"),
+        bundleOptions: {},
+        function: { kind: "isolated", name: "__blob.func" },
+        functionConfig: { runtime: "nodejs22.x" },
+      },
+    })
+
+    await expect(readFile(join(functionDir, ".vc-config.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      runtime: "nodejs22.x",
+    })
+  })
+
   it("serializes concurrent writes to shared provider config files", async () => {
     const rootDir = await createTempProject()
     const {
@@ -259,7 +414,7 @@ describe("provider deployment outputs", () => {
             version: 3,
           },
           configKeys: ["routes"],
-          serverFunctionName: "blob.func",
+          function: { kind: "isolated", name: "blob.func" },
         },
       }),
       writeProviderDeploymentOutputs({
@@ -283,7 +438,7 @@ describe("provider deployment outputs", () => {
             version: 3,
           },
           configKeys: ["crons"],
-          serverFunctionName: "database.func",
+          function: { kind: "isolated", name: "database.func" },
         },
       }),
     ])
@@ -441,7 +596,7 @@ describe("provider deployment outputs", () => {
       cleanup: {
         cloudflare: {
           fileNames: ["worker.mjs"],
-          wranglerConfigKeys: ["workflows"],
+          wranglerConfigOwnership: { keys: ["workflows"] },
         },
       },
       clientOutDir: "dist/client",
@@ -469,7 +624,7 @@ describe("provider deployment outputs", () => {
       cleanup: {
         cloudflare: {
           fileNames: ["index.js"],
-          wranglerConfigKeys: ["main"],
+          wranglerConfigOwnership: { keys: ["main"] },
         },
       },
       clientOutDir: "dist/client",
@@ -501,7 +656,7 @@ describe("provider deployment outputs", () => {
         cloudflare: async () => {
           observedConfig = await readFile(join(cloudflareDir, "wrangler.json"), "utf8")
           observedWrapper = await readFile(join(cloudflareDir, "index.js"), "utf8")
-          return { fileNames: ["index.js"], wranglerConfigKeys: ["main"] }
+          return { fileNames: ["index.js"], wranglerConfigOwnership: { keys: ["main"] } }
         },
       },
       clientOutDir: "dist/client",

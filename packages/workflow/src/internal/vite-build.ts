@@ -613,7 +613,9 @@ async function createCloudflareWorkflowCleanup(rootDir: string) {
   return {
     fileNames: ownsWrapper ? ["index.js", "worker.mjs"] : ["worker.mjs"],
     outputRoot,
-    wranglerConfigKeys: ownsWrapper ? cloudflareWorkflowWranglerConfigKeys : ["workflows"],
+    wranglerConfigOwnership: {
+      keys: ownsWrapper ? cloudflareWorkflowWranglerConfigKeys : ["workflows"],
+    },
   }
 }
 
@@ -639,7 +641,7 @@ function createVercelOutput(
       platform: "node",
       plugins: workflowTransformPlugin ? [workflowTransformPlugin] : [],
     },
-    ...(serverFunctionName ? { config: {}, serverFunctionName } : {}),
+    ...(serverFunctionName ? { function: { kind: "isolated" as const, name: serverFunctionName } } : {}),
   }
 }
 

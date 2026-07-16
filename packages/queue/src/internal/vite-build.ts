@@ -263,7 +263,7 @@ function createVercelOutput(artifacts: GeneratedQueueArtifacts, serverFunctionNa
       format: "esm",
       platform: "node",
     },
-    ...(serverFunctionName ? { config: {}, serverFunctionName } : {}),
+    ...(serverFunctionName ? { function: { kind: "isolated" as const, name: serverFunctionName } } : {}),
   }
 }
 
@@ -317,7 +317,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   if (!createCloudflare && createVercel) {
     await writeProviderDeploymentOutputs({
       cleanup: {
-        cloudflare: { wranglerConfigKeys: ["queues"] },
+        cloudflare: { wranglerConfigOwnership: { keys: ["queues"] } },
       },
       clientOutDir: options.clientOutDir,
       rootDir: options.rootDir,

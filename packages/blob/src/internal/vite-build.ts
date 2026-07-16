@@ -371,7 +371,7 @@ function createVercelOutput(
       format: "esm",
       platform: "node",
     },
-    ...(serverFunctionName ? { config: {}, serverFunctionName } : {}),
+    ...(serverFunctionName ? { function: { kind: "isolated" as const, name: serverFunctionName } } : {}),
   }
 }
 

@@ -19,10 +19,9 @@ interface NodeFunctionConfig {
   runtime: "nodejs22.x"
   shouldAddHelpers: false
   supportsResponseStreaming: true
-  [key: string]: unknown
 }
 
-export function createNodeFunctionConfig(extra: Record<string, unknown> = {}): NodeFunctionConfig {
+export function createNodeFunctionConfig(extra: object = {}): NodeFunctionConfig {
   return {
     handler: "index.mjs",
     launcherType: "Nodejs",

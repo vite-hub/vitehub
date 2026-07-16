@@ -249,7 +249,7 @@ function createVercelOutput({ artifacts, providerOutput, runtimeConfig, serverFu
       format: "esm",
       platform: "node",
     },
-    ...(serverFunctionName ? { config: {}, serverFunctionName } : {}),
+    ...(serverFunctionName ? { function: { kind: "isolated" as const, name: serverFunctionName } } : {}),
   }
 }
 
@@ -296,7 +296,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
           .some(([product, modules]) => product !== productName && Boolean(modules?.cloudflare))
         return {
           ...(!hasOtherCloudflareOutput ? { fileNames: ["index.js"] } : {}),
-          wranglerConfigKeys: ["d1_databases"],
+          wranglerConfigOwnership: { keys: ["d1_databases"] },
         }
       },
     },
