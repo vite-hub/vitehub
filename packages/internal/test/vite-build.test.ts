@@ -11,5 +11,6 @@ describe("Vite provider builds", () => {
     expect(resolveNitroVercelFunctionName(plugins, "queue")).toBe("__queue.func")
     expect(resolveNitroVercelFunctionName(plugins, "workflow")).toBe("__workflow.func")
     expect(resolveNitroVercelFunctionName([{ name: "vitehub" }], "blob")).toBeUndefined()
+    expect(resolveNitroVercelFunctionName(undefined, "blob")).toBeUndefined()
   })
 })
