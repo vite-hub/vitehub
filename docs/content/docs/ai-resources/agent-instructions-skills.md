@@ -5,8 +5,8 @@ navigation.order: 62
 icon: i-lucide-scroll-text
 ---
 
-The public ViteHub skill helps coding agents build applications with current documentation and the application's installed package contract.
-It covers both Server Primitives and Agents without loading the complete documentation set into every task.
+The public ViteHub skill helps coding agents build complete applications from current documentation and the application's installed package contract.
+It keeps one compact proof loop in `SKILL.md`, then loads only the project-shape, feature, authority, host, migration, or recovery references that match the task.
 
 ## Install the skill
 
@@ -19,6 +19,14 @@ npx skills add https://vitehub.dev
 The CLI discovers the published `vitehub` skill and installs it for the supported coding agents you select.
 Run `npx skills list` to inspect installed project skills.
 
+## Follow one proof loop
+
+The skill orients in the current project, routes the smallest matching reference set, validates every planned import and option against installed exports and types, builds a coherent file set, and proves every requested behavior through its real runtime path.
+
+The bundled references teach reusable composition rather than copying the API reference. They cover project shapes, preview contracts, Server Primitives, framework composition, Agent Definitions and Drivers, Workspaces and Sources, Channels and Triggers, Capabilities, orchestration, Boxes and hosts, proof and recovery, public project patterns, and migration from older package generations.
+
+Links inside a reference are selection menus. The agent opens the smallest live raw page for the current behavior instead of loading the full reference library or documentation set.
+
 ## Ask for an outcome
 
 The skill activates from normal ViteHub requests.
@@ -30,7 +38,7 @@ State the result you want and include any host or runtime constraint.
 | Agent | `Create a harness-backed review Agent with repository context and invoke it locally.` |
 | Host boundary | `Build this ViteHub application for Cloudflare and inspect its Provider Output.` |
 
-The skill selects one product lane, reads the smallest live docs page, checks installed exports and types, and reports the proof.
+The skill selects one primary product lane, reads only matching references and the smallest live docs pages, checks installed exports and types, and reports the proof for each requested behavior.
 When documentation and an installed version differ, the installed contract controls the implementation and the agent reports the mismatch.
 
 ## Keep the instruction surfaces distinct
@@ -40,7 +48,7 @@ Keeping them separate prevents repository guidance from leaking into runtime Age
 
 | Surface | Audience | Purpose |
 | --- | --- | --- |
-| Public ViteHub skill | Coding agents building a ViteHub application | Routes implementation through live docs, installed contracts, and proof. |
+| Public ViteHub skill | Coding agents building a ViteHub application | Routes project patterns through live docs, installed contracts, explicit authority, and runtime proof. |
 | Repository `AGENTS.md` | Coding agents contributing to a repository | Defines local development rules and project boundaries. |
 | [Agent Driver Instructions](/docs/agents/instructions) | Agents that run inside an application | Defines model-facing runtime behavior. |
 | Agent-local `skills/` | Harness-backed Agent Invocations | Automatically installs Skills owned by a folder Agent Definition. |

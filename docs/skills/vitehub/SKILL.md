@@ -1,74 +1,67 @@
 ---
 name: vitehub
-description: Build and debug ViteHub apps from the live docs and installed contract. Use for server primitives and Runtime Helpers; Agent Definitions, Drivers, Capabilities, Workspaces, and Sources; or Vite Integrations, Provider Output, and host deployment.
+description: Build and debug complete ViteHub apps from live docs and installed contracts. Use for server primitives and Runtime Helpers; Agent Definitions, Drivers, Capabilities, Workspaces, Sources, Channels, Triggers, or orchestration; Vite/Nuxt integration, Provider Output, previews, hosts, and deployment.
 ---
 
 # ViteHub
 
-Use one proof loop: orient, choose one lane, inspect the installed contract, act, recover, and prove.
+Use one proof loop: orient, route, inspect the contract, build, and prove. Exact package exports, installed types, and current raw docs outrank remembered or project-example syntax.
 
 ## 1. Orient
 
-- Inspect the package manifest, lockfile, Vite config, and server entry before proposing code.
-- Identify the installed ViteHub packages and versions, framework, host target, and requested outcome.
-- Open `https://vitehub.dev/llms.txt`, then read the single smallest raw Markdown page that covers the task. Add a second page only when the first one explicitly requires it.
+- Inspect the package manifest, lockfile, Vite or Nuxt config, server entry, and nearby project instructions.
+- Identify installed ViteHub packages and versions, package manager, framework, host target, and requested outcome.
+- Open `https://vitehub.dev/llms.txt`, then select the smallest raw Markdown page covering the primary behavior. Links inside references are selection menus; do not open every linked page.
 
-Orientation is complete when you can state the current setup, target outcome, and chosen docs URL.
+Orientation is complete when the current setup, target outcome, host boundary, and first docs URL are named.
 
-## 2. Choose One Lane
+## 2. Route before code
 
-- **Server primitives** serve direct application and server behavior through Vite Integrations, Definitions when discovery is needed, and Runtime Helpers.
-- **Agents** serve model-backed, harness-backed, or custom-run-backed behavior through Agent Definitions. Agents may compose server primitives; server primitives remain useful without an Agent.
+Choose one primary lane. Server Primitives serve application behavior through Vite Integrations and Runtime Helpers. Agents serve model-backed, harness-backed, or custom-run behavior through Agent Definitions; they may compose Server Primitives without changing the primary lane.
 
-Choose one primary lane. Treat framework and host work as a boundary around that lane, not as a third product model.
+Read only the references whose conditions match, but read them before writing code:
 
-Lane selection is complete when every requested behavior belongs to the chosen lane and any host boundary is named.
+| Task condition | Required reference |
+| --- | --- |
+| New project, uncertain file layout, or cross-feature composition | [Project shapes](references/project-shapes.md) |
+| Released or `pkg.pr.new` installation, upgrade, or package mismatch | [Installed and preview contracts](references/preview-contract.md) |
+| KV, Blob, Database, Env, Email, Queue, Sandbox, Shell, or another Server Primitive | [Server Primitives](references/server-primitives.md) |
+| Modify an existing framework integration; add Nitro or Nuxt; use generated types; configure a provider; or diagnose a framework-specific failure | [Framework composition](references/framework-composition.md) |
+| Agent Definition, Agent Driver, Agent Invocation, instructions, output, hooks, or Evals | [Agent Definitions and Drivers](references/agent-definitions.md) |
+| Workspace, Source, access scope, mounted files, or write-back | [Workspaces, Sources, and access](references/workspaces-sources-access.md) |
+| Channel, Trigger, webhook, messages, admission, concurrency, or delivery | [Channels and Triggers](references/channels-triggers.md) |
+| Capability, tool, secret, rate limit, telemetry, or other granted authority | [Capabilities and authority](references/capabilities-authority.md) |
+| Schedule, Workflow, orchestration retry, idempotency, or terminal state | [Schedules, Workflows, and Invocations](references/schedules-workflows-invocations.md) |
+| Box, trusted host, isolation, required command, or deployment target | [Boxes and hosts](references/boxes-hosts.md) |
+| A proof has failed, generated state disagrees, or a runtime/host failure needs diagnosis | [Proof and recovery](references/proof-recovery.md) |
+| Looking for a complete public application pattern | [Project patterns](references/project-patterns.md) |
+| Existing `@vitehub/*`, `@vite-hub/vite`, or individual `hubX()` composition | [Migration quarantine](references/migration.md) |
 
-## 3. Inspect The Installed Contract
+Routing is complete when every requested behavior has one primary lane and every matching reference has been read. Do not load the whole library.
 
-- Read each installed package's `package.json`, exports, and relevant types before writing imports or options.
-- For a fresh application, follow the installation page, install `vite-hub`, then inspect its root and feature-subpath exports. Use direct owner packages only for a focused library or advanced composition.
-- When live docs, installed types, and exports disagree, implement the installed contract and report the mismatch with both versions or sources. Do not invent a missing API.
+## 3. Inspect the installed contract
 
-Contract inspection is complete when every planned import, option, and runtime entry exists in the installed version.
+- Read each installed package's `package.json`, exports, relevant types, and generated declarations before writing imports or options.
+- For a fresh application, install `vite-hub` and use its root integration plus feature subpaths. Use direct owner packages only for a focused library, an unexported advanced subpath, or an installed older contract.
+- When docs, examples, and installed artifacts disagree, implement the installed artifacts and record the mismatch. Treat project examples as patterns whose imports must be revalidated.
 
-## 4. Act
+Contract inspection is complete when every planned package, import, option, generated path, and runtime entry exists in the installed graph; no syntax is inferred only from memory.
 
-### Server primitive lane
+## 4. Build the coherent file set
 
-1. Install `vite-hub` for an application, or the primitive owner package for a focused library integration.
-2. Register `vitehub()` in the existing Vite config. Use an owner package's `hubX()` integration only when direct package control is intentional.
-3. Add a named Definition only when the primitive relies on discovery.
-4. Call the primitive from application or server code through its Runtime Helper.
-5. Keep primitive authority in application code unless the task explicitly grants it to an Agent through a Capability.
+Before editing, map every requested behavior to:
 
-### Agent lane
+| Behavior | Package owner | Source file | Runtime path | Authority or persistence | Proof |
+| --- | --- | --- | --- | --- | --- |
 
-1. Add one Agent Definition and select one model-backed, harness-backed, or custom Agent Driver.
-2. Satisfy the selected driver's credentials, executable, or callback prerequisites.
-3. Attach only the Workspace, Sources, and Capabilities required by the task.
-4. Put model-facing guidance for configured Sources, Capabilities, and Skills in Agent Driver Instructions or deterministic imported instruction Markdown.
-5. Invoke the Agent through the documented Runtime Helper and keep granted authority visible in the Definition and inspection output.
+Then implement the smallest coherent set: manifest and lockfile, framework integration, discovered Definition where needed, application or orchestration entrypoint, and proof surface. Keep application authority in application code; grant an Agent access only through visible Capabilities, Workspace rules, Sources, Channels, or Box configuration.
 
-### Host boundary
+Building is complete when every requested behavior has an implemented row and no placeholder, unused integration, implicit authority, or unowned persistence remains.
 
-When the task includes deployment, read the target host page, build for that target, and inspect generated Provider Output. State unsupported or partially supported behavior as an explicit limitation.
+## 5. Prove and repair
 
-Acting is complete when the smallest coherent implementation exists in the chosen lane.
+- Run the narrow typecheck or package test nearest the change, then the relevant build.
+- Prove the actual lane: execute the Runtime Helper, perform an Agent Invocation, exercise the webhook or schedule, or inspect generated Provider Output.
+- On failure, return to installed exports/types, `.vitehub` generated state, the selected raw docs page, and [Proof and recovery](references/proof-recovery.md). Repair the cause and rerun the same proof.
 
-## 5. Recover
-
-- For missing imports or type errors, return to installed exports and types.
-- For discovery or runtime failures, inspect generated `.vitehub` state and the diagnostics page selected from `llms.txt`.
-- For docs drift, keep the installed contract in code and report the exact disagreement.
-- For unavailable host behavior, preserve the supported ViteHub boundary and state what remains host-owned.
-
-Recovery is complete when the failure has a source-backed cause, a verified correction, or a precise unsupported boundary.
-
-## 6. Prove
-
-- **Server primitive:** its Vite Integration is registered, its Runtime Helper executes, and the observed output matches the expected output.
-- **Agent:** its Agent Invocation returns or streams the expected result, the Agent Driver prerequisites are satisfied, and granted authority is inspectable.
-- **Host boundary:** the build emits the documented Provider Output and every target limitation is explicit.
-
-Run the narrow package test or typecheck nearest the change, then the relevant application build or invocation proof. Report the commands and observed result, the raw docs URL, installed ViteHub versions, and any contract mismatch or host limitation.
+The task is complete when every behavior row has an observed result, or a precise source-backed unsupported boundary. Report commands and observations, docs URLs, installed ViteHub versions or preview commit, contract mismatches, and host limitations.

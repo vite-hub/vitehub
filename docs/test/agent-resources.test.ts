@@ -28,6 +28,19 @@ describe("public ViteHub skill", () => {
     expect(listFiles(skillRoot).map(path => relative(skillRoot, path))).toEqual([
       "SKILL.md",
       "agents/openai.yaml",
+      "references/agent-definitions.md",
+      "references/boxes-hosts.md",
+      "references/capabilities-authority.md",
+      "references/channels-triggers.md",
+      "references/framework-composition.md",
+      "references/migration.md",
+      "references/preview-contract.md",
+      "references/project-patterns.md",
+      "references/project-shapes.md",
+      "references/proof-recovery.md",
+      "references/schedules-workflows-invocations.md",
+      "references/server-primitives.md",
+      "references/workspaces-sources-access.md",
     ]);
 
     const skill = readFileSync(resolve(skillRoot, "SKILL.md"), "utf8");
@@ -39,21 +52,36 @@ describe("public ViteHub skill", () => {
 
     const openai = readFileSync(resolve(skillRoot, "agents/openai.yaml"), "utf8");
     expect(openai).toContain("Use $vitehub");
-    expect(openai).toContain("live docs and installed contract");
+    expect(openai).toContain("live docs and the installed contract");
   });
 
-  it("routes through one lane, the installed contract, recovery, and proof", () => {
+  it("routes through references, the installed contract, a coherent build, and proof", () => {
     const skill = readFileSync(resolve(skillRoot, "SKILL.md"), "utf8");
 
     expect(skill).toContain("## 1. Orient");
-    expect(skill).toContain("## 2. Choose One Lane");
-    expect(skill).toContain("## 3. Inspect The Installed Contract");
-    expect(skill).toContain("## 4. Act");
-    expect(skill).toContain("## 5. Recover");
-    expect(skill).toContain("## 6. Prove");
-    expect(skill).toContain("Vite Integration is registered, its Runtime Helper executes, and the observed output matches the expected output");
-    expect(skill).toContain("Agent Invocation returns or streams the expected result, the Agent Driver prerequisites are satisfied, and granted authority is inspectable");
-    expect(skill).toContain("build emits the documented Provider Output and every target limitation is explicit");
+    expect(skill).toContain("## 2. Route before code");
+    expect(skill).toContain("## 3. Inspect the installed contract");
+    expect(skill).toContain("## 4. Build the coherent file set");
+    expect(skill).toContain("## 5. Prove and repair");
+    expect(skill).toContain("Package owner | Source file | Runtime path | Authority or persistence | Proof");
+    expect(skill).toContain("every behavior row has an observed result, or a precise source-backed unsupported boundary");
+  });
+
+  it("publishes every directly routed reference", () => {
+    const skill = readFileSync(resolve(skillRoot, "SKILL.md"), "utf8");
+    const referencesRoot = resolve(skillRoot, "references");
+    const references = listFiles(referencesRoot).map(path => relative(referencesRoot, path));
+
+    expect(references.length).toBeGreaterThan(10);
+    for (const reference of references) {
+      expect(skill).toContain(`references/${reference}`);
+    }
+
+    const localLinks = [...new Set([...skill.matchAll(/\]\((references\/[^)]+)\)/g)].map(match => match[1]))];
+    expect(localLinks).toHaveLength(references.length);
+    for (const localLink of localLinks) {
+      expect(existsSync(resolve(skillRoot, localLink)), localLink).toBe(true);
+    }
   });
 
   it("keeps published agent resources free of private filesystem paths", () => {
@@ -73,7 +101,9 @@ describe("public ViteHub skill", () => {
     expect(urls.length).toBeGreaterThan(0);
     for (const rawPath of urls) {
       expect(rawPath).not.toMatch(/(?:^|\/)index\.md$/);
-      expect(existsSync(resolve(contentRoot, rawPath)), rawPath).toBe(true);
+      const directPath = resolve(contentRoot, rawPath);
+      const sectionIndexPath = resolve(contentRoot, rawPath.replace(/\.md$/, "/index.md"));
+      expect(existsSync(directPath) || existsSync(sectionIndexPath), rawPath).toBe(true);
     }
   });
 });
