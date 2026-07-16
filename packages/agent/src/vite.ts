@@ -31,7 +31,9 @@ interface AgentCliContributingPlugin {
   }
 }
 
-export type AgentVitePlugin = Plugin & AgentCliContributingPlugin & { devtools?: unknown }
+export type AgentVitePlugin = Plugin & AgentCliContributingPlugin & {
+  devtools?: ReturnType<typeof chatDevTools>["devtools"]
+}
 
 const agentPackageName = "@vite-hub/agent"
 const mergeNoExternal = createNoExternalMerger(agentPackageName)
