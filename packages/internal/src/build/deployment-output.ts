@@ -207,7 +207,11 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
 
   await Promise.all([
     bundleEsmEntry(options.bundleEntry, serverEntry, { ...options.bundleOptions, rootDir: options.rootDir }),
-    writeProviderOutputConfig(resolve(serverDir, ".vc-config.json"), options.functionConfig ?? createNodeFunctionConfig()),
+    writeFile(
+      resolve(serverDir, ".vc-config.json"),
+      `${stringifyProviderOutputConfig(options.functionConfig ?? createNodeFunctionConfig())}\n`,
+      "utf8",
+    ),
     writeProviderOutputConfig(resolve(outputRoot, "config.json"), config, { keys: options.configKeys }),
     staticIndex
       ? copyClientOutput(clientDir, options.staticOutputDir ?? resolve(outputRoot, "static"))

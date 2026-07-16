@@ -357,6 +357,33 @@ describe("provider deployment outputs", () => {
     expect(existsSync(join(outputRoot, "functions", "__blob.func", ".vc-config.json"))).toBe(true)
   })
 
+  it("replaces owned Vercel function config", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultVercelOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const outputRoot = createDefaultVercelOutputRoot(rootDir)
+    const functionDir = join(outputRoot, "functions", "__blob.func")
+    await mkdir(functionDir, { recursive: true })
+    await writeFile(join(functionDir, ".vc-config.json"), '{"stale":true}\n', "utf8")
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "entry.mjs"),
+        bundleOptions: {},
+        function: { kind: "isolated", name: "__blob.func" },
+        functionConfig: { runtime: "nodejs22.x" },
+      },
+    })
+
+    await expect(readFile(join(functionDir, ".vc-config.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      runtime: "nodejs22.x",
+    })
+  })
+
   it("serializes concurrent writes to shared provider config files", async () => {
     const rootDir = await createTempProject()
     const {
