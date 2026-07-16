@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { afterAll, describe, expect, it } from "vitest"
-import { getProviderRuntimeModule, type ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, getProviderRuntimeModule, type ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 
 import { prepareProviderOutputs as prepareDatabaseProviderOutputs } from "../src/internal/vite-build.ts"
 
@@ -593,6 +593,9 @@ describe("Vite db provider outputs", () => {
 
   it("skips Cloudflare output when a Vercel D1 HTTP database has no Cloudflare database name", async () => {
     const rootDir = await createDbBuildProject("vitehub-db-vite-cloudflare-invalid-")
+    const staleCloudflareOutput = join(createDefaultCloudflareOutputRoot(rootDir), "index.js")
+    await mkdir(dirname(staleCloudflareOutput), { recursive: true })
+    await writeFile(staleCloudflareOutput, "export default 'stale'\n")
     await writeDatabaseDefinition(rootDir, "analytics", {
       cloudflare: [
         "    binding: 'DB_ANALYTICS',",
@@ -614,7 +617,7 @@ describe("Vite db provider outputs", () => {
       VITEHUB_D1_DATABASE_ID: "primary-d1-id",
     })
 
-    expect(existsSync(join(rootDir, "dist", "cloudflare"))).toBe(false)
+    expect(existsSync(staleCloudflareOutput)).toBe(false)
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"))).toBe(true)
   }, 30_000)
 })
