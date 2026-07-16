@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { detectHosting } from "../src/feature-bridge/hosting.ts"
+import { detectHosting } from "../src/hosting.ts"
 
 afterEach(() => {
   delete process.env.VITEHUB_HOSTING

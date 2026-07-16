@@ -41,7 +41,7 @@ afterEach(async () => {
 })
 
 describe("hubSandbox", () => {
-  it("exposes Vite feature state", async () => {
+  it("exposes Vite Sandbox state", async () => {
     const rootDir = await createViteRoot()
     const { hubSandbox } = await import("../src/vite.ts")
     const providerImportAliases: Record<string, string> = {}
@@ -69,7 +69,6 @@ describe("hubSandbox", () => {
     const resolvedId = await resolveId("#vitehub/sandbox")
     const code = await load(resolvedId as string)
 
-    expect(code).toContain('"feature": "sandbox"')
     expect(code).toContain('"provider": "vercel"')
     const alias = (configResult as { resolve: { alias: AliasOptions } }).resolve.alias
     const registryAlias = readAlias(alias, "#vitehub-sandbox-registry")!

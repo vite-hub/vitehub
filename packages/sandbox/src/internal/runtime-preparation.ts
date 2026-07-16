@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
 import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
-import { detectHosting } from '@vite-hub/internal/feature-bridge/hosting'
+import { detectHosting } from '@vite-hub/internal/hosting'
 import { isPlainObject } from '@vite-hub/internal/object'
 import { resolve } from 'pathe'
 
@@ -19,11 +19,15 @@ const SANDBOX_REGISTRY_ID = '#vitehub-sandbox-registry'
 
 type AliasMap = Record<string, string>
 type SandboxPublicOptions = AgentSandboxConfig | false
+type SandboxRuntimeConfig = {
+  hosting?: string
+  sandbox: AgentSandboxConfig | false
+}
 type SandboxViteContext = {
   rootDir: string
   config: AgentSandboxConfig | false
   deps: Record<string, string>
-  runtimeConfig: Record<string, unknown>
+  runtimeConfig: SandboxRuntimeConfig
   hosting?: string
   command: ConfigEnv['command']
   mode: string
@@ -37,14 +41,9 @@ function normalizeSandboxOptions(options: SandboxPublicOptions): AgentSandboxCon
   return { ...options } as AgentSandboxConfig
 }
 
-function assignSandboxRuntimeConfig(runtimeConfig: Record<string, unknown>, config: AgentSandboxConfig | false) {
-  if (config === false) {
-    runtimeConfig.sandbox = false
-    return
-  }
-
+function createSandboxRuntimeConfig(config: AgentSandboxConfig | false, hosting?: string): SandboxRuntimeConfig {
   const provider = getSandboxFeatureProvider(config)
-  runtimeConfig.sandbox = provider?.provider === 'vercel'
+  const sandbox = provider?.provider === 'vercel'
     ? {
         ...config,
         token: provider.token ?? '',
@@ -52,6 +51,11 @@ function assignSandboxRuntimeConfig(runtimeConfig: Record<string, unknown>, conf
         projectId: provider.projectId ?? '',
       }
     : config
+
+  return {
+    ...(hosting ? { hosting } : {}),
+    sandbox,
+  }
 }
 
 async function readSandboxWorkspaceDeps(rootDir: string) {
@@ -77,16 +81,12 @@ async function resolveSandboxViteContext(
   const hosting = detectHosting({ options: userConfig as { preset?: string | null } }) || undefined
   const config = options === false ? false : resolveSandboxFeatureConfig(options, hosting)
   const rootDir = resolve(process.cwd(), typeof userConfig.root === 'string' ? userConfig.root : '.')
-  const runtimeConfig: Record<string, unknown> = {}
-  if (hosting)
-    runtimeConfig.hosting = hosting
-  assignSandboxRuntimeConfig(runtimeConfig, config)
 
   return {
     rootDir,
     config,
     deps: await readSandboxWorkspaceDeps(rootDir),
-    runtimeConfig,
+    runtimeConfig: createSandboxRuntimeConfig(config, hosting),
     hosting,
     command: env.command,
     mode: env.mode,
@@ -95,8 +95,6 @@ async function resolveSandboxViteContext(
 
 function createSandboxStateModuleContents(context: SandboxViteContext) {
   const state = {
-    feature: 'sandbox',
-    configKey: 'sandbox',
     config: context.config,
     runtimeConfig: context.runtimeConfig,
     hosting: context.hosting,
@@ -107,8 +105,6 @@ function createSandboxStateModuleContents(context: SandboxViteContext) {
 
   return [
     `const state = ${JSON.stringify(state, null, 2)}`,
-    'export const feature = state.feature',
-    'export const configKey = state.configKey',
     'export const config = state.config',
     'export const runtimeConfig = state.runtimeConfig',
     'export const hosting = state.hosting',
@@ -150,7 +146,7 @@ function readResolveOptions(config: unknown): { alias?: unknown } {
     : {}
 }
 
-function createSandboxRuntimeFacadeContents(file: string, runtimeConfig: unknown, registryFile: string) {
+function createSandboxRuntimeFacadeContents(file: string, runtimeConfig: AgentSandboxConfig | false, registryFile: string) {
   const stateFile = resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/state', 'runtime/state.js')
   const packageIndexFile = resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './index', 'index.js')
 
@@ -255,7 +251,7 @@ export async function prepareSandboxRuntime(options: {
     facadeFile,
     createSandboxRuntimeFacadeContents(
       facadeFile,
-      context.runtimeConfig.sandbox ?? context.config,
+      context.runtimeConfig.sandbox,
       aliases[SANDBOX_REGISTRY_ID]!,
     ),
   )

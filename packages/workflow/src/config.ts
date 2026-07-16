@@ -1,6 +1,6 @@
 import { defu } from "defu"
 
-import { normalizeHosting } from "@vite-hub/internal/feature-bridge/hosting"
+import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import type { OpenWorkflowPostgresOptions, OpenWorkflowSqliteOptions, OpenWorkflowWorkerOptions, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowSharedOptions } from "./types.ts"

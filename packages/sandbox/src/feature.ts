@@ -1,4 +1,4 @@
-import { getHostingProvider, getSupportedHostingProvider } from '@vite-hub/internal/feature-bridge/hosting'
+import { getHostingProvider, getSupportedHostingProvider } from '@vite-hub/internal/hosting'
 import { createDiscoveredDefinitionCompiler, type DiscoveredDefinitionCompilerOptions } from './internal/shared/discovered-definition'
 import {
   toTemplateSafeName,
