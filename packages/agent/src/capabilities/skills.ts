@@ -76,6 +76,25 @@ function isPlainFileSource(source: WorkspaceSourceInput): source is { path: stri
     && !("getKeys" in source)
 }
 
+function absoluteFileSourcePath(source: WorkspaceSourceInput): string | undefined {
+  const visited = new Set<object>()
+  let current = source
+  while (current && typeof current === "object" && "source" in current && !("getKeys" in current)) {
+    if (visited.has(current)) {
+      throw new TypeError("[vitehub] skills({ scope: \"global\" }) cannot use a cyclic Source binding.")
+    }
+    visited.add(current)
+    current = current.source
+  }
+  if (typeof current === "string") return isAbsolutePhysicalPath(current) ? current : undefined
+  if (!isPlainFileSource(current)) return
+  return isAbsolutePhysicalPath(current.path) ? current.path : undefined
+}
+
+function isAbsolutePhysicalPath(path: string): boolean {
+  return path.startsWith("/") || path.startsWith("\\\\") || /^[A-Za-z]:[\\/]/.test(path)
+}
+
 function workspacePathInsideMount(path: string, mountPath: string) {
   const normalized = normalizeSkillPath(path)
   return normalized.startsWith(`${mountPath}/`) ? normalized.slice(mountPath.length + 1) : undefined
@@ -108,6 +127,9 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
   }
   if (scope === "global" && options.shellExecution !== undefined) {
     throw new TypeError("[vitehub] skills({ scope: \"global\" }) does not support shellExecution.")
+  }
+  if (scope === "global" && absoluteFileSourcePath(options.source!)) {
+    throw new TypeError("[vitehub] skills({ scope: \"global\" }) cannot use an absolute File Source path. File Sources are single-file and root-confined; use a directory-capable github() or custom() Source, or a root-confined glob() Source, for Skill directories.")
   }
   const normalizedPath = normalizeSkillPath(options.path || "skills")
   const shellExecution = normalizeShellExecution(options.shellExecution)

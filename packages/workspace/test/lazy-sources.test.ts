@@ -184,6 +184,31 @@ describe("lazy sources", () => {
     await expect(view.readFile("skills/SKILL.md")).resolves.toBe("# Skills\n")
   })
 
+  it("materializes trusted-host root-confined directory sources", async () => {
+    const root = await createRoot()
+    const sourceRoot = join(root, "source")
+    await mkdir(join(sourceRoot, "review"), { recursive: true })
+    await writeFile(join(sourceRoot, "review", "SKILL.md"), "# Review\n")
+    const view = createWorkspaceSourceView({
+      name: "trusted-host-directory",
+      runtime: { allowProduction: true, type: "trusted-host" },
+      sourceRootDir: sourceRoot,
+      sources: {
+        review: globSource({
+          cwd: "review",
+          include: "**/*",
+          mount: "review",
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ path: "review" })).resolves.toMatchObject({
+      files: 1,
+      sources: [expect.objectContaining({ source: "review", status: "ready" })],
+    })
+    await expect(view.readFile("review/SKILL.md")).resolves.toBe("# Review\n")
+  })
+
   it("defaults keyed cached GitHub sources to source-key mounts", () => {
     const resolved = normalizeWorkspaceSources({
       forecastingEngine: githubSource({

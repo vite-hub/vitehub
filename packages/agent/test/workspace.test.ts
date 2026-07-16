@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade, WorkspaceSourceInput } from "@vite-hub/workspace"
+import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade, WorkspaceSource, WorkspaceSourceInput } from "@vite-hub/workspace"
 
 const readFile = vi.fn()
 const writeFile = vi.fn()
@@ -150,6 +150,17 @@ function context(runtimeConfig: Record<string, unknown> = {}) {
     runtimeConfig,
     waitUntil: vi.fn(),
   } as never
+}
+
+function globalSkillSource(content = "# Skill\n"): WorkspaceSource {
+  return {
+    async getKeys() {
+      return ["SKILL.md"]
+    },
+    async getItem(key: string) {
+      return { content, key, path: key }
+    },
+  }
 }
 
 function readonlyWorkspaceFacade(): ReadonlyWorkspaceFacade {
@@ -710,11 +721,12 @@ describe("defineAgent workspace option", () => {
 
   it("defines harness-global skill sources without requiring a Workspace", async () => {
     const { skills } = await import("../src/capabilities.ts")
+    const ponytailSource = globalSkillSource("# Ponytail\n")
 
     const capability = skills({
       path: "skills/ponytail",
       scope: "global",
-      source: { path: "/opt/skills/ponytail" },
+      source: ponytailSource,
     })
 
     expect(capability).toMatchObject({
@@ -731,7 +743,7 @@ describe("defineAgent workspace option", () => {
     expect(skills({
       path: "skills/browser",
       scope: "global",
-      source: { path: "/opt/skills/browser" },
+      source: globalSkillSource("# Browser\n"),
       sourceKey: "review/browser",
     })).toMatchObject({
       id: "skills.review.browser",
@@ -761,7 +773,9 @@ describe("defineAgent workspace option", () => {
       provider: "codex",
       [Symbol.for("vitehub.harnessGlobalSkillsDirectory")]: "tmp/harness/codex-home/skills",
     }
-    const resolvePonytail = vi.fn(() => ({ path: "/opt/skills/ponytail" }))
+    const ponytailSource = globalSkillSource("# Ponytail\n")
+    const codeReviewSource = globalSkillSource("# Code review\n")
+    const resolvePonytail = vi.fn(() => ponytailSource)
     prepareHarnessWorkspaceSession.mockResolvedValueOnce({ close: vi.fn() })
     useWorkspace.mockClear()
     exists.mockResolvedValue(true)
@@ -769,7 +783,7 @@ describe("defineAgent workspace option", () => {
     const agent = defineAgent({
       capabilities: [
         skills({ path: "skills/ponytail", scope: "global", source: { resolve: resolvePonytail } as never }),
-        skills({ path: "skills/code-review", scope: "global", source: { path: "/opt/skills/code-review" } }),
+        skills({ path: "skills/code-review", scope: "global", source: codeReviewSource }),
       ],
       driver: { harness },
     })
@@ -779,8 +793,8 @@ describe("defineAgent workspace option", () => {
       definition: expect.objectContaining({
         runtime: { allowProduction: true, type: "trusted-host" },
         sources: {
-          "skill.code-review": { mount: "code-review", source: { path: "/opt/skills/code-review" } },
-          "skill.ponytail": expect.objectContaining({ mount: "ponytail", path: "/opt/skills/ponytail" }),
+          "skill.code-review": { mount: "code-review", source: codeReviewSource },
+          "skill.ponytail": expect.objectContaining({ getKeys: ponytailSource.getKeys, mount: "ponytail" }),
         },
       }),
       mode: "read",
@@ -807,7 +821,7 @@ describe("defineAgent workspace option", () => {
       .mockResolvedValueOnce({ exitCode: 1, stderr: "copy failed", stdout: "" })
       .mockRejectedValueOnce(new Error("cleanup failed"))
     const agent = defineAgent({
-      capabilities: [skills({ path: "skills/review", scope: "global", source: { path: "/opt/skills/review" } })],
+      capabilities: [skills({ path: "skills/review", scope: "global", source: globalSkillSource() })],
       driver: {
         harness: {
           provider: "codex",
@@ -911,7 +925,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
     const agent = defineAgent({
-      capabilities: [skills({ path: "skills/review", scope: "global", source: { path: "/opt/skills/review" } })],
+      capabilities: [skills({ path: "skills/review", scope: "global", source: globalSkillSource() })],
       driver: { harness: { provider: "custom" } },
     })
 
@@ -919,7 +933,7 @@ describe("defineAgent workspace option", () => {
     expect(harnessCreateSession).not.toHaveBeenCalled()
 
     const unsafeAgent = defineAgent({
-      capabilities: [skills({ path: "skills/review", scope: "global", source: { path: "/opt/skills/review" } })],
+      capabilities: [skills({ path: "skills/review", scope: "global", source: globalSkillSource() })],
       driver: {
         harness: {
           provider: "custom",
@@ -935,7 +949,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
     const agent = defineAgent({
-      capabilities: [skills({ path: "skills/review", scope: "global", source: { path: "/opt/skills/review" } })],
+      capabilities: [skills({ path: "skills/review", scope: "global", source: globalSkillSource() })],
       driver: {
         harness: {
           provider: "codex",
@@ -975,7 +989,7 @@ describe("defineAgent workspace option", () => {
     exists.mockResolvedValue(true)
     prepareHarnessWorkspaceSession.mockResolvedValueOnce({ close })
     const agent = defineAgent({
-      capabilities: [skills({ path: "skills/review", scope: "global", source: { path: "/opt/skills/review" } })],
+      capabilities: [skills({ path: "skills/review", scope: "global", source: globalSkillSource() })],
       driver: {
         harness: {
           provider: "codex",
@@ -995,7 +1009,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
     const agent = defineAgent({
-      capabilities: [skills({ path: "skills/review", scope: "global", source: { path: "/opt/skills/review" } })],
+      capabilities: [skills({ path: "skills/review", scope: "global", source: globalSkillSource() })],
       driver: { model: {} as never },
     })
 
@@ -4687,7 +4701,7 @@ describe("defineAgent workspace option", () => {
       capabilities: [skills({
         path: "skills/review-browser-evidence",
         scope: "global",
-        source: { path: "/opt/skills/review-browser-evidence" },
+        source: globalSkillSource("# Review browser evidence\n"),
       })],
     }), { workspace: "support" })
 
