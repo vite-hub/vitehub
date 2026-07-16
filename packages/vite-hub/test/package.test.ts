@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, globSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 import { describe, expect, it } from "vitest"
@@ -15,7 +15,28 @@ import { distributionBinEntries, distributionEntriesFromManifest } from "../vite
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
   bin: Record<string, string>
+  dependencies: Record<string, string>
   exports: Record<string, string | { import: string, types: string }>
+}
+
+const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/
+
+function sourceForwarderTargets(source: string): string[] | undefined {
+  const lines = source.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+  if (!lines.length) return
+
+  const targets: string[] = []
+  for (const line of lines) {
+    const target = line.match(forwarderExportLine)?.[1]
+    if (!target) return
+    targets.push(target)
+  }
+  return targets
+}
+
+function ownerSpecifierForDistributionSubpath(subpath: string): string {
+  const [owner, ...rest] = subpath.replace(/^\.\/(?:_internal\/)?/, "").split("/")
+  return [`@vite-hub/${owner}`, ...rest].join("/")
 }
 
 describe("framework package contract", () => {
@@ -28,6 +49,36 @@ describe("framework package contract", () => {
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email)
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
     expect(frameworkAuthHandler).toBe(ownerAuthHandler)
+  })
+
+  it("keeps every source forwarder owned by its matching package export", () => {
+    const manifestEntries = Object.entries(manifest.exports).flatMap(([subpath, target]) => {
+      const [source] = distributionEntriesFromManifest(target)
+      return source ? [{ source, subpath }] : []
+    })
+    const manifestForwarders = manifestEntries.flatMap(({ source, subpath }) => {
+      const targets = sourceForwarderTargets(readFileSync(`${packageRoot}/${source}`, "utf8"))
+      return targets ? [{ source, subpath, targets }] : []
+    })
+    const sourceForwarders = globSync("src/**/*.ts", { cwd: packageRoot })
+      .filter(source => !source.endsWith(".d.ts"))
+      .filter(source => sourceForwarderTargets(readFileSync(`${packageRoot}/${source}`, "utf8")))
+      .sort()
+    const exportedForwarders = new Set(manifestForwarders.map(({ source }) => source))
+
+    expect(sourceForwarders).toEqual([...exportedForwarders].sort())
+    expect(manifestEntries
+      .filter(({ source }) => !exportedForwarders.has(source))
+      .map(({ subpath }) => subpath)
+      .sort(),
+    ).toEqual([".", "./_internal/kv/runtime/disabled-upstash"])
+
+    for (const { subpath, targets } of manifestForwarders) {
+      const ownerSpecifier = ownerSpecifierForDistributionSubpath(subpath)
+      const ownerPackage = ownerSpecifier.split("/").slice(0, 2).join("/")
+      expect([...new Set(targets)], subpath).toEqual([ownerSpecifier])
+      expect(manifest.dependencies[ownerPackage], subpath).toBeDefined()
+    }
   })
 
   it("ships every declared export and both CLI names", () => {
