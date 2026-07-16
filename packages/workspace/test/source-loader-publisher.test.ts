@@ -7,10 +7,7 @@ import { gzipSync } from "node:zlib"
 
 import { createJiti } from "jiti"
 import { createMemoryStorage, setStorage } from "ocache"
-import { build } from "vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
-
-import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
 
 import { collectWorkspaceStoreAssetBundle, createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, syncDiscoveredWorkspaceAssetBundles, writeWorkspaceAssetsRegistry } from "../src/build/assets.ts"
 import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets } from "../src/build/integration.ts"
@@ -664,17 +661,19 @@ describe("sources, loaders, and publishers", () => {
     const root = await createRoot()
     const directory = join(root, "server", "agents", "review")
     const templates = join(root, "server", "templates")
-    const entry = join(root, "entry.ts")
     await mkdir(directory, { recursive: true })
     await mkdir(templates, { recursive: true })
     await writeFile(join(templates, "workspace.md"), "Workspace {{ context.name }}\n")
-    await writeFile(entry, "export default {}\n")
-    await build({
-      build: { lib: { entry, formats: ["es"] }, outDir: join(root, "dist") },
-      logLevel: "silent",
-      plugins: [hubMarkdownTemplate()],
-      root,
-    })
+    const registry = join(root, ".vitehub", "markdown-template", "templates.mjs")
+    await mkdir(join(root, ".vitehub", "markdown-template"), { recursive: true })
+    await writeFile(registry, [
+      `import { renderMarkdownTemplate } from "@vite-hub/markdown-template"`,
+      `export function renderTemplate(name, data) {`,
+      `  if (name !== "workspace") throw new TypeError("Unknown template")`,
+      `  return renderMarkdownTemplate("Workspace {{ context.name }}\\n", { data })`,
+      `}`,
+      ``,
+    ].join("\n"))
     await writeFile(join(directory, "config.ts"), [
       `import { renderTemplate } from "#vitehub/templates"`,
       `export default { rootDir: await renderTemplate("workspace", { context: { name: "review" } }) }`,
