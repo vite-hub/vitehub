@@ -26,7 +26,7 @@ catalogs:
     chat-state-cloudflare-do: ^0.2.0
   database:
     "@libsql/client": ^0.17.4
-    drizzle-kit: 1.0.0-rc.4
+    drizzle-kit: ^0.31.10
     drizzle-orm: ^0.45.2
     postgres: ^3.4.9
   email:
@@ -121,7 +121,6 @@ catalogs:
     picomatch: ^4.0.5
     tinyglobby: ^0.2.17
 overrides:
-  "drizzle-kit": 1.0.0-rc.4
   "glob": ^13.0.6
   "parse-url>@types/parse-path": "-"
   "uuid": ^11.1.0
