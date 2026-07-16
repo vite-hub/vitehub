@@ -68,7 +68,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
           ...internalOptions?.providerImportAliases,
         },
         rootDir: resolved.root,
-        serverFunctionName: resolveNitroVercelFunctionName(resolved.plugins, "workflow"),
+        serverFunctionName: resolveNitroVercelFunctionName(resolved.plugins, "workflow", resolved.root),
         workflow,
         workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
         workspaceImportBase: internalOptions?.workspaceImportBase,

@@ -123,7 +123,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
   let providerOutput: ComposedProviderOutput | undefined
   let rootDir = process.cwd()
   let runtimeConfig: BlobViteRuntimeConfig | undefined
-  let serverFunctionName: string | undefined
+  let vitePlugins: readonly { name: string }[] | undefined
   const getConfig = () => runtimeConfig ??= resolveBlobViteConfig(options)
 
   return {
@@ -154,7 +154,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       blob = config.blob ?? blob
       providerOutput = useComposedProviderOutput(config)
       runtimeConfig = resolveBlobViteConfig(blob)
-      serverFunctionName = resolveNitroVercelFunctionName(config.plugins, "blob")
+      vitePlugins = config.plugins
       await refreshBlobGeneratedFiles(config.root, runtimeConfig.blob, importBase)
     },
     configEnvironment(name, config) {
@@ -193,7 +193,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
         artifacts: providerArtifacts,
         providerOutput,
         rootDir,
-        serverFunctionName,
+        serverFunctionName: resolveNitroVercelFunctionName(vitePlugins, "blob", rootDir),
       })
     },
     load(id) {
