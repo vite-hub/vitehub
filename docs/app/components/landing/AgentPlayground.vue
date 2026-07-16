@@ -43,8 +43,9 @@ const capabilityOptions: PlaygroundOption[] = [
   { code: "browser()", icon: "i-lucide-monitor", key: "browser", label: "Browser" },
   { code: "chat()", icon: "i-lucide-messages-square", key: "chat", label: "Chat" },
   { code: "chatSummary()", icon: "i-lucide-file-text", key: "chatSummary", label: "Chat summary" },
-  { code: "chatTitle()", icon: "i-lucide-heading", key: "chatTitle", label: "Chat title" },
+  { code: "title()", icon: "i-lucide-heading", key: "title", label: "Title" },
   { code: "db({ mode: 'read' })", icon: "i-lucide-database", key: "db", label: "Database" },
+  { code: "email({ from: 'agent@example.com' })", icon: "i-lucide-mail", key: "email", label: "Email" },
   { code: "fetch({ tools: reviewApis })", icon: "i-lucide-send", key: "fetch", label: "Fetch" },
   { code: "git({ mode: 'read' })", icon: "i-lucide-git-branch", key: "git", label: "Git" },
   { code: "inputCommands({ commands: reviewCommands })", icon: "i-lucide-square-terminal", key: "inputCommands", label: "Input commands" },
@@ -54,6 +55,7 @@ const capabilityOptions: PlaygroundOption[] = [
   { code: "mcp({ servers: reviewServers })", icon: "i-lucide-plug", key: "mcp", label: "MCP" },
   { code: "memory({ stores: reviewMemory })", icon: "i-lucide-brain", key: "memory", label: "Memory" },
   { code: "openapi({ spec: reviewApi })", icon: "i-lucide-route", key: "openapi", label: "OpenAPI" },
+  { code: "papercuts({ report: reportPapercut })", icon: "i-lucide-bandage", key: "papercuts", label: "Papercuts" },
   { code: "rateLimit({ limit: 20, window: '1m' })", icon: "i-lucide-gauge", key: "rateLimit", label: "Rate limit" },
   { code: "repositoryHost({ provider: 'github' })", icon: "i-lucide-git-pull-request", key: "repositoryHost", label: "Repository host" },
   { code: "repositoryHostContext({ target: pullRequest })", icon: "i-lucide-git-pull-request", key: "repositoryHostContext", label: "Repository host context" },
@@ -75,7 +77,6 @@ const channelOptions: PlaygroundOption[] = [
   { code: "discord()", icon: "i-simple-icons-discord", key: "discord", label: "Discord" },
   { code: "telegram()", icon: "i-simple-icons-telegram", key: "telegram", label: "Telegram" },
   { code: "webChat()", icon: "i-lucide-message-circle", key: "web", label: "Web chat" },
-  { code: "stream()", icon: "i-lucide-radio-tower", key: "stream", label: "Streaming API" },
   { code: "http()", icon: "i-lucide-webhook", key: "api", label: "HTTP" },
 ]
 
