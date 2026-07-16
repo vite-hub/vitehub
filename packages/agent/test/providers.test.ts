@@ -857,26 +857,31 @@ describe("agent Vite plugin", () => {
   it("installs automatic Cloudflare chat state for Cloudflare hosting", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
+    const config = {
+      build: {
+        rolldownOptions: {
+          external: ["existing"],
+        },
+        rollupOptions: {
+          external: ["legacy"],
+          input: "legacy-entry",
+        },
+      },
+      nitro: {
+        cloudflare: {
+          wrangler: {
+            migrations: [{
+              deleted_classes: ["ViteHubAgentStateDO"],
+              tag: "delete-vitehub-agent-state-do-2026-06-11",
+            }],
+          },
+        },
+      },
+      preset: "cloudflare",
+      root: hostedAgentRoot,
+    }
     const result = typeof plugin.config === "function"
-      ? await plugin.config.call({} as never, {
-          build: {
-            rolldownOptions: {
-              external: ["existing"],
-            },
-          },
-          nitro: {
-            cloudflare: {
-              wrangler: {
-                migrations: [{
-                  deleted_classes: ["ViteHubAgentStateDO"],
-                  tag: "delete-vitehub-agent-state-do-2026-06-11",
-                }],
-              },
-            },
-          },
-          preset: "cloudflare",
-          root: hostedAgentRoot,
-        } as never, { command: "build", mode: "production" })
+      ? await plugin.config.call({} as never, config as never, { command: "build", mode: "production" })
       : undefined
     const output = result as {
       build?: unknown
@@ -908,9 +913,12 @@ describe("agent Vite plugin", () => {
     expect(output.nitro?.rollupConfig?.external).toEqual(["cloudflare:workers", ...optionalMessageAdapterRuntimeExternals])
     expect(output.nitro?.rollupConfig?.plugins?.some(plugin => plugin.name === "vitehub-agent-cloudflare-state-exports:ViteHubAgentStateDO")).toBe(true)
     expect(output.build).toEqual({
-      rolldownOptions: { external: ["existing", ...optionalMessageAdapterRuntimeExternals] },
-      rollupOptions: { external: optionalMessageAdapterRuntimeExternals },
+      rolldownOptions: {
+        external: ["existing", ...optionalMessageAdapterRuntimeExternals],
+        input: "legacy-entry",
+      },
     })
+    expect(config.build.rollupOptions).toBeUndefined()
   })
 
   it("uses a configured import in the Cloudflare Agent state Rollup entry", async () => {
@@ -1053,7 +1061,6 @@ describe("agent Vite plugin", () => {
     expect(output.nitro?.rollupConfig).toBeUndefined()
     expect(output.build).toEqual({
       rolldownOptions: { external: optionalMessageAdapterRuntimeExternals },
-      rollupOptions: { external: optionalMessageAdapterRuntimeExternals },
     })
   })
 

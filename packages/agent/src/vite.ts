@@ -404,12 +404,9 @@ function generatedAgentWorkspaceDependencyRuntime(options: AgentGeneratedImportO
 type NitroConfig = Record<string, unknown> & CloudflareAgentStateRollupTarget & CloudflareAgentStateTarget
 type RollupExternalFunction = (source: string, importer?: string, isResolved?: boolean) => boolean | null | undefined | void
 type RollupExternalOption = string | RegExp | (string | RegExp)[] | RollupExternalFunction
-type BuildWithRollupOptions = {
+type BuildWithRolldownOptions = {
   build?: {
     rolldownOptions?: {
-      external?: RollupExternalOption
-    }
-    rollupOptions?: {
       external?: RollupExternalOption
     }
   }
@@ -512,17 +509,17 @@ function mergeCloudflareWorkersExternal(external: RollupExternalOption | undefin
   return mergeRollupExternals(external, ["cloudflare:workers", ...optionalMessageAdapterRuntimeExternals])
 }
 
-function mergeBuildExternal(config: BuildWithRollupOptions, additions: readonly string[]): BuildWithRollupOptions["build"] {
+function mergeBuildExternal(config: BuildWithRolldownOptions, additions: readonly string[]): BuildWithRolldownOptions["build"] {
+  const build = (config.build ?? {}) as NonNullable<BuildWithRolldownOptions["build"]> & { rollupOptions?: unknown }
+  const rollupOptions = isRecord(build.rollupOptions) ? build.rollupOptions : {}
+  delete build.rollupOptions
+  build.rolldownOptions = {
+    ...rollupOptions,
+    ...build.rolldownOptions,
+    external: mergeRollupExternals(build.rolldownOptions?.external ?? rollupOptions.external as RollupExternalOption | undefined, additions),
+  }
   return {
-    ...config.build,
-    rolldownOptions: {
-      ...config.build?.rolldownOptions,
-      external: mergeRollupExternals(config.build?.rolldownOptions?.external, additions),
-    },
-    rollupOptions: {
-      ...config.build?.rollupOptions,
-      external: mergeRollupExternals(config.build?.rollupOptions?.external, additions),
-    },
+    ...build,
   }
 }
 
@@ -1591,7 +1588,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         ...(typeof agent !== "undefined" ? { agent } : {}),
         ...(nitroHandlers.length
           ? {
-              build: mergeBuildExternal(config as BuildWithRollupOptions, optionalMessageAdapterRuntimeExternals),
+              build: mergeBuildExternal(config as BuildWithRolldownOptions, optionalMessageAdapterRuntimeExternals),
             }
           : {}),
         ...(nitroHandlers.length || installCloudflareState
