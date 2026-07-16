@@ -940,55 +940,24 @@ async function generateAgentNetlifyFunctionRouteHandler(
   const workflowRuntime = generatedAgentWorkflowRuntime(options, agentImportBase)
   const workspaceDependencyRuntime = generatedAgentWorkspaceDependencyRuntime(options, workspaceImportBase)
   const runtimeRouteOption = options.runtime === "vite" ? ", runtime: 'vite'" : ""
-  const imports = definitions
-    .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
-    .join("\n")
-  const workspaceEntries = (await Promise.all(definitions
-    .map(async (definition, index) => {
-      const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
-      return definition.workspace
-        ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, agent${index}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))}, ${JSON.stringify(readColocatedAgentSkills(definition.handler))})`
-        : undefined
-    })))
-    .filter(Boolean)
-    .join(",\n  ")
-  const agentEntries = (await Promise.all(definitions
-    .map(async (definition, index) => {
-      const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
-      const agentExpression = `withWorkspaceSourceRoot(resolveAgentModule(agent${index}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))}, ${JSON.stringify(readColocatedAgentSkills(definition.handler))})`
-      return `${JSON.stringify(definition.name)}: ${agentExpression}`
-    })))
-    .join(",\n  ")
-  const agentModuleEntries = definitions
-    .map((definition, index) => `${JSON.stringify(definition.name)}: agent${index}`)
-    .join(",\n  ")
-  const agentIdentityEntries = generatedAgentIdentityEntries(definitions)
-  const hostedWorkspaceRuntime = generatedHostedWorkspaceRuntimeSetup(definitions, workspaceImportBase)
+  const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
+    agentImportBase,
+    workspaceImportBase,
+    workspaceRuntimeImport: subpath(agentImportBase, "server/workspace"),
+  })
   const webhookSelector = routeUsesParam(options.webhookRoute, "webhook") ? "netlifyParam(context, 'webhook')" : "''"
   const webhookStateOption = options.libsqlState ? "state: chatStateFromLibsql(), " : ""
 
   return [
-    `import { workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
+    ...deploymentCatalog.imports,
     ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
-    `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler, createDiscordGatewayRouteHandler, hasChannelChatRoute } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    `import { createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
-    `import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(agentImportBase, "server/workspace"))}`,
-    ...hostedWorkspaceRuntime.imports,
-    imports,
     "",
     ...workflowRuntime.setup,
     ...workspaceDependencyRuntime.setup,
-    "function resolveAgentModule(module) {",
-    "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
-    "}",
-    "",
-    "function resolveChatRouteOptions(module) {",
-    "  const chatRoute = module && typeof module === 'object' ? module.chatRoute : undefined",
-    "  return chatRoute && typeof chatRoute === 'object' ? chatRoute : undefined",
-    "}",
-    "",
     "function bearerToken(value) {",
     "  const match = /^Bearer\\s+(.+)$/i.exec(value || '')",
     "  return match?.[1]",
@@ -1000,28 +969,12 @@ async function generateAgentNetlifyFunctionRouteHandler(
     "    .replace(/(^|\\/):([^/]+)/g, (_, prefix, key) => `${prefix}${encodeURIComponent(values[key] || '')}`)",
     "}",
     "",
-    ...generatedWorkspaceSourceRootHelper("withWorkspaceSourceRoot", "workspaceDefinitionFromOptions"),
-    "",
-    "function workspaceRegistryEntry(name, module, sourceRootDir, colocatedInstructions, colocatedSkills) {",
-    "  const agent = withWorkspaceSourceRoot(resolveAgentModule(module), sourceRootDir, colocatedInstructions, colocatedSkills)",
-    "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
-    "  return [name, async () => ({ ...module, default: agent })]",
-    "}",
-    "",
-    ...hostedWorkspaceRuntime.setup,
+    ...deploymentCatalog.setup,
     ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState) : []),
     ...generatedNetlifyRuntimeHelpers(),
     "",
     ...routeCapabilities.setup,
-    `setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].filter(Boolean)))`,
-    "",
-    `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
-    `const agentIdentities = {${agentIdentityEntries ? `\n  ${agentIdentityEntries}\n` : ""}}`,
-    `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
-    "const chatHandlers = Object.fromEntries(Object.entries(agents).filter(([, agent]) => hasChannelChatRoute(agent)).map(([name, agent]) => [name, createChannelChatRouteHandler(agent, resolveChatRouteOptions(agentModules[name]))]))",
-    "const webhookHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createChannelWebhookRouteHandler(agent)]))",
     "const discordGatewayHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createDiscordGatewayRouteHandler(agent)]))",
-    "const agentNames = Object.keys(agents)",
     `const webhookRoute = ${JSON.stringify(generatedWebhookRoute(options.webhookRoute))}`,
     `const defaultDiscordGatewayDurationMs = ${JSON.stringify(9 * 60 * 1000)}`,
     `const chatRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.chatRoute))})`,
