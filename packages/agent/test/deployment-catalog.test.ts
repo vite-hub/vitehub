@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
 import { hubAgent } from "../src/vite.ts"
@@ -189,12 +189,15 @@ describe("generated Agent deployment catalog", () => {
   let runtime: DeploymentRuntimeFixture | undefined
 
   beforeEach(async () => {
+    vi.stubEnv("VITEHUB_AGENT_STATE_AUTH_TOKEN", "")
+    vi.stubEnv("VITEHUB_AGENT_STATE_URL", "")
     runtime = await createDeploymentRuntimeFixture()
   })
 
   afterEach(async () => {
     await runtime?.close()
     runtime = undefined
+    vi.unstubAllEnvs()
   })
 
   it("routes chat and webhook requests and rejects unknown Agents", async () => {
