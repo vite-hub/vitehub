@@ -9,9 +9,6 @@ defineProps<{
 
 <template>
   <UPopover
-    mode="hover"
-    :open-delay="120"
-    :close-delay="160"
     :content="{ align: 'start', side: 'top', sideOffset: 8 }"
     :ui="{ content: 'max-w-64 p-3' }"
   >
