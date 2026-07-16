@@ -182,7 +182,6 @@
     "@vite-hub/workflow": "workspace:*",
     "ai": "catalog:ai-compat",
     "askweb": "catalog:ai",
-    "evalite": "catalog:ai",
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling"
   },
@@ -221,9 +220,6 @@
       "optional": true
     },
     "askweb": {
-      "optional": true
-    },
-    "evalite": {
       "optional": true
     },
     "vite": {
