@@ -1,3 +1,5 @@
+import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
+
 import {
   createHarnessUsageMetadata,
   defineAgentUsageMetadata,
@@ -15,7 +17,6 @@ import {
   resolveColocatedAgentInstructionDocument,
   workspaceDefinitionWithAutoCommitRules,
 } from "./workspace-agent.ts"
-import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import {
@@ -209,7 +210,7 @@ function hasWorkspaceCommitRules(definition: AgentAdapterRunContext["workspaceDe
 function workspaceSourceHarnessPaths(context: AgentAdapterRunContext): string[] {
   const sources = context.workspaceDefinition?.sources
   if (!sources) return []
-  return normalizeAgentWorkspaceSources(sources).flatMap((source) => {
+  return normalizeWorkspaceSourcesMetadata(sources).flatMap((source) => {
     if (source.probeKeys?.length) {
       return source.probeKeys.map(key => [source.mountPath, key].filter(Boolean).join("/"))
     }
@@ -220,7 +221,7 @@ function workspaceSourceHarnessPaths(context: AgentAdapterRunContext): string[] 
 function hasLazyWorkspaceSources(context: AgentAdapterRunContext): boolean {
   const sources = context.workspaceDefinition?.sources
   if (!sources) return false
-  return normalizeAgentWorkspaceSources(sources).some((source) => {
+  return normalizeWorkspaceSourcesMetadata(sources).some((source) => {
     return source.materialize === "lazy"
   })
 }
@@ -483,7 +484,7 @@ async function createDefaultHarnessSandbox(context: AgentAdapterRunContext): Pro
 }
 
 function hasHarnessInstructionDocument(context: AgentAdapterRunContext): boolean {
-  return normalizeAgentWorkspaceSources(context.workspaceDefinition?.sources).some(source =>
+  return normalizeWorkspaceSourcesMetadata(context.workspaceDefinition?.sources).some(source =>
     source.key === colocatedAgentInstructionsSourceKey
     && source.mountPath === ""
     && source.probeKeys?.includes("AGENTS.md"),
