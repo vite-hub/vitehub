@@ -6,13 +6,14 @@ import { normalize } from "pathe"
 import { createDbCliContributor } from "./cli.ts"
 import { resolveDBViteConfig } from "./config.ts"
 import { writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
+import { renderDatabaseConfigExpression } from "./internal/runtime-config-expression.ts"
 import { dbPackageName, generateProviderOutputs, prepareProviderOutputs } from "./internal/vite-build.ts"
 import { createDatabaseProvisionStep } from "./provision.ts"
 
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
-import type { DBModulePublicOptions, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "./types.ts"
+import type { DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
 
 export const DB_VIRTUAL_SCHEMA_ID = "#vitehub/database/schema"
 export const DB_VIRTUAL_DATABASES_ID = "#vitehub/database/databases"
@@ -59,36 +60,6 @@ function renderSchemaModule(config: ResolvedDBViteConfig | undefined) {
     `export * from ${JSON.stringify(config.generatedSchemaFilesByDatabase[defaultName])}`,
     `export { default, schema } from ${JSON.stringify(config.generatedSchemaFilesByDatabase[defaultName])}`,
     "",
-  ].join("\n")
-}
-
-function getDefaultCloudflareBindingName(name: string) {
-  if (name === "default") return "DB"
-  const suffix = name
-    .replace(/[^a-z0-9]+/gi, "_")
-    .replace(/^_+|_+$/g, "")
-    .replace(/_+/g, "_")
-    .toUpperCase()
-  return `DB_${suffix || "DATABASE"}`
-}
-
-function serializeDatabaseConfig({ cloudflare: _cloudflare, connection: _connection, drizzle: _drizzle, ...database }: ResolvedDrizzleDatabaseConfig) {
-  return JSON.stringify(database, null, 6)
-}
-
-function renderConfigExpression(value: unknown) {
-  return typeof value === "undefined" ? "undefined" : JSON.stringify(value)
-}
-
-function renderDatabaseConfigExpression(name: string, config: ResolvedDBViteConfig, definitionVariable: string) {
-  const base = config.databases[name]!
-  return [
-    "{",
-    `      ...${serializeDatabaseConfig(base)},`,
-    `      cloudflare: ${definitionVariable}.cloudflare ? { binding: ${definitionVariable}.cloudflare.binding ?? ${JSON.stringify(base.cloudflare?.binding ?? getDefaultCloudflareBindingName(name))}, databaseId: ${definitionVariable}.cloudflare.databaseId, databaseName: ${definitionVariable}.cloudflare.databaseName, migrationsDir: ${JSON.stringify(base.migrationsDir)}, migrationsTable: ${definitionVariable}.cloudflare.migrationsTable, previewDatabaseId: ${definitionVariable}.cloudflare.previewDatabaseId } : undefined,`,
-    `      connection: ${definitionVariable}.connection ? { authToken: ${definitionVariable}.connection.authToken ?? ${renderConfigExpression(base.connection?.authToken)}, url: ${definitionVariable}.connection.url ?? ${renderConfigExpression(base.connection?.url)} } : ${renderConfigExpression(base.connection)},`,
-    `      drizzle: ${definitionVariable}.drizzle ?? {},`,
-    "    }",
   ].join("\n")
 }
 

@@ -17,7 +17,7 @@ ViteHub keeps Definitions portable and moves Vercel-specific behavior into packa
 | Vercel Queues | Queue provider configuration and generated callback output. |
 | Vercel Workflow | Workflow provider configuration and generated runtime output. |
 | Vercel Sandbox | Sandbox Provider configuration, with Sandbox Identity passed only when the run needs reuse. |
-| External Database | Database integration `connection`, backed by a hosted libSQL service such as Turso. |
+| External Database | A Database Definition backed by Cloudflare D1 over authenticated HTTP, or Database integration `connection` backed by hosted libSQL. |
 | Credentials | `VERCEL_TOKEN` and `VERCEL_PROJECT_ID` for Blob Provision, with an optional team id; Server Env for app runtime secrets. |
 
 ## Provider-owned configuration
@@ -49,6 +49,25 @@ Vercel-hosted state needs hosted stores. Use `driver: 'vercel-blob'` with `BLOB_
 ::
 
 Database Definitions own tables and identity, while the Database Integration selects the hosted connection used by Vercel output. Use Runtime Env declarations for Marketplace-provisioned credentials so generated output reads them at runtime.
+
+A Definition uses Cloudflare D1 from Vercel only when it declares `cloudflare.http`. Set it to `true` for Cloudflare's D1 raw API, then configure `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` as Vercel Server Env. Cloudflare deployments still prefer the D1 binding.
+
+```ts [server/databases/config.ts]
+import { defineDatabase } from '@vite-hub/database'
+
+import { notes } from './schema'
+
+export default defineDatabase({
+  cloudflare: {
+    databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,
+    databaseName: process.env.CLOUDFLARE_D1_DATABASE_NAME,
+    http: true,
+  },
+  tables: { notes },
+})
+```
+
+For sustained application traffic, Cloudflare recommends a proxy Worker because its built-in D1 REST API is intended primarily for administrative use and shares the global Cloudflare API rate limit. Set `cloudflare.http` to `{ url, authToken }` for an authenticated raw-compatible HTTP(S) proxy. Omitting `cloudflare.http` preserves the hosted libSQL selection even when the Definition includes a D1 database id.
 
 ```ts [vite.config.ts]
 import { hubDb } from '@vite-hub/database/vite'

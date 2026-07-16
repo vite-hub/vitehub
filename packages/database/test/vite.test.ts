@@ -18,7 +18,7 @@ async function createTempProject() {
   return rootDir
 }
 
-async function writeDefinition(rootDir: string, path: string, table = "notes", options: { connection?: string } = {}) {
+async function writeDefinition(rootDir: string, path: string, table = "notes", options: { cloudflare?: string, connection?: string } = {}) {
   const file = join(rootDir, path)
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, [
@@ -26,6 +26,7 @@ async function writeDefinition(rootDir: string, path: string, table = "notes", o
     "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
     `const ${table} = sqliteTable('${table}', { title: text('title') })`,
     "export default defineDatabase({",
+    ...(options.cloudflare ? ["  cloudflare: {", options.cloudflare, "  },"] : []),
     ...(options.connection ? ["  connection: {", options.connection, "  },"] : []),
     `  tables: { ${table} },`,
     "})",
@@ -117,6 +118,56 @@ describe("hubDb", () => {
       if (typeof originalUrl === "undefined") delete process.env.TURSO_DATABASE_URL
       else process.env.TURSO_DATABASE_URL = originalUrl
     }
+  })
+
+  it("writes Cloudflare D1 HTTP credentials for Drizzle Kit", async () => {
+    const rootDir = await createTempProject()
+    const originalDatabaseId = process.env.CLOUDFLARE_D1_DATABASE_ID
+    process.env.CLOUDFLARE_D1_DATABASE_ID = "secret-database-id"
+
+    try {
+      await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+        cloudflare: [
+          "    databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,",
+          "    http: true,",
+        ].join("\n"),
+      })
+
+      const plugin = hubDb()
+      const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
+      await configResolved({ db: undefined, root: rootDir } as never)
+
+      const drizzleConfig = await readFile(join(rootDir, ".vitehub/database/drizzle.config.ts"), "utf8")
+      expect(drizzleConfig).toContain("driver: \"d1-http\"")
+      expect(drizzleConfig).toContain("accountId: process.env[\"CLOUDFLARE_ACCOUNT_ID\"]")
+      expect(drizzleConfig).toContain("databaseId: process.env[\"CLOUDFLARE_D1_DATABASE_ID\"]")
+      expect(drizzleConfig).toContain("token: process.env[\"CLOUDFLARE_API_TOKEN\"]")
+      expect(drizzleConfig).not.toContain("secret-database-id")
+    }
+    finally {
+      if (typeof originalDatabaseId === "undefined") delete process.env.CLOUDFLARE_D1_DATABASE_ID
+      else process.env.CLOUDFLARE_D1_DATABASE_ID = originalDatabaseId
+    }
+  })
+
+  it("keeps Drizzle Kit on libSQL when D1 HTTP is not selected", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+      cloudflare: "    databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,",
+      connection: [
+        "    authToken: 'libsql-token',",
+        "    url: 'libsql://database.example.turso.io',",
+      ].join("\n"),
+    })
+
+    const plugin = hubDb()
+    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
+    await configResolved({ db: undefined, root: rootDir } as never)
+
+    const drizzleConfig = await readFile(join(rootDir, ".vitehub/database/drizzle.config.ts"), "utf8")
+    expect(drizzleConfig).toContain("url: \"libsql://database.example.turso.io\"")
+    expect(drizzleConfig).toContain("authToken: \"libsql-token\"")
+    expect(drizzleConfig).not.toContain("driver: \"d1-http\"")
   })
 
   it("lets top-level config disable the database plugin", async () => {

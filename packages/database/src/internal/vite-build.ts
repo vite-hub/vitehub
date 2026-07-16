@@ -9,9 +9,10 @@ import { resolve } from "pathe"
 
 import { resolveConfigValue } from "../config-value.ts"
 import { resolveCloudflareD1Bindings } from "./cloudflare.ts"
+import { renderDatabaseConfigExpression } from "./runtime-config-expression.ts"
 
 import type { ProvisionState } from "@vite-hub/internal/provision"
-import type { DatabaseConfigValue, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
+import type { DatabaseConfigValue, ResolvedDBViteConfig } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ComposedProviderOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
 export const dbPackageName = "@vite-hub/database"
@@ -57,36 +58,6 @@ interface CloudflareDBConfig {
   main: string
   name?: string
   observability: { enabled: true }
-}
-
-function serializeDatabaseConfig({ cloudflare: _cloudflare, connection: _connection, drizzle: _drizzle, ...database }: ResolvedDrizzleDatabaseConfig) {
-  return JSON.stringify(database, null, 4)
-}
-
-function renderConfigExpression(value: unknown) {
-  return typeof value === "undefined" ? "undefined" : JSON.stringify(value)
-}
-
-function getDefaultCloudflareBindingName(name: string) {
-  if (name === "default") return "DB"
-  const suffix = name
-    .replace(/[^a-z0-9]+/gi, "_")
-    .replace(/^_+|_+$/g, "")
-    .replace(/_+/g, "_")
-    .toUpperCase()
-  return `DB_${suffix || "DATABASE"}`
-}
-
-function renderDatabaseConfigExpression(name: string, runtimeConfig: ResolvedDBViteConfig, definitionVariable: string) {
-  const base = runtimeConfig.databases[name]!
-  return [
-    "{",
-    `      ...${serializeDatabaseConfig(base)},`,
-    `      cloudflare: ${definitionVariable}.cloudflare ? { binding: ${definitionVariable}.cloudflare.binding ?? ${JSON.stringify(base.cloudflare?.binding ?? getDefaultCloudflareBindingName(name))}, databaseId: ${definitionVariable}.cloudflare.databaseId, databaseName: ${definitionVariable}.cloudflare.databaseName, migrationsDir: ${JSON.stringify(base.migrationsDir)}, migrationsTable: ${definitionVariable}.cloudflare.migrationsTable, previewDatabaseId: ${definitionVariable}.cloudflare.previewDatabaseId } : undefined,`,
-    `      connection: ${definitionVariable}.connection ? { authToken: ${definitionVariable}.connection.authToken ?? ${renderConfigExpression(base.connection?.authToken)}, url: ${definitionVariable}.connection.url ?? ${renderConfigExpression(base.connection?.url)} } : ${renderConfigExpression(base.connection)},`,
-    `      drizzle: ${definitionVariable}.drizzle ?? {},`,
-    "    }",
-  ].join("\n")
 }
 
 function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) {
@@ -180,6 +151,13 @@ function isRemoteLibsqlConnectionUrl(value: DatabaseConfigValue | undefined) {
     : typeof value !== "undefined"
 }
 
+function hasConfigValue(value: DatabaseConfigValue | undefined) {
+  const databaseId = resolveConfigValue(value)
+  return typeof databaseId === "string"
+    ? Boolean(databaseId.trim())
+    : typeof value !== "undefined"
+}
+
 function getCloudflareUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig, provisionState: ProvisionState) {
   return runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
@@ -198,7 +176,10 @@ function getCloudflareDatabasesMissingNames(runtimeConfig: ResolvedDBViteConfig,
 function getVercelUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
   return runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
-    return !isRemoteLibsqlConnectionUrl(database?.connection?.url)
+    const hasD1Http = Boolean(database?.cloudflare?.http)
+      && hasConfigValue(database.cloudflare?.databaseId)
+    return !hasD1Http
+      && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
   })
 }
 
@@ -254,7 +235,7 @@ function createCloudflareOutput({ artifacts, providerOutput, provisionState, run
 function createVercelOutput({ artifacts, providerOutput, runtimeConfig, serverFunctionName }: ProviderWriteOptions): VercelProviderDeploymentOutput {
   const unsupportedDatabases = getVercelUnsupportedDatabases(runtimeConfig)
   if (unsupportedDatabases.length) {
-    throw new Error(`[vitehub] Vercel output requires a remote libSQL \`db.connection.url\` for databases: ${unsupportedDatabases.join(", ")}.`)
+    throw new Error(`[vitehub] Vercel output requires \`db.cloudflare.http\` with \`db.cloudflare.databaseId\`, or a remote libSQL \`db.connection.url\`, for databases: ${unsupportedDatabases.join(", ")}.`)
   }
   const blobRuntime = getProviderRuntimeModule(providerOutput, "blob", "vercel")
 
@@ -278,6 +259,7 @@ function shouldCreateVercelOutput(runtimeConfig: ResolvedDBViteConfig) {
 
 function shouldCreateCloudflareOutput(runtimeConfig: ResolvedDBViteConfig, provisionState: ProvisionState) {
   return getCloudflareUnsupportedDatabases(runtimeConfig, provisionState).length === 0
+    && getCloudflareDatabasesMissingNames(runtimeConfig, provisionState).length === 0
 }
 
 function getSupportedProviderRuntimeModules(
@@ -309,7 +291,14 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     clientOutDir: options.clientOutDir,
     cloudflare: shouldCreateCloudflareOutput(options.runtimeConfig, provisionState) ? createCloudflareOutput(writeOptions) : undefined,
     cleanup: {
-      cloudflare: { wranglerConfigKeys: ["d1_databases"] },
+      cloudflare: () => {
+        const hasOtherCloudflareOutput = Object.entries(options.providerOutput?.runtimeModuleFilesByProduct ?? {})
+          .some(([product, modules]) => product !== productName && Boolean(modules?.cloudflare))
+        return {
+          ...(!hasOtherCloudflareOutput ? { fileNames: ["index.js"] } : {}),
+          wranglerConfigKeys: ["d1_databases"],
+        }
+      },
     },
     rootDir: options.rootDir,
     vercel: shouldCreateVercelOutput(options.runtimeConfig) ? createVercelOutput(writeOptions) : undefined,

@@ -14,7 +14,7 @@ async function createTempProject() {
   return rootDir
 }
 
-async function writeDefinition(rootDir: string, path: string, tables = "notes", options: { connection?: string } = {}) {
+async function writeDefinition(rootDir: string, path: string, tables = "notes", options: { cloudflare?: string, connection?: string } = {}) {
   const file = join(rootDir, path)
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, [
@@ -22,6 +22,7 @@ async function writeDefinition(rootDir: string, path: string, tables = "notes", 
     "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
     `const ${tables} = sqliteTable('${tables}', { title: text('title') })`,
     "export default defineDatabase({",
+    ...(options.cloudflare ? ["  cloudflare: {", options.cloudflare, "  },"] : []),
     ...(options.connection ? ["  connection: {", options.connection, "  },"] : []),
     `  tables: { ${tables} },`,
     "})",
@@ -268,5 +269,74 @@ describe("resolveDBViteConfig", () => {
       if (typeof originalUrl === "undefined") delete process.env.TURSO_DATABASE_URL
       else process.env.TURSO_DATABASE_URL = originalUrl
     }
+  })
+
+  it("preserves explicit D1 HTTP proxy declarations without resolving their secrets", async () => {
+    const rootDir = await createTempProject()
+    const originalToken = process.env.D1_HTTP_TOKEN
+    const originalUrl = process.env.D1_HTTP_URL
+    delete process.env.D1_HTTP_TOKEN
+    delete process.env.D1_HTTP_URL
+
+    try {
+      await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+        cloudflare: [
+          "    databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,",
+          "    http: {",
+          "      authToken: process.env.D1_HTTP_TOKEN,",
+          "      url: process.env.D1_HTTP_URL,",
+          "    },",
+        ].join("\n"),
+      })
+
+      expect(resolveDBViteConfig(undefined, rootDir)?.databases.default.cloudflare).toMatchObject({
+        http: {
+          authToken: {
+            kind: "env-variable",
+            source: { kind: "env", name: "D1_HTTP_TOKEN" },
+          },
+          url: {
+            kind: "env-variable",
+            source: { kind: "env", name: "D1_HTTP_URL" },
+          },
+        },
+      })
+    }
+    finally {
+      if (typeof originalToken === "undefined") delete process.env.D1_HTTP_TOKEN
+      else process.env.D1_HTTP_TOKEN = originalToken
+      if (typeof originalUrl === "undefined") delete process.env.D1_HTTP_URL
+      else process.env.D1_HTTP_URL = originalUrl
+    }
+  })
+
+  it("preserves Runtime Env declarations for D1 HTTP proxy config", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+      cloudflare: [
+        "    databaseId: env({ source: env.source('CLOUDFLARE_D1_DATABASE_ID') }),",
+        "    http: {",
+        "      authToken: env({ secret: true, source: env.source('D1_HTTP_TOKEN') }),",
+        "      url: env({ source: env.source(['D1_HTTP_URL', 'D1_PROXY_URL']) }),",
+        "    },",
+      ].join("\n"),
+    })
+
+    expect(resolveDBViteConfig(undefined, rootDir)?.databases.default.cloudflare).toMatchObject({
+      databaseId: {
+        kind: "env-variable",
+        source: { kind: "env", name: "CLOUDFLARE_D1_DATABASE_ID" },
+      },
+      http: {
+        authToken: {
+          kind: "env-variable",
+          source: { kind: "env", name: "D1_HTTP_TOKEN" },
+        },
+        url: {
+          kind: "env-variable",
+          source: { kind: "env", name: "D1_HTTP_URL", names: ["D1_HTTP_URL", "D1_PROXY_URL"] },
+        },
+      },
+    })
   })
 })

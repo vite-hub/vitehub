@@ -15,6 +15,7 @@ import { createRuntimeEnvConfigValue, resolveConfigValue } from "./config-value.
 
 import type {
   CloudflareD1BindingConfig,
+  CloudflareD1HttpConfig,
   DatabaseConfigValue,
   DatabaseConnectionConfig,
   DBModulePublicOptions,
@@ -79,6 +80,8 @@ function readConfigValue(body: string | undefined, property: string): DatabaseCo
   if (!expression) return
   const quoted = readStaticStringLiteral(expression)
   if (typeof quoted !== "undefined") return quoted
+  const declaration = readRuntimeEnvDeclaration(expression)
+  if (declaration) return declaration
   const fallbackParts = expression.split(/\s*(?:\|\||\?\?)\s*/)
   if (fallbackParts.length === 1) {
     const envName = readProcessEnvName(fallbackParts[0]!)
@@ -93,6 +96,25 @@ function readConfigValue(body: string | undefined, property: string): DatabaseCo
     const staticFallback = readStaticStringLiteral(fallback)
     if (typeof staticFallback !== "undefined") return createRuntimeEnvConfigValue([envName], staticFallback)
   }
+}
+
+function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | undefined {
+  const match = /^env\s*\((.*)\)$/s.exec(expression.trim())
+  const body = objectLiteralBody(match?.[1])
+  if (!body) return
+  const source = readObjectPropertyValue(body, "source")?.trim()
+  const sourceMatch = /^env\.source\s*\((.*)\)$/s.exec(source || "")
+  if (!sourceMatch) return
+  const sourceValue = sourceMatch[1]!.trim()
+  const singleName = readStaticStringLiteral(sourceValue)
+  const names = typeof singleName !== "undefined"
+    ? [singleName]
+    : /^\[(.*)\]$/s.exec(sourceValue)?.[1]
+        ?.split(",")
+        .map(value => readStaticStringLiteral(value.trim()))
+  if (!names?.length || names.some(name => typeof name === "undefined" || !name.trim())) return
+  const defaultValue = readStaticStringLiteral(readObjectPropertyValue(body, "default")?.trim() || "")
+  return createRuntimeEnvConfigValue(names as string[], defaultValue)
 }
 
 function readStaticStringLiteral(expression: string) {
@@ -113,10 +135,21 @@ function readStringValue(body: string | undefined, property: string): string | u
 function readDefinitionCloudflareConfig(file: string): CloudflareD1BindingConfig | undefined {
   const body = objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "cloudflare"))
   if (!body) return
+  const httpExpression = readObjectPropertyValue(body, "http")?.trim()
+  const httpBody = objectLiteralBody(httpExpression)
+  const http = httpExpression === "true"
+    ? true
+    : httpBody
+      ? {
+          authToken: readConfigValue(httpBody, "authToken"),
+          url: readConfigValue(httpBody, "url"),
+        } satisfies Partial<CloudflareD1HttpConfig>
+      : undefined
   const value = {
     binding: readStringValue(body, "binding"),
     databaseId: readConfigValue(body, "databaseId"),
     databaseName: readConfigValue(body, "databaseName"),
+    ...(http && (http === true || http.authToken || http.url) ? { http: http as true | CloudflareD1HttpConfig } : {}),
     migrationsTable: readStringValue(body, "migrationsTable"),
     previewDatabaseId: readConfigValue(body, "previewDatabaseId"),
   } satisfies CloudflareD1BindingConfig
@@ -223,6 +256,7 @@ function normalizeCloudflareConfig(
   return {
     binding: typeof value.binding === "string" && value.binding.trim() ? value.binding.trim() : getDefaultCloudflareBindingName(name),
     ...(typeof value.databaseId !== "undefined" ? { databaseId: value.databaseId } : {}),
+    ...(typeof value.http !== "undefined" ? { http: value.http } : {}),
     ...(typeof value.previewDatabaseId !== "undefined" ? { previewDatabaseId: value.previewDatabaseId } : {}),
     ...(typeof value.databaseName !== "undefined" ? { databaseName: value.databaseName } : {}),
     migrationsDir,

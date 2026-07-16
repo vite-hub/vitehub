@@ -1,6 +1,7 @@
 export { defineDatabase } from "./definition.ts"
 export type {
   CloudflareD1BindingConfig,
+  CloudflareD1HttpConfig,
   DatabaseConfigValue,
   DatabaseConnectionConfig,
   DatabaseDefinition,

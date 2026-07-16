@@ -24,6 +24,9 @@ export function defineDatabase<TTables extends Record<string, unknown>>(
 
   if (typeof options.cloudflare !== "undefined") {
     assertPlainObject(options.cloudflare, "defineDatabase().cloudflare")
+    if (options.cloudflare.http !== true && typeof options.cloudflare.http !== "undefined") {
+      assertPlainObject(options.cloudflare.http, "defineDatabase().cloudflare.http")
+    }
   }
   if (typeof options.connection !== "undefined") {
     assertPlainObject(options.connection, "defineDatabase().connection")
