@@ -4,14 +4,14 @@ import { resolve } from "node:path"
 import { cleanProviderOutputConfig, writeProviderOutputConfig } from "./provider-output-config.ts"
 import { toSafeAppName } from "./user-entry.ts"
 
-import type { ProviderJsonRecord, ProviderOutputConfigOwnership } from "./provider-output-config.ts"
+import type { ProviderOutputConfigOwnership } from "./provider-output-config.ts"
 
 export const defaultCloudflareCompatibilityDate = "2026-04-20"
 
 interface CloudflareWranglerConfigOptions {
   outputRoot?: string
   rootDir: string
-  wranglerConfig?: ProviderJsonRecord
+  wranglerConfig?: object
   wranglerConfigOwnership?: ProviderOutputConfigOwnership
 }
 

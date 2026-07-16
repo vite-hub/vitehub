@@ -15,7 +15,7 @@ import { getCloudflareQueueBindingName, getCloudflareQueueName } from "../integr
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 
 import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, ProviderJsonRecord, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
 export const queuePackageName = "@vite-hub/queue"
 const productName = "queue"
@@ -84,7 +84,7 @@ export interface CloudflareQueueConfigOptions {
   rootDir?: string
 }
 
-export interface CloudflareQueueConfig extends ProviderJsonRecord {
+export interface CloudflareQueueConfig {
   assets?: { directory?: string, run_worker_first: string[] }
   compatibility_date: string
   compatibility_flags: string[]

@@ -15,7 +15,7 @@ import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowProvider } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, ProviderJsonRecord, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
 export const workflowPackageName = "@vite-hub/workflow"
 const productName = "workflow"
@@ -228,7 +228,7 @@ interface WorkflowImportBases {
   workspaceDependencies?: WorkspaceDependencyRuntimeImports
 }
 
-interface CloudflareWorkflowConfig extends ProviderJsonRecord {
+interface CloudflareWorkflowConfig {
   assets?: { directory?: string, run_worker_first: string[] }
   compatibility_date: string
   compatibility_flags: string[]

@@ -9,7 +9,7 @@ import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { normalizeBlobOptions } from "../config.ts"
 
 import type { BlobModuleOptions, ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, ComposedProviderOutput, ProviderJsonRecord, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, ComposedProviderOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
 export const blobPackageName = "@vite-hub/blob"
 const productName = "blob"
@@ -55,7 +55,7 @@ interface GeneratedBlobArtifacts {
   vercelServerFile: string
 }
 
-interface CloudflareBlobConfig extends ProviderJsonRecord {
+interface CloudflareBlobConfig {
   assets?: { directory?: string, run_worker_first: string[] }
   compatibility_date: string
   compatibility_flags: string[]

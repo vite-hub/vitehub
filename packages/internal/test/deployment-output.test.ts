@@ -136,6 +136,43 @@ describe("provider deployment outputs", () => {
     })
   })
 
+  it.each([
+    ["a top-level undefined value", { main: undefined }],
+    ["a nested undefined value", { assets: { directory: undefined } }],
+    ["a non-finite number", { limit: Number.POSITIVE_INFINITY }],
+    ["a bigint", { limit: 1n }],
+    ["a symbol", { binding: Symbol("binding") }],
+    ["a function", { resolve: () => undefined }],
+    ["a Date", new Date("2026-01-01")],
+    ["a Map", new Map([["binding", "SETTINGS"]])],
+    ["a class instance", new class ProviderConfig { binding = "SETTINGS" }()],
+    ["a nested non-plain object", { binding: new Date("2026-01-01") }],
+  ])("rejects provider config containing %s", async (_label, wranglerConfig) => {
+    const rootDir = await createTempProject()
+    const { writeCloudflareWranglerConfig } = await import("../src/build/cloudflare.ts")
+
+    await expect(writeCloudflareWranglerConfig({ rootDir, wranglerConfig })).rejects.toThrow(
+      "[vitehub] Provider output config must be a JSON object.",
+    )
+  })
+
+  it("accepts provider config with ordinary and null-prototype records", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeCloudflareWranglerConfig,
+    } = await import("../src/build/cloudflare.ts")
+    const nested = Object.assign(Object.create(null), { enabled: true })
+    const wranglerConfig = Object.assign(Object.create(null), { nested })
+
+    await writeCloudflareWranglerConfig({ rootDir, wranglerConfig })
+
+    const configFile = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+    await expect(readFile(configFile, "utf8").then(JSON.parse)).resolves.toEqual({
+      nested: { enabled: true },
+    })
+  })
+
   it("does not create Cloudflare output while cleaning absent owned config", async () => {
     const rootDir = await createTempProject()
     const {

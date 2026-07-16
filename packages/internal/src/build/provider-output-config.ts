@@ -1,31 +1,80 @@
 import { readFile, rm, writeFile } from "node:fs/promises"
 
-export type ProviderJsonPrimitive = boolean | null | number | string
-export type ProviderJsonRecord = Record<string, unknown>
+type ProviderJsonPrimitive = boolean | null | number | string
+type ProviderJsonValue = ProviderJsonPrimitive | ProviderJsonRecord | ProviderJsonValue[]
+
+interface ProviderJsonRecord {
+  [key: string]: ProviderJsonValue
+}
 
 export interface ProviderOutputConfigOwnership {
   arrays?: Record<string, { key: string, values?: ProviderJsonPrimitive[] }>
   keys?: string[]
 }
 
-function isProviderJsonRecord(value: unknown): value is ProviderJsonRecord {
-  return typeof value === "object"
-    && value !== null
-    && !Array.isArray(value)
-    && Object.values(value).every(entry => entry === undefined || isProviderJsonValue(entry))
+function isProviderJsonArray(value: unknown[], ancestors: Set<object>): value is ProviderJsonValue[] {
+  if (Object.getPrototypeOf(value) !== Array.prototype || ancestors.has(value)) return false
+  if (Reflect.ownKeys(value).length !== value.length + 1) return false
+
+  ancestors.add(value)
+  try {
+    for (let index = 0; index < value.length; index++) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index))
+      if (!descriptor?.enumerable || !("value" in descriptor) || !isProviderJsonValue(descriptor.value, ancestors)) return false
+    }
+    return true
+  }
+  finally {
+    ancestors.delete(value)
+  }
 }
 
-function isProviderJsonValue(value: unknown): boolean {
+function isProviderJsonRecordValue(value: object, ancestors: Set<object>): value is ProviderJsonRecord {
+  const prototype = Object.getPrototypeOf(value)
+  if ((prototype !== Object.prototype && prototype !== null) || ancestors.has(value)) return false
+
+  ancestors.add(value)
+  try {
+    return Reflect.ownKeys(value).every((key) => {
+      if (typeof key !== "string") return false
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      return descriptor?.enumerable === true
+        && "value" in descriptor
+        && isProviderJsonValue(descriptor.value, ancestors)
+    })
+  }
+  finally {
+    ancestors.delete(value)
+  }
+}
+
+function isProviderJsonValue(value: unknown, ancestors: Set<object>): value is ProviderJsonValue {
   if (value === null || typeof value === "boolean" || typeof value === "string") return true
   if (typeof value === "number") return Number.isFinite(value)
-  if (Array.isArray(value)) return value.every(isProviderJsonValue)
-  return isProviderJsonRecord(value)
+  if (Array.isArray(value)) return isProviderJsonArray(value, ancestors)
+  return typeof value === "object" && isProviderJsonRecordValue(value, ancestors)
+}
+
+function isProviderJsonRecord(value: unknown): value is ProviderJsonRecord {
+  try {
+    return typeof value === "object"
+      && value !== null
+      && !Array.isArray(value)
+      && isProviderJsonRecordValue(value, new Set())
+  }
+  catch {
+    return false
+  }
 }
 
 function assertProviderJsonRecord(value: unknown): asserts value is ProviderJsonRecord {
   if (!isProviderJsonRecord(value)) {
     throw new TypeError("[vitehub] Provider output config must be a JSON object.")
   }
+}
+
+function isFileNotFoundError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT"
 }
 
 async function readProviderJsonRecord(file: string): Promise<ProviderJsonRecord | undefined> {
@@ -35,7 +84,7 @@ async function readProviderJsonRecord(file: string): Promise<ProviderJsonRecord 
     return parsed
   }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+    if (isFileNotFoundError(error)) return
     throw error
   }
 }
@@ -56,10 +105,10 @@ function getKeyedArrayEntryValue(value: unknown, key: string): ProviderJsonPrimi
 }
 
 function preserveUnownedKeyedArrayEntries(
-  value: unknown,
+  value: ProviderJsonValue | undefined,
   ownership: NonNullable<ProviderOutputConfigOwnership["arrays"]>[string],
-  replacements: unknown[] = [],
-): unknown[] {
+  replacements: ProviderJsonValue[] = [],
+): ProviderJsonValue[] {
   const current = Array.isArray(value) ? value : []
   const replacementKeys = replacements.flatMap((entry) => {
     const key = getKeyedArrayEntryValue(entry, ownership.key)
@@ -100,17 +149,22 @@ async function persistProviderJsonRecord(file: string, value: ProviderJsonRecord
 
 export async function writeProviderOutputConfig(
   file: string,
-  value: ProviderJsonRecord,
+  value: unknown,
   ownership: ProviderOutputConfigOwnership = {},
   options: { removeIfEmpty?: boolean } = {},
 ): Promise<void> {
-  assertProviderJsonRecord(value)
   const existing = await readProviderJsonRecord(file) ?? {}
+  assertProviderJsonRecord(value)
   const next = {
     ...deleteOwnedFields(existing, ownership),
     ...mergeOwnedArrays(existing, value, ownership.arrays),
   }
   await persistProviderJsonRecord(file, next, options.removeIfEmpty === true)
+}
+
+export function stringifyProviderOutputConfig(value: unknown): string {
+  assertProviderJsonRecord(value)
+  return JSON.stringify(value, null, 2)
 }
 
 export async function cleanProviderOutputConfig(file: string, ownership: ProviderOutputConfigOwnership): Promise<void> {

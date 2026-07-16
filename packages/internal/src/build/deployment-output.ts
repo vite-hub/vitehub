@@ -4,14 +4,13 @@ import { dirname, resolve } from "node:path"
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
 import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "./cloudflare.ts"
 import { bundleEsmEntry } from "./esbuild.ts"
-import { cleanProviderOutputConfig, writeProviderOutputConfig } from "./provider-output-config.ts"
+import { cleanProviderOutputConfig, stringifyProviderOutputConfig, writeProviderOutputConfig } from "./provider-output-config.ts"
 import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
 
-import type { ProviderJsonRecord, ProviderOutputConfigOwnership } from "./provider-output-config.ts"
+import type { ProviderOutputConfigOwnership } from "./provider-output-config.ts"
 
 export { createDefaultCloudflareOutputRoot } from "./cloudflare.ts"
 export { shouldSkipViteProviderBuild } from "./vite.ts"
-export type { ProviderJsonRecord } from "./provider-output-config.ts"
 
 type BundleOptions = NonNullable<Parameters<typeof bundleEsmEntry>[2]>
 
@@ -28,7 +27,7 @@ interface CloudflareDeploymentOutputOptions extends SharedDeploymentOptions {
   outputRoot?: string
   staticOutputDir?: string
   wranglerConfigKeys?: string[]
-  wranglerConfig: ProviderJsonRecord
+  wranglerConfig: object
 }
 
 export type VercelFunctionOutput =
@@ -38,10 +37,10 @@ export type VercelFunctionOutput =
 interface VercelDeploymentOutputOptions extends SharedDeploymentOptions {
   bundleEntry: string
   bundleOptions: BundleOptions
-  config?: ProviderJsonRecord
+  config?: object
   configKeys?: string[]
   function?: VercelFunctionOutput
-  functionConfig?: ProviderJsonRecord
+  functionConfig?: object
   outputRoot?: string
   staticOutputDir?: string
 }
@@ -49,12 +48,12 @@ interface VercelDeploymentOutputOptions extends SharedDeploymentOptions {
 interface NetlifyFunctionDeploymentOutput {
   bundleEntry: string
   bundleOptions: BundleOptions
-  config?: ProviderJsonRecord
+  config?: object
   functionName: string
 }
 
 interface NetlifyDeploymentOutputOptions extends SharedDeploymentOptions {
-  config?: ProviderJsonRecord
+  config?: object
   configKeys?: string[]
   functions?: NetlifyFunctionDeploymentOutput[]
   outputRoot?: string
@@ -153,10 +152,10 @@ function resolveNetlifyFunctionFile(functionsRoot: string, functionName: string)
   return resolve(functionsRoot, `${functionName}.mjs`)
 }
 
-async function appendNetlifyFunctionConfig(outfile: string, config: ProviderJsonRecord | undefined): Promise<void> {
+async function appendNetlifyFunctionConfig(outfile: string, config: object | undefined): Promise<void> {
   if (!config) return
   const bundled = await readFile(outfile, "utf8")
-  await writeFile(outfile, `${bundled.trimEnd()}\n\nexport const config = ${JSON.stringify(config, null, 2)}\n`, "utf8")
+  await writeFile(outfile, `${bundled.trimEnd()}\n\nexport const config = ${stringifyProviderOutputConfig(config)}\n`, "utf8")
 }
 
 async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutputOptions): Promise<void> {
@@ -208,7 +207,7 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
 
   await Promise.all([
     bundleEsmEntry(options.bundleEntry, serverEntry, { ...options.bundleOptions, rootDir: options.rootDir }),
-    writeFile(resolve(serverDir, ".vc-config.json"), `${JSON.stringify(options.functionConfig ?? createNodeFunctionConfig(), null, 2)}\n`, "utf8"),
+    writeProviderOutputConfig(resolve(serverDir, ".vc-config.json"), options.functionConfig ?? createNodeFunctionConfig()),
     writeProviderOutputConfig(resolve(outputRoot, "config.json"), config, { keys: options.configKeys }),
     staticIndex
       ? copyClientOutput(clientDir, options.staticOutputDir ?? resolve(outputRoot, "static"))

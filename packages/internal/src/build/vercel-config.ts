@@ -1,6 +1,4 @@
-import type { ProviderJsonRecord } from "./provider-output-config.ts"
-
-interface VercelConfigJson extends ProviderJsonRecord {
+interface VercelConfigJson {
   routes: Array<{ handle: string } | { dest: string, src: string }>
   version: 3
 }
@@ -15,7 +13,7 @@ export function createVercelConfigJson(): VercelConfigJson {
   }
 }
 
-interface NodeFunctionConfig extends ProviderJsonRecord {
+interface NodeFunctionConfig {
   handler: "index.mjs"
   launcherType: "Nodejs"
   runtime: "nodejs22.x"
@@ -23,7 +21,7 @@ interface NodeFunctionConfig extends ProviderJsonRecord {
   supportsResponseStreaming: true
 }
 
-export function createNodeFunctionConfig(extra: ProviderJsonRecord = {}): NodeFunctionConfig {
+export function createNodeFunctionConfig(extra: object = {}): NodeFunctionConfig {
   return {
     handler: "index.mjs",
     launcherType: "Nodejs",

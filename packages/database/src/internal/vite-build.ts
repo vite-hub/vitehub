@@ -13,7 +13,7 @@ import { renderDatabaseConfigExpression } from "./runtime-config-expression.ts"
 
 import type { ProvisionState } from "@vite-hub/internal/provision"
 import type { DatabaseConfigValue, ResolvedDBViteConfig } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, ComposedProviderOutput, ProviderJsonRecord, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, ComposedProviderOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
 export const dbPackageName = "@vite-hub/database"
 const productName = "database"
@@ -50,7 +50,7 @@ interface GeneratedDBArtifacts {
   vercelServerFile: string
 }
 
-interface CloudflareDBConfig extends ProviderJsonRecord {
+interface CloudflareDBConfig {
   assets?: { directory?: string, run_worker_first: string[] }
   compatibility_date: string
   compatibility_flags: string[]
