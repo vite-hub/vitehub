@@ -227,7 +227,7 @@ export async function bundleEsmEntry(
         }
       : undefined,
     bundle: true,
-    conditions: options.conditions ?? (platform === "node" ? ["node", "import", "default"] : undefined),
+    conditions: options.conditions ?? (platform === "node" ? ["node"] : undefined),
     entryPoints: [entryFile],
     external: options.external,
     format,

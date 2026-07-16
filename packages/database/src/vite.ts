@@ -218,7 +218,11 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         providerOutput,
         rootDir: resolved.root,
         runtimeConfig,
-        serverFunctionName: resolveNitroVercelFunctionName(resolved.plugins, "database", resolved.root),
+        serverFunctionName: resolveNitroVercelFunctionName(
+          resolved.plugins,
+          "database",
+          (resolved as typeof resolved & { nitro?: { preset?: string } }).nitro?.preset,
+        ),
       })
     },
   }

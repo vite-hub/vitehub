@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs"
+import { statSync } from "node:fs"
 import { basename, dirname, resolve } from "node:path"
 
 type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
@@ -39,9 +39,15 @@ export function isServerEnvironment(name: string, config: { consumer?: string })
   return name === "ssr" || config.consumer === "server"
 }
 
-export function resolveNitroVercelFunctionName(plugins: readonly { name: string }[] | undefined, product: string, rootDir: string): string | undefined {
-  return plugins?.some(plugin => plugin.name === "nitro:main")
-    && existsSync(resolve(rootDir, ".vercel", "output", "config.json"))
+export function resolveNitroVercelFunctionName(
+  plugins: readonly { name: string }[] | undefined,
+  product: string,
+  nitroPreset?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const preset = nitroPreset || env.NITRO_PRESET || env.SERVER_PRESET
+  const vercel = preset?.startsWith("vercel") || env.VITEHUB_HOSTING === "vercel" || Boolean(env.VERCEL)
+  return plugins?.some(plugin => plugin.name === "nitro:main") && vercel
     ? `__${product}.func`
     : undefined
 }
