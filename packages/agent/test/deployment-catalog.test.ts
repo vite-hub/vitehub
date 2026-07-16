@@ -13,6 +13,7 @@ interface CapturedStateAdapter {
 }
 
 interface DeploymentRuntimeCapture {
+  denoHandler?: (request: Request) => Promise<Response>
   stateAdapter?: CapturedStateAdapter
   workspaceRegistry: Record<string, () => Promise<{ default?: Record<PropertyKey, unknown> }>>
 }
@@ -82,7 +83,7 @@ function deploymentRuntimeModules(): Map<string, string> {
   ])
 }
 
-async function createDeploymentRuntimeFixture(adapter: "netlify" | "nitro" = "nitro"): Promise<DeploymentRuntimeFixture> {
+async function createDeploymentRuntimeFixture(adapter: "deno" | "netlify" | "nitro" = "nitro"): Promise<DeploymentRuntimeFixture> {
   const root = await mkdtemp(adapter === "netlify"
     ? join(import.meta.dirname, "fixtures", "deployment-catalog-")
     : join(tmpdir(), "vitehub-agent-deployment-catalog-"))
@@ -90,6 +91,7 @@ async function createDeploymentRuntimeFixture(adapter: "netlify" | "nitro" = "ni
   const reviewerRoot = join(root, "server", "agents", "reviewer")
   const capture: DeploymentRuntimeCapture = { workspaceRegistry: {} }
   const scope = globalThis as typeof globalThis & Record<string, unknown>
+  const previousDeno = scope.Deno
   scope[runtimeCaptureKey] = capture
 
   await mkdir(join(supportRoot, "workspace"), { recursive: true })
@@ -118,6 +120,10 @@ async function createDeploymentRuntimeFixture(adapter: "netlify" | "nitro" = "ni
       "",
     ].join("\n"), "utf8")
   }
+  if (adapter === "deno") {
+    await mkdir(join(root, ".vitehub", "schedule"), { recursive: true })
+    await writeFile(join(root, ".vitehub", "schedule", "deno-cron.mjs"), "", "utf8")
+  }
 
   const modules = deploymentRuntimeModules()
   const server = await createServer({
@@ -134,6 +140,7 @@ async function createDeploymentRuntimeFixture(adapter: "netlify" | "nitro" = "ni
             url: "file:catalog.sqlite",
           },
         },
+        ...(adapter === "deno" ? { runtime: "deno" } : {}),
       }),
       {
         enforce: "pre",
@@ -156,11 +163,20 @@ async function createDeploymentRuntimeFixture(adapter: "netlify" | "nitro" = "ni
     server: { middlewareMode: true },
   })
 
+  if (adapter === "deno") {
+    scope.Deno = {
+      args: [],
+      serve(...args: unknown[]) {
+        capture.denoHandler = args.at(-1) as (request: Request) => Promise<Response>
+      },
+    }
+  }
+
   const route = await server.ssrLoadModule(join(
     root,
     ".vitehub",
     "agent",
-    adapter === "netlify" ? "netlify-function.mjs" : "chat-webhook-route.ts",
+    adapter === "deno" ? "deno-server.ts" : adapter === "netlify" ? "netlify-function.mjs" : "chat-webhook-route.ts",
   )) as { default: (input: Record<string, unknown> | Request, context?: Record<string, unknown>) => Promise<Response> }
   const waitUntilTasks: Promise<unknown>[] = []
 
@@ -171,10 +187,22 @@ async function createDeploymentRuntimeFixture(adapter: "netlify" | "nitro" = "ni
     async close() {
       await server.close()
       delete scope[runtimeCaptureKey]
+      if (adapter === "deno") {
+        if (previousDeno === undefined) delete scope.Deno
+        else scope.Deno = previousDeno
+      }
       await rm(root, { force: true, recursive: true })
     },
     async request(agent, requestedRoute) {
       const webhook = requestedRoute === "webhooks/channel" ? "channel" : undefined
+      if (adapter === "deno") {
+        if (!capture.denoHandler) throw new Error("Deno server handler was not registered.")
+        return await capture.denoHandler(new Request(`https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`, {
+          body: "{}",
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        }))
+      }
       if (adapter === "netlify") {
         return await route.default(
           new Request(`https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`, {
@@ -296,5 +324,24 @@ describe("generated Agent deployment catalog", () => {
     })
     expect(Object.keys(runtime.capture.workspaceRegistry)).toEqual(["support"])
     expect(runtime.waitUntilTasks).toHaveLength(2)
+  })
+
+  it("executes the same catalog through the Deno Adapter", async () => {
+    await runtime!.close()
+    runtime = await createDeploymentRuntimeFixture("deno")
+
+    await expect((await runtime.request("support", "chat")).json()).resolves.toMatchObject({
+      agent: "support",
+      agentIdentity: { name: "support", workspace: "support" },
+      kind: "chat",
+    })
+    await expect((await runtime.request("support", "webhooks/channel")).json()).resolves.toMatchObject({
+      agent: "support",
+      agentIdentity: { name: "support", workspace: "support" },
+      kind: "webhook",
+      webhook: "channel",
+    })
+    expect(await runtime.request("missing", "chat")).toMatchObject({ status: 404 })
+    expect(Object.keys(runtime.capture.workspaceRegistry)).toEqual(["support"])
   })
 })

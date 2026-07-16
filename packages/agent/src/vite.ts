@@ -1145,45 +1145,19 @@ async function generateAgentDenoServer(
   const routeCapabilities = generatedAgentRouteCapabilities(options)
   const workflowRuntime = generatedAgentWorkflowRuntime(options, agentImportBase)
   const workspaceDependencyRuntime = generatedAgentWorkspaceDependencyRuntime(options, workspaceImportBase)
-  const imports = definitions
-    .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
-    .join("\n")
-  const workspaceEntries = (await Promise.all(definitions
-    .map(async (definition, index) => {
-      const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
-      return definition.workspace
-        ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, agent${index}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))}, ${JSON.stringify(readColocatedAgentSkills(definition.handler))})`
-        : undefined
-    })))
-    .filter(Boolean)
-    .join(",\n  ")
-  const agentEntries = (await Promise.all(definitions
-    .map(async (definition, index) => {
-      const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
-      const agentExpression = `withWorkspaceSourceRoot(resolveAgentModule(agent${index}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))}, ${JSON.stringify(readColocatedAgentSkills(definition.handler))})`
-      return `${JSON.stringify(definition.name)}: ${agentExpression}`
-    })))
-    .join(",\n  ")
-  const agentModuleEntries = definitions
-    .map((definition, index) => `${JSON.stringify(definition.name)}: agent${index}`)
-    .join(",\n  ")
-  const agentIdentityEntries = generatedAgentIdentityEntries(definitions)
-  const hostedWorkspaceRuntime = generatedHostedWorkspaceRuntimeSetup(definitions, workspaceImportBase)
-  const workspaceRuntimeImports = workspaceEntries
-    ? [`import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(workspaceImportBase, "runtime"))}`, ...hostedWorkspaceRuntime.imports]
-    : []
-  const workspaceRuntimeSetup = workspaceEntries
-    ? [...hostedWorkspaceRuntime.setup, `setWorkspaceRuntimeRegistry(Object.fromEntries([\n  ${workspaceEntries}\n].filter(Boolean)))`, ""]
-    : []
+  const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
+    agentImportBase,
+    workspaceImportBase,
+    workspaceRuntimeImport: definitions.some(definition => definition.workspace)
+      ? subpath(workspaceImportBase, "runtime")
+      : undefined,
+  })
 
   return [
-    `import { workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
-    `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler, hasChannelChatRoute } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    ...deploymentCatalog.imports,
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
-    ...workspaceRuntimeImports,
-    imports,
     "",
     ...workflowRuntime.setup,
     ...workspaceDependencyRuntime.setup,
@@ -1192,24 +1166,7 @@ async function generateAgentDenoServer(
     "  throw error",
     "})",
     "",
-    "function resolveAgentModule(module) {",
-    "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
-    "}",
-    "",
-    "function resolveChatRouteOptions(module) {",
-    "  const chatRoute = module && typeof module === 'object' ? module.chatRoute : undefined",
-    "  return chatRoute && typeof chatRoute === 'object' ? chatRoute : undefined",
-    "}",
-    "",
-    ...generatedWorkspaceSourceRootHelper("withWorkspaceSourceRoot", "workspaceDefinitionFromOptions"),
-    "",
-    "function workspaceRegistryEntry(name, module, sourceRootDir, colocatedInstructions, colocatedSkills) {",
-    "  const agent = withWorkspaceSourceRoot(resolveAgentModule(module), sourceRootDir, colocatedInstructions, colocatedSkills)",
-    "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
-    "  return [name, async () => ({ ...module, default: agent })]",
-    "}",
-    "",
-    ...workspaceRuntimeSetup,
+    ...deploymentCatalog.setup,
     ...routeCapabilities.setup,
     "function jsonError(status, message) {",
     "  return Response.json({ error: true, status, statusText: message, message }, { status })",
@@ -1241,12 +1198,6 @@ async function generateAgentDenoServer(
     "  return Object.keys(options).length ? options : undefined",
     "}",
     "",
-    `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
-    `const agentIdentities = {${agentIdentityEntries ? `\n  ${agentIdentityEntries}\n` : ""}}`,
-    `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
-    "const chatHandlers = Object.fromEntries(Object.entries(agents).filter(([, agent]) => hasChannelChatRoute(agent)).map(([name, agent]) => [name, createChannelChatRouteHandler(agent, resolveChatRouteOptions(agentModules[name]))]))",
-    "const webhookHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createChannelWebhookRouteHandler(agent)]))",
-    "const agentNames = Object.keys(agents)",
     `const chatRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.chatRoute, ["agent"]))})`,
     `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute, ["agent", "webhook"]))})`,
     "",
