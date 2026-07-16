@@ -5,7 +5,7 @@ import { dirname, join, relative, resolve } from "node:path"
 import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored } from "@vite-hub/internal/build/vite"
-import { getHostingProvider } from "@vite-hub/internal/feature-bridge/hosting"
+import { getHostingProvider } from "@vite-hub/internal/hosting"
 
 import { chatDevTools } from "./chat/devtools.ts"
 import { registerChatDevtoolsBridge } from "./chat/vite/devtools-bridge.ts"

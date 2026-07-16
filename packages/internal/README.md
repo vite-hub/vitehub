@@ -18,10 +18,11 @@ Do not install this package directly. Other ViteHub packages depend on it inside
 // packages/*/src/internal-use.ts
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { createNoExternalMerger } from "@vite-hub/internal/build/vite"
+import { normalizeHosting } from "@vite-hub/internal/hosting"
 ```
 
 ## Used by
 
-Packages use it for definition discovery, generated runtime registries, Provider Output, hosted runtime helpers, and Vite-to-host feature bridges.
+Packages use it for definition discovery, generated runtime registries, Provider Output, hosted runtime helpers, and hosting normalization.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

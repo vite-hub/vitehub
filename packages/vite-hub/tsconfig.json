@@ -41,7 +41,6 @@
       "@vite-hub/queue": ["packages/queue/src/index.ts"],
       "@vite-hub/queue/*": ["packages/queue/src/*"],
       "@vite-hub/runtime": ["packages/runtime/src/index.ts"],
-      "@vite-hub/internal/feature-bridge": ["packages/internal/src/feature-bridge/feature-engine.ts"],
       "@vite-hub/internal/*": ["packages/internal/src/*.ts"],
       "@vite-hub/sandbox": ["packages/sandbox/src/index.ts"],
       "@vite-hub/sandbox/*": ["packages/sandbox/src/*"],

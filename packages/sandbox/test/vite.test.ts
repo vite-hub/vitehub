@@ -41,7 +41,7 @@ afterEach(async () => {
 })
 
 describe("hubSandbox", () => {
-  it("exposes Vite feature state", async () => {
+  it("exposes Vite Sandbox state", async () => {
     const rootDir = await createViteRoot()
     const { hubSandbox } = await import("../src/vite.ts")
     const providerImportAliases: Record<string, string> = {}
@@ -69,7 +69,6 @@ describe("hubSandbox", () => {
     const resolvedId = await resolveId("#vitehub/sandbox")
     const code = await load(resolvedId as string)
 
-    expect(code).toContain('"feature": "sandbox"')
     expect(code).toContain('"provider": "vercel"')
     const alias = (configResult as { resolve: { alias: AliasOptions } }).resolve.alias
     const registryAlias = readAlias(alias, "#vitehub-sandbox-registry")!
@@ -125,6 +124,26 @@ describe("hubSandbox", () => {
     const code = await load(resolvedId as string)
 
     expect(code).toContain('"provider": "vercel"')
+  })
+
+  it("exposes hosting inference and normalized runtime config through sandbox state", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox()
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
+    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+
+    await configHook({ root: rootDir, preset: "vercel" }, { command: "serve", mode: "development" })
+
+    const resolvedId = await resolveId("#vitehub/sandbox")
+    const code = await load(resolvedId as string)
+
+    expect(code).toContain('"hosting": "vercel"')
+    expect(code).toContain('"provider": "vercel"')
+    expect(code).toContain('"token": ""')
+    expect(code).toContain('"teamId": ""')
+    expect(code).toContain('"projectId": ""')
   })
 
   it("bundles generated definitions with auto-imports and Vite aliases", async () => {
