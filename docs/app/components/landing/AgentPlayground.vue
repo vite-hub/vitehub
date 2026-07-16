@@ -85,7 +85,7 @@ const frameworkOptions: EnvironmentOption[] = [
   { color: "#00dc82", icon: "i-simple-icons-nuxt", key: "nuxt", label: "Nuxt" },
   { color: "#f27cec", icon: "i-unjs-nitro", key: "nitro", label: "Nitro" },
   { color: "#ef4444", icon: "i-simple-icons-tanstack", key: "tanstack", label: "TanStack Start" },
-  { color: "#6366f1", icon: "i-simple-icons-h3", key: "h3", label: "H3 server" },
+  { color: "#6366f1", icon: "i-lucide-server", key: "h3", label: "H3 server" },
 ]
 
 const hostOptions: EnvironmentOption[] = [
