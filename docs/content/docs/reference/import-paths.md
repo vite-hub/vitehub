@@ -73,6 +73,8 @@ for libraries, focused integrations, and advanced composition.
 | `#vitehub/env/public` | Env Package | Generated Public Env access. |
 | `#vitehub/env/server` | Env Package | Generated Server Env access. |
 | `@vite-hub/kv` | KV Package | KV Runtime Helper. |
+| `@vite-hub/markdown-template` | Markdown Template Package | Deterministic Markdown rendering from explicit template strings. |
+| `#vitehub/templates` | Markdown Template Package | Generated named-template renderer and `TemplateName` union for `server/templates/**/*.md`. |
 | `@vite-hub/queue` | Queue Package | Queue Definition and enqueue Runtime Helper. |
 | `@vite-hub/sandbox` | Sandbox Package | Sandbox Definition and Sandbox Run helpers. |
 | `@vite-hub/schedule/runtime` | Schedule Package | Runtime schedule helpers. |
@@ -96,6 +98,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/email/vite` | Register singleton Email Definition discovery and runtime binding. |
 | `@vite-hub/env/vite` | Register the Env Vite Integration and `env()` declaration helper. |
 | `@vite-hub/kv/vite` | Register the KV Vite Integration. |
+| `@vite-hub/markdown-template/vite` | Register Markdown template discovery, generated types, and direct `.template.md` imports. |
 | `@vite-hub/queue/vite` | Register the Queue Vite Integration. |
 | `@vite-hub/sandbox/vite` | Register the Sandbox Vite Integration. |
 | `@vite-hub/schedule/vite` | Register the Schedule Vite Integration. |

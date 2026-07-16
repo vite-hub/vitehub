@@ -15,7 +15,9 @@ Application code should use Stable ViteHub Import Paths instead of importing gen
 | `.vitehub/env/public.mjs` | Env Package | Generated Public Env runtime module. |
 | `.vitehub/env/server.mjs` | Env Package | Generated Server Env runtime module. |
 | `.vitehub/types/env.d.ts` | Env Package | Generated Public Env and Server Env types. |
+| `.vitehub/types/templates.d.ts` | Markdown Template Package | Generated `TemplateName` union and `#vitehub/templates` module types. |
 | `.vitehub/types/workspace.d.ts` | Workspace Package | Generated Workspace name types. |
+| `.vitehub/markdown-template/templates.mjs` | Markdown Template Package | Bundled named-template registry used by Workspace and Provider builds. |
 | `.vitehub/agent/chat-webhook-route.ts` | Agent Package | Generated Chat Webhook Route handler for discovered chat-capable Agents. |
 | `.vitehub/agent/discord-gateway-route.ts` | Agent Package | Generated Nitro route handler that wakes the Discord Gateway listener for discovered Discord Agents. |
 | `.vitehub/agent/deno-server.ts` | Agent Package | Generated Deno server output for Agent chat and webhook routes. |

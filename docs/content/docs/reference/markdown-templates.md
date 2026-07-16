@@ -15,7 +15,43 @@ The package requires Node.js 24 or later.
 pnpm add @vite-hub/markdown-template
 ```
 
-## Render a template
+## Use named template files
+
+Place shared templates under `server/templates` and render them by their relative name. ViteHub discovers ordinary `.md` files in this directory, generates the valid template names for TypeScript, and bundles their contents before deployment.
+
+```md [server/templates/review/pull-request.md]
+# Review {{ pullRequest.number }}
+
+Title: {{ pullRequest.title }}
+```
+
+```ts [server/agents/reviewer.ts]
+import { renderTemplate, type TemplateName } from '#vitehub/templates'
+
+export function renderPrompt(name: TemplateName, data: Record<string, unknown>) {
+  return renderTemplate(name, data)
+}
+
+const prompt = await renderPrompt('review/pull-request', {
+  pullRequest: { number: 611, title: 'Refine navigation' },
+})
+```
+
+The path `server/templates/review/pull-request.md` becomes `review/pull-request`. The `TemplateName` union provides completion in functions that accept a template name and reports misspelled names during type checking.
+
+The `vitehub()` preset installs template discovery. Modular Vite configurations can add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`. Both integrations generate the ambient module under `.vitehub/types`, which the application `tsconfig.json` must include.
+
+Use a `.template.md` suffix when a private template belongs beside its caller instead of in the shared catalog:
+
+```ts [server/agents/reviewer.ts]
+import prompt from './reviewer.template.md'
+
+const markdown = await prompt({ pullRequest, sections })
+```
+
+Relative template imports work with both forms. Imported fragments can remain ordinary `.md` files.
+
+## Render a template string
 
 Pass the template string and the complete data available to it. Scalar bindings are escaped as Markdown text, while triple bindings insert an intentional Markdown fragment.
 

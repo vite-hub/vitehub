@@ -88,17 +88,18 @@ describe("Vite workflow provider outputs", () => {
     await mkdir(join(agentDir, "skills", "review"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "skills", "shared"), { recursive: true })
     await mkdir(join(rootDir, "server", "agents", "workspace"), { recursive: true })
+    await mkdir(join(rootDir, "server", "templates"), { recursive: true })
     await mkdir(inlineAgentDir, { recursive: true })
     await writeFile(join(agentDir, "repository-host-context.md"), "Repository host context loaded through Vite raw semantics.\n")
-    await writeFile(join(agentDir, "prompt.md"), "Review {{ repository }} through a bundled Markdown template.\n")
+    await writeFile(join(rootDir, "server", "templates", "review.md"), "Review {{ repository }} through a bundled Markdown template.\n")
     await writeFile(join(agentDir, "agent.ts"), [
       `import { defineAgent } from "@vite-hub/agent"`,
       `import repositoryHostContext from "./repository-host-context.md?raw"`,
-      `import prompt from "./prompt.md?markdown-template"`,
+      `import { renderTemplate } from "#vitehub/templates"`,
       "",
       "export default defineAgent({",
       "  workspace: {},",
-      `  run: async () => [repositoryHostContext, await prompt({ repository: "ViteHub" })].join("\\n"),`,
+      `  run: async () => [repositoryHostContext, await renderTemplate("review", { repository: "ViteHub" })].join("\\n"),`,
       "})",
       "",
     ].join("\n"))

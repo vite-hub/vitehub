@@ -2,12 +2,15 @@ import { Buffer } from "node:buffer"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { gzipSync } from "node:zlib"
 
 import { createJiti } from "jiti"
 import { createMemoryStorage, setStorage } from "ocache"
+import { build } from "vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
+import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
 
 import { collectWorkspaceStoreAssetBundle, createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, syncDiscoveredWorkspaceAssetBundles, writeWorkspaceAssetsRegistry } from "../src/build/assets.ts"
 import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets } from "../src/build/integration.ts"
@@ -636,9 +639,9 @@ describe("sources, loaders, and publishers", () => {
     const root = await createRoot()
     const directory = join(root, "server", "agents", "review")
     await mkdir(directory, { recursive: true })
-    await writeFile(join(directory, "prompt.md"), "Workspace {{ context.name }}\n")
+    await writeFile(join(directory, "prompt.template.md"), "Workspace {{ context.name }}\n")
     await writeFile(join(directory, "config.ts"), [
-      `import prompt from "./prompt.md?markdown-template"`,
+      `import prompt from "./prompt.template.md"`,
       `export default { rootDir: await prompt({ context: { name: "review" } }) }`,
       ``,
     ].join("\n"))
@@ -653,6 +656,42 @@ describe("sources, loaders, and publishers", () => {
     const loader = createWorkspaceDefinitionLoader(root)
 
     await expect(loadDiscoveredWorkspaceDefinition(loader, definition)).resolves.toMatchObject({
+      rootDir: "Workspace review",
+    })
+  })
+
+  it("renders named Markdown templates in Workspace Definitions", async () => {
+    const root = await createRoot()
+    const directory = join(root, "server", "agents", "review")
+    const templates = join(root, "server", "templates")
+    const entry = join(root, "entry.ts")
+    await mkdir(directory, { recursive: true })
+    await mkdir(templates, { recursive: true })
+    await writeFile(join(templates, "workspace.md"), "Workspace {{ context.name }}\n")
+    await writeFile(entry, "export default {}\n")
+    await build({
+      build: { lib: { entry, formats: ["es"] }, outDir: join(root, "dist") },
+      logLevel: "silent",
+      plugins: [hubMarkdownTemplate()],
+      root,
+    })
+    await writeFile(join(directory, "config.ts"), [
+      `import { renderTemplate } from "#vitehub/templates"`,
+      `export default { rootDir: await renderTemplate("workspace", { context: { name: "review" } }) }`,
+      ``,
+    ].join("\n"))
+
+    const definition = {
+      handler: join(directory, "config.ts"),
+      name: "review",
+      path: join(directory, "config.ts"),
+      source: "test",
+      sourceRootDir: directory,
+    }
+
+    await expect(loadDiscoveredWorkspaceDefinition(createWorkspaceDefinitionLoader(root, {
+      "@vite-hub/markdown-template": fileURLToPath(import.meta.resolve("@vite-hub/markdown-template")),
+    }), definition)).resolves.toMatchObject({
       rootDir: "Workspace review",
     })
   })

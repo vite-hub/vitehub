@@ -1,7 +1,7 @@
 import { defineAgent } from "vite-hub/agent"
 import { workspaceShell } from "vite-hub/agent/capabilities"
 import { webChat } from "vite-hub/agent/channels"
-import prompt from "./echo.md?markdown-template"
+import { renderTemplate } from "#vitehub/templates"
 
 export default defineAgent({
   capabilities: [workspaceShell()],
@@ -12,7 +12,7 @@ export default defineAgent({
       const executeShell = tools?.shell?.execute
       if (!executeShell) throw new Error("Expected the Workspace Shell capability.")
       const pwd = await executeShell({ command: "pwd" }) as { stdout: string }
-      return { text: `VITE_HUB_SERVER_ONLY:${await prompt({ cwd: pwd.stdout.trim() })}` }
+      return { text: `VITE_HUB_SERVER_ONLY:${await renderTemplate("echo", { cwd: pwd.stdout.trim() })}` }
     },
   },
   workspace: { mode: "write", store: { provider: "memory" } },

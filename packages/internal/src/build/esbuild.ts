@@ -18,7 +18,11 @@ interface BundleEsmEntryOptions {
 
 const viteRawNamespace = "vitehub-vite-raw"
 const viteMarkdownTemplateNamespace = "vitehub-markdown-template"
-const markdownTemplateQuery = "markdown-template"
+const markdownTemplateFileSuffix = ".template.md"
+const markdownTemplateModuleQuery = "markdown-template"
+const markdownTemplateRegistryId = "#vitehub/templates"
+const markdownTemplateRegistryPath = ".vitehub/markdown-template/templates.mjs"
+const skipMarkdownTemplateResolve = "vitehubSkipMarkdownTemplateResolve"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
 function resolveEsbuildAliases(aliases: Record<string, string> | undefined): Record<string, string> | undefined {
@@ -71,10 +75,13 @@ function extractMarkdownTemplateImportSpecifiers(template: string): string[] {
 
 function parseMarkdownTemplateRequest(id: string): { path: string } | undefined {
   const queryIndex = id.indexOf("?")
-  if (queryIndex === -1) return
-  const query = id.slice(queryIndex + 1).split("#", 1)[0]!
-  if (!new URLSearchParams(query).has(markdownTemplateQuery)) return
-  return { path: id.slice(0, queryIndex) }
+  const path = id.split(/[?#]/, 1)[0]!
+  if (!path.endsWith(markdownTemplateFileSuffix)) {
+    if (queryIndex === -1) return
+    const query = id.slice(queryIndex + 1).split("#", 1)[0]!
+    if (!new URLSearchParams(query).has(markdownTemplateModuleQuery)) return
+  }
+  return { path }
 }
 
 function renderMarkdownTemplateModule(template: string, sourceId?: string, imports: Record<string, { id: string, template: string }> = {}): string {
@@ -123,7 +130,8 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
           resolveDir: args.resolveDir,
         })
       })
-      build.onResolve({ filter: /\?/ }, async (args) => {
+      build.onResolve({ filter: /\?|\.template\.md$/ }, async (args) => {
+        if (args.pluginData?.[skipMarkdownTemplateResolve]) return
         const markdownTemplate = parseMarkdownTemplateRequest(args.path)
         const raw = hasViteRawQuery(args.path)
         if (!markdownTemplate && !raw) return
@@ -133,7 +141,12 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
           importer: args.importer,
           kind: args.kind,
           namespace: args.namespace,
-          pluginData: args.pluginData,
+          pluginData: markdownTemplate
+            ? {
+                ...(args.pluginData && typeof args.pluginData === "object" ? args.pluginData : {}),
+                [skipMarkdownTemplateResolve]: true,
+              }
+            : args.pluginData,
           resolveDir: args.resolveDir,
           with: args.with,
         })
@@ -209,7 +222,10 @@ export async function bundleEsmEntry(
 ): Promise<void> {
   const format = options.format || "esm"
   const platform = options.platform || "neutral"
-  const aliases = resolveEsbuildAliases(options.alias)
+  const aliases = resolveEsbuildAliases({
+    ...(options.rootDir ? { [markdownTemplateRegistryId]: resolve(options.rootDir, markdownTemplateRegistryPath) } : {}),
+    ...options.alias,
+  })
   const frameworkRuntime = Object.keys(aliases || {}).some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
 
   await bundle({
