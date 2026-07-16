@@ -32,8 +32,33 @@ import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
 import type { Plugin, PluginOption } from "vite"
 
-const frameworkDependencyNames = Object.keys(frameworkPackageManifest.dependencies)
-  .filter(name => name.startsWith("@vite-hub/") && name !== "@vite-hub/cli")
+type FrameworkDependencyName = Extract<keyof typeof frameworkPackageManifest.dependencies, `@vite-hub/${string}`>
+
+const generatedOwnerPackageAccess = {
+  "@vite-hub/agent": true,
+  "@vite-hub/auth": true,
+  "@vite-hub/blob": true,
+  "@vite-hub/box": true,
+  "@vite-hub/cli": false,
+  "@vite-hub/database": true,
+  "@vite-hub/devtools": true,
+  "@vite-hub/email": true,
+  "@vite-hub/env": true,
+  "@vite-hub/kv": true,
+  "@vite-hub/markdown-template": true,
+  "@vite-hub/queue": true,
+  "@vite-hub/runtime": true,
+  "@vite-hub/sandbox": true,
+  "@vite-hub/schedule": true,
+  "@vite-hub/shell": true,
+  "@vite-hub/source": true,
+  "@vite-hub/workflow": true,
+  "@vite-hub/workspace": true,
+} satisfies Record<FrameworkDependencyName, boolean>
+
+const generatedOwnerPackageNames = Object.entries(generatedOwnerPackageAccess)
+  .filter(([, allowed]) => allowed)
+  .map(([name]) => name)
 
 const frameworkVirtualImporters = new Set([
   "\0#vitehub/auth/server",
@@ -114,7 +139,7 @@ function frameworkDependencyResolver(
     resolveId(id, importer) {
       if (!isGeneratedImporter(importer)) return
       const isFrameworkPackageImport = id === frameworkPackageName || id.startsWith(`${frameworkPackageName}/`)
-      const isOwnerPackageImport = frameworkDependencyNames.some(name => id === name || id.startsWith(`${name}/`))
+      const isOwnerPackageImport = generatedOwnerPackageNames.some(name => id === name || id.startsWith(`${name}/`))
       if (!isFrameworkPackageImport && !isOwnerPackageImport) return
       return fileURLToPath(import.meta.resolve(id))
     },

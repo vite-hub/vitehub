@@ -2,14 +2,33 @@ import { defineConfig } from "vite-plus"
 
 import frameworkPackageManifest from "./package.json" with { type: "json" }
 
-const distributionEntries = [...new Set(
-  [
-    ...Object.values(frameworkPackageManifest.exports),
-    ...Object.values(frameworkPackageManifest.bin),
-  ]
-    .filter(target => target.startsWith("./dist/"))
-    .map(target => target.replace(/^\.\/dist\//, "src/").replace(/\.js$/, ".ts")),
-)].sort()
+function manifestStringLeaves(value: unknown): string[] {
+  if (typeof value === "string") return [value]
+  if (Array.isArray(value)) return value.flatMap(manifestStringLeaves)
+  if (!value || typeof value !== "object") return []
+  return Object.values(value).flatMap(manifestStringLeaves)
+}
+
+export function distributionEntriesFromManifest(value: unknown): string[] {
+  return [...new Set(
+    manifestStringLeaves(value)
+      .filter(target => target.startsWith("./dist/") && target.endsWith(".js"))
+      .map(target => target.replace(/^\.\/dist\//, "src/").replace(/\.js$/, ".ts")),
+  )].sort()
+}
+
+export const distributionBinEntries = Object.fromEntries(
+  Object.entries(frameworkPackageManifest.bin).map(([name, target]) => {
+    const [entry] = distributionEntriesFromManifest(target)
+    if (!entry) throw new TypeError(`Unsupported ViteHub binary target: ${target}`)
+    return [name, entry]
+  }),
+)
+
+const distributionEntries = distributionEntriesFromManifest([
+  frameworkPackageManifest.exports,
+  frameworkPackageManifest.bin,
+])
 
 export default defineConfig({
   pack: {
@@ -28,10 +47,7 @@ export default defineConfig({
     entry: distributionEntries,
     exports: {
       exclude: ["bin"],
-      bin: {
-        "vite-hub": "src/bin.ts",
-        vitehub: "src/bin.ts",
-      },
+      bin: distributionBinEntries,
       inlinedDependencies: false,
     },
     outExtensions: () => ({
