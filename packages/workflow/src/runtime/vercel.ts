@@ -31,13 +31,13 @@ export interface VercelWorkflowRuntime {
   start: (handler: (...args: never[]) => unknown, args: unknown[]) => Promise<VercelRun>
 }
 
-export interface VercelWorkflowApiModule {
+interface VercelWorkflowApiModule {
   getRun: (id: string) => VercelRun
   resumeHook: VercelWorkflowRuntime["resumeHook"]
   start: VercelWorkflowRuntime["start"]
 }
 
-export interface VercelWorkflowRuntimeModule {
+interface VercelWorkflowRuntimeModule {
   getWorld: () => Promise<{
     steps: {
       list: (options: unknown) => Promise<{ cursor?: string, data: unknown[], hasMore: boolean }>
