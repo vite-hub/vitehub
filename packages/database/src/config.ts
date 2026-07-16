@@ -80,6 +80,8 @@ function readConfigValue(body: string | undefined, property: string): DatabaseCo
   if (!expression) return
   const quoted = readStaticStringLiteral(expression)
   if (typeof quoted !== "undefined") return quoted
+  const declaration = readRuntimeEnvDeclaration(expression)
+  if (declaration) return declaration
   const fallbackParts = expression.split(/\s*(?:\|\||\?\?)\s*/)
   if (fallbackParts.length === 1) {
     const envName = readProcessEnvName(fallbackParts[0]!)
@@ -94,6 +96,25 @@ function readConfigValue(body: string | undefined, property: string): DatabaseCo
     const staticFallback = readStaticStringLiteral(fallback)
     if (typeof staticFallback !== "undefined") return createRuntimeEnvConfigValue([envName], staticFallback)
   }
+}
+
+function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | undefined {
+  const match = /^env\s*\((.*)\)$/s.exec(expression.trim())
+  const body = objectLiteralBody(match?.[1])
+  if (!body) return
+  const source = readObjectPropertyValue(body, "source")?.trim()
+  const sourceMatch = /^env\.source\s*\((.*)\)$/s.exec(source || "")
+  if (!sourceMatch) return
+  const sourceValue = sourceMatch[1]!.trim()
+  const singleName = readStaticStringLiteral(sourceValue)
+  const names = typeof singleName !== "undefined"
+    ? [singleName]
+    : /^\[(.*)\]$/s.exec(sourceValue)?.[1]
+        ?.split(",")
+        .map(value => readStaticStringLiteral(value.trim()))
+  if (!names?.length || names.some(name => typeof name === "undefined" || !name.trim())) return
+  const defaultValue = readStaticStringLiteral(readObjectPropertyValue(body, "default")?.trim() || "")
+  return createRuntimeEnvConfigValue(names as string[], defaultValue)
 }
 
 function readStaticStringLiteral(expression: string) {

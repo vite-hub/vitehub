@@ -309,4 +309,34 @@ describe("resolveDBViteConfig", () => {
       else process.env.D1_HTTP_URL = originalUrl
     }
   })
+
+  it("preserves Runtime Env declarations for D1 HTTP proxy config", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+      cloudflare: [
+        "    databaseId: env({ source: env.source('CLOUDFLARE_D1_DATABASE_ID') }),",
+        "    http: {",
+        "      authToken: env({ secret: true, source: env.source('D1_HTTP_TOKEN') }),",
+        "      url: env({ source: env.source(['D1_HTTP_URL', 'D1_PROXY_URL']) }),",
+        "    },",
+      ].join("\n"),
+    })
+
+    expect(resolveDBViteConfig(undefined, rootDir)?.databases.default.cloudflare).toMatchObject({
+      databaseId: {
+        kind: "env-variable",
+        source: { kind: "env", name: "CLOUDFLARE_D1_DATABASE_ID" },
+      },
+      http: {
+        authToken: {
+          kind: "env-variable",
+          source: { kind: "env", name: "D1_HTTP_TOKEN" },
+        },
+        url: {
+          kind: "env-variable",
+          source: { kind: "env", name: "D1_HTTP_URL", names: ["D1_HTTP_URL", "D1_PROXY_URL"] },
+        },
+      },
+    })
+  })
 })
