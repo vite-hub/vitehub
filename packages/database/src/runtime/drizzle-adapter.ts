@@ -119,7 +119,7 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
 ) {
   async function execute(queries: D1HttpQuery[]) {
     const response = await fetch(config.url, {
-      body: JSON.stringify(queries.length === 1 ? queries[0] : { batch: queries }),
+      body: JSON.stringify(queries.length === 1 ? queries[0] : queries),
       headers: {
         Authorization: `Bearer ${config.token}`,
         "Content-Type": "application/json",
