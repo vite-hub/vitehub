@@ -381,10 +381,12 @@ describe("hosted drizzle runtime", () => {
       [{ id: 2, name: "second" }],
     ])
     const [, request] = fetchMock.mock.calls[0]!
-    expect(JSON.parse(String(request?.body))).toMatchObject([
-      { params: [1], sql: expect.stringContaining("analytics_events") },
-      { params: [2], sql: expect.stringContaining("analytics_events") },
-    ])
+    expect(JSON.parse(String(request?.body))).toMatchObject({
+      batch: [
+        { params: [1], sql: expect.stringContaining("analytics_events") },
+        { params: [2], sql: expect.stringContaining("analytics_events") },
+      ],
+    })
   })
 
   it("requires Cloudflare API credentials before D1 HTTP access", async () => {

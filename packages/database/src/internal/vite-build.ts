@@ -259,6 +259,7 @@ function shouldCreateVercelOutput(runtimeConfig: ResolvedDBViteConfig) {
 
 function shouldCreateCloudflareOutput(runtimeConfig: ResolvedDBViteConfig, provisionState: ProvisionState) {
   return getCloudflareUnsupportedDatabases(runtimeConfig, provisionState).length === 0
+    && getCloudflareDatabasesMissingNames(runtimeConfig, provisionState).length === 0
 }
 
 function getSupportedProviderRuntimeModules(

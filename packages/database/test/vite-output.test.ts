@@ -591,12 +591,13 @@ describe("Vite db provider outputs", () => {
     expect(existsSync(join(rootDir, ".vercel", "output"))).toBe(false)
   }, 30_000)
 
-  it("fails Cloudflare output when a D1 database ID is missing a database name", async () => {
+  it("skips Cloudflare output when a Vercel D1 HTTP database has no Cloudflare database name", async () => {
     const rootDir = await createDbBuildProject("vitehub-db-vite-cloudflare-invalid-")
     await writeDatabaseDefinition(rootDir, "analytics", {
       cloudflare: [
         "    binding: 'DB_ANALYTICS',",
         "    databaseId: process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID,",
+        "    http: true,",
       ].join("\n"),
       connection: [
         "    authToken: process.env.TURSO_AUTH_TOKEN,",
@@ -604,21 +605,16 @@ describe("Vite db provider outputs", () => {
       ].join("\n"),
     })
 
-    let error: Error | undefined
-    try {
-      await runDbBuild(rootDir, {
-        TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
-        TURSO_AUTH_TOKEN: "token",
-        TURSO_DATABASE_URL: "libsql://database.example.turso.io",
-        VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
-        VITEHUB_D1_DATABASE_ID: "primary-d1-id",
-      })
-    }
-    catch (caught) {
-      error = caught as Error
-    }
+    await runDbBuild(rootDir, {
+      CLOUDFLARE_ACCOUNT_ID: "account-id",
+      CLOUDFLARE_API_TOKEN: "api-token",
+      TURSO_AUTH_TOKEN: "token",
+      TURSO_DATABASE_URL: "libsql://database.example.turso.io",
+      VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
+      VITEHUB_D1_DATABASE_ID: "primary-d1-id",
+    })
 
-    expect(error).toBeTruthy()
-    expect(errorText(error)).toContain("Cloudflare output requires `db.cloudflare.databaseName` when `db.cloudflare.databaseId` is set for databases: analytics")
+    expect(existsSync(join(rootDir, "dist", "cloudflare"))).toBe(false)
+    expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"))).toBe(true)
   }, 30_000)
 })
