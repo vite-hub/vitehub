@@ -194,6 +194,7 @@ export function hubMarkdownTemplate(options: HubMarkdownTemplateOptions = {}): P
       for (const file of catalog.watchFiles) this.addWatchFile(file)
     },
     configureServer(server) {
+      server.watcher.add(templatesRoot)
       const refreshForFile = async (file: string) => {
         if (!isInside(templatesRoot, file) && !catalog.watchFiles.has(file)) return
         await refreshCatalog()
