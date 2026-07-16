@@ -1,0 +1,252 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { createServer } from "vite"
+
+import { hubAgent } from "../src/vite.ts"
+
+interface CapturedStateAdapter {
+  kind: string
+  options: Record<string, unknown>
+}
+
+interface DeploymentRuntimeCapture {
+  stateAdapter?: CapturedStateAdapter
+  workspaceRegistry: Record<string, () => Promise<{ default?: Record<PropertyKey, unknown> }>>
+}
+
+interface DeploymentRuntimeFixture {
+  capture: DeploymentRuntimeCapture
+  close: () => Promise<void>
+  request: (agent: string, route: "chat" | "webhooks/channel") => Promise<Response>
+  supportRoot: string
+  waitUntilTasks: Promise<unknown>[]
+  workspace: (name: string) => Promise<Record<PropertyKey, unknown>>
+}
+
+const runtimeCaptureKey = "__vitehubAgentDeploymentRuntimeCapture"
+
+function deploymentRuntimeModules(): Map<string, string> {
+  return new Map([
+    ["@vite-hub/agent/server/internal", [
+      `const capture = () => globalThis.${runtimeCaptureKey}`,
+      "function assetText(agent, key) {",
+      "  const source = agent[Symbol.for('vitehub.agent.colocatedSkills')]?.[key]",
+      "  return source ? new TextDecoder().decode(source.content) : undefined",
+      "}",
+      "function handle(kind, agent, webhook, options) {",
+      "  options.waitUntil?.(Promise.resolve(`${agent.description}:${kind}`))",
+      "  return Response.json({",
+      "    agent: agent.description,",
+      "    agentIdentity: options.agentIdentity,",
+      "    hasState: options.state === capture().stateAdapter,",
+      "    instructions: agent.sources?.__vitehubAgentInstructions?.content,",
+      "    kind,",
+      "    runtime: options.runtime,",
+      "    skill: assetText(agent, '__vitehubAgentSkill:skills/review/SKILL.md'),",
+      "    webhook,",
+      "  })",
+      "}",
+      "export const hasChannelChatRoute = () => true",
+      "export const createChannelChatRouteHandler = agent => async (_request, options) => handle('chat', agent, undefined, options)",
+      "export const createChannelWebhookRouteHandler = agent => async (_request, webhook, options) => handle('webhook', agent, webhook, options)",
+    ].join("\n")],
+    ["@vite-hub/agent/state/sqlite", [
+      `const capture = globalThis.${runtimeCaptureKey}`,
+      "export function createLibsqlAgentState(options) {",
+      "  capture.stateAdapter = { kind: 'sqlite', options }",
+      "  return capture.stateAdapter",
+      "}",
+    ].join("\n")],
+    ["@vite-hub/workspace/runtime", [
+      `const capture = globalThis.${runtimeCaptureKey}`,
+      "export function setWorkspaceRuntimeRegistry(workspaceRegistry) { capture.workspaceRegistry = workspaceRegistry }",
+    ].join("\n")],
+    ["@vite-hub/workspace/internal/runtime/hosted", "export function installHostedWorkspaceRuntime() {}"],
+    ["@vite-hub/workspace/internal/runtime/hosted-vercel-blob", "export function installHostedVercelBlobWorkspaceRuntime() {}"],
+    ["h3", [
+      "export const createError = input => Object.assign(new Error(input.statusMessage), input)",
+      "export const defineEventHandler = handler => handler",
+      "export const getRequestHeaders = event => event.headers || {}",
+      "export const getRequestURL = event => new URL(event.url)",
+      "export const getRouterParam = (event, name) => event.params?.[name]",
+      "export const readRawBody = async event => event.body",
+    ].join("\n")],
+  ])
+}
+
+async function createDeploymentRuntimeFixture(): Promise<DeploymentRuntimeFixture> {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-agent-deployment-catalog-"))
+  const supportRoot = join(root, "server", "agents", "support")
+  const reviewerRoot = join(root, "server", "agents", "reviewer")
+  const capture: DeploymentRuntimeCapture = { workspaceRegistry: {} }
+  const scope = globalThis as typeof globalThis & Record<string, unknown>
+  scope[runtimeCaptureKey] = capture
+
+  await mkdir(join(supportRoot, "workspace"), { recursive: true })
+  await mkdir(join(supportRoot, "skills", "review"), { recursive: true })
+  await mkdir(reviewerRoot, { recursive: true })
+  await writeFile(join(supportRoot, "agent.ts"), [
+    "import { defineAgent } from '@vite-hub/agent'",
+    "export default defineAgent({",
+    "  description: 'support',",
+    "  driver: { run: async () => ({ text: 'support' }) },",
+    "  runtime: false,",
+    "  workspace: { mode: 'write' },",
+    "})",
+    "",
+  ].join("\n"), "utf8")
+  await writeFile(join(supportRoot, "instructions.md"), "Support the deployment catalog.\n", "utf8")
+  await writeFile(join(supportRoot, "skills", "review", "SKILL.md"), "# Review\n", "utf8")
+  await writeFile(join(reviewerRoot, "agent.ts"), [
+    "import { defineAgent } from '@vite-hub/agent'",
+    "export default defineAgent({",
+    "  description: 'reviewer',",
+    "  driver: { run: async () => ({ text: 'reviewer' }) },",
+    "  runtime: false,",
+    "})",
+    "",
+  ].join("\n"), "utf8")
+
+  const modules = deploymentRuntimeModules()
+  const server = await createServer({
+    appType: "custom",
+    configFile: false,
+    logLevel: "silent",
+    plugins: [
+      hubAgent({
+        eval: false,
+        providers: {
+          state: {
+            provider: "sqlite",
+            tablePrefix: "catalog_",
+            url: "file:catalog.sqlite",
+          },
+        },
+      }),
+      {
+        name: "vitehub-agent-deployment-runtime-fixture",
+        resolveId(id) {
+          return modules.has(id) ? `\0${id}` : undefined
+        },
+        load(id) {
+          return id.startsWith("\0") ? modules.get(id.slice(1)) : undefined
+        },
+      },
+    ],
+    resolve: {
+      alias: [{
+        find: /^@vite-hub\/agent$/,
+        replacement: join(import.meta.dirname, "..", "src", "index.ts"),
+      }],
+    },
+    root,
+    server: { middlewareMode: true },
+  })
+
+  const route = await server.ssrLoadModule(join(root, ".vitehub", "agent", "chat-webhook-route.ts")) as {
+    default: (event: Record<string, unknown>) => Promise<Response>
+  }
+  const waitUntilTasks: Promise<unknown>[] = []
+
+  return {
+    capture,
+    supportRoot,
+    waitUntilTasks,
+    async close() {
+      await server.close()
+      delete scope[runtimeCaptureKey]
+      await rm(root, { force: true, recursive: true })
+    },
+    async request(agent, requestedRoute) {
+      const webhook = requestedRoute === "webhooks/channel" ? "channel" : undefined
+      return await route.default({
+        body: "{}",
+        context: {
+          waitUntil(task: Promise<unknown>) {
+            waitUntilTasks.push(task)
+          },
+        },
+        headers: { "content-type": "application/json" },
+        method: "POST",
+        params: { agent, ...(webhook ? { webhook } : {}) },
+        url: `https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`,
+      })
+    },
+    async workspace(name) {
+      const load = capture.workspaceRegistry[name]
+      if (!load) throw new Error(`Workspace ${name} was not registered.`)
+      const workspace = (await load()).default
+      if (!workspace) throw new Error(`Workspace ${name} has no default definition.`)
+      return workspace
+    },
+  }
+}
+
+describe("generated Agent deployment catalog", () => {
+  let runtime: DeploymentRuntimeFixture | undefined
+
+  beforeEach(async () => {
+    vi.stubEnv("VITEHUB_AGENT_STATE_AUTH_TOKEN", "")
+    vi.stubEnv("VITEHUB_AGENT_STATE_URL", "")
+    runtime = await createDeploymentRuntimeFixture()
+  })
+
+  afterEach(async () => {
+    await runtime?.close()
+    runtime = undefined
+    vi.unstubAllEnvs()
+  })
+
+  it("routes chat and webhook requests and rejects unknown Agents", async () => {
+    await expect((await runtime!.request("reviewer", "chat")).json()).resolves.toMatchObject({
+      agent: "reviewer",
+      agentIdentity: { name: "reviewer" },
+      kind: "chat",
+      runtime: "vite",
+    })
+    await expect((await runtime!.request("support", "webhooks/channel")).json()).resolves.toMatchObject({
+      agent: "support",
+      agentIdentity: { name: "support", workspace: "support" },
+      kind: "webhook",
+      runtime: "vite",
+      webhook: "channel",
+    })
+    await expect(runtime!.request("missing", "chat")).rejects.toMatchObject({
+      statusCode: 404,
+      statusMessage: "Unknown ViteHub agent.",
+    })
+  })
+
+  it("passes the configured state adapter and waitUntil to route handlers", async () => {
+    await expect((await runtime!.request("reviewer", "chat")).json()).resolves.toMatchObject({ hasState: false })
+    await expect((await runtime!.request("support", "webhooks/channel")).json()).resolves.toMatchObject({ hasState: true })
+    expect(runtime!.capture.stateAdapter).toEqual({
+      kind: "sqlite",
+      options: { tablePrefix: "catalog_", url: "file:catalog.sqlite" },
+    })
+    expect(runtime!.waitUntilTasks).toHaveLength(2)
+    await expect(Promise.all(runtime!.waitUntilTasks)).resolves.toEqual(["reviewer:chat", "support:webhook"])
+  })
+
+  it("registers the Workspace definition with colocated instructions and skills", async () => {
+    expect(Object.keys(runtime!.capture.workspaceRegistry)).toEqual(["support"])
+    const workspace = await runtime!.workspace("support")
+    const sources = workspace.sources as Record<string, { content: string }> | undefined
+    const skills = workspace[Symbol.for("vitehub.agent.colocatedSkills")] as Record<string, { content: Uint8Array }> | undefined
+
+    expect(workspace.sourceRootDir).toBe(join(runtime!.supportRoot, "workspace"))
+    expect(sources?.__vitehubAgentInstructions).toMatchObject({
+      content: "Support the deployment catalog.\n",
+      materialize: "build",
+      workspacePath: "AGENTS.md",
+    })
+    expect(new TextDecoder().decode(skills?.["__vitehubAgentSkill:skills/review/SKILL.md"]?.content)).toBe("# Review\n")
+    await expect((await runtime!.request("support", "webhooks/channel")).json()).resolves.toMatchObject({
+      instructions: "Support the deployment catalog.\n",
+      skill: "# Review\n",
+    })
+  })
+})
