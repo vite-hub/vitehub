@@ -7,6 +7,13 @@ export default defineConfig({
       neverBundle: ["vite", /^@vite-hub\//],
       onlyBundle: false,
     },
+    plugins: [{
+      name: "vite-hub-env-config-declarations",
+      generateBundle(_options, bundle) {
+        const chunk = bundle["index.d.ts"]
+        if (chunk?.type === "chunk") chunk.code = `import "@vite-hub/env/vite";\n${chunk.code}`
+      },
+    }],
     entry: [
       "src/_internal/agent.ts",
       "src/_internal/agent/cloudflare.ts",
