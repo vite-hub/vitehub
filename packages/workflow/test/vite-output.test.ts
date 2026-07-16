@@ -189,8 +189,10 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).not.toContain("Shared directory must not leak")
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
-    expect(await readFile(vercelServer, "utf8")).toContain("Repository host context loaded through Vite raw semantics.")
-    expect(await readFile(vercelServer, "utf8")).toContain("bundled Markdown template")
+    const vercelServerContents = await readFile(vercelServer, "utf8")
+    expect(vercelServerContents).toContain("Repository host context loaded through Vite raw semantics.")
+    expect(vercelServerContents).toContain("bundled Markdown template")
+    expect(vercelServerContents).not.toContain("return import(specifier)")
   }, buildOutputTestTimeout)
 
   it("does not emit Cloudflare workflow artifacts for Vercel provider overrides", async () => {

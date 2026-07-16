@@ -49,13 +49,10 @@ interface VercelWorkflowRuntimeModule {
   }
 }
 
-type VercelWorkflowImporter = <T>(specifier: string) => Promise<T>
-
 async function loadVercelWorkflowRuntime(): Promise<VercelWorkflowRuntime> {
-  const importVercelWorkflow = new Function("specifier", "return import(specifier)") as VercelWorkflowImporter
   const [api, runtime] = await Promise.all([
-    importVercelWorkflow<VercelWorkflowApiModule>("workflow/api"),
-    importVercelWorkflow<VercelWorkflowRuntimeModule>("workflow/runtime"),
+    import("workflow/api") as Promise<VercelWorkflowApiModule>,
+    import("workflow/runtime") as Promise<VercelWorkflowRuntimeModule>,
   ])
   const { getRun, resumeHook, start } = api
   const { getWorld } = runtime

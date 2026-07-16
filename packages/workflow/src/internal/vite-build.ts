@@ -628,9 +628,6 @@ async function createVercelOutput(
         ...(frameworkImportBase ? [] : optionalAgentRuntimeExternals),
         "cloudflare:workers",
         ...nodeBuiltinExternals,
-        "workflow",
-        "workflow/api",
-        "workflow/runtime",
       ],
       format: "esm",
       platform: "node",
@@ -654,15 +651,19 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const vercelOutput = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
     ? await createVercelOutput(options.rootDir, artifacts, options.importBase, options.providerImportAliases)
     : undefined
-  await writeProviderDeploymentOutputs({
-    clientOutDir: options.clientOutDir,
-    cloudflare: cloudflareOutput,
-    cleanup: {
-      cloudflare: cloudflareOutput ? undefined : () => createCloudflareWorkflowCleanup(options.rootDir),
-    },
-    rootDir: options.rootDir,
-    ...(vercelOutput ? { vercel: vercelOutput } : {}),
-  })
-  if (vercelOutput) await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, options.providerImportAliases)
+  const writeOutputs = async () => {
+    await writeProviderDeploymentOutputs({
+      clientOutDir: options.clientOutDir,
+      cloudflare: cloudflareOutput,
+      cleanup: {
+        cloudflare: cloudflareOutput ? undefined : () => createCloudflareWorkflowCleanup(options.rootDir),
+      },
+      rootDir: options.rootDir,
+      ...(vercelOutput ? { vercel: vercelOutput } : {}),
+    })
+    if (vercelOutput) await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, options.providerImportAliases)
+  }
+  if (vercelOutput) await withVercelWorkflowPackageLink(options.rootDir, writeOutputs)
+  else await writeOutputs()
   return artifacts
 }
