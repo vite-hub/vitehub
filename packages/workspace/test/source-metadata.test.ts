@@ -148,6 +148,19 @@ describe("Workspace Source metadata", () => {
     expect(synced.sync).toEqual({ stale: "keep" })
   })
 
+  it("retains probe keys for inferred File Sources before loading them", () => {
+    expect(normalizeWorkspaceSourceMetadata("instructions", "AGENTS.md")).toMatchObject({
+      mountPath: "",
+      probeKeys: ["AGENTS.md"],
+    })
+    expect(normalizeWorkspaceSourceMetadata("summaryInstructions", {
+      path: ".agents/summary/AGENTS.md",
+    } as never)).toMatchObject({
+      mountPath: "",
+      probeKeys: [".agents/summary/AGENTS.md"],
+    })
+  })
+
   it("derives Access grant candidates from canonical Source placement", () => {
     expect(workspaceSourceGrantPaths("docs", file({ path: "README.md", mount: "docs" }))).toEqual([
       "docs/README.md",

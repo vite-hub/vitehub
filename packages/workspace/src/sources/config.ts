@@ -335,14 +335,17 @@ async function loadInferredWorkspaceSource(family: WorkspaceSourceFamily, input:
 
 function inferredSourceDefaults(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): Partial<WorkspaceSource> {
   if (!isPlainRecord(input)) {
-    return family === "file" ? { mount: "" } : {}
+    return family === "file" ? { mount: "", probeKeys: [inferredFileSourceKey(input)] } : {}
   }
 
   if (family === "file") {
     const mount = typeof input.mount === "object" && input.mount && !("path" in input.mount)
       ? { ...input.mount, path: "" }
       : input.mount ?? ""
-    return copySourceRuntimeOptions(input, { mount })
+    return copySourceRuntimeOptions(input, {
+      mount,
+      probeKeys: [inferredFileSourceKey(input)],
+    })
   }
 
   if (family === "fetch") {
@@ -374,9 +377,18 @@ function copySourceRuntimeOptions(input: Record<string, unknown>, defaults: Part
     cache: input.cache as WorkspaceSource["cache"] ?? defaults.cache,
     materialize: input.materialize as WorkspaceSource["materialize"] ?? defaults.materialize,
     mount: input.mount as WorkspaceSource["mount"] ?? defaults.mount,
+    probeKeys: input.probeKeys as WorkspaceSource["probeKeys"] ?? defaults.probeKeys,
     sync: input.sync as WorkspaceSource["sync"] ?? defaults.sync,
     validate: input.validate as WorkspaceSource["validate"] ?? defaults.validate,
   }
+}
+
+function inferredFileSourceKey(input: WorkspaceSourceInput): string {
+  if (typeof input === "string") return normalizeSafeWorkspacePath(input)
+  const options = input as unknown as Record<string, unknown>
+  if (typeof options.workspacePath === "string") return normalizeSafeWorkspacePath(options.workspacePath)
+  if (typeof options.path === "string") return normalizeSafeWorkspacePath(options.path)
+  throw new TypeError("[vitehub] file requires a path or workspacePath.")
 }
 
 function inferredLivePaths(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): Record<string, string> | undefined {
