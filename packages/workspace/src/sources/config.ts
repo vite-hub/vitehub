@@ -9,6 +9,7 @@ import {
   assertWorkspaceSourceRequestDescriptorKey,
   getWorkspaceSourceRequestDescriptor,
   isWorkspaceSourceRequestOnly,
+  workspaceSourceRequestDescriptorPath,
 } from "./request-metadata.ts"
 
 import type {
@@ -44,6 +45,11 @@ export interface ResolvedWorkspaceSource {
   requestDescriptor?: WorkspaceSourceRequestDescriptor
   requestOnly?: boolean
 }
+
+export type WorkspaceSourceMetadata = Pick<
+  ResolvedWorkspaceSource,
+  "cache" | "key" | "materialize" | "mountPath" | "probeKeys" | "requestOnly" | "source" | "sync"
+>
 
 export {
   getWorkspaceSourceRequestDescriptor,
@@ -135,6 +141,58 @@ export function normalizeWorkspaceSource(key: string, input: WorkspaceSourceInpu
     requestDescriptor,
     requestOnly: isWorkspaceSourceRequestOnly(source),
   }
+}
+
+export function normalizeWorkspaceSourcesMetadata(sources: WorkspaceDefinition["sources"]): WorkspaceSourceMetadata[] {
+  return normalizeWorkspaceSources(sources).map(toWorkspaceSourceMetadata)
+}
+
+export function normalizeWorkspaceSourceMetadata(key: string, input: WorkspaceSourceInput): WorkspaceSourceMetadata {
+  return toWorkspaceSourceMetadata(normalizeWorkspaceSource(key, input))
+}
+
+export function workspaceSourceGrantPaths(key: string, input: WorkspaceSourceInput): string[] {
+  const source = normalizeWorkspaceSourceMetadata(key, input)
+  const descriptorPath = safeWorkspaceSourceRequestDescriptorPath(key)
+  if (source.requestOnly) {
+    if (!descriptorPath) {
+      throw new Error(`[vitehub] Workspace Scope source grant "${key}" is request-only without a Source Request descriptor.`)
+    }
+    return [descriptorPath]
+  }
+
+  const probePaths = source.probeKeys?.map(sourcePath => joinSourcePath(source.mountPath, sourcePath)).filter(Boolean) || []
+  const paths = probePaths.length ? probePaths : source.mountPath ? [source.mountPath] : []
+  if (!paths.length) {
+    throw new Error(`[vitehub] Workspace Scope source grant "${key}" is root-mounted; grant explicit paths instead.`)
+  }
+  return descriptorPath ? [...paths, descriptorPath] : paths
+}
+
+function toWorkspaceSourceMetadata(source: ResolvedWorkspaceSource): WorkspaceSourceMetadata {
+  return {
+    cache: source.cache,
+    key: source.key,
+    materialize: source.materialize,
+    mountPath: source.mountPath,
+    ...(source.probeKeys?.length ? { probeKeys: source.probeKeys } : {}),
+    requestOnly: source.requestOnly,
+    source: source.source,
+    sync: source.sync,
+  }
+}
+
+function safeWorkspaceSourceRequestDescriptorPath(key: string): string | undefined {
+  try {
+    return workspaceSourceRequestDescriptorPath(key)
+  }
+  catch {
+    return undefined
+  }
+}
+
+function joinSourcePath(mountPath: string, sourcePath: string): string {
+  return [mountPath, sourcePath].filter(Boolean).join("/")
 }
 
 export function sourceMountContainsPath(source: Pick<ResolvedWorkspaceSource, "mountPath">, workspacePath: string): boolean {

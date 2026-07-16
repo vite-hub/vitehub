@@ -27,8 +27,12 @@ export {
 export {
   getWorkspaceSourceRequestDescriptor,
   isWorkspaceSourceRequestOnly,
+  normalizeWorkspaceSourceMetadata,
+  normalizeWorkspaceSourcesMetadata,
+  workspaceSourceGrantPaths,
   workspaceSourceRequestDescriptorPath,
 } from "./sources/config.ts"
+export type { WorkspaceSourceMetadata } from "./sources/config.ts"
 export { markLiveWorkspaceSource } from "./sources/live.ts"
 export {
   attachWorkspaceSourceRequestExecution,
