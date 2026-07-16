@@ -40,10 +40,14 @@ vi.mock("@ai-sdk/harness/agent", () => ({
 
 type DriverKind = "harness" | "model" | "run"
 type InvocationForm = "run" | "stream"
+type LifecycleScenario = {
+  execute?: (events: string[]) => unknown
+  input?: (events: string[]) => Response
+}
 
 const driverKinds = ["run", "model", "harness"] as const
 
-function runtime() {
+function createInvocationRuntime() {
   return {
     memo: vi.fn(),
     runtime: "unknown" as const,
@@ -51,22 +55,71 @@ function runtime() {
   }
 }
 
-function createDriver(
+function createInvocationDriverFixture(
   kind: DriverKind,
   form: InvocationForm,
-  execute: (...args: unknown[]) => unknown,
 ) {
-  if (kind === "run") return { run: execute }
+  const execute = vi.fn()
+  if (kind === "run") return { driver: { run: execute }, execute }
   if (kind === "model") {
     const method = form === "run" ? modelGenerate : modelStream
     method.mockImplementationOnce(execute)
-    return { execution: { workspaceFallback: false }, model: {} as never }
+    return {
+      driver: { execution: { workspaceFallback: false }, model: {} as never },
+      execute,
+    }
   }
 
   harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
   const method = form === "run" ? harnessGenerate : harnessStream
   method.mockImplementationOnce(execute)
-  return { harness: { provider: "codex" } }
+  return { driver: { harness: { provider: "codex" } }, execute }
+}
+
+async function createLifecycleProbe(
+  kind: DriverKind,
+  form: InvocationForm,
+  scenario: LifecycleScenario,
+) {
+  const { defineAgent, defineCapability } = await import("../src/index.ts")
+  const events: string[] = []
+  const driver = createInvocationDriverFixture(kind, form)
+  const close = vi.fn(() => {
+    events.push("close")
+  })
+  let finishError: unknown
+  const finish = vi.fn((event) => {
+    finishError = event.error
+    events.push("finish")
+  })
+  driver.execute.mockImplementation(() => scenario.execute?.(events))
+  const agent = defineAgent({
+    capabilities: [defineCapability({
+      close,
+      id: "lifecycle",
+      ...(scenario.input ? { input: () => scenario.input!(events) } : {}),
+    })],
+    driver: driver.driver as never,
+    hooks: { "agent:finish": finish },
+  })
+
+  return {
+    agent,
+    execute: driver.execute,
+    get finishError() {
+      return finishError
+    },
+    expectFinished(expectedEvents: string[]) {
+      expect(events).toEqual(expectedEvents)
+      expect(close).toHaveBeenCalledOnce()
+      expect(finish).toHaveBeenCalledOnce()
+    },
+    expectPending(expectedEvents: string[]) {
+      expect(events).toEqual(expectedEvents)
+      expect(close).not.toHaveBeenCalled()
+      expect(finish).not.toHaveBeenCalled()
+    },
+  }
 }
 
 afterEach(() => {
@@ -79,104 +132,63 @@ afterEach(() => {
 
 describe("Agent Invocation Interface lifecycle", () => {
   it.each(driverKinds)("closes %s capabilities before successful finish exactly once", async (kind) => {
-    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
-    const order: string[] = []
-    const close = vi.fn(() => {
-      order.push("close")
-    })
-    const finish = vi.fn(() => {
-      order.push("finish")
-    })
-    const execute = vi.fn(() => {
-      order.push("driver")
-      return { finishReason: "stop", text: "ok" }
-    })
-    const agent = defineAgent({
-      capabilities: [defineCapability({ close, id: "lifecycle" })],
-      driver: createDriver(kind, "run", execute) as never,
-      hooks: { "agent:finish": finish },
+    const { runAgent } = await import("../src/index.ts")
+    const probe = await createLifecycleProbe(kind, "run", {
+      execute(events) {
+        events.push("driver")
+        return { finishReason: "stop", text: "ok" }
+      },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
-    expect(order).toEqual(["driver", "close", "finish"])
-    expect(close).toHaveBeenCalledOnce()
-    expect(finish).toHaveBeenCalledOnce()
+    await expect(runAgent(probe.agent, createInvocationRuntime(), { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
+    probe.expectFinished(["driver", "close", "finish"])
   })
 
   it.each(driverKinds)("closes %s capabilities before failed finish exactly once", async (kind) => {
-    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
-    const order: string[] = []
+    const { runAgent } = await import("../src/index.ts")
     const failure = new Error(`${kind} failed`)
-    let finishError: unknown
-    const close = vi.fn(() => {
-      order.push("close")
-    })
-    const finish = vi.fn((event) => {
-      finishError = event.error
-      order.push("finish")
-    })
-    const execute = vi.fn(() => {
-      order.push("driver")
-      throw failure
-    })
-    const agent = defineAgent({
-      capabilities: [defineCapability({ close, id: "lifecycle" })],
-      driver: createDriver(kind, "run", execute) as never,
-      hooks: { "agent:finish": finish },
+    const probe = await createLifecycleProbe(kind, "run", {
+      execute(events) {
+        events.push("driver")
+        throw failure
+      },
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "hello" })).rejects.toBe(failure)
-    expect(order).toEqual(["driver", "close", "finish"])
-    expect(finishError).toBe(failure)
-    expect(close).toHaveBeenCalledOnce()
-    expect(finish).toHaveBeenCalledOnce()
+    await expect(runAgent(probe.agent, createInvocationRuntime(), { prompt: "hello" })).rejects.toBe(failure)
+    probe.expectFinished(["driver", "close", "finish"])
+    expect(probe.finishError).toBe(failure)
   })
 
   it.each(driverKinds)("defers %s stream cleanup and finish until early termination", async (kind) => {
-    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
-    const order: string[] = []
-    const close = vi.fn(() => {
-      order.push("close")
-    })
-    const finish = vi.fn(() => {
-      order.push("finish")
-    })
-    const execute = vi.fn(() => {
-      order.push("driver")
-      return {
-        fullStream: (async function* () {
-          try {
-            yield { text: "ok", type: "text-delta" }
-          }
-          finally {
-            order.push("stream:return")
-          }
-        })(),
-      }
-    })
-    const agent = defineAgent({
-      capabilities: [defineCapability({ close, id: "lifecycle" })],
-      driver: createDriver(kind, "stream", execute) as never,
-      hooks: { "agent:finish": finish },
+    const { streamAgent } = await import("../src/index.ts")
+    const probe = await createLifecycleProbe(kind, "stream", {
+      execute(events) {
+        events.push("driver")
+        return {
+          fullStream: (async function* () {
+            try {
+              yield { text: "ok", type: "text-delta" }
+            }
+            finally {
+              events.push("stream:return")
+            }
+          })(),
+        }
+      },
     })
 
-    const stream = await streamAgent(agent, runtime(), { prompt: "hello" }) as AsyncIterable<unknown>
-    expect(order).toEqual(["driver"])
-    expect(close).not.toHaveBeenCalled()
-    expect(finish).not.toHaveBeenCalled()
+    const stream = await streamAgent(probe.agent, createInvocationRuntime(), { prompt: "hello" }) as AsyncIterable<unknown>
+    probe.expectPending(["driver"])
 
     const iterator = stream[Symbol.asyncIterator]()
     await expect(iterator.next()).resolves.toMatchObject({
       done: false,
       value: { text: "ok", type: "text-delta" },
     })
-    expect(close).not.toHaveBeenCalled()
-    expect(finish).not.toHaveBeenCalled()
+    probe.expectPending(["driver"])
     await iterator.return?.()
 
-    expect(order).toEqual(["driver", "stream:return", "close", "finish"])
-    expect(close).toHaveBeenCalledOnce()
-    expect(finish).toHaveBeenCalledOnce()
+    probe.expectFinished(["driver", "stream:return", "close", "finish"])
   })
 
   it.each([
@@ -184,51 +196,30 @@ describe("Agent Invocation Interface lifecycle", () => {
     { form: "run", kind: "model" },
     { form: "stream", kind: "harness" },
   ] as const)("preserves a handled Response through $kind $form and defers finish", async ({ form, kind }) => {
-    const { defineAgent, defineCapability, runAgent, streamAgent } = await import("../src/index.ts")
-    const order: string[] = []
+    const { runAgent, streamAgent } = await import("../src/index.ts")
     const source = new Response("handled", {
       headers: { "x-lifecycle": "preserved" },
       status: 202,
     })
-    const close = vi.fn(() => {
-      order.push("close")
-    })
-    const finish = vi.fn(() => {
-      order.push("finish")
-    })
-    const execute = vi.fn(() => {
-      order.push("driver")
-      return "unused"
-    })
-    const agent = defineAgent({
-      capabilities: [defineCapability({
-        close,
-        id: "handled-response",
-        input() {
-          order.push("input")
-          return source
-        },
-      })],
-      driver: createDriver(kind, form, execute) as never,
-      hooks: { "agent:finish": finish },
+    const probe = await createLifecycleProbe(kind, form, {
+      input(events) {
+        events.push("input")
+        return source
+      },
     })
 
     const result = form === "run"
-      ? await runAgent(agent, runtime(), { prompt: "hello" })
-      : await streamAgent(agent, runtime(), { prompt: "hello" })
+      ? await runAgent(probe.agent, createInvocationRuntime(), { prompt: "hello" })
+      : await streamAgent(probe.agent, createInvocationRuntime(), { prompt: "hello" })
     expect(result).toBeInstanceOf(Response)
     const response = result as Response
     expect(response).not.toBe(source)
     expect(response.status).toBe(202)
     expect(response.headers.get("x-lifecycle")).toBe("preserved")
-    expect(order).toEqual(["input"])
-    expect(execute).not.toHaveBeenCalled()
-    expect(close).not.toHaveBeenCalled()
-    expect(finish).not.toHaveBeenCalled()
+    probe.expectPending(["input"])
+    expect(probe.execute).not.toHaveBeenCalled()
 
     await expect(response.text()).resolves.toBe("handled")
-    expect(order).toEqual(["input", "close", "finish"])
-    expect(close).toHaveBeenCalledOnce()
-    expect(finish).toHaveBeenCalledOnce()
+    probe.expectFinished(["input", "close", "finish"])
   })
 })
