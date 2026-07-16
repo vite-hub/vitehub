@@ -189,8 +189,14 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
 
         await writeCloudflareWranglerConfig({
           rootDir: resolved.root,
-          wranglerArrayOwnedValues: { kv_namespaces: [...previousBindings, ...nextBindings] },
-          wranglerArrayMergeKeys: { kv_namespaces: "binding" },
+          wranglerConfigOwnership: {
+            arrays: {
+              kv_namespaces: {
+                key: "binding",
+                values: [...previousBindings, ...nextBindings],
+              },
+            },
+          },
           ...(wranglerConfig ? { wranglerConfig } : {}),
         })
         await writeOwnedCloudflareKVBindings(resolved.root, nextBindings)

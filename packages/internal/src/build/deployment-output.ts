@@ -7,8 +7,11 @@ import { bundleEsmEntry } from "./esbuild.ts"
 import { cleanProviderOutputConfig, writeProviderOutputConfig } from "./provider-output-config.ts"
 import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
 
+import type { ProviderJsonRecord, ProviderOutputConfigOwnership } from "./provider-output-config.ts"
+
 export { createDefaultCloudflareOutputRoot } from "./cloudflare.ts"
 export { shouldSkipViteProviderBuild } from "./vite.ts"
+export type { ProviderJsonRecord } from "./provider-output-config.ts"
 
 type BundleOptions = NonNullable<Parameters<typeof bundleEsmEntry>[2]>
 
@@ -25,29 +28,33 @@ interface CloudflareDeploymentOutputOptions extends SharedDeploymentOptions {
   outputRoot?: string
   staticOutputDir?: string
   wranglerConfigKeys?: string[]
-  wranglerConfig: object
+  wranglerConfig: ProviderJsonRecord
 }
+
+export type VercelFunctionOutput =
+  | { kind: "isolated", name: string }
+  | { kind: "root" }
 
 interface VercelDeploymentOutputOptions extends SharedDeploymentOptions {
   bundleEntry: string
   bundleOptions: BundleOptions
-  config?: object
+  config?: ProviderJsonRecord
   configKeys?: string[]
-  functionConfig?: object
+  function?: VercelFunctionOutput
+  functionConfig?: ProviderJsonRecord
   outputRoot?: string
-  serverFunctionName?: string
   staticOutputDir?: string
 }
 
 interface NetlifyFunctionDeploymentOutput {
   bundleEntry: string
   bundleOptions: BundleOptions
-  config?: object
+  config?: ProviderJsonRecord
   functionName: string
 }
 
 interface NetlifyDeploymentOutputOptions extends SharedDeploymentOptions {
-  config?: object
+  config?: ProviderJsonRecord
   configKeys?: string[]
   functions?: NetlifyFunctionDeploymentOutput[]
   outputRoot?: string
@@ -60,7 +67,7 @@ export type VercelProviderDeploymentOutput = Omit<VercelDeploymentOutputOptions,
 interface CloudflareProviderDeploymentCleanup {
   fileNames?: string[]
   outputRoot?: string
-  wranglerConfigKeys?: string[]
+  wranglerConfigOwnership?: ProviderOutputConfigOwnership
 }
 
 interface VercelProviderDeploymentCleanup {
@@ -146,7 +153,7 @@ function resolveNetlifyFunctionFile(functionsRoot: string, functionName: string)
   return resolve(functionsRoot, `${functionName}.mjs`)
 }
 
-async function appendNetlifyFunctionConfig(outfile: string, config: object | undefined): Promise<void> {
+async function appendNetlifyFunctionConfig(outfile: string, config: ProviderJsonRecord | undefined): Promise<void> {
   if (!config) return
   const bundled = await readFile(outfile, "utf8")
   await writeFile(outfile, `${bundled.trimEnd()}\n\nexport const config = ${JSON.stringify(config, null, 2)}\n`, "utf8")
@@ -170,7 +177,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
       outputRoot,
       rootDir: options.rootDir,
       wranglerConfig: options.wranglerConfig,
-      wranglerConfigKeys: options.wranglerConfigKeys,
+      wranglerConfigOwnership: { keys: options.wranglerConfigKeys },
     }),
     options.bundleEntry && staticIndex
       ? copyClientOutput(clientDir, options.staticOutputDir ?? createDefaultCloudflareStaticOutputDir(options.rootDir))
@@ -190,8 +197,9 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
 async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOptions): Promise<void> {
   const { clientDir, staticIndex } = resolveClientOutput(options.rootDir, options.clientOutDir)
   const outputRoot = options.outputRoot ?? createDefaultVercelOutputRoot(options.rootDir)
-  const serverFunctionName = options.serverFunctionName ?? "__server.func"
-  const config = options.config ?? (options.serverFunctionName ? {} : createVercelConfigJson())
+  const functionOutput = options.function ?? { kind: "root" }
+  const serverFunctionName = functionOutput.kind === "root" ? "__server.func" : functionOutput.name
+  const config = options.config ?? (functionOutput.kind === "root" ? createVercelConfigJson() : {})
   const serverDir = resolve(outputRoot, "functions", serverFunctionName)
   const serverEntry = resolve(serverDir, "index.mjs")
 
@@ -237,7 +245,7 @@ async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanupInput: 
   writes.push(writeCloudflareWranglerConfig({
     outputRoot,
     rootDir,
-    wranglerConfigKeys: cleanup.wranglerConfigKeys,
+    wranglerConfigOwnership: cleanup.wranglerConfigOwnership,
   }))
   await Promise.all(writes)
   try {

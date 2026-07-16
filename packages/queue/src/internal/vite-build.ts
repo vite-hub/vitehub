@@ -15,7 +15,7 @@ import { getCloudflareQueueBindingName, getCloudflareQueueName } from "../integr
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 
 import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, ProviderJsonRecord, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
 export const queuePackageName = "@vite-hub/queue"
 const productName = "queue"
@@ -84,7 +84,7 @@ export interface CloudflareQueueConfigOptions {
   rootDir?: string
 }
 
-export interface CloudflareQueueConfig {
+export interface CloudflareQueueConfig extends ProviderJsonRecord {
   assets?: { directory?: string, run_worker_first: string[] }
   compatibility_date: string
   compatibility_flags: string[]
@@ -263,7 +263,7 @@ function createVercelOutput(artifacts: GeneratedQueueArtifacts, serverFunctionNa
       format: "esm",
       platform: "node",
     },
-    serverFunctionName,
+    ...(serverFunctionName ? { function: { kind: "isolated" as const, name: serverFunctionName } } : {}),
   }
 }
 
@@ -317,7 +317,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   if (!createCloudflare && createVercel) {
     await writeProviderDeploymentOutputs({
       cleanup: {
-        cloudflare: { wranglerConfigKeys: ["queues"] },
+        cloudflare: { wranglerConfigOwnership: { keys: ["queues"] } },
       },
       clientOutDir: options.clientOutDir,
       rootDir: options.rootDir,

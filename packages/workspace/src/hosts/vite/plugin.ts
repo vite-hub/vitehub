@@ -230,8 +230,14 @@ async function writeCloudflareArtifactsProviderOutput(
 
   await writeCloudflareWranglerConfig({
     rootDir,
-    wranglerArrayOwnedValues: { artifacts: [...previousBindings, ...nextBindings] },
-    wranglerArrayMergeKeys: { artifacts: "binding" },
+    wranglerConfigOwnership: {
+      arrays: {
+        artifacts: {
+          key: "binding",
+          values: [...previousBindings, ...nextBindings],
+        },
+      },
+    },
     ...(wranglerConfig ? { wranglerConfig } : {}),
   })
   await writeOwnedCloudflareArtifactsBindings(rootDir, nextBindings)

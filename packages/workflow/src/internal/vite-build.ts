@@ -15,7 +15,7 @@ import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowProvider } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, ProviderJsonRecord, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
 export const workflowPackageName = "@vite-hub/workflow"
 const productName = "workflow"
@@ -228,7 +228,7 @@ interface WorkflowImportBases {
   workspaceDependencies?: WorkspaceDependencyRuntimeImports
 }
 
-interface CloudflareWorkflowConfig {
+interface CloudflareWorkflowConfig extends ProviderJsonRecord {
   assets?: { directory?: string, run_worker_first: string[] }
   compatibility_date: string
   compatibility_flags: string[]
@@ -613,7 +613,9 @@ async function createCloudflareWorkflowCleanup(rootDir: string) {
   return {
     fileNames: ownsWrapper ? ["index.js", "worker.mjs"] : ["worker.mjs"],
     outputRoot,
-    wranglerConfigKeys: ownsWrapper ? cloudflareWorkflowWranglerConfigKeys : ["workflows"],
+    wranglerConfigOwnership: {
+      keys: ownsWrapper ? cloudflareWorkflowWranglerConfigKeys : ["workflows"],
+    },
   }
 }
 
@@ -639,7 +641,7 @@ function createVercelOutput(
       platform: "node",
       plugins: workflowTransformPlugin ? [workflowTransformPlugin] : [],
     },
-    serverFunctionName,
+    ...(serverFunctionName ? { function: { kind: "isolated" as const, name: serverFunctionName } } : {}),
   }
 }
 
