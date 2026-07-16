@@ -15,6 +15,7 @@ import { createRuntimeEnvConfigValue, resolveConfigValue } from "./config-value.
 
 import type {
   CloudflareD1BindingConfig,
+  CloudflareD1HttpConfig,
   DatabaseConfigValue,
   DatabaseConnectionConfig,
   DBModulePublicOptions,
@@ -113,10 +114,21 @@ function readStringValue(body: string | undefined, property: string): string | u
 function readDefinitionCloudflareConfig(file: string): CloudflareD1BindingConfig | undefined {
   const body = objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "cloudflare"))
   if (!body) return
+  const httpExpression = readObjectPropertyValue(body, "http")?.trim()
+  const httpBody = objectLiteralBody(httpExpression)
+  const http = httpExpression === "true"
+    ? true
+    : httpBody
+      ? {
+          authToken: readConfigValue(httpBody, "authToken"),
+          url: readConfigValue(httpBody, "url"),
+        } satisfies Partial<CloudflareD1HttpConfig>
+      : undefined
   const value = {
     binding: readStringValue(body, "binding"),
     databaseId: readConfigValue(body, "databaseId"),
     databaseName: readConfigValue(body, "databaseName"),
+    ...(http && (http === true || http.authToken || http.url) ? { http: http as true | CloudflareD1HttpConfig } : {}),
     migrationsTable: readStringValue(body, "migrationsTable"),
     previewDatabaseId: readConfigValue(body, "previewDatabaseId"),
   } satisfies CloudflareD1BindingConfig
@@ -223,6 +235,7 @@ function normalizeCloudflareConfig(
   return {
     binding: typeof value.binding === "string" && value.binding.trim() ? value.binding.trim() : getDefaultCloudflareBindingName(name),
     ...(typeof value.databaseId !== "undefined" ? { databaseId: value.databaseId } : {}),
+    ...(typeof value.http !== "undefined" ? { http: value.http } : {}),
     ...(typeof value.previewDatabaseId !== "undefined" ? { previewDatabaseId: value.previewDatabaseId } : {}),
     ...(typeof value.databaseName !== "undefined" ? { databaseName: value.databaseName } : {}),
     migrationsDir,

@@ -24,6 +24,18 @@ function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDataba
 }
 
 function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
+  const databaseId = renderConfigValueExpression(database.cloudflare?.databaseId)
+  if (database.cloudflare?.http && databaseId) {
+    return [
+      "  driver: \"d1-http\",",
+      "  dbCredentials: {",
+      "    accountId: process.env[\"CLOUDFLARE_ACCOUNT_ID\"],",
+      `    databaseId: ${databaseId},`,
+      "    token: process.env[\"CLOUDFLARE_API_TOKEN\"],",
+      "  },",
+    ]
+  }
+
   const url = renderConfigValueExpression(database.connection?.url)
   const authToken = renderConfigValueExpression(database.connection?.authToken)
   if (!url) return []

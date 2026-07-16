@@ -119,6 +119,7 @@ A project uses either one Default Database or a set of Named Databases. Do not m
 | `connection.authToken` | `DatabaseConfigValue` | No | Hosted database auth token. |
 | `cloudflare.binding` | `string` | No | D1 binding. Defaults to `DB` for Default Database and `DB_<NAME>` for Named Databases. |
 | `cloudflare.databaseId` | `DatabaseConfigValue` | No | D1 database id. |
+| `cloudflare.http` | `true \| { url, authToken }` | No | Explicitly selects authenticated D1 raw HTTP access for hosted runtimes. `true` uses Cloudflare's API; an object selects a compatible proxy. |
 | `cloudflare.previewDatabaseId` | `DatabaseConfigValue` | No | D1 preview database id. |
 | `cloudflare.databaseName` | `DatabaseConfigValue` | No | D1 database name. |
 | `cloudflare.migrationsTable` | `string` | No | D1 migrations table. |
@@ -172,7 +173,53 @@ export default defineEventHandler(() => {
 | --- | --- | --- |
 | Local SQLite | `connection.url` or no connection config | Default for local development and generated Drizzle artifacts. |
 | Hosted SQLite/libSQL-style connection | `connection.url` and optional `connection.authToken` | Keep URLs and tokens in Server Env when they are secrets. |
-| Cloudflare D1 | `cloudflare` Definition options or integration-level `database.driver: 'd1'` | Provider binding is wiring; Default/Named Database remains the public identity. |
+| Cloudflare D1 | `cloudflare` Definition options or integration-level `database.driver: 'd1'` | Uses a D1 binding on Cloudflare. Hosted Vercel output uses D1 only when `cloudflare.http` is selected explicitly. |
+
+### Use Cloudflare D1 from Vercel
+
+A Database Definition can use the same D1 database from Cloudflare and Vercel. Cloudflare output prefers the configured binding. Set `cloudflare.http: true` to make Vercel call Cloudflare's D1 raw API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from Server Env.
+
+```ts [server/databases/config.ts]
+import { defineDatabase } from '@vite-hub/database'
+
+import { notes } from './schema'
+
+export default defineDatabase({
+  cloudflare: {
+    databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,
+    databaseName: process.env.CLOUDFLARE_D1_DATABASE_NAME,
+    http: true,
+  },
+  tables: { notes },
+})
+```
+
+Use `cloudflare.http: { url, authToken }` to send the same raw query wire format to an authenticated HTTP(S) proxy instead. Both values are required at runtime, and proxy authentication never falls back to `CLOUDFLARE_API_TOKEN`.
+
+```ts [server/databases/config.ts]
+import { defineDatabase } from '@vite-hub/database'
+
+import { notes } from './schema'
+
+export default defineDatabase({
+  cloudflare: {
+    databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,
+    http: {
+      authToken: process.env.D1_HTTP_TOKEN,
+      url: process.env.D1_HTTP_URL,
+    },
+  },
+  tables: { notes },
+})
+```
+
+Selecting D1 HTTP also generates Drizzle Kit's `d1-http` credentials. Migration and inspection commands use Cloudflare's API with `CLOUDFLARE_ACCOUNT_ID`, the database id, and `CLOUDFLARE_API_TOKEN`; those credentials are never embedded in generated output.
+
+::warning
+Cloudflare describes its built-in D1 REST API as best suited to administrative use because the global Cloudflare API rate limit applies. For sustained application traffic, use a narrowly authenticated proxy Worker and validate which queries or tables it may access. See Cloudflare's [D1 proxy Worker guide](https://developers.cloudflare.com/d1/tutorials/build-an-api-to-access-d1/).
+::
+
+Omitting `cloudflare.http` preserves the existing hosted libSQL selection even when `cloudflare.databaseId` is present.
 
 ### Select a hosted database for Vercel
 
@@ -218,7 +265,7 @@ The Database Capability is not a raw Drizzle client proxy. It uses agent-facing 
 
 Database Table Schema is the source schema in code. Live Database Schema can diverge when migrations have not run or when an Agent has explicit schema write permission.
 
-Keep provider credentials in Server Env. Keep migrations, backup behavior, and hosted database lifecycle in deployment workflows instead of hiding them in route code.
+Keep provider credentials in Server Env. Direct D1 HTTP access sends `CLOUDFLARE_API_TOKEN` only as the Cloudflare Bearer credential; proxy access sends only its configured `cloudflare.http.authToken`. Keep migrations, backup behavior, and hosted database lifecycle in deployment workflows instead of hiding them in route code.
 
 ## Next steps
 

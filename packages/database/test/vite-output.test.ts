@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs"
+import { createServer } from "node:http"
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { execFile } from "node:child_process"
 import { dirname, join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { afterAll, describe, expect, it } from "vitest"
@@ -53,7 +55,7 @@ async function writeDatabaseDefinition(rootDir: string, name: string, options: {
   ].join("\n"))
 }
 
-async function createDbBuildProject(prefix: string, options: { integrationConnection?: boolean } = {}) {
+async function createDbBuildProject(prefix: string, options: { integrationConnection?: boolean, nitro?: boolean } = {}) {
   const rootDir = await createWorkspaceTempDir(prefix)
   const nodeModules = resolvePlaygroundNodeModules()
   await mkdir(join(rootDir, "src"), { recursive: true })
@@ -79,14 +81,14 @@ async function createDbBuildProject(prefix: string, options: { integrationConnec
     "  },",
     ...(options.integrationConnection
       ? [
-          "  plugins: [hubDb({",
+          `  plugins: [${options.nitro ? "{ name: 'nitro:main' }, " : ""}hubDb({`,
           "    connection: {",
           "      authToken: { kind: 'env-variable', source: { kind: 'env', name: 'TURSO_AUTH_TOKEN' } },",
           "      url: { kind: 'env-variable', source: { kind: 'env', name: 'TURSO_DATABASE_URL' } },",
           "    },",
           "  })],",
         ]
-      : ["  plugins: [hubDb()],"]),
+      : [`  plugins: [${options.nitro ? "{ name: 'nitro:main' }, " : ""}hubDb()],`]),
     "})",
     "",
   ].join("\n"))
@@ -267,12 +269,27 @@ function expectNoRuntimeImport(code: string, specifier: string) {
   expect(code).not.toMatch(new RegExp(`\\b(?:from\\s+|import\\(|require\\()["']${escaped}["']`))
 }
 
+async function listen(server: ReturnType<typeof createServer>) {
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", resolve)
+  })
+  const address = server.address()
+  if (!address || typeof address === "string") throw new Error("Expected a TCP server address.")
+  return `http://127.0.0.1:${address.port}`
+}
+
+async function close(server: ReturnType<typeof createServer>) {
+  if (!server.listening) return
+  await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+}
+
 afterAll(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
 describe("Vite db provider outputs", () => {
-  it("does not register unsupported Vercel database runtimes for composed sibling output", async () => {
+  it("registers D1 HTTP as a supported Vercel database runtime", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-db-vite-vercel-registry-")
     const providerOutput = { runtimeModuleFilesByProduct: {} } satisfies ComposedProviderOutput
 
@@ -284,12 +301,13 @@ describe("Vite db provider outputs", () => {
           binding: "DB_PRIMARY",
           databaseId: "primary-d1-id",
           databaseName: "primary",
+          http: true,
         },
       }),
     })
 
     expect(getProviderRuntimeModule(providerOutput, "database", "cloudflare")).toContain("cloudflare-runtime.mjs")
-    expect(getProviderRuntimeModule(providerOutput, "database", "vercel")).toBeUndefined()
+    expect(getProviderRuntimeModule(providerOutput, "database", "vercel")).toContain("vercel-runtime.mjs")
   })
 
   it("composes direct Blob and Database provider output in either plugin order", async () => {
@@ -428,21 +446,37 @@ describe("Vite db provider outputs", () => {
     expect(code).toContain("TURSO_AUTH_TOKEN")
   }, 30_000)
 
-  it("skips Vercel output when a named database has no remote fallback URL", async () => {
+  it("runs a D1-backed database through generated Vercel output", async () => {
     const rootDir = await createDbBuildProject("vitehub-db-vite-vercel-invalid-")
     await writeDatabaseDefinition(rootDir, "analytics", {
       cloudflare: [
         "    binding: 'DB_ANALYTICS',",
         "    databaseName: 'vitehub-playground-analytics',",
         "    databaseId: process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID,",
+        "    http: {",
+        "      authToken: process.env.VITEHUB_D1_HTTP_TOKEN,",
+        "      url: process.env.VITEHUB_D1_HTTP_URL,",
+        "    },",
       ].join("\n"),
     })
+    await writeFile(join(rootDir, "src/server.ts"), [
+      "import { databases } from '@vite-hub/database/drizzle'",
+      "export default {",
+      "  async fetch() {",
+      "    const { db, schema } = databases.analytics",
+      "    return Response.json(await db.select().from(schema.analyticsItems))",
+      "  },",
+      "}",
+      "",
+    ].join("\n"))
 
     await runDbBuild(rootDir, {
       TURSO_AUTH_TOKEN: "token",
       TURSO_DATABASE_URL: "libsql://database.example.turso.io",
       VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
       VITEHUB_D1_DATABASE_ID: "primary-d1-id",
+      VITEHUB_D1_HTTP_TOKEN: "proxy-secret-value",
+      VITEHUB_D1_HTTP_URL: "https://d1.example.com/raw",
     })
 
     const cloudflareConfig = await readCloudflareConfig(rootDir)
@@ -453,7 +487,96 @@ describe("Vite db provider outputs", () => {
         database_name: "vitehub-playground-analytics",
       }),
     ]))
-    expect(existsSync(join(rootDir, ".vercel", "output"))).toBe(false)
+    const vercelServer = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
+    expect(existsSync(vercelServer)).toBe(true)
+    const code = await readFile(vercelServer, "utf8")
+    expect(code).toContain("VITEHUB_D1_HTTP_TOKEN")
+    expect(code).toContain("VITEHUB_D1_HTTP_URL")
+    expect(code).toContain("VITEHUB_D1_ANALYTICS_DATABASE_ID")
+    expect(code).not.toContain("proxy-secret-value")
+    expect(code).not.toContain("https://d1.example.com/raw")
+
+    let proxyRequest: { authorization?: string, body?: unknown } = {}
+    const proxy = createServer(async (request, response) => {
+      let body = ""
+      for await (const chunk of request) body += chunk
+      proxyRequest = {
+        authorization: request.headers.authorization,
+        body: JSON.parse(body),
+      }
+      response.setHeader("Content-Type", "application/json")
+      response.end(JSON.stringify({
+        result: [{ results: { rows: [["page-view"]] }, success: true }],
+        success: true,
+      }))
+    })
+    const app = createServer()
+    const originalDatabaseId = process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID
+    const originalToken = process.env.VITEHUB_D1_HTTP_TOKEN
+    const originalUrl = process.env.VITEHUB_D1_HTTP_URL
+
+    try {
+      process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID = "analytics-d1-id"
+      process.env.VITEHUB_D1_HTTP_TOKEN = "runtime-proxy-token"
+      process.env.VITEHUB_D1_HTTP_URL = await listen(proxy)
+      const handler = (await import(`${pathToFileURL(vercelServer).href}?t=${Date.now()}`)).default
+      app.on("request", (request, response) => void Promise.resolve(handler(request, response)).catch((error) => {
+        response.statusCode = 500
+        response.end(String(error))
+      }))
+      const appUrl = await listen(app)
+
+      const response = await fetch(appUrl)
+      await expect(response.json()).resolves.toEqual([{ title: "page-view" }])
+      expect(proxyRequest).toMatchObject({
+        authorization: "Bearer runtime-proxy-token",
+        body: { params: [], sql: expect.stringContaining("analytics_items") },
+      })
+    }
+    finally {
+      await Promise.all([close(app), close(proxy)])
+      if (typeof originalDatabaseId === "undefined") delete process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID
+      else process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID = originalDatabaseId
+      if (typeof originalToken === "undefined") delete process.env.VITEHUB_D1_HTTP_TOKEN
+      else process.env.VITEHUB_D1_HTTP_TOKEN = originalToken
+      if (typeof originalUrl === "undefined") delete process.env.VITEHUB_D1_HTTP_URL
+      else process.env.VITEHUB_D1_HTTP_URL = originalUrl
+    }
+  }, 30_000)
+
+  it("preserves Nitro Vercel output while emitting an isolated D1 database function", async () => {
+    const rootDir = await createDbBuildProject("vitehub-db-vite-nitro-d1-", { nitro: true })
+    await writeDatabaseDefinition(rootDir, "analytics", {
+      cloudflare: [
+        "    binding: 'DB_ANALYTICS',",
+        "    databaseName: 'vitehub-playground-analytics',",
+        "    databaseId: process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID,",
+        "    http: true,",
+      ].join("\n"),
+    })
+    const outputRoot = join(rootDir, ".vercel", "output")
+    const nitroFunction = join(outputRoot, "functions", "__server.func", "index.mjs")
+    const nitroConfig = {
+      routes: [{ src: "/(.*)", dest: "/__server" }],
+      version: 3,
+    }
+    await mkdir(dirname(nitroFunction), { recursive: true })
+    await writeFile(nitroFunction, "export default 'nitro'\n", "utf8")
+    await writeFile(join(outputRoot, "config.json"), `${JSON.stringify(nitroConfig, null, 2)}\n`, "utf8")
+
+    await runDbBuild(rootDir, {
+      NITRO_PRESET: "vercel",
+      TURSO_AUTH_TOKEN: "token",
+      TURSO_DATABASE_URL: "libsql://database.example.turso.io",
+      VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
+      VITEHUB_D1_DATABASE_ID: "primary-d1-id",
+    })
+
+    await expect(readFile(nitroFunction, "utf8")).resolves.toBe("export default 'nitro'\n")
+    await expect(readFile(join(outputRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual(nitroConfig)
+    const databaseFunction = join(outputRoot, "functions", "__database.func", "index.mjs")
+    expect(existsSync(databaseFunction)).toBe(true)
+    await expect(readFile(databaseFunction, "utf8")).resolves.toContain("CLOUDFLARE_ACCOUNT_ID")
   }, 30_000)
 
   it("skips provider output for local-only databases", async () => {

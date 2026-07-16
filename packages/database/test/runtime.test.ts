@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { promisify } from "node:util"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { sql } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
@@ -45,6 +45,36 @@ function createFakeD1Binding() {
       }
     },
   }
+}
+
+async function createHostedAnalyticsDb(http: true | { authToken: string, url: string } = true) {
+  const { createHostedDrizzleDb } = await import("../src/runtime/hosted.ts")
+  const db = createHostedDrizzleDb({
+    cloudflare: {
+      binding: "DB_ANALYTICS",
+      databaseId: "analytics-d1-id",
+      http,
+      migrationsDir: "server/databases/analytics/migrations",
+    },
+    dialect: "sqlite",
+    drizzle: {},
+    generatedSchemaFile: ".vitehub/database/schema/analytics.ts",
+    migrationsDir: "server/databases/analytics/migrations",
+    mode: "named",
+    name: "analytics",
+    orm: "drizzle",
+  }, analyticsSchema)
+  return { db }
+}
+
+function createD1Response(...rows: unknown[][][]) {
+  return new Response(JSON.stringify({
+    result: rows.map(resultRows => ({ results: { rows: resultRows }, success: true })),
+    success: true,
+  }), {
+    headers: { "Content-Type": "application/json" },
+    status: 200,
+  })
 }
 
 ;(vi.mock as any)("#vitehub/database/schema", () => ({
@@ -109,6 +139,8 @@ afterEach(async () => {
   runtimeState.analyticsDbPath = ""
   runtimeState.dbPath = ""
   setActiveCloudflareEnv(undefined)
+  vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
   vi.resetModules()
   if (tempDir) {
     await rm(tempDir, { force: true, recursive: true })
@@ -209,7 +241,7 @@ describe("hosted drizzle runtime", () => {
       orm: "drizzle",
     }, defaultSchema)
 
-    expect(() => db.run).toThrow("Hosted DB \"default\" requires a Cloudflare D1 binding or a remote libSQL URL")
+    expect(() => db.run).toThrow("Hosted DB \"default\" requires an active Cloudflare D1 binding, cloudflare.http with databaseId, or a remote libSQL URL")
   })
 
   it("rejects non-libsql remote schemes in hosted mode", async () => {
@@ -228,7 +260,7 @@ describe("hosted drizzle runtime", () => {
       orm: "drizzle",
     }, defaultSchema)
 
-    expect(() => db.run).toThrow("Hosted DB \"default\" requires a Cloudflare D1 binding or a remote libSQL URL")
+    expect(() => db.run).toThrow("Hosted DB \"default\" requires an active Cloudflare D1 binding, cloudflare.http with databaseId, or a remote libSQL URL")
   })
 
   it("uses the active Cloudflare binding when hosted outputs run on Cloudflare", async () => {
@@ -240,6 +272,7 @@ describe("hosted drizzle runtime", () => {
       cloudflare: {
         binding: "DB_ANALYTICS",
         databaseId: "analytics-d1-id",
+        http: true,
         migrationsDir: "src/database/analytics/migrations",
       },
       dialect: "sqlite",
@@ -252,5 +285,166 @@ describe("hosted drizzle runtime", () => {
     }, analyticsSchema)
 
     expect((db as { $client?: unknown }).$client).toBe(binding)
+  })
+
+  it("queries configured Cloudflare D1 over authenticated HTTP", async () => {
+    vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "account-id")
+    vi.stubEnv("CLOUDFLARE_API_TOKEN", "api-token")
+    const fetchMock = vi.fn(async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) => createD1Response([[1, "page-view"]]))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { db } = await createHostedAnalyticsDb()
+    await expect(db.select().from(analyticsSchema.analyticsEvents)).resolves.toEqual([{ id: 1, name: "page-view" }])
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const [url, request] = fetchMock.mock.calls[0]!
+    expect(url).toBe("https://api.cloudflare.com/client/v4/accounts/account-id/d1/database/analytics-d1-id/raw")
+    expect(request).toMatchObject({
+      headers: {
+        Authorization: "Bearer api-token",
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    })
+    expect(JSON.parse(String(request?.body))).toMatchObject({ params: [], sql: expect.stringContaining("analytics_events") })
+  })
+
+  it("maps all, get, and run results through the D1 raw transport", async () => {
+    vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "account-id")
+    vi.stubEnv("CLOUDFLARE_API_TOKEN", "api-token")
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(createD1Response([[1, "page-view"]]))
+      .mockResolvedValueOnce(createD1Response([[2, "download"]]))
+      .mockResolvedValueOnce(createD1Response([]))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { db } = await createHostedAnalyticsDb()
+    await expect(db.select().from(analyticsSchema.analyticsEvents)).resolves.toEqual([{ id: 1, name: "page-view" }])
+    await expect(db.select().from(analyticsSchema.analyticsEvents).where(eq(analyticsSchema.analyticsEvents.id, 2)).get()).resolves.toEqual({ id: 2, name: "download" })
+    await expect(db.insert(analyticsSchema.analyticsEvents).values({ name: "signup" }).run()).resolves.toEqual({ rows: [] })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it("uses an explicitly configured authenticated D1 proxy", async () => {
+    vi.stubEnv("CLOUDFLARE_API_TOKEN", "cloudflare-token-must-not-be-used")
+    const fetchMock = vi.fn(async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) => createD1Response([[1, "page-view"]]))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { db } = await createHostedAnalyticsDb({
+      authToken: "proxy-token",
+      url: "https://d1.example.com/raw",
+    })
+    await db.select().from(analyticsSchema.analyticsEvents)
+
+    const [url, request] = fetchMock.mock.calls[0]!
+    expect(url).toBe("https://d1.example.com/raw")
+    expect(request?.headers).toMatchObject({ Authorization: "Bearer proxy-token" })
+    expect(JSON.stringify(request)).not.toContain("cloudflare-token-must-not-be-used")
+  })
+
+  it("preserves a configured libSQL fallback when D1 HTTP is not selected", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    const { createHostedDrizzleDb } = await import("../src/runtime/hosted.ts")
+    const db = createHostedDrizzleDb({
+      cloudflare: {
+        binding: "DB_ANALYTICS",
+        databaseId: "analytics-d1-id",
+        migrationsDir: "server/databases/analytics/migrations",
+      },
+      connection: { url: "libsql://analytics.example.turso.io" },
+      dialect: "sqlite",
+      drizzle: {},
+      generatedSchemaFile: ".vitehub/database/schema/analytics.ts",
+      migrationsDir: "server/databases/analytics/migrations",
+      mode: "named",
+      name: "analytics",
+      orm: "drizzle",
+    }, analyticsSchema)
+
+    expect((db as { $client?: unknown }).$client).toBeDefined()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("sends Drizzle batches through one Cloudflare D1 request", async () => {
+    vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "account-id")
+    vi.stubEnv("CLOUDFLARE_API_TOKEN", "api-token")
+    const fetchMock = vi.fn(async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) => createD1Response([[1, "first"]], [[2, "second"]]))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { db } = await createHostedAnalyticsDb()
+    const batchDb = db as unknown as { batch: (queries: unknown[]) => Promise<unknown[]> }
+    await expect(batchDb.batch([
+      db.select().from(analyticsSchema.analyticsEvents).where(eq(analyticsSchema.analyticsEvents.id, 1)),
+      db.select().from(analyticsSchema.analyticsEvents).where(eq(analyticsSchema.analyticsEvents.id, 2)),
+    ])).resolves.toEqual([
+      [{ id: 1, name: "first" }],
+      [{ id: 2, name: "second" }],
+    ])
+    const [, request] = fetchMock.mock.calls[0]!
+    expect(JSON.parse(String(request?.body))).toMatchObject({
+      batch: [
+        { params: [1], sql: expect.stringContaining("analytics_events") },
+        { params: [2], sql: expect.stringContaining("analytics_events") },
+      ],
+    })
+  })
+
+  it("requires Cloudflare API credentials before D1 HTTP access", async () => {
+    vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "")
+    vi.stubEnv("CLOUDFLARE_API_TOKEN", "")
+    const { db } = await createHostedAnalyticsDb()
+    expect(() => db.run).toThrow("Hosted Cloudflare D1 database \"analytics\" requires CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN when cloudflare.http is true.")
+  })
+
+  it("requires both configured proxy values without falling back to Cloudflare credentials", async () => {
+    vi.stubEnv("CLOUDFLARE_API_TOKEN", "cloudflare-token")
+    const { db } = await createHostedAnalyticsDb({ authToken: "", url: "https://d1.example.com/raw" })
+    expect(() => db.run).toThrow("requires cloudflare.http.url and cloudflare.http.authToken at runtime")
+  })
+
+  it("rejects malformed and failed D1 responses without exposing credentials", async () => {
+    vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "account-id")
+    vi.stubEnv("CLOUDFLARE_API_TOKEN", "secret-api-token")
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("not json", { status: 502 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        errors: [{ message: "permission denied" }],
+        success: false,
+      }), { headers: { "Content-Type": "application/json" }, status: 403 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { db } = await createHostedAnalyticsDb()
+    const malformedError = await db.select().from(analyticsSchema.analyticsEvents).then(() => undefined, error => error)
+    const deniedError = await db.select().from(analyticsSchema.analyticsEvents).then(() => undefined, error => error)
+    expect(malformedError).toMatchObject({
+      cause: { message: "[vitehub] Cloudflare D1 request failed (502)." },
+    })
+    expect(deniedError).toMatchObject({
+      cause: { message: "[vitehub] Cloudflare D1 request failed (403): permission denied" },
+    })
+    expect(JSON.stringify([malformedError, deniedError])).not.toContain("secret-api-token")
+  })
+
+  it("rejects per-query errors and mismatched D1 batch results", async () => {
+    vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "account-id")
+    vi.stubEnv("CLOUDFLARE_API_TOKEN", "api-token")
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        result: [
+          { results: { rows: [[1, "first"]] }, success: true },
+          { errors: [{ message: "second query failed" }], success: false },
+        ],
+        success: true,
+      }), { headers: { "Content-Type": "application/json" }, status: 200 }))
+      .mockResolvedValueOnce(createD1Response([[1, "only-result"]]))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { db } = await createHostedAnalyticsDb()
+    const batch = () => (db as unknown as { batch: (queries: unknown[]) => Promise<unknown[]> }).batch([
+      db.select().from(analyticsSchema.analyticsEvents).where(eq(analyticsSchema.analyticsEvents.id, 1)),
+      db.select().from(analyticsSchema.analyticsEvents).where(eq(analyticsSchema.analyticsEvents.id, 2)),
+    ])
+    await expect(batch()).rejects.toThrow("Cloudflare D1 query 2 failed (200): second query failed")
+    await expect(batch()).rejects.toThrow("Cloudflare D1 returned an unexpected query result count")
   })
 })
