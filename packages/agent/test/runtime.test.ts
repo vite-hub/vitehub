@@ -2578,6 +2578,91 @@ describe("agent message protocol", () => {
     }])
   })
 
+  it("passes invocation input through scheduled Agent runs", async () => {
+    const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
+    const abortController = new AbortController()
+    const seen: unknown[] = []
+    const agent = defineAgent<any, { worktreePath: string }>({
+      driver: { run: context => {
+          seen.push({
+            abortSignal: context.input.abortSignal,
+            owner: context.context.get("owner"),
+            options: context.input.options,
+            prompt: context.prompt,
+            schedule: context.context.get("schedule"),
+          })
+          return "ok"
+        } },
+    })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+
+    await expect(runScheduledAgent(agent, {
+      id: "srun-scheduled-review",
+      runId: "review-pr-646",
+      scheduleId: "scheduled-review",
+      scheduledAt,
+      target: "agent/reviewer",
+    }, {}, {
+      abortSignal: abortController.signal,
+      context: { owner: "vite-hub/vitehub" },
+      options: { worktreePath: "/tmp/vitehub-pr-646" },
+      prompt: "Review pull request 646.",
+    })).resolves.toBe("ok")
+
+    expect(seen).toEqual([{
+      abortSignal: abortController.signal,
+      owner: "vite-hub/vitehub",
+      options: { worktreePath: "/tmp/vitehub-pr-646" },
+      prompt: "Review pull request 646.",
+      schedule: {
+        id: "srun-scheduled-review",
+        kind: "schedule",
+        runId: "review-pr-646",
+        scheduleId: "scheduled-review",
+        scheduledAt,
+        target: "agent/reviewer",
+      },
+    }])
+  })
+
+  it("keeps durable scheduled Agent turn prompts authoritative", async () => {
+    const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
+    const seen: unknown[] = []
+    const agent = defineAgent({
+      driver: { run: context => {
+          seen.push({
+            input: context.input,
+            messages: context.messages,
+            prompt: context.prompt,
+          })
+          return "ok"
+        } },
+    })
+
+    await expect(runScheduledAgent(agent, {
+      id: "srun-durable",
+      input: {
+        invoker: { id: "discord:user-1", kind: "chat" },
+        kind: "agent-turn",
+        prompt: "Persisted turn prompt.",
+      },
+      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+    }, {}, {
+      message: "Caller message.",
+      messages: [createMessage({ role: "user", text: "Caller messages." })],
+      prompt: [createMessage({ role: "user", text: "Caller prompt messages." })],
+    })).resolves.toBe("ok")
+
+    expect(seen).toEqual([{
+      input: expect.not.objectContaining({
+        message: expect.anything(),
+        messages: expect.anything(),
+      }),
+      messages: [],
+      prompt: "Persisted turn prompt.",
+    }])
+  })
+
   it("uses the schedule id as run id when scheduled context omits provider run id", async () => {
     const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
     const seen: unknown[] = []
@@ -8582,6 +8667,33 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("support-agent", run.id)).resolves.toMatchObject({
         result: "received hello",
+        status: "completed",
+      })
+    })
+
+    it("does not serialize abort signals into Agent Workflow payloads", async () => {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({
+        driver: { run: context => Boolean(context.input.abortSignal) },
+      })
+      const run = await runAgent(agent, {
+        agentIdentity: { name: "support-agent-abort-signal" },
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {
+        abortSignal: new AbortController().signal,
+        prompt: "hello",
+      }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("support-agent-abort-signal", run.id)).resolves.toMatchObject({
+        result: false,
         status: "completed",
       })
     })
