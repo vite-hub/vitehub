@@ -14,62 +14,62 @@ import type { Lock, StateAdapter } from "chat"
 export const messageChannelTitleDeliveredContextKey = "channel.delivery.titleDelivered"
 export const messageChannelStateContextKey = "chat.channelState"
 const messageChannelTitleClaimTtlMs = 5 * 60 * 1000
-const messageChannelChatTitleEffectIntents = new WeakSet<AgentChannelDeliveryEffectIntent>()
-const messageChannelChatTitleDeliveryPolicies = new WeakMap<AgentChannelDeliveryEffectIntent, "always" | "once-per-thread">()
-const messageChannelChatTitleDeliveryAttempts = new WeakMap<AgentChannelDeliveryEffectIntent, MessageChannelChatTitleDeliveryAttempt>()
+const messageChannelTitleEffectIntents = new WeakSet<AgentChannelDeliveryEffectIntent>()
+const messageChannelTitleDeliveryPolicies = new WeakMap<AgentChannelDeliveryEffectIntent, "always" | "once-per-thread">()
+const messageChannelTitleDeliveryAttempts = new WeakMap<AgentChannelDeliveryEffectIntent, MessageChannelTitleDeliveryAttempt>()
 
 export interface MessageChannelStateBinding {
   keyPrefix: string
   state: StateAdapter
 }
 
-interface MessageChannelChatTitleDeliveryClaim {
+interface MessageChannelTitleDeliveryClaim {
   lock: Lock
   markerKey: string
   settled?: boolean
   state: StateAdapter
 }
 
-export interface MessageChannelChatTitleDeliveryAttempt {
-  claim?: MessageChannelChatTitleDeliveryClaim
+export interface MessageChannelTitleDeliveryAttempt {
+  claim?: MessageChannelTitleDeliveryClaim
   deliver: boolean
   error?: unknown
   reason?: "already-delivered" | "pending"
 }
 
-export function createMessageChannelChatTitleEffectIntent(
+export function createMessageChannelTitleEffectIntent(
   title: string,
   channelDelivery: "always" | "once-per-thread" = "once-per-thread",
-  attempt?: MessageChannelChatTitleDeliveryAttempt,
+  attempt?: MessageChannelTitleDeliveryAttempt,
 ): AgentChannelDeliveryEffectIntent {
   const intent = { kind: "title", payload: { title } }
-  messageChannelChatTitleEffectIntents.add(intent)
-  messageChannelChatTitleDeliveryPolicies.set(intent, channelDelivery)
-  if (attempt) messageChannelChatTitleDeliveryAttempts.set(intent, attempt)
+  messageChannelTitleEffectIntents.add(intent)
+  messageChannelTitleDeliveryPolicies.set(intent, channelDelivery)
+  if (attempt) messageChannelTitleDeliveryAttempts.set(intent, attempt)
   return intent
 }
 
-export function isMessageChannelChatTitleEffectIntent(intent: AgentChannelDeliveryEffectIntent): boolean {
-  return messageChannelChatTitleEffectIntents.has(intent)
+export function isMessageChannelTitleEffectIntent(intent: AgentChannelDeliveryEffectIntent): boolean {
+  return messageChannelTitleEffectIntents.has(intent)
 }
 
-export async function prepareMessageChannelChatTitleDelivery(
+export async function prepareMessageChannelTitleDelivery(
   context: AgentInvocationContextStore,
   run: AgentRunMetadata | undefined,
   intent: AgentChannelDeliveryEffectIntent,
-): Promise<MessageChannelChatTitleDeliveryAttempt> {
-  const prepared = messageChannelChatTitleDeliveryAttempts.get(intent)
+): Promise<MessageChannelTitleDeliveryAttempt> {
+  const prepared = messageChannelTitleDeliveryAttempts.get(intent)
   if (prepared) return prepared
-  if (messageChannelChatTitleDeliveryPolicies.get(intent) === "always") {
+  if (messageChannelTitleDeliveryPolicies.get(intent) === "always") {
     return { deliver: true }
   }
-  return await claimMessageChannelChatTitleDelivery(context, run)
+  return await claimMessageChannelTitleDelivery(context, run)
 }
 
-export async function claimMessageChannelChatTitleDelivery(
+export async function claimMessageChannelTitleDelivery(
   context: AgentInvocationContextStore,
   run: AgentRunMetadata | undefined,
-): Promise<MessageChannelChatTitleDeliveryAttempt> {
+): Promise<MessageChannelTitleDeliveryAttempt> {
   const binding = context.get<MessageChannelStateBinding>(messageChannelStateContextKey)
   if (!binding || !run?.threadId) return { deliver: true }
 
@@ -92,7 +92,7 @@ export async function claimMessageChannelChatTitleDelivery(
     catch (releaseError) {
       return {
         deliver: true,
-        error: new AggregateError([error, releaseError], "Chat title delivery state check and lock release failed."),
+        error: new AggregateError([error, releaseError], "Title delivery state check and lock release failed."),
       }
     }
   }
@@ -111,8 +111,8 @@ export async function claimMessageChannelChatTitleDelivery(
   }
 }
 
-export async function finishMessageChannelChatTitleDelivery(
-  attempt: MessageChannelChatTitleDeliveryAttempt,
+export async function finishMessageChannelTitleDelivery(
+  attempt: MessageChannelTitleDeliveryAttempt,
   delivered: boolean,
   final = true,
 ): Promise<void> {

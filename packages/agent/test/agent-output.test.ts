@@ -222,7 +222,7 @@ describe("agent output helpers", () => {
 
   it("preserves data-prefixed stream events before text and finish", async () => {
     const output = (async function* () {
-      yield { data: { title: "Chat title", type: "chat-title" }, transient: true, type: "data-chat-title" }
+      yield { data: { title: "Title", type: "title" }, transient: true, type: "data-title" }
       yield { text: "ok", type: "text-delta" }
       yield { finishReason: "stop", type: "finish" }
     })()
@@ -233,7 +233,7 @@ describe("agent output helpers", () => {
     }
 
     expect(events).toEqual([
-      { data: { title: "Chat title", type: "chat-title" }, id: undefined, transient: true, type: "data-chat-title" },
+      { data: { title: "Title", type: "title" }, id: undefined, transient: true, type: "data-title" },
       { text: "ok", type: "text-delta" },
       { reason: "stop", type: "finish" },
     ])
@@ -241,13 +241,13 @@ describe("agent output helpers", () => {
 
   it("folds data-prefixed stream events into messages", () => {
     const messages = applyStreamEvent([], {
-      data: { title: "Chat title", type: "chat-title" },
-      type: "data-chat-title",
+      data: { title: "Title", type: "title" },
+      type: "data-title",
     })
 
     expect(messages).toEqual([{
       id: expect.any(String),
-      parts: [{ data: { title: "Chat title", type: "chat-title" }, type: "data-chat-title" }],
+      parts: [{ data: { title: "Title", type: "title" }, type: "data-title" }],
       role: "assistant",
     }])
   })

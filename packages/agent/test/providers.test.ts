@@ -4426,18 +4426,18 @@ describe("server helpers", () => {
 
   it("delivers state-backed Chat SDK titles once per thread across handler recreation", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chatTitle } = await import("../src/capabilities.ts")
+    const { title } = await import("../src/capabilities.ts")
     const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
-    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-title-once-"))
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-title-once-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const setThreadTitle = vi.fn(async () => undefined)
     const execute = vi.fn(({ text }: { text: string }) => `Title: ${text}`)
     const run = vi.fn(() => "ok")
     const finish = vi.fn()
     const createHandler = () => createChannelWebhookRouteHandler(defineAgent({
-      capabilities: [chatTitle({ execute })],
+      capabilities: [title({ execute })],
       channels: {
         channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
       },
@@ -4453,8 +4453,8 @@ describe("server helpers", () => {
       expect(run).toHaveBeenCalledTimes(2)
       expect(execute).toHaveBeenCalledOnce()
       expect(setThreadTitle).toHaveBeenCalledOnce()
-      expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toEqual({ title: "Title: first" })
-      expect(finish.mock.calls[1]![0].extensions.get("chat-title")).toBeUndefined()
+      expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Title: first" })
+      expect(finish.mock.calls[1]![0].extensions.get("title")).toBeUndefined()
 
       const recreated = createHandler()
       await expect(recreated(chatWebhookRequest(103, 456, "third"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
@@ -4473,9 +4473,9 @@ describe("server helpers", () => {
     }
   })
 
-  it("releases a Chat title claim when the post-lock marker read fails", async () => {
+  it("releases a Title claim when the post-lock marker read fails", async () => {
     const {
-      claimMessageChannelChatTitleDelivery,
+      claimMessageChannelTitleDelivery,
       messageChannelStateContextKey,
     } = await import("../src/internal/channels.ts")
     const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
@@ -4491,16 +4491,16 @@ describe("server helpers", () => {
     const context = createAgentInvocationContextStore()
     context.set(messageChannelStateContextKey, { keyPrefix: "chat:mini:discord:", state })
 
-    await expect(claimMessageChannelChatTitleDelivery(context, { threadId: "discord:123" } as never)).resolves.toEqual({
+    await expect(claimMessageChannelTitleDelivery(context, { threadId: "discord:123" } as never)).resolves.toEqual({
       deliver: true,
       error: readError,
     })
     expect(state.releaseLock).toHaveBeenCalledWith(lock)
   })
 
-  it("does not redeliver a Chat title when marker observation succeeds but lock release fails", async () => {
+  it("does not redeliver a Title when marker observation succeeds but lock release fails", async () => {
     const {
-      claimMessageChannelChatTitleDelivery,
+      claimMessageChannelTitleDelivery,
       messageChannelStateContextKey,
     } = await import("../src/internal/channels.ts")
     const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
@@ -4516,7 +4516,7 @@ describe("server helpers", () => {
     const context = createAgentInvocationContextStore()
     context.set(messageChannelStateContextKey, { keyPrefix: "chat:mini:discord:", state })
 
-    await expect(claimMessageChannelChatTitleDelivery(context, { threadId: "discord:123" } as never)).resolves.toEqual({
+    await expect(claimMessageChannelTitleDelivery(context, { threadId: "discord:123" } as never)).resolves.toEqual({
       deliver: false,
       error: releaseError,
       reason: "already-delivered",
@@ -4525,18 +4525,18 @@ describe("server helpers", () => {
 
   it("releases failed title delivery claims for finish and later webhook retries", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chatTitle } = await import("../src/capabilities.ts")
+    const { title } = await import("../src/capabilities.ts")
     const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
-    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-title-retry-"))
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-title-retry-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const setThreadTitle = vi.fn()
       .mockRejectedValueOnce(new Error("early delivery failed"))
       .mockRejectedValueOnce(new Error("finish delivery failed"))
       .mockResolvedValue(undefined)
     const handler = createChannelWebhookRouteHandler(defineAgent({
-      capabilities: [chatTitle({ execute: ({ text }) => `Title: ${text}` })],
+      capabilities: [title({ execute: ({ text }) => `Title: ${text}` })],
       channels: {
         channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
       },
@@ -4561,11 +4561,11 @@ describe("server helpers", () => {
 
   it("claims concurrent Chat SDK title delivery atomically", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chatTitle } = await import("../src/capabilities.ts")
+    const { title } = await import("../src/capabilities.ts")
     const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
-    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-title-concurrent-"))
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-title-concurrent-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     let releaseDelivery: () => void = () => {}
     const deliveryPending = new Promise<void>((resolve) => {
@@ -4591,7 +4591,7 @@ describe("server helpers", () => {
       },
     })
     const createHandler = (prefix: string, adapter: ReturnType<typeof createTitleChatAdapter>) => createChannelWebhookRouteHandler(defineAgent({
-      capabilities: [chatTitle({ execute })],
+      capabilities: [title({ execute })],
       channels: {
         channel: http({ adapter: () => adapter as never }),
       },
@@ -4626,15 +4626,15 @@ describe("server helpers", () => {
 
   it("isolates title delivery by agent and channel on shared explicit state", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chatTitle } = await import("../src/capabilities.ts")
+    const { title } = await import("../src/capabilities.ts")
     const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
-    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-title-scope-"))
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-title-scope-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const setThreadTitle = vi.fn(async () => undefined)
     const handler = (channel: string) => createChannelWebhookRouteHandler(defineAgent({
-      capabilities: [chatTitle({ execute: () => `${channel} title` })],
+      capabilities: [title({ execute: () => `${channel} title` })],
       channels: {
         [channel]: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
       },
@@ -4660,15 +4660,15 @@ describe("server helpers", () => {
 
   it("can deliver state-backed Chat SDK titles on every invocation", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chatTitle } = await import("../src/capabilities.ts")
+    const { title } = await import("../src/capabilities.ts")
     const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
-    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-title-always-"))
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-title-always-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const setThreadTitle = vi.fn(async () => undefined)
     const handler = createChannelWebhookRouteHandler(defineAgent({
-      capabilities: [chatTitle({ channelDelivery: "always", execute: ({ text }) => `Title: ${text}` })],
+      capabilities: [title({ channelDelivery: "always", execute: ({ text }) => `Title: ${text}` })],
       channels: {
         channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
       },
@@ -4692,11 +4692,11 @@ describe("server helpers", () => {
 
   it("keeps Chat SDK output and best-effort title delivery when title state coordination fails", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chatTitle } = await import("../src/capabilities.ts")
+    const { title } = await import("../src/capabilities.ts")
     const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
-    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-title-state-failure-"))
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-title-state-failure-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const failingState = new Proxy(state, {
       get(target, property) {
@@ -4713,7 +4713,7 @@ describe("server helpers", () => {
     const setThreadTitle = vi.fn(async () => undefined)
     const adapter = createTitleChatAdapter(setThreadTitle)
     const handler = createChannelWebhookRouteHandler(defineAgent({
-      capabilities: [chatTitle({ execute: () => "Best effort title" })],
+      capabilities: [title({ execute: () => "Best effort title" })],
       channels: {
         channel: http({ adapter: () => adapter as never }),
       },

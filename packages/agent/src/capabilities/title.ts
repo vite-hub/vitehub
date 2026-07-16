@@ -2,9 +2,9 @@ import { capabilityInvocationStartSymbol, defineCapability } from "../capability
 import { streamAgentOutputToEvents, toAgentRunResult } from "../agent-output.ts"
 import { messageChannelTitleSupportContextKey } from "../channels.ts"
 import {
-  claimMessageChannelChatTitleDelivery,
-  createMessageChannelChatTitleEffectIntent,
-  finishMessageChannelChatTitleDelivery,
+  claimMessageChannelTitleDelivery,
+  createMessageChannelTitleEffectIntent,
+  finishMessageChannelTitleDelivery,
   messageChannelStateContextKey,
   messageChannelTitleDeliveredContextKey,
 } from "../internal/channels.ts"
@@ -29,53 +29,53 @@ import type {
   Message,
   StreamEvent,
 } from "../messages.ts"
-import type { MessageChannelChatTitleDeliveryAttempt, MessageChannelStateBinding } from "../internal/channels.ts"
+import type { MessageChannelTitleDeliveryAttempt, MessageChannelStateBinding } from "../internal/channels.ts"
 
 type ToUIMessageStream = (...args: unknown[]) => ReadableStream<unknown>
-const chatTitleApplied = Symbol("vitehub.chat-title.applied")
-type ChatTitleApplied = { [chatTitleApplied]?: true }
+const titleApplied = Symbol("vitehub.title.applied")
+type TitleApplied = { [titleApplied]?: true }
 
-export interface ChatTitleExecuteInput {
+export interface TitleExecuteInput {
   input: AgentRunInput
   message: Message
   messages: Message[]
   text: string
 }
 
-export type ChatTitleExecuteResult = string | { title?: string }
+export type TitleExecuteResult = string | { title?: string }
 
-export interface ChatTitleTemplateInput extends ChatTitleExecuteInput {
+export interface TitleTemplateInput extends TitleExecuteInput {
   fallback: string
   maxLength: number
   trigger?: string
 }
 
-export type ChatTitleTemplate = string | ((input: ChatTitleTemplateInput) => MaybePromise<string>)
-export type ChatTitleTemplateVariable =
+export type TitleTemplate = string | ((input: TitleTemplateInput) => MaybePromise<string>)
+export type TitleTemplateVariable =
   | boolean
   | null
   | number
   | string
   | undefined
-  | ((input: ChatTitleTemplateInput) => MaybePromise<boolean | null | number | string | undefined>)
+  | ((input: TitleTemplateInput) => MaybePromise<boolean | null | number | string | undefined>)
 
-export interface ChatTitleOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+export interface TitleOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   channelDelivery?: "always" | "once-per-thread"
   driver?: AgentDriver<TRuntimeConfig>
-  execute?: (input: ChatTitleExecuteInput) => MaybePromise<ChatTitleExecuteResult>
+  execute?: (input: TitleExecuteInput) => MaybePromise<TitleExecuteResult>
   fallback?: string
   id?: string
   instructions?: string
   maxLength?: number
   model?: AgentModelResolver<TRuntimeConfig>
-  template?: ChatTitleTemplate
+  template?: TitleTemplate
   trigger?: string | string[]
-  variables?: Record<string, ChatTitleTemplateVariable>
-  when?: (input: ChatTitleTemplateInput) => MaybePromise<boolean>
+  variables?: Record<string, TitleTemplateVariable>
+  when?: (input: TitleTemplateInput) => MaybePromise<boolean>
 }
 
-const defaultChatTitleTemplate = [
-  "Summarize the user's request as a short chat title.",
+const defaultTitleTemplate = [
+  "Summarize the user's request as a short title.",
   "Return only the title.",
   "Use 4-8 words when possible.",
   `Keep it under {{ maxLength }} characters.`,
@@ -93,13 +93,13 @@ function isObjectLike(value: unknown): value is object {
   return (typeof value === "object" && value !== null) || typeof value === "function"
 }
 
-function hasChatTitleApplied(value: unknown): boolean {
-  return isObjectLike(value) && (value as ChatTitleApplied)[chatTitleApplied] === true
+function hasTitleApplied(value: unknown): boolean {
+  return isObjectLike(value) && (value as TitleApplied)[titleApplied] === true
 }
 
-function markChatTitleApplied<T>(value: T): T {
+function markTitleApplied<T>(value: T): T {
   if (isObjectLike(value)) {
-    Object.defineProperty(value, chatTitleApplied, {
+    Object.defineProperty(value, titleApplied, {
       configurable: true,
       value: true,
     })
@@ -139,11 +139,11 @@ function stripChatEntityMarkup(text: string): string {
   return clean || text
 }
 
-function chatTitleData(title: string) {
-  return { title, type: "chat-title" }
+function titleData(title: string) {
+  return { title, type: "title" }
 }
 
-function shouldRunForTrigger(filter: ChatTitleOptions["trigger"], trigger: string | undefined): boolean {
+function shouldRunForTrigger(filter: TitleOptions["trigger"], trigger: string | undefined): boolean {
   if (!filter) return true
   const allowed = Array.isArray(filter) ? filter : [filter]
   return trigger !== undefined && allowed.includes(trigger)
@@ -154,19 +154,19 @@ function agentTriggerId(context: AgentCapabilityRuntimeContext): string | undefi
   return typeof trigger?.id === "string" ? trigger.id : undefined
 }
 
-function supportsChatTitleDelivery(context: AgentCapabilityRuntimeContext): boolean {
+function supportsTitleDelivery(context: AgentCapabilityRuntimeContext): boolean {
   return context.context.get<boolean>(messageChannelTitleSupportContextKey) === true
 }
 
-function shouldProvideChatTitleFinishExtension(context: AgentCapabilityRuntimeContext): boolean {
-  return supportsChatTitleDelivery(context) || context.context.get<boolean>("agent.finishHook") === true
+function shouldProvideTitleFinishExtension(context: AgentCapabilityRuntimeContext): boolean {
+  return supportsTitleDelivery(context) || context.context.get<boolean>("agent.finishHook") === true
 }
 
-async function resolveTemplateVariables(options: ChatTitleOptions, input: ChatTitleTemplateInput): Promise<Record<string, unknown>> {
+async function resolveTemplateVariables(options: TitleOptions, input: TitleTemplateInput): Promise<Record<string, unknown>> {
   const variables: Record<string, unknown> = {}
   for (const [name, value] of Object.entries(options.variables || {})) {
     variables[name] = typeof value === "function"
-      ? await (value as (input: ChatTitleTemplateInput) => MaybePromise<unknown>)(input)
+      ? await (value as (input: TitleTemplateInput) => MaybePromise<unknown>)(input)
       : value
   }
   return {
@@ -178,8 +178,8 @@ async function resolveTemplateVariables(options: ChatTitleOptions, input: ChatTi
   }
 }
 
-async function renderChatTitleTemplate(options: ChatTitleOptions, input: ChatTitleTemplateInput): Promise<string> {
-  const template = options.template ?? defaultChatTitleTemplate
+async function renderTitleTemplate(options: TitleOptions, input: TitleTemplateInput): Promise<string> {
+  const template = options.template ?? defaultTitleTemplate
   if (typeof template === "function") {
     return await template(input)
   }
@@ -191,7 +191,7 @@ async function renderChatTitleTemplate(options: ChatTitleOptions, input: ChatTit
   })
 }
 
-async function resolveChatTitleModel(context: AgentCapabilityRuntimeContext, options: ChatTitleOptions): Promise<unknown | undefined> {
+async function resolveTitleModel(context: AgentCapabilityRuntimeContext, options: TitleOptions): Promise<unknown | undefined> {
   if (options.model) return await context.model.resolve(options.model)
   try {
     return await context.model.resolve()
@@ -204,24 +204,24 @@ async function resolveChatTitleModel(context: AgentCapabilityRuntimeContext, opt
   }
 }
 
-function chatTitleDriverInput(input: ChatTitleExecuteInput, prompt: string): AgentRunInput {
+function titleDriverInput(input: TitleExecuteInput, prompt: string): AgentRunInput {
   const { message: _message, messages: _messages, prompt: _prompt, ...base } = input.input
   return { ...base, prompt }
 }
 
-function chatTitleAdapterRunContext(
+function titleAdapterRunContext(
   context: AgentCapabilityRuntimeContext,
-  input: ChatTitleExecuteInput,
+  input: TitleExecuteInput,
   prompt: string,
 ): AgentAdapterRunContext {
   if (!context.runtimeContext) {
-    throw new Error("[vitehub] chatTitle({ driver }) requires an agent runtime context.")
+    throw new Error("[vitehub] title({ driver }) requires an agent runtime context.")
   }
   return {
     actor: context.actor,
     context: context.context,
     devtools: context.runtimeContext.devtools,
-    input: chatTitleDriverInput(input, prompt),
+    input: titleDriverInput(input, prompt),
     invoker: context.invoker,
     messages: [],
     prompt,
@@ -229,27 +229,27 @@ function chatTitleAdapterRunContext(
   }
 }
 
-function chatTitleRunContext(
+function titleRunContext(
   context: AgentCapabilityRuntimeContext,
-  input: ChatTitleExecuteInput,
+  input: TitleExecuteInput,
   prompt: string,
 ): AgentRunContext {
   if (!context.runtimeContext) {
-    throw new Error("[vitehub] chatTitle({ driver }) requires an agent runtime context.")
+    throw new Error("[vitehub] title({ driver }) requires an agent runtime context.")
   }
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtimeContext
   return {
     ...runtime,
     actor: context.actor,
     context: context.context,
-    input: chatTitleDriverInput(input, prompt),
+    input: titleDriverInput(input, prompt),
     invoker: context.invoker,
     messages: [],
     prompt,
   }
 }
 
-async function chatTitleResultText(result: unknown): Promise<string | undefined> {
+async function titleResultText(result: unknown): Promise<string | undefined> {
   let text = ""
   for await (const event of streamAgentOutputToEvents(result)) {
     if (event.type === "text-delta") text += event.text
@@ -258,32 +258,32 @@ async function chatTitleResultText(result: unknown): Promise<string | undefined>
   return toAgentRunResult(result).text
 }
 
-async function generateChatTitleWithDriver(
+async function generateTitleWithDriver(
   context: AgentCapabilityRuntimeContext,
-  options: ChatTitleOptions,
-  input: ChatTitleExecuteInput,
+  options: TitleOptions,
+  input: TitleExecuteInput,
   prompt: string,
 ): Promise<string | undefined> {
   if (!options.driver) return
   const driver = normalizeAgentDriver({ driver: options.driver } as never)
   if (driver.kind === "run") {
-    return await chatTitleResultText(await driver.run(chatTitleRunContext(context, input, prompt) as never))
+    return await titleResultText(await driver.run(titleRunContext(context, input, prompt) as never))
   }
-  const runContext = chatTitleAdapterRunContext(context, input, prompt)
+  const runContext = titleAdapterRunContext(context, input, prompt)
   if (driver.kind === "harness") {
     const { createHarnessAgentAdapter } = await import("../harness-agent.ts")
-    return await chatTitleResultText(await createHarnessAgentAdapter(driver as never).generate(runContext as never))
+    return await titleResultText(await createHarnessAgentAdapter(driver as never).generate(runContext as never))
   }
   const { createAiSdkAdapter } = await import("../ai-sdk.ts")
-  return await chatTitleResultText(await createAiSdkAdapter({
+  return await titleResultText(await createAiSdkAdapter({
     execution: driver.execution,
     instructions: options.instructions ?? driver.instructions,
     model: driver.model,
   } as never).generate(runContext as never))
 }
 
-async function generateChatTitle(context: AgentCapabilityRuntimeContext, options: ChatTitleOptions, input: ChatTitleExecuteInput): Promise<string | undefined> {
-  const fallback = options.fallback ?? "New Conversation"
+async function generateTitle(context: AgentCapabilityRuntimeContext, options: TitleOptions, input: TitleExecuteInput): Promise<string | undefined> {
+  const fallback = options.fallback ?? "Untitled"
   const maxLength = options.maxLength ?? 80
   const templateInput = {
     ...input,
@@ -302,13 +302,13 @@ async function generateChatTitle(context: AgentCapabilityRuntimeContext, options
   }
 
   if (options.driver) {
-    const prompt = await renderChatTitleTemplate(options, templateInput)
-    return cleanGeneratedTitle(await generateChatTitleWithDriver(context, options, input, prompt), maxLength, fallback)
+    const prompt = await renderTitleTemplate(options, templateInput)
+    return cleanGeneratedTitle(await generateTitleWithDriver(context, options, input, prompt), maxLength, fallback)
   }
 
-  const model = await resolveChatTitleModel(context, options)
+  const model = await resolveTitleModel(context, options)
   if (model) {
-    const prompt = await renderChatTitleTemplate(options, templateInput)
+    const prompt = await renderTitleTemplate(options, templateInput)
     const { generateText } = await loadAiSdk()
     const result = await generateText(options.instructions
       ? { instructions: options.instructions, model: model as never, prompt }
@@ -319,13 +319,13 @@ async function generateChatTitle(context: AgentCapabilityRuntimeContext, options
   return heuristicTitle(templateInput.text, maxLength, fallback)
 }
 
-function withChatTitleParallel<T>(
+function withTitleParallel<T>(
   result: AsyncIterable<T>,
   title: Promise<string | undefined>,
   renderTitle: (title: string) => T,
 ): AsyncIterable<T> {
   if (typeof (result as ReadableStream<T>).pipeThrough === "function") {
-    return withChatTitleReadableStreamParallel(result as ReadableStream<T>, title, renderTitle)
+    return withTitleReadableStreamParallel(result as ReadableStream<T>, title, renderTitle)
   }
   const iterable = (async function* () {
     const iterator = result[Symbol.asyncIterator]()
@@ -370,10 +370,10 @@ function withChatTitleParallel<T>(
       await iterator.return?.()
     }
   })()
-  return markChatTitleApplied(iterable)
+  return markTitleApplied(iterable)
 }
 
-function withChatTitleReadableStreamParallel<T>(
+function withTitleReadableStreamParallel<T>(
   result: ReadableStream<T>,
   title: Promise<string | undefined>,
   renderTitle: (title: string) => T,
@@ -392,7 +392,7 @@ function withChatTitleReadableStreamParallel<T>(
     reader?.releaseLock()
   }
 
-  return markChatTitleApplied(withAsyncIterator(new ReadableStream<T>({
+  return markTitleApplied(withAsyncIterator(new ReadableStream<T>({
     async cancel(reason) {
       cancelled = true
       try {
@@ -456,31 +456,31 @@ function withChatTitleReadableStreamParallel<T>(
   }, { highWaterMark: 0 })))
 }
 
-function withChatTitleEvent(result: AsyncIterable<StreamEvent>, title: Promise<string | undefined>): AsyncIterable<StreamEvent> {
-  return withChatTitleParallel(result, title, resolvedTitle => ({ data: chatTitleData(resolvedTitle), type: "data" }))
+function withTitleEvent(result: AsyncIterable<StreamEvent>, title: Promise<string | undefined>): AsyncIterable<StreamEvent> {
+  return withTitleParallel(result, title, resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }))
 }
 
-function withChatTitleFullStream(result: AsyncIterable<unknown>, title: Promise<string | undefined>): AsyncIterable<unknown> {
-  return withChatTitleParallel(result, title, resolvedTitle => ({ data: chatTitleData(resolvedTitle), type: "data" }))
+function withTitleFullStream(result: AsyncIterable<unknown>, title: Promise<string | undefined>): AsyncIterable<unknown> {
+  return withTitleParallel(result, title, resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }))
 }
 
-function withChatTitleTextStream(result: AsyncIterable<string>, title: Promise<string | undefined>): AsyncIterable<StreamEvent> {
-  return withChatTitleParallel<StreamEvent>(
+function withTitleTextStream(result: AsyncIterable<string>, title: Promise<string | undefined>): AsyncIterable<StreamEvent> {
+  return withTitleParallel<StreamEvent>(
     (async function* () {
       for await (const text of result) {
         yield { text, type: "text-delta" } satisfies StreamEvent
       }
     })(),
     title,
-    resolvedTitle => ({ data: chatTitleData(resolvedTitle), type: "data" }),
+    resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }),
   )
 }
 
-function withChatTitleUiMessageStream(result: ReadableStream<unknown>, title: Promise<string | undefined>): ReadableStream<unknown> {
-  return withChatTitleReadableStreamParallel(
+function withTitleUiMessageStream(result: ReadableStream<unknown>, title: Promise<string | undefined>): ReadableStream<unknown> {
+  return withTitleReadableStreamParallel(
     result,
     title,
-    resolvedTitle => ({ data: chatTitleData(resolvedTitle), type: "data-chat-title" }),
+    resolvedTitle => ({ data: titleData(resolvedTitle), type: "data-title" }),
   )
 }
 
@@ -539,36 +539,36 @@ function cloneStreamTextResult<T extends { fullStream?: AsyncIterable<unknown>, 
       writable: true,
     })
   }
-  return markChatTitleApplied(clone)
+  return markTitleApplied(clone)
 }
 
-function chatTitleUiMessageStreamOverride(toUIMessageStream: ToUIMessageStream | undefined, title: Promise<string | undefined>) {
+function titleUiMessageStreamOverride(toUIMessageStream: ToUIMessageStream | undefined, title: Promise<string | undefined>) {
   return toUIMessageStream
     ? {
-        toUIMessageStream: (...args: unknown[]) => withChatTitleUiMessageStream(toUIMessageStream(...args), title),
+        toUIMessageStream: (...args: unknown[]) => withTitleUiMessageStream(toUIMessageStream(...args), title),
       }
     : {}
 }
 
-export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
-  options: ChatTitleOptions<TRuntimeConfig> = {},
+export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
+  options: TitleOptions<TRuntimeConfig> = {},
 ): AgentCapabilityDefinition<TRuntimeConfig> {
-  const capabilityId = options.id || "chat-title"
+  const capabilityId = options.id || "title"
   const invocationStarts = new WeakMap<object, () => Promise<void>>()
   return Object.assign(defineCapability({
     id: capabilityId,
     output(context) {
-      let channelDeliveryAttempt: MessageChannelChatTitleDeliveryAttempt | Promise<MessageChannelChatTitleDeliveryAttempt> | undefined
+      let channelDeliveryAttempt: MessageChannelTitleDeliveryAttempt | Promise<MessageChannelTitleDeliveryAttempt> | undefined
       const getChannelDeliveryAttempt = () => {
         const state = context.context.get<MessageChannelStateBinding>(messageChannelStateContextKey)
-        channelDeliveryAttempt ??= options.channelDelivery === "always" || !supportsChatTitleDelivery(context) || !state || !context.run?.threadId
+        channelDeliveryAttempt ??= options.channelDelivery === "always" || !supportsTitleDelivery(context) || !state || !context.run?.threadId
           ? { deliver: true }
-          : claimMessageChannelChatTitleDelivery(context.context, context.run)
+          : claimMessageChannelTitleDelivery(context.context, context.run)
               .catch(error => ({ deliver: true, error }))
         return channelDeliveryAttempt
       }
       const releaseChannelDeliveryAttempt = async () => {
-        await finishMessageChannelChatTitleDelivery(await getChannelDeliveryAttempt(), false).catch(() => undefined)
+        await finishMessageChannelTitleDelivery(await getChannelDeliveryAttempt(), false).catch(() => undefined)
       }
       let title: Promise<string | undefined> | undefined
       const getTitle = () => {
@@ -580,19 +580,19 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
           const attempt = pendingAttempt instanceof Promise ? await pendingAttempt : pendingAttempt
           if (!attempt.deliver) return
           try {
-            const resolvedTitle = await generateChatTitle(context, options as ChatTitleOptions, {
+            const resolvedTitle = await generateTitle(context, options as TitleOptions, {
               input: context.input.get(),
               message,
               messages,
               text: getMessageText(message),
             })
             if (!resolvedTitle) {
-              await finishMessageChannelChatTitleDelivery(attempt, false).catch(() => undefined)
+              await finishMessageChannelTitleDelivery(attempt, false).catch(() => undefined)
             }
             return resolvedTitle
           }
           catch {
-            await finishMessageChannelChatTitleDelivery(attempt, false).catch(() => undefined)
+            await finishMessageChannelTitleDelivery(attempt, false).catch(() => undefined)
             return undefined
           }
         })()
@@ -601,10 +601,10 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
 
       invocationStarts.set(context.context, async () => {
         if (!firstUserMessage(context.input.messages())) return
-        if (!shouldProvideChatTitleFinishExtension(context)) return
+        if (!shouldProvideTitleFinishExtension(context)) return
         if (context.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) return
         const resolvedTitle = await getTitle()
-        if (!resolvedTitle || !supportsChatTitleDelivery(context)) {
+        if (!resolvedTitle || !supportsTitleDelivery(context)) {
           await releaseChannelDeliveryAttempt()
           return
         }
@@ -612,21 +612,21 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
           await releaseChannelDeliveryAttempt()
           return
         }
-        context.delivery.effect(createMessageChannelChatTitleEffectIntent(
+        context.delivery.effect(createMessageChannelTitleEffectIntent(
           resolvedTitle.trim(),
           options.channelDelivery,
           await getChannelDeliveryAttempt(),
         ))
       })
       context.finish.provide(async () => {
-        if (!shouldProvideChatTitleFinishExtension(context)) return
+        if (!shouldProvideTitleFinishExtension(context)) return
         const resolvedTitle = await getTitle()
         return resolvedTitle ? { title: resolvedTitle } : undefined
       })
       const titleDeliveryEffect: AgentChannelDeliveryFinishEffectCallback = async (finish) => {
         const resolvedTitle = finish.extensions.get(capabilityId, "title")
         return typeof resolvedTitle === "string" && resolvedTitle.trim()
-          ? createMessageChannelChatTitleEffectIntent(
+          ? createMessageChannelTitleEffectIntent(
               resolvedTitle.trim(),
               options.channelDelivery,
               await getChannelDeliveryAttempt(),
@@ -641,7 +641,7 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
       titleDeliveryEffect.kind = "title"
       context.delivery.finishEffect(titleDeliveryEffect)
       context.output.render((result) => {
-        if (hasChatTitleApplied(result)) return result
+        if (hasTitleApplied(result)) return result
         if (!firstUserMessage(context.input.messages())) return result
         if (isStreamTextResult(result)) {
           const toUIMessageStream = result.toUIMessageStream?.bind(result)
@@ -649,30 +649,30 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
             const stream = result.stream
             const fullStream = result.fullStream
             const title = getTitle()
-            const titleStream = stream ? withChatTitleFullStream(stream, title) : undefined
+            const titleStream = stream ? withTitleFullStream(stream, title) : undefined
             return cloneStreamTextResult(result, {
               ...(titleStream ? { stream: titleStream } : {}),
               ...(fullStream
-                ? { fullStream: fullStream === stream && titleStream ? titleStream : withChatTitleFullStream(fullStream, title) }
+                ? { fullStream: fullStream === stream && titleStream ? titleStream : withTitleFullStream(fullStream, title) }
                 : {}),
-              ...chatTitleUiMessageStreamOverride(toUIMessageStream, title),
+              ...titleUiMessageStreamOverride(toUIMessageStream, title),
             })
           }
           if (result.textStream) {
             const title = getTitle()
             return cloneStreamTextResult(result, {
-              stream: withChatTitleTextStream(result.textStream, title),
-              ...chatTitleUiMessageStreamOverride(toUIMessageStream, title),
+              stream: withTitleTextStream(result.textStream, title),
+              ...titleUiMessageStreamOverride(toUIMessageStream, title),
             })
           }
           if (toUIMessageStream) {
             return cloneStreamTextResult(result, {
-              ...chatTitleUiMessageStreamOverride(toUIMessageStream, getTitle()),
+              ...titleUiMessageStreamOverride(toUIMessageStream, getTitle()),
             })
           }
         }
         if (!isAsyncIterable(result)) return result
-        return withChatTitleEvent(result, getTitle())
+        return withTitleEvent(result, getTitle())
       })
     },
   }), {

@@ -16,8 +16,8 @@ export {
   chatSummary,
 } from "./chat-summary.ts"
 export {
-  chatTitle,
-} from "./chat-title.ts"
+  title,
+} from "./title.ts"
 export {
   fetch,
 } from "./fetch.ts"
@@ -164,13 +164,13 @@ export type {
   ChatSummaryOptions,
 } from "./chat-summary.ts"
 export type {
-  ChatTitleExecuteInput,
-  ChatTitleExecuteResult,
-  ChatTitleOptions,
-  ChatTitleTemplate,
-  ChatTitleTemplateInput,
-  ChatTitleTemplateVariable,
-} from "./chat-title.ts"
+  TitleExecuteInput,
+  TitleExecuteResult,
+  TitleOptions,
+  TitleTemplate,
+  TitleTemplateInput,
+  TitleTemplateVariable,
+} from "./title.ts"
 export type {
   FetchCapabilityMethod,
   FetchCapabilityOptions,
