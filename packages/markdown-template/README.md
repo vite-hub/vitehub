@@ -76,4 +76,4 @@ Relative Markdown imports work in both forms and can remain ordinary `.md` files
 
 Files ending in `.template.md` remain direct-import modules and do not enter the named catalog, even when they are under `server/templates`. The legacy `?markdown-template` import query remains supported for existing applications, but new code should use the `.template.md` suffix.
 
-The `vitehub()` preset installs the integration. Modular Vite configs can add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`; both forms generate template names and ambient module types under `.vitehub/types`. Include `.vitehub/types/**/*.d.ts` in the application's `tsconfig.json` so TypeScript sees them.
+The `vitehub()` preset installs the integration. Modular Vite configs can add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`; both forms resolve `server/templates` and generated files from the ViteHub project root, including projects that use a nested Vite root. They generate template names and ambient module types under `.vitehub/types`; include `.vitehub/types/**/*.d.ts` in the application's `tsconfig.json` so TypeScript sees them.

@@ -1,7 +1,8 @@
-import { statSync } from "node:fs"
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises"
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path"
+import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
+import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 
 import {
   markdownTemplateFileSuffix,
@@ -32,41 +33,6 @@ interface MarkdownTemplateCatalogState {
 
 const ignoredTemplateDirectories = new Set([".git", ".vitehub", "dist", "node_modules"])
 const resolvedMarkdownTemplateRegistryId = `\0${markdownTemplateRegistryId}`
-const projectRootMarkers = [
-  ["server", "agents"],
-  ["server", "schedules"],
-  ["server", "templates"],
-  ["server", "workspaces"],
-  ["package.json"],
-]
-const projectRootDefinitionMarkers = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"]
-  .flatMap(extension => [["server", `email${extension}`], [`server.email${extension}`]])
-
-function hasProjectRootMarker(root: string, includePackage = true): boolean {
-  const markers = includePackage ? [...projectRootMarkers, ...projectRootDefinitionMarkers] : [...projectRootMarkers.slice(0, -1), ...projectRootDefinitionMarkers]
-  return markers.some((marker) => {
-    try {
-      const entry = statSync(resolve(root, ...marker))
-      return projectRootMarkers.includes(marker) && marker.length > 1 ? entry.isDirectory() : entry.isFile()
-    }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-      return false
-    }
-  })
-}
-
-function resolveProjectRoot(root: string): string {
-  const viteRoot = resolve(root)
-  if (basename(viteRoot) === "app" && hasProjectRootMarker(dirname(viteRoot), false)) return dirname(viteRoot)
-  let current = viteRoot
-  while (!hasProjectRootMarker(current)) {
-    const parent = dirname(current)
-    if (parent === current) return viteRoot
-    current = parent
-  }
-  return current
-}
 
 async function listMarkdownTemplateFiles(root: string, directory = root): Promise<string[]> {
   let entries
@@ -213,7 +179,7 @@ export function hubMarkdownTemplate(options: HubMarkdownTemplateOptions = {}): P
       }
     },
     async configResolved(config) {
-      root = resolveProjectRoot(config.root)
+      root = resolveViteHubProjectRoot(config.root)
       templatesRoot = resolve(root, "server", "templates")
       registryPath = resolve(root, markdownTemplateRegistryPath)
       catalogTypesPath = resolve(root, ".vitehub", "types", "templates.d.ts")

@@ -40,6 +40,7 @@
     "comark": "catalog:ui"
   },
   "devDependencies": {
+    "@vite-hub/internal": "workspace:*",
     "@types/node": "catalog:tooling",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",

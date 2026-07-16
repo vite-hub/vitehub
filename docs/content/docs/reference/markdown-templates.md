@@ -50,7 +50,7 @@ ViteHub removes the `server/templates/` prefix and `.md` extension from each cat
 
 JavaScript callers can bypass the generated union. At runtime, `renderTemplate` throws a `TypeError` when `name` does not exist in the bundled catalog.
 
-The `vitehub()` preset installs template discovery. Modular Vite configurations can add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`. Both integrations generate the ambient module under `.vitehub/types`, which the application `tsconfig.json` must include.
+The `vitehub()` preset installs template discovery. Modular Vite configurations can add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`. Both integrations resolve `server/templates` and generated files from the ViteHub project root, including projects that use a nested Vite root, and generate the ambient module under `.vitehub/types`, which the application `tsconfig.json` must include.
 
 Use a `.template.md` suffix when a private template belongs beside its caller instead of in the shared catalog:
 
