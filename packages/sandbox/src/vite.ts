@@ -1,27 +1,31 @@
-import { buildFeatureViteContext } from '@vite-hub/internal/feature-bridge'
+import { readFile } from 'node:fs/promises'
+
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
 import { createNoExternalMerger, isServerEnvironment } from '@vite-hub/internal/build/vite'
 import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
+import { detectHosting } from '@vite-hub/internal/feature-bridge/hosting'
+import { isPlainObject } from '@vite-hub/internal/object'
 import { normalize, relative, resolve } from 'pathe'
 
-import { createFeatureVitePlugin } from './internal/shared/vite'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
 import { discoverSandboxDefinitions } from './discovery'
-import { createSandboxFeaturePlan } from './feature'
-import { sandboxFeatureEngine, type SandboxPublicOptions } from './integration'
-import type { AgentSandboxConfig } from './module-types'
+import { createSandboxFeaturePlan, resolveSandboxFeatureConfig } from './feature'
+import { getSandboxFeatureProvider } from './module-types'
 import type { EmittedArtifact, FeatureRuntimePlan } from './internal/shared/runtime-artifacts'
 import type { Alias, AliasOptions, ConfigEnv, Plugin, ResolvedConfig } from 'vite'
 import type { DiscoveredSandboxDefinition } from './discovery'
+import type { AgentSandboxConfig } from './module-types'
 
 export { createViteHubDefinitionAutoImportsPlugin } from './internal/shared/vitehub-auto-imports'
-export type { SandboxPublicOptions } from './integration'
 
+export type SandboxPublicOptions = AgentSandboxConfig | false
 export type SandboxVitePlugin = Plugin
 
 const SANDBOX_PACKAGE_ID = '@vite-hub/sandbox'
 const SANDBOX_PROVIDER_LOADER_ID = 'vitehub-sandbox-provider-loader'
 const SANDBOX_REGISTRY_ID = '#vitehub-sandbox-registry'
+const SANDBOX_STATE_ID = '#vitehub/sandbox'
+const RESOLVED_SANDBOX_STATE_ID = '\0vitehub:sandbox:state'
 
 type AliasMap = Record<string, string>
 interface SandboxViteInternalOptions {
@@ -34,11 +38,111 @@ type PreparedSandboxRuntime = {
   definitions: DiscoveredSandboxDefinition[]
   files: string[]
 }
+type SandboxViteContext = {
+  rootDir: string
+  config: AgentSandboxConfig | false
+  deps: Record<string, string>
+  runtimeConfig: Record<string, unknown>
+  hosting?: string
+  command: ConfigEnv['command']
+  mode: string
+}
 
 const emptyPreparedSandboxRuntime: PreparedSandboxRuntime = {
   aliases: {},
   definitions: [],
   files: [],
+}
+
+function normalizeSandboxOptions(options: SandboxPublicOptions): AgentSandboxConfig | false {
+  if (options === false)
+    return false
+  if (!isPlainObject(options))
+    throw new TypeError('[vitehub] `sandbox` must be a plain object.')
+  return { ...options } as AgentSandboxConfig
+}
+
+function assignSandboxRuntimeConfig(runtimeConfig: Record<string, unknown>, config: AgentSandboxConfig | false) {
+  if (config === false) {
+    runtimeConfig.sandbox = false
+    return
+  }
+
+  const provider = getSandboxFeatureProvider(config)
+  runtimeConfig.sandbox = provider?.provider === 'vercel'
+    ? {
+        ...config,
+        token: provider.token ?? '',
+        teamId: provider.teamId ?? '',
+        projectId: provider.projectId ?? '',
+      }
+    : config
+}
+
+async function readSandboxWorkspaceDeps(rootDir: string) {
+  const packageJson = JSON.parse(await readFile(resolve(rootDir, 'package.json'), 'utf8')) as {
+    dependencies?: Record<string, string>
+    devDependencies?: Record<string, string>
+  }
+  return {
+    ...packageJson.dependencies,
+    ...packageJson.devDependencies,
+  }
+}
+
+async function resolveSandboxViteContext(
+  integrationOptions: SandboxPublicOptions | undefined,
+  userConfig: Record<string, unknown>,
+  env: ConfigEnv,
+): Promise<SandboxViteContext> {
+  const configOptions = userConfig.sandbox as SandboxPublicOptions | undefined
+  const options = normalizeSandboxOptions(
+    typeof configOptions === 'undefined' ? integrationOptions ?? {} : configOptions,
+  )
+  const hosting = detectHosting({ options: userConfig as { preset?: string | null } }) || undefined
+  const config = options === false ? false : resolveSandboxFeatureConfig(options, hosting)
+  const rootDir = resolve(process.cwd(), typeof userConfig.root === 'string' ? userConfig.root : '.')
+  const runtimeConfig: Record<string, unknown> = {}
+  if (hosting)
+    runtimeConfig.hosting = hosting
+  assignSandboxRuntimeConfig(runtimeConfig, config)
+
+  return {
+    rootDir,
+    config,
+    deps: await readSandboxWorkspaceDeps(rootDir),
+    runtimeConfig,
+    hosting,
+    command: env.command,
+    mode: env.mode,
+  }
+}
+
+function createSandboxStateModuleContents(context: SandboxViteContext) {
+  const state = {
+    feature: 'sandbox',
+    configKey: 'sandbox',
+    config: context.config,
+    runtimeConfig: context.runtimeConfig,
+    hosting: context.hosting,
+    rootDir: context.rootDir,
+    mode: context.mode,
+    command: context.command,
+  }
+
+  return [
+    `const state = ${JSON.stringify(state, null, 2)}`,
+    'export const feature = state.feature',
+    'export const configKey = state.configKey',
+    'export const config = state.config',
+    'export const runtimeConfig = state.runtimeConfig',
+    'export const hosting = state.hosting',
+    'export const rootDir = state.rootDir',
+    'export const mode = state.mode',
+    'export const command = state.command',
+    'export default state',
+    '',
+  ].join('\n')
 }
 
 function sandboxProviderLoaderFallback() {
@@ -151,16 +255,14 @@ async function writeSandboxArtifacts(rootDir: string, plan: FeatureRuntimePlan) 
 }
 
 async function prepareSandboxRuntimeAliases(
-  engine: typeof sandboxFeatureEngine,
+  context: SandboxViteContext,
   rawConfig: Record<string, unknown>,
-  rawEnv: ConfigEnv,
   resolved: ResolvedConfig | undefined,
   options: { writeArtifacts?: boolean } = {},
 ): Promise<PreparedSandboxRuntime> {
-  const rootDir = resolved?.root || resolve(process.cwd(), typeof rawConfig.root === 'string' ? rawConfig.root : '.')
-  const context = await buildFeatureViteContext(engine, { ...rawConfig, root: rootDir }, rawEnv)
-  const sandboxConfig = context?.config as AgentSandboxConfig | false | undefined
-  if (!context || !sandboxConfig)
+  const rootDir = context.rootDir
+  const sandboxConfig = context.config
+  if (!sandboxConfig)
     return emptyPreparedSandboxRuntime
 
   const facadeFile = resolve(ensureGeneratedDir(rootDir, 'sandbox'), 'runtime/sandbox.mjs')
@@ -191,7 +293,7 @@ async function prepareSandboxRuntimeAliases(
     facadeFile,
     createSandboxRuntimeFacadeContents(
       facadeFile,
-      (context.runtimeConfig as { sandbox?: unknown }).sandbox ?? context.config,
+      context.runtimeConfig.sandbox ?? context.config,
       aliases[SANDBOX_REGISTRY_ID]!,
     ),
   )
@@ -246,30 +348,25 @@ function invalidateGeneratedSandboxModules(files: string[], moduleGraph: { getMo
 
 export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   const internalOptions = options as SandboxPublicOptions & SandboxViteInternalOptions | undefined
-  const engine = {
-    ...sandboxFeatureEngine,
-    readPublicOptions(source) {
-      const configOptions = sandboxFeatureEngine.readPublicOptions(source)
-      return source.kind === 'vite' && typeof configOptions === 'undefined'
-        ? options
-        : configOptions
-    },
-  } satisfies typeof sandboxFeatureEngine
-  const plugin = createFeatureVitePlugin({
-    ...engine,
-  }) as SandboxVitePlugin
-  const configHook = plugin.config
-  const configEnvironment = plugin.configEnvironment
   const mergeNoExternal = createNoExternalMerger('@vite-hub/sandbox')
   let generatedAliases: AliasMap = {}
   let generatedFiles: string[] = []
   let definitions: DiscoveredSandboxDefinition[] = []
+  let sandboxStateModule: string | undefined
   let rawConfig: Record<string, unknown> = {}
   let rawEnv: ConfigEnv = { command: 'serve', mode: 'development' }
   let resolvedConfig: ResolvedConfig | undefined
 
+  async function resolveCurrentSandboxContext() {
+    const rootDir = resolvedConfig?.root || resolve(process.cwd(), typeof rawConfig.root === 'string' ? rawConfig.root : '.')
+    const context = await resolveSandboxViteContext(options, { ...rawConfig, root: rootDir }, rawEnv)
+    sandboxStateModule = createSandboxStateModuleContents(context)
+    return context
+  }
+
   async function refreshSandboxRuntime() {
-    const prepared = await prepareSandboxRuntimeAliases(engine, rawConfig, rawEnv, resolvedConfig)
+    const context = await resolveCurrentSandboxContext()
+    const prepared = await prepareSandboxRuntimeAliases(context, rawConfig, resolvedConfig)
     generatedAliases = prepared.aliases
     generatedFiles = prepared.files
     definitions = prepared.definitions
@@ -288,27 +385,36 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   }
 
   return {
-    ...plugin,
+    name: '@vite-hub/sandbox/vite',
+    enforce: 'pre',
     async config(config, env) {
       rawConfig = config as Record<string, unknown>
       rawEnv = env
-      const result = typeof configHook === 'function'
-        ? await configHook.call(this, config, env)
-        : undefined
-      const prepared = await prepareSandboxRuntimeAliases(engine, rawConfig, rawEnv, resolvedConfig, { writeArtifacts: false })
+      const context = await resolveCurrentSandboxContext()
+      const prepared = await prepareSandboxRuntimeAliases(context, rawConfig, resolvedConfig, { writeArtifacts: false })
       generatedAliases = prepared.aliases
       generatedFiles = prepared.files
       definitions = prepared.definitions
       return {
-        ...(result && typeof result === 'object' ? result : {}),
         resolve: {
-          ...readResolveOptions(result),
-          alias: mergeAliases(readResolveOptions(result).alias, {
+          alias: mergeAliases(undefined, {
             [SANDBOX_PROVIDER_LOADER_ID]: sandboxProviderLoaderFallback(),
             ...withoutSandboxPackageAlias(generatedAliases),
           }),
         },
       }
+    },
+    resolveId(id) {
+      if (!sandboxStateModule)
+        return
+      if (id === SANDBOX_STATE_ID)
+        return RESOLVED_SANDBOX_STATE_ID
+      if (id === RESOLVED_SANDBOX_STATE_ID)
+        return id
+    },
+    load(id) {
+      if (id === SANDBOX_STATE_ID || id === RESOLVED_SANDBOX_STATE_ID)
+        return sandboxStateModule
     },
     async configResolved(config) {
       resolvedConfig = config
@@ -323,8 +429,12 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       invalidateGeneratedSandboxModules([...previousFiles, ...generatedFiles, ...Object.values(generatedAliases)], context.server.moduleGraph)
     },
     configEnvironment(name, config) {
-      const result = typeof configEnvironment === 'function'
-        ? configEnvironment.call(this, name, config, undefined as never)
+      const result = config.consumer === 'server'
+        ? {
+            define: {
+              __VITEHUB_ENVIRONMENT_SANDBOX__: JSON.stringify(name),
+            },
+          }
         : undefined
       if (!isServerEnvironment(name, config)) {
         return result

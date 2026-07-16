@@ -13,7 +13,6 @@
     "./arrays": "./dist/arrays.js",
     "./definition-catalog": "./dist/definition-catalog.js",
     "./definition-discovery": "./dist/definition-discovery.js",
-    "./feature-bridge": "./dist/feature-bridge/feature-engine.js",
     "./feature-bridge/hosting": "./dist/feature-bridge/hosting.js",
     "./integrations/hex": "./dist/integrations/hex.js",
     "./object": "./dist/object.js",

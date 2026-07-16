@@ -22,6 +22,6 @@ import { createNoExternalMerger } from "@vite-hub/internal/build/vite"
 
 ## Used by
 
-Packages use it for definition discovery, generated runtime registries, Provider Output, hosted runtime helpers, and Vite-to-host feature bridges.
+Packages use it for definition discovery, generated runtime registries, Provider Output, hosted runtime helpers, and hosting normalization.
 
 Learn more at [vitehub.dev](https://vitehub.dev).
