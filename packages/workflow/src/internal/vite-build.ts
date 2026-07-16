@@ -467,10 +467,13 @@ function renderProviderEntry(
   entryFile: string,
   userAppEntry: string | undefined,
   serializedWorkflowConfig: string,
+  framework: boolean,
 ) {
+  const installVercelWorkflowRuntime = spec.name === "vercel" && framework
   const imports = [
-    `import { ${spec.factory} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
+    `import { ${spec.factory}${installVercelWorkflowRuntime ? ", setVercelWorkflowRuntimeModules" : ""} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
     `import workflowRegistry from ${JSON.stringify(`./${generatedRegistryFileName}`)}`,
+    ...(installVercelWorkflowRuntime ? [`import * as workflowApi from "workflow/api"`, `import * as workflowRuntime from "workflow/runtime"`] : []),
   ]
   if (spec.name === "cloudflare") {
     imports.push(`import { runCloudflareWorkflow } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("runtime/cloudflare-runner")))}`)
@@ -491,6 +494,7 @@ function renderProviderEntry(
   return [
     ...imports,
     "",
+    installVercelWorkflowRuntime ? "setVercelWorkflowRuntimeModules(workflowApi, workflowRuntime)" : "",
     `const workflowConfig = ${serializedWorkflowConfig}`,
     ...cloudflareDispatcher,
     "",
@@ -526,7 +530,7 @@ async function writeProviderEntries(
       ? cloudflareWorkflowConfig
       : resolveWorkflowConfig(workflow, spec.hosting)
     const serialized = JSON.stringify(workflowConfig, null, 2)
-    await writeFile(entryFile, renderProviderEntry(spec, entryFile, userAppEntry, serialized), "utf8")
+    await writeFile(entryFile, renderProviderEntry(spec, entryFile, userAppEntry, serialized, Boolean(importBases.workflow)), "utf8")
     entryFiles[spec.name] = entryFile
   }))
 
@@ -627,7 +631,7 @@ function createVercelOutput(
         ...(frameworkImportBase ? [] : optionalAgentRuntimeExternals),
         "cloudflare:workers",
         ...nodeBuiltinExternals,
-        ...(!workflowTransformPlugin ? ["workflow", "workflow/api", "workflow/runtime"] : []),
+        ...(!frameworkImportBase ? ["workflow", "workflow/api", "workflow/runtime"] : []),
       ],
       format: "esm",
       platform: "node",
@@ -666,7 +670,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     })
     if (vercelOutput) await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.providerDefinitions, options.providerImportAliases)
   }
-  if (workflowTransformPlugin) await withVercelWorkflowPackageLink(options.rootDir, writeOutputs)
+  if (workflowTransformPlugin && options.importBase) await withVercelWorkflowPackageLink(options.rootDir, writeOutputs)
   else await writeOutputs()
   return artifacts
 }
