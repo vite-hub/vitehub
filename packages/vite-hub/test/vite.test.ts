@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url"
+
 import { describe, expect, it, vi } from "vitest"
 
 const integrationMocks = vi.hoisted(() => ({
@@ -40,7 +42,13 @@ vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: integrationMocks.hubW
 
 import type { KVModuleOptions } from "@vite-hub/kv"
 import type { Plugin, PluginOption } from "vite"
+import frameworkPackageManifest from "../package.json" with { type: "json" }
 import { vitehub } from "../src/index.ts"
+
+const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/cli"])
+const generatedOwnerPackageCases = Object.keys(frameworkPackageManifest.dependencies)
+  .filter(name => name.startsWith("@vite-hub/"))
+  .map(name => [name, deniedGeneratedOwnerPackageNames.has(name) ? "deny" : "resolve"] as const)
 
 function pluginNames(plugins: PluginOption[]): string[] {
   return plugins.map(plugin => (plugin as Plugin).name)
@@ -259,6 +267,12 @@ describe("vitehub", () => {
       "/app/.vitehub/nitro/blob/plugin.ts",
       {} as never,
     )).toMatch(/\/vite-hub\/dist\/_internal\/blob\/runtime\/state\.js$/)
+  })
+
+  it.each(generatedOwnerPackageCases)("classifies generated import %s as %s", async (name, access) => {
+    const resolved = await dependencyResolver().call({} as never, name, "\0#vitehub/templates", {} as never)
+    if (access === "deny") expect(resolved).toBeUndefined()
+    else expect(resolved).toBe(fileURLToPath(import.meta.resolve(name)))
   })
 
   it("keeps third-party driver fallbacks out of the global alias map", async () => {
