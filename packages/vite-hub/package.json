@@ -116,8 +116,10 @@
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vitejs/devtools-kit": "catalog:vite",
+    "@workflow/builders": "catalog:workflow",
     "drizzle-kit": "catalog:database",
-    "drizzle-orm": "catalog:database"
+    "drizzle-orm": "catalog:database",
+    "workflow": "catalog:workflow"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

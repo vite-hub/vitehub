@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path"
 
@@ -60,6 +60,31 @@ async function createVercelWorkflowTransformPlugin(rootDir: string): Promise<Plu
   const builders = await loadVercelWorkflowBuilders()
   if (!builders) return undefined
   return builders.createSwcPlugin({ mode: "workflow", projectRoot: rootDir })
+}
+
+async function withVercelWorkflowPackageLink<T>(rootDir: string, run: () => Promise<T>): Promise<T> {
+  const target = join(rootDir, "node_modules", "workflow")
+  if (existsSync(target)) return await run()
+
+  // Workflow DevKit resolves its builtins from the application root, even when a framework owns the dependency.
+  const require = createRequire(import.meta.url)
+  const source = dirname(dirname(dirname(require.resolve("workflow/internal/builtins"))))
+  await mkdir(dirname(target), { recursive: true })
+  let ownsLink = false
+  try {
+    await symlink(source, target, process.platform === "win32" ? "junction" : "dir")
+    ownsLink = true
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+  }
+
+  try {
+    return await run()
+  }
+  finally {
+    if (ownsLink) await rm(target, { force: true })
+  }
 }
 
 async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}): Promise<void> {
@@ -128,7 +153,7 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
     workflowsBundlePath: "./.well-known/workflow/v1/flow.js",
     workingDir: rootDir,
   })
-  await builder.build()
+  await withVercelWorkflowPackageLink(rootDir, async () => await builder.build())
   const workflowConfig = JSON.parse(await readFile(outputConfigFile, "utf8")) as { routes?: unknown[], [key: string]: unknown }
   await writeFile(outputConfigFile, `${JSON.stringify({
     ...workflowConfig,

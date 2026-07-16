@@ -1223,6 +1223,9 @@ importers:
       '@vitejs/devtools-kit':
         specifier: catalog:vite
         version: 0.2.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@voidzero-dev/vite-plus-core@0.1.24)(crossws@0.4.5(srvx@0.11.22))(typescript@6.0.2)
+      '@workflow/builders':
+        specifier: catalog:workflow
+        version: 4.0.5(@opentelemetry/api@1.9.0)(@swc/helpers@0.5.21)
       drizzle-kit:
         specifier: catalog:database
         version: 0.31.10
@@ -1232,6 +1235,9 @@ importers:
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.2)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.7.0)(publint@0.3.21)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(unrun@0.2.36)(yaml@2.9.0)'
+      workflow:
+        specifier: catalog:workflow
+        version: 4.2.4(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.0)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.21))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.21))(@swc/helpers@0.5.21)(magicast@0.5.3)(typescript@6.0.2)
     devDependencies:
       '@types/node':
         specifier: catalog:tooling

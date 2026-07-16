@@ -41,9 +41,9 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/workspace` and `vite-hub/workspace/runtime` | Workspace Definitions, Sources, runtime facades, and registry APIs. |
 
 Third-party model providers, chat adapters, and harness packages remain explicit
-dependencies. Workflow retains its Vercel Functions runtime default; other
-provider-specific and host-specific ViteHub subpaths stay on their owner packages
-unless this reference promotes them.
+dependencies. The distribution includes the Workflow DevKit runtime and builders
+for its Vercel Workflow default; other provider-specific and host-specific
+ViteHub subpaths stay on their owner packages unless this reference promotes them.
 
 ## Direct owner-package imports
 
