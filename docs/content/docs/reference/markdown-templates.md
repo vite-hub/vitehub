@@ -37,7 +37,18 @@ const prompt = await renderPrompt('review/pull-request', {
 })
 ```
 
-The path `server/templates/review/pull-request.md` becomes `review/pull-request`. The `TemplateName` union provides completion in functions that accept a template name and reports misspelled names during type checking.
+ViteHub removes the `server/templates/` prefix and `.md` extension from each catalog name. The path `server/templates/pull-request.md` becomes `pull-request`, while `server/templates/review/pull-request.md` becomes `review/pull-request`.
+
+### Named template API
+
+`renderTemplate(name, data?)` returns a `Promise<string>` after rendering the named template with the supplied data.
+
+| Parameter | Type | Default | Purpose |
+| --- | --- | --- | --- |
+| `name` | `TemplateName` | Required | Selects a template from the generated literal union. TypeScript completes valid names and reports misspelled names. |
+| `data` | `Record<string, unknown>` | `{}` | Supplies values for bindings, fragments, and conditions. |
+
+JavaScript callers can bypass the generated union. At runtime, `renderTemplate` throws a `TypeError` when `name` does not exist in the bundled catalog.
 
 The `vitehub()` preset installs template discovery. Modular Vite configurations can add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`. Both integrations generate the ambient module under `.vitehub/types`, which the application `tsconfig.json` must include.
 
@@ -50,6 +61,8 @@ const markdown = await prompt({ pullRequest, sections })
 ```
 
 Relative template imports work with both forms. Imported fragments can remain ordinary `.md` files.
+
+Files ending in `.template.md` remain direct-import modules and do not enter the named catalog, even when they are under `server/templates`. The legacy `?markdown-template` import query remains supported for existing applications, but new code should use the `.template.md` suffix.
 
 ## Render a template string
 

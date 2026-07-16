@@ -60,7 +60,9 @@ export function renderPrompt(name: TemplateName, data: Record<string, unknown>) 
 }
 ```
 
-For example, `server/templates/review/pull-request.md` becomes `review/pull-request`. The generated `TemplateName` union autocompletes valid names in any function that accepts a template first and rejects typos during type checking.
+ViteHub removes the `server/templates/` prefix and `.md` extension from each catalog name. For example, `server/templates/pull-request.md` becomes `pull-request`, while `server/templates/review/pull-request.md` becomes `review/pull-request`.
+
+`renderTemplate(name, data?)` returns a `Promise<string>`. The generated `TemplateName` union autocompletes valid names and rejects typos, while the optional data record defaults to `{}`. A JavaScript caller that passes an unknown name receives a `TypeError` at runtime.
 
 Use a `.template.md` file when a private prompt belongs beside its caller instead of in the application catalog:
 
@@ -71,5 +73,7 @@ const markdown = await prompt({ pullRequest, sections })
 ```
 
 Relative Markdown imports work in both forms and can remain ordinary `.md` files.
+
+Files ending in `.template.md` remain direct-import modules and do not enter the named catalog, even when they are under `server/templates`. The legacy `?markdown-template` import query remains supported for existing applications, but new code should use the `.template.md` suffix.
 
 The `vitehub()` preset installs the integration. Modular Vite configs can add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`; both forms generate template names and ambient module types under `.vitehub/types`. Include `.vitehub/types/**/*.d.ts` in the application's `tsconfig.json` so TypeScript sees them.

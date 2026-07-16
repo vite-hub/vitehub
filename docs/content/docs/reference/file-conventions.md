@@ -72,9 +72,9 @@ This convention needs no `skills()` Capability declaration. Use [`skills()`](/do
 
 ## Markdown templates
 
-Ordinary Markdown files under `server/templates` form the application template catalog. ViteHub removes the directory prefix and `.md` extension to produce each typed template name, so `server/templates/review/pull-request.md` becomes `review/pull-request`.
+Ordinary Markdown files under `server/templates` form the application template catalog. ViteHub removes the directory prefix and `.md` extension to produce each typed template name, so `server/templates/pull-request.md` becomes `pull-request` and `server/templates/review/pull-request.md` becomes `review/pull-request`.
 
-Use a `.template.md` suffix only when a private template belongs beside its caller and should be imported directly. See [Markdown templates](/docs/reference/markdown-templates) for rendering and generated-type examples.
+Use a `.template.md` suffix only when a private template belongs beside its caller and should be imported directly. ViteHub excludes `.template.md` files from the named catalog. See [Markdown templates](/docs/reference/markdown-templates) for rendering and generated-type examples.
 
 ## Generated files
 

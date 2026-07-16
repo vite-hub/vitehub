@@ -3,6 +3,7 @@ import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import {
+  markdownTemplateFileSuffix,
   markdownTemplateModuleQuery,
   markdownTemplateRegistryId,
   markdownTemplateRegistryPath,
@@ -49,7 +50,7 @@ async function listMarkdownTemplateFiles(root: string, directory = root): Promis
         files.push(...await listMarkdownTemplateFiles(root, path))
       }
     }
-    else if (entry.isFile() && entry.name.endsWith(".md")) {
+    else if (entry.isFile() && entry.name.endsWith(".md") && !entry.name.endsWith(markdownTemplateFileSuffix)) {
       files.push(path)
     }
   }
