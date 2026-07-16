@@ -192,7 +192,15 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
             for (const specifier of extractMarkdownTemplateImportSpecifiers(source)) {
               const key = `${importer}\0${specifier}`
               if (imports[key]) continue
-              const resolved = await build.resolve(specifier, { importer, kind: "import-statement", resolveDir: dirname(importer) })
+              const resolved = await build.resolve(specifier, {
+                importer,
+                kind: "import-statement",
+                pluginData: {
+                  ...(args.pluginData && typeof args.pluginData === "object" ? args.pluginData : {}),
+                  [skipMarkdownTemplateResolve]: true,
+                },
+                resolveDir: dirname(importer),
+              })
               if (resolved.errors.length) return Promise.reject(new Error(resolved.errors.map(error => error.text).join("\n")))
               if (resolved.external || resolved.namespace !== "file") {
                 throw new Error(`[vitehub] Could not resolve Markdown template import ${JSON.stringify(specifier)} from ${JSON.stringify(importer)} to a file.`)

@@ -22,6 +22,7 @@ const tempDirs: string[] = []
 async function createRoot() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-markdown-template-"))
   tempDirs.push(root)
+  await writeFile(join(root, "package.json"), "{}", "utf8")
   return root
 }
 
@@ -139,6 +140,48 @@ describe("hubMarkdownTemplate", () => {
     await rm(join(root, "server"), { force: true, recursive: true })
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
     await expect(bundled.default()).resolves.toBe("Review ViteHub.")
+  }, 15_000)
+
+  it("uses the project root when Vite runs from app", async () => {
+    const root = await createRoot()
+    const app = join(root, "app")
+    const templates = join(root, "server", "templates")
+    await mkdir(app, { recursive: true })
+    await mkdir(templates, { recursive: true })
+    await writeFile(join(templates, "prompt.md"), "Hello.", "utf8")
+    await writeFile(join(app, "entry.ts"), 'export { renderTemplate } from "#vitehub/templates"\n', "utf8")
+
+    await build({
+      build: { lib: { entry: join(app, "entry.ts"), formats: ["es"] }, outDir: join(app, "dist") },
+      logLevel: "silent",
+      plugins: [hubMarkdownTemplate()],
+      root: app,
+    })
+
+    await expect(readFile(join(root, ".vitehub", "types", "templates.d.ts"), "utf8"))
+      .resolves.toContain('export type TemplateName = "prompt"')
+    await expect(readFile(join(root, ".vitehub", "markdown-template", "templates.mjs"), "utf8"))
+      .resolves.toContain("Hello.")
+  }, 15_000)
+
+  it("keeps a standalone app directory as the project root", async () => {
+    const parent = await createRoot()
+    const root = join(parent, "app")
+    const templates = join(root, "server", "templates")
+    await mkdir(templates, { recursive: true })
+    await writeFile(join(root, "package.json"), "{}", "utf8")
+    await writeFile(join(templates, "prompt.md"), "Hello.", "utf8")
+    await writeFile(join(root, "entry.ts"), 'export { renderTemplate } from "#vitehub/templates"\n', "utf8")
+
+    await build({
+      build: { lib: { entry: join(root, "entry.ts"), formats: ["es"] }, outDir: join(root, "dist") },
+      logLevel: "silent",
+      plugins: [hubMarkdownTemplate()],
+      root,
+    })
+
+    await expect(readFile(join(root, ".vitehub", "types", "templates.d.ts"), "utf8"))
+      .resolves.toContain('export type TemplateName = "prompt"')
   }, 15_000)
 
   it("fails the build when a bundled template import is missing", async () => {

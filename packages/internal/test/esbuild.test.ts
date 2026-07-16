@@ -160,6 +160,22 @@ describe("bundleEsmEntry", () => {
     expect(loaded.default).toBe("caller handled raw")
   })
 
+  it("bundles partials from direct Markdown template imports", async () => {
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "entry.mjs")
+    const template = join(rootDir, "prompt.template.md")
+    const outfile = join(rootDir, "bundle.mjs")
+    await writeFile(entry, 'import render from "./prompt.template.md"\nexport default render\n', "utf8")
+    await writeFile(template, "Hello @./partial.template.md", "utf8")
+    await writeFile(join(rootDir, "partial.template.md"), "{{ name }}!", "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
+
+    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: (data: object) => Promise<string> }
+    await expect(loaded.default({ name: "ViteHub" })).resolves.toBe("Hello ViteHub!")
+  })
+
   it("preserves external results from raw fallback resolution", async () => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "entry.mjs")
