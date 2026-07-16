@@ -291,7 +291,14 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     clientOutDir: options.clientOutDir,
     cloudflare: shouldCreateCloudflareOutput(options.runtimeConfig, provisionState) ? createCloudflareOutput(writeOptions) : undefined,
     cleanup: {
-      cloudflare: { fileNames: ["index.js"], wranglerConfigKeys: ["d1_databases"] },
+      cloudflare: () => {
+        const hasOtherCloudflareOutput = Object.entries(options.providerOutput?.runtimeModuleFilesByProduct ?? {})
+          .some(([product, modules]) => product !== productName && Boolean(modules?.cloudflare))
+        return {
+          ...(!hasOtherCloudflareOutput ? { fileNames: ["index.js"] } : {}),
+          wranglerConfigKeys: ["d1_databases"],
+        }
+      },
     },
     rootDir: options.rootDir,
     vercel: shouldCreateVercelOutput(options.runtimeConfig) ? createVercelOutput(writeOptions) : undefined,
