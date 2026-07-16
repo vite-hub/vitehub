@@ -735,9 +735,12 @@ async function runAgentAsWorkflow<
 
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, resolveAgentWorkflowName(agent, binding, context), Boolean(context.agentIdentity))
   const resolvedContext = createResolvedRuntimeContext(context)
+  const workflowInput = { ...input }
+  // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
+  delete workflowInput.abortSignal
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
     ...(context.agentIdentity ? { agentIdentity: context.agentIdentity } : {}),
-    input,
+    input: workflowInput,
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,
     ...(context.run ? { run: context.run } : {}),
@@ -2534,16 +2537,23 @@ export async function runAgent<
   return await runAgentInline(agent, invocationContext, input)
 }
 
-export async function runScheduledAgent(
+export async function runScheduledAgent<CALL_OPTIONS = unknown>(
   agent: AgentInput<AgentRuntimeContext>,
   context: ScheduleRunContextLike,
   runtimeContext: Partial<ResolvedAgentRuntimeContext> = {},
+  input: AgentRunInput<CALL_OPTIONS> = {},
 ): Promise<unknown> {
   const memoValues = new Map<string, unknown>()
   const runId = context.runId || context.id
   const turn = context.input && typeof context.input === "object" && (context.input as { kind?: unknown }).kind === "agent-turn"
     ? parseScheduledAgentTurnInput(context.input)
     : undefined
+  const forwardedInput = { ...input }
+  if (turn) {
+    delete forwardedInput.message
+    delete forwardedInput.messages
+    delete forwardedInput.prompt
+  }
 
   return await runAgent(agent, {
     ...runtimeContext,
@@ -2555,7 +2565,9 @@ export async function runScheduledAgent(
     runtime: runtimeContext.runtime ?? "unknown",
     waitUntil: runtimeContext.waitUntil ?? context.waitUntil ?? (() => {}),
   }, {
+    ...forwardedInput,
     context: {
+      ...input.context,
       ...(turn
         ? {
             invoker: turn.invoker,
