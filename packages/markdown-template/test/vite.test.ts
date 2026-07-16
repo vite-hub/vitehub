@@ -95,9 +95,11 @@ describe("hubMarkdownTemplate", () => {
     await writeFile(entry, [
       `import { renderTemplate, type TemplateName } from "#vitehub/templates"`,
       `const name: TemplateName = "review/prompt"`,
-      `// @ts-expect-error invalid template name`,
-      `const invalid: TemplateName = "missing"`,
-      `void invalid`,
+      `function assertInvalidName(): void {`,
+      `  // @ts-expect-error invalid template name`,
+      `  void renderTemplate("missing")`,
+      `}`,
+      `void assertInvalidName`,
       `export default (): Promise<string> => renderTemplate(name, { repository: "ViteHub" })`,
       ``,
     ].join("\n"), "utf8")
