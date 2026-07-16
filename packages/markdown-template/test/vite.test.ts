@@ -100,6 +100,7 @@ describe("hubMarkdownTemplate", () => {
     await mkdir(templates, { recursive: true })
     await writeFile(join(templates, "prompt.md"), "Review {{ repository }}.\n", "utf8")
     await writeFile(join(templates, "private.template.md"), "Private {{ repository }}.\n", "utf8")
+    await writeFile(join(root, "server", "templates", "__proto__.md"), "Prototype-safe.\n", "utf8")
     await writeFile(entry, [
       `import { renderTemplate, type TemplateName } from "#vitehub/templates"`,
       `const name: TemplateName = "review/prompt"`,
@@ -125,10 +126,11 @@ describe("hubMarkdownTemplate", () => {
     })
 
     const catalogTypesPath = join(root, ".vitehub", "types", "templates.d.ts")
-    await expect(readFile(catalogTypesPath, "utf8")).resolves.toContain(`export type TemplateName = "review/prompt"`)
+    await expect(readFile(catalogTypesPath, "utf8")).resolves.toContain(`export type TemplateName = "__proto__" | "review/prompt"`)
     await expect(readFile(catalogTypesPath, "utf8")).resolves.not.toContain("private")
     const catalogPath = join(root, ".vitehub", "markdown-template", "templates.mjs")
     await expect(readFile(catalogPath, "utf8")).resolves.toContain("Review {{ repository }}.")
+    await expect(readFile(catalogPath, "utf8")).resolves.toContain("Prototype-safe.")
     await expect(readFile(catalogPath, "utf8")).resolves.not.toContain("Private {{ repository }}.")
 
     const program = createProgram({

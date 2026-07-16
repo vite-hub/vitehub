@@ -75,7 +75,7 @@ async function loadBundledMarkdownTemplate(path: string): Promise<BundledMarkdow
 
 async function createMarkdownTemplateCatalog(root: string, runtimeImport: string): Promise<MarkdownTemplateCatalogState> {
   const templatesRoot = resolve(root, "server", "templates")
-  const entries: Record<string, BundledMarkdownTemplateCatalogEntry> = {}
+  const entries: Record<string, BundledMarkdownTemplateCatalogEntry> = Object.create(null)
   const watchFiles = new Set<string>()
 
   for (const file of await listMarkdownTemplateFiles(templatesRoot)) {
