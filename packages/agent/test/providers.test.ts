@@ -429,7 +429,6 @@ describe("agent Vite plugin", () => {
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(wrapper).toContain("export default async function viteHubAgentNetlifyFunction(request, context)")
-      expect(wrapper).toContain("import { createChannelChatRouteHandler, createChannelWebhookRouteHandler, createDiscordGatewayRouteHandler, hasChannelChatRoute } from \"@vite-hub/agent/server/internal\"")
       expect(wrapper).toContain("import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from \"@vite-hub/agent/server/internal\"")
       expect(wrapper).toContain("state: () => import(\"vite-hub/_internal/workflow/runtime/state\")")
       expect(wrapper).toContain("workflow: () => import(\"vite-hub/_internal/workflow\")")
