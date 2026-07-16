@@ -21,6 +21,11 @@ const viteMarkdownTemplateNamespace = "vitehub-markdown-template"
 const markdownTemplateQuery = "markdown-template"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
+function resolveEsbuildAliases(aliases: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (!aliases) return
+  return Object.fromEntries(Object.entries(aliases).filter(([specifier]) => !specifier.endsWith("/")))
+}
+
 function stripMarkdownCode(template: string): string {
   let fence: { marker: string, length: number, listIndented: boolean } | undefined
   let inList = false
@@ -204,10 +209,11 @@ export async function bundleEsmEntry(
 ): Promise<void> {
   const format = options.format || "esm"
   const platform = options.platform || "neutral"
-  const frameworkRuntime = Object.keys(options.alias || {}).some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
+  const aliases = resolveEsbuildAliases(options.alias)
+  const frameworkRuntime = Object.keys(aliases || {}).some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
 
   await bundle({
-    alias: options.alias,
+    alias: aliases,
     banner: format === "esm" && platform === "node"
       ? {
           js: [
@@ -221,7 +227,7 @@ export async function bundleEsmEntry(
         }
       : undefined,
     bundle: true,
-    conditions: options.conditions,
+    conditions: options.conditions ?? (platform === "node" ? ["node", "import", "default"] : undefined),
     entryPoints: [entryFile],
     external: options.external,
     format,

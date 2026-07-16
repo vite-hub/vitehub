@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { execFile } from "node:child_process"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
@@ -216,6 +216,32 @@ describe("Vite provider outputs", () => {
     })
 
     expect(await readFile(join(rootDir, ".vercel", "output", "static", "index.html"), "utf8")).toContain("<title>vitehub</title>")
+  })
+
+  it("preserves Nitro output when emitting a composed Vercel function", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-nitro-output-")
+    const outputRoot = join(rootDir, ".vercel", "output")
+    const nitroFunction = join(outputRoot, "functions", "__server.func", "index.mjs")
+    const nitroConfig = {
+      routes: [{ src: "/(.*)", dest: "/__server" }],
+      version: 3,
+    }
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(dirname(nitroFunction), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
+    await writeFile(nitroFunction, "export default 'nitro'\n", "utf8")
+    await writeFile(join(outputRoot, "config.json"), `${JSON.stringify(nitroConfig, null, 2)}\n`, "utf8")
+
+    await generateProviderOutputs({
+      blob: {},
+      clientOutDir: "dist",
+      rootDir,
+      serverFunctionName: "__blob.func",
+    })
+
+    await expect(readFile(nitroFunction, "utf8")).resolves.toBe("export default 'nitro'\n")
+    await expect(readFile(join(outputRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual(nitroConfig)
+    expect(existsSync(join(outputRoot, "functions", "__blob.func", "index.mjs"))).toBe(true)
   })
 
   it("omits Cloudflare bucket bindings when none are configured", async () => {

@@ -39,6 +39,7 @@ interface GenerateProviderOutputsOptions {
   providerOutput?: ComposedProviderOutput
   rootDir: string
   runtimeConfig: ResolvedDBViteConfig
+  serverFunctionName?: string
 }
 
 interface GeneratedDBArtifacts {
@@ -208,6 +209,7 @@ interface ProviderWriteOptions {
   provisionState: ProvisionState
   rootDir: string
   runtimeConfig: ResolvedDBViteConfig
+  serverFunctionName?: string
 }
 
 function createCloudflareOutput({ artifacts, providerOutput, provisionState, runtimeConfig }: ProviderWriteOptions): CloudflareProviderDeploymentOutput {
@@ -249,7 +251,7 @@ function createCloudflareOutput({ artifacts, providerOutput, provisionState, run
   }
 }
 
-function createVercelOutput({ artifacts, providerOutput, runtimeConfig }: ProviderWriteOptions): VercelProviderDeploymentOutput {
+function createVercelOutput({ artifacts, providerOutput, runtimeConfig, serverFunctionName }: ProviderWriteOptions): VercelProviderDeploymentOutput {
   const unsupportedDatabases = getVercelUnsupportedDatabases(runtimeConfig)
   if (unsupportedDatabases.length) {
     throw new Error(`[vitehub] Vercel output requires a remote libSQL \`db.connection.url\` for databases: ${unsupportedDatabases.join(", ")}.`)
@@ -266,6 +268,7 @@ function createVercelOutput({ artifacts, providerOutput, runtimeConfig }: Provid
       format: "esm",
       platform: "node",
     },
+    ...(serverFunctionName ? { config: {}, serverFunctionName } : {}),
   }
 }
 

@@ -39,6 +39,10 @@ export function isServerEnvironment(name: string, config: { consumer?: string })
   return name === "ssr" || config.consumer === "server"
 }
 
+export function resolveNitroVercelFunctionName(plugins: readonly { name: string }[], product: string): string | undefined {
+  return plugins.some(plugin => plugin.name === "nitro:main") ? `__${product}.func` : undefined
+}
+
 export function shouldSkipViteProviderBuild(command: "build" | "serve" | undefined, mode?: string): boolean {
   return command === "serve" || mode === "e2e"
 }

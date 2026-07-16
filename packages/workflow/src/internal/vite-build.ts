@@ -209,6 +209,7 @@ interface GenerateProviderOutputsOptions {
   importBase?: string
   providerImportAliases?: Record<string, string>
   rootDir: string
+  serverFunctionName?: string
   workflow: WorkflowModuleOptions | undefined
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
@@ -621,6 +622,7 @@ function createVercelOutput(
   workflowTransformPlugin: Plugin | undefined,
   frameworkImportBase?: string,
   providerImportAliases?: Record<string, string>,
+  serverFunctionName?: string,
 ): VercelProviderDeploymentOutput {
   return {
     bundleEntry: artifacts.vercelServerFile,
@@ -637,6 +639,7 @@ function createVercelOutput(
       platform: "node",
       plugins: workflowTransformPlugin ? [workflowTransformPlugin] : [],
     },
+    ...(serverFunctionName ? { config: {}, serverFunctionName } : {}),
   }
 }
 
@@ -656,7 +659,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     ? await createVercelWorkflowTransformPlugin(options.rootDir)
     : undefined
   const vercelOutput = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
-    ? createVercelOutput(artifacts, workflowTransformPlugin, options.importBase, options.providerImportAliases)
+    ? createVercelOutput(artifacts, workflowTransformPlugin, options.importBase, options.providerImportAliases, options.serverFunctionName)
     : undefined
   const writeOutputs = async () => {
     await writeProviderDeploymentOutputs({

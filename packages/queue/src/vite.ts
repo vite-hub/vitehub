@@ -1,6 +1,6 @@
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
 
 import { generateProviderOutputs, queuePackageName } from "./internal/vite-build.ts"
 import { createQueueProvisionStep } from "./provision.ts"
@@ -53,6 +53,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         clientOutDir: resolved.build.outDir,
         queue,
         rootDir: resolved.root,
+        serverFunctionName: resolveNitroVercelFunctionName(resolved.plugins, "queue"),
       })
     },
   }

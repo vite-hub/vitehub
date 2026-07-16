@@ -1,7 +1,7 @@
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { resetComposedProviderOutput, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
 import { resolve } from "pathe"
 
 import { generateProviderOutputs, prepareProviderOutputs, blobPackageName } from "./internal/vite-build.ts"
@@ -123,6 +123,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
   let providerOutput: ComposedProviderOutput | undefined
   let rootDir = process.cwd()
   let runtimeConfig: BlobViteRuntimeConfig | undefined
+  let serverFunctionName: string | undefined
   const getConfig = () => runtimeConfig ??= resolveBlobViteConfig(options)
 
   return {
@@ -153,6 +154,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       blob = config.blob ?? blob
       providerOutput = useComposedProviderOutput(config)
       runtimeConfig = resolveBlobViteConfig(blob)
+      serverFunctionName = resolveNitroVercelFunctionName(config.plugins, "blob")
       await refreshBlobGeneratedFiles(config.root, runtimeConfig.blob, importBase)
     },
     configEnvironment(name, config) {
@@ -191,6 +193,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
         artifacts: providerArtifacts,
         providerOutput,
         rootDir,
+        serverFunctionName,
       })
     },
     load(id) {
