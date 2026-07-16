@@ -1,10 +1,20 @@
+import { execFile } from "node:child_process"
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { delimiter, join } from "node:path"
+import { promisify } from "node:util"
 
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createDbCliContributor } from "../src/cli.ts"
 
 import type { ResolvedDBViteConfig } from "../src/types.ts"
+
+const execFileAsync = promisify(execFile)
+const tempDirs: string[] = []
+
+afterEach(async () => {
+  await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
+})
 
 function cliContext(spawn: ReturnType<typeof vi.fn>, env?: NodeJS.ProcessEnv) {
   return {
@@ -17,6 +27,48 @@ function cliContext(spawn: ReturnType<typeof vi.fn>, env?: NodeJS.ProcessEnv) {
 }
 
 describe("DB CLI contributor", () => {
+  it("generates a D1 HTTP migration with the supported Drizzle ORM", async () => {
+    const rootDir = await mkdtemp(join(import.meta.dirname, ".drizzle-generate-"))
+    const schemaFile = join(rootDir, "schema.ts")
+    const configFile = join(rootDir, "drizzle.config.ts")
+    const outputDir = join(rootDir, "migrations")
+    tempDirs.push(rootDir)
+
+    await writeFile(schemaFile, [
+      "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+      "export const notes = sqliteTable('notes', {",
+      "  id: integer('id').primaryKey({ autoIncrement: true }),",
+      "  title: text('title').notNull(),",
+      "})",
+      "",
+    ].join("\n"))
+    await writeFile(configFile, [
+      "export default {",
+      "  dialect: 'sqlite',",
+      "  driver: 'd1-http',",
+      "  dbCredentials: {",
+      "    accountId: 'account-id',",
+      "    databaseId: 'database-id',",
+      "    token: 'api-token',",
+      "  },",
+      `  out: ${JSON.stringify(outputDir)},`,
+      `  schema: ${JSON.stringify(schemaFile)},`,
+      "}",
+      "",
+    ].join("\n"))
+
+    await execFileAsync(process.execPath, [
+      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
+      "generate",
+      "--config",
+      configFile,
+    ], { cwd: rootDir })
+
+    const migration = (await readdir(outputDir)).find(file => file.endsWith(".sql"))
+    expect(migration).toBeDefined()
+    await expect(readFile(join(outputDir, migration!), "utf8")).resolves.toContain("CREATE TABLE `notes`")
+  })
+
   it("runs Drizzle Kit once per named database config", async () => {
     const spawn = vi.fn(async () => ({ exitCode: 0 }))
     const config = {
