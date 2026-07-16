@@ -13,5 +13,7 @@ describe("Vite provider builds", () => {
     expect(resolveNitroVercelFunctionName([{ name: "vitehub" }], "blob", "vercel", {})).toBeUndefined()
     expect(resolveNitroVercelFunctionName(undefined, "blob", "vercel", {})).toBeUndefined()
     expect(resolveNitroVercelFunctionName(plugins, "blob", "node-server", {})).toBeUndefined()
+    expect(resolveNitroVercelFunctionName(plugins, "blob", "node-server", { VERCEL: "1" })).toBeUndefined()
+    expect(resolveNitroVercelFunctionName(plugins, "blob", "cloudflare", { VITEHUB_HOSTING: "vercel" })).toBeUndefined()
   })
 })
