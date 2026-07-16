@@ -29,12 +29,12 @@ const runtimeOptions = [
 ] as const
 
 const workspaceOptions = [
-  { icon: "i-simple-icons-github", key: "github", label: "GitHub repository" },
-  { icon: "i-simple-icons-cloudflare", key: "cloudflare", label: "Cloudflare Artifacts" },
-  { icon: "i-simple-icons-vercel", key: "vercel", label: "Vercel Blob" },
-  { icon: "i-lucide-hard-drive", key: "local", label: "Local workspace" },
-  { icon: "i-lucide-memory-stick", key: "memory", label: "In-memory workspace" },
-  { icon: "i-lucide-component", key: "custom", label: "Custom workspace" },
+  { code: "{ name: 'repository', mode: 'write' }", icon: "i-simple-icons-github", key: "github", label: "GitHub repository" },
+  { code: "{ name: 'artifacts', mode: 'write' }", icon: "i-simple-icons-cloudflare", key: "cloudflare", label: "Cloudflare Artifacts" },
+  { code: "{ name: 'project', mode: 'write' }", icon: "i-simple-icons-vercel", key: "vercel", label: "Vercel Blob" },
+  { code: "{ name: 'local', mode: 'write' }", icon: "i-lucide-hard-drive", key: "local", label: "Local workspace" },
+  { code: "{ name: 'scratch', mode: 'write' }", icon: "i-lucide-memory-stick", key: "memory", label: "In-memory workspace" },
+  { code: "customWorkspace", icon: "i-lucide-component", key: "custom", label: "Custom workspace" },
 ] as const
 
 const capabilityOptions: PlaygroundOption[] = [
@@ -155,6 +155,7 @@ const selectedWorkspace = computed(() => workspaceOptions.find(option => option.
 const selectedRuntime = computed(() => runtimeKey.value === "workflow"
   ? workflowProvider.value
   : runtimeOptions.find(option => option.key === runtimeKey.value)!)
+const selectedRuntimeCode = computed(() => runtimeOptions.find(option => option.key === runtimeKey.value)!.code)
 const selectedCapabilities = computed(() => capabilityOptions.filter(option => selectedCapabilityKeys.value.includes(option.key)))
 const selectedChannels = computed(() => channelOptions.filter(option => selectedChannelKeys.value.includes(option.key)))
 const availableCapabilities = computed(() => capabilityOptions.filter(option => !selectedCapabilityKeys.value.includes(option.key)))
@@ -227,7 +228,11 @@ function selectHost(key: string) {
               color="neutral"
               variant="outline"
               class="code-select driver-select"
-            />
+            >
+              <template #default>
+                <span>{{ selectedDriver.code }}</span>
+              </template>
+            </USelect>
             <span>,</span>
           </div>
 
@@ -249,8 +254,12 @@ function selectHost(key: string) {
               color="neutral"
               variant="outline"
               class="code-select runtime-select"
-            />
-            <span v-if="runtimeKey === 'workflow'">,</span>
+            >
+              <template #default>
+                <span>{{ selectedRuntimeCode }}</span>
+              </template>
+            </USelect>
+            <span>,</span>
           </div>
 
           <div class="code-row pl-4">
@@ -271,7 +280,11 @@ function selectHost(key: string) {
               color="neutral"
               variant="outline"
               class="code-select workspace-select"
-            />
+            >
+              <template #default>
+                <span>{{ selectedWorkspace.code }}</span>
+              </template>
+            </USelect>
             <span>,</span>
           </div>
           <div class="code-row code-collection-row pl-4">
