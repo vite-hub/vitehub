@@ -217,6 +217,7 @@ describe("vitehub", () => {
     expect(await resolveId.call({} as never, "@vite-hub/agent", "\0virtual:third-party", {} as never)).toBeUndefined()
     expect(await resolveId.call({} as never, "@vite-hub/agent", "/app/.vitehub-other/agent.ts", {} as never)).toBeUndefined()
     expect(await resolveId.call({} as never, "@vite-hub/agent", "\0#vitehub/custom", {} as never)).toBeUndefined()
+    expect(await resolveId.call({} as never, "@vite-hub/cli", "\0#vitehub/templates", {} as never)).toBeUndefined()
     expect(await resolveId.call({} as never, "@vite-hub/workspace/runtime", "\0#vitehub-workspace-registry", {} as never)).toBeUndefined()
     expect(await resolveId.call({} as never, "@chat-adapter/discord", "/app/.vitehub/agent/route.ts", {} as never)).toBeUndefined()
     expect(await resolveId.call({} as never, "@vite-hub/agent/server", "/app/.vitehub/agent/route.ts", {} as never))

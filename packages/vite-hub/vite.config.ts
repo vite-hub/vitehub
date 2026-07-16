@@ -1,5 +1,16 @@
 import { defineConfig } from "vite-plus"
 
+import frameworkPackageManifest from "./package.json" with { type: "json" }
+
+const distributionEntries = [...new Set(
+  [
+    ...Object.values(frameworkPackageManifest.exports),
+    ...Object.values(frameworkPackageManifest.bin),
+  ]
+    .filter(target => target.startsWith("./dist/"))
+    .map(target => target.replace(/^\.\/dist\//, "src/").replace(/\.js$/, ".ts")),
+)].sort()
+
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
@@ -14,65 +25,7 @@ export default defineConfig({
         if (chunk?.type === "chunk") chunk.code = `import "@vite-hub/env/vite";\n${chunk.code}`
       },
     }],
-    entry: [
-      "src/_internal/agent.ts",
-      "src/_internal/agent/cloudflare.ts",
-      "src/_internal/agent/cloudflare/state.ts",
-      "src/_internal/agent/runtime/workflow.ts",
-      "src/_internal/agent/server.ts",
-      "src/_internal/agent/server/internal.ts",
-      "src/_internal/agent/server/workspace.ts",
-      "src/_internal/agent/state/sqlite.ts",
-      "src/_internal/blob.ts",
-      "src/_internal/blob/runtime/state.ts",
-      "src/_internal/kv.ts",
-      "src/_internal/kv/runtime/disabled-upstash.ts",
-      "src/_internal/markdown-template.ts",
-      "src/_internal/schedule.ts",
-      "src/_internal/schedule/runtime.ts",
-      "src/_internal/schedule/runtime/driver.ts",
-      "src/_internal/schedule/runtime/process.ts",
-      "src/_internal/schedule/runtime/static.ts",
-      "src/_internal/sandbox/runtime/state.ts",
-      "src/_internal/workflow.ts",
-      "src/_internal/workflow/runtime/execute.ts",
-      "src/_internal/workflow/runtime/state.ts",
-      "src/_internal/workspace.ts",
-      "src/_internal/workspace/internal/runtime/hosted.ts",
-      "src/_internal/workspace/internal/runtime/hosted-vercel-blob.ts",
-      "src/_internal/workspace/runtime.ts",
-      "src/agent.ts",
-      "src/agent/capabilities.ts",
-      "src/agent/channels.ts",
-      "src/auth.ts",
-      "src/auth/server.ts",
-      "src/bin.ts",
-      "src/blob.ts",
-      "src/box.ts",
-      "src/database.ts",
-      "src/database/drizzle.ts",
-      "src/email.ts",
-      "src/email/markdown.ts",
-      "src/email/server.ts",
-      "src/env.ts",
-      "src/env/presets.ts",
-      "src/env/schema.ts",
-      "src/env/secret.ts",
-      "src/env/server.ts",
-      "src/index.ts",
-      "src/kv.ts",
-      "src/queue.ts",
-      "src/runtime.ts",
-      "src/sandbox.ts",
-      "src/schedule.ts",
-      "src/schedule/runtime.ts",
-      "src/shell.ts",
-      "src/shell/workspace.ts",
-      "src/source.ts",
-      "src/workflow.ts",
-      "src/workspace.ts",
-      "src/workspace/runtime.ts",
-    ],
+    entry: distributionEntries,
     exports: {
       exclude: ["bin"],
       bin: {

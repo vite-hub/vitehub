@@ -32,26 +32,8 @@ import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
 import type { Plugin, PluginOption } from "vite"
 
-const frameworkDependencyNames = [
-  "@vite-hub/agent",
-  "@vite-hub/auth",
-  "@vite-hub/blob",
-  "@vite-hub/box",
-  "@vite-hub/database",
-  "@vite-hub/devtools",
-  "@vite-hub/email",
-  "@vite-hub/env",
-  "@vite-hub/kv",
-  "@vite-hub/markdown-template",
-  "@vite-hub/queue",
-  "@vite-hub/runtime",
-  "@vite-hub/sandbox",
-  "@vite-hub/schedule",
-  "@vite-hub/shell",
-  "@vite-hub/source",
-  "@vite-hub/workflow",
-  "@vite-hub/workspace",
-] as const
+const frameworkDependencyNames = Object.keys(frameworkPackageManifest.dependencies)
+  .filter(name => name.startsWith("@vite-hub/") && name !== "@vite-hub/cli")
 
 const frameworkVirtualImporters = new Set([
   "\0#vitehub/auth/server",
