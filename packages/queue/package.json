@@ -44,7 +44,6 @@
   "dependencies": {
     "defu": "catalog:unjs",
     "esbuild": "catalog:esbuild-v27",
-    "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
     "pathe": "catalog:unjs"
   },

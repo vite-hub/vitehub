@@ -146,8 +146,7 @@
     "@vitejs/devtools-kit": "catalog:vite",
     "chat": "catalog:chat",
     "comark": "catalog:ui",
-    "esbuild": "catalog:esbuild-v27",
-    "hookable": "catalog:unjs"
+    "esbuild": "catalog:esbuild-v27"
   },
   "devDependencies": {
     "@ai-sdk/harness": "catalog:ai",
@@ -159,7 +158,6 @@
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
-    "@vitejs/devtools-kit": "catalog:vite",
     "ai": "catalog:ai",
     "askweb": "catalog:ai",
     "evalite": "catalog:ai",

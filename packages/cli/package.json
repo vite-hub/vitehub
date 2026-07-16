@@ -42,7 +42,6 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
-    "@vite-hub/agent": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

@@ -82,7 +82,6 @@
   },
   "dependencies": {
     "esbuild": "catalog:tooling",
-    "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
     "local-pkg": "catalog:tooling",
     "mlly": "catalog:unjs",

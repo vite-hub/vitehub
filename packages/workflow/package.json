@@ -55,9 +55,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
-    "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
-    "ofetch": "catalog:unjs",
     "openworkflow": "catalog:workflow",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",

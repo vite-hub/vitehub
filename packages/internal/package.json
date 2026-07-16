@@ -51,9 +51,7 @@
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/runtime": "workspace:*",
     "esbuild": "catalog:esbuild-v27",
-    "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
-    "ofetch": "catalog:unjs",
     "pathe": "catalog:unjs"
   },
   "devDependencies": {
