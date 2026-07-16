@@ -229,6 +229,34 @@ describe("provider deployment outputs", () => {
     })
   })
 
+  it("preserves host Vercel config when writing an isolated function", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultVercelOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const outputRoot = createDefaultVercelOutputRoot(rootDir)
+    const config = {
+      routes: [{ dest: "/__server", src: "/(.*)" }],
+      version: 3,
+    }
+    await mkdir(outputRoot, { recursive: true })
+    await writeFile(join(outputRoot, "config.json"), `${JSON.stringify(config, null, 2)}\n`, "utf8")
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "entry.mjs"),
+        bundleOptions: {},
+        serverFunctionName: "__blob.func",
+      },
+    })
+
+    await expect(readFile(join(outputRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual(config)
+    expect(existsSync(join(outputRoot, "functions", "__blob.func", ".vc-config.json"))).toBe(true)
+  })
+
   it("serializes concurrent writes to shared provider config files", async () => {
     const rootDir = await createTempProject()
     const {

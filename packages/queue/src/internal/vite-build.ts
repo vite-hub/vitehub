@@ -263,7 +263,7 @@ function createVercelOutput(artifacts: GeneratedQueueArtifacts, serverFunctionNa
       format: "esm",
       platform: "node",
     },
-    ...(serverFunctionName ? { config: {}, serverFunctionName } : {}),
+    serverFunctionName,
   }
 }
 

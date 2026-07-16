@@ -639,7 +639,7 @@ function createVercelOutput(
       platform: "node",
       plugins: workflowTransformPlugin ? [workflowTransformPlugin] : [],
     },
-    ...(serverFunctionName ? { config: {}, serverFunctionName } : {}),
+    serverFunctionName,
   }
 }
 

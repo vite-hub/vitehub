@@ -249,7 +249,7 @@ function createVercelOutput({ artifacts, providerOutput, runtimeConfig, serverFu
       format: "esm",
       platform: "node",
     },
-    ...(serverFunctionName ? { config: {}, serverFunctionName } : {}),
+    serverFunctionName,
   }
 }
 

@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path"
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
 import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "./cloudflare.ts"
 import { bundleEsmEntry } from "./esbuild.ts"
+import { cleanProviderOutputConfig, writeProviderOutputConfig } from "./provider-output-config.ts"
 import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
 
 export { createDefaultCloudflareOutputRoot } from "./cloudflare.ts"
@@ -122,62 +123,6 @@ function resolveClientOutput(rootDir: string, clientOutDir: string): ResolvedCli
   }
 }
 
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
-async function readJsonObject(file: string): Promise<Record<string, unknown>> {
-  try {
-    const parsed = JSON.parse(await readFile(file, "utf8"))
-    return isJsonObject(parsed) ? parsed : {}
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {}
-    throw error
-  }
-}
-
-function deleteJsonObjectKeys(value: Record<string, unknown>, keys: string[] | undefined): Record<string, unknown> {
-  if (!keys?.length) return value
-  const next = { ...value }
-  for (const key of keys) {
-    delete next[key]
-  }
-  return next
-}
-
-async function writeMergedJsonObject(file: string, value: object, ownedKeys?: string[]): Promise<void> {
-  const existing = await readJsonObject(file)
-  await writeFile(file, `${JSON.stringify({ ...deleteJsonObjectKeys(existing, ownedKeys), ...value }, null, 2)}\n`, "utf8")
-}
-
-async function deleteJsonObjectKeysFromFile(file: string, keys: string[] | undefined): Promise<void> {
-  if (!keys?.length) return
-  let existing: Record<string, unknown>
-  try {
-    const parsed = JSON.parse(await readFile(file, "utf8"))
-    existing = isJsonObject(parsed) ? parsed : {}
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
-    throw error
-  }
-  const next = { ...existing }
-  let changed = false
-  for (const key of keys) {
-    if (key in next) {
-      delete next[key]
-      changed = true
-    }
-  }
-  if (!changed) return
-  if (!Object.keys(next).length) {
-    await rm(file, { force: true })
-    return
-  }
-  await writeFile(file, `${JSON.stringify(next, null, 2)}\n`, "utf8")
-}
-
 function createDefaultCloudflareStaticOutputDir(rootDir: string): string {
   return resolve(rootDir, "dist", "client")
 }
@@ -246,6 +191,7 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   const { clientDir, staticIndex } = resolveClientOutput(options.rootDir, options.clientOutDir)
   const outputRoot = options.outputRoot ?? createDefaultVercelOutputRoot(options.rootDir)
   const serverFunctionName = options.serverFunctionName ?? "__server.func"
+  const config = options.config ?? (options.serverFunctionName ? {} : createVercelConfigJson())
   const serverDir = resolve(outputRoot, "functions", serverFunctionName)
   const serverEntry = resolve(serverDir, "index.mjs")
 
@@ -255,7 +201,7 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   await Promise.all([
     bundleEsmEntry(options.bundleEntry, serverEntry, { ...options.bundleOptions, rootDir: options.rootDir }),
     writeFile(resolve(serverDir, ".vc-config.json"), `${JSON.stringify(options.functionConfig ?? createNodeFunctionConfig(), null, 2)}\n`, "utf8"),
-    writeMergedJsonObject(resolve(outputRoot, "config.json"), options.config ?? createVercelConfigJson(), options.configKeys),
+    writeProviderOutputConfig(resolve(outputRoot, "config.json"), config, { keys: options.configKeys }),
     staticIndex
       ? copyClientOutput(clientDir, options.staticOutputDir ?? resolve(outputRoot, "static"))
       : Promise.resolve(),
@@ -279,7 +225,7 @@ async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOpti
 
   await mkdir(outputRoot, { recursive: true })
   await Promise.all([
-    writeMergedJsonObject(resolve(outputRoot, "config.json"), options.config ?? {}, options.configKeys),
+    writeProviderOutputConfig(resolve(outputRoot, "config.json"), options.config ?? {}, { keys: options.configKeys }),
     ...functionWrites,
   ])
 }
@@ -309,7 +255,7 @@ async function cleanupVercelDeploymentOutput(rootDir: string, cleanup: VercelPro
   if (cleanup.serverFunctionName) {
     writes.push(rm(resolve(outputRoot, "functions", cleanup.serverFunctionName), { force: true, recursive: true }))
   }
-  writes.push(deleteJsonObjectKeysFromFile(resolve(outputRoot, "config.json"), cleanup.configKeys))
+  writes.push(cleanProviderOutputConfig(resolve(outputRoot, "config.json"), { keys: cleanup.configKeys }))
   await Promise.all(writes)
 }
 
@@ -318,7 +264,7 @@ async function cleanupNetlifyDeploymentOutput(rootDir: string, cleanup: NetlifyP
   const functionsRoot = resolve(outputRoot, "functions")
   const writes = (cleanup.functionNames ?? []).map(functionName =>
     rm(resolveNetlifyFunctionFile(functionsRoot, functionName), { force: true, recursive: true }))
-  writes.push(deleteJsonObjectKeysFromFile(resolve(outputRoot, "config.json"), cleanup.configKeys))
+  writes.push(cleanProviderOutputConfig(resolve(outputRoot, "config.json"), { keys: cleanup.configKeys }))
   await Promise.all(writes)
 }
 
