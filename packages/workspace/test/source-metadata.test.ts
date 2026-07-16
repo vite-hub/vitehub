@@ -149,6 +149,11 @@ describe("Workspace Source metadata", () => {
   })
 
   it("retains probe keys for inferred File Sources before loading them", () => {
+    const absoluteSource = normalizeWorkspaceSourceMetadata("review", {
+      mount: "review",
+      source: { path: "/opt/skills/review" },
+    } as never)
+
     expect(normalizeWorkspaceSourceMetadata("instructions", "AGENTS.md")).toMatchObject({
       mountPath: "",
       probeKeys: ["AGENTS.md"],
@@ -159,6 +164,10 @@ describe("Workspace Source metadata", () => {
       mountPath: "",
       probeKeys: [".agents/summary/AGENTS.md"],
     })
+    expect(absoluteSource).toMatchObject({
+      mountPath: "review",
+    })
+    expect(absoluteSource).not.toHaveProperty("probeKeys")
   })
 
   it("derives Access grant candidates from canonical Source placement", () => {

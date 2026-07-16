@@ -335,7 +335,7 @@ async function loadInferredWorkspaceSource(family: WorkspaceSourceFamily, input:
 
 function inferredSourceDefaults(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): Partial<WorkspaceSource> {
   if (!isPlainRecord(input)) {
-    return family === "file" ? { mount: "", probeKeys: [inferredFileSourceKey(input)] } : {}
+    return family === "file" ? { mount: "", probeKeys: inferredFileSourceProbeKeys(input) } : {}
   }
 
   if (family === "file") {
@@ -344,7 +344,7 @@ function inferredSourceDefaults(family: WorkspaceSourceFamily, input: WorkspaceS
       : input.mount ?? ""
     return copySourceRuntimeOptions(input, {
       mount,
-      probeKeys: [inferredFileSourceKey(input)],
+      probeKeys: inferredFileSourceProbeKeys(input),
     })
   }
 
@@ -383,12 +383,21 @@ function copySourceRuntimeOptions(input: Record<string, unknown>, defaults: Part
   }
 }
 
-function inferredFileSourceKey(input: WorkspaceSourceInput): string {
-  if (typeof input === "string") return normalizeSafeWorkspacePath(input)
+function inferredFileSourceProbeKeys(input: WorkspaceSourceInput): string[] | undefined {
+  if (typeof input === "string") return safeInferredFileProbeKeys(input)
   const options = input as unknown as Record<string, unknown>
-  if (typeof options.workspacePath === "string") return normalizeSafeWorkspacePath(options.workspacePath)
-  if (typeof options.path === "string") return normalizeSafeWorkspacePath(options.path)
+  if (typeof options.workspacePath === "string") return [normalizeSafeWorkspacePath(options.workspacePath)]
+  if (typeof options.path === "string") return safeInferredFileProbeKeys(options.path)
   throw new TypeError("[vitehub] file requires a path or workspacePath.")
+}
+
+function safeInferredFileProbeKeys(path: string): string[] | undefined {
+  try {
+    return [normalizeSafeWorkspacePath(path)]
+  }
+  catch {
+    return undefined
+  }
 }
 
 function inferredLivePaths(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): Record<string, string> | undefined {
