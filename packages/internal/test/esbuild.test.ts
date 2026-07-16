@@ -42,13 +42,13 @@ describe("bundleEsmEntry", () => {
   it("bundles caller-relative Markdown prompt templates without runtime source files", async () => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "babysitter.schedule.mjs")
-    const template = join(rootDir, "prompt.md")
+    const template = join(rootDir, "prompt.template.md")
     const partial = join(rootDir, "context.md")
     const outfile = join(rootDir, "bundle.mjs")
     await writeFile(template, "@./context.md.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline\n@./missing.md\ncode`\n\n> ~~~md\n> @./missing.md\n> ~~~~\n\n    @./missing.md\n\n- Example\n\n        @./missing.md\n\n- Fenced example\n    ```md\n    @./missing.md\n    ```\n\n- Context\n    @./context.md\n\n{{{ blocker }}}\n", "utf8")
     await writeFile(partial, "Review PR {{ context.number }}.", "utf8")
     await writeFile(entry, [
-      `import prompt from "./prompt.md?markdown-template"`,
+      `import prompt from "./prompt.template.md"`,
       `export default () => prompt({ blocker: "> Waiting", context: { number: 42 } })`,
       ``,
     ].join("\n"), "utf8")
@@ -63,6 +63,27 @@ describe("bundleEsmEntry", () => {
 
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
     await expect(bundled.default()).resolves.toBe("Review PR 42..\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n  ```\n  @./missing.md\n  ```\n- Fenced example\n  ```md\n  @./missing.md\n  ```\n- Context\nReview PR 42.\n\n> Waiting")
+  })
+
+  it("bundles the generated named-template registry", async () => {
+    const projectRoot = await createTempDir()
+    const rootDir = join(projectRoot, "app")
+    const entry = join(rootDir, "entry.mjs")
+    const registry = join(projectRoot, ".vitehub", "markdown-template", "templates.mjs")
+    const outfile = join(rootDir, "bundle.mjs")
+    await mkdir(dirname(registry), { recursive: true })
+    await mkdir(rootDir, { recursive: true })
+    await writeFile(join(projectRoot, "package.json"), "{}", "utf8")
+    await mkdir(join(projectRoot, "server", "templates"), { recursive: true })
+    await writeFile(registry, `export async function renderTemplate(name, data) { return name + ":" + data.value }\n`, "utf8")
+    await writeFile(entry, `import { renderTemplate } from "#vitehub/templates"\nexport default () => renderTemplate("review", { value: 42 })\n`, "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
+
+    await rm(join(projectRoot, ".vitehub"), { force: true, recursive: true })
+    const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
+    await expect(bundled.default()).resolves.toBe("review:42")
   })
 
   it("fails when a bundled Markdown template import is missing", async () => {
@@ -141,6 +162,22 @@ describe("bundleEsmEntry", () => {
 
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
     expect(loaded.default).toBe("caller handled raw")
+  })
+
+  it("bundles partials from direct Markdown template imports", async () => {
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "entry.mjs")
+    const template = join(rootDir, "prompt.template.md")
+    const outfile = join(rootDir, "bundle.mjs")
+    await writeFile(entry, 'import render from "./prompt.template.md"\nexport default render\n', "utf8")
+    await writeFile(template, "Hello @./partial.template.md", "utf8")
+    await writeFile(join(rootDir, "partial.template.md"), "{{ name }}!", "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
+
+    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: (data: object) => Promise<string> }
+    await expect(loaded.default({ name: "ViteHub" })).resolves.toBe("Hello ViteHub!")
   })
 
   it("preserves external results from raw fallback resolution", async () => {

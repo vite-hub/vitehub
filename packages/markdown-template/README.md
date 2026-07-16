@@ -46,14 +46,34 @@ The renderer does not provide loops, helpers, macros, a compile phase, filesyste
 
 Comark provides the Markdown parser, component syntax, syntax tree, and serializer. ViteHub owns the constrained composition policy exposed by this package.
 
-## Vite template modules
+## Named templates
 
-The Vite integration can bundle a caller-relative Markdown file as a render function, so the source file does not need to exist in the deployed runtime:
+Markdown files under `server/templates` are discovered by relative name and bundled before deployment:
 
 ```ts
-import prompt from "./prompt.md?markdown-template"
+import { renderTemplate, type TemplateName } from "#vitehub/templates"
+
+const markdown = await renderTemplate("review/pull-request", { pullRequest, sections })
+
+export function renderPrompt(name: TemplateName, data: Record<string, unknown>) {
+  return renderTemplate(name, data)
+}
+```
+
+ViteHub removes the `server/templates/` prefix and `.md` extension from each catalog name. For example, `server/templates/pull-request.md` becomes `pull-request`, while `server/templates/review/pull-request.md` becomes `review/pull-request`.
+
+`renderTemplate(name, data?)` returns a `Promise<string>`. The generated `TemplateName` union autocompletes valid names and rejects typos, while the optional data record defaults to `{}`. A JavaScript caller that passes an unknown name receives a `TypeError` at runtime.
+
+Use a `.template.md` file when a private prompt belongs beside its caller instead of in the application catalog:
+
+```ts
+import prompt from "./prompt.template.md"
 
 const markdown = await prompt({ pullRequest, sections })
 ```
 
-The `vitehub()` preset installs the integration. Modular Vite configs can add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`; both forms generate the ambient import type under `.vitehub/types`. Include `.vitehub/types/**/*.d.ts` in the application's `tsconfig.json` so TypeScript sees the generated module type.
+Relative Markdown imports work in both forms and can remain ordinary `.md` files.
+
+Files ending in `.template.md` remain direct-import modules and do not enter the named catalog, even when they are under `server/templates`. The legacy `?markdown-template` import query remains supported for existing applications, but new code should use the `.template.md` suffix.
+
+The `vitehub()` preset installs the integration. Modular Vite configs can add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`; both forms resolve `server/templates` and generated files from the ViteHub project root, including projects that use a nested Vite root. They generate template names and ambient module types under `.vitehub/types`; include `.vitehub/types/**/*.d.ts` in the application's `tsconfig.json` so TypeScript sees them.

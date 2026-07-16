@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url"
 
 import { build as bundle, type Plugin } from "esbuild"
 
+import { resolveViteHubProjectRoot } from "./vite.ts"
+
 interface BundleEsmEntryOptions {
   alias?: Record<string, string>
   conditions?: string[]
@@ -18,7 +20,11 @@ interface BundleEsmEntryOptions {
 
 const viteRawNamespace = "vitehub-vite-raw"
 const viteMarkdownTemplateNamespace = "vitehub-markdown-template"
-const markdownTemplateQuery = "markdown-template"
+const markdownTemplateFileSuffix = ".template.md"
+const markdownTemplateModuleQuery = "markdown-template"
+const markdownTemplateRegistryId = "#vitehub/templates"
+const markdownTemplateRegistryPath = ".vitehub/markdown-template/templates.mjs"
+const skipMarkdownTemplateResolve = "vitehubSkipMarkdownTemplateResolve"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
 function resolveEsbuildAliases(aliases: Record<string, string> | undefined): Record<string, string> | undefined {
@@ -71,10 +77,11 @@ function extractMarkdownTemplateImportSpecifiers(template: string): string[] {
 
 function parseMarkdownTemplateRequest(id: string): { path: string } | undefined {
   const queryIndex = id.indexOf("?")
-  if (queryIndex === -1) return
+  const path = id.split(/[?#]/, 1)[0]!
+  if (queryIndex === -1) return path.endsWith(markdownTemplateFileSuffix) ? { path } : undefined
   const query = id.slice(queryIndex + 1).split("#", 1)[0]!
-  if (!new URLSearchParams(query).has(markdownTemplateQuery)) return
-  return { path: id.slice(0, queryIndex) }
+  if (!new URLSearchParams(query).has(markdownTemplateModuleQuery)) return
+  return { path }
 }
 
 function renderMarkdownTemplateModule(template: string, sourceId?: string, imports: Record<string, { id: string, template: string }> = {}): string {
@@ -123,7 +130,8 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
           resolveDir: args.resolveDir,
         })
       })
-      build.onResolve({ filter: /\?/ }, async (args) => {
+      build.onResolve({ filter: /\?|\.template\.md$/ }, async (args) => {
+        if (args.pluginData?.[skipMarkdownTemplateResolve]) return
         const markdownTemplate = parseMarkdownTemplateRequest(args.path)
         const raw = hasViteRawQuery(args.path)
         if (!markdownTemplate && !raw) return
@@ -133,7 +141,12 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
           importer: args.importer,
           kind: args.kind,
           namespace: args.namespace,
-          pluginData: args.pluginData,
+          pluginData: markdownTemplate
+            ? {
+                ...(args.pluginData && typeof args.pluginData === "object" ? args.pluginData : {}),
+                [skipMarkdownTemplateResolve]: true,
+              }
+            : args.pluginData,
           resolveDir: args.resolveDir,
           with: args.with,
         })
@@ -179,7 +192,15 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
             for (const specifier of extractMarkdownTemplateImportSpecifiers(source)) {
               const key = `${importer}\0${specifier}`
               if (imports[key]) continue
-              const resolved = await build.resolve(specifier, { importer, kind: "import-statement", resolveDir: dirname(importer) })
+              const resolved = await build.resolve(specifier, {
+                importer,
+                kind: "import-statement",
+                pluginData: {
+                  ...(args.pluginData && typeof args.pluginData === "object" ? args.pluginData : {}),
+                  [skipMarkdownTemplateResolve]: true,
+                },
+                resolveDir: dirname(importer),
+              })
               if (resolved.errors.length) return Promise.reject(new Error(resolved.errors.map(error => error.text).join("\n")))
               if (resolved.external || resolved.namespace !== "file") {
                 throw new Error(`[vitehub] Could not resolve Markdown template import ${JSON.stringify(specifier)} from ${JSON.stringify(importer)} to a file.`)
@@ -209,7 +230,11 @@ export async function bundleEsmEntry(
 ): Promise<void> {
   const format = options.format || "esm"
   const platform = options.platform || "neutral"
-  const aliases = resolveEsbuildAliases(options.alias)
+  const markdownTemplateRoot = options.rootDir && resolveViteHubProjectRoot(options.rootDir)
+  const aliases = resolveEsbuildAliases({
+    ...(markdownTemplateRoot ? { [markdownTemplateRegistryId]: resolve(markdownTemplateRoot, markdownTemplateRegistryPath) } : {}),
+    ...options.alias,
+  })
   const frameworkRuntime = Object.keys(aliases || {}).some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
 
   await bundle({

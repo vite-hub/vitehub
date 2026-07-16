@@ -70,6 +70,12 @@ server/
 
 This convention needs no `skills()` Capability declaration. Use [`skills()`](/docs/capabilities/skills) when the Skill comes from a Workspace or external Source instead of the Agent folder.
 
+## Markdown templates
+
+Ordinary Markdown files under `server/templates` form the application template catalog. ViteHub removes the directory prefix and `.md` extension to produce each typed template name, so `server/templates/pull-request.md` becomes `pull-request` and `server/templates/review/pull-request.md` becomes `review/pull-request`.
+
+Use a `.template.md` suffix only when a private template belongs beside its caller and should be imported directly. ViteHub excludes `.template.md` files from the named catalog. See [Markdown templates](/docs/reference/markdown-templates) for rendering and generated-type examples.
+
 ## Generated files
 
 Generated files live under `.vitehub/**` and host output directories.
