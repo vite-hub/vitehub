@@ -25,7 +25,7 @@ const driverOptions = [
 
 const runtimeOptions = [
   { code: "workflow('review')", icon: "i-lucide-git-pull-request-arrow", key: "workflow", label: "Durable workflow" },
-  { code: "inline by default", icon: "i-lucide-zap", key: "inline", label: "Inline execution" },
+  { code: "false", icon: "i-lucide-zap", key: "inline", label: "Inline execution" },
 ] as const
 
 const workspaceOptions = [
