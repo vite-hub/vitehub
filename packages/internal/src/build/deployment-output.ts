@@ -30,7 +30,7 @@ interface CloudflareDeploymentOutputOptions extends SharedDeploymentOptions {
   wranglerConfig: object
 }
 
-export type VercelFunctionOutput =
+type VercelFunctionOutput =
   | { kind: "isolated", name: string }
   | { kind: "root" }
 
