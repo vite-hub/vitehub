@@ -8,6 +8,8 @@ import { runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRunti
 
 import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry } from "../types.ts"
 
+export { setVercelWorkflowRuntimeModules } from "./vercel.ts"
+
 interface WorkflowVercelServerOptions {
   app?: WorkflowApp
   registry?: WorkflowDefinitionRegistry

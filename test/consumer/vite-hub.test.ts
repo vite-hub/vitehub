@@ -30,7 +30,6 @@ const optionalPackages = [
   "files-sdk",
   "openworkflow",
   "vitest",
-  "workflow",
 ]
 
 interface PackageManifest {
@@ -155,6 +154,11 @@ async function assertPackedPackage(tarball: string, framework: boolean) {
 
   if (!framework) return
 
+  expect(manifest.dependencies).toMatchObject({
+    "@workflow/builders": expect.any(String),
+    workflow: expect.any(String),
+  })
+
   for (const [name, spec] of Object.entries(manifest.dependencies || {})) {
     if (name.startsWith("@vite-hub/")) {
       expect(spec, `${manifest.name} should pin ${name} to its tested release matrix`).toBe(manifest.version)
@@ -249,14 +253,14 @@ async function readGeneratedSources(dir: string, root = dir): Promise<Record<str
   return sources
 }
 
-async function assertOptionalPackagesAbsent(appDir: string) {
-  const virtualStore = join(appDir, "node_modules/.pnpm")
-  const entries = await readdir(virtualStore)
-
-  for (const name of optionalPackages) {
-    const installed = entries.some(entry => existsSync(join(virtualStore, entry, "node_modules", ...name.split("/"))))
-    expect(installed, `${name} should remain opt-in`).toBe(false)
-  }
+async function assertOptionalPackagesUnreachable(appDir: string) {
+  const script = [
+    `const packages = ${JSON.stringify(optionalPackages)}`,
+    "const reachable = packages.filter((name) => { try { import.meta.resolve(name); return true } catch { return false } })",
+    "process.stdout.write(JSON.stringify(reachable))",
+  ].join("\n")
+  const { stdout } = await run("node", ["--input-type=module", "--eval", script], appDir)
+  expect(JSON.parse(stdout), "optional packages must not resolve from the consumer root").toEqual([])
 }
 
 function importSpecifierOccurrences(source: string) {
@@ -363,7 +367,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         "--eval",
         "let resolved = false; try { import.meta.resolve('@vite-hub/agent'); resolved = true } catch {} if (resolved) throw new Error('owner package resolved from the consumer root')",
       ], appDir)
-      await assertOptionalPackagesAbsent(appDir)
+      await assertOptionalPackagesUnreachable(appDir)
 
       await run("pnpm", ["run", "typecheck"], appDir)
       await run("pnpm", ["run", "build"], appDir)

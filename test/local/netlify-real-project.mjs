@@ -62,6 +62,8 @@ function renderWorkspaceYaml(overrides) {
   return [
     "allowBuilds:",
     "  '@mongodb-js/zstd': true",
+    "  '@swc/core': true",
+    "  cbor-extract: true",
     "  esbuild: true",
     "  node-liblzma: true",
     "catalog:",

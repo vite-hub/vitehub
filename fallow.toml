@@ -123,6 +123,9 @@ ignoreDependencies = [
   "@vitejs/devtools",
   # Required by declarations re-exported from @vite-hub/devtools.
   "@vitejs/devtools-kit",
+  # Owned by vite-hub for Workflow DevKit's application-root runtime resolution.
+  "@workflow/builders",
+  "workflow",
   "@vueuse/nuxt",
 ]
 

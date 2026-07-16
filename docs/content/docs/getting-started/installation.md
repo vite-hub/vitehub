@@ -50,9 +50,9 @@ import { defineWorkspace } from "vite-hub/workspace"
 ```
 
 Model providers, chat adapters, and harness adapters remain explicit
-dependencies because the application chooses them. Workflow's existing Vercel
-Functions runtime is a deliberate framework default; other provider SDKs stay
-package-owned and explicit.
+dependencies because the application chooses them. The distribution includes
+the Workflow DevKit runtime and builders because Vercel Workflow is a deliberate
+framework default; other provider SDKs stay package-owned and explicit.
 
 ## Install an owner package directly
 

@@ -1,5 +1,15 @@
-import { defineWorkflow } from "vite-hub/workflow"
+import { defineWorkflow, type WorkflowExecutionContext } from "vite-hub/workflow"
 
-export default defineWorkflow<{ marker: string }, { marker: string }>(async ({ payload }) => ({
-  marker: payload.marker,
-}))
+type RoundtripPayload = { marker: string }
+type RoundtripResult = { marker: string }
+
+async function durableRoundtrip({ payload }: WorkflowExecutionContext<RoundtripPayload>): Promise<RoundtripResult> {
+  "use workflow"
+
+  return { marker: payload.marker }
+}
+
+export default defineWorkflow<RoundtripPayload, RoundtripResult>(
+  async ({ payload }) => ({ marker: payload.marker }),
+  { native: durableRoundtrip },
+)

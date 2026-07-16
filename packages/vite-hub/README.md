@@ -45,6 +45,6 @@ import { defineWorkflow } from "vite-hub/workflow"
 
 The root export intentionally contains only the framework configuration API. Feature code belongs on a feature subpath, which forwards to the package that owns it.
 
-Third-party model providers, chat adapters, and harnesses remain explicit. Workflow keeps its existing Vercel Functions runtime as a deliberate framework default; other host SDKs stay package-owned and explicit. For example, install the Codex harness package and use `@vite-hub/agent/harness/codex` when that integration is part of the application.
+Third-party model providers, chat adapters, and harnesses remain explicit. The distribution includes the Workflow DevKit runtime and builders because Vercel Workflow is a deliberate framework default; other host SDKs stay package-owned and explicit. For example, install the Codex harness package and use `@vite-hub/agent/harness/codex` when that integration is part of the application.
 
 Install an `@vite-hub/*` owner package directly when building a custom composition, another framework integration, or package-level tooling. `@vite-hub/vite` remains a supported compatibility import for `vitehub()`; new applications should use `vite-hub`.
