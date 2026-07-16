@@ -215,9 +215,6 @@ catalogs:
     ufo:
       specifier: ^1.6.4
       version: 1.6.4
-    unctx:
-      specifier: ^2.5.0
-      version: 2.5.0
     unimport:
       specifier: ^6.3.0
       version: 6.3.0
@@ -1017,9 +1014,6 @@ importers:
       ufo:
         specifier: catalog:unjs
         version: 1.6.4
-      unctx:
-        specifier: catalog:unjs
-        version: 2.5.0
       unimport:
         specifier: catalog:unjs
         version: 6.3.0(@voidzero-dev/vite-plus-core@0.1.24)(esbuild@0.28.1)(oxc-parser@0.135.0)(rolldown@1.1.5)(rollup@4.62.2)

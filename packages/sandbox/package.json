@@ -91,7 +91,6 @@
     "scule": "catalog:unjs",
     "typescript": "catalog:tooling",
     "ufo": "catalog:unjs",
-    "unctx": "catalog:unjs",
     "unimport": "catalog:unjs"
   },
   "devDependencies": {
