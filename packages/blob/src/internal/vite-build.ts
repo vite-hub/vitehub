@@ -312,6 +312,7 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
     bundleEntry: artifacts.cloudflareWorkerFile,
     bundleOptions: {
       alias: {
+        "@vite-hub/blob/content-type": resolveRuntimeModule("content-type"),
         "@vite-hub/blob": artifacts.runtimeModuleFiles.cloudflare,
         ...(databaseRuntime ? { "@vite-hub/database/drizzle": databaseRuntime } : {}),
       },
@@ -344,6 +345,7 @@ function createVercelOutput(
     bundleEntry: artifacts.vercelServerFile,
     bundleOptions: {
       alias: {
+        "@vite-hub/blob/content-type": resolveRuntimeModule("content-type"),
         "@vite-hub/blob": artifacts.runtimeModuleFiles.vercel,
         ...(databaseRuntime ? { "@vite-hub/database/drizzle": databaseRuntime } : {}),
       },

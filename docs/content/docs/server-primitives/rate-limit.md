@@ -34,7 +34,7 @@ const uploads = defineRateLimit('image-upload', {
 })
 
 export default defineEventHandler(async () => {
-  const decision = await uploads.consume('demo:image-upload')
+  const decision = await uploads.consume()
 
   if (!decision.allowed) {
     return new Response('Too many uploads', {
@@ -49,7 +49,7 @@ export default defineEventHandler(async () => {
 })
 ```
 
-The fixed key makes the example testable. Production code should derive an opaque key from an authenticated user, account, or API client. The application remains responsible for choosing that identity and applying the `429` response.
+Inside a request, `.consume()` defaults to the client address installed by the active host integration. Pass an opaque user, account, or API-client key when authenticated identity is the correct budget boundary. The application remains responsible for choosing that identity and applying the `429` response.
 
 ## Define a managed Rate Limit
 
@@ -77,7 +77,7 @@ The call must be assigned directly to a top-level `const`. The ID, `limit`, `win
 
 | Import | Use |
 | --- | --- |
-| `defineRateLimit` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Declare a managed handle and consume it with `.consume(key)`. |
+| `defineRateLimit` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Declare a managed handle and consume it with `.consume()` or an explicit `.consume(key)`. |
 | `createRateLimiter` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Build a direct limiter around a custom driver. |
 | `memoryRateLimitDriver` from `@vite-hub/rate-limit/drivers/memory` | Enforce fixed windows in one process. |
 | `cloudflareRateLimitDriver` from `@vite-hub/rate-limit/drivers/cloudflare` | Consume a Cloudflare Rate Limiting binding directly. |

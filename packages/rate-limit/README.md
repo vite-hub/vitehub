@@ -21,8 +21,8 @@ const uploads = defineRateLimit("image-upload", {
   window: "1m",
 })
 
-export async function handleImageUpload(authenticatedUserId: string): Promise<Response> {
-  const decision = await uploads.consume(`user:${authenticatedUserId}`)
+export async function handleImageUpload(): Promise<Response> {
+  const decision = await uploads.consume()
 
   if (!decision.allowed) {
     return new Response("Too many uploads", { status: 429 })
@@ -32,7 +32,7 @@ export async function handleImageUpload(authenticatedUserId: string): Promise<Re
 }
 ```
 
-`defineRateLimit()` can live in any ordinary server source file. It does not require a default export, dedicated directory, file suffix, registry, or separate string lookup.
+`defineRateLimit()` can live in any ordinary server source file. It does not require a default export, dedicated directory, file suffix, registry, or separate string lookup. Inside a request, `.consume()` defaults to the client address installed by the active host integration. Pass an explicit key such as `.consume(authenticatedUser.id)` when authenticated user or tenant identity is the correct budget boundary; calls outside a request require one.
 
 Add the build integration:
 

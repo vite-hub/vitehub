@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 
 import { defineRateLimit } from "../src/index.ts"
-import { setRateLimitRuntimeConfig } from "../src/runtime.ts"
+import { runWithRateLimitRuntimeEvent, setRateLimitRuntimeConfig } from "../src/runtime.ts"
 
 afterEach(() => {
   setRateLimitRuntimeConfig({ provider: "memory" })
@@ -13,6 +13,30 @@ describe("defined Rate Limits", () => {
 
     await expect(uploads.consume("user")).resolves.toMatchObject({ allowed: true })
     await expect(uploads.consume("user")).resolves.toMatchObject({ allowed: false })
+  })
+
+  it("uses the integration request key when one is available", async () => {
+    const uploads = defineRateLimit("request-uploads", { limit: 1, window: "1m" })
+
+    await runWithRateLimitRuntimeEvent({}, async () => {
+      await expect(uploads.consume()).resolves.toMatchObject({ allowed: true })
+      await expect(uploads.consume()).resolves.toMatchObject({ allowed: false })
+    }, "request")
+  })
+
+  it("keeps explicit identity authoritative", async () => {
+    const uploads = defineRateLimit("identity-uploads", { limit: 1, window: "1m" })
+
+    await runWithRateLimitRuntimeEvent({}, async () => {
+      await expect(uploads.consume("user")).resolves.toMatchObject({ allowed: true })
+      await expect(uploads.consume()).resolves.toMatchObject({ allowed: true })
+    }, "request")
+  })
+
+  it("requires an explicit key outside a request", async () => {
+    const uploads = defineRateLimit("background-uploads", { limit: 1, window: "1m" })
+
+    await expect(uploads.consume()).rejects.toThrow("could not determine a request key")
   })
 
   it("isolates handles by stable ID", async () => {

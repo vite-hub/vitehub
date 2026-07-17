@@ -202,6 +202,24 @@ describe("Vite provider outputs", () => {
     expect(existsSync(vercelStatic)).toBe(false)
   }, 20_000)
 
+  it("bundles the content-type subpath in provider output", { timeout: 15_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-content-type-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), [
+      'import { detectContentType } from "@vite-hub/blob/content-type"',
+      "export default async () => new Response(detectContentType(Uint8Array.from([0xFF, 0xD8, 0xFF])) || 'unknown')",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({ blob: {}, clientOutDir: "dist", rootDir })
+
+    const cloudflareWorker = await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "index.js"), "utf8")
+    const vercelServer = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
+    expect(cloudflareWorker).toContain("image/jpeg")
+    expect(vercelServer).toContain("image/jpeg")
+  })
+
   it("copies Vercel static output from Vite's default dist directory", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-default-dist-")
     await mkdir(join(rootDir, "src"), { recursive: true })

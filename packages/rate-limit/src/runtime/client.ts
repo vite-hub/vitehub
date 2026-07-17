@@ -4,6 +4,7 @@ import { createRateLimiter } from "../limiter.ts"
 import {
   getRateLimitLimiterCache,
   getRateLimitRuntimeConfig,
+  getRateLimitRuntimeRequestKey,
 } from "./state.ts"
 
 import type { RateLimitDecision, RateLimiter, RateLimitPolicy } from "../types.ts"
@@ -32,7 +33,11 @@ async function getDefinedRateLimiter(name: string, policy: RateLimitPolicy): Pro
   return await pending
 }
 
-export async function consumeDefinedRateLimit(name: string, policy: RateLimitPolicy, key: string): Promise<RateLimitDecision> {
+export async function consumeDefinedRateLimit(name: string, policy: RateLimitPolicy, explicitKey?: string): Promise<RateLimitDecision> {
+  const key = explicitKey ?? getRateLimitRuntimeRequestKey()
+  if (!key) {
+    throw new Error("[vitehub] Rate Limit could not determine a request key. Pass a key outside a request or when limiting by user or tenant.")
+  }
   const limiter = await getDefinedRateLimiter(name, policy)
   return await limiter.consume({ key })
 }

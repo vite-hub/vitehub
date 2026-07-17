@@ -19,9 +19,22 @@ describe("hubRateLimit", () => {
     const plugin = hubRateLimit({ namespace: "vite-test", provider: "cloudflare" })
     const config = plugin.config as unknown as (config: Record<string, unknown>) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    const userConfig = { nitro: { plugins: ["server/plugin.ts"] }, rateLimit: { provider: "memory" } }
+    const userConfig = {
+      nitro: {
+        handlers: [{ handler: "server/middleware.ts", middleware: true, route: "/**" }],
+        plugins: ["server/plugin.ts"],
+        preset: "cloudflare-module",
+      },
+      rateLimit: { provider: "memory" },
+    }
     expect(config(userConfig)).toMatchObject({
-      nitro: { plugins: ["server/plugin.ts", ".vitehub/nitro/rate-limit/plugin.ts"] },
+      nitro: {
+        handlers: [
+          { handler: "server/middleware.ts", middleware: true, route: "/**" },
+          { handler: ".vitehub/nitro/rate-limit/middleware.ts", middleware: true, route: "/**" },
+        ],
+        plugins: ["server/plugin.ts", ".vitehub/nitro/rate-limit/plugin.ts"],
+      },
     })
 
     await configResolved({
@@ -35,9 +48,14 @@ describe("hubRateLimit", () => {
     } as never)
 
     const installer = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")
+    const middleware = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "middleware.ts"), "utf8")
     expect(installer).toContain('const config = {"provider":"memory"}')
     expect(installer).not.toContain("Registry")
-    expect(installer).toContain("enterRateLimitRuntimeEvent(event)")
+    expect(installer).not.toContain("enterRateLimitRuntimeEvent")
+    expect(middleware).toContain("getRequestIP(event)")
+    expect(middleware).toContain("event.req.headers.get('cf-connecting-ip') || getRequestIP(event)")
+    expect(middleware).toContain("runWithRateLimitRuntimeEvent(event, next, requestKey || config.requestKeyFallback)")
+    expect(middleware).not.toContain("requestKeyFallback\":\"local")
   })
 
   it("removes the legacy generated registry", async () => {
@@ -58,6 +76,7 @@ describe("hubRateLimit", () => {
     } as never)
 
     await expect(access(registry)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(join(root, ".vitehub", "nitro", "rate-limit", "middleware.ts"), "utf8")).resolves.toContain('"requestKeyFallback":"local"')
   })
 
   it("uses the configured internal import base", async () => {
@@ -73,8 +92,9 @@ describe("hubRateLimit", () => {
       root,
     } as never)
     const installer = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")
-    expect(installer).toContain('from "vite-hub/_internal/rate-limit/runtime"')
-    expect(installer).not.toContain("@vite-hub/rate-limit/runtime")
+    const middleware = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "middleware.ts"), "utf8")
+    expect(`${installer}\n${middleware}`).toContain('from "vite-hub/_internal/rate-limit/runtime"')
+    expect(`${installer}\n${middleware}`).not.toContain("@vite-hub/rate-limit/runtime")
   })
 
   it("fails automatic hosted fallback where no native driver exists", async () => {
@@ -135,6 +155,9 @@ describe("hubRateLimit", () => {
     } as never)
     const installer = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")
     expect(installer).toContain('const config = {"provider":"cloudflare"}')
+    const middleware = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "middleware.ts"), "utf8")
+    expect(middleware).toContain("event.req.headers.get('cf-connecting-ip') || getRequestIP(event)")
+    expect(middleware).not.toContain("requestKeyFallback\":\"local")
   })
 
   it("collects source-local handles into the inspectable manifest", async () => {

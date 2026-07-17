@@ -17,7 +17,7 @@ export function defineRateLimit(name: string, policy: RateLimitPolicy): RateLimi
   const declaredPolicy = declaredRateLimitPolicy(normalized)
 
   return Object.freeze({
-    consume: async (key: string) => await consumeDefinedRateLimit(id, declaredPolicy, key),
+    consume: async (key?: string) => await consumeDefinedRateLimit(id, declaredPolicy, key),
     id,
     kind: "rate-limit-handle" as const,
     policy: normalized,

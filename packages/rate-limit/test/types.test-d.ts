@@ -9,6 +9,7 @@ import type { RateLimitDecision, RateLimitDriver, RateLimiter } from "../src/ind
 
 it("types the portable Rate Limit contract", async () => {
   const uploads = defineRateLimit("uploads", { enforcement: "strict", failure: "deny", limit: 10, window: "1m" })
+  expectTypeOf(await uploads.consume()).toEqualTypeOf<RateLimitDecision>()
   expectTypeOf(await uploads.consume("user")).toEqualTypeOf<RateLimitDecision>()
   const limiter = createRateLimiter({ driver: memoryRateLimitDriver(), limit: 10, window: "1m" })
   expectTypeOf(limiter).toEqualTypeOf<RateLimiter>()

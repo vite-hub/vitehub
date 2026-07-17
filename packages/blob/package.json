@@ -29,6 +29,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./config": "./dist/config.js",
+    "./content-type": "./dist/content-type.js",
     "./drivers/akamai": "./dist/drivers/akamai.js",
     "./drivers/azure": "./dist/drivers/azure.js",
     "./drivers/box": "./dist/drivers/box.js",

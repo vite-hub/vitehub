@@ -84,7 +84,7 @@ export interface RateLimiter {
 }
 
 export interface RateLimitHandle {
-  consume: (key: string) => Promise<RateLimitDecision>
+  consume: (key?: string) => Promise<RateLimitDecision>
   readonly id: string
   readonly kind: "rate-limit-handle"
   readonly policy: ResolvedRateLimitPolicy
@@ -116,4 +116,5 @@ export interface RateLimitModuleOptions {
 
 export interface RateLimitRuntimeConfig {
   provider: Exclude<RateLimitProvider, "auto">
+  requestKeyFallback?: string
 }
