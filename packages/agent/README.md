@@ -106,10 +106,14 @@ import { codexDriver } from "@vite-hub/agent/harness/codex";
 import { trustedHost } from "@vite-hub/box";
 import { useServerEnv } from "#vitehub/env/server";
 
-export default defineAgent<any, { worktreePath: string }>({
+export default defineAgent<any, { ref: string; remote: string; sha: string }>({
   box: {
     runtime: trustedHost({ stateRoot: "/var/lib/vitehub/boxes" }),
-    cwd: ({ input }) => input.options?.worktreePath,
+    checkout: {
+      ref: ({ input }) => input.options?.ref,
+      remote: ({ input }) => input.options?.remote,
+      sha: ({ input }) => input.options?.sha,
+    },
     env: {
       GH_TOKEN: () => useServerEnv().githubToken.unseal(),
     },
@@ -133,7 +137,9 @@ export default defineAgent<any, { worktreePath: string }>({
 });
 ```
 
-`env` and `home.files` are immutable boot inputs. `home.state` is writable, persists CLI refreshes under an exclusive session lease, and resolves its seed only when state does not exist. Every Box gets a private Home; missing declarations fail instead of falling back to the machine's normal Home. `codexDriver()` contributes a generic `codex login status` check, and other CLIs use string or direct-argv `requires` entries without provider-specific Box APIs. Do not combine an explicit `box.cwd` with Agent Workspace materialization.
+`checkout` fetches one invocation-resolved Git ref, verifies its full SHA, and runs the harness in an isolated detached checkout with normal commit and explicit-push behavior. The Box deletes it on completion or boot failure. Use `cwd` instead for a caller-owned authoritative directory; the two modes are mutually exclusive.
+
+`env` and `home.files` are immutable boot inputs. `home.state` is writable, persists CLI refreshes under an exclusive session lease, and resolves its seed only when state does not exist. Every Box gets a private Home; missing declarations fail instead of falling back to the machine's normal Home. `codexDriver()` contributes a generic `codex login status` check, and other CLIs use string or direct-argv `requires` entries without provider-specific Box APIs. Do not combine `box.cwd` or `box.checkout` with Agent Workspace materialization.
 
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
 

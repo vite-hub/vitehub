@@ -9,7 +9,7 @@ A Box is the execution environment for a harness Agent. The project declares wha
 
 Use `trustedHost()` when the Agent may use the current host's filesystem, processes, and installed executables. Use `crabbox()` to run the same Box declaration through Crabbox Static SSH. Neither runtime reads credentials or configuration from the machine's normal Home.
 
-## Run Codex in an existing checkout
+## Run Codex in an exact disposable checkout
 
 Install the Agent and Box packages with the Codex harness adapter:
 
@@ -26,13 +26,19 @@ import { trustedHost } from "@vite-hub/box";
 import { useServerEnv } from "#vitehub/env/server";
 
 interface BabysitterRunOptions {
-  worktreePath: string;
+  ref: string;
+  remote: string;
+  sha: string;
 }
 
 export default defineAgent<any, BabysitterRunOptions>({
   box: {
     runtime: trustedHost({ stateRoot: "/var/lib/vitehub/boxes" }),
-    cwd: ({ input }) => input.options?.worktreePath,
+    checkout: {
+      ref: ({ input }) => input.options?.ref,
+      remote: ({ input }) => input.options?.remote,
+      sha: ({ input }) => input.options?.sha,
+    },
     env: {
       GH_TOKEN: () => useServerEnv().githubToken.unseal(),
       GIT_CONFIG_NOSYSTEM: "1",
@@ -59,6 +65,10 @@ export default defineAgent<any, BabysitterRunOptions>({
   driver: codexDriver(),
 });
 ```
+
+For every invocation, `checkout` fetches `ref` from `remote`, verifies the fetched commit against the full `sha`, and starts Codex in a detached real Git repository. The checkout supports ordinary commits and explicit pushes such as `git push origin HEAD:<branch>`, then the Box deletes it on completion or boot failure. For a fork pull request, use the fork repository as `remote`; keep credentials in Box env or Home instead of embedding them in the remote URL.
+
+Use `cwd` instead when the caller already owns an authoritative directory. `checkout` and `cwd` are mutually exclusive. Git is an implicit checkout requirement and appears in resolved Box metadata.
 
 The runtime creates an owner-only Home outside the checkout, sets the XDG directories beneath it, and exposes the same environment to Codex, Git, `gh`, MCP servers, and ordinary Box commands. `codexDriver()` uses `$HOME/.codex` directly and contributes `codex login status` automatically, so Codex refreshes remain in Box state.
 
@@ -108,8 +118,9 @@ Box boot follows one order:
 3. The runtime inspects existing state and resolves seeds only for missing state.
 4. The runtime resolves env and files; if any required input fails, no new state becomes authoritative.
 5. The runtime attaches state, writes files with private permissions, and builds a sanitized environment.
-6. The runtime runs requirements inside that environment.
-7. Only a successful Box is exposed to harness bootstrap and commands.
+6. When declared, the runtime creates the disposable Git checkout and verifies its exact SHA.
+7. The runtime runs requirements inside that environment.
+8. Only a successful Box is exposed to harness bootstrap and commands.
 
 `HOME`, the XDG paths, and working-directory variables are runtime-owned and cannot be declared or overridden by a command. The runtime inherits a small operational allowlist such as `PATH`, shell, locale, and temporary-directory variables; it does not spread the launcher process environment. An absent declaration cannot be masked by a host token or dotfile.
 
@@ -144,7 +155,11 @@ box: {
     profile: 'babysitter',
     stateRoot: '/var/lib/vitehub/boxes',
   }),
-  cwd: ({ input }) => input.options?.worktreePath,
+  checkout: {
+    ref: ({ input }) => input.options?.ref,
+    remote: ({ input }) => input.options?.remote,
+    sha: ({ input }) => input.options?.sha,
+  },
   env: {
     GH_TOKEN: () => useServerEnv().githubToken.unseal(),
   },
@@ -156,9 +171,9 @@ box: {
 }
 ```
 
-Crabbox creates the private Home on the target and sends resolved material through its protected stdin channel. Its `stateRoot` is an absolute target-host path and remains outside Workspace synchronization. The runtime creates private children without changing permissions on an existing caller-owned root. Only the authoritative `cwd` is synchronized back.
+Crabbox creates the private Home on the target and sends resolved material through its protected stdin channel. Its `stateRoot` is an absolute target-host path and remains outside Workspace synchronization. The runtime creates private children without changing permissions on an existing caller-owned root. An authoritative `cwd` is synchronized back; a disposable `checkout` remains target-local and is deleted with the Box session.
 
-Crabbox requires `cwd` and targets Linux/POSIX Static SSH hosts. Static SSH does not provide port publishing; set `network: 'direct'` only when the target shares the ViteHub process loopback namespace.
+Crabbox requires either `cwd` or `checkout` and targets Linux/POSIX Static SSH hosts. Static SSH does not provide port publishing; set `network: 'direct'` only when the target shares the ViteHub process loopback namespace.
 
 Commands must remain owned by their Box session. Daemonizing or escaping the session's process supervision is outside the v1 concurrency guarantee.
 
@@ -184,11 +199,11 @@ Do not copy a general user Home into Box state. It mixes unrelated credentials a
 | Workspace | Model-visible file context, Sources, rules, snapshots, and writeback.                                       |
 | Sandbox   | Provider isolation for untrusted code.                                                                      |
 
-An explicit Box `cwd` cannot be combined with Agent Workspace materialization because both would own the working tree. Omit `cwd` when an Agent Workspace should be materialized into a disposable Box session.
+Box `cwd` and `checkout` cannot be combined with Agent Workspace materialization because each owns the working tree. Omit both when an Agent Workspace should be materialized into a disposable Box session.
 
 Home and environment isolation do not isolate the filesystem, network, installed executables, or trusted project code. Use `trustedHost()` only when the Agent may act with the host user's authority.
 
-V1 deliberately stops at env values, Home files, writable directory state, and direct boot checks. Secret-manager registries, a ViteHub encryption format, live rotation, per-command credential narrowing, keychain forwarding, and provider-specific auth helpers can be added outside core or later when a concrete runtime needs them.
+V1 deliberately stops at env values, Home files, writable directory state, generic Git checkout, and direct boot checks. Secret-manager registries, a ViteHub encryption format, live rotation, per-command credential narrowing, keychain forwarding, and provider-specific auth helpers can be added outside core or later when a concrete runtime needs them.
 
 ## Related pages
 

@@ -16,10 +16,14 @@ import { codexDriver } from "@vite-hub/agent/harness/codex";
 import { trustedHost } from "@vite-hub/box";
 import { useServerEnv } from "#vitehub/env/server";
 
-export default defineAgent<any, { worktreePath: string }>({
+export default defineAgent<any, { ref: string; remote: string; sha: string }>({
   box: {
     runtime: trustedHost({ stateRoot: "/var/lib/vitehub/boxes" }),
-    cwd: ({ input }) => input.options?.worktreePath,
+    checkout: {
+      ref: ({ input }) => input.options?.ref,
+      remote: ({ input }) => input.options?.remote,
+      sha: ({ input }) => input.options?.sha,
+    },
     env: {
       GH_TOKEN: () => useServerEnv().githubToken.unseal(),
       GIT_CONFIG_NOSYSTEM: "1",
@@ -46,6 +50,10 @@ export default defineAgent<any, { worktreePath: string }>({
   driver: codexDriver(),
 });
 ```
+
+`checkout` gives each invocation a disposable real Git repository at the exact requested commit. The runtime fetches `ref` from `remote`, verifies the resulting commit against the full `sha`, and starts the harness in a detached checkout. Normal Git commits work, and callers can push explicitly with `git push origin HEAD:<branch>`. Use the source repository as `remote` for fork pull requests, and keep credentials in Box `env` or Home rather than embedding them in the remote URL.
+
+`checkout` and `cwd` are mutually exclusive. Use `cwd` for a caller-owned authoritative directory; use `checkout` when the Box should create, isolate, and delete the working tree. Git is an implicit checkout requirement and is included in resolved Box metadata.
 
 Every Box session receives a new private `HOME` plus `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME`. The runtime starts from a small operational environment allowlist, applies the declared `env`, attaches writable state, materializes files, and runs requirements before the harness starts. Missing declarations fail boot; the host Home and undeclared credential variables cannot satisfy them.
 
@@ -89,7 +97,11 @@ box: {
     profile: "babysitter",
     stateRoot: "/var/lib/vitehub/boxes",
   }),
-  cwd: ({ input }) => input.options?.worktreePath,
+  checkout: {
+    ref: ({ input }) => input.options?.ref,
+    remote: ({ input }) => input.options?.remote,
+    sha: ({ input }) => input.options?.sha,
+  },
   env: {
     GH_TOKEN: () => useServerEnv().githubToken.unseal(),
   },
@@ -101,9 +113,9 @@ box: {
 }
 ```
 
-Crabbox materializes the same declaration on the target before requirement checks. Resolved material travels through Crabbox's protected stdin channel rather than command arguments. The private Home and writable state stay outside Workspace synchronization; only `cwd` is synchronized back.
+Crabbox materializes the same declaration on the target before requirement checks. Resolved material travels through Crabbox's protected stdin channel rather than command arguments. The private Home and writable state stay outside Workspace synchronization. An authoritative `cwd` is synchronized back; a disposable `checkout` remains target-local and is deleted with the Box session.
 
-Crabbox requires `cwd` and targets Linux/POSIX Static SSH hosts. `stateRoot` is an absolute path on the target. Static SSH does not support Crabbox port publishing; use `network: "direct"` only when the target shares the ViteHub process loopback namespace.
+Crabbox requires either `cwd` or `checkout` and targets Linux/POSIX Static SSH hosts. `stateRoot` is an absolute path on the target. Static SSH does not support Crabbox port publishing; use `network: "direct"` only when the target shares the ViteHub process loopback namespace.
 
 Commands must remain owned by their Box session. Daemonizing or escaping the session's process supervision is outside the v1 concurrency guarantee.
 
@@ -113,4 +125,4 @@ A Box isolates Home, configuration, and declared process environment from ambien
 
 Resolved environment values, file contents, state, physical Home paths, and sandbox handles are excluded from serialized Box metadata. Requirement failures discard command output, while every process inside the Box remains trusted and can still read or log its credentials. Stable session identity uses declaration targets and state keys, never secret values or temporary paths.
 
-An explicit Box `cwd` cannot be combined with Agent Workspace materialization because both would own the working tree. Omit `cwd` when the Agent should use a disposable Workspace session.
+Box `cwd` and `checkout` cannot be combined with Agent Workspace materialization because each owns the working tree. Omit both when the Agent should use a disposable Workspace session.

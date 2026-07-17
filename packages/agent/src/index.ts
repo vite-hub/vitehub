@@ -1538,8 +1538,8 @@ async function createAgentInvocationContext<
           requires: (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentBoxRequirements],
         })
       : undefined
-    if (box?.workspace.path && workspaceOptions) {
-      throw new Error("[vitehub] defineAgent({ box.cwd, workspace }) is not supported because an authoritative Box workspace must not be reset by Workspace materialization.")
+    if ((box?.workspace.path || box?.workspace.workDir) && workspaceOptions) {
+      throw new Error("[vitehub] defineAgent({ box.cwd or box.checkout, workspace }) is not supported because a Box-owned working tree must not be reset by Workspace materialization.")
     }
     const harnessSandboxProvider = box?.sandbox || (box
       ? (await import("./harness/local-sandbox.ts")).createTrustedHostHarnessSandbox({
@@ -1656,7 +1656,7 @@ async function createAgentInvocationContext<
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
       handledResponse: capabilities.response,
       harnessSandboxProvider,
-      harnessWorkDir: box?.workspace.path ? "workspace" : undefined,
+      harnessWorkDir: box?.workspace.workDir ?? (box?.workspace.path ? "workspace" : undefined),
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
       instructions,
