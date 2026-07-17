@@ -47,10 +47,11 @@ export function resolveNitroVercelFunctionName(
   env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
   const preset = nitroPreset || env.NITRO_PRESET || env.SERVER_PRESET
+  const nitro = Boolean(preset) || plugins?.some(plugin => plugin.name === "nitro:main")
   const vercel = preset
     ? preset.startsWith("vercel")
     : env.VITEHUB_HOSTING === "vercel" || Boolean(env.VERCEL)
-  return plugins?.some(plugin => plugin.name === "nitro:main") && vercel
+  return nitro && vercel
     ? `__${product}.func`
     : undefined
 }

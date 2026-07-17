@@ -316,6 +316,33 @@ describe("Vite provider outputs", () => {
     expect(cloudflareWorker).toContain("files-sdk/r2")
   })
 
+  it("copies Cloudflare R2 runtime packages into isolated Vercel output", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-vercel-r2-runtime-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist", "client"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
+
+    await generateProviderOutputs({
+      blob: { driver: "cloudflare-r2", bucketName: "assets" },
+      clientOutDir: "dist/client",
+      rootDir,
+      serverFunctionName: "__blob.func",
+    })
+
+    const serverEntry = join(rootDir, ".vercel", "output", "functions", "__blob.func", "index.mjs")
+    await expect(import(`${pathToFileURL(serverEntry).href}?t=${Date.now()}`)).resolves.toHaveProperty("default")
+
+    const runtimeProbe = join(dirname(serverEntry), "runtime-probe.mjs")
+    await writeFile(runtimeProbe, [
+      `await import("files-sdk/r2")`,
+      `await import("@aws-sdk/client-s3")`,
+      `await import("@aws-sdk/s3-presigned-post")`,
+      `await import("@aws-sdk/s3-request-presigner")`,
+      "",
+    ].join("\n"), "utf8")
+    await expect(execFileAsync(process.execPath, [runtimeProbe])).resolves.toMatchObject({ stderr: "", stdout: "" })
+  })
+
   it("skips provider output for local fs stores", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-local-fs-")
     await mkdir(join(rootDir, "src"), { recursive: true })

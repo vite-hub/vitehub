@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
@@ -732,6 +732,30 @@ describe("provider deployment outputs", () => {
     expect(existsSync(join(serverDir, "node_modules", "runtime-peer", "package.json"))).toBe(true)
     expect(existsSync(join(serverDir, "node_modules", "transitive-peer", "package.json"))).toBe(true)
     expect(existsSync(join(serverDir, "node_modules", "optional-peer", "package.json"))).toBe(false)
+  })
+
+  it("resolves import-only Vercel runtime packages from an explicit package location", async () => {
+    const rootDir = await createTempProject()
+    const packageRoot = await createTempProject()
+    const sourceRoot = await createTempProject()
+    const {
+      createDefaultVercelOutputRoot,
+    } = await import("../src/build/deployment-output.ts")
+    const { copyVercelFunctionRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+    const serverDir = join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func")
+    const sourcePackageDir = await writePackage(sourceRoot, "import-only-runtime", {
+      exports: { ".": { import: "./index.js" } },
+    })
+    await mkdir(join(packageRoot, "node_modules"), { recursive: true })
+    await symlink(sourcePackageDir, join(packageRoot, "node_modules", "import-only-runtime"), "dir")
+    await mkdir(serverDir, { recursive: true })
+
+    await copyVercelFunctionRuntimePackages({
+      packages: [{ name: "import-only-runtime", resolveFrom: join(packageRoot, "package.json") }],
+      rootDir,
+    })
+
+    expect(existsSync(join(serverDir, "node_modules", "import-only-runtime", "index.js"))).toBe(true)
   })
 
   it("ignores traced Vercel runtime package directory entries", async () => {
