@@ -796,6 +796,7 @@ async function postChatStream(
   thread: Thread,
   response: ChatTextStream,
   fallback: string | null | undefined,
+  waitUntil: AgentWaitUntil,
 ): Promise<void> {
   let sent: unknown
   if (fallback === undefined) {
@@ -825,7 +826,7 @@ async function postChatStream(
       return clearing
     }
     const finishPlaceholder = () => {
-      void clearPlaceholder().then(() => cleared ? undefined : clearPlaceholder())
+      waitUntil(clearPlaceholder().then(() => cleared ? undefined : clearPlaceholder()))
     }
     const nativeResponse: ChatTextStream = {
       getText: response.getText,
@@ -1742,6 +1743,7 @@ async function handleChatSdkMessage(
           thread,
           response,
           typeof thinkingFallback === "string" || thinkingFallback === null ? thinkingFallback : undefined,
+          context.waitUntil,
         )
       }
       finally {

@@ -5216,6 +5216,7 @@ describe("server helpers", () => {
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
+    const backgroundTasks: Promise<unknown>[] = []
     let postPlaceholder!: (message: { id: string, raw: unknown, threadId: string }) => void
     let deletePlaceholder!: () => void
     adapter.postMessage.mockImplementationOnce(async () => await new Promise(resolve => {
@@ -5244,15 +5245,19 @@ describe("server helpers", () => {
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
-    const response = await handler(chatWebhookRequest(21048), "telegram")
+    const response = await handler(chatWebhookRequest(21048), "telegram", {
+      waitUntil: task => backgroundTasks.push(task),
+    })
 
     expect(response.status).toBe(200)
+    expect(backgroundTasks.length).toBeGreaterThan(1)
     expect(adapter.deleteMessage).not.toHaveBeenCalled()
     postPlaceholder({ id: "placeholder-1", raw: {}, threadId: "telegram:456" })
     await vi.waitFor(() => {
       expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "placeholder-1")
     })
     deletePlaceholder()
+    await Promise.all(backgroundTasks)
   })
 
   it("posts a random chat fallback option while streamed webhook work is still running", async () => {
