@@ -222,6 +222,45 @@ describe("Agent Box", () => {
     })).toThrow("defineAgent({ box }) owns harness execution")
   })
 
+  it("preserves the harness work directory for custom runtimes with an authoritative path", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { codexDriver } = await import("../src/harness/codex.ts")
+    const agent = defineAgent({
+      box: {
+        cwd: "/workspace",
+        runtime: {
+          name: "path-only",
+          async resolve({ identity }: { identity: string }) {
+            return {
+              cache: { state: "disposable" as const },
+              environment: { env: {} },
+              identity,
+              isolation: "none" as const,
+              requirements: [],
+              runtime: "path-only",
+              sandbox: {
+                providerId: "path-only",
+                specificationVersion: "harness-sandbox-v1" as const,
+                async createSession() {
+                  throw new Error("stop after harness configuration")
+                },
+              },
+              workspace: { path: "/workspace", state: "authoritative" as const },
+            }
+          },
+        },
+      },
+      driver: codexDriver(),
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "Repair the project." })).rejects.toThrow("stop after harness configuration")
+    expect(harnessSettings.at(-1)?.sandboxConfig).toMatchObject({ workDir: "workspace" })
+  })
+
   it("rejects Box checkout with Agent Workspace materialization", async () => {
     const { trustedHost } = await import("@vite-hub/box")
     const { defineAgent, runAgent } = await import("../src/index.ts")

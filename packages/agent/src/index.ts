@@ -1656,7 +1656,7 @@ async function createAgentInvocationContext<
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
       handledResponse: capabilities.response,
       harnessSandboxProvider,
-      harnessWorkDir: box?.workspace.workDir,
+      harnessWorkDir: box?.workspace.workDir ?? (box?.workspace.path ? "workspace" : undefined),
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
       instructions,
