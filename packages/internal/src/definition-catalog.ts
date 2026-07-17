@@ -6,8 +6,8 @@ import { dirname, relative, resolve } from "pathe"
 
 import { generatedDirSegments } from "./build/paths.ts"
 
-const sourceFilePattern = /\.(?:c|m)?[jt]s$/i
-const declarationFilePattern = /\.d\.(?:c|m)?[jt]s$/i
+const sourceFilePattern = /\.(?:c|m)?[jt]sx?$/i
+const declarationFilePattern = /\.d\.(?:c|m)?[jt]sx?$/i
 const ignoredDirs = new Set(["node_modules", "dist", ".output", ".nuxt", ".vercel", ".git", ".vitehub"])
 
 export interface DiscoveredDefinition {

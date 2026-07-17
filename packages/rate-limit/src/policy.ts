@@ -1,5 +1,7 @@
 import type { RateLimitPolicy, RateLimitWindow, ResolvedRateLimitPolicy } from "./types.ts"
 
+export const rateLimitPolicyKeys: ReadonlySet<string> = new Set(["enforcement", "failure", "limit", "window"])
+
 const unitMilliseconds = {
   d: 86_400_000,
   h: 3_600_000,
@@ -42,5 +44,14 @@ export function normalizeRateLimitPolicy(policy: RateLimitPolicy): ResolvedRateL
     limit: policy.limit,
     window: policy.window,
     windowMs: parseRateLimitWindow(policy.window),
+  }
+}
+
+export function declaredRateLimitPolicy(policy: ResolvedRateLimitPolicy): RateLimitPolicy {
+  return {
+    enforcement: policy.enforcement,
+    failure: policy.failure,
+    limit: policy.limit,
+    window: policy.window,
   }
 }

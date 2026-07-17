@@ -78,20 +78,20 @@ Agent routes should come from generated Provider Output. Raw Cloudflare Worker f
 
 ### Rate Limiting bindings
 
-Register the Rate Limit integration with the Cloudflare provider. Each discovered Rate Limit Definition contributes one `ratelimits` entry to the generated `wrangler.json`.
+Register the Rate Limit integration. A Cloudflare Nitro preset infers the provider, and each source-local `defineRateLimit()` call contributes one `ratelimits` entry to generated `wrangler.json`.
 
 ```ts [vite.config.ts]
 import { hubRateLimit } from '@vite-hub/rate-limit/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubRateLimit({ namespace: 'acme-app', provider: 'cloudflare' })],
+  plugins: [hubRateLimit({ namespace: 'acme-image-service-production' })],
 })
 ```
 
-Cloudflare native enforcement is best-effort and supports 10-second or 60-second fixed windows. The integration rejects `enforcement: 'strict'` and unsupported periods during the build instead of silently weakening the Definition. Its inspectable capabilities report location-scoped counters, unknown rejected-attempt behavior, and `availability: 'never'` for every quota metadata field; the binding returns only an allow-or-reject decision.
+Cloudflare native enforcement is best-effort and supports 10-second or 60-second fixed windows. The integration rejects `enforcement: 'strict'` and unsupported periods during the build instead of silently weakening the policy. Its inspectable capabilities report location-scoped counters, unknown rejected-attempt behavior, and `availability: 'never'` for every quota metadata field; the binding returns only an allow-or-reject decision.
 
-The generated binding is request-scoped. If the binding is unavailable at runtime, the Definition's `failure` policy decides whether the request is denied or allowed. Rate Limiting bindings do not use Cloudflare KV and require no separate resource provisioning.
+The generated binding is request-scoped. If it is unavailable at runtime, the handle's `failure` policy decides whether the request is denied or allowed. Give every separately deployed Worker and environment a unique namespace because Cloudflare shares counters with the same namespace ID across Workers in one account. Rate Limiting bindings do not use Cloudflare KV and require no separate resource provisioning.
 
 Workspace adds an Artifacts binding when its Store explicitly selects Cloudflare Artifacts:
 

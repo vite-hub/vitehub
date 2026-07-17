@@ -1,4 +1,5 @@
-import { relative, resolve } from "node:path"
+import { rm } from "node:fs/promises"
+import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import {
@@ -6,23 +7,24 @@ import {
   shouldSkipViteProviderBuild,
   useComposedProviderOutput,
 } from "@vite-hub/internal/build/deployment-output"
-import { createRuntimeRegistryContents, writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { normalizePath } from "vite"
 
-import { discoverRateLimitDefinitions } from "./discovery.ts"
+import { discoverRateLimitDeclarations } from "./discovery.ts"
 import { writeRateLimitManifest } from "./internal/manifest.ts"
-import { writeRateLimitProviderOutput } from "./internal/provider-output.ts"
+import { resolveRateLimitNamespace, writeRateLimitProviderOutput } from "./internal/provider-output.ts"
 
 import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
-import type { DiscoveredRateLimitDefinition, RateLimitModuleOptions, RateLimitRuntimeConfig } from "./types.ts"
+import type { RateLimitDeclaration, RateLimitModuleOptions, RateLimitRuntimeConfig } from "./types.ts"
 
 const packageName = "@vite-hub/rate-limit"
 const pluginName = "@vite-hub/rate-limit/vite"
 const generatedNitroPlugin = ".vitehub/nitro/rate-limit/plugin.ts"
-const generatedRegistry = ".vitehub/nitro/rate-limit/registry.mjs"
 const generatedRuntimeModule = ".vitehub/rate-limit/cloudflare-runtime.mjs"
+const legacyGeneratedRegistry = ".vitehub/nitro/rate-limit/registry.mjs"
 const mergeNoExternal = createNoExternalMerger(packageName)
 
 interface InternalRateLimitModuleOptions extends RateLimitModuleOptions {
@@ -39,40 +41,30 @@ function cloneNitroConfig(value: unknown): Record<string, unknown> {
 function mergeNitroConfig(value: unknown): Record<string, unknown> {
   const nitro = cloneNitroConfig(value)
   const plugins = Array.isArray(nitro.plugins) ? [...nitro.plugins] : []
-  if (!plugins.includes(generatedNitroPlugin)) plugins.push(generatedNitroPlugin)
+  if (!plugins.includes(generatedNitroPlugin)) plugins.unshift(generatedNitroPlugin)
   return { ...nitro, plugins }
 }
 
-function moduleImport(fromFile: string, targetFile: string): string {
-  const path = relative(resolve(fromFile, ".."), targetFile).replace(/\\/g, "/")
-  return path.startsWith(".") ? path : `./${path}`
-}
-
 function renderRuntimeInstaller(
-  installerFile: string,
-  registryFile: string,
   runtimeConfig: RateLimitRuntimeConfig,
   importBase: string,
   nitro: boolean,
 ): string {
   return [
     ...(nitro ? ["import { definePlugin } from 'nitro'"] : []),
-    `import registry from ${JSON.stringify(moduleImport(installerFile, registryFile))}`,
-    `import { enterRateLimitRuntimeEvent, setRateLimitRuntimeConfig, setRateLimitRuntimeRegistry } from ${JSON.stringify(`${importBase}/runtime`)}`,
+    `import { enterRateLimitRuntimeEvent, setRateLimitRuntimeConfig } from ${JSON.stringify(`${importBase}/runtime`)}`,
     "",
     `const config = ${JSON.stringify(runtimeConfig)}`,
     ...(nitro
       ? [
           "export default definePlugin((nitroApp) => {",
           "  setRateLimitRuntimeConfig(config)",
-          "  setRateLimitRuntimeRegistry(registry)",
           "  nitroApp.hooks.hook('request', (event) => enterRateLimitRuntimeEvent(event))",
           "})",
         ]
       : [
           "setRateLimitRuntimeConfig(config)",
-          "setRateLimitRuntimeRegistry(registry)",
-          "export default registry",
+          "export default config",
         ]),
     "",
   ].join("\n")
@@ -94,10 +86,22 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
   const importBase = (options as InternalRateLimitModuleOptions).importBase ?? packageName
   let rateLimit: RateLimitModuleOptions = options
   let composedOutput: ComposedProviderOutput | undefined
-  let definitions: DiscoveredRateLimitDefinition[] = []
-  let previousDefinitions: DiscoveredRateLimitDefinition[] = []
+  let declarations: RateLimitDeclaration[] = []
+  let declarationFiles = new Set<string>()
+  let previousDeclarations: RateLimitDeclaration[] = []
   let provider: "cloudflare" | "memory" = "memory"
+  let projectRoot: string | undefined
   let resolved: ResolvedConfig | undefined
+
+  const refreshDeclarations = async (): Promise<void> => {
+    if (!projectRoot || !resolved) return
+    declarations = discoverRateLimitDeclarations({
+      rootDir: projectRoot,
+      scanDirs: rateLimit.scanDirs,
+    })
+    declarationFiles = new Set(declarations.map(declaration => declaration.source.file))
+    await writeRateLimitManifest(resolved.root, declarations, provider)
+  }
 
   return {
     name: pluginName,
@@ -111,21 +115,16 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       resolved = config
       rateLimit = config.rateLimit ?? rateLimit
       composedOutput = useComposedProviderOutput(config)
-      const projectRoot = resolveViteHubProjectRoot(config.root, { projectRoot: rateLimit.projectRoot })
-      definitions = discoverRateLimitDefinitions({
-        rootDir: projectRoot,
-        scanDirs: rateLimit.scanDirs,
-      })
+      projectRoot = resolveViteHubProjectRoot(config.root, { projectRoot: rateLimit.projectRoot })
       provider = resolveProvider(rateLimit, config)
-      const registryFile = resolve(config.root, generatedRegistry)
+      await refreshDeclarations()
       const pluginFile = resolve(config.root, generatedNitroPlugin)
       const runtimeFile = resolve(config.root, generatedRuntimeModule)
       const runtimeConfig = { provider } satisfies RateLimitRuntimeConfig
       await Promise.all([
-        writeFileIfChanged(registryFile, createRuntimeRegistryContents(registryFile, definitions)),
-        writeFileIfChanged(pluginFile, renderRuntimeInstaller(pluginFile, registryFile, runtimeConfig, importBase, true)),
-        writeFileIfChanged(runtimeFile, renderRuntimeInstaller(runtimeFile, registryFile, runtimeConfig, importBase, false)),
-        writeRateLimitManifest(config.root, definitions, provider),
+        rm(resolve(config.root, legacyGeneratedRegistry), { force: true }),
+        writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig, importBase, true)),
+        writeFileIfChanged(runtimeFile, renderRuntimeInstaller(runtimeConfig, importBase, false)),
       ])
       registerProviderRuntimeModules(composedOutput, "rate-limit", { cloudflare: runtimeFile })
     },
@@ -133,17 +132,28 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       if (!isServerEnvironment(name, config)) return
       return { resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) } }
     },
+    async handleHotUpdate(context) {
+      if (!/\.(?:c|m)?[jt]sx?$/i.test(context.file)) return
+      resolved = context.server.config
+      await refreshDeclarations()
+    },
+    transform(code, id) {
+      if (provider !== "cloudflare" || !resolved?.build.ssr || !declarationFiles.has(id.split("?", 1)[0]!)) return
+      return `import ${JSON.stringify(normalizePath(resolve(resolved.root, generatedRuntimeModule)))}\n${code}`
+    },
     async closeBundle() {
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+      await refreshDeclarations()
+      const namespace = resolveRateLimitNamespace(rateLimit.namespace)
       await writeRateLimitProviderOutput({
         clientOutDir: resolved.build.outDir,
-        definitions,
-        previousDefinitions,
+        declarations,
+        namespace,
+        previousDeclarations,
         provider,
-        namespace: rateLimit.namespace,
         rootDir: resolved.root,
       })
-      previousDefinitions = definitions
+      previousDeclarations = declarations
     },
   }
 }

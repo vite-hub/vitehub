@@ -1,12 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage } from "@vite-hub/agent"
-import { createRateLimiter } from "@vite-hub/rate-limit"
+import { createRateLimiter, defineRateLimit } from "@vite-hub/rate-limit"
 import { memoryRateLimitDriver } from "@vite-hub/rate-limit/drivers/memory"
-import {
-  setRateLimitRuntimeConfig,
-  setRateLimitRuntimeRegistry,
-} from "@vite-hub/rate-limit/runtime"
+import { setRateLimitRuntimeConfig } from "@vite-hub/rate-limit/runtime"
 import {
   rateLimit,
   RateLimitRejectedError,
@@ -38,17 +35,14 @@ function limiter(limit = 1, window: "1s" | "1m" = "1m") {
 
 afterEach(() => {
   setRateLimitRuntimeConfig({ provider: "memory" })
-  setRateLimitRuntimeRegistry(undefined)
 })
 
 describe("rateLimit capability", () => {
-  it("consumes a named Rate Limit Definition", async () => {
+  it("consumes a defined Rate Limit handle", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    setRateLimitRuntimeRegistry({
-      "agent-invocations": () => ({ limit: 1, window: "1m" }),
-    })
+    const invocations = defineRateLimit("agent-invocations", { limit: 1, window: "1m" })
     const agent = defineAgent({
-      capabilities: [rateLimit({ limiter: "agent-invocations" })],
+      capabilities: [rateLimit({ limiter: invocations })],
       driver: { run: context => context.context.get("rate-limit") },
     })
 
