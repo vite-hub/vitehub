@@ -5,6 +5,7 @@ import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/clo
 import { getProviderRuntimeModule, registerProviderRuntimeModules, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
+import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 
 import { normalizeBlobOptions } from "../config.ts"
 
@@ -386,6 +387,28 @@ function shouldCreateProviderOutput(blob: BlobModuleOptions | ResolvedBlobModule
   return !hasExplicitFsStore(blob)
 }
 
+function hasCloudflareR2Store(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined) {
+  const resolved = resolveBlobConfig(blob, "vercel")
+  return resolved !== false && Object.values(resolved.stores || { default: resolved.store })
+    .some(store => store.driver === "cloudflare-r2")
+}
+
+async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOptions) {
+  if (!hasCloudflareR2Store(options.blob)) return
+
+  await copyVercelFunctionRuntimePackages({
+    packages: [
+      { name: "files-sdk", resolveFrom: resolve(packageDir, "package.json") },
+      { name: "@aws-sdk/client-s3", resolveFrom: resolve(packageDir, "package.json") },
+      { name: "@aws-sdk/lib-storage", resolveFrom: resolve(packageDir, "package.json") },
+      { name: "@aws-sdk/s3-presigned-post", resolveFrom: resolve(packageDir, "package.json") },
+      { name: "@aws-sdk/s3-request-presigner", resolveFrom: resolve(packageDir, "package.json") },
+    ],
+    rootDir: options.rootDir,
+    serverFunctionName: options.serverFunctionName,
+  })
+}
+
 function registerSupportedProviderRuntimeModules(
   providerOutput: ComposedProviderOutput | undefined,
   artifacts: GeneratedBlobArtifacts,
@@ -399,6 +422,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.blob)
   const localOnly = !shouldCreateProviderOutput(options.blob)
   await writeProviderDeploymentOutputs({
+    afterWrite: localOnly ? undefined : () => copyVercelBlobRuntimePackages(options),
     clientOutDir: options.clientOutDir,
     cloudflare: localOnly ? undefined : createCloudflareOutput(options.blob, artifacts, options.providerOutput),
     rootDir: options.rootDir,

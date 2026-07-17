@@ -40,17 +40,26 @@ export function isServerEnvironment(name: string, config: { consumer?: string })
   return name === "ssr" || config.consumer === "server"
 }
 
+interface NitroVercelConfig {
+  environments?: Record<string, { build?: { outDir?: string } }>
+  nitro?: { preset?: string }
+  plugins?: readonly { name: string }[]
+}
+
 export function resolveNitroVercelFunctionName(
-  plugins: readonly { name: string }[] | undefined,
+  config: NitroVercelConfig,
   product: string,
-  nitroPreset?: string,
   env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
-  const preset = nitroPreset || env.NITRO_PRESET || env.SERVER_PRESET
+  const preset = config.nitro?.preset || env.NITRO_PRESET || env.SERVER_PRESET
+  const nitro = Boolean(preset) || config.plugins?.some(plugin => plugin.name === "nitro:main")
+  const clientOutDir = config.environments?.client?.build?.outDir
   const vercel = preset
     ? preset.startsWith("vercel")
-    : env.VITEHUB_HOSTING === "vercel" || Boolean(env.VERCEL)
-  return plugins?.some(plugin => plugin.name === "nitro:main") && vercel
+    : env.VITEHUB_HOSTING === "vercel"
+      || Boolean(env.VERCEL)
+      || Boolean(clientOutDir && /(^|[/\\])\.vercel[/\\]output([/\\]|$)/.test(clientOutDir))
+  return nitro && vercel
     ? `__${product}.func`
     : undefined
 }

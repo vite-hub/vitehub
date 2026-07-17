@@ -85,12 +85,20 @@
   },
   "peerDependencies": {
     "@aws-sdk/client-s3": "^3.700.0",
+    "@aws-sdk/lib-storage": "^3.700.0",
+    "@aws-sdk/s3-presigned-post": "^3.700.0",
     "@aws-sdk/s3-request-presigner": "^3.700.0",
     "files-sdk": "catalog:storage",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
     "@aws-sdk/client-s3": {
+      "optional": true
+    },
+    "@aws-sdk/lib-storage": {
+      "optional": true
+    },
+    "@aws-sdk/s3-presigned-post": {
       "optional": true
     },
     "@aws-sdk/s3-request-presigner": {

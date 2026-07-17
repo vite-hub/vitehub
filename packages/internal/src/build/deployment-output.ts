@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, rm, rmdir, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
@@ -82,6 +82,7 @@ interface NetlifyProviderDeploymentCleanup {
 }
 
 interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions {
+  afterWrite?: () => Promise<void>
   cloudflare?: CloudflareProviderDeploymentOutput
   cleanup?: {
     cloudflare?: CloudflareProviderDeploymentCleanup | (() => CloudflareProviderDeploymentCleanup | Promise<CloudflareProviderDeploymentCleanup>)
@@ -202,8 +203,9 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   const serverDir = resolve(outputRoot, "functions", serverFunctionName)
   const serverEntry = resolve(serverDir, "index.mjs")
 
-  await rm(serverDir, { force: true, recursive: true })
   await mkdir(serverDir, { recursive: true })
+  const staleFiles = (await readdir(serverDir)).filter(file => file !== "node_modules")
+  await Promise.all(staleFiles.map(file => rm(resolve(serverDir, file), { force: true, recursive: true })))
 
   await Promise.all([
     bundleEsmEntry(options.bundleEntry, serverEntry, { ...options.bundleOptions, rootDir: options.rootDir }),
@@ -309,6 +311,7 @@ async function writeProviderDeploymentOutputsNow(options: ProviderDeploymentOutp
     writes.push(cleanupVercelDeploymentOutput(options.rootDir, options.cleanup.vercel))
   }
   await Promise.all(writes)
+  await options.afterWrite?.()
 }
 
 export async function writeProviderDeploymentOutputs(options: ProviderDeploymentOutputOptions): Promise<void> {

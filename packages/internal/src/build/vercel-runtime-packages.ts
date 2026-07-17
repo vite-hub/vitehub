@@ -1,4 +1,4 @@
-import { access, copyFile, cp, mkdir, readFile, rm, stat } from "node:fs/promises"
+import { access, copyFile, cp, mkdir, readFile, realpath, rm, stat } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
@@ -38,8 +38,9 @@ export async function copyVercelFunctionRuntimePackages(options: VercelFunctionR
   const copied = new Set<string>()
   const outputNodeModules = resolve(serverDir, "node_modules")
   for (const runtimePackage of options.packages) {
-    const resolver = createRequire(runtimePackage.resolveFrom ?? join(options.rootDir, "package.json"))
-    await copyPackageToNodeModules(runtimePackage.name, resolver, options.rootDir, outputNodeModules, copied, runtimePackage)
+    const resolveFrom = runtimePackage.resolveFrom ?? join(options.rootDir, "package.json")
+    const resolver = createRequire(resolveFrom)
+    await copyPackageToNodeModules(runtimePackage.name, resolver, dirname(resolveFrom), outputNodeModules, copied, runtimePackage)
   }
 }
 
@@ -57,8 +58,9 @@ async function copyPackageToNodeModules(
     throw new Error(`Could not resolve package.json for ${name}.`)
   }
 
-  const packageDir = dirname(packageJsonPath)
-  const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8")) as {
+  const resolvedPackageJsonPath = await realpath(packageJsonPath)
+  const packageDir = dirname(resolvedPackageJsonPath)
+  const packageJson = JSON.parse(await readFile(resolvedPackageJsonPath, "utf8")) as {
     dependencies?: Record<string, string>
     exports?: unknown
     main?: string
@@ -67,17 +69,17 @@ async function copyPackageToNodeModules(
     peerDependencies?: Record<string, string>
     peerDependenciesMeta?: Record<string, { optional?: boolean }>
   }
-  const packageKey = `${name}\0${packageJsonPath}`
+  const packageKey = `${name}\0${resolvedPackageJsonPath}`
 
   if (!copied.has(packageKey)) {
     copied.add(packageKey)
     const targetDir = join(outputNodeModules, ...name.split("/"))
     await rm(targetDir, { force: true, recursive: true })
-    const copiedTrace = await copyTracedPackageFiles(name, resolver, packageDir, packageJsonPath, packageJson, targetDir)
+    const copiedTrace = await copyTracedPackageFiles(name, resolver, packageDir, resolvedPackageJsonPath, packageJson, targetDir)
     if (!copiedTrace) await copyPackageDirectory(packageDir, targetDir)
   }
 
-  const packageRequire = createRequire(packageJsonPath)
+  const packageRequire = createRequire(resolvedPackageJsonPath)
   const dependencyNames = new Set(Object.keys(packageJson.dependencies || {}))
   if (options.includePeerDependencies) {
     for (const dependencyName of Object.keys(packageJson.peerDependencies || {})) {
