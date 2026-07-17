@@ -32,7 +32,7 @@ Runtime Context should contain execution facts and trusted host resources. Put p
 | --- | --- |
 | Runtime Context | Host execution facts, request-scoped resources, background-work support, and trace continuity. |
 | Runtime Helper | The stable application API used to call or inspect a ViteHub primitive. |
-| Agent Invocation input | Prompt or message content, Agent Actor identity, application context, and run metadata for one invocation. |
+| Agent Invocation input | Prompt or message content, application context, call options, cancellation, and timeout for one invocation. |
 | Definition Options | Portable configuration that travels with one Definition. |
 | Provider Output | Generated host artifacts such as routes, functions, bindings, workers, and crons. |
 
