@@ -77,12 +77,12 @@ function renderRequestMiddleware(runtimeConfig: RateLimitRuntimeConfig, importBa
   return [
     "import { getRequestIP } from 'h3'",
     "import { defineMiddleware } from 'nitro'",
-    `import { runWithRateLimitRuntimeEvent } from ${JSON.stringify(`${importBase}/runtime`)}`,
+    `import { enterRateLimitRuntimeEvent } from ${JSON.stringify(`${importBase}/runtime`)}`,
     "",
     `const config = ${JSON.stringify(runtimeConfig)}`,
-    "export default defineMiddleware((event, next) => {",
+    "export default defineMiddleware((event) => {",
     `  const requestKey = ${trustCloudflareHeader ? "event.req.headers.get('cf-connecting-ip') || " : ""}getRequestIP(event)`,
-    "  return runWithRateLimitRuntimeEvent(event, next, requestKey || config.requestKeyFallback)",
+    "  enterRateLimitRuntimeEvent(event, requestKey || config.requestKeyFallback)",
     "})",
     "",
   ].join("\n")
@@ -148,7 +148,11 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       await Promise.all([
         rm(resolve(config.root, legacyGeneratedRegistry), { force: true }),
         writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig, importBase, true)),
-        writeFileIfChanged(middlewareFile, renderRequestMiddleware(runtimeConfig, importBase, hosting === "cloudflare")),
+        writeFileIfChanged(middlewareFile, renderRequestMiddleware(
+          runtimeConfig,
+          importBase,
+          hosting === "cloudflare" || (provider === "cloudflare" && config.command !== "serve"),
+        )),
         writeFileIfChanged(runtimeFile, renderRuntimeInstaller(runtimeConfig, importBase, false)),
       ])
       registerProviderRuntimeModules(composedOutput, "rate-limit", { cloudflare: runtimeFile })

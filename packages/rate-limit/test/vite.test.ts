@@ -54,7 +54,8 @@ describe("hubRateLimit", () => {
     expect(installer).not.toContain("enterRateLimitRuntimeEvent")
     expect(middleware).toContain("getRequestIP(event)")
     expect(middleware).toContain("event.req.headers.get('cf-connecting-ip') || getRequestIP(event)")
-    expect(middleware).toContain("runWithRateLimitRuntimeEvent(event, next, requestKey || config.requestKeyFallback)")
+    expect(middleware).toContain("enterRateLimitRuntimeEvent(event, requestKey || config.requestKeyFallback)")
+    expect(middleware).not.toContain("next")
     expect(middleware).not.toContain("requestKeyFallback\":\"local")
   })
 
@@ -158,6 +159,29 @@ describe("hubRateLimit", () => {
     const middleware = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "middleware.ts"), "utf8")
     expect(middleware).toContain("event.req.headers.get('cf-connecting-ip') || getRequestIP(event)")
     expect(middleware).not.toContain("requestKeyFallback\":\"local")
+  })
+
+  it("trusts Cloudflare ingress for an explicit production Cloudflare provider", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-explicit-cloudflare-build-"))
+    roots.push(root)
+    const previousHosting = process.env.VITEHUB_HOSTING
+    delete process.env.VITEHUB_HOSTING
+    try {
+      const plugin = hubRateLimit({ provider: "cloudflare" })
+      const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
+      await configResolved({
+        build: { outDir: "dist" },
+        command: "build",
+        plugins: [],
+        resolve: { alias: [] },
+        root,
+      } as never)
+      const middleware = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "middleware.ts"), "utf8")
+      expect(middleware).toContain("event.req.headers.get('cf-connecting-ip') || getRequestIP(event)")
+    }
+    finally {
+      if (previousHosting !== undefined) process.env.VITEHUB_HOSTING = previousHosting
+    }
   })
 
   it("collects source-local handles into the inspectable manifest", async () => {
