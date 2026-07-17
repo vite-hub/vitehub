@@ -131,7 +131,7 @@ export default defineAppConfig({
         highlightVariant: "circuit",
       },
       slots: {
-        root: "sticky top-(--ui-header-height) z-10 bg-default overflow-y-auto max-h-[calc(100vh-var(--ui-header-height))]",
+        root: "sticky top-(--ui-header-height) z-10 bg-default overflow-y-auto max-h-[calc(100vh-var(--ui-header-height))] lg:mx-0",
         container: "flex flex-col pt-14 pb-4",
         title: "text-sm font-medium text-muted",
       },
