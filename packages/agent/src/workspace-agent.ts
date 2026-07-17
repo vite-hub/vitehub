@@ -1,3 +1,5 @@
+import { normalizeWorkspaceSourcesMetadata, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
+
 import {
   capabilityWorkspaceSources,
   normalizeCapabilities,
@@ -18,7 +20,6 @@ import {
   resolveInstructionImports,
 } from "./instruction-composition.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
-import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 
 import type {
   AgentAdapterMetadataContext,
@@ -53,7 +54,6 @@ import type {
   WorkspaceAgentWorkspaceConfig,
   WorkspaceAgentWorkspaceOptions,
 } from "./types.ts"
-import type { AgentWorkspaceSourceMetadata } from "./workspace-source-metadata.ts"
 import type {
   ReadonlyWorkspaceFacade,
   WorkspaceEntry,
@@ -664,15 +664,15 @@ function agentDevtoolsMetadata<
 function normalizedSourcesFromOptions<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
->(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): AgentWorkspaceSourceMetadata[] {
-  return normalizeAgentWorkspaceSources(workspaceDefinitionFromOptions(options).sources)
+>(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): WorkspaceSourceMetadata[] {
+  return normalizeWorkspaceSourcesMetadata(workspaceDefinitionFromOptions(options).sources)
 }
 
-function sourceMountPath(source: AgentWorkspaceSourceMetadata) {
+function sourceMountPath(source: WorkspaceSourceMetadata) {
   return source.mountPath
 }
 
-function sourceMaterialize(source: AgentWorkspaceSourceMetadata): AgentDevtoolsFileTreeItem["materialize"] {
+function sourceMaterialize(source: WorkspaceSourceMetadata): AgentDevtoolsFileTreeItem["materialize"] {
   return source.materialize === "none" ? undefined : source.materialize
 }
 
@@ -1097,7 +1097,7 @@ function sourceCoverageWarnings(
   coverage: ReturnType<typeof createInstructionCoverage>,
   definition: WorkspaceDefinition | undefined,
 ): AgentDevtoolsWarning[] {
-  return normalizeAgentWorkspaceSources(definition?.sources)
+  return normalizeWorkspaceSourcesMetadata(definition?.sources)
     .filter(source => source.key !== colocatedAgentInstructionsSourceKey)
     .filter(source => !coverage.sources.has(source.key))
     .map(source => warning(

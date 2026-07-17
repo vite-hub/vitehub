@@ -76,6 +76,10 @@
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js"
     },
+    "./source-metadata": {
+      "types": "./dist/source-metadata.d.ts",
+      "import": "./dist/source-metadata.js"
+    },
     "./test": {
       "types": "./dist/test.d.ts",
       "import": "./dist/test.js"

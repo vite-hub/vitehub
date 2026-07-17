@@ -103,6 +103,7 @@ Global sources are materialized into an ephemeral harness profile for the sessio
 Workspace-scoped `skills()` requires an explicit Workspace with read access to the configured skill file.
 The path can point to a directory or directly to a `SKILL.md` file.
 When `source` is configured, `path` is the canonical mount. ViteHub mounts the source at the configured skill directory even when the source helper has its own default mount.
+File Sources are single-file and root-confined. Use a directory-capable `github()` or `custom()` Source, or a root-confined `glob()` Source, when a Skill source is a directory.
 With `scope: 'global'`, `path` and `source` are required, `shellExecution` is unsupported, and the selected Harness Agent Driver must expose a global Skill directory.
 
 ## Driver support
