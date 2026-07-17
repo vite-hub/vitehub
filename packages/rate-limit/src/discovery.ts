@@ -218,7 +218,7 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
 export function discoverRateLimitDeclarations(options: { rootDir: string, scanDirs?: string[] }): RateLimitDeclaration[] {
   const declarations = new Map<string, RateLimitDeclaration>()
   const files = new Set(resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
-    .flatMap(root => listSourceFiles(root).filter(file => isApplicationSource(options.rootDir, file))))
+    .flatMap(root => listSourceFiles(root).filter(file => isApplicationSource(root, file))))
   for (const file of files) {
     const source = readFileSync(file, "utf8")
     for (const declaration of extractRateLimitDeclarations(file, source)) {
