@@ -1,30 +1,32 @@
-import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { hubAgent } from '@vite-hub/agent/vite'
-import { env, hubEnv } from '@vite-hub/env/vite'
-import { hubKv } from '@vite-hub/kv/vite'
-import { hubSchedule } from '@vite-hub/schedule/vite'
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
   env: {
     server: {
-      vitehub: {
-        repository: 'vite-hub/vitehub',
-        repositoryPath: env({ default: join(homedir(), 'vitehub/vitehub') }),
-        worktreesPath: env({ required: true }),
+      babysitter: {
+        maxOwners: env({ default: '6', source: env.source('BABYSITTER_MAX_OWNERS') }),
+        repositories: env({ default: '', source: env.source('BABYSITTER_REPOS') }),
+        repository: env({ default: 'vite-hub/vitehub', source: env.source('BABYSITTER_REPO') }),
       },
     },
   },
   plugins: [
-    hubEnv(),
-    hubKv({ driver: 'fs-lite' }),
-    hubSchedule({
-      providerOutput: false,
-      runtime: { driver: 'process', intervalMs: 1_000 },
+    vitehub({
+      agent: { providers: { state: { provider: 'sqlite', url: 'file:.vitehub/agent-state.db' } } },
+      blob: false,
+      database: false,
+      devtools: false,
+      kv: { driver: 'fs-lite' },
+      schedule: {
+        providerOutput: false,
+        runtime: { driver: 'process', intervalMs: 1_000 },
+      },
+      workflow: false,
+      workspace: false,
     }),
-    hubAgent({ providers: { state: { provider: 'sqlite', url: 'file:.vitehub/agent-state.db' } } }),
     nitro(),
   ],
 })

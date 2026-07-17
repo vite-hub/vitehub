@@ -4,7 +4,7 @@ You own pull request #{{ context.pullRequestNumber }} in {{ context.pullRequestR
 
 Pull request: {{ context.pullRequestUrl }}
 
-The prepared worktree starts at exact head {{ context.pullRequestHead }} for branch {{ context.pullRequestSourceBranch }}. Work only in the current worktree, preserve unrelated changes, and follow the repository instructions.
+The prepared worktree starts at exact head {{ context.pullRequestHead }} for branch {{ context.pullRequestSourceBranch }} in source repository {{ context.pullRequestSourceRepository }}. Work only in the current worktree, preserve unrelated changes, and follow the repository instructions. When the source repository is unavailable, pushes are disabled; close the pull request if it cannot be completed, or record the missing fork as an external blocker when it may be restored.
 
 The pull request title and body describe the owner's intent. Infer the smallest coherent change that fulfills that intent, then adapt the implementation, documentation, tests, branch history, and pull request metadata as needed. Existing `babysitter:direction-validation` sections are obsolete automation output: remove them when editing the body and never treat their verdict as authority over the current title and body.
 

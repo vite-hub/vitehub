@@ -10,22 +10,19 @@
     "build": "vite build",
     "dev": "vite --host 127.0.0.1 --port 3028",
     "start": "node .output/server/index.mjs",
+    "test": "node --test test/*.test.ts",
     "typecheck": "vite build --app && tsc --noEmit"
   },
   "dependencies": {
     "@ai-sdk/harness": "1.0.0",
     "@ai-sdk/harness-codex": "1.0.0",
-    "@vite-hub/agent": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@5c8aea5a6da7fc6753723e5280671052312f50d0",
-    "@vite-hub/box": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/box@5c8aea5a6da7fc6753723e5280671052312f50d0",
-    "@vite-hub/env": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/env@5c8aea5a6da7fc6753723e5280671052312f50d0",
-    "@vite-hub/kv": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@5c8aea5a6da7fc6753723e5280671052312f50d0",
-    "@vite-hub/markdown-template": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/markdown-template@1058dafe806bd27f7ce64dca2c43781643137671",
-    "@vite-hub/schedule": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@5c8aea5a6da7fc6753723e5280671052312f50d0",
-    "@vite-hub/workspace": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workspace@5c8aea5a6da7fc6753723e5280671052312f50d0",
+    "@vite-hub/agent": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@69bb7688cd0dd505a640169941ef1e38b7d4bfdc",
+    "@vite-hub/markdown-template": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/markdown-template@69bb7688cd0dd505a640169941ef1e38b7d4bfdc",
     "ai": "7.0.0",
     "h3": "^2.0.1-rc.25",
     "nitro": "3.0.260429-beta",
-    "vite": "^8.0.11"
+    "vite": "^8.0.11",
+    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@69bb7688cd0dd505a640169941ef1e38b7d4bfdc"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

@@ -1,58 +1,103 @@
-import { runAgent } from '@vite-hub/agent'
-import { kv } from '@vite-hub/kv'
-import { renderMarkdownTemplate } from '@vite-hub/markdown-template'
-import { defineSchedule } from '@vite-hub/schedule'
+import { execFile } from 'node:child_process'
+import { access, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
+import { runScheduledAgent } from 'vite-hub/agent'
+import { kv } from 'vite-hub/kv'
+import { defineSchedule } from 'vite-hub/schedule'
+import { useServerEnv } from '#vitehub/env/server'
 import babysitter from './agents/babysitter/agent.ts'
 import blocker from './agents/babysitter/blocker.md?raw'
-import promptTemplate from './agents/babysitter/prompt.md?raw'
-import { pullRequestFingerprint, readPullRequest, reconcileWorktrees } from './utils/reconcile-worktrees.ts'
+import renderPrompt from './agents/babysitter/prompt.template.md'
+import {
+  type PullRequest,
+  pullRequestFingerprint,
+  resolveMaxOwners,
+  resolveRepositories,
+  selectPullRequestJobs,
+} from './babysitter.queue.ts'
 
-const activeOwners = new Map<number, Promise<void>>()
+const exec = promisify(execFile)
+const pullRequestFields = 'body,headRefName,headRefOid,headRepository,isDraft,mergeStateStatus,number,reviewDecision,state,statusCheckRollup,title,updatedAt,url'
+const blockerPattern = /<!-- babysitter:blocker:v1 -->[\s\S]*?<!-- \/babysitter:blocker:v1 -->/
 
 export default defineSchedule({
   cron: '*/5 * * * *',
   async handler(schedule) {
-    for (const job of await reconcileWorktrees(new Set(activeOwners.keys()))) {
-      if (activeOwners.has(job.number)) continue
-      if (activeOwners.size >= 6) break
+    const config = useServerEnv().babysitter
+    const repositories = resolveRepositories(config.repositories, config.repository)
+    const jobs = await selectPullRequestJobs(repositories, resolveMaxOwners(config.maxOwners), listPullRequests, key => kv.get<string>(key))
 
-      let owner: Promise<void>
-      owner = Promise.resolve()
-        .then(async () => {
-          const memo = new Map<string, unknown>()
+    await Promise.all(jobs.map(async job => {
+      const { pullRequest, repository } = job
+      try {
+        const checkout = await prepareCheckout(repository, pullRequest)
+        try {
           const context = {
-            pullRequestHead: job.headRefOid,
-            pullRequestNumber: job.number,
-            pullRequestRepository: job.repository,
-            pullRequestSourceBranch: job.headRefName,
-            pullRequestTitle: job.title,
-            pullRequestUrl: job.url,
+            pullRequestHead: pullRequest.headRefOid,
+            pullRequestNumber: pullRequest.number,
+            pullRequestRepository: repository,
+            pullRequestSourceBranch: pullRequest.headRefName,
+            pullRequestSourceRepository: pullRequest.headRepository?.nameWithOwner || '(unavailable)',
+            pullRequestTitle: pullRequest.title,
+            pullRequestUrl: pullRequest.url,
           }
-          await runAgent(babysitter, {
-            memo(key, create) {
-              if (!memo.has(key)) memo.set(key, create())
-              return memo.get(key) as never
-            },
-            run: { runId: `${schedule.runId || schedule.id}:pr-${job.number}:${job.fingerprint}` },
-            runtime: 'unknown',
-            waitUntil() {},
-          }, {
+          await runScheduledAgent(babysitter, {
+            ...schedule,
+            runId: `${schedule.runId || schedule.id}:${repository}:pr-${pullRequest.number}:${job.fingerprint}`,
+          }, {}, {
             abortSignal: AbortSignal.timeout(60 * 60 * 1000),
             context,
-            options: { worktreePath: job.worktreePath },
-            prompt: await renderMarkdownTemplate(promptTemplate, { data: { blocker, context } }),
+            options: { checkout },
+            prompt: await renderPrompt({ blocker, context }),
           })
-          const pullRequest = await readPullRequest(job.repository, job.number)
-          if (pullRequest.state === 'OPEN' && /<!-- babysitter:blocker:v1 -->[\s\S]*?<!-- \/babysitter:blocker:v1 -->/.test(pullRequest.body)) {
-            await kv.set(job.completionKey, pullRequestFingerprint(pullRequest))
-          }
-        })
-        .catch(error => console.error(new Error(`Babysitter failed for PR #${job.number}.`, { cause: error })))
-        .finally(() => {
-          if (activeOwners.get(job.number) === owner) activeOwners.delete(job.number)
-        })
-      activeOwners.set(job.number, owner)
-    }
-    schedule.waitUntil(Promise.all(activeOwners.values()))
+        }
+        finally {
+          await rm(checkout, { force: true, recursive: true })
+        }
+
+        const current = await readPullRequest(repository, pullRequest.number)
+        if (current.state === 'OPEN' && blockerPattern.test(current.body)) {
+          await kv.set(job.completionKey, pullRequestFingerprint(repository, current))
+        }
+      }
+      catch (error) {
+        console.error(new Error(`Babysitter failed for ${repository} PR #${pullRequest.number}.`, { cause: error }))
+      }
+    }))
   },
 })
+
+async function listPullRequests(repository: string) {
+  const result = await exec('gh', ['pr', 'list', '--repo', repository, '--state', 'open', '--limit', '100', '--json', pullRequestFields])
+  return JSON.parse(result.stdout) as PullRequest[]
+}
+
+async function readPullRequest(repository: string, number: number) {
+  const result = await exec('gh', ['pr', 'view', String(number), '--repo', repository, '--json', pullRequestFields])
+  return JSON.parse(result.stdout) as PullRequest
+}
+
+async function prepareCheckout(repository: string, pullRequest: PullRequest) {
+  const checkout = await mkdtemp(join(tmpdir(), `babysitter-${repository.replace('/', '-')}-pr-${pullRequest.number}-`))
+  try {
+    await exec('gh', ['repo', 'clone', repository, checkout, '--', '--filter=blob:none', '--no-checkout'])
+    await exec('gh', ['pr', 'checkout', String(pullRequest.number), '--repo', repository, '--detach'], { cwd: checkout })
+    await exec('git', ['-C', checkout, 'remote', 'set-url', 'origin', `https://github.com/${repository}.git`])
+    const pushUrl = pullRequest.headRepository
+      ? `https://github.com/${pullRequest.headRepository.nameWithOwner}.git`
+      : 'disabled://pull-request-head-repository-unavailable'
+    await exec('git', ['-C', checkout, 'remote', 'set-url', '--push', 'origin', pushUrl])
+    const fetched = (await exec('git', ['-C', checkout, 'rev-parse', 'HEAD'])).stdout.trim()
+    if (fetched !== pullRequest.headRefOid) throw new Error(`PR head changed from ${pullRequest.headRefOid} to ${fetched}`)
+    const installArgs = ['pnpm', 'install', '--frozen-lockfile']
+    if (!await access(join(checkout, 'pnpm-workspace.yaml')).then(() => true, () => false)) installArgs.push('--ignore-workspace')
+    await exec('corepack', installArgs, { cwd: checkout })
+    return checkout
+  }
+  catch (error) {
+    await rm(checkout, { force: true, recursive: true })
+    throw error
+  }
+}

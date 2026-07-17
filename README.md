@@ -1,19 +1,17 @@
 # Babysitter
 
-Babysitter is a [ViteHub](https://github.com/vite-hub/vitehub) agent that owns open pull requests in `vite-hub/vitehub` until each one is merged, closed, or blocked. Every five minutes, it prepares exact-head worktrees and runs up to six Codex agents.
+Babysitter is a [ViteHub](https://github.com/vite-hub/vitehub) agent that owns open pull requests across configured GitHub repositories until each one is merged, closed, or blocked. Every five minutes, it runs one globally bounded batch of coding agents.
 
 ## How it works
 
 ```mermaid
 flowchart TD
     schedule["Every 5 minutes"] --> discover["Read open pull requests from GitHub"]
-    discover --> reconcile["Prepare one exact-head worktree per pull request"]
-    reconcile --> owned{"Agent already owns this pull request?"}
-    owned -- Yes --> skip["Skip this cycle"]
-    owned -- No --> unchanged{"Blocked state unchanged?"}
+    discover --> unchanged{"Blocked state unchanged?"}
     unchanged -- Yes --> skip
     skip --> schedule
-    unchanged -- No --> agent["Start a Codex agent, up to six concurrently"]
+    unchanged -- No --> checkout["Create a disposable exact-head checkout"]
+    checkout --> agent["Start a coding agent, up to the configured global limit"]
     agent --> work["Codex (or Claude Code) uses Skills and your own instructions to work on the PR"]
     work --> outcome{"Outcome"}
     outcome -- Ready --> merge["Merge and delete the source branch"]
@@ -24,23 +22,34 @@ flowchart TD
     close --> schedule
 ```
 
-1. **Prepare pull requests.** The [schedule](server/babysitter.schedule.ts) reads up to 100 open pull requests from GitHub. The [worktree preparation code](server/utils/reconcile-worktrees.ts) removes worktrees for closed pull requests, fetches each current head, and creates or resets `pr-<number>` to that exact commit. Dependencies are installed when the head changes, so an agent never reviews one revision while editing another.
-2. **Give each pull request one owner.** An in-memory lease prevents overlapping agents for the same pull request, while a pool limit allows six different pull requests to move concurrently. Each run receives the pull request metadata and its isolated worktree, and it can run for up to one hour.
-3. **Work toward a terminal outcome.** The [agent prompt](server/agents/babysitter/prompt.md) tells Codex to validate the requested direction, bring the branch up to date with its base, address checks and review feedback, verify the exact head, and then merge or close the pull request. The agent may stop only for a real external blocker, such as a missing credential, unavailable service, or unresolved product decision.
-4. **Retry only when useful.** A blocked pull request gets a completion fingerprint in ViteHub KV. Later schedules skip it while its observed GitHub state is unchanged; a new commit, comment, check result, review, or metadata change updates the fingerprint and makes it eligible again. Failed, timed-out, or otherwise unfinished runs do not get that completion marker, so a later schedule retries them.
+1. **Prepare pull requests.** The [schedule](server/babysitter.schedule.ts), built with ViteHub's [Schedule primitive](https://vitehub.dev/docs/server-primitives/schedule), reads up to 100 open pull requests from each configured GitHub repository. Each selected pull request gets a disposable checkout verified against the observed head SHA, so one run cannot inspect one revision while editing another.
+2. **Run pull requests in parallel.** One awaited batch applies a single concurrency limit across every repository. ViteHub's process schedule runtime serializes schedule occurrences, so a later five-minute occurrence cannot overlap the active batch. Each agent also receives a private [Box](https://vitehub.dev/docs/agents/boxes) Home containing only the declared GitHub and coding-agent credentials.
+3. **Work toward a terminal outcome.** The [agent prompt](server/agents/babysitter/prompt.template.md) and colocated [Skills](https://vitehub.dev/docs/capabilities/skills) tell the coding agent to validate the requested direction, bring the branch up to date with its base, address checks and review feedback, verify the exact head, and then merge or close the pull request. The agent may stop only for a real external blocker, such as a missing credential, unavailable service, or unresolved product decision.
+4. **Retry only when useful.** A blocked pull request gets a completion fingerprint in [ViteHub KV](https://vitehub.dev/docs/server-primitives/kv). Later schedules skip it while its observed GitHub state is unchanged; a new commit, comment, check result, review, or metadata change updates the fingerprint and makes it eligible again. Failed, timed-out, or otherwise unfinished runs do not get that completion marker, so a later schedule retries them.
 
-## Run
+## Requirements
 
 > [!WARNING]
-> Babysitter uses your host and credentials to edit code, push branches, change pull requests, and merge them. Read the [agent prompt](server/agents/babysitter/prompt.md) before running it.
+> Babysitter uses your host and credentials to edit code, push branches, change pull requests, and merge them. Read the [agent prompt](server/agents/babysitter/prompt.template.md) before running it.
 
-You need Node.js 24, `git`, authenticated [`gh`](https://cli.github.com/) and [`codex`](https://github.com/openai/codex) CLIs, and a clone of `vite-hub/vitehub` at `~/vitehub/vitehub`.
+- Node.js 24 or newer
+- Corepack, which activates the repository's pinned pnpm version
+- `git` and a GitHub repository you want Babysitter to watch. The current [schedule](server/babysitter.schedule.ts) installs dependencies with pnpm; change that command if your repository uses another package manager.
+- An authenticated [`gh`](https://cli.github.com/) CLI with permission to update that repository. This implementation uses `gh` directly to discover and inspect pull requests, so it is currently required.
+- An authenticated coding-agent CLI. ViteHub [Agent Drivers](https://vitehub.dev/docs/agents/agent-drivers) support both Codex and Claude Code. [Codex](https://github.com/openai/codex) is recommended because its non-interactive `codex exec` command is designed for programmatic use; this repository uses Codex by default.
 
-```sh
-corepack enable
-pnpm install
-VITEHUB_WORKTREES_PATH=/path/to/worktrees \
-pnpm dev
-```
+## Start Babysitter
 
-To target another repository, change [`vite.config.ts`](vite.config.ts) and the [agent prompt](server/agents/babysitter/prompt.md).
+1. Read and adapt the [agent prompt](server/agents/babysitter/prompt.template.md) so its permissions, review policy, and merge rules match your repository.
+
+2. Install the dependencies and start Babysitter with repository names. `BABYSITTER_REPOS` accepts comma- or space-separated `OWNER/REPOSITORY` values, and `BABYSITTER_MAX_OWNERS` caps the global batch. The singular `BABYSITTER_REPO` remains supported and defaults to `vite-hub/vitehub` when the plural setting is empty.
+
+   ```sh
+   corepack enable
+   pnpm install
+   BABYSITTER_REPOS=OWNER/REPOSITORY,OWNER/ANOTHER_REPOSITORY \
+   BABYSITTER_MAX_OWNERS=2 \
+   pnpm dev
+   ```
+
+To use Claude Code instead, install `@ai-sdk/harness-claude-code`, then replace `codexDriver()` with `claudeCodeDriver()` in the [agent definition](server/agents/babysitter/agent.ts).
