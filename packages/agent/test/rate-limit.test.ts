@@ -1,15 +1,19 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage } from "@vite-hub/agent"
+import { createRateLimiter } from "@vite-hub/rate-limit"
+import { memoryRateLimitDriver } from "@vite-hub/rate-limit/drivers/memory"
 import {
-  memoryRateLimitStore,
+  setRateLimitRuntimeConfig,
+  setRateLimitRuntimeRegistry,
+} from "@vite-hub/rate-limit/runtime"
+import {
   rateLimit,
   RateLimitRejectedError,
 } from "../src/capabilities.ts"
 import { toHttpErrorResponse } from "../src/http-error.ts"
 
 import type { AgentRunMetadata, AgentRuntimeName } from "../src/index.ts"
-import type { RateLimitStore } from "../src/capabilities.ts"
 
 const runtime = (options: {
   request?: Request
@@ -24,35 +28,49 @@ const runtime = (options: {
   waitUntil: vi.fn(),
 })
 
-describe("rateLimit capability", () => {
-  it("fails duplicate invoker profile ids in one agent definition", async () => {
-    const { defineAgent } = await import("../src/index.ts")
+function limiter(limit = 1, window: "1s" | "1m" = "1m") {
+  return createRateLimiter({
+    driver: memoryRateLimitDriver(),
+    limit,
+    window,
+  })
+}
 
-    expect(() => defineAgent({
-      invoker: {
-        profiles: [
-          { id: "support" },
-          { id: "support" },
-        ],
-      },
-      driver: { run: () => "ok" },
-    })).toThrow("Duplicate Agent Invoker Profile id")
+afterEach(() => {
+  setRateLimitRuntimeConfig({ provider: "memory" })
+  setRateLimitRuntimeRegistry(undefined)
+})
+
+describe("rateLimit capability", () => {
+  it("consumes a named Rate Limit Definition", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    setRateLimitRuntimeRegistry({
+      "agent-invocations": () => ({ limit: 1, window: "1m" }),
+    })
+    const agent = defineAgent({
+      capabilities: [rateLimit({ limiter: "agent-invocations" })],
+      driver: { run: context => context.context.get("rate-limit") },
+    })
+
+    await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
+      allowed: true,
+      limit: 1,
+      windowMs: 60_000,
+    })
+    await expect(runAgent(agent, runtime(), {})).rejects.toBeInstanceOf(RateLimitRejectedError)
   })
 
-  it("rejects before the agent run when an identity exhausts its window", async () => {
+  it("rejects before the Agent Invocation when an identity exhausts its limiter", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const run = vi.fn((context: { context: { get: (id: string) => unknown } }) => context.context.get("rate-limit"))
     const agent = defineAgent({
       capabilities: [
         rateLimit({
           identity: () => "user_1",
-          limit: 2,
-          window: "1m",
+          limiter: limiter(2),
         }),
       ],
-      driver: {
-        run
-      },
+      driver: { run },
     })
 
     await expect(runAgent(agent, runtime(), {
@@ -63,17 +81,14 @@ describe("rateLimit capability", () => {
       limit: 2,
       remaining: 1,
       used: 1,
+      windowMs: 60_000,
     })
-    await expect(runAgent(agent, runtime(), {
-      messages: [createMessage({ role: "user", text: "second" })],
-    })).resolves.toMatchObject({
+    await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
       allowed: true,
       remaining: 0,
       used: 2,
     })
-    await expect(runAgent(agent, runtime(), {
-      messages: [createMessage({ role: "user", text: "third" })],
-    })).rejects.toMatchObject({
+    await expect(runAgent(agent, runtime(), {})).rejects.toMatchObject({
       decision: {
         allowed: false,
         identity: "user_1",
@@ -88,296 +103,79 @@ describe("rateLimit capability", () => {
     expect(run).toHaveBeenCalledTimes(2)
   })
 
-  it("uses trusted request invoker identity with invoker kind", async () => {
+  it("keeps Agent identity and scope resolution above the portable limiter", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const agent = defineAgent({
-      capabilities: [
-        rateLimit({
-          identity: "invoker",
-          limit: 1,
-          window: "1m",
-        }),
-      ],
-      driver: { run: () => "ok" },
-    })
-
-    await expect(runAgent(agent, runtime(), {
-      context: { invoker: { id: "user_1", kind: "chat" } },
-    })).resolves.toBe("ok")
-    await expect(runAgent(agent, runtime(), {
-      context: { invoker: { id: "user_2", kind: "chat" } },
-    })).resolves.toBe("ok")
-    await expect(runAgent(agent, runtime(), {
-      context: { invoker: { id: "user_1", kind: "devtools" } },
-    })).resolves.toBe("ok")
-    await expect(runAgent(agent, runtime(), {
-      context: { invoker: { id: "user_1", kind: "chat" } },
-    })).rejects.toBeInstanceOf(RateLimitRejectedError)
-  })
-
-  it("stores the resolved invoker in invocation context", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const agent = defineAgent({
-      invoker: {
-        resolve({ defaultInvoker }) {
-          return {
-            ...defaultInvoker,
-            id: `resolved:${defaultInvoker.id}`,
-            kind: "mapped",
-          }
-        },
-      },
-      driver: { run: context => context.context.get("invoker") },
-    })
-
-    await expect(runAgent(agent, runtime(), {
-      context: { invoker: { id: "user_1", kind: "chat" } },
-    })).resolves.toEqual({
-      id: "resolved:user_1",
-      kind: "mapped",
-    })
-  })
-
-  it("passes Agent Run metadata to invoker resolution", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const agent = defineAgent({
-      invoker: {
-        resolve({ defaultInvoker, run }) {
-          return {
-            ...defaultInvoker,
-            id: `${run?.origin}:${run?.runId}:${defaultInvoker.id}`,
-          }
-        },
-      },
-      driver: { run: context => context.invoker },
-    })
-
-    await expect(runAgent(agent, runtime({
-      run: { origin: "portal", runId: "portal-run" },
-    }), {
-      context: { invoker: { id: "user_1", kind: "chat" } },
-    })).resolves.toEqual({
-      id: "portal:portal-run:user_1",
-      kind: "chat",
-    })
-  })
-
-  it("keeps trusted invoker metadata when selecting a profile", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const agent = defineAgent({
-      invoker: {
-        profiles: [
-          { id: "support:acme", kind: "customer", meta: { customer: "acme", scope: "support" } },
-        ],
-      },
-      driver: { run: context => context.invoker },
-    })
-
-    await expect(runAgent(agent, runtime(), {
-      context: {
-        invoker: {
-          id: "chat:user_1",
-          kind: "chat",
-          meta: { email: "User@Example.COM", scope: "customer" },
-        },
-        invokerProfileId: "support:acme",
-      },
-    })).resolves.toEqual({
-      email: {
-        address: "user@example.com",
-        domain: "example.com",
-      },
-      id: "support:acme",
-      kind: "customer",
-      meta: {
-        customer: "acme",
-        email: "User@Example.COM",
-        scope: "support",
-      },
-    })
-  })
-
-  it("keeps profile metadata when selecting without a request invoker", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const agent = defineAgent({
-      invoker: {
-        profiles: [
-          { id: "support:acme", kind: "customer", meta: { customer: "acme" } },
-        ],
-      },
-      driver: { run: context => context.invoker },
-    })
-
-    await expect(runAgent(agent, runtime(), {
-      context: { invokerProfileId: "support:acme" },
-    })).resolves.toEqual({
-      id: "support:acme",
-      kind: "customer",
-      meta: { customer: "acme" },
-    })
-  })
-
-  it("selects configured invoker profiles for rate limit identity", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const agent = defineAgent({
-      invoker: {
-        profiles: [
-          { id: "support:acme", kind: "customer", meta: { customer: "acme" } },
-          { id: "support:globex", kind: "customer", meta: { customer: "globex" } },
-        ],
-      },
-      capabilities: [
-        rateLimit({
-          identity: "invoker",
-          limit: 1,
-          window: "1m",
-        }),
-      ],
-      driver: { run: () => "ok" },
-    })
-
-    await expect(runAgent(agent, runtime(), {})).resolves.toBe("ok")
-    await expect(runAgent(agent, runtime(), {
-      context: { invokerProfileId: "support:acme" },
-    })).resolves.toBe("ok")
-    await expect(runAgent(agent, runtime(), {
-      context: { invokerProfileId: "support:globex" },
-    })).resolves.toBe("ok")
-    await expect(runAgent(agent, runtime(), {})).rejects.toBeInstanceOf(RateLimitRejectedError)
-    await expect(runAgent(agent, runtime(), {
-      context: { invokerProfileId: "support:acme" },
-    })).rejects.toBeInstanceOf(RateLimitRejectedError)
-    await expect(runAgent(agent, runtime(), {
-      context: { invokerProfileId: "support:globex" },
-    })).rejects.toBeInstanceOf(RateLimitRejectedError)
-  })
-
-  it("resolves dynamic limits from the invocation context", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const agent = defineAgent({
-      capabilities: [
-        rateLimit({
-          identity: "invoker",
-          limit: context => context.invoker.meta?.tier === "pro" ? 2 : 1,
-          window: "1m",
-        }),
-      ],
-      driver: { run: context => context.context.get("rate-limit") },
-    })
-
-    await expect(runAgent(agent, runtime(), {
-      context: { invoker: { id: "user_1", kind: "chat", meta: { tier: "pro" } } },
-    })).resolves.toMatchObject({ identity: "chat:user_1", limit: 2, remaining: 1, used: 1 })
-    await expect(runAgent(agent, runtime(), {
-      context: { invoker: { id: "user_1", kind: "chat", meta: { tier: "pro" } } },
-    })).resolves.toMatchObject({ identity: "chat:user_1", limit: 2, remaining: 0, used: 2 })
-    await expect(runAgent(agent, runtime(), {
-      context: { invoker: { id: "user_2", kind: "chat" } },
-    })).resolves.toMatchObject({ identity: "chat:user_2", limit: 1, remaining: 0, used: 1 })
-    await expect(runAgent(agent, runtime(), {
-      context: { invoker: { id: "user_2", kind: "chat" } },
-    })).rejects.toBeInstanceOf(RateLimitRejectedError)
-  })
-
-  it("passes invocation details to persistent stores and accepts store limit overrides", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const store = {
-      check: vi.fn(),
-      consume: vi.fn(async input => ({
-        allowed: true,
-        limit: 5,
-        remaining: 2,
-        resetAt: input.now + input.windowMs,
-        used: 3,
-      })),
-    } satisfies RateLimitStore
+    const sharedLimiter = limiter()
     const agent = defineAgent({
       capabilities: [
         rateLimit({
           id: "customer-quota",
           identity: "invoker",
-          limit: 20,
+          limiter: sharedLimiter,
           scope: context => `customer:${context.invoker.meta?.customer}`,
-          store,
-          window: "1d",
         }),
       ],
       driver: { run: context => context.context.get("customer-quota") },
     })
 
     await expect(runAgent(agent, runtime(), {
-      context: { invoker: { id: "acme", kind: "customer", meta: { customer: "acme" } } },
+      context: { invoker: { id: "user_1", kind: "chat", meta: { customer: "acme" } } },
     })).resolves.toMatchObject({
-      action: "consume",
-      identity: "customer:acme",
-      identitySource: "invoker",
-      limit: 5,
-      remaining: 2,
-      scope: "customer:acme",
-      used: 3,
-    })
-    expect(store.consume).toHaveBeenCalledWith(expect.objectContaining({
-      action: "consume",
       capabilityId: "customer-quota",
-      identity: "customer:acme",
+      identity: "chat:user_1",
       identitySource: "invoker",
-      invoker: { id: "acme", kind: "customer", meta: { customer: "acme" } },
-      limit: 20,
       scope: "customer:acme",
-      windowMs: 86_400_000,
-    }))
-    expect(store.check).not.toHaveBeenCalled()
+    })
+    await expect(runAgent(agent, runtime(), {
+      context: { invoker: { id: "user_1", kind: "devtools", meta: { customer: "acme" } } },
+    })).resolves.toMatchObject({ identity: "devtools:user_1" })
+    await expect(runAgent(agent, runtime(), {
+      context: { invoker: { id: "user_1", kind: "chat", meta: { customer: "acme" } } },
+    })).rejects.toBeInstanceOf(RateLimitRejectedError)
   })
 
-  it("can check a limit without consuming budget", async () => {
+  it("resolves a user's preferred limiter from Agent Invocation Context", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const store = memoryRateLimitStore()
-    const checkAgent = defineAgent({
+    const free = limiter(1)
+    const pro = limiter(2)
+    const agent = defineAgent({
       capabilities: [
         rateLimit({
-          action: "check",
-          identity: () => "user_1",
-          limit: 1,
-          store,
-          window: "1m",
+          identity: "invoker",
+          limiter: context => context.invoker.meta?.tier === "pro" ? pro : free,
         }),
       ],
       driver: { run: context => context.context.get("rate-limit") },
     })
-    const consumeAgent = defineAgent({
-      capabilities: [
-        rateLimit({
-          identity: () => "user_1",
-          limit: 1,
-          store,
-          window: "1m",
-        }),
-      ],
-      driver: { run: () => "ok" },
-    })
 
-    await expect(runAgent(checkAgent, runtime(), {})).resolves.toMatchObject({ action: "check", remaining: 1, used: 0 })
-    await expect(runAgent(checkAgent, runtime(), {})).resolves.toMatchObject({ action: "check", remaining: 1, used: 0 })
-    await expect(runAgent(consumeAgent, runtime(), {})).resolves.toBe("ok")
-    await expect(runAgent(checkAgent, runtime(), {})).rejects.toMatchObject({
-      decision: { action: "check", remaining: 0, used: 1 },
-    })
+    await expect(runAgent(agent, runtime(), {
+      context: { invoker: { id: "user_1", meta: { tier: "pro" } } },
+    })).resolves.toMatchObject({ limit: 2, remaining: 1 })
+    await expect(runAgent(agent, runtime(), {
+      context: { invoker: { id: "user_1", meta: { tier: "pro" } } },
+    })).resolves.toMatchObject({ limit: 2, remaining: 0 })
+    await expect(runAgent(agent, runtime(), {
+      context: { invoker: { id: "user_2" } },
+    })).resolves.toMatchObject({ limit: 1, remaining: 0 })
+    await expect(runAgent(agent, runtime(), {
+      context: { invoker: { id: "user_2" } },
+    })).rejects.toBeInstanceOf(RateLimitRejectedError)
   })
 
-  it("runs rate-limit callbacks with the decision event", async () => {
+  it("runs callbacks with the Agent decision and resolved limiter", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const onAllowed = vi.fn()
     const onDecision = vi.fn()
     const onRejected = vi.fn()
+    const resolvedLimiter = limiter()
     const agent = defineAgent({
       capabilities: [
         rateLimit({
           identity: () => "user_1",
-          limit: 1,
+          limiter: resolvedLimiter,
           onAllowed,
           onDecision,
           onRejected,
-          window: "1m",
         }),
       ],
       driver: { run: () => "ok" },
@@ -391,86 +189,76 @@ describe("rateLimit capability", () => {
     expect(onRejected).toHaveBeenCalledTimes(1)
     expect(onRejected).toHaveBeenCalledWith(expect.objectContaining({
       decision: expect.objectContaining({ allowed: false, identity: "user_1", used: 1 }),
-      input: expect.objectContaining({ identity: "user_1" }),
-      store: expect.objectContaining({ consume: expect.any(Function) }),
+      limiter: resolvedLimiter,
     }))
   })
 
-  it("falls back to an origin-specific anonymous invoker", async () => {
+  it("uses only explicitly trusted request headers for IP identity", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const seen: unknown[] = []
+    const request = new Request("https://example.com/api/agent", {
+      headers: { "x-forwarded-for": "203.0.113.10, 10.0.0.1" },
+    })
+    const trustedAgent = defineAgent({
+      capabilities: [
+        rateLimit({
+          identity: "ip",
+          limiter: limiter(),
+          trustedIpHeaders: ["x-forwarded-for"],
+        }),
+      ],
+      driver: { run: context => context.context.get("rate-limit") },
+    })
+    const untrustedAgent = defineAgent({
+      capabilities: [
+        rateLimit({
+          identity: "ip",
+          limiter: limiter(),
+        }),
+      ],
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(trustedAgent, runtime({ request }), {})).resolves.toMatchObject({
+      identity: "203.0.113.10",
+      identitySource: "ip",
+    })
+    await expect(runAgent(untrustedAgent, runtime({ request }), {})).rejects.toThrow("requires trustedIpHeaders")
+  })
+
+  it("requires stable Agent Run metadata for run identity", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [
         rateLimit({
-          limit: 1,
-          window: "1m",
+          identity: "run",
+          limiter: limiter(),
         }),
       ],
-      driver: { run: context => {
-          seen.push(context.invoker)
-          return "ok"
-        } },
+      driver: { run: () => "ok" },
     })
 
-    await expect(runAgent(agent, runtime({ run: { origin: "http", runId: "run_1" } }), {})).resolves.toBe("ok")
-    await expect(runAgent(agent, runtime({ run: { origin: "http", runId: "run_2" } }), {})).rejects.toBeInstanceOf(RateLimitRejectedError)
-    expect(seen).toEqual([{ id: "anonymous:http", kind: "anonymous", label: "Anonymous" }])
+    await expect(runAgent(agent, runtime({ run: { runId: "run_1" } }), {})).rejects.toThrow("could not resolve Agent Run metadata")
+    await expect(runAgent(agent, runtime({ run: { runId: "run_2", threadId: "thread_1" } }), {})).resolves.toBe("ok")
   })
 
-  it("resets the memory store after the fixed window elapses", async () => {
+  it("preserves retry metadata on HTTP error responses", async () => {
     vi.useFakeTimers()
     try {
       vi.setSystemTime(0)
       const { defineAgent, runAgent } = await import("../src/index.ts")
-      const store = memoryRateLimitStore()
       const agent = defineAgent({
         capabilities: [
           rateLimit({
             identity: () => "user_1",
-            limit: 1,
-            store,
-            window: "1s",
-          }),
-        ],
-        driver: { run: () => "ok" },
-      })
-
-      await expect(runAgent(agent, runtime(), {})).resolves.toBe("ok")
-      await expect(runAgent(agent, runtime(), {})).rejects.toBeInstanceOf(RateLimitRejectedError)
-
-      vi.setSystemTime(1_000)
-      await expect(runAgent(agent, runtime(), {})).resolves.toBe("ok")
-    }
-    finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it("preserves retry headers on HTTP error responses", async () => {
-    vi.useFakeTimers()
-    try {
-      vi.setSystemTime(0)
-      const { defineAgent, runAgent } = await import("../src/index.ts")
-      const agent = defineAgent({
-        capabilities: [
-          rateLimit({
-            identity: "ip",
-            limit: 1,
+            limiter: limiter(),
             message: decision => `Try again in ${decision.retryAfter}s.`,
-            trustedIpHeaders: ["x-forwarded-for"],
-            window: "1m",
           }),
         ],
         driver: { run: () => "ok" },
       })
-      const request = new Request("https://example.com/api/agent", {
-        headers: {
-          "x-forwarded-for": "203.0.113.10",
-        },
-      })
 
-      await expect(runAgent(agent, runtime({ request }), {})).resolves.toBe("ok")
-      const error = await runAgent(agent, runtime({ request }), {}).catch(error => error)
+      await expect(runAgent(agent, runtime(), {})).resolves.toBe("ok")
+      const error = await runAgent(agent, runtime(), {}).catch(error => error)
       const response = toHttpErrorResponse(error)
 
       expect(response?.status).toBe(429)
@@ -483,69 +271,37 @@ describe("rateLimit capability", () => {
     }
   })
 
-  it("requires explicit trusted IP headers for IP identity", async () => {
+  it("omits retry headers when a provider cannot report reset metadata", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
+    const providerLimiter = {
+      capabilities: {
+        enforcement: "best-effort" as const,
+        metadata: {
+          remaining: { availability: "never" as const },
+          resetAt: { availability: "never" as const },
+          retryAfter: { availability: "never" as const },
+          used: { availability: "never" as const },
+        },
+        rejectedAttempts: "unknown" as const,
+        scope: "global" as const,
+      },
+      policy: {
+        enforcement: "best-effort" as const,
+        failure: "deny" as const,
+        limit: 1,
+        window: "1m" as const,
+        windowMs: 60_000,
+      },
+      consume: vi.fn(async () => ({ allowed: false, limit: 1, windowMs: 60_000 })),
+    }
     const agent = defineAgent({
-      capabilities: [
-        rateLimit({
-          identity: "ip",
-          limit: 1,
-          window: "1m",
-        }),
-      ],
+      capabilities: [rateLimit({ limiter: providerLimiter })],
       driver: { run: () => "ok" },
     })
 
-    await expect(runAgent(agent, runtime({
-      request: new Request("https://example.com", {
-        headers: { "x-forwarded-for": "203.0.113.10" },
-      }),
-    }), {})).rejects.toThrow("requires trustedIpHeaders")
-  })
-
-  it("requires an explicit store for hosted runtimes", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const withoutStore = defineAgent({
-      capabilities: [
-        rateLimit({
-          identity: () => "user_1",
-          limit: 1,
-          window: "1m",
-        }),
-      ],
-      driver: { run: () => "ok" },
-    })
-    const withMemoryOptIn = defineAgent({
-      capabilities: [
-        rateLimit({
-          identity: () => "user_1",
-          limit: 1,
-          store: "memory",
-          window: "1m",
-        }),
-      ],
-      driver: { run: () => "ok" },
-    })
-
-    await expect(runAgent(withoutStore, runtime({ runtime: "vercel" }), {})).rejects.toThrow("requires an explicit store")
-    await expect(runAgent(withoutStore, runtime({ runtime: "deno" }), {})).rejects.toThrow("requires an explicit store")
-    await expect(runAgent(withMemoryOptIn, runtime({ runtime: "vercel" }), {})).resolves.toBe("ok")
-  })
-
-  it("requires stable run metadata for run identity", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const agent = defineAgent({
-      capabilities: [
-        rateLimit({
-          identity: "run",
-          limit: 1,
-          window: "1m",
-        }),
-      ],
-      driver: { run: () => "ok" },
-    })
-
-    await expect(runAgent(agent, runtime({ run: { runId: "run_1" } }), {})).rejects.toThrow("could not resolve Agent Run metadata")
-    await expect(runAgent(agent, runtime({ run: { runId: "run_2", threadId: "thread_1" } }), {})).resolves.toBe("ok")
+    const error = await runAgent(agent, runtime(), {}).catch(error => error)
+    const response = toHttpErrorResponse(error)
+    expect(response?.status).toBe(429)
+    expect(response?.headers.has("retry-after")).toBe(false)
   })
 })

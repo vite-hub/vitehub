@@ -46,6 +46,7 @@ Import application APIs from explicit feature subpaths.
 ```ts [server/agents/support.ts]
 import { defineAgent } from "vite-hub/agent"
 import { access } from "vite-hub/agent/capabilities"
+import { consumeRateLimit } from "vite-hub/rate-limit"
 import { defineWorkspace } from "vite-hub/workspace"
 ```
 
@@ -63,6 +64,7 @@ does not want the framework distribution.
 | Path | Direct install | Integration |
 | --- | --- | --- |
 | Server Primitives | `pnpm add @vite-hub/kv vite` | `hubKv()` from `@vite-hub/kv/vite` |
+| Rate Limit | `pnpm add @vite-hub/rate-limit vite` | `hubRateLimit()` from `@vite-hub/rate-limit/vite` |
 | Agents | `pnpm add @vite-hub/agent vite` | `hubAgent()` from `@vite-hub/agent/vite` |
 
 ::tip

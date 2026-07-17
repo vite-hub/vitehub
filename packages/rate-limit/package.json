@@ -1,0 +1,61 @@
+{
+  "name": "@vite-hub/rate-limit",
+  "version": "0.0.1",
+  "description": "Provider-neutral Rate Limit primitives and Vite deployment integration for ViteHub.",
+  "keywords": [
+    "cloudflare",
+    "rate-limit",
+    "vite",
+    "vitehub"
+  ],
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/rate-limit"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./drivers/cloudflare": "./dist/drivers/cloudflare.js",
+    "./drivers/memory": "./dist/drivers/memory.js",
+    "./runtime": "./dist/runtime.js",
+    "./vite": "./dist/vite.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "test": "vp run -t @vite-hub/rate-limit#build && vp test"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
+  },
+  "peerDependencies": {
+    "vite": "catalog:vite-compat"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

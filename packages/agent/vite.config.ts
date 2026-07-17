@@ -10,6 +10,7 @@ export default defineConfig({
         "esbuild",
         "#vitehub/agent/registry",
         "@vercel/nft",
+        "@vite-hub/rate-limit",
         "@vite-hub/workflow",
         /^@vite-hub\/workflow\//,
         "cloudflare:workers",

@@ -141,6 +141,7 @@
     "@vite-hub/box": "workspace:*",
     "@vite-hub/devtools": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
+    "@vite-hub/rate-limit": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vitejs/devtools-kit": "catalog:vite",

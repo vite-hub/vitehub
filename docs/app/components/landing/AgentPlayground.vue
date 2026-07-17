@@ -56,7 +56,7 @@ const capabilityOptions: PlaygroundOption[] = [
   { code: "memory({ stores: reviewMemory })", icon: "i-lucide-brain", key: "memory", label: "Memory" },
   { code: "openapi({ spec: reviewApi })", icon: "i-lucide-route", key: "openapi", label: "OpenAPI" },
   { code: "papercuts({ report: reportPapercut })", icon: "i-lucide-bandage", key: "papercuts", label: "Papercuts" },
-  { code: "rateLimit({ limit: 20, window: '1m' })", icon: "i-lucide-gauge", key: "rateLimit", label: "Rate limit" },
+  { code: "rateLimit({ limiter: 'agent-invocations' })", icon: "i-lucide-gauge", key: "rateLimit", label: "Rate limit" },
   { code: "repositoryHost({ provider: 'github' })", icon: "i-lucide-git-pull-request", key: "repositoryHost", label: "Repository host" },
   { code: "repositoryHostContext({ target: pullRequest })", icon: "i-lucide-git-pull-request", key: "repositoryHostContext", label: "Repository host context" },
   { code: "sandbox({ commands: ['node', 'pnpm'] })", icon: "i-lucide-box", key: "sandbox", label: "Sandbox" },

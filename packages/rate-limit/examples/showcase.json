@@ -1,0 +1,24 @@
+{
+  "label": "Rate Limit",
+  "description": "A provider-neutral Rate Limit Definition with native Cloudflare enforcement.",
+  "frameworks": {
+    "vite": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "src/image-upload.rate-limit.ts"
+          },
+          "supplementalFiles": ["package.json"]
+        },
+        "build": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "src/image-upload.rate-limit.ts"
+          },
+          "supplementalFiles": ["package.json"]
+        }
+      }
+    }
+  }
+}

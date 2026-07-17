@@ -7,6 +7,7 @@ export default defineConfig({
   },
   plugins: [vitehub({
     auth: true,
+    rateLimit: { provider: "memory" },
     schedule: true,
     workspace: process.env.VITEHUB_CONSUMER_DISABLE_WORKSPACE === "1" ? false : undefined,
   })],

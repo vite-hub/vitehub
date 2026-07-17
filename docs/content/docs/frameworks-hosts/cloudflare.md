@@ -13,7 +13,7 @@ The Definition and Runtime Helper should stay host-neutral; Cloudflare details b
 | Concern | ViteHub boundary |
 | --- | --- |
 | Workers and generated bundles | Provider Output written during production-shaped builds. |
-| D1, R2, KV, Queues, Workflows, and Sandbox resources | Primitive package configuration plus Provision Steps where available. |
+| D1, R2, KV, Queues, Rate Limiting bindings, Workflows, and Sandbox resources | Primitive package configuration plus Provision Steps where available. |
 | Credentials | Provider env vars for provisioning or host runtime secrets through Server Env. |
 | Runtime context | Runtime Host Context passed by the host integration, not app-owned global state. |
 | Agent state | Agent Package state provider configuration when Cloudflare-backed state is selected. |
@@ -67,7 +67,7 @@ CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --
 
 ## Generated output
 
-Cloudflare output can include worker bundles, `wrangler.json`, D1 bindings, queue consumers, cron triggers, and package-specific runtime imports. A production-shaped build materialises the selected output under `dist`.
+Cloudflare output can include worker bundles, `wrangler.json`, D1 bindings, queue consumers, Rate Limiting bindings, cron triggers, and package-specific runtime imports. A production-shaped build materialises the selected output under `dist`.
 
 ```bash [Terminal]
 pnpm build
@@ -75,6 +75,23 @@ find dist -maxdepth 4 -type f | sort
 ```
 
 Agent routes should come from generated Provider Output. Raw Cloudflare Worker fetch handlers are not a public Agent API.
+
+### Rate Limiting bindings
+
+Register the Rate Limit integration with the Cloudflare provider. Each discovered Rate Limit Definition contributes one `ratelimits` entry to the generated `wrangler.json`.
+
+```ts [vite.config.ts]
+import { hubRateLimit } from '@vite-hub/rate-limit/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubRateLimit({ namespace: 'acme-app', provider: 'cloudflare' })],
+})
+```
+
+Cloudflare native enforcement is best-effort and supports 10-second or 60-second fixed windows. The integration rejects `enforcement: 'strict'` and unsupported periods during the build instead of silently weakening the Definition. Its inspectable capabilities report location-scoped counters, unknown rejected-attempt behavior, and `availability: 'never'` for every quota metadata field; the binding returns only an allow-or-reject decision.
+
+The generated binding is request-scoped. If the binding is unavailable at runtime, the Definition's `failure` policy decides whether the request is denied or allowed. Rate Limiting bindings do not use Cloudflare KV and require no separate resource provisioning.
 
 Workspace adds an Artifacts binding when its Store explicitly selects Cloudflare Artifacts:
 
@@ -102,7 +119,7 @@ Cloudflare local development and deployed Workers do not always expose the same 
 Use Provider Output Contracts and Local Provider Runs for pull request checks, then keep Live Smoke thin against real Cloudflare deployments.
 
 ::warning
-Cloudflare Provider Output can require real Worker bindings such as D1, R2, KV, Queues, Durable Objects, Cloudflare Artifacts, or Agent state. Verify generated bindings before deploy, then smoke test the deployed Worker when runtime bindings matter.
+Cloudflare Provider Output can require real Worker bindings such as D1, R2, KV, Rate Limiting, Queues, Durable Objects, Cloudflare Artifacts, or Agent state. Verify generated bindings before deploy, then smoke test the deployed Worker when runtime bindings matter.
 ::
 
 Agent Definitions run on Cloudflare through generated host output where the Agent integration owns the route. Keep model keys, Durable Object state bindings, and other Runtime Env in Worker bindings.

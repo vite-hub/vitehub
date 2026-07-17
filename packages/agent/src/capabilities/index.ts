@@ -35,7 +35,6 @@ export {
   llmGate,
 } from "./llm-gate.ts"
 export {
-  memoryRateLimitStore,
   RateLimitRejectedError,
   rateLimit,
 } from "./rate-limit.ts"
@@ -209,20 +208,13 @@ export type {
   LlmGateOptions,
 } from "./llm-gate.ts"
 export type {
-  MemoryRateLimitStore,
-  MemoryRateLimitStoreOptions,
-  RateLimitAction,
   RateLimitDecision,
   RateLimitEvent,
   RateLimitIdentity,
   RateLimitIdentityResolver,
-  RateLimitLimit,
-  RateLimitLimitResolver,
+  RateLimitLimiter,
+  RateLimitLimiterResolver,
   RateLimitOptions,
-  RateLimitStore,
-  RateLimitStoreInput,
-  RateLimitStoreResult,
-  RateLimitWindow,
 } from "./rate-limit.ts"
 export type {
   OpenAPICapabilityOptions,

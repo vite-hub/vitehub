@@ -136,6 +136,42 @@ describe("provider deployment outputs", () => {
     })
   })
 
+  it("forwards keyed array ownership through composed Cloudflare output", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(join(cloudflareDir, "wrangler.json"), `${JSON.stringify({
+      ratelimits: [
+        { name: "MANUAL", namespace_id: "1", simple: { limit: 1, period: 10 } },
+        { name: "UPLOADS", namespace_id: "2", simple: { limit: 5, period: 60 } },
+      ],
+    }, null, 2)}\n`)
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      cloudflare: {
+        wranglerConfig: {
+          ratelimits: [{ name: "UPLOADS", namespace_id: "3", simple: { limit: 10, period: 60 } }],
+        },
+        wranglerConfigOwnership: {
+          arrays: { ratelimits: { key: "name", values: ["UPLOADS"] } },
+        },
+      },
+      rootDir,
+    })
+
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      ratelimits: [
+        { name: "MANUAL", namespace_id: "1", simple: { limit: 1, period: 10 } },
+        { name: "UPLOADS", namespace_id: "3", simple: { limit: 10, period: 60 } },
+      ],
+    })
+  })
+
   it.each([
     ["a top-level undefined value", { main: undefined }],
     ["a nested undefined value", { assets: { directory: undefined } }],

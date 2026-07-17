@@ -112,15 +112,17 @@ export default defineEventHandler(async () => {
 
 Use named stores when configuration defines multiple KV Stores.
 
-```ts [server/rate-limit.ts]
+```ts [server/tenant-preferences.ts]
 import { kv } from '@vite-hub/kv'
 
-const rateLimitStore = kv.store('rate-limit')
+const preferences = kv.store('tenant-preferences')
 
-export async function recordHit(key: string) {
-  await rateLimitStore.set(key, { seenAt: Date.now() })
+export async function savePreferences(tenantId: string, value: unknown) {
+  await preferences.set(tenantId, value)
 }
 ```
+
+KV does not provide the atomic consume contract required for request budgets. Use the [Rate Limit primitive](/docs/server-primitives/rate-limit) instead of composing `get()` and `set()` under concurrency.
 
 ## Runtime Helper
 

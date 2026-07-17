@@ -12,6 +12,7 @@ import * as crabbox from "vite-hub/box/crabbox"
 import * as smtp from "vite-hub/email/drivers/smtp"
 import { env } from "vite-hub/env"
 import * as markdownTemplate from "vite-hub/markdown-template"
+import { consumeRateLimit, defineRateLimit } from "vite-hub/rate-limit"
 import * as scheduleDriver from "vite-hub/schedule/runtime/driver"
 import * as scheduleProcess from "vite-hub/schedule/runtime/process"
 import * as cloudflareShell from "vite-hub/shell/providers/cloudflare"
@@ -51,6 +52,8 @@ export const contract = {
     workspaceServer,
   ],
   plugins: vitehub(),
+  rateLimit: defineRateLimit({ limit: 10, window: "1m" }),
+  consumeRateLimit: (key: string) => consumeRateLimit("image-upload", { key }),
   workflow: defineWorkflow(async ({ payload }: { payload: { marker: string } }) => payload.marker),
   workspace: defineWorkspace({ store: { provider: "memory" } }),
 }

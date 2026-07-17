@@ -15,6 +15,7 @@ const integrationMocks = vi.hoisted(() => ({
     kv: { store: { driver: kv?.driver ?? "fs-lite" } },
   })),
   hubQueue: vi.fn(() => ({ name: "@vite-hub/queue/vite" })),
+  hubRateLimit: vi.fn(() => ({ name: "@vite-hub/rate-limit/vite" })),
   hubSandbox: vi.fn(() => ({ name: "@vite-hub/sandbox/vite" })),
   hubSchedule: vi.fn(() => ({ name: "@vite-hub/schedule/vite" })),
   hubWorkflow: vi.fn(() => ({ name: "@vite-hub/workflow/vite" })),
@@ -35,6 +36,7 @@ vi.mock("@vite-hub/kv/vite", () => ({
 }))
 vi.mock("@vite-hub/markdown-template/vite", () => ({ hubMarkdownTemplate: integrationMocks.hubMarkdownTemplate }))
 vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue }))
+vi.mock("@vite-hub/rate-limit/vite", () => ({ hubRateLimit: integrationMocks.hubRateLimit }))
 vi.mock("@vite-hub/sandbox/vite", () => ({ hubSandbox: integrationMocks.hubSandbox }))
 vi.mock("@vite-hub/schedule/vite", () => ({ hubSchedule: integrationMocks.hubSchedule }))
 vi.mock("@vite-hub/workflow/vite", () => ({ hubWorkflow: integrationMocks.hubWorkflow }))
@@ -81,7 +83,7 @@ describe("vitehub", () => {
       "@vite-hub/devtools",
     ])
 
-    expect(pluginNames(vitehub({ auth: true, email: true, kv: true, sandbox: true, schedule: true }))).toEqual([
+    expect(pluginNames(vitehub({ auth: true, email: true, kv: true, rateLimit: true, sandbox: true, schedule: true }))).toEqual([
       "vite-hub/dependencies",
       "@vite-hub/markdown-template/vite",
       "@vite-hub/env/vite",
@@ -92,6 +94,7 @@ describe("vitehub", () => {
       "@vite-hub/blob/vite",
       "@vite-hub/email/vite",
       "@vite-hub/kv/vite",
+      "@vite-hub/rate-limit/vite",
       "@vite-hub/schedule/vite",
       "@vite-hub/workflow/vite",
       "@vite-hub/workspace/vite",
@@ -174,6 +177,17 @@ describe("vitehub", () => {
     expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({})
     expect(pluginNames(vitehub({ queue: { provider: "cloudflare" } }))).toContain("@vite-hub/queue/vite")
     expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "cloudflare" })
+
+    integrationMocks.hubRateLimit.mockClear()
+    expect(pluginNames(vitehub({ rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
+    expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
+      importBase: "vite-hub/_internal/rate-limit",
+    })
+    expect(pluginNames(vitehub({ rateLimit: { provider: "cloudflare" } }))).toContain("@vite-hub/rate-limit/vite")
+    expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
+      importBase: "vite-hub/_internal/rate-limit",
+      provider: "cloudflare",
+    })
   })
 
   it("uses framework subpaths in generated Env modules", () => {

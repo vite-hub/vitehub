@@ -16,7 +16,7 @@ application server code stable Runtime Helper calls
 provider output          deployment artifact when applicable
 ```
 
-With the current facade, register `vitehub()` from `vite-hub` and import application APIs from feature subpaths such as `vite-hub/kv` or `vite-hub/blob`. Validate those paths against installed exports before coding.
+With the current facade, register `vitehub()` from `vite-hub` and import application APIs from feature subpaths such as `vite-hub/kv`, `vite-hub/blob`, or `vite-hub/rate-limit`. Validate those paths against installed exports before coding.
 
 ## Authority
 
@@ -25,6 +25,12 @@ Runtime Helpers called by application code keep authority in the application. If
 ## Provider boundary
 
 Keep provider selection in Vite config or the documented Definition. Application code should remain on stable Runtime Helpers when moving from a local driver to a hosted provider.
+
+Rate Limit is an atomic consume primitive, not generic KV sugar. Use a Rate Limit Driver with matching guarantees, keep identity derivation in the caller or Agent Capability, and treat the memory driver as local or single-process only. Cloudflare native enforcement is best-effort and supports only the periods documented by the installed package. There is no generic KV adapter; do not model `get()` followed by `set()` as atomic enforcement.
+
+Automatic Rate Limit memory selection belongs to Vite development and serve commands. For a production build, require inferred Cloudflare hosting or select the production provider explicitly; never let an unknown host silently become per-instance memory.
+
+Before deploying Rate Limit Definitions, inspect `.vitehub/rate-limit/manifest.json` for the sorted Definition names, resolved provider, and declared enforcement, scope, metadata, rejected-attempt, and window guarantees. Treat the manifest as generated inspection state, not an application import.
 
 ## Proof
 

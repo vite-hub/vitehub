@@ -13,11 +13,12 @@ It belongs to the package that owns the primitive and should not become applicat
 | Output | Provider | Owner | Purpose |
 | --- | --- | --- | --- |
 | Worker bundle | Cloudflare | Package integration using Cloudflare output | Runs server or primitive runtime code in Workers. |
-| `wrangler.json` entries | Cloudflare | Blob, Database, Queue, Schedule, Workflow, Sandbox, Agent state as applicable | Declares bindings, crons, durable objects, queues, and other worker config. |
+| `wrangler.json` entries | Cloudflare | Blob, Database, Queue, Rate Limit, Schedule, Workflow, Sandbox, Agent state as applicable | Declares bindings, crons, durable objects, queues, Rate Limiting bindings, and other worker config. |
 | Vercel Build Output | Vercel | Package integration using Vercel output | Writes functions, static files, routes, and function config under `.vercel/output`. |
 | Netlify function output | Netlify | Agent and Schedule Packages | Writes generated functions and static config under `.netlify/v1`. |
 | Deno Agent server output | Deno | Agent Package | Writes `.vitehub/agent/deno-server.ts` for `Deno.serve` chat and webhook routes. |
 | Deno cron output | Deno | Schedule Package | Writes `.vitehub/schedule/deno-cron.mjs` for `Deno.cron` static schedule wake output. |
+| Rate Limit manifest | Local and hosted | Rate Limit Package | Writes `.vitehub/rate-limit/manifest.json` with sorted Definition names, resolved providers, and driver capabilities. |
 | Generated Runtime Registry | Local and hosted | Package that discovers Definitions | Maps Discovery Identity to lazy-loaded Definitions. |
 | Generated Nitro handler or plugin | Nitro-shaped hosts | Package that requires a host bridge | Registers package-owned routes or runtime hooks. |
 | Provision State | Local development and build input | ViteHub CLI plus package Provision Steps | Stores non-secret provider ids under `.vitehub/provision.json`. |
@@ -32,6 +33,16 @@ find .vitehub -maxdepth 4 -type f | sort
 find .vercel/output -maxdepth 4 -type f | sort
 find dist -maxdepth 4 -type f | sort
 ```
+
+### Rate Limit output
+
+Rate Limit writes `.vitehub/rate-limit/manifest.json` during Vite config resolution and refreshes it during Provider Output. Its `schemaVersion: 1` document contains sorted `definitions` entries shaped as `{ name, provider, capabilities }`. Inspect it before deploy; do not import it from application code.
+
+When Cloudflare is selected, each discovered Rate Limit Definition adds one `ratelimits` entry to generated `wrangler.json`. The entry contains a ViteHub-derived binding name, a stable namespace id, and the Definition's static `limit` and 10-second or 60-second period.
+
+The Rate Limit integration owns only binding names derived from its discovered Definitions. It preserves unrelated app and package entries, and removes its stale entries when a Definition is renamed, deleted, or built with a non-Cloudflare provider while the integration remains active.
+
+Application code consumes the Definition name with `consumeRateLimit()`. Do not import the generated Runtime Registry or persist the provider binding name as source authority.
 
 ## Provider Output Contracts
 

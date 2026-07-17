@@ -6,10 +6,12 @@ import { describe, expect, it } from "vitest"
 import * as ownerAgent from "@vite-hub/agent"
 import * as ownerCapabilities from "@vite-hub/agent/capabilities"
 import ownerAuthHandler from "@vite-hub/auth/server"
+import * as ownerRateLimit from "@vite-hub/rate-limit"
 import * as framework from "vite-hub"
 import * as frameworkAgent from "vite-hub/agent"
 import * as frameworkCapabilities from "vite-hub/agent/capabilities"
 import frameworkAuthHandler from "vite-hub/auth/server"
+import * as frameworkRateLimit from "vite-hub/rate-limit"
 import { distributionBinEntries, distributionEntriesFromManifest } from "../vite.config.ts"
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
@@ -65,6 +67,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/queue/runtime/hosted",
   "@vite-hub/queue/runtime/state",
   "@vite-hub/queue/runtime/vercel-vite",
+  "@vite-hub/rate-limit/runtime",
   "@vite-hub/sandbox/runtime/empty-registry",
   "@vite-hub/sandbox/runtime/provider-loader",
   "@vite-hub/sandbox/runtime/providers/cloudflare",
@@ -133,6 +136,8 @@ describe("framework package contract", () => {
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email)
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
     expect(frameworkAuthHandler).toBe(ownerAuthHandler)
+    expect(frameworkRateLimit.defineRateLimit).toBe(ownerRateLimit.defineRateLimit)
+    expect(frameworkRateLimit.createRateLimiter).toBe(ownerRateLimit.createRateLimiter)
   })
 
   it("keeps every source forwarder owned by its matching package export", () => {

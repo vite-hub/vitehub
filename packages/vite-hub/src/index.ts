@@ -12,6 +12,7 @@ import { hubEnv } from "@vite-hub/env/vite"
 import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig } from "@vite-hub/kv/vite"
 import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
 import { hubQueue } from "@vite-hub/queue/vite"
+import { hubRateLimit } from "@vite-hub/rate-limit/vite"
 import { hubSandbox } from "@vite-hub/sandbox/vite"
 import { hubSchedule } from "@vite-hub/schedule/vite"
 import { hubWorkflow } from "@vite-hub/workflow/vite"
@@ -26,6 +27,7 @@ import type { EmailVitePluginOptions } from "@vite-hub/email/vite"
 import type { EnvIntegrationOptions } from "@vite-hub/env"
 import type { KVModuleOptions } from "@vite-hub/kv"
 import type { QueueModuleOptions } from "@vite-hub/queue"
+import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
 import type { SandboxPublicOptions } from "@vite-hub/sandbox/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
 import type { WorkflowModuleOptions } from "@vite-hub/workflow"
@@ -47,6 +49,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/kv": true,
   "@vite-hub/markdown-template": true,
   "@vite-hub/queue": true,
+  "@vite-hub/rate-limit": true,
   "@vite-hub/runtime": true,
   "@vite-hub/sandbox": true,
   "@vite-hub/schedule": true,
@@ -156,6 +159,7 @@ export interface ViteHubPresetOptions {
   env?: false | EnvIntegrationOptions
   kv?: boolean | KVModuleOptions
   queue?: boolean | QueueModuleOptions
+  rateLimit?: boolean | RateLimitModuleOptions
   sandbox?: boolean | SandboxPublicOptions
   schedule?: boolean | ScheduleVitePluginOptions
   workflow?: false | WorkflowModuleOptions
@@ -224,6 +228,12 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
   if (options.kv) plugins.push(hubKv(options.kv === true ? undefined : options.kv))
   else plugins.push(hubKvOptionalPeerResolver())
   if (options.queue) plugins.push(hubQueue(options.queue === true ? {} : options.queue))
+  if (options.rateLimit) {
+    plugins.push(hubRateLimit({
+      ...(options.rateLimit === true ? {} : options.rateLimit),
+      importBase: `${generatedImportBase}/rate-limit`,
+    } as RateLimitModuleOptions))
+  }
   if (options.schedule) {
     plugins.push(hubSchedule({
       ...(options.schedule === true ? {} : options.schedule),

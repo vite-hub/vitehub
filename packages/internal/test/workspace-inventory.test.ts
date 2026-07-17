@@ -20,6 +20,7 @@ describe("workspace inventory", () => {
       "kv",
       "markdown-template",
       "queue",
+      "rate-limit",
       "runtime",
       "sandbox",
       "schedule",
