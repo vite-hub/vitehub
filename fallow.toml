@@ -96,37 +96,29 @@ dynamicallyLoaded = [
 ]
 
 ignoreDependencies = [
+  # Vite+ aliases are installed through vite/vitest overrides.
   "@voidzero-dev/vite-plus-core",
   "@voidzero-dev/vite-plus-test",
+  # Nuxt modules and generated assets are loaded from configuration.
   "docus",
-  "@cloudflare/sandbox",
-  "@vercel/blob",
-  "@vercel/functions",
-  "@vercel/nft",
-  "@vercel/queue",
-  "@vercel/sandbox",
-  "async-retry",
-  "esbuild",
-  "exsolve",
-  "chat",
-  "chat-state-cloudflare-do",
-  "agents",
-  "ai",
-  "askweb",
-  "publint",
+  "@nuxt/ui",
   "@iconify-json/lucide",
   "@iconify-json/ph",
   "@iconify-json/simple-icons",
   "@iconify-json/vscode-icons",
-  "@nuxt/ui",
-  "@comark/nuxt",
-  "@vitejs/devtools",
-  # Required by declarations re-exported from @vite-hub/devtools.
+  # Non-workspace playground dependencies are installed at the root.
+  "@vercel/blob",
+  "@vercel/queue",
+  "chat-state-cloudflare-do",
+  # Package builds and generated provider output reference these without source imports.
+  "@vercel/functions",
+  "@vercel/nft",
   "@vitejs/devtools-kit",
-  # Owned by vite-hub for Workflow DevKit's application-root runtime resolution.
   "@workflow/builders",
+  "askweb",
+  "esbuild",
+  "publint",
   "workflow",
-  "@vueuse/nuxt",
 ]
 
 publicPackages = [

@@ -5,9 +5,6 @@
     "rootDir": "..",
     "baseUrl": "../..",
     "paths": {
-      "@vite-hub/database/config": [
-        "packages/database/src/config.ts"
-      ],
       "@vite-hub/internal/*": [
         "packages/internal/src/*.ts"
       ]

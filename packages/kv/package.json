@@ -40,7 +40,6 @@
   },
   "dependencies": {
     "defu": "catalog:unjs",
-    "exsolve": "catalog:unjs",
     "unstorage": "catalog:storage"
   },
   "devDependencies": {

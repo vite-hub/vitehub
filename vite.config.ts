@@ -48,6 +48,10 @@ export default defineConfig({
         cache: false,
         command: "vp exec fallow dead-code --summary --format markdown --fail-on-issues",
       },
+      "knip:catalog": {
+        cache: false,
+        command: "vp exec knip --include catalog --no-progress --reporter compact",
+      },
       "kv:e2e": {
         cache: false,
         command: "node packages/kv/test/e2e.mjs",
@@ -126,7 +130,7 @@ export default defineConfig({
       },
       verify: {
         cache: false,
-        command: "vp run fallow:dead-code && vp run lint && vp run typecheck && vp run test:contracts && vp run test && vp run test:consumer",
+        command: "vp run fallow:dead-code && vp run knip:catalog && vp run lint && vp run typecheck && vp run test:contracts && vp run test && vp run test:consumer",
       },
       "workflow:e2e": {
         cache: false,

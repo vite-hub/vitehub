@@ -37,9 +37,6 @@
     "test": "vp run -t @vite-hub/devtools#build && vp test",
     "typecheck": "tsc --noEmit -p ./tsconfig.json"
   },
-  "dependencies": {
-    "pathe": "catalog:unjs"
-  },
   "devDependencies": {
     "@comark/vue": "catalog:ui",
     "@iconify-json/lucide": "catalog:ui",

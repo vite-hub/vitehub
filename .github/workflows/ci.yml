@@ -34,6 +34,9 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
+      - name: Knip catalog
+        run: vp run knip:catalog
+
       - run: vp run lint
       - run: vp run typecheck
       - run: vp run test:contracts

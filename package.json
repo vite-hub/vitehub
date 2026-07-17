@@ -32,6 +32,7 @@
     "drizzle-orm": "catalog:database",
     "fallow": "catalog:tooling",
     "h3": "catalog:unjs",
+    "knip": "catalog:tooling",
     "oxlint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
