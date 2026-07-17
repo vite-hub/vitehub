@@ -1,20 +1,25 @@
-import { normalizeRateLimitPolicy } from "./policy.ts"
+import { declaredRateLimitPolicy, normalizeRateLimitPolicy, rateLimitPolicyKeys } from "./policy.ts"
+import { consumeDefinedRateLimit } from "./runtime/client.ts"
 
-import type { RateLimitDefinition, RateLimitPolicy } from "./types.ts"
+import type { RateLimitHandle, RateLimitPolicy } from "./types.ts"
 
-const definitionKeys = new Set(["enforcement", "failure", "limit", "window"])
-
-export function defineRateLimit(policy: RateLimitPolicy): RateLimitDefinition {
-  const normalized = normalizeRateLimitPolicy(policy)
-  const unknownKey = Object.keys(policy).find(key => !definitionKeys.has(key))
+export function defineRateLimit(name: string, policy: RateLimitPolicy): RateLimitHandle {
+  const id = typeof name === "string" ? name.trim() : ""
+  if (!id) {
+    throw new TypeError("`defineRateLimit()` requires a non-empty stable ID.")
+  }
+  const normalized = Object.freeze(normalizeRateLimitPolicy(policy))
+  const unknownKey = Object.keys(policy).find(key => !rateLimitPolicyKeys.has(key))
   if (unknownKey) {
     throw new TypeError(`\`defineRateLimit()\` does not support the "${unknownKey}" option.`)
   }
 
-  return {
-    enforcement: normalized.enforcement,
-    failure: normalized.failure,
-    limit: normalized.limit,
-    window: normalized.window,
-  }
+  const declaredPolicy = declaredRateLimitPolicy(normalized)
+
+  return Object.freeze({
+    consume: async (key: string) => await consumeDefinedRateLimit(id, declaredPolicy, key),
+    id,
+    kind: "rate-limit-handle" as const,
+    policy: normalized,
+  })
 }

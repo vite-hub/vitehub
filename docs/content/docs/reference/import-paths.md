@@ -40,7 +40,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/kv` | KV Runtime Helper. |
 | `vite-hub/markdown-template` | Deterministic Markdown rendering from explicit template strings. |
 | `vite-hub/queue` | Queue Definitions and dispatch helpers. |
-| `vite-hub/rate-limit` | Rate Limit Definitions, direct Rate Limiters, and the discovered consume Runtime Helper. |
+| `vite-hub/rate-limit` | Source-local managed Rate Limit handles and direct Rate Limiters. |
 | `vite-hub/runtime` | Runtime Host Context, policy, approval, trace, and capability APIs. |
 | `vite-hub/sandbox` | Sandbox Definitions and Sandbox Run helpers. |
 | `vite-hub/schedule` and `vite-hub/schedule/runtime` | Static and runtime Schedule APIs. |
@@ -90,7 +90,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/markdown-template` | Markdown Template Package | Deterministic Markdown rendering from explicit template strings. |
 | `#vitehub/templates` | Markdown Template Package | Generated named-template renderer and `TemplateName` union for `server/templates/**/*.md`. |
 | `@vite-hub/queue` | Queue Package | Queue Definition and enqueue Runtime Helper. |
-| `@vite-hub/rate-limit` | Rate Limit Package | Rate Limit Definitions, direct Rate Limiters, and the discovered consume Runtime Helper. |
+| `@vite-hub/rate-limit` | Rate Limit Package | Source-local managed Rate Limit handles and direct Rate Limiters. |
 | `@vite-hub/rate-limit/drivers/memory` | Rate Limit Package | Local, test, and single-process fixed-window enforcement. |
 | `@vite-hub/rate-limit/drivers/cloudflare` | Rate Limit Package | Direct access to a Cloudflare Rate Limiting binding. |
 | `@vite-hub/sandbox` | Sandbox Package | Sandbox Definition and Sandbox Run helpers. |
@@ -117,7 +117,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/kv/vite` | Register the KV Vite Integration. |
 | `@vite-hub/markdown-template/vite` | Register Markdown template discovery, generated types, and direct `.template.md` imports. |
 | `@vite-hub/queue/vite` | Register the Queue Vite Integration. |
-| `@vite-hub/rate-limit/vite` | Register Rate Limit Definition discovery and provider output. |
+| `@vite-hub/rate-limit/vite` | Register Rate Limit source collection and provider output. |
 | `@vite-hub/sandbox/vite` | Register the Sandbox Vite Integration. |
 | `@vite-hub/schedule/vite` | Register the Schedule Vite Integration. |
 | `@vite-hub/workflow/vite` | Register the Workflow Vite Integration. |

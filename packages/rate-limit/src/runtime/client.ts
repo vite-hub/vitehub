@@ -4,19 +4,14 @@ import { createRateLimiter } from "../limiter.ts"
 import {
   getRateLimitLimiterCache,
   getRateLimitRuntimeConfig,
-  loadRateLimitDefinition,
 } from "./state.ts"
 
-import type { ConsumeRateLimitOptions, RateLimitDecision, RateLimiter } from "../types.ts"
+import type { RateLimitDecision, RateLimiter, RateLimitPolicy } from "../types.ts"
 
-async function createNamedRateLimiter(name: string): Promise<RateLimiter> {
-  const definition = await loadRateLimitDefinition(name)
-  if (!definition) {
-    throw new Error(`Unknown Rate Limit Definition: ${name}. The Rate Limit Runtime Registry is installed by ViteHub; direct scripts should use createRateLimiter().`)
-  }
+async function createDefinedRateLimiter(name: string, policy: RateLimitPolicy): Promise<RateLimiter> {
   const { provider } = getRateLimitRuntimeConfig()
   return createRateLimiter({
-    ...definition,
+    ...policy,
     driver: provider === "cloudflare"
       ? cloudflareRateLimitDriver({ name })
       : memoryRateLimitDriver(),
@@ -24,19 +19,20 @@ async function createNamedRateLimiter(name: string): Promise<RateLimiter> {
   })
 }
 
-export async function getRateLimit(name: string): Promise<RateLimiter> {
+async function getDefinedRateLimiter(name: string, policy: RateLimitPolicy): Promise<RateLimiter> {
   const cache = getRateLimitLimiterCache()
-  const existing = cache.get(name)
+  const cacheKey = JSON.stringify([name, policy.enforcement, policy.failure, policy.limit, policy.window])
+  const existing = cache.get(cacheKey)
   if (existing) return await existing
-  const pending = createNamedRateLimiter(name).catch((error) => {
-    cache.delete(name)
+  const pending = createDefinedRateLimiter(name, policy).catch((error) => {
+    cache.delete(cacheKey)
     throw error
   })
-  cache.set(name, pending)
+  cache.set(cacheKey, pending)
   return await pending
 }
 
-export async function consumeRateLimit(name: string, options: ConsumeRateLimitOptions): Promise<RateLimitDecision> {
-  const limiter = await getRateLimit(name)
-  return await limiter.consume(options)
+export async function consumeDefinedRateLimit(name: string, policy: RateLimitPolicy, key: string): Promise<RateLimitDecision> {
+  const limiter = await getDefinedRateLimiter(name, policy)
+  return await limiter.consume({ key })
 }

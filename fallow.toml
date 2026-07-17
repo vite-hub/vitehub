@@ -35,7 +35,7 @@ dynamicallyLoaded = [
   "packages/queue/test/e2e-live.mjs",
   "packages/queue/test/**/*.test-d.ts",
   "packages/rate-limit/test/**/*.test-d.ts",
-  "packages/rate-limit/examples/**/src/**/*.rate-limit.ts",
+  "packages/rate-limit/examples/**/src/**/*.ts",
   "packages/vite-hub/test/**/*.test-d.ts",
   "packages/schedule/test/e2e-live.mjs",
   "packages/schedule/test/**/*.test-d.ts",

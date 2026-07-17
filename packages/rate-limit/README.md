@@ -8,41 +8,21 @@
 pnpm add @vite-hub/rate-limit
 ```
 
-## Rate Limit Definitions
+## Define and consume a Rate Limit
+
+Declare the Rate Limit beside the server code that consumes it. The stable ID and policy must use static literals so the Vite integration can generate provider infrastructure.
 
 ```ts
-// src/image-upload.rate-limit.ts
 import { defineRateLimit } from "@vite-hub/rate-limit"
 
-export default defineRateLimit({
+const uploads = defineRateLimit("image-upload", {
   failure: "deny",
   limit: 10,
   window: "1m",
 })
-```
-
-Add the Vite integration to discover `src/**/*.rate-limit.ts` and `server/rate-limits/**/*.ts` Definitions:
-
-```ts
-// vite.config.ts
-import { hubRateLimit } from "@vite-hub/rate-limit/vite"
-import { defineConfig } from "vite"
-
-export default defineConfig({
-  plugins: [hubRateLimit()],
-})
-```
-
-Consume the discovered Definition by name from server code. The Runtime Helper returns the decision that the application must enforce.
-
-```ts
-// server/upload-image.ts
-import { consumeRateLimit } from "@vite-hub/rate-limit"
 
 export async function handleImageUpload(authenticatedUserId: string): Promise<Response> {
-  const decision = await consumeRateLimit("image-upload", {
-    key: `user:${authenticatedUserId}`,
-  })
+  const decision = await uploads.consume(`user:${authenticatedUserId}`)
 
   if (!decision.allowed) {
     return new Response("Too many uploads", { status: 429 })
@@ -52,13 +32,26 @@ export async function handleImageUpload(authenticatedUserId: string): Promise<Re
 }
 ```
 
-The application derives the opaque key from authenticated identity and rejects the request when `allowed` is `false`. Use `getRateLimit(name)` when code needs the resolved limiter and its capabilities, or use `createRateLimiter()` when the application supplies a driver without discovery.
+`defineRateLimit()` can live in any ordinary server source file. It does not require a default export, dedicated directory, file suffix, registry, or separate string lookup.
 
-`hubRateLimit()` without a provider uses an in-memory fixed-window driver only during local Vite serve. Production builds require a detected Cloudflare host or an explicit provider, including `provider: "memory"` for a known single-process deployment. Native Cloudflare enforcement is best-effort and accepts only `10s` and `1m` windows, so incompatible Definitions fail during the build.
+Add the build integration:
+
+```ts
+import { hubRateLimit } from "@vite-hub/rate-limit/vite"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  plugins: [hubRateLimit({ namespace: "acme-image-service-production" })],
+})
+```
+
+`hubRateLimit()` uses the memory driver during local Vite serve and infers Cloudflare from the production Nitro preset. Cloudflare deployments require a unique namespace for each Worker and environment so counters cannot leak across deployments. Unknown production hosts still require an explicit provider because process-local memory is unsafe for horizontally scaled deployments.
+
+The application derives the opaque key from authenticated identity and applies the `429` response when `allowed` is false. Native Cloudflare enforcement is best-effort and accepts only `10s` and `1m` windows, so incompatible policies fail during the build.
 
 ## Custom drivers
 
-Use a custom driver without ViteHub Definitions or ViteHub KV:
+Use `createRateLimiter()` when the application supplies a driver directly and does not need managed provider output:
 
 ```ts
 import { createRateLimiter } from "@vite-hub/rate-limit"
@@ -74,8 +67,6 @@ const limiter = createRateLimiter({
 const decision = await limiter.consume({ key: authenticatedUser.id })
 ```
 
-The memory driver is process-local and intended for development, tests, and single-process hosts. Production drivers must implement atomic `consume()`; generic KV `get()` and `set()` operations are not sufficient.
+The memory driver is process-local and intended for development, tests, and single-process hosts. Production drivers must implement atomic `consume()`; generic KV `get()` and `set()` operations are insufficient.
 
-Every limiter exposes `capabilities` describing enforcement, counter scope, metadata quality, supported windows, and whether rejected attempts consume budget. Inspect those fields when application behavior depends on more than the portable `allowed` decision.
-
-The Vite integration writes the same resolved provider guarantees for every discovered Definition to `.vitehub/rate-limit/manifest.json`. This is stable generated state for agents and tooling to inspect; application code should keep using the runtime API instead of importing the manifest.
+Every direct limiter exposes `capabilities` describing enforcement, counter scope, metadata quality, supported windows, and whether rejected attempts consume budget. The Vite integration writes the resolved managed guarantees to `.vitehub/rate-limit/manifest.json` for agents and tooling to inspect.
