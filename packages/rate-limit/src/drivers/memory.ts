@@ -49,8 +49,9 @@ export function memoryRateLimitDriver(options: MemoryRateLimitDriverOptions = {}
     consume(input) {
       const timestamp = now()
       prune(timestamp)
+      const key = `${input.name ?? "default"}\0${input.key}`
       const resetAt = Math.floor(timestamp / input.windowMs) * input.windowMs + input.windowMs
-      const current = entries.get(input.key)
+      const current = entries.get(key)
       if (!current && entries.size >= maxEntries) {
         throw new Error(`[vitehub] Memory Rate Limit driver reached maxEntries (${maxEntries}) while active counters remain.`)
       }
@@ -65,7 +66,7 @@ export function memoryRateLimitDriver(options: MemoryRateLimitDriverOptions = {}
         }
       }
       entry.count += 1
-      entries.set(input.key, entry)
+      entries.set(key, entry)
       return {
         allowed: true,
         remaining: input.limit - entry.count,

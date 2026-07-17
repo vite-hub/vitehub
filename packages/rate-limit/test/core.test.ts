@@ -60,6 +60,16 @@ describe("Rate Limit core", () => {
     await expect(limiter.consume({ key: "user-1" })).resolves.toMatchObject({ allowed: true, used: 1 })
   })
 
+  it("isolates named limiters that share a memory driver", async () => {
+    const driver = memoryRateLimitDriver({ now: () => 1 })
+    const first = createRateLimiter({ driver, limit: 1, name: "first", window: "1m" })
+    const second = createRateLimiter({ driver, limit: 1, name: "second", window: "1m" })
+
+    await expect(first.consume({ key: "user" })).resolves.toMatchObject({ allowed: true })
+    await expect(first.consume({ key: "user" })).resolves.toMatchObject({ allowed: false })
+    await expect(second.consume({ key: "user" })).resolves.toMatchObject({ allowed: true })
+  })
+
   it("fails closed at capacity without evicting live counters", async () => {
     const driver = memoryRateLimitDriver({ maxEntries: 1, now: () => 1 })
     const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
