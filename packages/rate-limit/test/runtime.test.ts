@@ -1,25 +1,35 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { consumeRateLimit, getRateLimit } from "../src/index.ts"
-import { setRateLimitRuntimeConfig, setRateLimitRuntimeRegistry } from "../src/runtime.ts"
+import { defineRateLimit } from "../src/index.ts"
+import { setRateLimitRuntimeConfig } from "../src/runtime.ts"
 
 afterEach(() => {
-  setRateLimitRuntimeRegistry(undefined)
   setRateLimitRuntimeConfig({ provider: "memory" })
 })
 
-describe("named Rate Limits", () => {
-  it("loads Definitions through the generated registry contract", async () => {
-    setRateLimitRuntimeRegistry({
-      uploads: async () => ({ default: { limit: 1, window: "1m" } }),
-    })
+describe("defined Rate Limits", () => {
+  it("returns a reusable runtime handle", async () => {
+    const uploads = defineRateLimit("uploads", { limit: 1, window: "1m" })
 
-    await expect(consumeRateLimit("uploads", { key: "user" })).resolves.toMatchObject({ allowed: true })
-    await expect(consumeRateLimit("uploads", { key: "user" })).resolves.toMatchObject({ allowed: false })
-    await expect(getRateLimit("uploads")).resolves.toHaveProperty("policy.limit", 1)
+    await expect(uploads.consume("user")).resolves.toMatchObject({ allowed: true })
+    await expect(uploads.consume("user")).resolves.toMatchObject({ allowed: false })
   })
 
-  it("does not pretend direct scripts can discover Definitions", async () => {
-    await expect(consumeRateLimit("missing", { key: "user" })).rejects.toThrow("direct scripts should use createRateLimiter")
+  it("isolates handles by stable ID", async () => {
+    const uploads = defineRateLimit("uploads", { limit: 1, window: "1m" })
+    const searches = defineRateLimit("searches", { limit: 1, window: "1m" })
+
+    await uploads.consume("user")
+    await expect(uploads.consume("user")).resolves.toMatchObject({ allowed: false })
+    await expect(searches.consume("user")).resolves.toMatchObject({ allowed: true })
+  })
+
+  it("refreshes the runtime limiter when a policy changes during development", async () => {
+    const first = defineRateLimit("uploads", { limit: 1, window: "1m" })
+    await first.consume("user")
+    await expect(first.consume("user")).resolves.toMatchObject({ allowed: false })
+
+    const updated = defineRateLimit("uploads", { limit: 2, window: "1m" })
+    await expect(updated.consume("user")).resolves.toMatchObject({ allowed: true, limit: 2 })
   })
 })

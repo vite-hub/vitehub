@@ -1,8 +1,7 @@
-import { consumeRateLimit } from "@vite-hub/rate-limit"
-
 import { defineCapability } from "../capability-runtime.ts"
 
 import type {
+  RateLimitHandle,
   RateLimitDecision as CoreRateLimitDecision,
   RateLimiter,
 } from "@vite-hub/rate-limit"
@@ -26,13 +25,13 @@ export type RateLimitIdentityResolver = (
 ) => MaybePromise<string | null | undefined>
 
 export type RateLimitLimiter =
-  | string
+  | RateLimitHandle
   | RateLimiter
   | RateLimitLimiterResolver
 
 export type RateLimitLimiterResolver = (
   context: AgentCapabilityRuntimeContext,
-) => MaybePromise<string | RateLimiter>
+) => MaybePromise<RateLimitHandle | RateLimiter>
 
 export interface RateLimitDecision extends CoreRateLimitDecision {
   capabilityId: string
@@ -45,7 +44,7 @@ export interface RateLimitDecision extends CoreRateLimitDecision {
 export interface RateLimitEvent {
   context: AgentCapabilityRuntimeContext
   decision: RateLimitDecision
-  limiter: string | RateLimiter
+  limiter: RateLimitHandle | RateLimiter
 }
 
 export interface RateLimitOptions {
@@ -82,6 +81,10 @@ export class RateLimitRejectedError extends Error {
       value: 429,
     })
   }
+}
+
+function isRateLimitHandle(limiter: RateLimitHandle | RateLimiter): limiter is RateLimitHandle {
+  return (limiter as Partial<RateLimitHandle>).kind === "rate-limit-handle"
 }
 
 function resolveRunIdentity(context: AgentCapabilityRuntimeContext): string | undefined {
@@ -191,15 +194,10 @@ async function resolveScope(
 async function resolveLimiter(
   limiter: RateLimitLimiter,
   context: AgentCapabilityRuntimeContext,
-): Promise<string | RateLimiter> {
+): Promise<RateLimitHandle | RateLimiter> {
   const resolved = typeof limiter === "function" ? await limiter(context) : limiter
-  if (typeof resolved === "string") {
-    const name = resolved.trim()
-    if (name) return name
-    throw new TypeError("[vitehub] rateLimit({ limiter }) must name a Rate Limit Definition.")
-  }
   if (!resolved || typeof resolved.consume !== "function") {
-    throw new TypeError("[vitehub] rateLimit({ limiter }) must be a Rate Limit Definition name or RateLimiter.")
+    throw new TypeError("[vitehub] rateLimit({ limiter }) must be a defined Rate Limit or RateLimiter.")
   }
   return resolved
 }
@@ -247,8 +245,8 @@ export function rateLimit(
       const scope = await resolveScope(options.scope, context, id)
       const key = `vitehub:rate-limit:${stableKeyPart(id)}:${scope}:${await hashKeyPart(`${resolvedIdentity.source}:${resolvedIdentity.value}`)}`
       const limiter = await resolveLimiter(options.limiter, context)
-      const consumed = typeof limiter === "string"
-        ? await consumeRateLimit(limiter, { key })
+      const consumed = isRateLimitHandle(limiter)
+        ? await limiter.consume(key)
         : await limiter.consume({ key })
       const decision: RateLimitDecision = {
         ...consumed,

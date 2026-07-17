@@ -27,23 +27,11 @@ export interface RateLimitPolicy {
 }
 
 export interface ResolvedRateLimitPolicy {
-  enforcement: RateLimitEnforcement
-  failure: RateLimitFailurePolicy
-  limit: number
-  window: RateLimitWindow
-  windowMs: number
-}
-
-export type RateLimitDefinition = RateLimitPolicy
-
-export interface RateLimitDefinitionRegistry {
-  [name: string]: () => MaybePromise<{ default?: RateLimitDefinition } | RateLimitDefinition>
-}
-
-export interface DiscoveredRateLimitDefinition {
-  handler: string
-  name: string
-  source?: "server-rate-limits" | "vite-suffix"
+  readonly enforcement: RateLimitEnforcement
+  readonly failure: RateLimitFailurePolicy
+  readonly limit: number
+  readonly window: RateLimitWindow
+  readonly windowMs: number
 }
 
 export interface RateLimitConsumeInput {
@@ -95,12 +83,27 @@ export interface RateLimiter {
   policy: ResolvedRateLimitPolicy
 }
 
+export interface RateLimitHandle {
+  consume: (key: string) => Promise<RateLimitDecision>
+  readonly id: string
+  readonly kind: "rate-limit-handle"
+  readonly policy: ResolvedRateLimitPolicy
+}
+
+export interface RateLimitDeclaration {
+  name: string
+  policy: RateLimitPolicy
+  source: {
+    column: number
+    file: string
+    line: number
+  }
+}
+
 export interface CreateRateLimiterOptions extends RateLimitPolicy {
   driver: RateLimitDriver
   name?: string
 }
-
-export type ConsumeRateLimitOptions = RateLimitConsumeInput
 
 export type RateLimitProvider = "auto" | "cloudflare" | "memory"
 

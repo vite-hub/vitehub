@@ -1,6 +1,6 @@
 import { expectTypeOf, it } from "vitest"
 
-import { consumeRateLimit, createRateLimiter, defineRateLimit } from "../src/index.ts"
+import { createRateLimiter, defineRateLimit } from "../src/index.ts"
 import { cloudflareRateLimitDriver } from "../src/drivers/cloudflare.ts"
 import { memoryRateLimitDriver } from "../src/drivers/memory.ts"
 import { hubRateLimit } from "../src/vite.ts"
@@ -8,16 +8,17 @@ import { hubRateLimit } from "../src/vite.ts"
 import type { RateLimitDecision, RateLimitDriver, RateLimiter } from "../src/index.ts"
 
 it("types the portable Rate Limit contract", async () => {
-  const definition = defineRateLimit({ enforcement: "strict", failure: "deny", limit: 10, window: "1m" })
-  expectTypeOf(definition.limit).toEqualTypeOf<number>()
-  const limiter = createRateLimiter({ driver: memoryRateLimitDriver(), ...definition })
+  const uploads = defineRateLimit("uploads", { enforcement: "strict", failure: "deny", limit: 10, window: "1m" })
+  expectTypeOf(await uploads.consume("user")).toEqualTypeOf<RateLimitDecision>()
+  const limiter = createRateLimiter({ driver: memoryRateLimitDriver(), limit: 10, window: "1m" })
   expectTypeOf(limiter).toEqualTypeOf<RateLimiter>()
   expectTypeOf(await limiter.consume({ key: "user" })).toEqualTypeOf<RateLimitDecision>()
   expectTypeOf(limiter.capabilities.scope).toEqualTypeOf<"global" | "location" | "process">()
-  expectTypeOf(await consumeRateLimit("uploads", { key: "user" })).toEqualTypeOf<RateLimitDecision>()
 
-  // @ts-expect-error a Definition requires a positive-integer-compatible number at runtime and a window at compile time.
-  defineRateLimit({ limit: 10 })
+  // @ts-expect-error a defined Rate Limit requires a stable ID and a window.
+  defineRateLimit("uploads", { limit: 10 })
+  // @ts-expect-error managed handles accept the key directly.
+  uploads.consume({ key: "user" })
   // @ts-expect-error check is not a portable atomic operation.
   limiter.check({ key: "user" })
   // @ts-expect-error host events are not part of portable consumption.

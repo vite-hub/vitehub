@@ -9,30 +9,25 @@ icon: i-lucide-gauge
 
 `rateLimit()` consumes one budget unit before the main Agent Invocation starts. The Capability owns trusted Agent identity and rejection behavior, while the [Rate Limit primitive](/docs/server-primitives/rate-limit) owns atomic enforcement.
 
-## Configure a named limiter
+## Configure a managed limiter
 
-Create a discovered Rate Limit Definition for the budget.
-
-```ts [server/rate-limits/agent-invocations.ts]
-import { defineRateLimit } from '@vite-hub/rate-limit'
-
-export default defineRateLimit({
-  limit: 20,
-  window: '1m',
-})
-```
-
-Reference the discovered name from the Agent Capability.
+Define the budget beside the Agent and pass its handle to the Capability.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
 import { rateLimit } from '@vite-hub/agent/capabilities'
+import { defineRateLimit } from '@vite-hub/rate-limit'
+
+const invocations = defineRateLimit('agent-invocations', {
+  limit: 20,
+  window: '1m',
+})
 
 export default defineAgent({
   driver: { model },
   capabilities: [
     rateLimit({
-      limiter: 'agent-invocations',
+      limiter: invocations,
     }),
   ],
 })
@@ -42,7 +37,7 @@ Register the Rate Limit Vite Integration through `vitehub({ rateLimit: true })` 
 
 ## Runtime behavior
 
-The Capability runs during the input phase. It derives a stable key from the Capability id, scope, and trusted identity, then calls the named Definition or custom `RateLimiter` exactly once.
+The Capability runs during the input phase. It derives a stable key from the Capability id, scope, and trusted identity, then calls the managed handle or custom `RateLimiter` exactly once.
 
 A rejected decision throws `RateLimitRejectedError` with status code `429`. The error includes `retry-after` headers only when the selected driver reports `retryAfter`; Cloudflare native enforcement does not return portable quota metadata.
 
@@ -57,7 +52,7 @@ Use `identity: 'invoker'` when authentication provides a stable Agent Invoker. U
 ```ts [server/agents/public-support.ts]
 rateLimit({
   identity: 'ip',
-  limiter: 'agent-invocations',
+  limiter: invocations,
   trustedIpHeaders: ['cf-connecting-ip'],
 })
 ```
@@ -66,7 +61,7 @@ Do not trust a client-controlled forwarding header. The Capability reads only th
 
 ## Use a custom Rate Limiter
 
-Pass any `RateLimiter` when the application owns state or enforcement outside discovered ViteHub Definitions.
+Pass any `RateLimiter` when the application owns state or enforcement outside managed ViteHub Rate Limits.
 
 ```ts [server/rate-limiter.ts]
 import { createRateLimiter } from '@vite-hub/rate-limit'
@@ -95,7 +90,7 @@ The custom driver must implement atomic `consume()`. ViteHub does not provide a 
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `limiter` | `string \| RateLimiter \| function` | required | Discovered Rate Limit Definition name, direct limiter, or runtime resolver. |
+| `limiter` | `RateLimitHandle \| RateLimiter \| function` | required | Managed Rate Limit handle, direct limiter, or runtime resolver. |
 | `id` | `string` | `"rate-limit"` | Capability id and Agent Invocation Context key. |
 | `identity` | `"auto" \| "invoker" \| "ip" \| "run" \| function` | `"auto"` | Identity used to derive the private rate-limit key. |
 | `scope` | `string \| function` | Capability id | Additional key partition. |
@@ -107,7 +102,7 @@ The custom driver must implement atomic `consume()`. ViteHub does not provide a 
 
 ## Migrate from an inline store
 
-The Capability no longer owns `limit`, `window`, `action`, or `store`. Move policy into a Rate Limit Definition or direct `RateLimiter`, then replace `store` with `limiter`.
+The Capability no longer owns `limit`, `window`, `action`, or `store`. Move policy into `defineRateLimit()` or a direct `RateLimiter`, then replace `store` with `limiter`.
 
 ```ts [Before]
 rateLimit({
@@ -118,8 +113,13 @@ rateLimit({
 ```
 
 ```ts [After]
+const invocations = defineRateLimit('agent-invocations', {
+  limit: 20,
+  window: '1m',
+})
+
 rateLimit({
-  limiter: 'agent-invocations',
+  limiter: invocations,
 })
 ```
 

@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
@@ -8,8 +7,8 @@ import { getCloudflareRateLimitBindingName } from "../integrations/cloudflare.ts
 import { normalizeRateLimitPolicy } from "../policy.ts"
 import { writeRateLimitManifest } from "./manifest.ts"
 
-import type { DiscoveredRateLimitDefinition, RateLimitDefinition } from "../types.ts"
 import type { ProviderOutputConfigOwnership } from "@vite-hub/internal/build/provider-output-config"
+import type { RateLimitDeclaration } from "../types.ts"
 
 interface CloudflareRateLimitBindingConfig {
   name: string
@@ -53,81 +52,9 @@ async function writeOutputState(rootDir: string, bindings: string[]): Promise<vo
   await writeFile(file, `${JSON.stringify({ bindings }, null, 2)}\n`, "utf8")
 }
 
-function readDefinitionObject(source: string, name: string): string {
-  const match = /\bexport\s+default\s+defineRateLimit\s*\(/g.exec(source)
-  if (!match) {
-    throw new Error(`Rate Limit Definition "${name}" must default-export defineRateLimit({ ... }) for Provider Output.`)
-  }
-  const open = source.indexOf("{", match.index + match[0].length)
-  if (open === -1) {
-    throw new Error(`Rate Limit Definition "${name}" must default-export defineRateLimit({ ... }) for Provider Output.`)
-  }
-  let quote: string | undefined
-  let depth = 0
-  for (let index = open; index < source.length; index += 1) {
-    const character = source[index]!
-    if (quote) {
-      if (character === "\\") index += 1
-      else if (character === quote) quote = undefined
-      continue
-    }
-    if (character === "\"" || character === "'" || character === "`") {
-      quote = character
-      continue
-    }
-    if (source.startsWith("//", index)) {
-      index = source.indexOf("\n", index + 2)
-      if (index === -1) break
-      continue
-    }
-    if (source.startsWith("/*", index)) {
-      const close = source.indexOf("*/", index + 2)
-      if (close === -1) break
-      index = close + 1
-      continue
-    }
-    if (depth === 1 && source.startsWith("...", index)) {
-      throw new Error(`Rate Limit Definition "${name}" cannot use object spreads in a policy used for Provider Output.`)
-    }
-    if (character === "{") depth += 1
-    if (character === "}" && --depth === 0) return source.slice(open, index + 1)
-  }
-  throw new Error(`Rate Limit Definition "${name}" must default-export a complete defineRateLimit({ ... }) object.`)
-}
-
-function readStaticProperty(source: string, name: string): string | undefined {
-  const match = new RegExp(`(?:^|[,\\n\\r{])\\s*${name}\\s*:\\s*([^,}\\n\\r]+)`, "m").exec(source)
-  return match?.[1]?.trim()
-}
-
-function readStaticString(source: string, name: string): string | undefined {
-  const value = readStaticProperty(source, name)
-  if (!value) return
-  const match = /^(["'`])([^"'`]*)\1$/.exec(value)
-  return match?.[2]
-}
-
-function readRateLimitDefinition(file: string, name: string): RateLimitDefinition {
-  const source = readDefinitionObject(readFileSync(file, "utf8"), name)
-  const limitValue = readStaticProperty(source, "limit")
-  const limit = limitValue && /^\d+$/.test(limitValue) ? Number(limitValue) : undefined
-  const window = readStaticString(source, "window")
-  const enforcement = readStaticString(source, "enforcement")
-  const failure = readStaticString(source, "failure")
-  if (limit === undefined || window === undefined) {
-    throw new Error(`Rate Limit Definition "${name}" must declare static limit and window values for Provider Output.`)
-  }
-  return {
-    ...(enforcement ? { enforcement: enforcement as RateLimitDefinition["enforcement"] } : {}),
-    ...(failure ? { failure: failure as RateLimitDefinition["failure"] } : {}),
-    limit,
-    window: window as RateLimitDefinition["window"],
-  }
-}
-
-function namespaceId(namespace: string, definitionName: string): string {
+function namespaceId(namespace: string, rateLimitId: string): string {
   let hash = 2_166_136_261
-  for (const character of `${namespace}:${definitionName}`) {
+  for (const character of `${namespace}:${rateLimitId}`) {
     hash ^= character.charCodeAt(0)
     hash = Math.imul(hash, 16_777_619)
   }
@@ -135,37 +62,41 @@ function namespaceId(namespace: string, definitionName: string): string {
 }
 
 export function createCloudflareRateLimitBindings(
-  definitions: DiscoveredRateLimitDefinition[],
+  declarations: RateLimitDeclaration[],
   namespace: string,
 ): CloudflareRateLimitBindingConfig[] {
-  return definitions.map((discovered) => {
-    const definition = normalizeRateLimitPolicy(readRateLimitDefinition(discovered.handler, discovered.name))
-    if (definition.enforcement === "strict") {
-      throw new Error(`Rate Limit Definition "${discovered.name}" requires strict enforcement, but Cloudflare's native Rate Limiting binding is best-effort.`)
+  return declarations.map((declaration) => {
+    const policy = normalizeRateLimitPolicy(declaration.policy)
+    if (policy.enforcement === "strict") {
+      throw new Error(`Rate Limit "${declaration.name}" requires strict enforcement, but Cloudflare's native Rate Limiting binding is best-effort.`)
     }
-    const period = definition.windowMs / 1_000
+    const period = policy.windowMs / 1_000
     if (period !== 10 && period !== 60) {
-      throw new Error(`Rate Limit Definition "${discovered.name}" uses ${definition.window}, but Cloudflare Rate Limiting supports only 10s and 1m windows.`)
+      throw new Error(`Rate Limit "${declaration.name}" uses ${policy.window}, but Cloudflare Rate Limiting supports only 10s and 1m windows.`)
     }
     return {
-      name: getCloudflareRateLimitBindingName(discovered.name),
-      namespace_id: namespaceId(namespace, discovered.name),
-      simple: { limit: definition.limit, period },
+      name: getCloudflareRateLimitBindingName(declaration.name),
+      namespace_id: namespaceId(namespace, declaration.name),
+      simple: { limit: policy.limit, period },
     }
   })
 }
 
+export function resolveRateLimitNamespace(configured?: string): string | undefined {
+  return configured?.trim() || undefined
+}
+
 export async function writeRateLimitProviderOutput(options: {
   clientOutDir: string
-  definitions: DiscoveredRateLimitDefinition[]
-  previousDefinitions?: DiscoveredRateLimitDefinition[]
-  provider: "cloudflare" | "memory"
+  declarations: RateLimitDeclaration[]
   namespace?: string
+  previousDeclarations?: RateLimitDeclaration[]
+  provider: "cloudflare" | "memory"
   rootDir: string
 }): Promise<void> {
   const state = await readOutputState(options.rootDir)
-  const currentBindings = options.definitions.map(definition => getCloudflareRateLimitBindingName(definition.name))
-  const previousBindings = options.previousDefinitions?.map(definition => getCloudflareRateLimitBindingName(definition.name)) ?? []
+  const currentBindings = options.declarations.map(declaration => getCloudflareRateLimitBindingName(declaration.name))
+  const previousBindings = options.previousDeclarations?.map(declaration => getCloudflareRateLimitBindingName(declaration.name)) ?? []
   const ownership = {
     arrays: {
       ratelimits: {
@@ -175,23 +106,23 @@ export async function writeRateLimitProviderOutput(options: {
     },
   } satisfies ProviderOutputConfigOwnership
 
-  if (options.provider === "cloudflare" && options.definitions.length > 0) {
+  if (options.provider === "cloudflare" && options.declarations.length > 0) {
     if (!options.namespace) {
-      throw new Error("[vitehub] Cloudflare Rate Limit requires a project-unique rateLimit.namespace to isolate counters across deployments.")
+      throw new Error("[vitehub] Cloudflare Rate Limit requires rateLimit.namespace to isolate counters between deployments.")
     }
     await writeProviderDeploymentOutputs({
       clientOutDir: options.clientOutDir,
       cloudflare: {
         outputRoot: createDefaultCloudflareOutputRoot(options.rootDir),
         wranglerConfig: {
-          ratelimits: createCloudflareRateLimitBindings(options.definitions, options.namespace),
+          ratelimits: createCloudflareRateLimitBindings(options.declarations, options.namespace),
         },
         wranglerConfigOwnership: ownership,
       },
       rootDir: options.rootDir,
     })
     await writeOutputState(options.rootDir, currentBindings)
-    await writeRateLimitManifest(options.rootDir, options.definitions, options.provider)
+    await writeRateLimitManifest(options.rootDir, options.declarations, options.provider)
     return
   }
 
@@ -206,5 +137,5 @@ export async function writeRateLimitProviderOutput(options: {
     rootDir: options.rootDir,
   })
   await writeOutputState(options.rootDir, [])
-  await writeRateLimitManifest(options.rootDir, options.definitions, options.provider)
+  await writeRateLimitManifest(options.rootDir, options.declarations, options.provider)
 }

@@ -2,9 +2,9 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 
-import { discoverRateLimitDefinitions } from "../src/discovery.ts"
+import { discoverRateLimitDeclarations, extractRateLimitDeclarations } from "../src/discovery.ts"
 
 const roots: string[] = []
 
@@ -12,16 +12,84 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
-it("discovers suffix and server Rate Limit Definitions through the shared catalog", async () => {
-  const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-discovery-"))
-  roots.push(root)
-  await mkdir(join(root, "src", "limits"), { recursive: true })
-  await mkdir(join(root, "server", "rate-limits", "api"), { recursive: true })
-  await writeFile(join(root, "src", "limits", "upload.rate-limit.ts"), "export default {}\n")
-  await writeFile(join(root, "server", "rate-limits", "api", "search.ts"), "export default {}\n")
+describe("Rate Limit declarations", () => {
+  it("collects source-local handles without file or export conventions", () => {
+    const file = "/project/server/api/images.post.ts"
+    const source = [
+      'import { defineRateLimit as define } from "@vite-hub/rate-limit"',
+      "",
+      'const uploads = define("image-upload", { failure: "deny", limit: 5, window: "1m" })',
+    ].join("\n")
 
-  expect(discoverRateLimitDefinitions({ rootDir: root })).toEqual([
-    expect.objectContaining({ name: "api/search", source: "server-rate-limits" }),
-    expect.objectContaining({ name: "limits/upload", source: "vite-suffix" }),
-  ])
+    expect(extractRateLimitDeclarations(file, source)).toEqual([{
+      name: "image-upload",
+      policy: { enforcement: "best-effort", failure: "deny", limit: 5, window: "1m" },
+      source: { column: 17, file, line: 3 },
+    }])
+  })
+
+  it("requires top-level static declarations", () => {
+    const imported = 'import { defineRateLimit } from "@vite-hub/rate-limit"\n'
+    expect(() => extractRateLimitDeclarations("nested.ts", `${imported}function create() { return defineRateLimit("uploads", { limit: 1, window: "1m" }) }`))
+      .toThrow("top-level `const`")
+    expect(() => extractRateLimitDeclarations("dynamic.ts", `${imported}const limit = 1\nconst uploads = defineRateLimit("uploads", { limit, window: "1m" })`))
+      .toThrow('option "limit" must be a static literal')
+    expect(() => extractRateLimitDeclarations("id.ts", `${imported}const id = "uploads"\nconst uploads = defineRateLimit(id, { limit: 1, window: "1m" })`))
+      .toThrow("non-empty static string ID")
+  })
+
+  it("ignores local bindings that shadow the imported helper", () => {
+    const source = [
+      'import { defineRateLimit as define } from "@vite-hub/rate-limit"',
+      'const uploads = define("uploads", { limit: 1, window: "1m" })',
+      'function helper(define: (id: string, policy: object) => unknown) {',
+      '  return define("local", { limit: 2, window: "1m" })',
+      '}',
+    ].join("\n")
+
+    expect(extractRateLimitDeclarations("shadowed.ts", source)).toHaveLength(1)
+
+    const declarations = [
+      'import { defineRateLimit as define } from "@vite-hub/rate-limit"',
+      'function helper() {',
+      '  function define() {}',
+      '  return define("local", { limit: 2, window: "1m" })',
+      '}',
+      'try {} catch (define) { define("local", { limit: 2, window: "1m" }) }',
+    ].join("\n")
+    expect(extractRateLimitDeclarations("declaration-shadow.ts", declarations)).toEqual([])
+  })
+
+  it("reports duplicate IDs with both source locations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-declarations-"))
+    roots.push(root)
+    await mkdir(join(root, "server", "api"), { recursive: true })
+    const declaration = 'import { defineRateLimit } from "vite-hub/rate-limit"\nconst limit = defineRateLimit("uploads", { limit: 1, window: "1m" })\n'
+    await writeFile(join(root, "server", "api", "first.ts"), declaration)
+    await writeFile(join(root, "server", "api", "second.ts"), declaration)
+
+    expect(() => discoverRateLimitDeclarations({ rootDir: root }))
+      .toThrow(/Duplicate Rate Limit ID "uploads"[\s\S]*first\.ts:2:15[\s\S]*second\.ts:2:15/)
+  })
+
+  it("does not provision handles declared only in tests", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-tests-"))
+    roots.push(root)
+    const declaration = 'import { defineRateLimit } from "vite-hub/rate-limit"\nconst limit = defineRateLimit("test-only", { limit: 1, window: "1m" })\n'
+    await writeFile(join(root, "rate-limit.test.ts"), declaration)
+    await mkdir(join(root, "test"))
+    await writeFile(join(root, "test", "helper.ts"), declaration)
+
+    expect(discoverRateLimitDeclarations({ rootDir: root })).toEqual([])
+  })
+
+  it("collects deployed routes beneath directories named test", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-test-route-"))
+    roots.push(root)
+    const routeDir = join(root, "server", "api", "test")
+    await mkdir(routeDir, { recursive: true })
+    await writeFile(join(routeDir, "upload.post.ts"), 'import { defineRateLimit } from "vite-hub/rate-limit"\nconst limit = defineRateLimit("upload", { limit: 1, window: "1m" })\n')
+
+    expect(discoverRateLimitDeclarations({ rootDir: root })).toMatchObject([{ name: "upload" }])
+  })
 })
