@@ -23,6 +23,7 @@ The concepts in this section explain those boundaries before the package pages a
 | [Runtime Context](/docs/concepts/runtime-context) | How hosts pass execution facts and resources without framework globals. |
 | [Workspace and Sources](/docs/concepts/workspace-and-sources) | How persistent file trees consume read-only origins. |
 | [Capabilities API](/docs/concepts/capabilities-api) | How Agents receive selected abilities. |
+| [Bash](/docs/concepts/bash) | How Capability-owned executables become one constrained Agent tool. |
 | [Channels API](/docs/concepts/channels-api) | How message-shaped Agent Invocations, channel metadata, and host commands stay separate. |
 | [Auth Users and Agent Invokers](/docs/concepts/auth-users-and-agent-invokers) | How authenticated app users map into trusted Agent Invocation identity. |
 | [Runtime policy, approvals, and traces](/docs/concepts/runtime-policy-approvals-and-traces) | How ViteHub records runtime decisions without making policy invisible. |

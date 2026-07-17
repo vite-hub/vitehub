@@ -145,10 +145,11 @@ export function browserPreview() {
 ```
 
 ViteHub merges all Capability `bash` entries into one `bash` tool.
-The tool schema only accepts registered executable names, and each call runs inside a trusted Workspace Session.
+The tool schema only accepts registered executable names, and each call runs inside an executable Workspace Session.
 
 `bash` is a runtime tool surface, not a Capability factory.
 Do not create a `bash()` Capability or use `workspaceShell()` as the public owner for product-specific executables.
+Read the [Bash concept](/docs/concepts/bash) for the execution model and its relationship to Workspace Shell, Shell, Workspace Sessions, and Sandbox.
 
 ## Add a Capability CLI
 
