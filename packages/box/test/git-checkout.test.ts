@@ -42,12 +42,12 @@ describe("Box checkout", () => {
     );
 
     expect(resolutions).toBe(3);
-    expect(box.workspace).toEqual({ state: "disposable", workDir: "workspace" });
+    expect(box.workspace).toEqual({ state: "disposable", workDir: "." });
     expect(JSON.stringify(box)).not.toContain(repository.remote);
     const sandbox = box.sandbox as HarnessV1SandboxProvider;
     const [first, second] = await Promise.all([sandbox.createSession(), sandbox.createSession()]);
-    const firstWorkspace = join(first.defaultWorkingDirectory, "workspace");
-    const secondWorkspace = join(second.defaultWorkingDirectory, "workspace");
+    const firstWorkspace = first.defaultWorkingDirectory;
+    const secondWorkspace = second.defaultWorkingDirectory;
 
     expect(firstWorkspace).not.toBe(secondWorkspace);
     expect(resolutions).toBe(3);

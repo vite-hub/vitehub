@@ -200,7 +200,7 @@ describe("Agent Box", () => {
 
       expect(reportedCheckout).toMatch(/\/vitehub-box-[^/]+\/workspace$/)
       await expect(stat(join(reportedCheckout, ".."))).rejects.toMatchObject({ code: "ENOENT" })
-      expect(harnessSettings.at(-1)?.sandboxConfig).toMatchObject({ workDir: "workspace" })
+      expect(harnessSettings.at(-1)?.sandboxConfig).toMatchObject({ workDir: "." })
     }
     finally {
       if (originalPath === undefined) delete process.env.PATH

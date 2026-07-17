@@ -126,7 +126,7 @@ export function trustedHost(options: TrustedHostOptions = {}): BoxRuntime {
         workspace: cwd
           ? { path: cwd, state: "authoritative" as const, workDir: "workspace" as const }
           : input.checkout
-            ? { state: "disposable" as const, workDir: "workspace" as const }
+            ? { state: "disposable" as const, workDir: "." as const }
             : { state: "disposable" as const },
       } as const;
       Object.defineProperty(box, "sandbox", { enumerable: false, value: sandbox });

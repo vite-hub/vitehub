@@ -110,7 +110,7 @@ export interface ResolvedBox {
   readonly workspace: {
     readonly path?: string;
     readonly state: "authoritative" | "disposable";
-    readonly workDir?: "workspace";
+    readonly workDir?: "." | "workspace";
   };
 }
 
