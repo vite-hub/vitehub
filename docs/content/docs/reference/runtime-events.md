@@ -6,7 +6,7 @@ icon: i-lucide-activity
 ---
 
 Runtime events describe what happened across package boundaries.
-The Runtime Package owns Trace Events, Policy Decisions, Approval Requests, runtime capability handles, and wait-until behavior.
+The Runtime Package owns Trace Events, Policy Decisions, Approval Requests, runtime capability handles, and wait-until behavior carried through [Runtime Context](/docs/concepts/runtime-context).
 
 ## Trace Event
 

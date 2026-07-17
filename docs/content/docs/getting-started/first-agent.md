@@ -92,9 +92,9 @@ the file under `server/agents` makes the Agent boundary easy to inspect.
 
 ## Run one Agent Invocation
 
-Create one H3 route that passes host runtime context separately from invocation
-input. `memo`, `runtime`, and `waitUntil` are explicit because `runAgent()` does
-not depend on framework globals.
+Create one H3 route that passes [Runtime Context](/docs/concepts/runtime-context)
+separately from invocation input. `memo`, `runtime`, and `waitUntil` are explicit
+because `runAgent()` does not depend on framework globals.
 
 Create the invocation-scoped memoizer first. It initializes each key once, and
 the route creates a fresh cache for every request.
