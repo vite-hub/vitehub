@@ -83,6 +83,17 @@ describe("Rate Limit declarations", () => {
     expect(discoverRateLimitDeclarations({ rootDir: root })).toEqual([])
   })
 
+  it("applies test exclusions relative to each configured scan root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-root-"))
+    const scanRoot = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-scan-root-"))
+    roots.push(root, scanRoot)
+    const declaration = 'import { defineRateLimit } from "vite-hub/rate-limit"\nconst limit = defineRateLimit("test-only", { limit: 1, window: "1m" })\n'
+    await mkdir(join(scanRoot, "test"))
+    await writeFile(join(scanRoot, "test", "helper.ts"), declaration)
+
+    expect(discoverRateLimitDeclarations({ rootDir: root, scanDirs: [scanRoot] })).toEqual([])
+  })
+
   it("collects deployed routes beneath directories named test", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-test-route-"))
     roots.push(root)
