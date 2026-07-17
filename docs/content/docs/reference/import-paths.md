@@ -21,29 +21,42 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Actor APIs. |
 | `vite-hub/agent/capabilities` | Official Capability factories. |
 | `vite-hub/agent/channels` | Official Channel Kind helpers. |
+| `vite-hub/agent/eval` | Agent Eval authoring helpers; install Evalite and the test runner explicitly. |
+| `vite-hub/agent/harness/claude-code` and `vite-hub/agent/harness/codex` | Claude Code and Codex harness adapters; install the selected AI SDK harness package explicitly. |
+| `vite-hub/agent/harness/local-sandbox` | Trusted local harness sandbox helper for development and Agent Evals. |
+| `vite-hub/agent/cloudflare` | Cloudflare Agent state configuration helpers. |
+| `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
+| `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
 | `vite-hub/blob` | Blob Runtime Helpers and Blob Store access. |
 | `vite-hub/box` | Box Definitions and trusted-host execution contracts. |
+| `vite-hub/box/crabbox` | Crabbox-backed Box runtime. |
 | `vite-hub/database` and `vite-hub/database/drizzle` | Database Definitions and generated Drizzle access. |
 | `vite-hub/env` | Env Declaration helpers and authoring types. |
 | `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown` | Email Definitions, runtime delivery, and Dynamic Markdown HTML with a composed Markdown text fallback. |
+| `vite-hub/email/drivers/smtp` | Optional Node.js SMTP delivery; install Nodemailer explicitly. |
 | `vite-hub/env/presets` and `vite-hub/env/schema` | Reusable Env presets and schema helpers. |
 | `vite-hub/env/secret` and `vite-hub/env/server` | Secret declarations and server-only Env access. |
 | `vite-hub/kv` | KV Runtime Helper. |
+| `vite-hub/markdown-template` | Deterministic Markdown rendering from explicit template strings. |
 | `vite-hub/queue` | Queue Definitions and dispatch helpers. |
 | `vite-hub/runtime` | Runtime Host Context, policy, approval, trace, and capability APIs. |
 | `vite-hub/sandbox` | Sandbox Definitions and Sandbox Run helpers. |
 | `vite-hub/schedule` and `vite-hub/schedule/runtime` | Static and runtime Schedule APIs. |
+| `vite-hub/schedule/runtime/driver` and `vite-hub/schedule/runtime/process` | Host wake registration and process-backed runtime Schedule controls. |
 | `vite-hub/shell` | Shell runtime and command analysis APIs. |
+| `vite-hub/shell/providers/cloudflare` and `vite-hub/shell/providers/just-bash` | Cloudflare and Just Bash Shell providers. |
 | `vite-hub/shell/workspace` | Workspace-backed Shell execution helpers. |
 | `vite-hub/source` | Source Definitions, loaders, and registry APIs. |
 | `vite-hub/workflow` | Workflow Definitions and run helpers. |
 | `vite-hub/workspace` and `vite-hub/workspace/runtime` | Workspace Definitions, Sources, runtime facades, and registry APIs. |
+| `vite-hub/workspace/cloudflare` | Cloudflare Workspace runtime setup. |
+| `vite-hub/workspace/loader`, `vite-hub/workspace/publish`, and `vite-hub/workspace/server` | Workspace loader, publisher, and manual server extension APIs. |
 
-Third-party model providers, chat adapters, and harness packages remain explicit
-dependencies. The distribution includes the Workflow DevKit runtime and builders
-for its Vercel Workflow default; other provider-specific and host-specific
-ViteHub subpaths stay on their owner packages unless this reference promotes them.
+ViteHub-owned adapters use canonical `vite-hub/*` imports. Their optional
+third-party providers and SDKs remain explicit dependencies. Provider Output,
+build integrations, tests, and unlisted provider-specific modules stay on their
+owner packages.
 
 ## Direct owner-package imports
 
