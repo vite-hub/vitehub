@@ -91,6 +91,15 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
   let projectRoot: string | undefined
   let resolved: ResolvedConfig | undefined
 
+  const refreshDeclarations = async (): Promise<void> => {
+    if (!projectRoot || !resolved) return
+    declarations = discoverRateLimitDeclarations({
+      rootDir: projectRoot,
+      scanDirs: rateLimit.scanDirs,
+    })
+    await writeRateLimitManifest(resolved.root, declarations, provider)
+  }
+
   return {
     name: pluginName,
     config(config) {
@@ -104,11 +113,8 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       rateLimit = config.rateLimit ?? rateLimit
       composedOutput = useComposedProviderOutput(config)
       projectRoot = resolveViteHubProjectRoot(config.root, { projectRoot: rateLimit.projectRoot })
-      declarations = discoverRateLimitDeclarations({
-        rootDir: projectRoot,
-        scanDirs: rateLimit.scanDirs,
-      })
       provider = resolveProvider(rateLimit, config)
+      await refreshDeclarations()
       const pluginFile = resolve(config.root, generatedNitroPlugin)
       const runtimeFile = resolve(config.root, generatedRuntimeModule)
       const runtimeConfig = { provider } satisfies RateLimitRuntimeConfig
@@ -116,7 +122,6 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         rm(resolve(config.root, legacyGeneratedRegistry), { force: true }),
         writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig, importBase, true)),
         writeFileIfChanged(runtimeFile, renderRuntimeInstaller(runtimeConfig, importBase, false)),
-        writeRateLimitManifest(config.root, declarations, provider),
       ])
       registerProviderRuntimeModules(composedOutput, "rate-limit", { cloudflare: runtimeFile })
     },
@@ -124,8 +129,14 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       if (!isServerEnvironment(name, config)) return
       return { resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) } }
     },
+    async handleHotUpdate(context) {
+      if (!/\.(?:c|m)?[jt]s$/i.test(context.file)) return
+      resolved = context.server.config
+      await refreshDeclarations()
+    },
     async closeBundle() {
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+      await refreshDeclarations()
       const namespace = resolveRateLimitNamespace(rateLimit.namespace)
       await writeRateLimitProviderOutput({
         clientOutDir: resolved.build.outDir,

@@ -38,6 +38,14 @@ describe("Rate Limit declarations", () => {
       .toThrow("non-empty static string ID")
   })
 
+  it("unwraps transparent TypeScript assertions in static policies", () => {
+    const imported = 'import { defineRateLimit } from "@vite-hub/rate-limit"\nimport type { RateLimitPolicy } from "@vite-hub/rate-limit"\n'
+    expect(extractRateLimitDeclarations("asserted.ts", `${imported}const uploads = defineRateLimit("uploads", { limit: 10 as const, window: "1m" } as const)`))
+      .toMatchObject([{ name: "uploads", policy: { limit: 10, window: "1m" } }])
+    expect(extractRateLimitDeclarations("satisfies.ts", `${imported}const uploads = defineRateLimit("uploads", { limit: 10, window: "1m" } satisfies RateLimitPolicy)`))
+      .toMatchObject([{ name: "uploads", policy: { limit: 10, window: "1m" } }])
+  })
+
   it("ignores local bindings that shadow the imported helper", () => {
     const source = [
       'import { defineRateLimit as define } from "@vite-hub/rate-limit"',
