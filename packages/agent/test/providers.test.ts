@@ -5211,6 +5211,50 @@ describe("server helpers", () => {
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-2", { markdown: "done" })
   })
 
+  it("does not block native output on slow fallback delivery or cleanup", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let postPlaceholder!: (message: { id: string, raw: unknown, threadId: string }) => void
+    let deletePlaceholder!: () => void
+    adapter.postMessage.mockImplementationOnce(async () => await new Promise(resolve => {
+      postPlaceholder = resolve
+    }))
+    adapter.deleteMessage.mockImplementationOnce(async () => await new Promise<void>(resolve => {
+      deletePlaceholder = resolve
+    }))
+    adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
+      for await (const _chunk of textStream) {}
+      return { id: "stream-1", raw: {}, threadId }
+    })
+    const agent = defineAgent({
+      capabilities: [
+        defineChatCapability({
+          fallbackStreamingPlaceholderText: "Working on it...",
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      driver: { run: async () => "done" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(21048), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.deleteMessage).not.toHaveBeenCalled()
+    postPlaceholder({ id: "placeholder-1", raw: {}, threadId: "telegram:456" })
+    await vi.waitFor(() => {
+      expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "placeholder-1")
+    })
+    deletePlaceholder()
+  })
+
   it("posts a random chat fallback option while streamed webhook work is still running", async () => {
     const random = vi.spyOn(Math, "random").mockReturnValue(0.75)
     try {

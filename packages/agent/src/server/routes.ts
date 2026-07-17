@@ -808,20 +808,30 @@ async function postChatStream(
     const adapter = thread.adapter
     const nativeStream = adapter.stream!.bind(adapter)
     const placeholder = fallback === null
-      ? undefined
-      : await adapter.postMessage(thread.id, fallback).catch(() => undefined)
+      ? Promise.resolve(undefined)
+      : adapter.postMessage(thread.id, fallback).catch(() => undefined)
     let cleared = false
+    let clearing: Promise<void> | undefined
     const clearPlaceholder = async () => {
-      if (cleared || !placeholder?.id) return
-      await adapter.deleteMessage(placeholder.threadId || thread.id, placeholder.id)
-        .then(() => { cleared = true })
-        .catch(() => undefined)
+      if (cleared) return
+      if (clearing) return clearing
+      clearing = placeholder.then(async (message) => {
+        if (!message?.id) return
+        await adapter.deleteMessage(message.threadId || thread.id, message.id)
+        cleared = true
+      }).catch(() => undefined).finally(() => {
+        clearing = undefined
+      })
+      return clearing
+    }
+    const finishPlaceholder = () => {
+      void clearPlaceholder().then(() => cleared ? undefined : clearPlaceholder())
     }
     const nativeResponse: ChatTextStream = {
       getText: response.getText,
       async *[Symbol.asyncIterator]() {
         for await (const chunk of response) {
-          await clearPlaceholder()
+          void clearPlaceholder()
           yield chunk
         }
       },
@@ -831,15 +841,15 @@ async function postChatStream(
     const previousFallback = chatThread._fallbackStreamingPlaceholderText
     // ponytail: Chat SDK does not expose whether native streaming was accepted.
     chatThread._adapter = new Proxy(adapter, {
-      get(target, property, receiver) {
+      get(target, property) {
         if (property === "stream") {
           return async (...args: Parameters<typeof nativeStream>) => {
             const raw = await nativeStream(...args)
-            if (!raw) await clearPlaceholder()
+            if (!raw) finishPlaceholder()
             return raw
           }
         }
-        const value = Reflect.get(target, property, receiver)
+        const value = Reflect.get(target, property, target)
         return typeof value === "function" ? value.bind(target) : value
       },
     })
@@ -851,7 +861,7 @@ async function postChatStream(
     finally {
       chatThread._adapter = previousAdapter
       chatThread._fallbackStreamingPlaceholderText = previousFallback
-      await clearPlaceholder()
+      finishPlaceholder()
     }
     return
   }
