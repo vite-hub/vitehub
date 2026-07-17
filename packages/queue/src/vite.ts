@@ -53,11 +53,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         clientOutDir: resolved.build.outDir,
         queue,
         rootDir: resolved.root,
-        serverFunctionName: resolveNitroVercelFunctionName(
-          resolved.plugins,
-          "queue",
-          (resolved as typeof resolved & { nitro?: { preset?: string } }).nitro?.preset,
-        ),
+        serverFunctionName: resolveNitroVercelFunctionName(resolved, "queue"),
       })
     },
   }

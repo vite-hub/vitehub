@@ -16,7 +16,7 @@ import type { BlobViteRuntimeConfig } from "./vite-config.ts"
 import type { BlobModuleOptions, BlobServeConfig } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
-import type { Plugin } from "vite"
+import type { Plugin, ResolvedConfig } from "vite"
 
 const RESOLVED_BLOB_VIRTUAL_CONFIG_ID = `\0${BLOB_VIRTUAL_CONFIG_ID}`
 const generatedNitroBlobPlugin = ".vitehub/nitro/blob/plugin.ts"
@@ -123,8 +123,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
   let providerOutput: ComposedProviderOutput | undefined
   let rootDir = process.cwd()
   let runtimeConfig: BlobViteRuntimeConfig | undefined
-  let nitroPreset: string | undefined
-  let vitePlugins: readonly { name: string }[] | undefined
+  let resolved: ResolvedConfig | undefined
   const getConfig = () => runtimeConfig ??= resolveBlobViteConfig(options)
 
   return {
@@ -150,13 +149,12 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       return { nitro } as never
     },
     async configResolved(config) {
+      resolved = config
       clientOutDir = config.build.outDir
       rootDir = config.root
       blob = config.blob ?? blob
       providerOutput = useComposedProviderOutput(config)
       runtimeConfig = resolveBlobViteConfig(blob)
-      nitroPreset = (config as { nitro?: { preset?: string } }).nitro?.preset
-      vitePlugins = config.plugins
       await refreshBlobGeneratedFiles(config.root, runtimeConfig.blob, importBase)
     },
     configEnvironment(name, config) {
@@ -195,7 +193,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
         artifacts: providerArtifacts,
         providerOutput,
         rootDir,
-        serverFunctionName: resolveNitroVercelFunctionName(vitePlugins, "blob", nitroPreset),
+        serverFunctionName: resolveNitroVercelFunctionName(resolved ?? {}, "blob"),
       })
     },
     load(id) {
