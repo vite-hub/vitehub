@@ -59,15 +59,17 @@ async function managedRootDir(sessionId: string) {
     if (!entry.isDirectory()) return
     const match = localHarnessOwnerPattern.exec(entry.name)
     if (!match || isProcessAlive(Number(match[1]))) return
-    await rm(join(parent, entry.name), { force: true, recursive: true })
+    await rm(join(parent, entry.name), { force: true, recursive: true }).catch(() => undefined)
   }))
 
   return join(owner, createHash("sha256").update(sessionId).digest("hex"))
 }
 
-async function defaultRootDir(sessionId: string | undefined) {
+async function defaultRootDir(sessionId: string | undefined, cleanup: boolean) {
   if (sessionId) {
-    const root = await managedRootDir(sessionId)
+    const root = cleanup
+      ? await managedRootDir(sessionId)
+      : join(tmpdir(), "vitehub-harness", createHash("sha256").update(sessionId).digest("hex"))
     await mkdir(root, { recursive: true })
     return root
   }
@@ -183,12 +185,13 @@ async function collect(stream: ReadableStream<Uint8Array>) {
 }
 
 async function createSession(options: LocalHarnessSandboxProviderOptions, sessionId: string | undefined): Promise<LocalHarnessSandboxSession> {
-  const rootDir = options.rootDir || await defaultRootDir(sessionId)
+  const cleanup = options.cleanup ?? !options.rootDir
+  const rootDir = options.rootDir || await defaultRootDir(sessionId, cleanup)
   await mkdir(rootDir, { recursive: true })
   if (options.workspaceDir) await bindWorkspace(rootDir, options.workspaceDir)
   const env = { ...stringEnv(options.env || process.env), INIT_CWD: rootDir, OLDPWD: rootDir, PWD: rootDir }
   const session = {
-    cleanup: options.cleanup ?? !options.rootDir,
+    cleanup,
     defaultWorkingDirectory: rootDir,
     description: "Workspace shell.",
     env,

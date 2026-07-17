@@ -60,6 +60,29 @@ describe("local harness sandbox", () => {
     await expect(stat(root)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it("preserves cleanup-disabled session roots across providers", async () => {
+    const sessionId = `persistent-${randomUUID()}`
+    const persistent = await createLocalHarnessSandbox({ cleanup: false }).createSession({ sessionId })
+    const root = (persistent as unknown as { rootDir: string }).rootDir
+    await persistent.writeTextFile({ content: "keep", path: "keep.txt" })
+
+    try {
+      await persistent.destroy?.()
+      const managed = await createLocalHarnessSandbox().createSession({ sessionId: `managed-${randomUUID()}` })
+
+      try {
+        expect(relative(join(tmpdir(), "vitehub-harness"), root)).toMatch(/^[a-f0-9]{64}$/)
+        await expect(readFile(join(root, "keep.txt"), "utf8")).resolves.toBe("keep")
+      }
+      finally {
+        await managed.destroy?.()
+      }
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("reclaims roots owned by dead processes", async () => {
     const deadPid = 4242
     const abandoned = await ownerFixture(deadPid)
