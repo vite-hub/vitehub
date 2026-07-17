@@ -124,6 +124,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
       }
       return Response.json({ ok: true })
     }),
+    deleteMessage: vi.fn(async () => {}),
     initialize: vi.fn(async (chat: ChatInstance) => {
       chatInstance = chat
     }),
@@ -161,6 +162,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
   }
   return adapter as unknown as Adapter & {
     _chatInstance: () => ChatInstance | undefined
+    deleteMessage: ReturnType<typeof vi.fn>
     handleWebhook: ReturnType<typeof vi.fn>
     editMessage: ReturnType<typeof vi.fn>
     fetchMessages: ReturnType<typeof vi.fn>
@@ -5118,6 +5120,144 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "done" })
+  })
+
+  it("shows configured chat fallback while native adapter streams are pending", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.deleteMessage.mockRejectedValueOnce(new Error("try again"))
+    let runStarted!: () => void
+    let finishRun!: () => void
+    const runStartedPromise = new Promise<void>(resolve => {
+      runStarted = resolve
+    })
+    const finishRunPromise = new Promise<void>(resolve => {
+      finishRun = resolve
+    })
+    adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
+      let text = ""
+      for await (const chunk of textStream) {
+        if (typeof chunk === "string") text += chunk
+        else if (chunk.type === "markdown_text") text += chunk.text
+      }
+      return { id: "stream-1", raw: { text }, threadId }
+    })
+    const agent = defineAgent({
+      capabilities: [
+        defineChatCapability({
+          fallbackStreamingPlaceholderText: "Working on it...",
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      driver: { run: async () => {
+        runStarted()
+        await finishRunPromise
+        return "done"
+      } },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const responsePromise = handler(chatWebhookRequest(21046), "telegram")
+
+    await runStartedPromise
+    await Promise.resolve()
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Working on it...")
+    expect(adapter.deleteMessage).not.toHaveBeenCalled()
+
+    finishRun()
+    const response = await responsePromise
+
+    expect(response.status).toBe(200)
+    expect(adapter.deleteMessage).toHaveBeenNthCalledWith(1, "telegram:456", "sent-1")
+    expect(adapter.deleteMessage).toHaveBeenNthCalledWith(2, "telegram:456", "sent-1")
+    expect(adapter.stream).toHaveBeenCalledOnce()
+  })
+
+  it("hands the configured fallback back to Chat SDK when native streaming declines", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.stream = vi.fn(async () => null)
+    const agent = defineAgent({
+      capabilities: [
+        defineChatCapability({
+          fallbackStreamingPlaceholderText: "Working on it...",
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      driver: { run: async () => "done" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(21047), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Working on it...")
+    expect(adapter.deleteMessage).not.toHaveBeenCalled()
+    expect(adapter.postMessage).toHaveBeenCalledOnce()
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "done" })
+  })
+
+  it("does not block native output on slow fallback delivery or cleanup", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const backgroundTasks: Promise<unknown>[] = []
+    let postPlaceholder!: (message: { id: string, raw: unknown, threadId: string }) => void
+    let deletePlaceholder!: () => void
+    adapter.postMessage.mockImplementationOnce(async () => await new Promise(resolve => {
+      postPlaceholder = resolve
+    }))
+    adapter.deleteMessage.mockImplementationOnce(async () => await new Promise<void>(resolve => {
+      deletePlaceholder = resolve
+    }))
+    adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
+      for await (const _chunk of textStream) {}
+      return { id: "stream-1", raw: {}, threadId }
+    })
+    const agent = defineAgent({
+      capabilities: [
+        defineChatCapability({
+          fallbackStreamingPlaceholderText: "Working on it...",
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      driver: { run: async () => "done" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(21048), "telegram", {
+      waitUntil: task => backgroundTasks.push(task),
+    })
+
+    expect(response.status).toBe(200)
+    expect(backgroundTasks.length).toBeGreaterThan(1)
+    expect(adapter.deleteMessage).not.toHaveBeenCalled()
+    postPlaceholder({ id: "placeholder-1", raw: {}, threadId: "telegram:456" })
+    await vi.waitFor(() => {
+      expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "placeholder-1")
+    })
+    deletePlaceholder()
+    await Promise.all(backgroundTasks)
   })
 
   it("posts a random chat fallback option while streamed webhook work is still running", async () => {

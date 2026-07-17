@@ -796,11 +796,90 @@ async function postChatStream(
   thread: Thread,
   response: ChatTextStream,
   fallback: string | null | undefined,
+  waitUntil: AgentWaitUntil,
 ): Promise<void> {
   let sent: unknown
   if (fallback === undefined) {
     sent = await thread.post(chatStreamPostable(thread, response) as never)
     await finishDiscordSplitStream(thread, sent, response.getText() || sentMessageText(sent))
+    return
+  }
+
+  if (thread.adapter.stream) {
+    const adapter = thread.adapter
+    const nativeStream = adapter.stream!.bind(adapter)
+    const placeholder = fallback === null
+      ? Promise.resolve(undefined)
+      : adapter.postMessage(thread.id, fallback).catch(() => undefined)
+    let cleared = false
+    let clearing: Promise<void> | undefined
+    let clearRequested = false
+    const clearPlaceholder = async () => {
+      if (cleared) return
+      if (clearing) return clearing
+      clearing = placeholder.then(async (message) => {
+        if (!message?.id) return
+        await adapter.deleteMessage(message.threadId || thread.id, message.id)
+        cleared = true
+      }).catch(() => undefined).finally(() => {
+        clearing = undefined
+      })
+      return clearing
+    }
+    const finishPlaceholder = () => {
+      waitUntil(clearPlaceholder().then(() => cleared ? undefined : clearPlaceholder()))
+    }
+    const nativeResponse: ChatTextStream = {
+      getText: response.getText,
+      async *[Symbol.asyncIterator]() {
+        for await (const chunk of response) {
+          // Consuming a native stream chunk means the adapter has visible output to replace the fallback.
+          if (!clearRequested) {
+            clearRequested = true
+            void clearPlaceholder()
+          }
+          yield chunk
+        }
+      },
+    }
+    const chatThread = thread as Thread & { _adapter?: Adapter, _fallbackStreamingPlaceholderText?: string | null }
+    const previousAdapter = chatThread._adapter
+    const previousFallback = chatThread._fallbackStreamingPlaceholderText
+    // ponytail: Chat SDK does not expose whether native streaming was accepted.
+    chatThread._adapter = new Proxy(adapter, {
+      get(target, property) {
+        if (property === "stream") {
+          return async (...args: Parameters<typeof nativeStream>) => {
+            const raw = await nativeStream(...args)
+            return raw
+          }
+        }
+        if (property === "postMessage" && fallback !== null) {
+          return async (...args: Parameters<Adapter["postMessage"]>) => {
+            if (args[0] === thread.id && args[1] === fallback) {
+              const message = await placeholder
+              if (message) {
+                cleared = true
+                return message
+              }
+            }
+            return adapter.postMessage(...args)
+          }
+        }
+        const value = Reflect.get(target, property, target)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    chatThread._fallbackStreamingPlaceholderText = fallback
+    try {
+      sent = await thread.post(chatStreamPostable(thread, nativeResponse) as never)
+      await finishDiscordSplitStream(thread, sent, response.getText() || sentMessageText(sent))
+    }
+    finally {
+      chatThread._adapter = previousAdapter
+      chatThread._fallbackStreamingPlaceholderText = previousFallback
+      finishPlaceholder()
+    }
     return
   }
 
@@ -1680,6 +1759,7 @@ async function handleChatSdkMessage(
           thread,
           response,
           typeof thinkingFallback === "string" || thinkingFallback === null ? thinkingFallback : undefined,
+          context.waitUntil,
         )
       }
       finally {
