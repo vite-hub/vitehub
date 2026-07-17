@@ -2,6 +2,14 @@ import type { AgentHarnessDriver, AgentHarnessSandboxProviderInput } from "../ty
 
 const codexSandboxAdapterApplied = Symbol("vitehub.codexSandboxAdapterApplied")
 const localCodexBootstrapDir = "tmp/harness/codex"
+const codexSandboxFileMethods = new Set([
+  "readBinaryFile",
+  "readFile",
+  "readTextFile",
+  "writeBinaryFile",
+  "writeFile",
+  "writeTextFile",
+])
 
 function relativeCodexSandboxSession<T extends object>(session: T, isolateHome: boolean, bootstrapDir?: string, codexHome?: string): T {
   const defaultWorkingDirectory = bootstrapDir && codexHome
@@ -19,6 +27,12 @@ function relativeCodexSandboxSession<T extends object>(session: T, isolateHome: 
           ...options,
           command: options.command.replaceAll("/tmp/harness/codex", anchoredBootstrapDir),
           ...(isolateHome ? { env: { ...options.env, CODEX_HOME: anchoredCodexHome } } : {}),
+        } as never)
+      }
+      if (typeof property === "string" && codexSandboxFileMethods.has(property)) {
+        return (options: { path: string }) => (target as T & Record<string, (options: never) => unknown>)[property]({
+          ...options,
+          path: options.path.replaceAll("/tmp/harness/codex", anchoredBootstrapDir),
         } as never)
       }
       const value = Reflect.get(target, property, receiver)

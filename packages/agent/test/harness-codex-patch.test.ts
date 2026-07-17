@@ -133,4 +133,25 @@ describe("ViteHub Codex harness", () => {
       await rm(root, { force: true, recursive: true })
     }
   })
+
+  it("keeps Codex bootstrap files and commands together in a disposable Box workspace", async () => {
+    const { resolveBox, trustedHost } = await import("@vite-hub/box")
+    const box = await resolveBox({ runtime: trustedHost() }, {})
+    const harness = codexDriver({ sandbox: false }).harness as Record<PropertyKey, unknown>
+    const adapt = harness[Symbol.for("vitehub.harnessSandboxAdapter")] as (
+      provider: HarnessV1SandboxProvider,
+      options: { box: boolean },
+    ) => HarnessV1SandboxProvider
+    const provider = adapt(box.sandbox as HarnessV1SandboxProvider, { box: true })
+    const session = await provider.createSession()
+
+    try {
+      await session.writeTextFile({ content: "ready", path: "/tmp/harness/codex/marker" })
+
+      await expect(session.run({ command: "cat /tmp/harness/codex/marker" })).resolves.toMatchObject({ stdout: "ready" })
+    }
+    finally {
+      await session.destroy?.()
+    }
+  })
 })
