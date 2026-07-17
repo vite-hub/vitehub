@@ -8,7 +8,7 @@ import { createRateLimiter } from "../limiter.ts"
 
 import type { DiscoveredRateLimitDefinition, RateLimitDriverCapabilities } from "../types.ts"
 
-export const rateLimitManifestPath = ".vitehub/rate-limit/manifest.json"
+const rateLimitManifestPath = ".vitehub/rate-limit/manifest.json"
 
 interface RateLimitManifestDefinition {
   name: string
@@ -26,7 +26,7 @@ function resolveProviderCapabilities(provider: "cloudflare" | "memory"): RateLim
   return createRateLimiter({ driver, limit: 1, window: "1m" }).capabilities
 }
 
-export function createRateLimitManifest(
+function createRateLimitManifest(
   definitions: DiscoveredRateLimitDefinition[],
   provider: "cloudflare" | "memory",
 ): RateLimitManifest {

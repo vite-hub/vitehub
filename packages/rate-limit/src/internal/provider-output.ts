@@ -105,7 +105,7 @@ function readStaticString(source: string, name: string): string | undefined {
   return match?.[2]
 }
 
-export function readRateLimitDefinition(file: string, name: string): RateLimitDefinition {
+function readRateLimitDefinition(file: string, name: string): RateLimitDefinition {
   const source = readDefinitionObject(readFileSync(file, "utf8"), name)
   const limitValue = readStaticProperty(source, "limit")
   const limit = limitValue && /^\d+$/.test(limitValue) ? Number(limitValue) : undefined
