@@ -110,8 +110,8 @@ describe("codexDriver", () => {
     const second = await driver.sandbox?.createSession()
 
     try {
-      expect(first?.defaultWorkingDirectory).toContain("vitehub-harness-")
-      expect(second?.defaultWorkingDirectory).toContain("vitehub-harness-")
+      expect(first?.defaultWorkingDirectory).toMatch(/[\\/]vitehub-harness[\\/]owner-\d+-[0-9a-f-]{36}[\\/]session-/)
+      expect(second?.defaultWorkingDirectory).toMatch(/[\\/]vitehub-harness[\\/]owner-\d+-[0-9a-f-]{36}[\\/]session-/)
       expect(first?.defaultWorkingDirectory).not.toBe(second?.defaultWorkingDirectory)
     }
     finally {
