@@ -49,7 +49,7 @@ function isProcessAlive(pid: number) {
   }
 }
 
-async function managedRootDir(sessionId: string) {
+async function managedRootDir(sessionId: string | undefined) {
   const parent = join(tmpdir(), "vitehub-harness")
   const owner = join(parent, localHarnessOwnerName)
   await mkdir(owner, { recursive: true })
@@ -62,14 +62,18 @@ async function managedRootDir(sessionId: string) {
     await rm(join(parent, entry.name), { force: true, recursive: true }).catch(() => undefined)
   }))
 
-  return join(owner, createHash("sha256").update(sessionId).digest("hex"))
+  if (sessionId) return join(owner, createHash("sha256").update(sessionId).digest("hex"))
+  return await mkdtemp(join(owner, "session-"))
 }
 
 async function defaultRootDir(sessionId: string | undefined, cleanup: boolean) {
+  if (cleanup) {
+    const root = await managedRootDir(sessionId)
+    await mkdir(root, { recursive: true })
+    return root
+  }
   if (sessionId) {
-    const root = cleanup
-      ? await managedRootDir(sessionId)
-      : join(tmpdir(), "vitehub-harness", createHash("sha256").update(sessionId).digest("hex"))
+    const root = join(tmpdir(), "vitehub-harness", createHash("sha256").update(sessionId).digest("hex"))
     await mkdir(root, { recursive: true })
     return root
   }

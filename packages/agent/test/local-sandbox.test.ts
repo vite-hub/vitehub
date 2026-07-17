@@ -60,6 +60,20 @@ describe("local harness sandbox", () => {
     await expect(stat(root)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it("puts anonymous cleanup roots under the process owner", async () => {
+    const session = await createLocalHarnessSandbox().createSession()
+    const root = (session as unknown as { rootDir: string }).rootDir
+
+    try {
+      const [owner, sessionRoot] = relative(join(tmpdir(), "vitehub-harness"), root).split(/[\\/]/)
+      expect(owner).toMatch(/^owner-\d+-[0-9a-f-]{36}$/)
+      expect(sessionRoot).toMatch(/^session-/)
+    }
+    finally {
+      await session.destroy?.()
+    }
+  })
+
   it("preserves cleanup-disabled session roots across providers", async () => {
     const sessionId = `persistent-${randomUUID()}`
     const persistent = await createLocalHarnessSandbox({ cleanup: false }).createSession({ sessionId })
