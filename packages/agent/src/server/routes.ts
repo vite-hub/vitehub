@@ -851,8 +851,19 @@ async function postChatStream(
         if (property === "stream") {
           return async (...args: Parameters<typeof nativeStream>) => {
             const raw = await nativeStream(...args)
-            if (!raw) finishPlaceholder()
             return raw
+          }
+        }
+        if (property === "postMessage" && fallback !== null) {
+          return async (...args: Parameters<Adapter["postMessage"]>) => {
+            if (args[0] === thread.id && args[1] === fallback) {
+              const message = await placeholder
+              if (message) {
+                cleared = true
+                return message
+              }
+            }
+            return adapter.postMessage(...args)
           }
         }
         const value = Reflect.get(target, property, target)

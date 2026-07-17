@@ -5206,9 +5206,9 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Working on it...")
-    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Working on it...")
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-2", { markdown: "done" })
+    expect(adapter.deleteMessage).not.toHaveBeenCalled()
+    expect(adapter.postMessage).toHaveBeenCalledOnce()
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "done" })
   })
 
   it("does not block native output on slow fallback delivery or cleanup", async () => {
