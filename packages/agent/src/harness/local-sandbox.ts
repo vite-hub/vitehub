@@ -55,12 +55,12 @@ async function managedRootDir(sessionId: string | undefined) {
   await mkdir(owner, { recursive: true })
 
   const entries = await readdir(parent, { withFileTypes: true })
-  await Promise.all(entries.map(async (entry) => {
-    if (!entry.isDirectory()) return
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
     const match = localHarnessOwnerPattern.exec(entry.name)
-    if (!match || isProcessAlive(Number(match[1]))) return
-    await rm(join(parent, entry.name), { force: true, recursive: true }).catch(() => undefined)
-  }))
+    if (!match || isProcessAlive(Number(match[1]))) continue
+    void rm(join(parent, entry.name), { force: true, recursive: true }).catch(() => undefined)
+  }
 
   if (sessionId) return join(owner, createHash("sha256").update(sessionId).digest("hex"))
   return await mkdtemp(join(owner, "session-"))

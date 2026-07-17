@@ -106,7 +106,7 @@ describe("local harness sandbox", () => {
     try {
       session = await createLocalHarnessSandbox().createSession({ sessionId: `reclaim-${randomUUID()}` })
 
-      await expect(stat(abandoned)).rejects.toMatchObject({ code: "ENOENT" })
+      await vi.waitFor(async () => await expect(stat(abandoned)).rejects.toMatchObject({ code: "ENOENT" }))
     }
     finally {
       kill.mockRestore()
