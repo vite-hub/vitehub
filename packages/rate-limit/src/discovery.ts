@@ -177,7 +177,9 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
   const declarations: RateLimitDeclaration[] = []
   const localBindings: Set<string>[] = []
   const enterFunction = (node: ESTree.Function | ESTree.ArrowFunctionExpression): void => {
-    localBindings.push(functionBindings(node.params))
+    const bindings = functionBindings(node.params)
+    if (node.type === "FunctionExpression" && node.id) bindings.add(node.id.name)
+    localBindings.push(bindings)
   }
   const exitScope = (): void => {
     localBindings.pop()

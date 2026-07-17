@@ -66,6 +66,14 @@ describe("Rate Limit declarations", () => {
       'try {} catch (define) { define("local", { limit: 2, window: "1m" }) }',
     ].join("\n")
     expect(extractRateLimitDeclarations("declaration-shadow.ts", declarations)).toEqual([])
+
+    const namedExpression = [
+      'import { defineRateLimit as define } from "@vite-hub/rate-limit"',
+      'const helper = function define() {',
+      '  return define("local", { limit: 2, window: "1m" })',
+      '}',
+    ].join("\n")
+    expect(extractRateLimitDeclarations("named-expression-shadow.ts", namedExpression)).toEqual([])
   })
 
   it("reports duplicate IDs with both source locations", async () => {
