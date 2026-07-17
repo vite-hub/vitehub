@@ -23,9 +23,9 @@ const blockerPattern = /<!-- babysitter:blocker:v1 -->[\s\S]*?<!-- \/babysitter:
 export default defineSchedule({
   cron: '*/5 * * * *',
   async handler(schedule) {
-    const config = useServerEnv().babysitter
-    const repositories = resolveRepositories(config.repositories, config.repository)
-    const jobs = await selectPullRequestJobs(repositories, resolveMaxOwners(config.maxOwners), listPullRequests, key => kv.get<string>(key))
+    const {maxOwners, repositories: configuredRepositories, repository} = useServerEnv().babysitter
+    const repositories = resolveRepositories(configuredRepositories, repository)
+    const jobs = await selectPullRequestJobs(repositories, resolveMaxOwners(maxOwners), listPullRequests, key => kv.get<string>(key))
 
     await Promise.all(jobs.map(async job => {
       const { pullRequest, repository } = job

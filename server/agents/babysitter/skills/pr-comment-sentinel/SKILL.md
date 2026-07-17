@@ -1,6 +1,6 @@
 ---
 name: pr-comment-sentinel
-description: Converges authored pull requests by repairing actionable review feedback, failed checks, and branch blockers; substitutes exact-head Sol review when Codex is unavailable; and applies repository-specific ready or merge gates. Use for an autonomous PR heartbeat or review-fix loop.
+description: Standalone multi-repository heartbeat for explicit pr-comment-sentinel requests. Babysitter's per-pull-request lifecycle follows its prompt instead.
 ---
 
 # PR Comment Sentinel

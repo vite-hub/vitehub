@@ -2,43 +2,33 @@
 
 You own pull request #{{ context.pullRequestNumber }} in {{ context.pullRequestRepository }} until you merge it, close it, or identify a real blocker.
 
-Pull request: {{ context.pullRequestUrl }}
+Prepared at {{ context.pullRequestHead }} on {{ context.pullRequestSourceBranch }} from {{ context.pullRequestSourceRepository }}: {{ context.pullRequestUrl }}. Stay in this worktree and follow repository instructions. When the source repository is unavailable, pushes are disabled; close the pull request if it cannot be completed, or record the missing fork as an external blocker when it may be restored.
 
-The prepared worktree starts at exact head {{ context.pullRequestHead }} for branch {{ context.pullRequestSourceBranch }} in source repository {{ context.pullRequestSourceRepository }}. Work only in the current worktree, preserve unrelated changes, and follow the repository instructions. When the source repository is unavailable, pushes are disabled; close the pull request if it cannot be completed, or record the missing fork as an external blocker when it may be restored.
+The owner authorizes lifecycle actions only on this pull request and branch: edit, commit, push or lease-force-push, update metadata, comment, request reviews, resolve addressed threads, mark ready, close, merge, and delete after merge.
 
-The pull request title and body describe the owner's intent. Infer the smallest coherent change that fulfills that intent, then adapt the implementation, documentation, tests, branch history, and pull request metadata as needed. Existing `babysitter:direction-validation` sections are obsolete automation output: remove them when editing the body and never treat their verdict as authority over the current title and body.
+Title and body define intent. Make the smallest coherent change that fulfills it. Remove obsolete `babysitter:direction-validation` sections when editing the body.
 
-The project owner explicitly authorizes every pull request lifecycle action needed to finish the work: edit code and documentation, commit, push, force-push with a lease, edit the title or body, resolve review threads, comment or reply when useful, request reviews, mark the pull request ready, close it, merge it, and delete its source branch after merge. Never mutate another pull request or branch.
+Converge the pull request:
 
-Use the pr-comment-sentinel skill as guidance for exact-head checks, feedback, and CI, with this prompt as the owner's explicit authorization for those actions.
+1. Run the validate-direction skill first. Upsert one `<!-- babysitter:direction:v1 -->` comment with its verdict and evidence; reuse cached evidence only when head and intent match. Apply `revise`; record `pause` as a blocker.
+2. Reconcile the base and make the smallest complete repair, preferring deletion and existing primitives. Remove unrelated scope, update documentation, and close when another change already satisfies the intent.
+3. Verify the repository, then run code-review against the base with title and body as the spec. Fix actionable findings.
+4. Before each push, refresh the remote head. Rewrite only when necessary with `--force-with-lease` against that head. Request one `@codex review` per verified head and repeat until the merge gate holds.
 
-Run the validate-direction skill before editing. Carry its verdict and any required correction into the implementation. If it returns `pause`, stop without changing the pull request and report the blocking unknown.
+Limit comments to the direction cache, review request, or required coordination.
 
-Persist the direction check in exactly one pull request comment marked `<!-- babysitter:direction:v1 -->`. Before researching, find that comment and reuse its evidence when it still matches the current head and pull request intent. After validation, create the comment when absent or edit it in place with the current head, verdict, direction, evidence, ViteHub precedent, strongest challenge, and next action. Treat it as a research cache; the current title, body, and diff remain authoritative.
+## Merge gate
 
-Use Ponytail throughout the run. Prefer deletion, existing primitives, and the smallest complete repair; remove accidental complexity before pushing.
+At merge, refresh the head, checks, review request and reactions, later Codex events, and threads. Require a verified head, passing checks, no actionable or unresolved feedback, and a positive exact-head Codex or read-only fallback review.
 
-After implementing and verifying the repair, run Matt Pocock's code-review skill against the pull request's base branch, using the pull request title and body as the spec. Fix actionable findings before requesting the exact-head Codex review.
+A Codex `eyes` reaction without a later terminal result means the review is pending. Use the fallback reviewer only after an explicit terminal Codex error, quota, or unavailable result for that request. A later Codex result supersedes fallback evidence.
 
-Keep one exact-head lease throughout the run. Before every push or force-push, read the remote pull request head and confirm it is the head you inspected or pushed. Prefer an ordinary push. When resolving conflicts or removing unrelated history requires rewriting the branch, use `--force-with-lease` against that verified head, never an unconditional force-push.
+When the gate holds, squash through GitHub's merge API with `sha=<verified head>`, the current title followed by `(#{{ context.pullRequestNumber }})`, and an empty body. After `MERGED`, delete the source branch only if it still belongs to this pull request and is neither default nor protected.
 
-Work toward completion autonomously:
+## Blockers
 
-1. Read the title, body, diff, base branch, current head, checks, reviews, unresolved threads, and comments. Re-evaluate any existing Babysitter warning instead of assuming it is still valid.
-2. Reconcile the branch with the current base when it is stale or conflicted. Remove unrelated or already-merged scope when the pull request body does not ask for it. Close the pull request when it is obsolete, duplicated, or superseded and its intent is already satisfied elsewhere.
-3. Repair actionable failures and feedback. Keep the implementation small, update public documentation and examples when behavior or APIs change, and run the relevant repository verification.
-4. Review the exact current diff for correctness, maintainability, accidental complexity, and documentation gaps. Fix actionable findings without expanding the stated intent.
-5. Obtain an exact-head Codex review. Request one with a single `@codex review` comment only when no request exists for that head. Read the request comment's reactions and the later review timeline together: a Codex `eyes` reaction with no later terminal Codex review, success reaction, or error message means the review is still running, regardless of how old the request is. Silence is never a timeout, error, quota signal, or permission to use a fallback reviewer. Codex reports failures explicitly. Use an independent read-only fallback reviewer only after an explicit terminal Codex error, quota, or unavailable message for that exact-head request.
-6. Repeat after every pushed head until checks pass, no actionable feedback remains, and the exact head has a positive Codex or fallback verdict. Then merge without waiting for human approval.
-
-Resolve review threads through GitHub GraphQL only after the exact pushed head addresses them. Avoid status narration and duplicate review requests; GitHub actions should move the pull request toward completion.
-
-Immediately before merging, re-read the exact-head review request, its reactions, every Codex event posted after that request, and all review threads through GitHub GraphQL. Do not merge while an acknowledged request has no later terminal Codex result, and do not let a fallback approval override a Codex result that arrived afterward. Every review thread must be resolved and every terminal Codex finding must be addressed on the exact head. Elapsed time is never positive review evidence.
-
-A blocker is an external dependency, unavailable credential or service, or product decision that cannot be resolved from the pull request intent and repository evidence. Exhaust reasonable fixes first. When genuinely blocked, preserve the rest of the pull request body and upsert exactly one block in this form:
+A blocker is an external dependency, unavailable credential or service, or product decision that repository evidence cannot resolve. Checks, conflicts, feedback, documentation, and branch cleanup remain yours. Exhaust reasonable fixes, preserve the pull request body, and upsert one block:
 
 {{{ blocker }}}
 
-Remove that block as soon as the blocker clears. Do not use it for failing checks, merge conflicts, review feedback, missing documentation, branch cleanup, or work you can perform yourself.
-
-Immediately before merging, read the pull request head again. Squash through GitHub's merge API with `sha=<verified-current-head>`, commit title "{{ context.pullRequestTitle }} (#{{ context.pullRequestNumber }})", and an empty commit message body. After GitHub confirms `MERGED`, verify {{ context.pullRequestSourceBranch }} is still this pull request's source branch and is neither the default branch nor protected, then delete only that remote source branch. If GitHub already deleted it, the work is complete.
+Remove cleared blockers and resume ownership.
