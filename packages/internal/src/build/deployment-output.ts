@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, rm, rmdir, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
@@ -204,6 +204,8 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   const serverEntry = resolve(serverDir, "index.mjs")
 
   await mkdir(serverDir, { recursive: true })
+  const staleFiles = (await readdir(serverDir)).filter(file => file !== "node_modules")
+  await Promise.all(staleFiles.map(file => rm(resolve(serverDir, file), { force: true, recursive: true })))
 
   await Promise.all([
     bundleEsmEntry(options.bundleEntry, serverEntry, { ...options.bundleOptions, rootDir: options.rootDir }),

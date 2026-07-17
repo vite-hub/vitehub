@@ -333,17 +333,22 @@ describe("Vite provider outputs", () => {
     await expect(import(`${pathToFileURL(serverEntry).href}?t=${Date.now()}`)).resolves.toHaveProperty("default")
 
     const runtimeProbe = join(dirname(serverEntry), "runtime-probe.mjs")
-    await writeFile(runtimeProbe, [
+    const runtimeProbeSource = [
       `await import("files-sdk/r2")`,
       `await import("@aws-sdk/client-s3")`,
       `await import("@aws-sdk/lib-storage")`,
       `await import("@aws-sdk/s3-presigned-post")`,
       `await import("@aws-sdk/s3-request-presigner")`,
       "",
-    ].join("\n"), "utf8")
+    ].join("\n")
+    await writeFile(runtimeProbe, runtimeProbeSource, "utf8")
     await expect(execFileAsync(process.execPath, [runtimeProbe])).resolves.toMatchObject({ stderr: "", stdout: "" })
 
+    const staleFile = join(dirname(serverEntry), "stale.mjs")
+    await writeFile(staleFile, "export default true\n", "utf8")
     await generateProviderOutputs({ blob: {}, clientOutDir: "dist/client", rootDir, serverFunctionName: "__blob.func" })
+    expect(existsSync(staleFile)).toBe(false)
+    await writeFile(runtimeProbe, runtimeProbeSource, "utf8")
     await expect(execFileAsync(process.execPath, [runtimeProbe])).resolves.toMatchObject({ stderr: "", stdout: "" })
   })
 
