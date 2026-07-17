@@ -188,6 +188,8 @@ Do not treat analysis as sandbox enforcement. Execution Providers and caller-own
 
 Agents use Shell through Capabilities, usually `workspaceShell()`. That Capability exposes shell-shaped Workspace inspection and optional structured Workspace mutation tools through Workspace Scope, Workspace rules, and Shell policy.
 
+The global Agent `bash` tool is a separate Agent Package surface. Capabilities register executables, and ViteHub dispatches each structured call through an executable Workspace Session. Read the [Bash concept](/docs/concepts/bash) for that model-facing boundary.
+
 Do not expose a raw Shell Runtime to a model. Use [Official capabilities](/docs/capabilities/official-capabilities) so policy, metadata, driver support, and tool surfaces stay attached to the Agent Definition.
 
 ## Production boundaries
@@ -198,6 +200,7 @@ Use Sandbox when the app needs provider-managed isolation. Use Shell when the ap
 
 ## Next steps
 
+- Understand the model-facing [Bash](/docs/concepts/bash) tool.
 - Use [Workspace](/docs/server-primitives/workspace) for file-tree state.
 - Use [Sandbox](/docs/server-primitives/sandbox) for isolated execution providers.
 - Expose command inspection to agents through [Official capabilities](/docs/capabilities/official-capabilities).

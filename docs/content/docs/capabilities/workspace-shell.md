@@ -62,6 +62,9 @@ Workspace Shell is not Sandbox.
 It exposes Workspace file operations and optional Workspace-session commands, while `sandbox()` runs allowlisted executables in an isolated runtime.
 Use `sandbox()` for untrusted execution and a domain-specific Capability when the executable set is known.
 
+Workspace Shell is also separate from ViteHub's global model-facing `bash` tool.
+Read the [Bash concept](/docs/concepts/bash) when a Capability should contribute its own executable to that shared surface.
+
 For a Linux-hosted Agent that intentionally owns its machine or container, configure both unrestricted trusted-host commands and the trusted-host Workspace runtime:
 
 ```ts [server/agents/operator.ts]
@@ -113,6 +116,7 @@ The scoped Workspace should hide or reject paths outside the selected grants.
 
 ## Reference
 
+- [Bash concept](/docs/concepts/bash)
 - [Workspace context](/docs/agents/workspace-context)
 - [Workspace primitive](/docs/server-primitives/workspace)
 - [sandbox()](/docs/capabilities/sandbox)
