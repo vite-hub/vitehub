@@ -67,6 +67,8 @@ describe("Rate Limit Provider Output", () => {
     expect(() => createCloudflareRateLimitBindings(dynamic.definitions, dynamic.root)).toThrow("static limit and window")
     const unrelatedLiteral = await projectWithDefinition(`const defaults = { limit: 10 }\nexport default defineRateLimit({ limit: defaults.limit, window: "1m" })\n`)
     expect(() => createCloudflareRateLimitBindings(unrelatedLiteral.definitions, unrelatedLiteral.root)).toThrow("static limit and window")
+    const spread = await projectWithDefinition(`const overrides = { limit: 20 }\nexport default defineRateLimit({ limit: 10, window: "1m", ...overrides })\n`)
+    expect(() => createCloudflareRateLimitBindings(spread.definitions, spread.root)).toThrow("cannot use object spreads")
   })
 
   it("owns only ViteHub Rate Limit entries and cleans stale bindings", async () => {

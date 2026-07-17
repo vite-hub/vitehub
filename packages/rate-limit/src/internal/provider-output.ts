@@ -87,6 +87,9 @@ function readDefinitionObject(source: string, name: string): string {
       index = close + 1
       continue
     }
+    if (depth === 1 && source.startsWith("...", index)) {
+      throw new Error(`Rate Limit Definition "${name}" cannot use object spreads in a policy used for Provider Output.`)
+    }
     if (character === "{") depth += 1
     if (character === "}" && --depth === 0) return source.slice(open, index + 1)
   }
