@@ -52,10 +52,9 @@ describe("framework package contract", () => {
   })
 
   it("keeps every source forwarder owned by its matching package export", () => {
-    const manifestEntries = Object.entries(manifest.exports).flatMap(([subpath, target]) => {
-      const [source] = distributionEntriesFromManifest(target)
-      return source ? [{ source, subpath }] : []
-    })
+    const manifestEntries = Object.entries(manifest.exports).flatMap(([subpath, target]) =>
+      distributionEntriesFromManifest(target).map(source => ({ source, subpath })),
+    )
     const manifestForwarders = manifestEntries.flatMap(({ source, subpath }) => {
       const targets = sourceForwarderTargets(readFileSync(`${packageRoot}/${source}`, "utf8"))
       return targets ? [{ source, subpath, targets }] : []
