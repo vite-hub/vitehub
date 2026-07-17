@@ -97,6 +97,12 @@ function functionBindings(params: ESTree.ParamPattern[]): Set<string> {
   return names
 }
 
+function variableBindings(declaration: ESTree.VariableDeclaration | null | undefined): Set<string> {
+  const names = new Set<string>()
+  for (const declarator of declaration?.declarations ?? []) addBindingNames(declarator.id, names)
+  return names
+}
+
 function blockBindings(block: ESTree.BlockStatement): Set<string> {
   const names = new Set<string>()
   for (const statement of block.body) {
@@ -109,6 +115,19 @@ function blockBindings(block: ESTree.BlockStatement): Set<string> {
         ? statement.declaration
         : undefined
     for (const declarator of declaration?.declarations ?? []) addBindingNames(declarator.id, names)
+  }
+  return names
+}
+
+function switchBindings(statement: ESTree.SwitchStatement): Set<string> {
+  const names = new Set<string>()
+  for (const switchCase of statement.cases) {
+    for (const child of switchCase.consequent) {
+      if ((child.type === "FunctionDeclaration" || child.type === "ClassDeclaration") && child.id) names.add(child.id.name)
+      if (child.type === "VariableDeclaration") {
+        for (const name of variableBindings(child)) names.add(name)
+      }
+    }
   }
   return names
 }
@@ -197,6 +216,10 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
       localBindings.push(names)
     },
     "CatchClause:exit": exitScope,
+    ClassExpression(node) {
+      localBindings.push(new Set(node.id ? [node.id.name] : []))
+    },
+    "ClassExpression:exit": exitScope,
     CallExpression(call) {
       if (call.callee.type !== "Identifier" || !bindings.has(call.callee.name)) return
       const calleeName = call.callee.name
@@ -223,6 +246,22 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
     "FunctionDeclaration:exit": exitScope,
     FunctionExpression: enterFunction,
     "FunctionExpression:exit": exitScope,
+    ForInStatement(node) {
+      localBindings.push(node.left.type === "VariableDeclaration" ? variableBindings(node.left) : new Set())
+    },
+    "ForInStatement:exit": exitScope,
+    ForOfStatement(node) {
+      localBindings.push(node.left.type === "VariableDeclaration" ? variableBindings(node.left) : new Set())
+    },
+    "ForOfStatement:exit": exitScope,
+    ForStatement(node) {
+      localBindings.push(node.init?.type === "VariableDeclaration" ? variableBindings(node.init) : new Set())
+    },
+    "ForStatement:exit": exitScope,
+    SwitchStatement(node) {
+      localBindings.push(switchBindings(node))
+    },
+    "SwitchStatement:exit": exitScope,
   })
   visitor.visit(parsed.program)
   return declarations

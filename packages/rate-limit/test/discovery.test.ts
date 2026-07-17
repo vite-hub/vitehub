@@ -74,6 +74,14 @@ describe("Rate Limit declarations", () => {
       '}',
     ].join("\n")
     expect(extractRateLimitDeclarations("named-expression-shadow.ts", namedExpression)).toEqual([])
+
+    const lexicalScopes = [
+      'import { defineRateLimit } from "@vite-hub/rate-limit"',
+      'for (const defineRateLimit of []) { defineRateLimit() }',
+      'switch (true) { case true: { const defineRateLimit = () => {}; defineRateLimit(); break } }',
+      'const helper = class defineRateLimit { method() { defineRateLimit() } }',
+    ].join("\n")
+    expect(extractRateLimitDeclarations("lexical-shadow.ts", lexicalScopes)).toEqual([])
   })
 
   it("reports duplicate IDs with both source locations", async () => {
