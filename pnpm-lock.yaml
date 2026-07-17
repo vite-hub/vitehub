@@ -569,6 +569,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.700.0
         version: 3.1088.0
+      '@aws-sdk/lib-storage':
+        specifier: ^3.700.0
+        version: 3.1088.0(@aws-sdk/client-s3@3.1088.0)
       '@aws-sdk/s3-presigned-post':
         specifier: ^3.700.0
         version: 3.1045.0
@@ -599,7 +602,7 @@ importers:
         version: link:../internal
       files-sdk:
         specifier: catalog:storage
-        version: 2.1.0(@aws-sdk/client-s3@3.1088.0)(@aws-sdk/s3-presigned-post@3.1045.0)(@aws-sdk/s3-request-presigner@3.1088.0)(@azure/core-auth@1.11.0)(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@cfworker/json-schema@4.1.1)(@google-cloud/storage@7.19.0)(@microsoft/microsoft-graph-client@3.0.7(@azure/identity@4.13.1))(@netlify/blobs@10.7.5)(@opentelemetry/api@1.9.1)(@supabase/storage-js@2.105.4)(@vercel/blob@2.6.1)(ai@6.0.228(zod@4.4.3))(box-typescript-sdk-gen@1.19.1)(dropbox@10.34.0(@types/node-fetch@2.6.13))(fastify@5.10.0)(google-auth-library@10.6.2)(h3@2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22)))(hono@4.12.30)(react@19.2.6)(uploadthing@7.7.4(express@5.2.1)(fastify@5.10.0)(h3@2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22)))(tailwindcss@4.3.2))(vue@3.5.40(typescript@6.0.3))(zod@4.4.3)
+        version: 2.1.0(@aws-sdk/client-s3@3.1088.0)(@aws-sdk/lib-storage@3.1088.0(@aws-sdk/client-s3@3.1088.0))(@aws-sdk/s3-presigned-post@3.1045.0)(@aws-sdk/s3-request-presigner@3.1088.0)(@azure/core-auth@1.11.0)(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@cfworker/json-schema@4.1.1)(@google-cloud/storage@7.19.0)(@microsoft/microsoft-graph-client@3.0.7(@azure/identity@4.13.1))(@netlify/blobs@10.7.5)(@opentelemetry/api@1.9.1)(@supabase/storage-js@2.105.4)(@vercel/blob@2.6.1)(ai@6.0.228(zod@4.4.3))(box-typescript-sdk-gen@1.19.1)(dropbox@10.34.0(@types/node-fetch@2.6.13))(fastify@5.10.0)(google-auth-library@10.6.2)(h3@2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22)))(hono@4.12.30)(react@19.2.6)(uploadthing@7.7.4(express@5.2.1)(fastify@5.10.0)(h3@2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22)))(tailwindcss@4.3.2))(vue@3.5.40(typescript@6.0.3))(zod@4.4.3)
       ofetch:
         specifier: catalog:unjs
         version: 1.5.1
@@ -1533,6 +1536,12 @@ packages:
   '@aws-sdk/credential-provider-web-identity@3.972.65':
     resolution: {integrity: sha512-gHQb/Kt0chjk/JQDa/GJDqmAvEuVn8n7z10wK2h0LFM9TUDRkohgOO4aEF+s2sBLM0br7Cl5W6P7phgjrrJvLQ==}
     engines: {node: '>=20.0.0'}
+
+  '@aws-sdk/lib-storage@3.1088.0':
+    resolution: {integrity: sha512-OElyotfOuTLAkWeYfWvgFQ/ABVs5xi9+UzlnKveFnbyfzV9um0guDWGanG/xGlw9ofAiplscHlNauChtJUBNWA==}
+    engines: {node: '>=20.0.0'}
+    peerDependencies:
+      '@aws-sdk/client-s3': ^3.1088.0
 
   '@aws-sdk/middleware-bucket-endpoint@3.972.37':
     resolution: {integrity: sha512-xOPGznyla3UWxUEFJ019Hd3+B5otI08AqnR98cvyRl8GUvWncAsJSmiU2v8S2ybqRjioyum2+cu2h0IGadzs1A==}
@@ -13806,6 +13815,16 @@ snapshots:
       '@smithy/types': 4.16.1
       tslib: 2.8.1
 
+  '@aws-sdk/lib-storage@3.1088.0(@aws-sdk/client-s3@3.1088.0)':
+    dependencies:
+      '@aws-sdk/client-s3': 3.1088.0
+      '@smithy/core': 3.29.4
+      '@smithy/types': 4.16.1
+      buffer: 5.6.0
+      events: 3.3.0
+      stream-browserify: 3.0.0
+      tslib: 2.8.1
+
   '@aws-sdk/middleware-bucket-endpoint@3.972.37':
     dependencies:
       '@aws-sdk/middleware-sdk-s3': 3.972.64
@@ -23169,13 +23188,14 @@ snapshots:
     dependencies:
       filename-reserved-regex: 4.0.0
 
-  files-sdk@2.1.0(@aws-sdk/client-s3@3.1088.0)(@aws-sdk/s3-presigned-post@3.1045.0)(@aws-sdk/s3-request-presigner@3.1088.0)(@azure/core-auth@1.11.0)(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@cfworker/json-schema@4.1.1)(@google-cloud/storage@7.19.0)(@microsoft/microsoft-graph-client@3.0.7(@azure/identity@4.13.1))(@netlify/blobs@10.7.5)(@opentelemetry/api@1.9.1)(@supabase/storage-js@2.105.4)(@vercel/blob@2.6.1)(ai@6.0.228(zod@4.4.3))(box-typescript-sdk-gen@1.19.1)(dropbox@10.34.0(@types/node-fetch@2.6.13))(fastify@5.10.0)(google-auth-library@10.6.2)(h3@2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22)))(hono@4.12.30)(react@19.2.6)(uploadthing@7.7.4(express@5.2.1)(fastify@5.10.0)(h3@2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22)))(tailwindcss@4.3.2))(vue@3.5.40(typescript@6.0.3))(zod@4.4.3):
+  files-sdk@2.1.0(@aws-sdk/client-s3@3.1088.0)(@aws-sdk/lib-storage@3.1088.0(@aws-sdk/client-s3@3.1088.0))(@aws-sdk/s3-presigned-post@3.1045.0)(@aws-sdk/s3-request-presigner@3.1088.0)(@azure/core-auth@1.11.0)(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@cfworker/json-schema@4.1.1)(@google-cloud/storage@7.19.0)(@microsoft/microsoft-graph-client@3.0.7(@azure/identity@4.13.1))(@netlify/blobs@10.7.5)(@opentelemetry/api@1.9.1)(@supabase/storage-js@2.105.4)(@vercel/blob@2.6.1)(ai@6.0.228(zod@4.4.3))(box-typescript-sdk-gen@1.19.1)(dropbox@10.34.0(@types/node-fetch@2.6.13))(fastify@5.10.0)(google-auth-library@10.6.2)(h3@2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22)))(hono@4.12.30)(react@19.2.6)(uploadthing@7.7.4(express@5.2.1)(fastify@5.10.0)(h3@2.0.1-rc.25(crossws@0.4.10(srvx@0.11.22)))(tailwindcss@4.3.2))(vue@3.5.40(typescript@6.0.3))(zod@4.4.3):
     dependencies:
       commander: 15.0.0
       picomatch: 4.0.5
       safe-regex2: 5.1.1
     optionalDependencies:
       '@aws-sdk/client-s3': 3.1088.0
+      '@aws-sdk/lib-storage': 3.1088.0(@aws-sdk/client-s3@3.1088.0)
       '@aws-sdk/s3-presigned-post': 3.1045.0
       '@aws-sdk/s3-request-presigner': 3.1088.0
       '@azure/core-auth': 1.11.0

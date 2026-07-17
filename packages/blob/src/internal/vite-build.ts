@@ -400,6 +400,7 @@ async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOpt
     packages: [
       { name: "files-sdk", resolveFrom: resolve(packageDir, "package.json") },
       { name: "@aws-sdk/client-s3", resolveFrom: resolve(packageDir, "package.json") },
+      { name: "@aws-sdk/lib-storage", resolveFrom: resolve(packageDir, "package.json") },
       { name: "@aws-sdk/s3-presigned-post", resolveFrom: resolve(packageDir, "package.json") },
       { name: "@aws-sdk/s3-request-presigner", resolveFrom: resolve(packageDir, "package.json") },
     ],

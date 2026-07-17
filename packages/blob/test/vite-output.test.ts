@@ -336,6 +336,7 @@ describe("Vite provider outputs", () => {
     await writeFile(runtimeProbe, [
       `await import("files-sdk/r2")`,
       `await import("@aws-sdk/client-s3")`,
+      `await import("@aws-sdk/lib-storage")`,
       `await import("@aws-sdk/s3-presigned-post")`,
       `await import("@aws-sdk/s3-request-presigner")`,
       "",
