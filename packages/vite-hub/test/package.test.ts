@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, globSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 import { describe, expect, it } from "vitest"
@@ -13,9 +13,114 @@ import frameworkAuthHandler from "vite-hub/auth/server"
 import { distributionBinEntries, distributionEntriesFromManifest } from "../vite.config.ts"
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
+const repoRoot = fileURLToPath(new URL("../../..", import.meta.url))
 const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
   bin: Record<string, string>
-  exports: Record<string, string | { import: string, types: string }>
+  dependencies: Record<string, string>
+  exports: Record<string, string | { import: string, types?: string }>
+}
+
+const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/
+
+const consolidatedOwnerExports = new Set([
+  "@vite-hub/blob/ensure",
+  "@vite-hub/source/sources",
+  "@vite-hub/source/sources/custom",
+  "@vite-hub/source/sources/file",
+  "@vite-hub/source/sources/github",
+  "@vite-hub/source/sources/glob",
+  "@vite-hub/source/sources/markdown",
+  "@vite-hub/source/sources/mcp-resources",
+  "@vite-hub/workspace/ai",
+])
+
+const lowLevelOwnerExports = new Set([
+  "@vite-hub/agent/ai-sdk",
+  "@vite-hub/agent/cloudflare/state",
+  "@vite-hub/agent/mcp",
+  "@vite-hub/agent/mcp/stdio",
+  "@vite-hub/agent/messages",
+  "@vite-hub/agent/output",
+  "@vite-hub/agent/server/workspace",
+  "@vite-hub/blob/config",
+  "@vite-hub/blob/storage",
+  "@vite-hub/database/config",
+  "@vite-hub/workspace/source-metadata",
+])
+
+const generatedRuntimeOwnerExports = new Set([
+  "@vite-hub/agent/runtime/empty-registry",
+  "@vite-hub/agent/runtime/workflow",
+  "@vite-hub/blob/runtime/cloudflare-vite",
+  "@vite-hub/blob/runtime/state",
+  "@vite-hub/blob/runtime/storage",
+  "@vite-hub/blob/runtime/vercel-vite",
+  "@vite-hub/database/runtime/cloudflare-vite",
+  "@vite-hub/database/runtime/hosted",
+  "@vite-hub/database/runtime/vercel-vite",
+  "@vite-hub/database/runtime/virtual-databases",
+  "@vite-hub/database/runtime/virtual-schema",
+  "@vite-hub/kv/runtime/upstash-driver",
+  "@vite-hub/queue/runtime/cloudflare-vite",
+  "@vite-hub/queue/runtime/hosted",
+  "@vite-hub/queue/runtime/state",
+  "@vite-hub/queue/runtime/vercel-vite",
+  "@vite-hub/sandbox/runtime/empty-registry",
+  "@vite-hub/sandbox/runtime/provider-loader",
+  "@vite-hub/sandbox/runtime/providers/cloudflare",
+  "@vite-hub/sandbox/runtime/providers/vercel",
+  "@vite-hub/sandbox/runtime/state",
+  "@vite-hub/schedule/runtime/state",
+  "@vite-hub/schedule/runtime/static",
+  "@vite-hub/workflow/runtime/cloudflare-runner",
+  "@vite-hub/workflow/runtime/cloudflare-shared",
+  "@vite-hub/workflow/runtime/cloudflare-vite",
+  "@vite-hub/workflow/runtime/execute",
+  "@vite-hub/workflow/runtime/openworkflow",
+  "@vite-hub/workflow/runtime/openworkflow-worker",
+  "@vite-hub/workflow/runtime/state",
+  "@vite-hub/workflow/runtime/vercel-vite",
+])
+
+function sourceForwarderTargets(source: string): string[] | undefined {
+  const lines = source.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+  if (!lines.length) return
+
+  const targets: string[] = []
+  for (const line of lines) {
+    const target = line.match(forwarderExportLine)?.[1]
+    if (!target) return
+    targets.push(target)
+  }
+  return targets
+}
+
+function ownerSpecifierForDistributionSubpath(subpath: string): string {
+  const [owner, ...rest] = subpath.replace(/^\.\/(?:_internal\/)?/, "").split("/")
+  return [`@vite-hub/${owner}`, ...rest].join("/")
+}
+
+function ownerSpecifier(packageName: string, subpath: string): string {
+  return subpath === "." ? packageName : `${packageName}${subpath.slice(1)}`
+}
+
+function distributionSubpath(packageName: string, subpath: string): string {
+  const owner = packageName.slice("@vite-hub/".length)
+  return subpath === "." ? `./${owner}` : `./${owner}${subpath.slice(1)}`
+}
+
+function ownerOnlyReason(packageName: string, subpath: string): string | undefined {
+  const specifier = ownerSpecifier(packageName, subpath)
+  const path = subpath.replace(/^\.\//, "")
+
+  if (subpath === "./package.json") return "package metadata"
+  if (packageName === "@vite-hub/cli" || packageName === "@vite-hub/devtools") return "framework tooling"
+  if (/^(?:cli|nitro|nuxt|test|virtual|vite)(?:\/|$)/.test(path)) return "integration or test tooling"
+  if (/(?:^|\/)internal(?:\/|$)/.test(path)) return "internal implementation"
+  if (/^(?:drivers|providers|sandbox\/providers)(?:\/|$)/.test(path)) return "direct provider adapter"
+  if (consolidatedOwnerExports.has(specifier)) return "available from the feature root"
+  if (lowLevelOwnerExports.has(specifier)) return "low-level package integration"
+  if (generatedRuntimeOwnerExports.has(specifier)) return "generated or provider runtime"
 }
 
 describe("framework package contract", () => {
@@ -28,6 +133,54 @@ describe("framework package contract", () => {
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email)
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
     expect(frameworkAuthHandler).toBe(ownerAuthHandler)
+  })
+
+  it("keeps every source forwarder owned by its matching package export", () => {
+    const manifestEntries = Object.entries(manifest.exports).flatMap(([subpath, target]) =>
+      distributionEntriesFromManifest(target).map(source => ({ source, subpath })),
+    )
+    const manifestForwarders = manifestEntries.flatMap(({ source, subpath }) => {
+      const targets = sourceForwarderTargets(readFileSync(`${packageRoot}/${source}`, "utf8"))
+      return targets ? [{ source, subpath, targets }] : []
+    })
+    const sourceForwarders = globSync("src/**/*.ts", { cwd: packageRoot })
+      .filter(source => !source.endsWith(".d.ts"))
+      .filter(source => sourceForwarderTargets(readFileSync(`${packageRoot}/${source}`, "utf8")))
+      .sort()
+    const exportedForwarders = new Set(manifestForwarders.map(({ source }) => source))
+
+    expect(sourceForwarders).toEqual([...exportedForwarders].sort())
+    expect(manifestEntries
+      .filter(({ source }) => !exportedForwarders.has(source))
+      .map(({ subpath }) => subpath)
+      .sort(),
+    ).toEqual([".", "./_internal/kv/runtime/disabled-upstash"])
+
+    for (const { subpath, targets } of manifestForwarders) {
+      const ownerSpecifier = ownerSpecifierForDistributionSubpath(subpath)
+      const ownerPackage = ownerSpecifier.split("/").slice(0, 2).join("/")
+      expect([...new Set(targets)], subpath).toEqual([ownerSpecifier])
+      expect(manifest.dependencies[ownerPackage], subpath).toBeDefined()
+    }
+  })
+
+  it("classifies every owner-package export", () => {
+    const unclassified: string[] = []
+
+    for (const packageName of Object.keys(manifest.dependencies).filter(name => name.startsWith("@vite-hub/"))) {
+      const packageDirectory = packageName.slice("@vite-hub/".length)
+      const ownerManifest = JSON.parse(readFileSync(`${repoRoot}/packages/${packageDirectory}/package.json`, "utf8")) as {
+        exports?: Record<string, unknown>
+      }
+
+      for (const subpath of Object.keys(ownerManifest.exports || {})) {
+        if (manifest.exports[distributionSubpath(packageName, subpath)]) continue
+        if (ownerOnlyReason(packageName, subpath)) continue
+        unclassified.push(ownerSpecifier(packageName, subpath))
+      }
+    }
+
+    expect(unclassified.sort()).toEqual([])
   })
 
   it("ships every declared export and both CLI names", () => {
