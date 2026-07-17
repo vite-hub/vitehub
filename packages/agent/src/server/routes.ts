@@ -813,6 +813,7 @@ async function postChatStream(
       : adapter.postMessage(thread.id, fallback).catch(() => undefined)
     let cleared = false
     let clearing: Promise<void> | undefined
+    let clearRequested = false
     const clearPlaceholder = async () => {
       if (cleared) return
       if (clearing) return clearing
@@ -832,7 +833,11 @@ async function postChatStream(
       getText: response.getText,
       async *[Symbol.asyncIterator]() {
         for await (const chunk of response) {
-          void clearPlaceholder()
+          // Consuming a native stream chunk means the adapter has visible output to replace the fallback.
+          if (!clearRequested) {
+            clearRequested = true
+            void clearPlaceholder()
+          }
           yield chunk
         }
       },
