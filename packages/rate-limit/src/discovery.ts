@@ -119,8 +119,16 @@ function staticPropertyName(property: ESTree.ObjectProperty): string | undefined
   if (property.key.type === "Literal" && typeof property.key.value === "string") return property.key.value
 }
 
+function unwrapStaticExpression(expression: ESTree.Expression): ESTree.Expression {
+  while (expression.type === "TSAsExpression" || expression.type === "TSSatisfiesExpression" || expression.type === "TSNonNullExpression") {
+    expression = expression.expression
+  }
+  return expression
+}
+
 function staticPolicy(call: ESTree.CallExpression, file: string, source: string): RateLimitPolicy {
-  const policyNode = call.arguments[1]
+  const policyArgument = call.arguments[1]
+  const policyNode = policyArgument?.type === "SpreadElement" ? policyArgument : policyArgument && unwrapStaticExpression(policyArgument)
   if (!policyNode || policyNode.type !== "ObjectExpression") {
     throw declarationError(file, source, call, "`defineRateLimit()` requires a static policy object as its second argument.")
   }
@@ -134,10 +142,11 @@ function staticPolicy(call: ESTree.CallExpression, file: string, source: string)
     if (!name || !rateLimitPolicyKeys.has(name)) {
       throw declarationError(file, source, property, `\`defineRateLimit()\` does not support the ${name ? `"${name}"` : "dynamic"} policy option.`)
     }
-    if (property.value.type !== "Literal" || (typeof property.value.value !== "string" && typeof property.value.value !== "number")) {
+    const value = unwrapStaticExpression(property.value)
+    if (value.type !== "Literal" || (typeof value.value !== "string" && typeof value.value !== "number")) {
       throw declarationError(file, source, property.value, `\`defineRateLimit()\` policy option "${name}" must be a static literal.`)
     }
-    values.set(name, property.value.value)
+    values.set(name, value.value)
   }
 
   const policy = {
