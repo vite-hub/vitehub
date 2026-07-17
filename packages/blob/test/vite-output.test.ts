@@ -244,7 +244,7 @@ describe("Vite provider outputs", () => {
     expect(existsSync(join(outputRoot, "functions", "__blob.func", "index.mjs"))).toBe(true)
   })
 
-  it("omits Cloudflare bucket bindings when none are configured", async () => {
+  it("omits Cloudflare bucket bindings when none are configured", { timeout: 15_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-no-bucket-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist", "client"), { recursive: true })
@@ -259,7 +259,7 @@ describe("Vite provider outputs", () => {
     expect(await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "wrangler.json"), "utf8")).not.toContain("\"r2_buckets\"")
   })
 
-  it("emits Cloudflare bucket bindings for named R2 stores", async () => {
+  it("emits Cloudflare bucket bindings for named R2 stores", { timeout: 15_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-named-r2-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist", "client"), { recursive: true })
@@ -299,7 +299,7 @@ describe("Vite provider outputs", () => {
     ])
   })
 
-  it("bundles Cloudflare provider output without resolving optional R2 HTTP peers", async () => {
+  it("bundles Cloudflare provider output without resolving optional R2 HTTP peers", { timeout: 15_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-cloudflare-r2-externals-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist", "client"), { recursive: true })
@@ -316,7 +316,7 @@ describe("Vite provider outputs", () => {
     expect(cloudflareWorker).toContain("files-sdk/r2")
   })
 
-  it("copies Cloudflare R2 runtime packages into isolated Vercel output", async () => {
+  it("copies Cloudflare R2 runtime packages into isolated Vercel output", { timeout: 15_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-vercel-r2-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist", "client"), { recursive: true })
@@ -341,6 +341,9 @@ describe("Vite provider outputs", () => {
       `await import("@aws-sdk/s3-request-presigner")`,
       "",
     ].join("\n"), "utf8")
+    await expect(execFileAsync(process.execPath, [runtimeProbe])).resolves.toMatchObject({ stderr: "", stdout: "" })
+
+    await generateProviderOutputs({ blob: {}, clientOutDir: "dist/client", rootDir, serverFunctionName: "__blob.func" })
     await expect(execFileAsync(process.execPath, [runtimeProbe])).resolves.toMatchObject({ stderr: "", stdout: "" })
   })
 

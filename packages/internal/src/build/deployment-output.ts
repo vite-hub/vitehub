@@ -203,7 +203,6 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   const serverDir = resolve(outputRoot, "functions", serverFunctionName)
   const serverEntry = resolve(serverDir, "index.mjs")
 
-  await rm(serverDir, { force: true, recursive: true })
   await mkdir(serverDir, { recursive: true })
 
   await Promise.all([
