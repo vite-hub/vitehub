@@ -804,6 +804,35 @@ async function postChatStream(
     return
   }
 
+  if (thread.adapter.stream) {
+    const placeholder = fallback === null
+      ? undefined
+      : await thread.adapter.postMessage(thread.id, fallback).catch(() => undefined)
+    let cleared = false
+    const clearPlaceholder = async () => {
+      if (cleared || !placeholder?.id) return
+      cleared = true
+      await thread.adapter.deleteMessage(placeholder.threadId || thread.id, placeholder.id).catch(() => undefined)
+    }
+    const nativeResponse: ChatTextStream = {
+      getText: response.getText,
+      async *[Symbol.asyncIterator]() {
+        for await (const chunk of response) {
+          await clearPlaceholder()
+          yield chunk
+        }
+      },
+    }
+    try {
+      sent = await thread.post(chatStreamPostable(thread, nativeResponse) as never)
+      await finishDiscordSplitStream(thread, sent, response.getText() || sentMessageText(sent))
+    }
+    finally {
+      await clearPlaceholder()
+    }
+    return
+  }
+
   // ponytail: Chat SDK has no per-stream fallback option; replace this when it exposes one.
   const chatThread = thread as Thread & { _fallbackStreamingPlaceholderText?: string | null }
   const previous = chatThread._fallbackStreamingPlaceholderText
