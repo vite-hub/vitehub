@@ -16,8 +16,16 @@ describe("examples catalog", () => {
     expect(sitemap).toContain('{ path: "/examples" }');
   });
 
-  it("keeps Babysitter pending until its source is publishable", () => {
+  it("keeps projects pending until their source is publishable", () => {
     expect(examples).toEqual([
+      expect.objectContaining({
+        name: "Drop",
+        kind: "project",
+        status: "pending",
+        action: { kind: "source", label: "Source unavailable" },
+        builtWith: ["Blob", "Queue", "Rate Limit"],
+        publicationNote: "Pending an explicit license.",
+      }),
       expect.objectContaining({
         name: "Babysitter",
         kind: "project",

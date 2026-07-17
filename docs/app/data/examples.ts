@@ -41,6 +41,19 @@ export type Example = PendingProject | PublishedProject | Template;
 
 export const examples: readonly Example[] = [
   {
+    slug: "drop",
+    name: "Drop",
+    description: "Temporary image uploads for agents, backed by ViteHub server primitives.",
+    builtWith: ["Blob", "Queue", "Rate Limit"],
+    kind: "project",
+    status: "pending",
+    action: {
+      kind: "source",
+      label: "Source unavailable",
+    },
+    publicationNote: "Pending an explicit license.",
+  },
+  {
     slug: "babysitter",
     name: "Babysitter",
     description: "A ViteHub Agent and Schedule that owns pull requests from trusted-host worktrees.",
