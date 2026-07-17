@@ -17,6 +17,7 @@ The concepts in this section explain those boundaries before the package pages a
 | [Server primitives for any host](/docs/concepts/server-primitives-for-any-host) | Why ViteHub starts from host-independent server behavior. |
 | [How ViteHub fits together](/docs/concepts/how-vitehub-fits-together) | How Vite Integrations, Definitions, Provider Output, Runtime Helpers, and Capabilities connect. |
 | [Definitions and discovery](/docs/concepts/definitions-and-discovery) | How package-owned files become named runtime behavior. |
+| [Agent Invocations](/docs/concepts/agent-invocations) | How one request resolves caller identity, abilities, context, execution, and output. |
 | [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output) | What build and dev integrations own. |
 | [Runtime Helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports) | Why application code imports stable ViteHub APIs instead of generated internals. |
 | [Runtime Context](/docs/concepts/runtime-context) | How hosts pass execution facts and resources without framework globals. |
