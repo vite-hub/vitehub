@@ -9,6 +9,8 @@ An Agent Invocation is one runtime request to an Agent. It receives input, resol
 
 Invoke Agents from server code, Agent Triggers, schedules, DevTools, or framework-owned routes. The invocation input carries prompt or message content plus trusted context values.
 
+Read [Agent Invocations](/docs/concepts/agent-invocations) for the request boundary and its relationship to Agent Definitions, Channels, Chat Sessions, and Workflow Runs.
+
 ## Run an Agent
 
 Use `runAgent` when the caller expects a final result. Pass [Runtime Context](/docs/concepts/runtime-context) separately from invocation input so host resources and task data keep distinct boundaries.
