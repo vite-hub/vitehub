@@ -28,6 +28,16 @@ describe("Rate Limit declarations", () => {
     }])
   })
 
+  it("collects handles through namespace imports", () => {
+    const file = "/project/server/api/search.ts"
+    const source = [
+      'import * as rateLimit from "@vite-hub/rate-limit"',
+      'const search = rateLimit.defineRateLimit("search", { limit: 5, window: "1m" })',
+    ].join("\n")
+
+    expect(extractRateLimitDeclarations(file, source)).toMatchObject([{ name: "search" }])
+  })
+
   it("collects handles from JSX and TSX modules", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-jsx-"))
     roots.push(root)

@@ -31,20 +31,35 @@ function declarationError(file: string, source: string, node: { start: number },
   return new Error(`[vitehub] ${message}\n  at ${file}:${line}:${column}`)
 }
 
-function defineRateLimitBindings(program: ESTree.Program): Set<string> {
-  const bindings = new Set<string>()
+interface RateLimitBindings {
+  direct: Set<string>
+  namespaces: Set<string>
+}
+
+function defineRateLimitBindings(program: ESTree.Program): RateLimitBindings {
+  const bindings: RateLimitBindings = { direct: new Set(), namespaces: new Set() }
   for (const statement of program.body) {
     if (statement.type !== "ImportDeclaration" || !rateLimitImports.has(statement.source.value)) continue
     for (const specifier of statement.specifiers) {
       if (specifier.type === "ImportSpecifier" && specifier.imported.type === "Identifier" && specifier.imported.name === "defineRateLimit") {
-        bindings.add(specifier.local.name)
+        bindings.direct.add(specifier.local.name)
       }
+      if (specifier.type === "ImportNamespaceSpecifier") bindings.namespaces.add(specifier.local.name)
     }
   }
   return bindings
 }
 
-function topLevelCalls(program: ESTree.Program, bindings: Set<string>): Set<number> {
+function rateLimitBindingName(callee: ESTree.CallExpression["callee"], bindings: RateLimitBindings): string | undefined {
+  if (callee.type === "Identifier" && bindings.direct.has(callee.name)) return callee.name
+  if (callee.type !== "MemberExpression" || callee.object.type !== "Identifier" || !bindings.namespaces.has(callee.object.name)) return
+  const property = callee.computed
+    ? callee.property.type === "Literal" ? callee.property.value : undefined
+    : callee.property.type === "Identifier" ? callee.property.name : undefined
+  return property === "defineRateLimit" ? callee.object.name : undefined
+}
+
+function topLevelCalls(program: ESTree.Program, bindings: RateLimitBindings): Set<number> {
   const calls = new Set<number>()
   for (const statement of program.body) {
     const declaration = statement.type === "VariableDeclaration"
@@ -55,7 +70,7 @@ function topLevelCalls(program: ESTree.Program, bindings: Set<string>): Set<numb
     if (!declaration || declaration.kind !== "const") continue
     for (const declarator of declaration.declarations) {
       const init = declarator.init
-      if (init?.type === "CallExpression" && init.callee.type === "Identifier" && bindings.has(init.callee.name)) {
+      if (init?.type === "CallExpression" && rateLimitBindingName(init.callee, bindings)) {
         calls.add(init.start)
       }
     }
@@ -191,7 +206,7 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
   }
 
   const bindings = defineRateLimitBindings(parsed.program)
-  if (bindings.size === 0) return []
+  if (bindings.direct.size === 0 && bindings.namespaces.size === 0) return []
   const allowedCalls = topLevelCalls(parsed.program, bindings)
   const declarations: RateLimitDeclaration[] = []
   const localBindings: Set<string>[] = []
@@ -221,8 +236,8 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
     },
     "ClassExpression:exit": exitScope,
     CallExpression(call) {
-      if (call.callee.type !== "Identifier" || !bindings.has(call.callee.name)) return
-      const calleeName = call.callee.name
+      const calleeName = rateLimitBindingName(call.callee, bindings)
+      if (!calleeName) return
       if (localBindings.some(scope => scope.has(calleeName))) return
       if (!allowedCalls.has(call.start)) {
         throw declarationError(file, source, call, "`defineRateLimit()` must be assigned directly to a top-level `const`.")
