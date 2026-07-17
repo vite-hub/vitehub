@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises"
 import { createServer, type Server } from "node:net"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
@@ -22,15 +23,94 @@ function close(server: Server | undefined): Promise<void> {
   return new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
 }
 
+function mockProcessLiveness(deadPids: readonly number[] = []) {
+  return vi.spyOn(process, "kill").mockImplementation((pid) => {
+    if (deadPids.includes(pid)) throw Object.assign(new Error("Process not found"), { code: "ESRCH" })
+    return true
+  })
+}
+
+async function ownerFixture(pid: number) {
+  const root = join(tmpdir(), "vitehub-harness", `owner-${pid}-${randomUUID()}`)
+  await mkdir(root, { recursive: true })
+  await writeFile(join(root, "keep.txt"), "keep")
+  return root
+}
+
 describe("local harness sandbox", () => {
   it("keeps session ids inside the local sandbox root", async () => {
     const session = await createLocalHarnessSandbox().createSession({ sessionId: "../../outside" })
 
     try {
-      expect(relative(join(tmpdir(), "vitehub-harness"), (session as unknown as { rootDir: string }).rootDir)).toMatch(/^[a-f0-9]{64}$/)
+      const [owner, sessionRoot] = relative(join(tmpdir(), "vitehub-harness"), (session as unknown as { rootDir: string }).rootDir).split(/[\\/]/)
+      expect(owner).toMatch(/^owner-\d+-[0-9a-f-]{36}$/)
+      expect(sessionRoot).toMatch(/^[a-f0-9]{64}$/)
     }
     finally {
       await session.destroy?.()
+    }
+  })
+
+  it("removes managed session roots on destroy", async () => {
+    const session = await createLocalHarnessSandbox().createSession({ sessionId: `cleanup-${randomUUID()}` })
+    const root = (session as unknown as { rootDir: string }).rootDir
+
+    await session.destroy?.()
+
+    await expect(stat(root)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("reclaims roots owned by dead processes", async () => {
+    const deadPid = 4242
+    const abandoned = await ownerFixture(deadPid)
+    const kill = mockProcessLiveness([deadPid])
+    let session: Awaited<ReturnType<HarnessV1SandboxProvider["createSession"]>> | undefined
+
+    try {
+      session = await createLocalHarnessSandbox().createSession({ sessionId: `reclaim-${randomUUID()}` })
+
+      await expect(stat(abandoned)).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      kill.mockRestore()
+      await session?.destroy?.()
+      await rm(abandoned, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves roots owned by live processes", async () => {
+    const live = await ownerFixture(4243)
+    const kill = mockProcessLiveness()
+    let session: Awaited<ReturnType<HarnessV1SandboxProvider["createSession"]>> | undefined
+
+    try {
+      session = await createLocalHarnessSandbox().createSession({ sessionId: `preserve-${randomUUID()}` })
+
+      await expect(readFile(join(live, "keep.txt"), "utf8")).resolves.toBe("keep")
+    }
+    finally {
+      kill.mockRestore()
+      await session?.destroy?.()
+      await rm(live, { force: true, recursive: true })
+    }
+  })
+
+  it("does not delete unrelated directories", async () => {
+    const unrelated = join(tmpdir(), "vitehub-harness", `unrelated-${randomUUID()}`)
+    await mkdir(unrelated, { recursive: true })
+    await writeFile(join(unrelated, "keep.txt"), "keep")
+    const kill = mockProcessLiveness()
+    let session: Awaited<ReturnType<HarnessV1SandboxProvider["createSession"]>> | undefined
+
+    try {
+      session = await createLocalHarnessSandbox().createSession({ sessionId: `unrelated-${randomUUID()}` })
+
+      await expect(readFile(join(unrelated, "keep.txt"), "utf8")).resolves.toBe("keep")
+    }
+    finally {
+      kill.mockRestore()
+      await session?.destroy?.()
+      await rm(unrelated, { force: true, recursive: true })
     }
   })
 

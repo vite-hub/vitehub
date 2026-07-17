@@ -1,6 +1,6 @@
 import { spawn as spawnChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { realpathSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { Readable } from "node:stream"
@@ -32,13 +32,42 @@ interface LocalHarnessSandboxSession extends HarnessV1NetworkSandboxSession {
   readonly rootDir: string
 }
 
+const localHarnessOwnerName = `owner-${process.pid}-${randomUUID()}`
+const localHarnessOwnerPattern = /^owner-(\d+)-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
 function stringEnv(env: Record<string, string | undefined>): Record<string, string> {
   return Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
 }
 
+function isProcessAlive(pid: number) {
+  try {
+    process.kill(pid, 0)
+    return true
+  }
+  catch (error) {
+    return !(error instanceof Error && "code" in error && error.code === "ESRCH")
+  }
+}
+
+async function managedRootDir(sessionId: string) {
+  const parent = join(tmpdir(), "vitehub-harness")
+  const owner = join(parent, localHarnessOwnerName)
+  await mkdir(owner, { recursive: true })
+
+  const entries = await readdir(parent, { withFileTypes: true })
+  await Promise.all(entries.map(async (entry) => {
+    if (!entry.isDirectory()) return
+    const match = localHarnessOwnerPattern.exec(entry.name)
+    if (!match || isProcessAlive(Number(match[1]))) return
+    await rm(join(parent, entry.name), { force: true, recursive: true })
+  }))
+
+  return join(owner, createHash("sha256").update(sessionId).digest("hex"))
+}
+
 async function defaultRootDir(sessionId: string | undefined) {
   if (sessionId) {
-    const root = join(tmpdir(), "vitehub-harness", createHash("sha256").update(sessionId).digest("hex"))
+    const root = await managedRootDir(sessionId)
     await mkdir(root, { recursive: true })
     return root
   }
