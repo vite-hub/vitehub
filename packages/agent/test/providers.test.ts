@@ -5127,6 +5127,7 @@ describe("server helpers", () => {
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
+    adapter.deleteMessage.mockRejectedValueOnce(new Error("try again"))
     let runStarted!: () => void
     let finishRun!: () => void
     const runStartedPromise = new Promise<void>(resolve => {
@@ -5174,8 +5175,40 @@ describe("server helpers", () => {
     const response = await responsePromise
 
     expect(response.status).toBe(200)
-    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(adapter.deleteMessage).toHaveBeenNthCalledWith(1, "telegram:456", "sent-1")
+    expect(adapter.deleteMessage).toHaveBeenNthCalledWith(2, "telegram:456", "sent-1")
     expect(adapter.stream).toHaveBeenCalledOnce()
+  })
+
+  it("hands the configured fallback back to Chat SDK when native streaming declines", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.stream = vi.fn(async () => null)
+    const agent = defineAgent({
+      capabilities: [
+        defineChatCapability({
+          fallbackStreamingPlaceholderText: "Working on it...",
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      driver: { run: async () => "done" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(21047), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Working on it...")
+    expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Working on it...")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-2", { markdown: "done" })
   })
 
   it("posts a random chat fallback option while streamed webhook work is still running", async () => {

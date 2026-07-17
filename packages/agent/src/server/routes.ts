@@ -805,14 +805,17 @@ async function postChatStream(
   }
 
   if (thread.adapter.stream) {
+    const adapter = thread.adapter
+    const nativeStream = adapter.stream!.bind(adapter)
     const placeholder = fallback === null
       ? undefined
-      : await thread.adapter.postMessage(thread.id, fallback).catch(() => undefined)
+      : await adapter.postMessage(thread.id, fallback).catch(() => undefined)
     let cleared = false
     const clearPlaceholder = async () => {
       if (cleared || !placeholder?.id) return
-      cleared = true
-      await thread.adapter.deleteMessage(placeholder.threadId || thread.id, placeholder.id).catch(() => undefined)
+      await adapter.deleteMessage(placeholder.threadId || thread.id, placeholder.id)
+        .then(() => { cleared = true })
+        .catch(() => undefined)
     }
     const nativeResponse: ChatTextStream = {
       getText: response.getText,
@@ -823,11 +826,31 @@ async function postChatStream(
         }
       },
     }
+    const chatThread = thread as Thread & { _adapter?: Adapter, _fallbackStreamingPlaceholderText?: string | null }
+    const previousAdapter = chatThread._adapter
+    const previousFallback = chatThread._fallbackStreamingPlaceholderText
+    // ponytail: Chat SDK does not expose whether native streaming was accepted.
+    chatThread._adapter = new Proxy(adapter, {
+      get(target, property, receiver) {
+        if (property === "stream") {
+          return async (...args: Parameters<typeof nativeStream>) => {
+            const raw = await nativeStream(...args)
+            if (!raw) await clearPlaceholder()
+            return raw
+          }
+        }
+        const value = Reflect.get(target, property, receiver)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    chatThread._fallbackStreamingPlaceholderText = fallback
     try {
       sent = await thread.post(chatStreamPostable(thread, nativeResponse) as never)
       await finishDiscordSplitStream(thread, sent, response.getText() || sentMessageText(sent))
     }
     finally {
+      chatThread._adapter = previousAdapter
+      chatThread._fallbackStreamingPlaceholderText = previousFallback
       await clearPlaceholder()
     }
     return
