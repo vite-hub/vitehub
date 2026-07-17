@@ -63,6 +63,8 @@ describe("Rate Limit declarations", () => {
       .toMatchObject([{ name: "uploads", policy: { limit: 10, window: "1m" } }])
     expect(extractRateLimitDeclarations("satisfies.ts", `${imported}const uploads = defineRateLimit("uploads", { limit: 10, window: "1m" } satisfies RateLimitPolicy)`))
       .toMatchObject([{ name: "uploads", policy: { limit: 10, window: "1m" } }])
+    expect(extractRateLimitDeclarations("id.ts", `${imported}const uploads = defineRateLimit("uploads" as const, { limit: 10, window: \`1m\` })`))
+      .toMatchObject([{ name: "uploads", policy: { limit: 10, window: "1m" } }])
   })
 
   it("ignores local bindings that shadow the imported helper", () => {

@@ -10,6 +10,7 @@ import {
 import { createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { normalizePath } from "vite"
 
 import { discoverRateLimitDeclarations } from "./discovery.ts"
 import { writeRateLimitManifest } from "./internal/manifest.ts"
@@ -138,7 +139,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     },
     transform(code, id) {
       if (provider !== "cloudflare" || !resolved?.build.ssr || !declarationFiles.has(id.split("?", 1)[0]!)) return
-      return `import ${JSON.stringify(resolve(resolved.root, generatedRuntimeModule))}\n${code}`
+      return `import ${JSON.stringify(normalizePath(resolve(resolved.root, generatedRuntimeModule)))}\n${code}`
     },
     async closeBundle() {
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return

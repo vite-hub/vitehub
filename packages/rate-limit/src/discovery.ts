@@ -160,6 +160,12 @@ function unwrapStaticExpression(expression: ESTree.Expression): ESTree.Expressio
   return expression
 }
 
+function staticString(expression: ESTree.Expression): string | undefined {
+  const value = unwrapStaticExpression(expression)
+  if (value.type === "Literal" && typeof value.value === "string") return value.value
+  if (value.type === "TemplateLiteral" && value.expressions.length === 0) return value.quasis[0]?.value.cooked ?? value.quasis[0]?.value.raw
+}
+
 function staticPolicy(call: ESTree.CallExpression, file: string, source: string): RateLimitPolicy {
   const policyArgument = call.arguments[1]
   const policyNode = policyArgument?.type === "SpreadElement" ? policyArgument : policyArgument && unwrapStaticExpression(policyArgument)
@@ -177,10 +183,11 @@ function staticPolicy(call: ESTree.CallExpression, file: string, source: string)
       throw declarationError(file, source, property, `\`defineRateLimit()\` does not support the ${name ? `"${name}"` : "dynamic"} policy option.`)
     }
     const value = unwrapStaticExpression(property.value)
-    if (value.type !== "Literal" || (typeof value.value !== "string" && typeof value.value !== "number")) {
+    const literal = value.type === "Literal" && typeof value.value === "number" ? value.value : staticString(value)
+    if (literal === undefined) {
       throw declarationError(file, source, property.value, `\`defineRateLimit()\` policy option "${name}" must be a static literal.`)
     }
-    values.set(name, value.value)
+    values.set(name, literal)
   }
 
   const policy = {
@@ -246,10 +253,11 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
         throw declarationError(file, source, call, "`defineRateLimit()` requires a stable ID and a static policy object.")
       }
       const idNode = call.arguments[0]
-      if (idNode?.type !== "Literal" || typeof idNode.value !== "string" || !idNode.value.trim()) {
+      const staticId = idNode?.type === "SpreadElement" ? undefined : idNode && staticString(idNode)
+      if (!staticId?.trim()) {
         throw declarationError(file, source, idNode ?? call, "`defineRateLimit()` requires a non-empty static string ID.")
       }
-      const id = idNode.value.trim()
+      const id = staticId.trim()
       const sourceLocation = location(source, call.start)
       declarations.push({
         name: id,
