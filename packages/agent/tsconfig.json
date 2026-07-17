@@ -50,6 +50,12 @@
       "@vite-hub/runtime": [
         "packages/runtime/src/index.ts"
       ],
+      "@vite-hub/rate-limit": [
+        "packages/rate-limit/src/index.ts"
+      ],
+      "@vite-hub/rate-limit/*": [
+        "packages/rate-limit/src/*"
+      ],
       "@vite-hub/sandbox": [
         "packages/sandbox/src/index.ts"
       ],

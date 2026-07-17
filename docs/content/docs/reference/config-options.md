@@ -12,13 +12,13 @@ Provider Selection belongs in Integration Options when it changes generated outp
 
 | Import | Public type | Placement | Defaults |
 | --- | --- | --- | --- |
-| `vite-hub` | `ViteHubPresetOptions` | `vitehub(options)` in Vite `plugins` | Composes Agent, Blob, Database, DevTools, Env, Workflow, and Workspace unless a key is `false`. Auth, Email, KV, Queue, Sandbox, and Schedule are enabled with `true` for inferred defaults or with their integration options. Application APIs use intentional `vite-hub/*` feature subpaths. |
+| `vite-hub` | `ViteHubPresetOptions` | `vitehub(options)` in Vite `plugins` | Composes Agent, Blob, Database, DevTools, Env, Workflow, and Workspace unless a key is `false`. Auth, Email, KV, Queue, Rate Limit, Sandbox, and Schedule are enabled with `true` for inferred defaults or with their integration options. Application APIs use intentional `vite-hub/*` feature subpaths. |
 
 `@vite-hub/vite` remains a supported root-only compatibility import for
 `vitehub()`. Direct `hubX()` integration functions remain available from their
 independent `@vite-hub/*/vite` owner-package paths.
 
-Email, KV, Queue, Sandbox, and Schedule are opt-in with `true` for inferred defaults or with their integration options. Auth follows the same opt-in shape but currently has no plugin option bag.
+Email, KV, Queue, Rate Limit, Sandbox, and Schedule are opt-in with `true` for inferred defaults or with their integration options. Auth follows the same opt-in shape but currently has no plugin option bag.
 
 ## Vite Integration options
 
@@ -33,6 +33,7 @@ Email, KV, Queue, Sandbox, and Schedule are opt-in with `true` for inferred defa
 | Env | `EnvIntegrationOptions` and `EnvViteConfigOptions` | `hubEnv(options)` plus Vite `env` config | `diagnostics`: `off`, `summary`, `trace`; default `summary`. `prefix` changes inferred environment variable names. `projectRoot` changes generated file placement. Vite `env.public`, `env.define`, and `env.server` own Public Env, build define values, and Server Env declarations. |
 | KV | `KVModuleOptions` | `kv` config key or `hubKv(options)` | Accepts `false`, one store config, or `{ stores }` with `stores.default`. Driver literals are `fs-lite`, `cloudflare-kv-binding`, `deno-kv`, and `upstash`. Defaults: Deno hosting selects `deno-kv`; Upstash env selects `upstash`; Vercel hosting selects `upstash`; Cloudflare hosting selects `cloudflare-kv-binding` binding `KV`; otherwise `fs-lite` at `.data/kv`. |
 | Queue | `QueueModuleOptions` | `queue` config key or `hubQueue(options)` | `false` disables the integration. When active, `provider` is `cloudflare` or `vercel`; Cloudflare hosting selects `cloudflare`, and other supported hosts select `vercel`. Netlify does not infer a provider. Shared `cache` belongs here. Cloudflare uses `binding`; Vercel uses `region`. Queue concurrency and retry behaviour belong to Queue Definition or enqueue options. |
+| Rate Limit | `RateLimitVitePluginOptions` | `rateLimit` config key or `hubRateLimit(options)` | `provider`: `auto`, `cloudflare`, or `memory`; default `auto`. Auto selects memory only for Vite development and serve commands, selects Cloudflare when production hosting is known to be Cloudflare, and requires an explicit provider for other or unknown production builds. `projectRoot` changes Definition resolution, and `scanDirs` adds discovery roots. Rate Limit Definition files own static limits, windows, enforcement guarantees, and failure behavior. |
 | Sandbox | `SandboxPublicOptions` | `sandbox` config key or `hubSandbox(options)` | `false` disables the integration. Provider selection belongs here: `cloudflare`, `vercel`, or inferred provider options. Netlify requires an explicit provider when Sandbox is active. Cloudflare defaults are binding `SANDBOX`, class name `Sandbox`, and migration tag `v1`. Per-run sandbox identity belongs to Sandbox Run invocation options. |
 | Schedule | `ScheduleVitePluginOptions` | `hubSchedule(options)` | `providerOutput`: `auto`, `standalone`, `nitro`, or `false`; default `auto`. `projectRoot` changes where generated schedule output is written. There is no public `schedule.provider` option. |
 | Workflow | `WorkflowModuleOptions` | `workflow` config key or `hubWorkflow(options)` | `false` disables the integration. `provider`: `cloudflare`, `openworkflow`, or `vercel`. Cloudflare hosting selects `cloudflare`; Node or Docker with OpenWorkflow storage config selects `openworkflow`; other supported hosts select `vercel`. Netlify does not infer a provider. Shared fields are `binding` and `name`. OpenWorkflow fields are `database`, `postgres`, `sqlite`, and `worker.concurrency`. |

@@ -25,7 +25,7 @@ Read only the references whose conditions match, but read them before writing co
 | --- | --- |
 | New project, uncertain file layout, or cross-feature composition | [Project shapes](references/project-shapes.md) |
 | Released or `pkg.pr.new` installation, upgrade, or package mismatch | [Installed and preview contracts](references/preview-contract.md) |
-| KV, Blob, Database, Env, Email, Queue, Sandbox, Shell, or another Server Primitive | [Server Primitives](references/server-primitives.md) |
+| KV, Blob, Database, Env, Email, Queue, Rate Limit, Sandbox, Shell, or another Server Primitive | [Server Primitives](references/server-primitives.md) |
 | Modify an existing framework integration; add Nitro or Nuxt; use generated types; configure a provider; or diagnose a framework-specific failure | [Framework composition](references/framework-composition.md) |
 | Agent Definition, Agent Driver, Agent Invocation, instructions, output, hooks, or Evals | [Agent Definitions and Drivers](references/agent-definitions.md) |
 | Workspace, Source, access scope, mounted files, or write-back | [Workspaces, Sources, and access](references/workspaces-sources-access.md) |

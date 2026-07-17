@@ -2,6 +2,8 @@ import { generateKeyPairSync } from "node:crypto"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
+import { createRateLimiter } from "@vite-hub/rate-limit"
+import { memoryRateLimitDriver } from "@vite-hub/rate-limit/drivers/memory"
 import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/runtime"
 import { chat, title, schedule, subagents } from "../src/capabilities.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
@@ -1951,8 +1953,11 @@ describe("agent message protocol", () => {
         rateLimit({
           id: "harness-lifecycle-rate-limit",
           identity: () => "user_1",
-          limit: 5,
-          window: "1m",
+          limiter: createRateLimiter({
+            driver: memoryRateLimitDriver(),
+            limit: 5,
+            window: "1m",
+          }),
         }),
       ],
       driver: {

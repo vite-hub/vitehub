@@ -462,6 +462,9 @@ importers:
       '@vite-hub/markdown-template':
         specifier: workspace:*
         version: link:../markdown-template
+      '@vite-hub/rate-limit':
+        specifier: workspace:*
+        version: link:../rate-limit
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -945,6 +948,31 @@ importers:
         specifier: npm:@voidzero-dev/vite-plus-test@0.1.24
         version: '@voidzero-dev/vite-plus-test@0.1.24(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(@voidzero-dev/vite-plus-core@0.1.24)(esbuild@0.27.7)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
 
+  packages/rate-limit:
+    dependencies:
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
+        version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.3)(@vitejs/devtools@0.1.19(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@netlify/blobs@10.7.5)(@nuxt/kit@4.4.8(magicast@0.5.3))(@pnpm/logger@1001.0.1)(@upstash/redis@1.38.0)(@vercel/blob@2.6.1)(@vercel/functions@3.7.5(@aws-sdk/credential-provider-web-identity@3.972.65)(ws@8.21.1))(@voidzero-dev/vite-plus-core@0.1.24)(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.0)(better-sqlite3@12.9.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1)))(esbuild@0.28.1)(ioredis@5.11.1)(rolldown@1.1.5)(rollup@4.62.2)(typescript@6.0.3)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.2)))(esbuild@0.28.1)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
+    devDependencies:
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.13.3
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
+      publint:
+        specifier: catalog:tooling
+        version: 0.3.21
+      typescript:
+        specifier: catalog:tooling
+        version: 6.0.3
+      vite-plus:
+        specifier: catalog:tooling
+        version: 0.1.24(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitejs/devtools@0.1.19)(@voidzero-dev/vite-plus-core@0.1.24)(esbuild@0.28.1)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)
+      vitest:
+        specifier: npm:@voidzero-dev/vite-plus-test@0.1.24
+        version: '@voidzero-dev/vite-plus-test@0.1.24(2c6774141042527a589bf2d00e5040f0)'
+
   packages/runtime:
     devDependencies:
       '@types/node':
@@ -1183,6 +1211,9 @@ importers:
       '@vite-hub/queue':
         specifier: workspace:*
         version: link:../queue
+      '@vite-hub/rate-limit':
+        specifier: workspace:*
+        version: link:../rate-limit
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -13594,7 +13625,6 @@ snapshots:
       '@aws-sdk/util-locate-window': 3.965.8
       '@smithy/util-utf8': 2.3.0
       tslib: 2.8.1
-    optional: true
 
   '@aws-crypto/sha256-browser@5.2.0':
     dependencies:
@@ -13605,26 +13635,22 @@ snapshots:
       '@aws-sdk/util-locate-window': 3.965.8
       '@smithy/util-utf8': 2.3.0
       tslib: 2.8.1
-    optional: true
 
   '@aws-crypto/sha256-js@5.2.0':
     dependencies:
       '@aws-crypto/util': 5.2.0
       '@aws-sdk/types': 3.974.2
       tslib: 2.8.1
-    optional: true
 
   '@aws-crypto/supports-web-crypto@5.2.0':
     dependencies:
       tslib: 2.8.1
-    optional: true
 
   '@aws-crypto/util@5.2.0':
     dependencies:
       '@aws-sdk/types': 3.974.2
       '@smithy/util-utf8': 2.3.0
       tslib: 2.8.1
-    optional: true
 
   '@aws-sdk/checksums@3.1000.18':
     dependencies:
@@ -13691,7 +13717,6 @@ snapshots:
       '@smithy/util-utf8': 4.4.9
       '@smithy/util-waiter': 4.5.9
       tslib: 2.8.1
-    optional: true
 
   '@aws-sdk/client-s3@3.1088.0':
     dependencies:
@@ -13835,43 +13860,36 @@ snapshots:
     dependencies:
       '@aws-sdk/middleware-sdk-s3': 3.972.64
       tslib: 2.8.1
-    optional: true
 
   '@aws-sdk/middleware-expect-continue@3.972.33':
     dependencies:
       '@aws-sdk/middleware-sdk-s3': 3.972.64
       tslib: 2.8.1
-    optional: true
 
   '@aws-sdk/middleware-flexible-checksums@3.974.43':
     dependencies:
       '@aws-sdk/checksums': 3.1000.18
       tslib: 2.8.1
-    optional: true
 
   '@aws-sdk/middleware-host-header@3.972.34':
     dependencies:
       '@aws-sdk/core': 3.975.3
       tslib: 2.8.1
-    optional: true
 
   '@aws-sdk/middleware-location-constraint@3.972.30':
     dependencies:
       '@aws-sdk/middleware-sdk-s3': 3.972.64
       tslib: 2.8.1
-    optional: true
 
   '@aws-sdk/middleware-logger@3.972.33':
     dependencies:
       '@aws-sdk/core': 3.975.3
       tslib: 2.8.1
-    optional: true
 
   '@aws-sdk/middleware-recursion-detection@3.972.35':
     dependencies:
       '@aws-sdk/core': 3.975.3
       tslib: 2.8.1
-    optional: true
 
   '@aws-sdk/middleware-sdk-s3@3.972.64':
     dependencies:
@@ -13886,13 +13904,11 @@ snapshots:
     dependencies:
       '@aws-sdk/middleware-sdk-s3': 3.972.64
       tslib: 2.8.1
-    optional: true
 
   '@aws-sdk/middleware-user-agent@3.972.63':
     dependencies:
       '@aws-sdk/core': 3.975.3
       tslib: 2.8.1
-    optional: true
 
   '@aws-sdk/nested-clients@3.997.33':
     dependencies:
@@ -13909,7 +13925,6 @@ snapshots:
     dependencies:
       '@aws-sdk/core': 3.975.3
       tslib: 2.8.1
-    optional: true
 
   '@aws-sdk/s3-presigned-post@3.1045.0':
     dependencies:
@@ -13922,7 +13937,6 @@ snapshots:
       '@smithy/util-hex-encoding': 4.4.9
       '@smithy/util-utf8': 4.4.9
       tslib: 2.8.1
-    optional: true
 
   '@aws-sdk/s3-request-presigner@3.1088.0':
     dependencies:
@@ -13959,30 +13973,25 @@ snapshots:
       '@aws-sdk/core': 3.975.3
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@aws-sdk/util-format-url@3.972.35':
     dependencies:
       '@aws-sdk/core': 3.975.3
       tslib: 2.8.1
-    optional: true
 
   '@aws-sdk/util-locate-window@3.965.8':
     dependencies:
       tslib: 2.8.1
-    optional: true
 
   '@aws-sdk/util-user-agent-browser@3.972.34':
     dependencies:
       '@aws-sdk/core': 3.975.3
       tslib: 2.8.1
-    optional: true
 
   '@aws-sdk/util-user-agent-node@3.973.49':
     dependencies:
       '@aws-sdk/core': 3.975.3
       tslib: 2.8.1
-    optional: true
 
   '@aws-sdk/xml-builder@3.972.36':
     dependencies:
@@ -18426,7 +18435,6 @@ snapshots:
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/core@3.29.4':
     dependencies:
@@ -18443,19 +18451,16 @@ snapshots:
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/eventstream-serde-config-resolver@4.5.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/eventstream-serde-node@4.4.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/fetch-http-handler@5.6.6':
     dependencies:
@@ -18467,72 +18472,60 @@ snapshots:
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/hash-node@4.4.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/hash-stream-node@4.4.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/invalid-dependency@4.4.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/is-array-buffer@2.2.0':
     dependencies:
       tslib: 2.8.1
-    optional: true
 
   '@smithy/md5-js@4.4.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/middleware-content-length@4.4.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/middleware-endpoint@4.6.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/middleware-retry@4.7.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/middleware-serde@4.4.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/middleware-stack@4.4.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/node-config-provider@4.5.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/node-http-handler@4.9.6':
     dependencies:
@@ -18549,7 +18542,6 @@ snapshots:
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/shared-ini-file-loader@4.6.9':
     dependencies:
@@ -18567,7 +18559,6 @@ snapshots:
       '@smithy/core': 3.29.4
       '@smithy/types': 4.16.1
       tslib: 2.8.1
-    optional: true
 
   '@smithy/types@4.16.1':
     dependencies:
@@ -18577,91 +18568,76 @@ snapshots:
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/util-base64@4.5.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/util-body-length-browser@4.4.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/util-body-length-node@4.4.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/util-buffer-from@2.2.0':
     dependencies:
       '@smithy/is-array-buffer': 2.2.0
       tslib: 2.8.1
-    optional: true
 
   '@smithy/util-defaults-mode-browser@4.5.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/util-defaults-mode-node@4.4.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/util-endpoints@3.6.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/util-hex-encoding@4.4.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/util-middleware@4.4.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/util-retry@4.5.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/util-stream@4.7.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/util-utf8@2.3.0':
     dependencies:
       '@smithy/util-buffer-from': 2.2.0
       tslib: 2.8.1
-    optional: true
 
   '@smithy/util-utf8@4.4.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@smithy/util-waiter@4.5.9':
     dependencies:
       '@smithy/core': 3.29.4
       tslib: 2.8.1
-    optional: true
 
   '@socket.io/component-emitter@3.1.2': {}
 
@@ -19238,7 +19214,7 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 24.13.3
+      '@types/node': 26.1.1
 
   '@typescript-eslint/project-service@8.64.0(typescript@6.0.3)':
     dependencies:
@@ -28324,7 +28300,6 @@ snapshots:
       get-tsconfig: 4.14.0
     optionalDependencies:
       fsevents: 2.3.3
-    optional: true
 
   tunnel-agent@0.6.0:
     dependencies:

@@ -57,6 +57,7 @@ Start with the first primitive when you want a runnable path, use Concepts when 
 | --- | --- |
 | Public, server, build-time, runtime, or secret environment values | [Env](/docs/server-primitives/env) |
 | Application users, sessions, Better Auth routing, or guarded app routes | [Auth](/docs/server-primitives/auth) |
+| Request budgets that must be consumed before expensive server work starts | [Rate Limit](/docs/server-primitives/rate-limit) |
 | Outbound transactional messages with provider-neutral delivery | [Email](/docs/server-primitives/email) |
 | Small key-addressed values, settings, flags, cursors, or lightweight state | [KV](/docs/server-primitives/kv) |
 | Relational data, constraints, joins, migrations, or queryable history | [Database](/docs/server-primitives/database) |
@@ -88,7 +89,7 @@ That route does not know whether the backing KV Store uses local files, Cloudfla
 
 Some primitives work directly after configuration. Env, KV, Blob, Source, and Shell can often be called from server code without a discovered Definition.
 
-Other primitives need a Definition so ViteHub can discover runtime behavior or named work. Email and Auth use singleton Definitions bound at runtime. Database schemas, Workspace Definitions, Queue Definitions, Workflow Definitions, Static Schedule Definitions, Sandbox Definitions, and Agent Definitions can also generate Runtime Registries or host-specific Provider Output.
+Other primitives need a Definition so ViteHub can discover runtime behavior or named work. Email and Auth use singleton Definitions bound at runtime. Rate Limit Definitions, Database schemas, Workspace Definitions, Queue Definitions, Workflow Definitions, Static Schedule Definitions, Sandbox Definitions, and Agent Definitions can also generate Runtime Registries or host-specific Provider Output.
 
 | Need | Read |
 | --- | --- |
@@ -117,6 +118,7 @@ Do not expose a primitive to a model just because the app uses it. Attach the re
 | Expose Blob storage with scoped file tools | [Blob capability](/docs/capabilities/blob) |
 | Expose relational data intentionally | [Database capability](/docs/capabilities/db) |
 | Let an Agent send authorized plain-text email | [Email capability](/docs/capabilities/email) |
+| Consume a trusted budget before an Agent Invocation | [Rate Limit capability](/docs/capabilities/rate-limit) |
 | Let an Agent manage allowed Runtime Schedules | [Schedule capability](/docs/capabilities/schedule) |
 | Expose Workspace-backed inspection or mutation | [Workspace shell](/docs/capabilities/workspace-shell) |
 | Run isolated execution from an Agent boundary | [Sandbox capability](/docs/capabilities/sandbox) |

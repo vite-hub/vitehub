@@ -1,0 +1,6 @@
+{
+  "title": "Rate Limit",
+  "description": "A provider-neutral Rate Limit Definition with native Cloudflare enforcement.",
+  "framework": "vite",
+  "path": "vite"
+}

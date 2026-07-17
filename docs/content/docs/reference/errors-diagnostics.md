@@ -29,6 +29,7 @@ Use the error family to choose the next proof path before changing implementatio
 | `SandboxError` | Sandbox Package | Sandbox Provider setup, execution, or output recovery failed. |
 | `NotSupportedError` | Sandbox shared runtime | A selected provider or operation is unsupported. |
 | `WorkflowError` | Workflow Package | Workflow run, step, or provider behavior failed. |
+| Rate Limit policy or driver error | Rate Limit Package | A policy is invalid, the selected driver cannot satisfy its guarantees, a Definition is unknown, or a provider binding is unavailable. |
 | `RateLimitRejectedError` | Agent Package | Rate Limit Capability rejected an Agent Invocation. |
 | `LlmGateRejectedError` | Agent Package | LLM Gate Capability rejected before the main Agent Invocation. |
 | `Agent Invocation Stream timed out after <ms>.` | Agent Package | The dev-loop stream aborted a long or stalled Agent Invocation after its timeout. |
@@ -53,6 +54,17 @@ pnpm vitehub provision run --provider cloudflare --dry-run
 find .vitehub -maxdepth 4 -type f | sort
 pnpm --filter @vite-hub/sandbox test
 ```
+
+### Rate Limit diagnostics
+
+| Symptom | Likely cause | Verify |
+| --- | --- | --- |
+| `Unknown Rate Limit Definition` | The Vite Integration is missing or the consumed name does not match discovery. | Inspect the generated Rate Limit Runtime Registry and compare it with the Definition path. |
+| Driver provides best-effort enforcement | A Definition requires `strict`, but the selected provider cannot guarantee it. | Keep strict enforcement and choose another driver, or change the policy only when best-effort protection is acceptable. |
+| Driver does not support the window | The provider accepts fewer fixed-window periods than the portable Definition type. | Use a supported period or select a driver that advertises the required window. |
+| Production hosting requires an explicit provider | The build target is unknown or has no native inferred Rate Limit provider. | Set `provider: 'cloudflare'` for Cloudflare, set `provider: 'memory'` only for a deliberate single-process deployment, or construct a custom Rate Limiter. |
+| Cloudflare binding was not found | Generated `ratelimits` output is missing from the running Worker or request context. | Inspect `wrangler.json`, then exercise the deployed Worker rather than an unrelated Node process. |
+| `reason: 'unavailable'` with `allowed: true` | A `failure: 'allow'` policy allowed work after a driver error. | Record the unavailable decision and inspect provider health before changing the budget. |
 
 ## Production response
 

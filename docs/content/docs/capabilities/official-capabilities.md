@@ -93,7 +93,7 @@ import {
 | --- | --- | --- |
 | LLM routing | [`llmRoute()`](/docs/capabilities/llm-route) | A pre-invocation model decision should choose one developer-defined route. |
 | LLM gate | [`llmGate()`](/docs/capabilities/llm-gate) | A pre-invocation model decision should allow or reject the request. |
-| Rate limit | [`rateLimit()`](/docs/capabilities/rate-limit) | A trusted invocation budget should be checked or consumed before the Agent runs. |
+| Rate limit | [`rateLimit()`](/docs/capabilities/rate-limit) | A trusted invocation budget should be consumed before the Agent runs. |
 | Title | [`title()`](/docs/capabilities/title) | Agent output, finish extensions, or compatible Channel threads should include a generated title. |
 | Chat summary | [`chatSummary()`](/docs/capabilities/chat-summary) | A summary command should replace explicit input with a conversation summary. |
 | Papercut reports | [`papercuts()`](/docs/capabilities/papercuts) | An Agent should report small runtime or developer-experience friction to an application-owned sink. |

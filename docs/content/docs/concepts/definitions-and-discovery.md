@@ -23,6 +23,8 @@ Generated Agent hosts carry that discovery identity as `context.agentIdentity`, 
 server/agents/support.ts          -> support
 server/agents/docs/agent.ts      -> docs
 src/triager.agent.ts              -> triager
+server/rate-limits/image-upload.ts -> image-upload
+src/api/image-upload.rate-limit.ts -> api/image-upload
 server/auth.ts                    -> Primary Auth Definition
 server.auth.ts                    -> Primary Auth Definition alias
 ```

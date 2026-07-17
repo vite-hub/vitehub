@@ -27,6 +27,7 @@ interface CloudflareDeploymentOutputOptions extends SharedDeploymentOptions {
   outputRoot?: string
   staticOutputDir?: string
   wranglerConfigKeys?: string[]
+  wranglerConfigOwnership?: ProviderOutputConfigOwnership
   wranglerConfig: object
 }
 
@@ -177,7 +178,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
       outputRoot,
       rootDir: options.rootDir,
       wranglerConfig: options.wranglerConfig,
-      wranglerConfigOwnership: { keys: options.wranglerConfigKeys },
+      wranglerConfigOwnership: options.wranglerConfigOwnership ?? { keys: options.wranglerConfigKeys },
     }),
     options.bundleEntry && staticIndex
       ? copyClientOutput(clientDir, options.staticOutputDir ?? createDefaultCloudflareStaticOutputDir(options.rootDir))
