@@ -33,8 +33,8 @@ flowchart TD
 > Babysitter uses your host and credentials to edit code, push branches, change pull requests, and merge them. Read the [agent prompt](server/agents/babysitter/prompt.template.md) before running it.
 
 - Node.js 24 or newer
-- Corepack, which activates the repository's pinned pnpm version
-- `git` and a GitHub repository you want Babysitter to watch. The current [schedule](server/babysitter.schedule.ts) installs dependencies with pnpm; change that command if your repository uses another package manager.
+- Corepack, which activates Babysitter's pinned pnpm version
+- `git` and a GitHub repository you want Babysitter to watch. Babysitter launches the owner in an exact-head checkout without installing the watched project's dependencies; adapt the [agent prompt](server/agents/babysitter/prompt.template.md) if the owner needs package-manager-specific setup.
 - An authenticated [`gh`](https://cli.github.com/) CLI with permission to update that repository. This implementation uses `gh` directly to discover and inspect pull requests, so it is currently required.
 - An authenticated coding-agent CLI. ViteHub [Agent Drivers](https://vitehub.dev/docs/agents/agent-drivers) support both Codex and Claude Code. [Codex](https://github.com/openai/codex) is recommended because its non-interactive `codex exec` command is designed for programmatic use; this repository uses Codex by default.
 
