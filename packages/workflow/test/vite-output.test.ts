@@ -202,11 +202,21 @@ describe("Vite workflow provider outputs", () => {
       .replace("const baseConfig = {", `const baseConfig = {\n    resolve: { alias: { "@": resolve(import.meta.dirname, ".") } },`)
       .replaceAll("workflow: {},", "workflow: { provider: \"vercel\" },"))
     await writeFile(join(rootDir, "server", "workflows", "durable.ts"), [
+      `import { databaseRuntimeMarker } from "vite-hub/database/drizzle"`,
+      `export async function persist() {`,
+      `  "use step"`,
+      `  return databaseRuntimeMarker`,
+      `}`,
       `export async function durable() {`,
       `  "use workflow"`,
-      `  return "durable"`,
+      `  return persist()`,
       `}`,
     ].join("\n"))
+    await mkdir(join(rootDir, ".vitehub", "database"), { recursive: true })
+    await writeFile(
+      join(rootDir, ".vitehub", "database", "vercel-runtime.mjs"),
+      `export const databaseRuntimeMarker = "vitehub-database-vercel-runtime"\n`,
+    )
     await writeFile(join(rootDir, "server", "workflows", "native.ts"), [
       `import { defineWorkflow } from "@vite-hub/workflow"`,
       `import { durable } from "@/server/workflows/durable.js"`,
@@ -223,6 +233,7 @@ describe("Vite workflow provider outputs", () => {
     expect(await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")).toContain("workflowId")
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.js"))).toBe(true)
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "webhook", "[token].func", "index.js"))).toBe(true)
+    expect(await readFile(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "step.func", "index.js"), "utf8")).toContain("vitehub-database-vercel-runtime")
     expect(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).toContain("/.well-known/workflow/v1/webhook/")
   }, buildOutputTestTimeout)
 
