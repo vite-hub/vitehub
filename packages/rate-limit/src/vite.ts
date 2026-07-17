@@ -130,7 +130,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       return { resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) } }
     },
     async handleHotUpdate(context) {
-      if (!/\.(?:c|m)?[jt]s$/i.test(context.file)) return
+      if (!/\.(?:c|m)?[jt]sx?$/i.test(context.file)) return
       resolved = context.server.config
       await refreshDeclarations()
     },

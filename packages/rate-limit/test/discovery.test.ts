@@ -28,6 +28,15 @@ describe("Rate Limit declarations", () => {
     }])
   })
 
+  it("collects handles from JSX and TSX modules", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-jsx-"))
+    roots.push(root)
+    const declaration = 'import { defineRateLimit } from "vite-hub/rate-limit"\nconst limit = defineRateLimit("jsx", { limit: 1, window: "1m" })\n'
+    await writeFile(join(root, "route.tsx"), declaration)
+
+    expect(discoverRateLimitDeclarations({ rootDir: root })).toMatchObject([{ name: "jsx" }])
+  })
+
   it("requires top-level static declarations", () => {
     const imported = 'import { defineRateLimit } from "@vite-hub/rate-limit"\n'
     expect(() => extractRateLimitDeclarations("nested.ts", `${imported}function create() { return defineRateLimit("uploads", { limit: 1, window: "1m" }) }`))
