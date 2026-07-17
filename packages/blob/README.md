@@ -104,6 +104,12 @@ Use `driver: "s3"` for production S3-compatible object storage. Use `driver: "mi
 pnpm add files-sdk @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
 ```
 
+Cloudflare R2 HTTP fallback also requires:
+
+```sh
+pnpm add @aws-sdk/lib-storage
+```
+
 ```ts
 // vite.config.ts
 export default defineConfig({
