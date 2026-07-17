@@ -11,10 +11,12 @@ import type { RateLimitDeclaration, RateLimitPolicy } from "./types.ts"
 
 const rateLimitImports = new Set(["@vite-hub/rate-limit", "vite-hub/rate-limit"])
 const ignoredSourceDirectories = new Set(["__tests__", "examples", "fixtures", "test", "tests"])
+const nestedIgnoredSourceDirectories = new Set(["__tests__", "examples", "fixtures", "tests"])
 
 function isApplicationSource(root: string, file: string): boolean {
   const segments = relative(root, file).split(/[\\/]/)
   if (segments.length > 1 && ignoredSourceDirectories.has(segments[0]!)) return false
+  if (segments.slice(1, -1).some(segment => nestedIgnoredSourceDirectories.has(segment))) return false
   return !/\.(?:spec|test)\.(?:c|m)?[jt]s$/i.test(basename(file))
 }
 

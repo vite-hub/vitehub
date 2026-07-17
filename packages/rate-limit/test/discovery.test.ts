@@ -79,6 +79,10 @@ describe("Rate Limit declarations", () => {
     await writeFile(join(root, "rate-limit.test.ts"), declaration)
     await mkdir(join(root, "test"))
     await writeFile(join(root, "test", "helper.ts"), declaration)
+    await mkdir(join(root, "src", "__tests__"), { recursive: true })
+    await writeFile(join(root, "src", "__tests__", "helper.ts"), declaration)
+    await mkdir(join(root, "server", "tests"), { recursive: true })
+    await writeFile(join(root, "server", "tests", "helper.ts"), declaration)
 
     expect(discoverRateLimitDeclarations({ rootDir: root })).toEqual([])
   })
