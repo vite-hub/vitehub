@@ -82,6 +82,7 @@ interface NetlifyProviderDeploymentCleanup {
 }
 
 interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions {
+  afterWrite?: () => Promise<void>
   cloudflare?: CloudflareProviderDeploymentOutput
   cleanup?: {
     cloudflare?: CloudflareProviderDeploymentCleanup | (() => CloudflareProviderDeploymentCleanup | Promise<CloudflareProviderDeploymentCleanup>)
@@ -309,6 +310,7 @@ async function writeProviderDeploymentOutputsNow(options: ProviderDeploymentOutp
     writes.push(cleanupVercelDeploymentOutput(options.rootDir, options.cleanup.vercel))
   }
   await Promise.all(writes)
+  await options.afterWrite?.()
 }
 
 export async function writeProviderDeploymentOutputs(options: ProviderDeploymentOutputOptions): Promise<void> {

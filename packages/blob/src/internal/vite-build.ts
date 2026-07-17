@@ -422,12 +422,12 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.blob)
   const localOnly = !shouldCreateProviderOutput(options.blob)
   await writeProviderDeploymentOutputs({
+    afterWrite: localOnly ? undefined : () => copyVercelBlobRuntimePackages(options),
     clientOutDir: options.clientOutDir,
     cloudflare: localOnly ? undefined : createCloudflareOutput(options.blob, artifacts, options.providerOutput),
     rootDir: options.rootDir,
     vercel: localOnly ? undefined : createVercelOutput(artifacts, options.providerOutput, options.serverFunctionName),
   })
-  if (!localOnly) await copyVercelBlobRuntimePackages(options)
   return artifacts
 }
 
