@@ -105,6 +105,7 @@ export type ConsumeRateLimitOptions = RateLimitConsumeInput
 export type RateLimitProvider = "auto" | "cloudflare" | "memory"
 
 export interface RateLimitModuleOptions {
+  namespace?: string
   provider?: RateLimitProvider
   projectRoot?: string
   scanDirs?: string[]

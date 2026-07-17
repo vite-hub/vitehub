@@ -140,6 +140,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         definitions,
         previousDefinitions,
         provider,
+        namespace: rateLimit.namespace,
         rootDir: resolved.root,
       })
       previousDefinitions = definitions

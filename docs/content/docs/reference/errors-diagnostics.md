@@ -62,7 +62,7 @@ pnpm --filter @vite-hub/sandbox test
 | `Unknown Rate Limit Definition` | The Vite Integration is missing or the consumed name does not match discovery. | Inspect the generated Rate Limit Runtime Registry and compare it with the Definition path. |
 | Driver provides best-effort enforcement | A Definition requires `strict`, but the selected provider cannot guarantee it. | Keep strict enforcement and choose another driver, or change the policy only when best-effort protection is acceptable. |
 | Driver does not support the window | The provider accepts fewer fixed-window periods than the portable Definition type. | Use a supported period or select a driver that advertises the required window. |
-| Production hosting requires an explicit provider | The build target is unknown or has no native inferred Rate Limit provider. | Set `provider: 'cloudflare'` for Cloudflare, set `provider: 'memory'` only for a deliberate single-process deployment, or construct a custom Rate Limiter. |
+| Production hosting requires an explicit provider | The build target is unknown or has no native inferred Rate Limit provider. | Set `provider: 'cloudflare'` with a project-unique `namespace` for Cloudflare, set `provider: 'memory'` only for a deliberate single-process deployment, or construct a custom Rate Limiter. |
 | Cloudflare binding was not found | Generated `ratelimits` output is missing from the running Worker or request context. | Inspect `wrangler.json`, then exercise the deployed Worker rather than an unrelated Node process. |
 | `reason: 'unavailable'` with `allowed: true` | A `failure: 'allow'` policy allowed work after a driver error. | Record the unavailable decision and inspect provider health before changing the budget. |
 

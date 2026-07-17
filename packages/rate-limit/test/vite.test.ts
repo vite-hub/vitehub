@@ -16,7 +16,7 @@ describe("hubRateLimit", () => {
   it("registers generated Nitro runtime with config-key precedence", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-vite-"))
     roots.push(root)
-    const plugin = hubRateLimit({ provider: "cloudflare" })
+    const plugin = hubRateLimit({ namespace: "vite-test", provider: "cloudflare" })
     const config = plugin.config as unknown as (config: Record<string, unknown>) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
     const userConfig = { nitro: { plugins: ["server/plugin.ts"] }, rateLimit: { provider: "memory" } }

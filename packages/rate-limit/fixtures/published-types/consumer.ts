@@ -20,5 +20,5 @@ await consumeRateLimit("uploads", { key: "user" })
 await local.consume({ key: "user" })
 await cloudflare.consume({ key: "user" })
 void cloudflare.capabilities.scope
-hubRateLimit({ provider: "cloudflare" })
+hubRateLimit({ namespace: "published-types", provider: "cloudflare" })
 void registry.uploads

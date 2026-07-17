@@ -85,7 +85,7 @@ import { hubRateLimit } from '@vite-hub/rate-limit/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubRateLimit({ provider: 'cloudflare' })],
+  plugins: [hubRateLimit({ namespace: 'acme-app', provider: 'cloudflare' })],
 })
 ```
 

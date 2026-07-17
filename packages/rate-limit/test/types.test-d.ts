@@ -42,7 +42,7 @@ it("types custom and provider drivers", () => {
   } satisfies RateLimitDriver
   createRateLimiter({ driver: custom, limit: 2, window: "10s" })
   createRateLimiter({ driver: cloudflareRateLimitDriver({ name: "uploads" }), limit: 2, window: "10s" })
-  hubRateLimit({ provider: "cloudflare", projectRoot: "../", scanDirs: ["shared"] })
+  hubRateLimit({ namespace: "types-test", provider: "cloudflare", projectRoot: "../", scanDirs: ["shared"] })
 
   // @ts-expect-error kv is not a Rate Limit provider.
   hubRateLimit({ provider: "kv" })

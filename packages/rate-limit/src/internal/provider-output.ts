@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { basename } from "node:path"
 import { dirname, resolve } from "node:path"
 
 import { createDefaultCloudflareOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
@@ -126,9 +125,9 @@ function readRateLimitDefinition(file: string, name: string): RateLimitDefinitio
   }
 }
 
-function namespaceId(projectName: string, definitionName: string): string {
+function namespaceId(namespace: string, definitionName: string): string {
   let hash = 2_166_136_261
-  for (const character of `${projectName}:${definitionName}`) {
+  for (const character of `${namespace}:${definitionName}`) {
     hash ^= character.charCodeAt(0)
     hash = Math.imul(hash, 16_777_619)
   }
@@ -137,9 +136,8 @@ function namespaceId(projectName: string, definitionName: string): string {
 
 export function createCloudflareRateLimitBindings(
   definitions: DiscoveredRateLimitDefinition[],
-  rootDir: string,
+  namespace: string,
 ): CloudflareRateLimitBindingConfig[] {
-  const projectName = basename(rootDir)
   return definitions.map((discovered) => {
     const definition = normalizeRateLimitPolicy(readRateLimitDefinition(discovered.handler, discovered.name))
     if (definition.enforcement === "strict") {
@@ -151,7 +149,7 @@ export function createCloudflareRateLimitBindings(
     }
     return {
       name: getCloudflareRateLimitBindingName(discovered.name),
-      namespace_id: namespaceId(projectName, discovered.name),
+      namespace_id: namespaceId(namespace, discovered.name),
       simple: { limit: definition.limit, period },
     }
   })
@@ -162,6 +160,7 @@ export async function writeRateLimitProviderOutput(options: {
   definitions: DiscoveredRateLimitDefinition[]
   previousDefinitions?: DiscoveredRateLimitDefinition[]
   provider: "cloudflare" | "memory"
+  namespace?: string
   rootDir: string
 }): Promise<void> {
   const state = await readOutputState(options.rootDir)
@@ -177,12 +176,15 @@ export async function writeRateLimitProviderOutput(options: {
   } satisfies ProviderOutputConfigOwnership
 
   if (options.provider === "cloudflare" && options.definitions.length > 0) {
+    if (!options.namespace) {
+      throw new Error("[vitehub] Cloudflare Rate Limit requires a project-unique rateLimit.namespace to isolate counters across deployments.")
+    }
     await writeProviderDeploymentOutputs({
       clientOutDir: options.clientOutDir,
       cloudflare: {
         outputRoot: createDefaultCloudflareOutputRoot(options.rootDir),
         wranglerConfig: {
-          ratelimits: createCloudflareRateLimitBindings(options.definitions, options.rootDir),
+          ratelimits: createCloudflareRateLimitBindings(options.definitions, options.namespace),
         },
         wranglerConfigOwnership: ownership,
       },

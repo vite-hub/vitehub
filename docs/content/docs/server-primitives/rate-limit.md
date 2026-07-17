@@ -263,12 +263,17 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    rateLimit: { provider: 'cloudflare' },
+    rateLimit: {
+      namespace: 'acme-image-service',
+      provider: 'cloudflare',
+    },
   })],
 })
 ```
 
 Cloudflare native Rate Limiting bindings provide best-effort enforcement and support only `10s` or `1m` fixed windows. They return the allow-or-reject result without remaining, used, reset, or retry metadata. A Definition with `enforcement: 'strict'` or another window fails the build.
+
+`namespace` must uniquely identify the project within the Cloudflare account. ViteHub combines it with each Definition name to generate stable namespace IDs, preventing unrelated Workers from sharing counters.
 
 Inspect the generated `wrangler.json` `ratelimits` entries before deployment, then exercise the deployed Worker. The binding is request-scoped and cannot be proved by calling `consumeRateLimit()` from an unrelated Node script.
 
