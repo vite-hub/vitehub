@@ -150,4 +150,14 @@ describe("Rate Limit declarations", () => {
 
     expect(discoverRateLimitDeclarations({ rootDir: root })).toMatchObject([{ name: "upload" }])
   })
+
+  it("collects deployable example and fixture directories", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-deployable-assets-"))
+    roots.push(root)
+    const declaration = 'import { defineRateLimit } from "vite-hub/rate-limit"\nconst limit = defineRateLimit("upload", { limit: 1, window: "1m" })\n'
+    await mkdir(join(root, "src", "fixtures"), { recursive: true })
+    await writeFile(join(root, "src", "fixtures", "upload.ts"), declaration)
+
+    expect(discoverRateLimitDeclarations({ rootDir: root })).toMatchObject([{ name: "upload" }])
+  })
 })

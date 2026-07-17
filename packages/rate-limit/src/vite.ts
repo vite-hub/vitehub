@@ -40,7 +40,7 @@ function cloneNitroConfig(value: unknown): Record<string, unknown> {
 function mergeNitroConfig(value: unknown): Record<string, unknown> {
   const nitro = cloneNitroConfig(value)
   const plugins = Array.isArray(nitro.plugins) ? [...nitro.plugins] : []
-  if (!plugins.includes(generatedNitroPlugin)) plugins.push(generatedNitroPlugin)
+  if (!plugins.includes(generatedNitroPlugin)) plugins.unshift(generatedNitroPlugin)
   return { ...nitro, plugins }
 }
 
@@ -86,6 +86,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
   let rateLimit: RateLimitModuleOptions = options
   let composedOutput: ComposedProviderOutput | undefined
   let declarations: RateLimitDeclaration[] = []
+  let declarationFiles = new Set<string>()
   let previousDeclarations: RateLimitDeclaration[] = []
   let provider: "cloudflare" | "memory" = "memory"
   let projectRoot: string | undefined
@@ -97,6 +98,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       rootDir: projectRoot,
       scanDirs: rateLimit.scanDirs,
     })
+    declarationFiles = new Set(declarations.map(declaration => declaration.source.file))
     await writeRateLimitManifest(resolved.root, declarations, provider)
   }
 
@@ -133,6 +135,10 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       if (!/\.(?:c|m)?[jt]sx?$/i.test(context.file)) return
       resolved = context.server.config
       await refreshDeclarations()
+    },
+    transform(code, id) {
+      if (provider !== "cloudflare" || !resolved?.build.ssr || !declarationFiles.has(id.split("?", 1)[0]!)) return
+      return `import ${JSON.stringify(resolve(resolved.root, generatedRuntimeModule))}\n${code}`
     },
     async closeBundle() {
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return

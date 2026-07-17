@@ -10,8 +10,8 @@ import type { ESTree } from "vite"
 import type { RateLimitDeclaration, RateLimitPolicy } from "./types.ts"
 
 const rateLimitImports = new Set(["@vite-hub/rate-limit", "vite-hub/rate-limit"])
-const ignoredSourceDirectories = new Set(["__tests__", "examples", "fixtures", "test", "tests"])
-const nestedIgnoredSourceDirectories = new Set(["__tests__", "examples", "fixtures", "tests"])
+const ignoredSourceDirectories = new Set(["__tests__", "test", "tests"])
+const nestedIgnoredSourceDirectories = new Set(["__tests__", "tests"])
 
 function isApplicationSource(root: string, file: string): boolean {
   const segments = relative(root, file).split(/[\\/]/)
