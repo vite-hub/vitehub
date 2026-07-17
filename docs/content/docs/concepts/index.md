@@ -19,6 +19,7 @@ The concepts in this section explain those boundaries before the package pages a
 | [Definitions and discovery](/docs/concepts/definitions-and-discovery) | How package-owned files become named runtime behavior. |
 | [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output) | What build and dev integrations own. |
 | [Runtime Helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports) | Why application code imports stable ViteHub APIs instead of generated internals. |
+| [Runtime Context](/docs/concepts/runtime-context) | How hosts pass execution facts and resources without framework globals. |
 | [Workspace and Sources](/docs/concepts/workspace-and-sources) | How persistent file trees consume read-only origins. |
 | [Capabilities API](/docs/concepts/capabilities-api) | How Agents receive selected abilities. |
 | [Channels API](/docs/concepts/channels-api) | How message-shaped Agent Invocations, channel metadata, and host commands stay separate. |

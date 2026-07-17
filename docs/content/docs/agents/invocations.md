@@ -11,7 +11,7 @@ Invoke Agents from server code, Agent Triggers, schedules, DevTools, or framewor
 
 ## Run an Agent
 
-Use `runAgent` when the caller expects a final result. Pass host runtime context separately from invocation input.
+Use `runAgent` when the caller expects a final result. Pass [Runtime Context](/docs/concepts/runtime-context) separately from invocation input so host resources and task data keep distinct boundaries.
 
 ```ts [server/api/support.post.ts]
 import { runAgent } from '@vite-hub/agent'
