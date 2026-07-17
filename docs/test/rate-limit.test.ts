@@ -20,7 +20,12 @@ describe("Rate Limit documentation", () => {
 
     expect(primitive).toContain("vitehub({ rateLimit: true })")
     expect(primitive).toContain("import { defineRateLimit } from 'vite-hub/rate-limit'")
+    expect(primitive).toContain("server/api/image-upload.post.ts")
     expect(primitive).toContain("consumeRateLimit('image-upload'")
+    expect(primitive).toContain("if (!decision.allowed)")
+    expect(primitive).toContain("POST /api/image-upload")
+    expect(primitive).toContain("Use `getRateLimit(name)`")
+    expect(primitive).toContain("rateLimit({ limiter: 'image-upload' })")
     expect(primitive).toContain("hubRateLimit")
     expect(primitive).toContain("@vite-hub/rate-limit/vite")
   })

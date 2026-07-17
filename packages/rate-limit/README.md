@@ -21,24 +21,38 @@ export default defineRateLimit({
 })
 ```
 
-```ts
-import { consumeRateLimit } from "@vite-hub/rate-limit"
-
-const decision = await consumeRateLimit("image-upload", {
-  key: authenticatedUser.id,
-})
-```
-
 Add the Vite integration to discover `src/**/*.rate-limit.ts` and `server/rate-limits/**/*.ts` Definitions:
 
 ```ts
+// vite.config.ts
 import { hubRateLimit } from "@vite-hub/rate-limit/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [hubRateLimit({ provider: "cloudflare" })],
+  plugins: [hubRateLimit()],
 })
 ```
+
+Consume the discovered Definition by name from server code. The Runtime Helper returns the decision that the application must enforce.
+
+```ts
+// server/upload-image.ts
+import { consumeRateLimit } from "@vite-hub/rate-limit"
+
+export async function handleImageUpload(authenticatedUserId: string): Promise<Response> {
+  const decision = await consumeRateLimit("image-upload", {
+    key: `user:${authenticatedUserId}`,
+  })
+
+  if (!decision.allowed) {
+    return new Response("Too many uploads", { status: 429 })
+  }
+
+  return new Response("Upload accepted", { status: 202 })
+}
+```
+
+The application derives the opaque key from authenticated identity and rejects the request when `allowed` is `false`. Use `getRateLimit(name)` when code needs the resolved limiter and its capabilities, or use `createRateLimiter()` when the application supplies a driver without discovery.
 
 `hubRateLimit()` without a provider uses an in-memory fixed-window driver only during local Vite serve. Production builds require a detected Cloudflare host or an explicit provider, including `provider: "memory"` for a known single-process deployment. Native Cloudflare enforcement is best-effort and accepts only `10s` and `1m` windows, so incompatible Definitions fail during the build.
 

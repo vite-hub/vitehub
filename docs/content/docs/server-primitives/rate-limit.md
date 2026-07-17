@@ -49,38 +49,39 @@ export default defineRateLimit({
 })
 ```
 
-### Consume before expensive work
+### Consume the Definition from a server route
 
-Derive the key from identity your application has already authenticated. Do not pass a raw access token or untrusted forwarded header.
+Call `consumeRateLimit()` with the discovered Definition name before expensive work starts. The Runtime Helper resolves `image-upload` from the generated registry, consumes one unit for the supplied key, and returns a `RateLimitDecision`.
 
-```ts [server/upload-image.ts]
+```ts [server/api/image-upload.post.ts]
 import { consumeRateLimit } from 'vite-hub/rate-limit'
 
-export async function uploadImage(
-  request: Request,
-  verifiedUserId: string,
-  storeImage: (request: Request) => Promise<Response>,
-): Promise<Response> {
+export default defineEventHandler(async () => {
   const decision = await consumeRateLimit('image-upload', {
-    key: `user:${verifiedUserId}`,
+    key: 'demo:image-upload',
   })
 
   if (!decision.allowed) {
     return new Response('Too many uploads', {
-      headers: decision.retryAfter
-        ? { 'retry-after': String(decision.retryAfter) }
-        : undefined,
+      headers: decision.retryAfter === undefined
+        ? undefined
+        : { 'retry-after': String(decision.retryAfter) },
       status: 429,
     })
   }
 
-  return storeImage(request)
-}
+  return {
+    ok: true,
+    remaining: decision.remaining,
+  }
+})
 ```
+
+The fixed key makes the local example immediately testable. Replace it in production with an opaque key derived from an authenticated user, account, or API client. Do not pass a raw access token or an untrusted forwarded header.
 
 ### Verify the boundary
 
-Call the handler 11 times with the same verified user id. The first 10 calls should reach `storeImage()`; the next call should return `429` before the request body is buffered or stored.
+Call `POST /api/image-upload` 11 times. The first 10 calls return `{ "ok": true }`; the next call returns `429` before the route performs expensive work.
 
 ::
 
@@ -95,6 +96,37 @@ Call the handler 11 times with the same verified user id. The first 10 calls sho
 | `hubRateLimit` from `@vite-hub/rate-limit/vite` | Register discovery, generated Runtime Registry, and Provider Output without the framework preset. |
 
 `@vite-hub/rate-limit/runtime` is the framework integration boundary for installing generated registry and request context. Application code should use the root Runtime Helpers.
+
+## Choose the consumption API
+
+Use `consumeRateLimit(name, { key })` for normal application code. It loads the discovered Definition by name, reuses the resolved limiter, and consumes one unit in a single call.
+
+```ts [server/api/image-upload.post.ts]
+import { consumeRateLimit } from 'vite-hub/rate-limit'
+
+export function consumeImageUpload(verifiedUserId: string) {
+  return consumeRateLimit('image-upload', {
+    key: `user:${verifiedUserId}`,
+  })
+}
+```
+
+Use `getRateLimit(name)` when code needs to inspect the resolved policy or driver capabilities before consuming. Calling `consume()` on the returned limiter produces the same decision shape.
+
+```ts [server/rate-limit-inspection.ts]
+import { getRateLimit } from 'vite-hub/rate-limit'
+
+export async function inspectAndConsumeImageUpload(verifiedUserId: string) {
+  const limiter = await getRateLimit('image-upload')
+  console.log(limiter.policy, limiter.capabilities)
+
+  return limiter.consume({
+    key: `user:${verifiedUserId}`,
+  })
+}
+```
+
+Use `createRateLimiter()` when the application supplies a driver directly and does not use discovered Definitions. Agent applications usually do not call these Runtime Helpers manually; `rateLimit({ limiter: 'image-upload' })` consumes the named Definition before each Agent Invocation.
 
 ## Define a rate limit
 
