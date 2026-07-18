@@ -76,6 +76,35 @@ describe("server authentication provider boundaries", () => {
     })
   })
 
+  it.each([
+    ["auth.api", (cause: Error) => Object.defineProperty({}, "api", {
+      get() {
+        throw cause
+      },
+    })],
+    ["session.user", (cause: Error) => ({
+      api: {
+        getSession: () => Object.defineProperty({ session: {} }, "user", {
+          get() {
+            throw cause
+          },
+        }),
+      },
+    })],
+  ] as const)("normalizes a throwing %s provider getter with its exact cause", async (_property, createAuth) => {
+    const cause = new TypeError("provider getter failed")
+    providerMocks.betterAuth.mockReturnValueOnce(createAuth(cause))
+
+    const error = await requireAuth(request, definition).catch(error => error)
+
+    expect(error).toBeInstanceOf(AuthenticationProviderError)
+    expect(error).toMatchObject({
+      code: "AUTH_PROVIDER_OPERATION_FAILED",
+      details: { operation: "get-session", provider: "better-auth" },
+    })
+    expect(error.cause).toBe(cause)
+  })
+
   it("preserves abort and existing provider errors exactly", async () => {
     const abort = new DOMException("cancelled", "AbortError")
     providerMocks.getSession.mockRejectedValueOnce(abort)

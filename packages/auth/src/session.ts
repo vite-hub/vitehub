@@ -21,8 +21,15 @@ export async function getAuthenticationSession(
   auth: unknown,
   input: BetterAuthGetSessionInput,
 ): Promise<ResolvedAuthenticationSession | null | undefined> {
-  const api = readRecordProperty(auth, "api")
-  const getSession = api && readProperty(api, "getSession")
+  let api: Record<string, unknown> | undefined
+  let getSession: unknown
+  try {
+    api = readRecordProperty(auth, "api")
+    getSession = api && readProperty(api, "getSession")
+  }
+  catch (cause) {
+    throwAuthenticationProviderError(cause, "get-session")
+  }
   if (typeof getSession !== "function") {
     throw new TypeError("Better Auth did not expose api.getSession().")
   }
@@ -36,10 +43,17 @@ export async function getAuthenticationSession(
   }
 
   if (value == null) return value
-  if (!isResolvedAuthenticationSession(value)) {
+  let session: ResolvedAuthenticationSession | undefined
+  try {
+    if (isResolvedAuthenticationSession(value)) session = value
+  }
+  catch (cause) {
+    throwAuthenticationProviderError(cause, "get-session")
+  }
+  if (!session) {
     throw new TypeError("Better Auth returned an invalid session response.")
   }
-  return value
+  return session
 }
 
 function readRecordProperty(value: unknown, property: string): Record<string, unknown> | undefined {
@@ -57,10 +71,12 @@ function readString(value: unknown): string | undefined {
 }
 
 function isResolvedAuthenticationSession(value: unknown): value is ResolvedAuthenticationSession {
-  return isRecord(value)
-    && isRecord(value.session)
-    && isRecord(value.user)
-    && Boolean(readString(value.user.id))
+  if (!isRecord(value)) return false
+  const session = value.session
+  const user = value.user
+  return isRecord(session)
+    && isRecord(user)
+    && Boolean(readString(user.id))
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

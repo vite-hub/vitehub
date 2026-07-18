@@ -33,14 +33,14 @@ async function runPnpm(args: string[], cwd: string): Promise<void> {
   await execFileAsync("corepack", ["pnpm", ...args], { cwd })
 }
 
-it("publishes the structured Auth error contract from installed packages", { timeout: 60_000 }, async () => {
+it("publishes the structured Auth error contract from installed packages", { timeout: 15_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-auth-types-"))
 
   try {
     await cp(fixtureRoot, root, { recursive: true })
-    for (const name of packedPackages) {
-      await runPnpm(["pack", "--pack-destination", root], join(workspaceRoot, "packages", name))
-    }
+    await Promise.all(packedPackages.map(name => (
+      runPnpm(["pack", "--pack-destination", root], join(workspaceRoot, "packages", name))
+    )))
     await runPnpm(["install", "--ignore-scripts", "--no-frozen-lockfile"], root)
 
     try {
