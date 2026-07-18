@@ -5,7 +5,7 @@ import { promisify } from "node:util"
 
 import { parseSchema } from "../schema.ts"
 import { defaultStringSchema, isDefaultStringEnvVariable } from "./declarations.ts"
-import { EnvError } from "./errors.ts"
+import { invalidEnvDeclaration, missingRequiredEnv } from "./errors.ts"
 
 import type {
   EnvBuildConfigOptions,
@@ -32,17 +32,20 @@ export function validateEnvConfigShape(config: EnvViteConfigOptions | undefined,
   const viteConfig = config as EnvViteConfigOptions
   for (const key of Object.keys(viteConfig)) {
     if (key !== "define" && key !== "public" && key !== "server") {
-      throw new EnvError(`Invalid declaration at env.${key}. Vite env config only supports env.public, env.define, and env.server.`)
+      const path = `env.${key}`
+      throw invalidEnvDeclaration(path, `Invalid declaration at ${path}. Vite env config only supports env.public, env.define, and env.server.`)
     }
   }
 
   for (const [key, declaration] of Object.entries(viteConfig.public || {})) {
     assertEnvVariableDeclaration(`env.public.${key}`, declaration)
     if (declaration.mode !== "build") {
-      throw new EnvError(`env.public.${key} must use mode: "build" in Vite config.`)
+      const path = `env.public.${key}`
+      throw invalidEnvDeclaration(path, `${path} must use mode: "build" in Vite config.`)
     }
     if (declaration.secret) {
-      throw new EnvError(`env.public.${key} cannot be marked secret.`)
+      const path = `env.public.${key}`
+      throw invalidEnvDeclaration(path, `${path} cannot be marked secret.`)
     }
   }
 
@@ -130,7 +133,8 @@ export async function resolveEnvEntries(
     const valueForSchema = defaulted ? declaration.default : resolvedSource.value
     if (typeof valueForSchema === "undefined") {
       if (declaration.required) {
-        throw new EnvError(`Missing ${input.section}.${key} from ${source.label}.`)
+        const path = `${input.section}.${key}`
+        throw missingRequiredEnv(source.label, `Missing ${path} from ${source.label}.`, path)
       }
       entries.push({
         key,
@@ -197,7 +201,7 @@ async function resolveBuildConfigValue(
     const valueForSchema = defaulted ? declaration.default : resolvedSource.value
     if (typeof valueForSchema === "undefined") {
       if (declaration.required) {
-        throw new EnvError(`Missing ${path} from ${source.label}.`)
+        throw missingRequiredEnv(source.label, `Missing ${path} from ${source.label}.`, path)
       }
       return {
         diagnostics: [{
@@ -236,7 +240,7 @@ async function resolveBuildConfigValue(
   }
 
   if (!isPlainRecord(declaration)) {
-    throw new EnvError(`Invalid build declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
+    throw invalidEnvDeclaration(path, `Invalid build declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
   }
 
   const value: Record<string, unknown> = {}
@@ -255,7 +259,7 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
     return {}
   }
   if (!isPlainRecord(declarations)) {
-    throw new EnvError(`Invalid runtime declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
+    throw invalidEnvDeclaration(path, `Invalid runtime declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
   }
   return Object.fromEntries(Object.entries(declarations).map(([key, value]) => {
     const valuePath = `${path}.${key}`
@@ -264,22 +268,22 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
         return [key, { kind: "literal", value }]
       }
       if (!isPlainRecord(value)) {
-        throw new EnvError(`Invalid runtime declaration at ${valuePath}. Use env(), a serializable static value, or a nested object.`)
+        throw invalidEnvDeclaration(valuePath, `Invalid runtime declaration at ${valuePath}. Use env(), a serializable static value, or a nested object.`)
       }
       return [key, buildRegistry(value as EnvRuntimeConfigOptions, valuePath, prefix)]
     }
     if (value.mode !== "runtime") {
-      throw new EnvError(`Runtime declaration ${valuePath} must use mode: "runtime".`)
+      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} must use mode: "runtime".`)
     }
     const source = resolveEnvSource(value, valuePath, prefix)
     if (source.kind !== "env") {
-      throw new EnvError(`Runtime declaration ${valuePath} must use env.source() in v1.`)
+      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} must use env.source() in v1.`)
     }
     if (!isDefaultStringEnvVariable(value)) {
-      throw new EnvError(`Runtime declaration ${valuePath} uses a custom schema, but runtime schemas cannot be serialized in v1.`)
+      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses a custom schema, but runtime schemas cannot be serialized in v1.`)
     }
     if (value.type && value.type !== "string") {
-      throw new EnvError(`Runtime declaration ${valuePath} uses type ${JSON.stringify(value.type)}, but runtime values are strings in v1.`)
+      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses type ${JSON.stringify(value.type)}, but runtime values are strings in v1.`)
     }
     return [key, {
       default: typeof value.default === "undefined"
@@ -348,16 +352,16 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
 function validateBuildDeclarations(declarations: EnvBuildConfigOptions | undefined, path: string): void {
   if (typeof declarations === "undefined") return
   if (!isPlainRecord(declarations)) {
-    throw new EnvError(`Invalid declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
+    throw invalidEnvDeclaration(path, `Invalid declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
   }
   for (const [key, declaration] of Object.entries(declarations)) {
     const valuePath = `${path}.${key}`
     if (isEnvVariableDeclaration(declaration)) {
       if (declaration.mode !== "build") {
-        throw new EnvError(`${valuePath} must use mode: "build".`)
+        throw invalidEnvDeclaration(valuePath, `${valuePath} must use mode: "build".`)
       }
       if (declaration.secret) {
-        throw new EnvError(`${valuePath} cannot be marked secret because Vite define values are bundled.`)
+        throw invalidEnvDeclaration(valuePath, `${valuePath} cannot be marked secret because Vite define values are bundled.`)
       }
       continue
     }
@@ -368,7 +372,7 @@ function validateBuildDeclarations(declarations: EnvBuildConfigOptions | undefin
 
 function assertEnvVariableDeclaration(path: string, declaration: unknown): asserts declaration is EnvVariableDeclaration {
   if (!isEnvVariableDeclaration(declaration)) {
-    throw new EnvError(`Invalid declaration at ${path}. Use env().`)
+    throw invalidEnvDeclaration(path, `Invalid declaration at ${path}. Use env().`)
   }
 }
 

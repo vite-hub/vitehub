@@ -1,5 +1,6 @@
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
+import { invalidRuntimeEnvValue, missingRequiredEnv } from "./core/errors.ts"
 import { SecretEnv } from "./secret.ts"
 
 import type { EnvRuntimeRegistry } from "./types.ts"
@@ -65,12 +66,12 @@ function resolveRegistryValue(value: unknown, env: RuntimeEnv): unknown {
     const resolved = readRuntimeSource(value, env) ?? value.default
     if (typeof resolved === "undefined") {
       if (value.required) {
-        throw new Error(`Missing Runtime Env from ${value.source.label}.`)
+        throw missingRequiredEnv(value.source.label, `Missing Runtime Env from ${value.source.label}.`)
       }
       return undefined
     }
     if (typeof resolved !== "string") {
-      throw new Error(`Runtime Env from ${value.source.label} must resolve to a string.`)
+      throw invalidRuntimeEnvValue(value.source.label, `Runtime Env from ${value.source.label} must resolve to a string.`)
     }
     return value.secret ? new SecretEnv(resolved) : resolved
   }
