@@ -77,6 +77,7 @@ interface GeneratedQueueArtifacts {
 interface GenerateProviderOutputsOptions {
   clientOutDir: string
   cloudflareOwnedByNitro?: boolean
+  definitions?: DiscoveredQueueDefinition[]
   queue: QueueModuleOptions | undefined
   rootDir: string
   serverFunctionName?: string
@@ -127,12 +128,11 @@ function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registr
   ].filter(Boolean).join("\n")
 }
 
-async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions | undefined) {
+async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions | undefined, definitions = discoverQueueDefinitions({ rootDir })) {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
-  const definitions = discoverQueueDefinitions({ rootDir })
   const userAppEntry = resolveUserAppEntry(rootDir)
 
   await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
@@ -201,11 +201,10 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
   ].join("\n")
 }
 
-export async function writeQueueNitroIntegration(rootDir: string, queue: QueueModuleOptions | undefined, hosting: string, cloudflareQueues = true): Promise<void> {
+export async function writeQueueNitroIntegration(rootDir: string, queue: QueueModuleOptions | undefined, hosting: string, cloudflareQueues = true, definitions: DiscoveredQueueDefinition[] = discoverQueueDefinitions({ rootDir })): Promise<void> {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const pluginFile = resolve(rootDir, generatedQueueNitroPlugin)
-  const definitions = discoverQueueDefinitions({ rootDir })
   const queueConfig = resolveOutputQueueConfig(typeof queue === "undefined" ? {} : queue, hosting)
   await Promise.all([
     mkdir(dirname(pluginFile), { recursive: true }),
@@ -400,7 +399,7 @@ async function writeVercelQueueFunctions(rootDir: string, queue: QueueModuleOpti
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedQueueArtifacts> {
-  const artifacts = await writeProviderEntries(options.rootDir, options.queue)
+  const artifacts = await writeProviderEntries(options.rootDir, options.queue, options.definitions)
   const createCloudflare = !options.cloudflareOwnedByNitro && shouldCreateCloudflareOutput(options.queue)
   const createVercel = shouldCreateVercelOutput(options.queue)
   if (!createCloudflare) {

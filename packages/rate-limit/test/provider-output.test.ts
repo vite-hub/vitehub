@@ -75,6 +75,13 @@ describe("Rate Limit Provider Output", () => {
     const { declarations, root } = await projectWithDeclaration()
     const outputRoot = createDefaultCloudflareOutputRoot(root)
     const configFile = join(outputRoot, "wrangler.json")
+    await writeRateLimitProviderOutput({
+      clientOutDir: "dist",
+      declarations,
+      namespace: "acme-image-service",
+      provider: "cloudflare",
+      rootDir: root,
+    })
     const existingConfig = {
       ratelimits: [
         { name: "NITRO", namespace_id: "7", simple: { limit: 2, period: 10 } },
@@ -82,7 +89,6 @@ describe("Rate Limit Provider Output", () => {
       ],
       vars: { APP: "vitehub" },
     }
-    await mkdir(outputRoot, { recursive: true })
     await writeFile(configFile, `${JSON.stringify(existingConfig, null, 2)}\n`)
 
     await writeRateLimitProviderOutput({
@@ -94,10 +100,7 @@ describe("Rate Limit Provider Output", () => {
       rootDir: root,
     })
 
-    await expect(readFile(configFile, "utf8").then(JSON.parse)).resolves.toEqual({
-      ratelimits: [{ name: "NITRO", namespace_id: "7", simple: { limit: 2, period: 10 } }],
-      vars: { APP: "vitehub" },
-    })
+    await expect(readFile(configFile, "utf8").then(JSON.parse)).resolves.toEqual(existingConfig)
     await expect(readFile(join(root, ".vitehub", "rate-limit", "cloudflare-output.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       bindings: [getCloudflareRateLimitBindingName("upload")],
     })

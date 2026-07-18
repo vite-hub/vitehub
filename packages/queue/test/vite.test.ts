@@ -211,6 +211,40 @@ describe("hubQueue", () => {
     }
   })
 
+  it("rejects Queue Definitions generated after Nitro config resolution", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-late-generated-"))
+    roots.push(root)
+    const plugin = hubQueue({ provider: "cloudflare" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      build: { outDir: "dist" },
+      command: "build",
+      nitro: { preset: "cloudflare_module" },
+      plugins: [{ name: "nitro:main" }],
+      root,
+    } as never)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+
+    await expect((plugin.closeBundle as () => Promise<void>)()).rejects.toThrow("changed after config resolution")
+  })
+
+  it("rejects Queue Definitions removed after Nitro config resolution", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-late-removed-"))
+    roots.push(root)
+    const definition = join(root, "welcome.queue.ts")
+    await writeFile(definition, "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue({ provider: "cloudflare" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      build: { outDir: "dist" },
+      command: "build",
+      nitro: { preset: "cloudflare_module" },
+      plugins: [{ name: "nitro:main" }],
+      root,
+    } as never)
+    await rm(definition)
+
+    await expect((plugin.closeBundle as () => Promise<void>)()).rejects.toThrow("changed after config resolution")
+  })
+
   it("rejects ambiguous and conflicting custom Cloudflare bindings", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
     roots.push(root)
