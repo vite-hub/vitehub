@@ -46,17 +46,30 @@ type QueueErrorDetailOptions<TCode extends string> = TCode extends QueueErrorCod
     : { readonly details?: QueueErrorDetailMap[TCode] }
   : { readonly details?: ViteHubErrorDetails }
 
+export type QueueErrorMetadata = ViteHubErrorOptions & {
+  readonly code?: string
+  readonly httpStatus?: number
+}
+
 export type QueueErrorOptions<TCode extends string = QueueErrorCode> = TCode extends string
   ? Omit<ViteHubErrorOptions, "details"> & QueueErrorDetailOptions<TCode> & {
     readonly code: NoInfer<TCode>
+    readonly httpStatus?: number
     readonly message: string
   }
   : never
 
 export class QueueError<TCode extends string = QueueErrorCode> extends ViteHubError<TCode, QueueErrorDetails<TCode>> {
-  constructor(options: QueueErrorOptions<NoInfer<TCode>>) {
-    super(options.code as TCode, options.message, options as ViteHubErrorOptions<QueueErrorDetails<TCode>>)
+  readonly httpStatus?: number
+
+  constructor(options: QueueErrorOptions<NoInfer<TCode>>)
+  constructor(message: string, metadata?: QueueErrorMetadata)
+  constructor(messageOrOptions: string | QueueErrorOptions<NoInfer<TCode>>, metadata: QueueErrorMetadata = {}) {
+    const options = typeof messageOrOptions === "string" ? metadata : messageOrOptions
+    const message = typeof messageOrOptions === "string" ? messageOrOptions : messageOrOptions.message
+    super((options.code || "QUEUE_ERROR") as TCode, message, options as ViteHubErrorOptions<QueueErrorDetails<TCode>>)
     this.name = "QueueError"
+    this.httpStatus = options.httpStatus
   }
 }
 

@@ -1,15 +1,27 @@
-import { QueueError, type QueueErrorOptions } from "@vite-hub/queue"
+import { QueueError, type QueueErrorMetadata, type QueueErrorOptions } from "@vite-hub/queue"
 
 const options = {
   code: "INVALID_PAYLOAD",
   details: { field: "email" },
+  httpStatus: 422,
   message: "Invalid payload.",
   retryable: false,
 } satisfies QueueErrorOptions<"INVALID_PAYLOAD">
 
 const error = new QueueError<"INVALID_PAYLOAD">(options)
 error.code satisfies "INVALID_PAYLOAD"
+error.httpStatus satisfies number | undefined
 error.retryable satisfies boolean | undefined
+
+const metadata = {
+  code: "INVALID_PAYLOAD",
+  details: { field: "email" },
+  httpStatus: 422,
+  retryable: false,
+} satisfies QueueErrorMetadata
+
+const compatibleError = new QueueError("Invalid payload.", metadata)
+compatibleError.httpStatus satisfies number | undefined
 
 new QueueError({
   code: "QUEUE_PROVIDER_OPERATION_FAILED",
@@ -19,11 +31,10 @@ new QueueError({
 
 // @ts-expect-error Custom codes require an explicit QueueError generic.
 new QueueError({ code: "INVALID_PAYLOAD", message: "Invalid payload." })
+// @ts-expect-error Built-in details are code-specific.
 new QueueError({
   code: "QUEUE_PROVIDER_OPERATION_FAILED",
-  // @ts-expect-error Built-in details are code-specific.
   details: { operation: "cancel", provider: "vercel" },
   message: "Provider failed.",
 })
-// @ts-expect-error The legacy message-first constructor was removed.
-new QueueError("Provider failed.")
+new QueueError("Provider failed.", { httpStatus: 503, retryable: true })

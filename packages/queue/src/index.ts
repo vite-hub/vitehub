@@ -5,6 +5,7 @@ export {
   QueueError,
   type QueueErrorCode,
   type QueueErrorDetails,
+  type QueueErrorMetadata,
   type QueueErrorOptions,
   type QueueProviderOperation,
 } from "./errors.ts"
