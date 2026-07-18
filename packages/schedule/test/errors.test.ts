@@ -76,6 +76,7 @@ describe("ScheduleError", () => {
     expect(Reflect.set(error, "requestId", secret)).toBe(false)
     expect(Reflect.set(error, "retryable", true)).toBe(false)
     expect(Reflect.set(error.details!, "field", secret)).toBe(false)
+    expect(Reflect.set(error, "toJSON", () => ({ message: secret }))).toBe(false)
     expect(JSON.stringify(error)).not.toContain(secret)
   })
 
@@ -90,6 +91,7 @@ describe("ScheduleError", () => {
     expect(Reflect.set(error, "code", "PROVIDER_SECRET")).toBe(false)
     expect(Reflect.set(error, "message", secret)).toBe(false)
     expect(Reflect.set(error.details!, "field", secret)).toBe(false)
+    expect(Reflect.set(error, "toJSON", () => ({ message: secret }))).toBe(false)
     expect(JSON.stringify(error)).not.toContain(secret)
   })
 
