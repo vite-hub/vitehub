@@ -3,6 +3,7 @@ import { sourceProviderRequestError, sourceProviderResponseInvalidError } from "
 import type { SourceProviderOperation } from "../../core/errors.ts"
 
 export async function requestGitHubJson<T>(input: {
+  decode: (value: unknown) => T
   operation: SourceProviderOperation
   signal?: AbortSignal
   token?: string
@@ -23,7 +24,8 @@ export async function requestGitHubJson<T>(input: {
   }
 
   try {
-    return await response.json() as T
+    const value = await response.json()
+    return input.decode(value)
   }
   catch (cause) {
     if (input.signal?.aborted) throw input.signal.reason

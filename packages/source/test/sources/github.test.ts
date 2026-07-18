@@ -454,6 +454,47 @@ describe("@vite-hub/source GitHub source", () => {
     expect(JSON.stringify(error)).not.toMatch(/secret-token|api\.github\.com|private\/repo/)
   })
 
+  it("maps malformed GitHub repository bodies inside the provider boundary", async () => {
+    const providerBody = { default_branch: { secret: "repository-token" } }
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(providerBody)))
+    const docs = github({ repo: "private/repo" })
+
+    const error = await docs.getKeys({ rootDir: process.cwd() }).catch(error => error)
+
+    expect(error).toBeInstanceOf(SourceError)
+    expect(error).toMatchObject({
+      cause: expect.any(TypeError),
+      code: "SOURCE_PROVIDER_RESPONSE_INVALID",
+      details: { operation: "resolve-repository", provider: "github" },
+    })
+    expect(JSON.stringify(error)).not.toMatch(/repository-token|private\/repo|cause|stack/)
+  })
+
+  it("maps malformed GitHub content bodies inside the provider boundary", async () => {
+    const providerBody = {
+      content: { secret: "content-token" },
+      encoding: "base64",
+      path: "README.md",
+      sha: "sha-readme",
+      type: "file",
+    }
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(providerBody)))
+    const docs = github({ ref: "main", repo: "private/repo" })
+
+    const error = await docs.getItem("README.md", {
+      abortSignal: new AbortController().signal,
+      rootDir: process.cwd(),
+    }).catch(error => error)
+
+    expect(error).toBeInstanceOf(SourceError)
+    expect(error).toMatchObject({
+      cause: expect.any(TypeError),
+      code: "SOURCE_PROVIDER_RESPONSE_INVALID",
+      details: { operation: "read-item", provider: "github" },
+    })
+    expect(JSON.stringify(error)).not.toMatch(/content-token|private\/repo|cause|stack/)
+  })
+
   it("maps corrupt GitHub archives without serializing parser failures", async () => {
     const causeText = "secret-token from https://codeload.github.com/private/repo"
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(causeText, { status: 200 })))

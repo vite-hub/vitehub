@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { copyFile, cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, extname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -18,20 +18,13 @@ it("publishes the Source error contract to installed consumers", async () => {
 
   try {
     await cp(fixtureRoot, root, { recursive: true })
-    await installBuiltPackage(root, "source")
-    await installBuiltPackage(root, "runtime")
-    const sdkRoot = await realpath(join(packageRoot, "node_modules", "@modelcontextprotocol", "sdk"))
-    const sdkInstallRoot = join(root, "node_modules", "@modelcontextprotocol", "sdk")
-    await mkdir(dirname(sdkInstallRoot), { recursive: true })
-    await symlink(sdkRoot, sdkInstallRoot, "dir")
+    const packDir = join(root, "packs")
+    await mkdir(packDir)
+    const specs = await packWorkspacePackages(packDir, ["@vite-hub/runtime", "@vite-hub/source"])
+    await writeFile(join(root, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8")
+    await run("vp", ["exec", "pnpm", "install", "--prefer-offline", "--ignore-scripts", "--strict-peer-dependencies"], root)
 
-    try {
-      await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root])
-    }
-    catch (error) {
-      const output = error as { stderr?: string, stdout?: string }
-      throw new Error([output.stdout, output.stderr].filter(Boolean).join("\n"), { cause: error })
-    }
+    await run(process.execPath, [tsc, "--noEmit", "-p", root], root)
   }
   finally {
     await rm(root, { force: true, recursive: true })
@@ -57,12 +50,35 @@ it("keeps Effect out of Source declarations and runtime bundles", async () => {
   expect(pkg.dependencies?.effect).toBeUndefined()
 })
 
-async function installBuiltPackage(root: string, name: "runtime" | "source") {
-  const sourceRoot = resolve(repositoryRoot, "packages", name)
-  const installedRoot = join(root, "node_modules", "@vite-hub", name)
-  await mkdir(installedRoot, { recursive: true })
-  await copyFile(join(sourceRoot, "package.json"), join(installedRoot, "package.json"))
-  await cp(join(sourceRoot, "dist"), join(installedRoot, "dist"), { recursive: true })
+async function run(command: string, args: string[], cwd: string) {
+  try {
+    return await execFileAsync(command, args, { cwd })
+  }
+  catch (error) {
+    const output = error as Error & { stderr?: string, stdout?: string }
+    throw new Error([output.message, output.stdout, output.stderr].filter(Boolean).join("\n"), { cause: error })
+  }
+}
+
+async function packWorkspacePackages(packDir: string, packageNames: string[]) {
+  const specs: Record<string, string> = {}
+  for (const packageName of packageNames) {
+    const packagePath = join(repositoryRoot, "packages", packageName.slice("@vite-hub/".length))
+    const manifest = JSON.parse(await readFile(join(packagePath, "package.json"), "utf8")) as { version: string }
+    await run("vp", ["exec", "pnpm", "--filter", packageName, "pack", "--pack-destination", packDir], repositoryRoot)
+    specs[packageName] = `file:${join(packDir, `${packageName.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`)}`
+  }
+  return specs
+}
+
+function workspaceConfig(specs: Record<string, string>) {
+  return [
+    "packages:",
+    "  - .",
+    "overrides:",
+    ...Object.entries(specs).map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`),
+    "",
+  ].join("\n")
 }
 
 async function listFiles(root: string): Promise<string[]> {

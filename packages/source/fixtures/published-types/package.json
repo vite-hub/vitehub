@@ -1,4 +1,7 @@
 {
+  "dependencies": {
+    "@vite-hub/source": "0.0.1"
+  },
   "private": true,
   "type": "module"
 }

@@ -21,6 +21,47 @@ function normalizeGitHubRoot(path = "") {
   return normalizeSourcePath(path).split("/").filter(part => part && part !== ".").join("/")
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function readRequiredString(value: Record<string, unknown>, field: string): string {
+  const result = value[field]
+  if (typeof result !== "string" || !result) throw new TypeError(`GitHub response has an invalid ${field}.`)
+  return result
+}
+
+function decodeRepositoryResponse(value: unknown): GitHubRepositoryResponse {
+  if (!isRecord(value)) throw new TypeError("GitHub repository response must be an object.")
+  return { default_branch: readRequiredString(value, "default_branch") }
+}
+
+function decodeCommitResponse(value: unknown): GitHubCommitResponse {
+  if (!isRecord(value)) throw new TypeError("GitHub commit response must be an object.")
+  return { sha: readRequiredString(value, "sha") }
+}
+
+function decodeContentEntry(value: unknown): GitHubContentResponse {
+  if (!isRecord(value)) throw new TypeError("GitHub content response must be an object.")
+  const type = readRequiredString(value, "type")
+  for (const field of ["content", "encoding", "path", "sha"] as const) {
+    if (value[field] !== undefined && typeof value[field] !== "string") {
+      throw new TypeError(`GitHub content response has an invalid ${field}.`)
+    }
+  }
+  return {
+    ...(value.content === undefined ? {} : { content: value.content as string }),
+    ...(value.encoding === undefined ? {} : { encoding: value.encoding as string }),
+    ...(value.path === undefined ? {} : { path: value.path as string }),
+    ...(value.sha === undefined ? {} : { sha: value.sha as string }),
+    type,
+  }
+}
+
+function decodeContentResponse(value: unknown): GitHubContentResponse | GitHubContentResponse[] {
+  return Array.isArray(value) ? value.map(decodeContentEntry) : decodeContentEntry(value)
+}
+
 function dedupeProviderPromise<TResult>(
   promises: Map<string, Promise<TResult>>,
   key: string,
@@ -82,13 +123,15 @@ export function github<const TKey extends string = string>(options: GitHubSource
 
     try {
       const repo = await requestGitHubJson<GitHubRepositoryResponse>({
+        decode: decodeRepositoryResponse,
         operation: "resolve-repository",
         signal,
         token,
         url: `https://api.github.com/repos/${options.repo}`,
       })
-      const defaultBranch = repo.default_branch || "main"
+      const defaultBranch = repo.default_branch
       const commit = await requestGitHubJson<GitHubCommitResponse>({
+        decode: decodeCommitResponse,
         operation: "resolve-ref",
         signal,
         token,
@@ -132,6 +175,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
   async function validateConfiguredRef(token = auth, signal?: AbortSignal): Promise<void> {
     if (!configuredRef) return
     await requestGitHubJson<GitHubCommitResponse>({
+      decode: decodeCommitResponse,
       operation: "validate-ref",
       signal,
       token,
@@ -213,6 +257,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
     let file: GitHubContentResponse | GitHubContentResponse[] | undefined
     try {
       file = await requestGitHubJson<GitHubContentResponse | GitHubContentResponse[]>({
+        decode: decodeContentResponse,
         operation: "read-metadata",
         signal,
         token,
@@ -273,6 +318,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
     let file: GitHubContentResponse | GitHubContentResponse[]
     try {
       file = await requestGitHubJson<GitHubContentResponse | GitHubContentResponse[]>({
+        decode: decodeContentResponse,
         operation: "read-item",
         signal,
         token,
