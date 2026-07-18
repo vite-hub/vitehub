@@ -178,7 +178,13 @@ async function refreshEnvGeneratedFiles(
 ): Promise<void> {
   await Promise.all([
     ...(packageRoot && packageRoot !== root
-      ? packageEnvModuleWrites(packageRoot, publicConfig, serverRegistry, runtimeImports)
+      ? [
+          ...packageEnvModuleWrites(packageRoot, publicConfig, serverRegistry, runtimeImports),
+          writeFileIfChanged(
+            viteHubEnvAmbientTypesPath(packageRoot),
+            createViteTypes(publicConfig, serverRegistry, runtimeImports),
+          ),
+        ]
       : []),
     writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicConfig, serverRegistry, runtimeImports)),
     writeFileIfChanged(viteHubEnvPublicModulePath(root), createPublicEnvModule(publicConfig)),

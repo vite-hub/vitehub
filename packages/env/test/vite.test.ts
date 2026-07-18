@@ -416,6 +416,28 @@ describe("Vite plugin", () => {
     expect(await readFile(packageJsonPath, "utf8")).toBe(packageJson)
     await expect(readFile(join(root, ".vitehub", "env", "public.mjs"), "utf8")).resolves.toContain("Quiver")
     await expect(readFile(join(appRoot, ".vitehub", "env", "public.mjs"), "utf8")).resolves.toContain("Quiver")
+
+    const entry = join(appRoot, "src", "consumer.ts")
+    const typesPath = join(appRoot, ".vitehub", "types", "env.d.ts")
+    await writeFile(entry, [
+      `import { usePublicEnv } from "#vitehub/env/public"`,
+      `import { useServerEnv } from "#vitehub/env/server"`,
+      `export const appName: string = usePublicEnv().appName`,
+      `export const serverEnv = useServerEnv()`,
+      ``,
+    ].join("\n"), "utf8")
+    const program = createProgram({
+      options: {
+        module: ModuleKind.NodeNext,
+        moduleResolution: ModuleResolutionKind.NodeNext,
+        noEmit: true,
+        skipLibCheck: true,
+        strict: true,
+        target: ScriptTarget.ES2022,
+      },
+      rootNames: [entry, typesPath],
+    })
+    expect(getPreEmitDiagnostics(program).map(diagnostic => flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
   })
 
   it("keeps generated env files in project ViteHub state when Vite root is nested", async () => {
