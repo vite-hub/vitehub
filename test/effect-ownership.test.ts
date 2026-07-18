@@ -3,10 +3,31 @@ import { existsSync } from "node:fs"
 import { readFile, readdir } from "node:fs/promises"
 import { join, resolve } from "node:path"
 
+import {
+  createSourceFile,
+  forEachChild,
+  isCallExpression,
+  isExportDeclaration,
+  isExternalModuleReference,
+  isIdentifier,
+  isImportDeclaration,
+  isImportEqualsDeclaration,
+  isStringLiteralLike,
+  type Node,
+  ScriptTarget,
+  SyntaxKind,
+} from "typescript"
 import { describe, expect, it } from "vitest"
 
 const repoRoot = resolve(import.meta.dirname, "..")
 const effectVersion = "4.0.0-beta.99"
+const allowedEffectOwners = new Set(["agent", "schedule", "workspace"])
+
+type PackageEffectOwnership = {
+  declaresEffect: boolean
+  importsEffect: boolean
+  name: string
+}
 
 async function readFiles(dir: string, predicate: (path: string) => boolean): Promise<string[]> {
   if (!existsSync(dir)) return []
@@ -15,16 +36,67 @@ async function readFiles(dir: string, predicate: (path: string) => boolean): Pro
   return Promise.all(files.map(path => readFile(join(dir, path), "utf8")))
 }
 
-async function effectOwners() {
+function sourceImportsEffect(source: string): boolean {
+  const sourceFile = createSourceFile("effect-owner.ts", source, ScriptTarget.Latest, true)
+  let importsEffect = false
+  const visit = (node: Node) => {
+    let specifier: Node | undefined
+    if (isImportDeclaration(node) || isExportDeclaration(node)) {
+      specifier = node.moduleSpecifier
+    } else if (isImportEqualsDeclaration(node) && isExternalModuleReference(node.moduleReference)) {
+      specifier = node.moduleReference.expression
+    } else if (isCallExpression(node) && (
+      node.expression.kind === SyntaxKind.ImportKeyword
+      || (isIdentifier(node.expression) && node.expression.text === "require")
+    )) {
+      specifier = node.arguments[0]
+    }
+    if (specifier && isStringLiteralLike(specifier) && /^(?:effect)(?:\/|$)/.test(specifier.text)) {
+      importsEffect = true
+      return
+    }
+    forEachChild(node, visit)
+  }
+  forEachChild(sourceFile, visit)
+  return importsEffect
+}
+
+async function packageEffectOwnership(): Promise<PackageEffectOwnership[]> {
   const packagesDir = join(repoRoot, "packages")
-  const owners: string[] = []
+  const packages: PackageEffectOwnership[] = []
   for (const entry of await readdir(packagesDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
     const packageDir = join(packagesDir, entry.name)
-    const source = (await readFiles(join(packageDir, "src"), path => /\.[cm]?[jt]sx?$/.test(path))).join("\n")
-    if (/(?:from\s*|import\s*(?:\(\s*)?)["']effect(?:\/[^"']*)?["']/.test(source)) owners.push(packageDir)
+    const sources = await readFiles(join(packageDir, "src"), path => /\.[cm]?[jt]sx?$/.test(path))
+    const manifest = JSON.parse(await readFile(join(packageDir, "package.json"), "utf8")) as Record<string, unknown>
+    const dependencyGroups = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+    const declaresEffect = dependencyGroups.some((group) => {
+      const dependencies = manifest[group]
+      return typeof dependencies === "object" && dependencies !== null && "effect" in dependencies
+    })
+    packages.push({
+      declaresEffect,
+      importsEffect: sources.some(sourceImportsEffect),
+      name: entry.name,
+    })
   }
-  return owners
+  return packages
+}
+
+function effectOwnershipViolations(packages: PackageEffectOwnership[]): string[] {
+  const violations: string[] = []
+  for (const pkg of packages) {
+    if (pkg.importsEffect && !allowedEffectOwners.has(pkg.name)) {
+      violations.push(`${pkg.name}: unauthorized Effect importer`)
+    }
+    if (pkg.declaresEffect && !allowedEffectOwners.has(pkg.name)) {
+      violations.push(`${pkg.name}: unauthorized Effect dependency owner`)
+    }
+    if (pkg.importsEffect !== pkg.declaresEffect) {
+      violations.push(`${pkg.name}: Effect importer and dependency ownership differ`)
+    }
+  }
+  return violations
 }
 
 function lockOwnerForV3References(lockfile: string) {
@@ -43,7 +115,9 @@ describe("Effect ownership", () => {
     const workspace = await readFile(join(repoRoot, "pnpm-workspace.yaml"), "utf8")
     expect(workspace).toContain(`  effect:\n    effect: ${effectVersion}`)
 
-    const owners = await effectOwners()
+    const packages = await packageEffectOwnership()
+    expect(effectOwnershipViolations(packages)).toEqual([])
+    const owners = packages.filter(pkg => pkg.importsEffect).map(pkg => join(repoRoot, "packages", pkg.name))
     expect(owners.length).toBeGreaterThan(0)
     for (const packageDir of owners) {
       const manifestPath = join(packageDir, "package.json")
@@ -60,6 +134,34 @@ describe("Effect ownership", () => {
       const bundles = (await readFiles(join(packageDir, "dist"), path => /\.[cm]?js$/.test(path))).join("\n")
       expect(bundles, packageDir).not.toMatch(/effect@3\.|3\.17\.7/)
     }
+  })
+
+  it.each([
+    {
+      fixture: [{ declaresEffect: true, importsEffect: true, name: "queue" }],
+      violation: "queue: unauthorized Effect importer",
+    },
+    {
+      fixture: [{ declaresEffect: true, importsEffect: false, name: "schedule" }],
+      violation: "schedule: Effect importer and dependency ownership differ",
+    },
+    {
+      fixture: [{ declaresEffect: false, importsEffect: true, name: "workspace" }],
+      violation: "workspace: Effect importer and dependency ownership differ",
+    },
+  ])("rejects invalid Effect ownership: $violation", ({ fixture, violation }) => {
+    expect(effectOwnershipViolations(fixture)).toContain(violation)
+  })
+
+  it.each([
+    'import type { Effect } from "effect"',
+    'export type { Effect } from "effect"',
+    'export { Effect } from "effect"',
+    'import "effect/Schema"',
+    'const effect = import("effect")',
+    'const effect = require("effect")',
+  ])("detects Effect ownership syntax in %s", (source) => {
+    expect(sourceImportsEffect(source)).toBe(true)
   })
 
   it("isolates the optional Effect 3 subtree to UploadThing", async () => {
