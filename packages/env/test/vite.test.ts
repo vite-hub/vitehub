@@ -337,7 +337,6 @@ describe("Vite plugin", () => {
         emptyOutDir: true,
         lib: { entry, fileName: () => "consumer.mjs", formats: ["es"] },
         outDir: join(root, "dist"),
-        rollupOptions: { external: ["#vitehub/env/server"] },
       },
       configFile: false,
       env: {
@@ -350,6 +349,7 @@ describe("Vite plugin", () => {
     })
 
     expect(await readFile(packageJsonPath, "utf8")).toBe(packageJson)
+    expect(await readFile(join(root, "dist", "consumer.mjs"), "utf8")).not.toMatch(/from\s+["']#vitehub\/env\//)
     const typesPath = join(root, ".vitehub", "types", "env.d.ts")
     const program = createProgram({
       options: {
