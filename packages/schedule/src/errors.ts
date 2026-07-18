@@ -170,13 +170,15 @@ export class ScheduleError<TCode extends ScheduleErrorCode = ScheduleErrorCode> 
 
 function sealScheduleError(error: ScheduleError): void {
   if (error.details) Object.freeze(error.details)
-  const snapshot = Object.freeze(error.toJSON())
-  Object.defineProperty(error, "toJSON", {
-    configurable: false,
-    enumerable: false,
-    value: () => snapshot,
-    writable: false,
-  })
+  if (!Object.getOwnPropertyDescriptor(error, "toJSON")) {
+    const snapshot = Object.freeze(error.toJSON())
+    Object.defineProperty(error, "toJSON", {
+      configurable: false,
+      enumerable: false,
+      value: () => snapshot,
+      writable: false,
+    })
+  }
   for (const key of ["code", "details", "httpStatus", "message", "name", "requestId", "retryable"] as const) {
     const descriptor = Object.getOwnPropertyDescriptor(error, key)
     if (descriptor && "writable" in descriptor) {
