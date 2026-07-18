@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
-import { expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
 
 const execFileAsync = promisify(execFile)
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -23,36 +23,47 @@ const packedPackages = [
   "source",
   "workspace",
 ] as const
+let consumerRoot: string | undefined
 
 async function runPnpm(args: string[], cwd: string): Promise<void> {
-  const npmExecPath = process.env.npm_execpath
-  if (npmExecPath?.includes("pnpm")) {
-    await execFileAsync(process.execPath, [npmExecPath, ...args], { cwd })
-    return
+  try {
+    const npmExecPath = process.env.npm_execpath
+    if (npmExecPath?.includes("pnpm")) {
+      await execFileAsync(process.execPath, [npmExecPath, ...args], { cwd })
+      return
+    }
+    await execFileAsync("corepack", ["pnpm", ...args], { cwd })
   }
-  await execFileAsync("corepack", ["pnpm", ...args], { cwd })
+  catch (error) {
+    const output = error as Error & { stderr?: string, stdout?: string }
+    throw new Error([output.message, output.stdout, output.stderr].filter(Boolean).join("\n"), { cause: error })
+  }
 }
 
+beforeAll(async () => {
+  consumerRoot = await mkdtemp(join(tmpdir(), "vitehub-auth-types-"))
+  await cp(fixtureRoot, consumerRoot, { recursive: true })
+  await Promise.all(packedPackages.map(name => (
+    runPnpm(["pack", "--pack-destination", consumerRoot!], join(workspaceRoot, "packages", name))
+  )))
+}, 15_000)
+
+afterAll(async () => {
+  if (consumerRoot) await rm(consumerRoot, { force: true, recursive: true })
+})
+
+it("installs the real packed Auth dependency graph", { timeout: 15_000 }, async () => {
+  await runPnpm(["install", "--prefer-offline", "--ignore-scripts", "--no-frozen-lockfile"], consumerRoot!)
+})
+
 it("publishes the structured Auth error contract from installed packages", { timeout: 15_000 }, async () => {
-  const root = await mkdtemp(join(tmpdir(), "vitehub-auth-types-"))
-
+  const root = consumerRoot!
   try {
-    await cp(fixtureRoot, root, { recursive: true })
-    await Promise.all(packedPackages.map(name => (
-      runPnpm(["pack", "--pack-destination", root], join(workspaceRoot, "packages", name))
-    )))
-    await runPnpm(["install", "--offline", "--ignore-scripts", "--no-frozen-lockfile"], root)
-
-    try {
-      await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root])
-    }
-    catch (error) {
-      const diagnostics = error as { stderr?: string, stdout?: string }
-      throw new Error([diagnostics.stdout, diagnostics.stderr].filter(Boolean).join("\n"), { cause: error })
-    }
+    await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root])
   }
-  finally {
-    await rm(root, { force: true, recursive: true })
+  catch (error) {
+    const diagnostics = error as Error & { stderr?: string, stdout?: string }
+    throw new Error([diagnostics.message, diagnostics.stdout, diagnostics.stderr].filter(Boolean).join("\n"), { cause: error })
   }
 })
 
