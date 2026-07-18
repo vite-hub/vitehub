@@ -41,7 +41,7 @@ it("publishes the structured Auth error contract from installed packages", { tim
     await Promise.all(packedPackages.map(name => (
       runPnpm(["pack", "--pack-destination", root], join(workspaceRoot, "packages", name))
     )))
-    await runPnpm(["install", "--ignore-scripts", "--no-frozen-lockfile"], root)
+    await runPnpm(["install", "--offline", "--ignore-scripts", "--no-frozen-lockfile"], root)
 
     try {
       await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root])
