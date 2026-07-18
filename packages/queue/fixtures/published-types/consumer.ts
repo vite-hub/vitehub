@@ -16,6 +16,11 @@ new QueueError({
   code: "QUEUE_PROVIDER_OPERATION_FAILED",
   details: { operation: "send", provider: "vercel" },
 })
+new QueueError({
+  code: "QUEUE_PROVIDER_RESPONSE_INVALID",
+  details: { operation: "send", provider: "vercel" },
+  message: "[vitehub] Vercel queue provider returned an invalid send response.",
+})
 
 // @ts-expect-error Custom codes require an explicit QueueError generic.
 new QueueError({ code: "INVALID_PAYLOAD", message: "Invalid payload." })
