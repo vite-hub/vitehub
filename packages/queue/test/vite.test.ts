@@ -176,6 +176,18 @@ describe("hubQueue", () => {
     expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "index.js"))).toBe(true)
   })
 
+  it("keeps standalone output when Queue targets Cloudflare but Nitro does not", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue({ provider: "cloudflare" })
+    const config = { build: { outDir: "dist" }, command: "build", nitro: { preset: "vercel" }, root }
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config as never)
+    await (plugin.closeBundle as () => Promise<void>)()
+    expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "index.js"))).toBe(true)
+  })
+
   it("rejects ambiguous and conflicting custom Cloudflare bindings", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
     roots.push(root)

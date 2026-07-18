@@ -41,6 +41,11 @@ function resolveQueueHosting(queue: QueueModuleOptions | undefined, nitro: Recor
   return getHostingProvider(preset) || "vercel"
 }
 
+function resolveNitroHosting(nitro: Record<string, unknown>): string | undefined {
+  const preset = typeof nitro.preset === "string" ? nitro.preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
+  return getHostingProvider(preset)
+}
+
 function supportsCloudflareQueues(nitro: Record<string, unknown>): boolean {
   const preset = typeof nitro.preset === "string" ? nitro.preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING || ""
   return !preset.replaceAll("-", "_").includes("cloudflare_pages")
@@ -107,7 +112,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       queue = config.queue ?? queue
       const nitro = (config as { nitro?: unknown }).nitro
       const nitroConfig = cloneNitroConfig(nitro)
-      nitroOwnsCloudflareWorker = Boolean(nitro && resolveQueueHosting(queue, nitroConfig) === "cloudflare" && supportsCloudflareQueues(nitroConfig))
+      nitroOwnsCloudflareWorker = Boolean(nitro && resolveNitroHosting(nitroConfig) === "cloudflare" && supportsCloudflareQueues(nitroConfig))
       ;(config as { nitro?: unknown }).nitro = mergeNitroConfig(config, nitro, queue, config.root || process.cwd())
     },
     async configResolved(config) {
@@ -115,7 +120,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       queue = config.queue ?? queue
       const configuredNitro = (config as { nitro?: unknown }).nitro
       const configuredNitroConfig = cloneNitroConfig(configuredNitro)
-      nitroOwnsCloudflareWorker = Boolean(configuredNitro && resolveQueueHosting(queue, configuredNitroConfig) === "cloudflare" && supportsCloudflareQueues(configuredNitroConfig))
+      nitroOwnsCloudflareWorker = Boolean(configuredNitro && resolveNitroHosting(configuredNitroConfig) === "cloudflare" && supportsCloudflareQueues(configuredNitroConfig))
       const nitro = mergeNitroConfig(config, configuredNitro, queue, config.root)
       ;(config as { nitro?: unknown }).nitro = nitro
       hosting = resolveQueueHosting(queue, nitro)

@@ -181,6 +181,7 @@ describe("Vite provider outputs", () => {
     await mkdir(cloudflareOutputRoot, { recursive: true })
     await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
     await writeFile(join(cloudflareOutputRoot, "index.js"), "export default {}\n", "utf8")
+    await writeFile(join(cloudflareOutputRoot, ".vitehub-queue-output"), "", "utf8")
     await writeFile(join(cloudflareOutputRoot, "wrangler.json"), `${JSON.stringify({
       compatibility_date: "2026-04-20",
       main: "index.js",
@@ -199,6 +200,33 @@ describe("Vite provider outputs", () => {
     expect(existsSync(join(cloudflareOutputRoot, "index.js"))).toBe(false)
     await expect(readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       triggers: { crons: ["0 0 * * *"] },
+    })
+  })
+
+  it("preserves another primitive's Cloudflare Worker during Nitro takeover", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-shared-nitro-cloudflare-")
+    const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(cloudflareOutputRoot, { recursive: true })
+    await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
+    await writeFile(join(cloudflareOutputRoot, "index.js"), "// workflow worker\n", "utf8")
+    await writeFile(join(cloudflareOutputRoot, "wrangler.json"), `${JSON.stringify({
+      main: "index.js",
+      queues: { producers: [{ binding: "STALE", queue: "stale" }] },
+      workflows: [{ binding: "WORKFLOW", class_name: "Workflow" }],
+    }, null, 2)}\n`, "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
+      queue: { provider: "cloudflare" },
+      rootDir,
+    })
+
+    await expect(readFile(join(cloudflareOutputRoot, "index.js"), "utf8")).resolves.toBe("// workflow worker\n")
+    await expect(readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      main: "index.js",
+      workflows: [{ binding: "WORKFLOW", class_name: "Workflow" }],
     })
   })
 

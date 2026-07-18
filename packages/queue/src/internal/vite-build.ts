@@ -1,8 +1,8 @@
-import { mkdir, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
-import { createDefaultVercelOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg, toGeneratedPath } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
@@ -18,6 +18,7 @@ import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } fro
 import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
 export const queuePackageName = "@vite-hub/queue"
+const cloudflareQueueOutputMarker = ".vitehub-queue-output"
 const productName = "queue"
 
 const generatedRegistryFileName = "registry.mjs"
@@ -249,8 +250,28 @@ function createCloudflareOutput(artifacts: GeneratedQueueArtifacts): CloudflareP
       format: "esm",
       platform: "neutral",
     },
+    files: { [cloudflareQueueOutputMarker]: "" },
     wranglerConfigKeys: ["queues"],
     wranglerConfig,
+  }
+}
+
+async function createNitroCloudflareCleanup(rootDir: string) {
+  const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+  let ownsWorker = true
+  try {
+    await access(resolve(outputRoot, cloudflareQueueOutputMarker))
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    ownsWorker = false
+  }
+  return {
+    fileNames: ownsWorker ? ["index.js", cloudflareQueueOutputMarker] : [cloudflareQueueOutputMarker],
+    outputRoot,
+    wranglerConfigOwnership: {
+      keys: ownsWorker ? ["compatibility_date", "compatibility_flags", "main", "observability", "queues"] : ["queues"],
+    },
   }
 }
 
@@ -366,10 +387,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
       clientOutDir: options.clientOutDir,
       cleanup: {
         cloudflare: options.cloudflareOwnedByNitro
-          ? {
-              fileNames: ["index.js"],
-              wranglerConfigOwnership: { keys: ["compatibility_date", "compatibility_flags", "main", "observability", "queues"] },
-            }
+          ? () => createNitroCloudflareCleanup(options.rootDir)
           : { wranglerConfigOwnership: { keys: ["queues"] } },
       },
       rootDir: options.rootDir,
