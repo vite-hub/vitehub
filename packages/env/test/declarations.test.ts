@@ -137,7 +137,7 @@ describe("env declarations", () => {
   it("rejects flat runtime declarations in Vite config", () => {
     expect(() => validateEnvConfigShape({
       databaseUrl: env(),
-    } as never, "vite")).toThrow("Invalid declaration")
+    } as never, "vite")).toThrow("[vitehub] Env declaration is invalid.")
   })
 
   it("creates a runtime registry with inferred nested env sources", () => {
@@ -193,7 +193,7 @@ describe("env declarations", () => {
           __vitehubDefaultRuntimeSchema: marker,
         },
       },
-    })).toThrow("custom schema")
+    })).toThrow("[vitehub] Env declaration is invalid.")
 
     expect(() => createRuntimeRegistry({
       appName: {
@@ -203,7 +203,7 @@ describe("env declarations", () => {
           safeParse: () => ({ data: 123, success: true }),
         },
       },
-    })).toThrow("custom schema")
+    })).toThrow("[vitehub] Env declaration is invalid.")
 
     expect(() => createRuntimeRegistry({
       appName: {
@@ -216,7 +216,7 @@ describe("env declarations", () => {
           safeParse: defaultStringSchema.safeParse,
         },
       },
-    })).toThrow("custom schema")
+    })).toThrow("[vitehub] Env declaration is invalid.")
 
     expect(() => createRuntimeRegistry({
       appName: {
@@ -230,7 +230,7 @@ describe("env declarations", () => {
           safeParse: defaultStringSchema.safeParse,
         }),
       },
-    })).toThrow("custom schema")
+    })).toThrow("[vitehub] Env declaration is invalid.")
 
     const accessorSchema = {
       __vitehubDefaultRuntimeSchema: marker,
@@ -243,7 +243,7 @@ describe("env declarations", () => {
         ...env({ default: "Docs App" }),
         schema: accessorSchema,
       },
-    })).toThrow("custom schema")
+    })).toThrow("[vitehub] Env declaration is invalid.")
 
     let hasChecks = 0
     const proxySchema = new Proxy({
@@ -283,21 +283,21 @@ describe("env declarations", () => {
   it("rejects non-string runtime registry types", () => {
     expect(() => createRuntimeRegistry({
       sentryDebug: env({ type: "boolean" }),
-    })).toThrow("runtime values are strings")
+    })).toThrow("[vitehub] Env declaration is invalid.")
   })
 
   it("rejects build-mode runtime registry declarations", () => {
     expect(() => createRuntimeRegistry({
       appName: env({ mode: "build" }),
-    })).toThrow("must use mode: \"runtime\"")
+    })).toThrow("[vitehub] Env declaration is invalid.")
   })
 
   it("rejects invalid runtime registry values", () => {
     expect(() => createRuntimeRegistry({
       empty: undefined,
-    } as never)).toThrow("Invalid runtime declaration at env.empty")
+    } as never)).toThrow("[vitehub] Env declaration is invalid.")
 
-    expect(() => createRuntimeRegistry(null as never)).toThrow("Invalid runtime declaration at env")
+    expect(() => createRuntimeRegistry(null as never)).toThrow("[vitehub] Env declaration is invalid.")
   })
 
   it("rejects custom runtime registry sources", () => {
@@ -306,7 +306,7 @@ describe("env declarations", () => {
         mode: "runtime",
         source: env.gitCommit(),
       }),
-    })).toThrow("must use env.source()")
+    })).toThrow("[vitehub] Env declaration is invalid.")
   })
 
   it("accepts standard-schema results with empty issues", () => {
