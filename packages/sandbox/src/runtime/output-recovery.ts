@@ -1,6 +1,6 @@
 import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
 import { sleep } from '../internal/shared/utils'
-import { SandboxError } from '../sandbox/errors'
+import { readSandboxErrorInternals, SandboxError } from '../sandbox/errors'
 import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script'
 
 import type { SandboxClient } from '../sandbox/types'
@@ -40,7 +40,7 @@ function isRecoverableCloudflareExecError(error: unknown) {
   if (sandboxError?.provider && sandboxError.provider !== 'cloudflare')
     return false
 
-  if (sandboxError?.code === 'TIMEOUT' || sandboxError?.code === 'SANDBOX_TRANSPORT_ERROR')
+  if (sandboxError?.code === 'SANDBOX_TIMEOUT' || sandboxError?.code === 'SANDBOX_TRANSPORT_ERROR')
     return true
 
   return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(collectCloudflareErrorMessages(error))
@@ -113,10 +113,12 @@ function getExecutionDiagnostics(execution?: ExecutionMeta) {
 }
 
 function getErrorDiagnostics(error: unknown) {
-  if (!error || typeof error !== 'object' || !('details' in error))
+  if (!error || typeof error !== 'object')
     return {}
 
-  const details = (error as { details?: Record<string, unknown> }).details
+  const details = error instanceof SandboxError
+    ? readSandboxErrorInternals(error).details
+    : 'details' in error ? (error as { details?: Record<string, unknown> }).details : undefined
   if (!details || typeof details !== 'object')
     return {}
 

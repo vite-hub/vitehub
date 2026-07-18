@@ -1,6 +1,9 @@
-import { SandboxError } from '../sandbox/errors'
+import { readSandboxErrorInternals, SandboxError } from '../sandbox/errors'
 
 export function readSandboxErrorMetadata(error: unknown) {
+  if (error instanceof SandboxError)
+    return readSandboxErrorInternals(error)
+
   if (!error || typeof error !== 'object')
     return undefined
 

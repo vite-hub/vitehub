@@ -1,5 +1,6 @@
 import type { CloudflareSandboxDefinitionProviderOptions, SandboxDefinitionOptions } from '../../module-types'
 import { getCloudflareEnv } from '../../internal/shared/provider-detection'
+import { SandboxError } from '../../sandbox/errors'
 import type { CloudflareSandboxOptions, CloudflareSandboxStub, DurableObjectNamespaceLike } from '../../sandbox/types'
 
 type SandboxOptions = {
@@ -19,7 +20,7 @@ async function loadCloudflareSandbox() {
     return (await import('@cloudflare/sandbox')).getSandbox
   }
   catch (error) {
-    throw new Error(`@cloudflare/sandbox load failed. The Cloudflare provider requires @cloudflare/sandbox to be installed. Original error: ${error instanceof Error ? error.message : error}`)
+    throw new SandboxError('@cloudflare/sandbox load failed.', { cause: error, code: 'SANDBOX_RUNTIME_ERROR', provider: 'cloudflare' })
   }
 }
 
@@ -29,7 +30,7 @@ export async function resolveSandboxProvider(options: SandboxOptions, context: {
   const namespace = env?.[bindingName] as DurableObjectNamespaceLike | undefined
 
   if (!namespace) {
-    throw new Error(`Cloudflare sandbox requires the "${bindingName}" binding. Set sandbox.binding or run inside Cloudflare.`)
+    throw new SandboxError(`Cloudflare sandbox requires the "${bindingName}" binding.`, { code: 'SANDBOX_RUNTIME_ERROR', provider: 'cloudflare' })
   }
 
   const getCloudflareSandbox = await loadCloudflareSandbox()

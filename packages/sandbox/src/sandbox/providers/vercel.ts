@@ -87,7 +87,7 @@ async function loadVercelSandbox(): Promise<VercelSandboxSDK> {
     }
   }
   catch (error) {
-    throw new SandboxError(`@vercel/sandbox load failed. The Vercel provider requires @vercel/sandbox to be installed. Original error: ${error instanceof Error ? error.message : error}`)
+    throw new SandboxError('@vercel/sandbox load failed.', { cause: error, code: 'SANDBOX_RUNTIME_ERROR', provider: 'vercel' })
   }
 }
 

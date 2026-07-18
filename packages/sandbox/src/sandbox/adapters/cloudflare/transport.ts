@@ -1,5 +1,5 @@
 import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS } from '../../../internal/shared/cloudflare-retry'
-import { SandboxError } from '../../errors'
+import { readSandboxErrorInternals, SandboxError } from '../../errors'
 import { sleep } from '../_shared'
 
 export const CLOUDFLARE_CONTROL_PLANE_TIMEOUT_MS = 15_000
@@ -19,8 +19,8 @@ export function createCloudflareTransportError(operation: string, error: unknown
 
 export function isRetriableCloudflareTransportError(error: unknown) {
   const sandboxError = error instanceof SandboxError ? error : undefined
-  const message = error instanceof Error ? error.message : String(error)
-  if (sandboxError?.code === 'TIMEOUT')
+  const message = sandboxError ? readSandboxErrorInternals(sandboxError).message : error instanceof Error ? error.message : String(error)
+  if (sandboxError?.code === 'SANDBOX_TIMEOUT')
     return true
   return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(message)
 }

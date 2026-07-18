@@ -3,7 +3,7 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { defineSandbox, runSandbox } from "../src/index.ts"
+import { defineSandbox, runSandbox, SandboxError } from "../src/index.ts"
 
 describe("sandbox public api", () => {
   it("keeps the factory surface minimal", async () => {
@@ -23,12 +23,15 @@ describe("sandbox public api", () => {
   })
 
   it("returns a result wrapper instead of throwing", async () => {
-    const result = await runSandbox("missing")
+    const secret = "missing?token=vh_secret_123"
+    const result = await runSandbox(secret)
 
     expect(result.isErr()).toBe(true)
     expect(result.isOk()).toBe(false)
     if (result.isErr()) {
-      expect(result.error!.message).toContain("missing")
+      expect(result.error).toBeInstanceOf(SandboxError)
+      expect(result.error).toMatchObject({ code: "SANDBOX_NOT_FOUND", message: "Sandbox definition was not found." })
+      expect(JSON.stringify(result)).not.toContain(secret)
     }
   })
 

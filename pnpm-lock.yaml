@@ -1000,6 +1000,9 @@ importers:
 
   packages/sandbox:
     dependencies:
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       esbuild:
         specifier: catalog:tooling
         version: 0.28.1

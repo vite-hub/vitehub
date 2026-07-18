@@ -88,6 +88,8 @@ export type {
   VercelSandboxProviderOptions,
 }
 
+export type { SandboxErrorCode, SandboxErrorDetails, SandboxErrorJSON } from './sandbox/errors'
+
 export function getSandboxFeatureProvider(config?: AgentSandboxConfig | false): SandboxDefinitionProviderOptions | undefined {
   if (!config || typeof config !== 'object' || typeof config.provider !== 'string')
     return undefined
