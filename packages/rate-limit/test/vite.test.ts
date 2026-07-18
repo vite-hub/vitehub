@@ -104,12 +104,12 @@ describe("hubRateLimit", () => {
     expect(vercelConfig({ nitro: { preset: "vercel" }, root }, { command: "build" }).nitro).not.toHaveProperty("cloudflare.wrangler.ratelimits")
   })
 
-  it("keeps standalone output when hosting inference has no Nitro preset", async () => {
+  it.each(["NITRO_PRESET", "SERVER_PRESET", "VITEHUB_HOSTING"])("keeps standalone output without Nitro when hosting is selected by %s", async (environmentVariable) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-plain-cloudflare-"))
     roots.push(root)
     await writeCloudflareDeclaration(root)
-    const previousHosting = process.env.VITEHUB_HOSTING
-    process.env.VITEHUB_HOSTING = "cloudflare"
+    const previousHosting = process.env[environmentVariable]
+    process.env[environmentVariable] = "cloudflare"
     try {
       const plugin = hubRateLimit({ namespace: "vite-test" })
       const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
@@ -125,8 +125,35 @@ describe("hubRateLimit", () => {
       await expect(readFile(join(root, "dist", appOutput!, "wrangler.json"), "utf8")).resolves.toContain(getCloudflareRateLimitBindingName("upload"))
     }
     finally {
-      if (previousHosting === undefined) delete process.env.VITEHUB_HOSTING
-      else process.env.VITEHUB_HOSTING = previousHosting
+      if (previousHosting === undefined) delete process.env[environmentVariable]
+      else process.env[environmentVariable] = previousHosting
+    }
+  })
+
+  it.each(["NITRO_PRESET", "SERVER_PRESET", "VITEHUB_HOSTING"])("composes and suppresses output for real Nitro hosting selected by %s", async (environmentVariable) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-nitro-cloudflare-env-"))
+    roots.push(root)
+    await writeCloudflareDeclaration(root)
+    const previousHosting = process.env[environmentVariable]
+    process.env[environmentVariable] = "cloudflare"
+    try {
+      const plugin = hubRateLimit({ namespace: "vite-test" })
+      const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
+      const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
+      const userConfig = { nitro: {}, root }
+
+      config(userConfig, { command: "build" })
+      await configResolved({ ...userConfig, build: { outDir: "dist" }, command: "build", plugins: [{ name: "nitro:main" }], resolve: { alias: [] } } as never)
+      expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.ratelimits", [
+        expect.objectContaining({ name: getCloudflareRateLimitBindingName("upload") }),
+      ])
+      await (plugin.closeBundle as () => Promise<void>)()
+
+      await expect(access(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"))).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      if (previousHosting === undefined) delete process.env[environmentVariable]
+      else process.env[environmentVariable] = previousHosting
     }
   })
 

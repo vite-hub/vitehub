@@ -93,8 +93,7 @@ function renderRuntimeInstaller(
 function resolveProvider(options: RateLimitModuleOptions, command: "build" | "serve", nitro: unknown, deferUnknown = false): "cloudflare" | "memory" | undefined {
   if (options.provider && options.provider !== "auto") return options.provider
   if (command === "serve") return "memory"
-  const nitroPreset = cloneNitroConfig(nitro).preset
-  const hosting = getHostingProvider(typeof nitroPreset === "string" ? nitroPreset : process.env.VITEHUB_HOSTING)
+  const hosting = resolveNitroHosting(nitro)
   if (hosting === "cloudflare") return "cloudflare"
   if (hosting) {
     throw new Error(`[vitehub] Rate Limit has no native ${hosting} driver. Configure a custom Rate Limiter instead of falling back to per-instance memory.`)
@@ -103,10 +102,9 @@ function resolveProvider(options: RateLimitModuleOptions, command: "build" | "se
   throw new Error("[vitehub] Rate Limit provider cannot be inferred for a production build. Set rateLimit.provider to \"cloudflare\" or explicitly choose \"memory\" for a known single-process deployment.")
 }
 
-function isNitroCloudflareHost(nitro: unknown): boolean {
-  if (!nitro || typeof nitro !== "object" || Array.isArray(nitro)) return false
+function resolveNitroHosting(nitro: unknown): string | undefined {
   const preset = cloneNitroConfig(nitro).preset
-  return typeof preset === "string" && getHostingProvider(preset) === "cloudflare"
+  return getHostingProvider(typeof preset === "string" ? preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING)
 }
 
 export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimitVitePlugin {
@@ -151,7 +149,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         declarations,
         resolveRateLimitNamespace(rateLimit.namespace),
         configuredProvider,
-        isNitroCloudflareHost(configuredNitro),
+        resolveNitroHosting(configuredNitro) === "cloudflare",
       )
       ;(config as { nitro?: unknown }).nitro = nitro
       return { nitro } as never
@@ -162,7 +160,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       composedOutput = useComposedProviderOutput(config)
       projectRoot = resolveViteHubProjectRoot(config.root, { projectRoot: rateLimit.projectRoot })
       const configuredNitro = (config as { nitro?: unknown }).nitro
-      const nitroCloudflare = isNitroCloudflareHost(configuredNitro)
+      const nitroCloudflare = resolveNitroHosting(configuredNitro) === "cloudflare"
       cloudflareOwnedByNitro = hasNitroVitePlugin(config) && nitroCloudflare
       provider = resolveProvider(rateLimit, config.command, configuredNitro)!
       collectDeclarations()

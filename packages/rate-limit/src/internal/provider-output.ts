@@ -22,6 +22,7 @@ interface CloudflareRateLimitBindingConfig {
 
 interface CloudflareRateLimitOutputState {
   bindings: string[]
+  standalone: boolean
 }
 
 function outputStateFile(rootDir: string): string {
@@ -35,22 +36,23 @@ async function readOutputState(rootDir: string): Promise<CloudflareRateLimitOutp
       bindings: Array.isArray(parsed.bindings)
         ? parsed.bindings.filter((value): value is string => typeof value === "string")
         : [],
+      standalone: parsed.standalone === true,
     }
   }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { bindings: [] }
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { bindings: [], standalone: false }
     throw error
   }
 }
 
-async function writeOutputState(rootDir: string, bindings: string[]): Promise<void> {
+async function writeOutputState(rootDir: string, bindings: string[], standalone = false): Promise<void> {
   const file = outputStateFile(rootDir)
   if (bindings.length === 0) {
     await rm(file, { force: true })
     return
   }
   await mkdir(dirname(file), { recursive: true })
-  await writeFile(file, `${JSON.stringify({ bindings }, null, 2)}\n`, "utf8")
+  await writeFile(file, `${JSON.stringify({ bindings, ...(standalone ? { standalone: true } : {}) }, null, 2)}\n`, "utf8")
 }
 
 function namespaceId(namespace: string, rateLimitId: string): string {
@@ -112,7 +114,27 @@ export async function writeRateLimitProviderOutput(options: {
     if (options.provider === "cloudflare" && options.declarations.length > 0 && !options.namespace) {
       throw new Error("[vitehub] Cloudflare Rate Limit requires rateLimit.namespace to isolate counters between deployments.")
     }
-    await writeOutputState(options.rootDir, options.provider === "cloudflare" ? currentBindings : [])
+    const hasComposedBindings = options.provider === "cloudflare" && options.declarations.length > 0
+    if (!hasComposedBindings && state.standalone && state.bindings.length > 0) {
+      await writeProviderDeploymentOutputs({
+        clientOutDir: options.clientOutDir,
+        cleanup: {
+          cloudflare: {
+            outputRoot: createDefaultCloudflareOutputRoot(options.rootDir),
+            wranglerConfigOwnership: {
+              arrays: {
+                ratelimits: {
+                  key: "name",
+                  values: state.bindings,
+                },
+              },
+            },
+          },
+        },
+        rootDir: options.rootDir,
+      })
+    }
+    await writeOutputState(options.rootDir, hasComposedBindings ? currentBindings : [])
     await writeRateLimitManifest(options.rootDir, options.declarations, options.provider)
     return
   }
@@ -132,7 +154,7 @@ export async function writeRateLimitProviderOutput(options: {
       },
       rootDir: options.rootDir,
     })
-    await writeOutputState(options.rootDir, currentBindings)
+    await writeOutputState(options.rootDir, currentBindings, true)
     await writeRateLimitManifest(options.rootDir, options.declarations, options.provider)
     return
   }
