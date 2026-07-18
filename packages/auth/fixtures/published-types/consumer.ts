@@ -1,4 +1,6 @@
 import {
+  AuthenticationProviderError,
+  type AuthenticationProviderErrorOptions,
   AuthenticationRequiredError,
   type AuthenticationRequiredErrorOptions,
 } from "@vite-hub/auth/agent"
@@ -16,3 +18,10 @@ error.statusCode satisfies 401
 error.toJSON() satisfies ViteHubErrorShape<"AUTHENTICATION_REQUIRED">
 
 new AuthenticationRequiredError("Sign in required.")
+
+const providerOptions = {
+  operation: "get-session",
+} satisfies AuthenticationProviderErrorOptions
+const providerError = new AuthenticationProviderError(providerOptions)
+providerError.code satisfies "AUTH_PROVIDER_OPERATION_FAILED"
+providerError.toJSON() satisfies ViteHubErrorShape<"AUTH_PROVIDER_OPERATION_FAILED">

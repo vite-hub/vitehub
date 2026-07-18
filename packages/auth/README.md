@@ -187,3 +187,5 @@ const error = new AuthenticationRequiredError({
 ```
 
 `error.toJSON()` includes `code`, `message`, and `details`, while omitting `cause` and stack data. Keep secrets out of `details`; use `cause` only for protected server-side diagnostics.
+
+If the default Better Auth bridge fails while creating request-scoped Auth or reading its session, `authenticated()` throws `AuthenticationProviderError` with code `AUTH_PROVIDER_OPERATION_FAILED`. Its safe details identify Better Auth and the failed operation, while the original provider failure remains available only as the nonserialized `cause`. Exceptions from an application-owned `source` pass through unchanged.

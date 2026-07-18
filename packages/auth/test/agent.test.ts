@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { authenticated, AuthenticationRequiredError } from "../src/agent.ts"
+import { authenticated, AuthenticationProviderError, AuthenticationRequiredError } from "../src/agent.ts"
 
 import type { AgentInvokerOptions, AgentInvokerResolveContext } from "@vite-hub/agent"
 
 const serverMocks = vi.hoisted(() => ({
+  getAuthForRequest: vi.fn(),
   getSession: vi.fn(),
 }))
 
@@ -14,11 +15,7 @@ vi.mock("../src/server.ts", () => ({
       getSession: serverMocks.getSession,
     },
   }),
-  getAuthForRequest: () => ({
-    api: {
-      getSession: serverMocks.getSession,
-    },
-  }),
+  getAuthForRequest: serverMocks.getAuthForRequest,
 }))
 
 const defaultInvoker = {
@@ -60,6 +57,12 @@ async function resolve(options: AgentInvokerOptions, context = createContext()) 
 
 describe("authenticated", () => {
   beforeEach(() => {
+    serverMocks.getAuthForRequest.mockReset()
+    serverMocks.getAuthForRequest.mockReturnValue({
+      api: {
+        getSession: serverMocks.getSession,
+      },
+    })
     serverMocks.getSession.mockReset()
   })
 
@@ -176,6 +179,39 @@ describe("authenticated", () => {
       name: "AuthenticationRequiredError",
       statusCode: 401,
     })
+  })
+
+  it.each([
+    ["get-auth-for-request", () => serverMocks.getAuthForRequest.mockImplementationOnce(() => { throw new Error("secret request failure") })],
+    ["get-session", () => serverMocks.getSession.mockRejectedValueOnce(new Error("secret session failure"))],
+  ] as const)("normalizes Better Auth %s failures", async (operation, reject) => {
+    const request = new Request("https://example.com/api/agent")
+    reject()
+
+    const error = await resolve(authenticated(), createContext({ request })).catch(error => error)
+
+    expect(error).toBeInstanceOf(AuthenticationProviderError)
+    expect(error).toMatchObject({
+      code: "AUTH_PROVIDER_OPERATION_FAILED",
+      details: { operation, provider: "better-auth" },
+      message: "[vitehub] Authentication provider operation failed.",
+      name: "AuthenticationProviderError",
+    })
+    expect(error.cause).toBeInstanceOf(Error)
+    expect(JSON.parse(JSON.stringify(error))).toEqual({
+      code: "AUTH_PROVIDER_OPERATION_FAILED",
+      details: { operation, provider: "better-auth" },
+      message: "[vitehub] Authentication provider operation failed.",
+    })
+    expect(JSON.stringify(error)).not.toContain("secret")
+  })
+
+  it("preserves application source exceptions", async () => {
+    const error = new Error("application source failure")
+
+    await expect(resolve(authenticated({
+      source: () => { throw error },
+    }))).rejects.toBe(error)
   })
 
   it("preserves normal Agent Invoker resolution when auth is optional", async () => {

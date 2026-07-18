@@ -53,6 +53,7 @@ export default defineAuth({
 | `requireAuth` from `@vite-hub/auth/server` | Guard server routes with an Auth Session. |
 | `authenticated` from `@vite-hub/auth/agent` | Map a Better Auth session into an Agent Invoker. |
 | `AuthenticationRequiredError` from `@vite-hub/auth/agent` | Handle missing authentication with a stable code and HTTP status. |
+| `AuthenticationProviderError` from `@vite-hub/auth/agent` | Inspect an operational failure from the default Better Auth session bridge. |
 | `hubAuth` from `@vite-hub/auth/vite` | Register Auth discovery, route exposure, and generated server aliases. |
 
 Create one Primary Auth Definition. ViteHub discovers `server/auth.ts` or `server.auth.ts`.
@@ -234,6 +235,8 @@ console.log(error.toJSON())
 ```
 
 The string constructor remains available for custom messages. Invalid Auth Definitions and invalid `authenticated()` configuration are programmer errors, so they continue to throw `TypeError` rather than authentication failures.
+
+The default Better Auth bridge wraps `getAuthForRequest()` and `getSession()` failures in `AuthenticationProviderError` with code `AUTH_PROVIDER_OPERATION_FAILED`. Its serialized details contain only `provider: 'better-auth'` and the failed operation; the original failure stays on the nonserialized `cause`. An application-owned `authenticated({ source })` remains its own seam, so its exceptions pass through unchanged.
 
 ## Next steps
 
