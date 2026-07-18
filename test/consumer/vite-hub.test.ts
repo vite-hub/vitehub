@@ -203,7 +203,7 @@ function workspaceConfig(specs: Record<string, string>) {
     "  - .",
     "allowBuilds:",
     "  esbuild: true",
-    "  msgpackr-extract: true",
+    "  msgpackr-extract: false",
     "overrides:",
     ...overrides,
     "",
@@ -262,6 +262,23 @@ async function assertOptionalPackagesUnreachable(appDir: string) {
   ].join("\n")
   const { stdout } = await run("node", ["--input-type=module", "--eval", script], appDir)
   expect(JSON.parse(stdout), "optional packages must not resolve from the consumer root").toEqual([])
+}
+
+async function assertEffectMsgpackFallback(appDir: string) {
+  const script = [
+    "import { createRequire } from \"node:module\"",
+    "const viteHubRequire = createRequire(import.meta.resolve(\"vite-hub/package.json\"))",
+    "const agentRequire = createRequire(viteHubRequire.resolve(\"@vite-hub/agent/package.json\"))",
+    "const effectRequire = createRequire(agentRequire.resolve(\"effect\"))",
+    "const msgpackr = await import(effectRequire.resolve(\"msgpackr\"))",
+    "const input = { fallback: true, value: \"vitehub\" }",
+    "const output = msgpackr.unpack(msgpackr.pack(input))",
+    "if (JSON.stringify(output) !== JSON.stringify(input)) throw new Error(\"msgpackr fallback roundtrip failed\")",
+  ].join("\n")
+  await run("node", ["--input-type=module", "--eval", script], appDir, {
+    ...process.env,
+    MSGPACKR_NATIVE_ACCELERATION_DISABLED: "true",
+  })
 }
 
 function importSpecifierOccurrences(source: string) {
@@ -369,6 +386,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         "let resolved = false; try { import.meta.resolve('@vite-hub/agent'); resolved = true } catch {} if (resolved) throw new Error('owner package resolved from the consumer root')",
       ], appDir)
       await assertOptionalPackagesUnreachable(appDir)
+      await assertEffectMsgpackFallback(appDir)
 
       await run("pnpm", ["run", "typecheck"], appDir)
       await run("pnpm", ["run", "build"], appDir)

@@ -126,11 +126,22 @@ describe("@vite-hub/runtime", () => {
       details: { capability: "kv" },
       retryable: false,
     })
-    expect(new CapabilityDeniedError("email", "Policy rejected this operation.")).toMatchObject({
+    expect(new CapabilityDeniedError("email", { safeReason: "Policy rejected this operation." })).toMatchObject({
       code: "CAPABILITY_DENIED",
       details: { capability: "email", reason: "Policy rejected this operation." },
       retryable: false,
     })
+
+    const cause = new Error("policy secret: allow-internal-only")
+    const denied = new CapabilityDeniedError("email", { cause })
+    expect(denied.cause).toBe(cause)
+    expect(JSON.parse(JSON.stringify(denied))).toEqual({
+      code: "CAPABILITY_DENIED",
+      details: { capability: "email" },
+      message: '[vitehub:runtime] Capability "email" was denied.',
+      retryable: false,
+    })
+    expect(JSON.stringify(denied)).not.toContain("allow-internal-only")
   })
 
   it("resolves policy decisions", async () => {
