@@ -22,7 +22,10 @@ export function getRateLimitLimiterCache(): Map<string, Promise<RateLimiter>> {
 }
 
 export function enterRateLimitRuntimeEvent(event: unknown): void {
-  runtimeEventStorage.enterWith(event)
+  try {
+    runtimeEventStorage.enterWith(event)
+  }
+  catch {}
   setActiveCloudflareEnv(getCloudflareEnv(event))
 }
 
