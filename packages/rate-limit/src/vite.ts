@@ -198,7 +198,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     },
     async closeBundle() {
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
-      if (cloudflareOwnedByNitro) {
+      if (cloudflareOwnedByNitro && provider === "cloudflare") {
         const configuredDeclarations = declarations
         collectDeclarations()
         if (JSON.stringify(declarations) !== JSON.stringify(configuredDeclarations)) {

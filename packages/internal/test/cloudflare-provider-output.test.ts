@@ -88,6 +88,18 @@ describe("Cloudflare provider output", () => {
     expect(output).not.toHaveProperty("cloudflare.wrangler.compatibility_date")
   })
 
+  it("removes an owner's previously composed entries when recomposing", () => {
+    const config = {}
+    registerCloudflareProviderOutput(config, "queue", { queues: { producers: [{ binding: "OLD", queue: "old" }] } })
+    const first = composeNitroCloudflareProviderOutput(config, { cloudflare: { wrangler: {} } })
+    registerCloudflareProviderOutput(config, "queue", { queues: { producers: [{ binding: "NEW", queue: "new" }] } })
+
+    expect(composeNitroCloudflareProviderOutput(config, first)).toHaveProperty(
+      "cloudflare.wrangler.queues.producers",
+      [{ binding: "NEW", queue: "new" }],
+    )
+  })
+
   it("preserves non-plain Nitro config outside Wrangler composition", () => {
     const config = {}
     const external = /^node:/

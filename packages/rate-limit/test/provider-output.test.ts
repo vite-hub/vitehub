@@ -107,6 +107,26 @@ describe("Rate Limit Provider Output", () => {
     await expect(readFile(join(root, ".vitehub", "rate-limit", "manifest.json"), "utf8")).resolves.toContain('"provider": "cloudflare"')
   })
 
+  it("cleans renamed standalone bindings during Nitro takeover", async () => {
+    const { declarations, root } = await projectWithDeclaration()
+    const configFile = join(createDefaultCloudflareOutputRoot(root), "wrangler.json")
+    await writeRateLimitProviderOutput({ clientOutDir: "dist", declarations, namespace: "acme-image-service", provider: "cloudflare", rootDir: root })
+    const standalone = JSON.parse(await readFile(configFile, "utf8"))
+    await writeFile(configFile, `${JSON.stringify({ ...standalone, vars: { APP: "vitehub" } }, null, 2)}\n`)
+    const renamed = [{ ...declarations[0]!, name: "renamed" }]
+
+    await writeRateLimitProviderOutput({
+      clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
+      declarations: renamed,
+      namespace: "acme-image-service",
+      provider: "cloudflare",
+      rootDir: root,
+    })
+
+    await expect(readFile(configFile, "utf8").then(JSON.parse)).resolves.toEqual({ vars: { APP: "vitehub" } })
+  })
+
   it("cleans only marker-owned standalone bindings when Nitro transitions to memory", async () => {
     const { declarations, root } = await projectWithDeclaration()
     const outputRoot = createDefaultCloudflareOutputRoot(root)
