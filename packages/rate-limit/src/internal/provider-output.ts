@@ -36,7 +36,7 @@ async function readOutputState(rootDir: string): Promise<CloudflareRateLimitOutp
       bindings: Array.isArray(parsed.bindings)
         ? parsed.bindings.filter((value): value is string => typeof value === "string")
         : [],
-      standalone: parsed.standalone === true,
+      standalone: parsed.standalone !== false && Array.isArray(parsed.bindings) && parsed.bindings.length > 0,
     }
   }
   catch (error) {

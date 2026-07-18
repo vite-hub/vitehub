@@ -14,6 +14,7 @@ import type { CloudflareProviderDeploymentOutput, ComposedProviderOutput, Vercel
 
 export const blobPackageName = "@vite-hub/blob"
 const cloudflareBlobWorkerMarker = "vitehub-blob-worker"
+const cloudflareBlobOutputState = ".vitehub/blob/cloudflare-output.json"
 const productName = "blob"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
@@ -353,6 +354,7 @@ function isLegacyCloudflareBlobWorker(worker: string, wrangler: unknown): boolea
 async function createNitroCloudflareCleanup(rootDir: string) {
   const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
   let ownsWorker = false
+  let ownsR2Buckets = false
   try {
     const worker = await readFile(resolve(outputRoot, "index.js"), "utf8")
     ownsWorker = worker.includes(cloudflareBlobWorkerMarker)
@@ -368,11 +370,25 @@ async function createNitroCloudflareCleanup(rootDir: string) {
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
+  try {
+    const [state, wrangler] = await Promise.all([
+      readFile(resolve(rootDir, cloudflareBlobOutputState), "utf8").then(value => JSON.parse(value) as Record<string, unknown>),
+      readFile(resolve(outputRoot, "wrangler.json"), "utf8").then(value => JSON.parse(value) as Record<string, unknown>),
+    ])
+    ownsR2Buckets = JSON.stringify(state.r2_buckets) === JSON.stringify(wrangler.r2_buckets)
+    await rm(resolve(rootDir, cloudflareBlobOutputState), { force: true })
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
   return {
     fileNames: ownsWorker ? ["index.js"] : [],
     outputRoot,
     wranglerConfigOwnership: {
-      keys: ownsWorker ? ["compatibility_date", "compatibility_flags", "main", "observability", "r2_buckets"] : [],
+      keys: [
+        ...(ownsWorker ? ["compatibility_date", "compatibility_flags", "main", "observability"] : []),
+        ...(ownsR2Buckets || ownsWorker ? ["r2_buckets"] : []),
+      ],
     },
   }
 }
@@ -480,6 +496,11 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     rootDir: options.rootDir,
     vercel: localOnly ? undefined : createVercelOutput(artifacts, options.providerOutput, options.serverFunctionName),
   })
+  if (createCloudflare) {
+    const r2Buckets = createCloudflareR2Bindings(resolveBlobConfig(options.blob, "cloudflare"))
+    await mkdir(dirname(resolve(options.rootDir, cloudflareBlobOutputState)), { recursive: true })
+    await writeFile(resolve(options.rootDir, cloudflareBlobOutputState), `${JSON.stringify({ r2_buckets: r2Buckets }, null, 2)}\n`, "utf8")
+  }
   return artifacts
 }
 

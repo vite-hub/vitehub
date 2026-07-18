@@ -271,6 +271,7 @@ describe("hubRateLimit", () => {
     } as never)
     const installer = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")
     expect(installer).toContain('from "vite-hub/_internal/rate-limit/runtime"')
+    expect(installer).toContain("event.node?.req?.runtime?.cloudflare?.env")
     expect(installer).not.toContain("@vite-hub/rate-limit/runtime")
   })
 

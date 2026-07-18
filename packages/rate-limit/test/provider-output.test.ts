@@ -111,6 +111,9 @@ describe("Rate Limit Provider Output", () => {
     const { declarations, root } = await projectWithDeclaration()
     const configFile = join(createDefaultCloudflareOutputRoot(root), "wrangler.json")
     await writeRateLimitProviderOutput({ clientOutDir: "dist", declarations, namespace: "acme-image-service", provider: "cloudflare", rootDir: root })
+    const stateFile = join(root, ".vitehub", "rate-limit", "cloudflare-output.json")
+    const legacyState = JSON.parse(await readFile(stateFile, "utf8")) as { bindings: string[] }
+    await writeFile(stateFile, `${JSON.stringify({ bindings: legacyState.bindings }, null, 2)}\n`)
     const standalone = JSON.parse(await readFile(configFile, "utf8"))
     await writeFile(configFile, `${JSON.stringify({ ...standalone, vars: { APP: "vitehub" } }, null, 2)}\n`)
     const renamed = [{ ...declarations[0]!, name: "renamed" }]

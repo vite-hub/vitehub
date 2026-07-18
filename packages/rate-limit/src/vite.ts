@@ -79,7 +79,7 @@ function renderRuntimeInstaller(
       ? [
           "export default definePlugin((nitroApp) => {",
           "  setRateLimitRuntimeConfig(config)",
-          "  nitroApp.hooks.hook('request', (event) => enterRateLimitRuntimeEvent(event))",
+          "  nitroApp.hooks.hook('request', (event) => enterRateLimitRuntimeEvent(Object.assign(event, { env: event.env ?? event.context?.cloudflare?.env ?? event.context?._platform?.cloudflare?.env ?? event.req?.runtime?.cloudflare?.env ?? event.node?.req?.runtime?.cloudflare?.env })))",
           "})",
         ]
       : [

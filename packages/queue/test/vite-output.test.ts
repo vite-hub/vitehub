@@ -300,6 +300,20 @@ describe("Vite provider outputs", () => {
     await expect(readFile(join(cloudflareOutputRoot, "index.js"), "utf8")).resolves.toBe(worker)
   })
 
+  it("cleans standalone Queue bindings after another primitive replaces the Worker", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-shared-worker-")
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
+    await generateProviderOutputs({ clientOutDir: "dist", queue: { provider: "cloudflare" }, rootDir })
+    await writeFile(join(outputRoot, "index.js"), "// workflow worker\n", "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist", cloudflareOwnedByNitro: true, queue: { provider: "cloudflare" }, rootDir })
+
+    await expect(readFile(join(outputRoot, "index.js"), "utf8")).resolves.toBe("// workflow worker\n")
+    expect(await readFile(join(outputRoot, "wrangler.json"), "utf8").then(JSON.parse)).not.toHaveProperty("queues")
+  })
+
   it("does not preload Vercel queue without queue definitions", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-no-definitions-")
     await mkdir(join(rootDir, "src"), { recursive: true })
