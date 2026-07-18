@@ -68,7 +68,12 @@ describe("hubQueue", () => {
   it("enables inferred queue config when hubQueue options are omitted", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
     roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
     const plugin = hubQueue()
+    const userConfig = { nitro: { preset: "cloudflare_module" }, root }
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(userConfig)
+    expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.queues.producers")
+    expect(userConfig).toHaveProperty("nitro.rollupConfig.external", ["cloudflare:workers"])
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, nitro: { preset: "vercel" } } as never)
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     expect(nitroPlugin).toContain('"provider": "vercel"')

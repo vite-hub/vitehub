@@ -90,7 +90,7 @@ function mergeNitroConfig(value: unknown, queue: QueueModuleOptions | undefined,
 
 export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
   let resolved: ResolvedConfig | undefined
-  let queue: QueueModuleOptions | undefined = options
+  let queue: QueueModuleOptions | undefined = options ?? {}
 
   return {
     name: "@vite-hub/queue/vite",
