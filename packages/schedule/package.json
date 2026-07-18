@@ -44,6 +44,7 @@
   "dependencies": {
     "@vite-hub/kv": "workspace:*",
     "cron-schedule": "catalog:workflow",
+    "effect": "catalog:effect",
     "esbuild": "catalog:tooling"
   },
   "devDependencies": {
