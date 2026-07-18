@@ -153,5 +153,6 @@ export function composeNitroCloudflareProviderOutput(config: object, value: unkn
     wrangler = merged
     catalog.appliedByOwner.set(owner, applied)
   }
+  if (!Object.keys(cloudflare).length && !Object.keys(wrangler).length) return nitro
   return { ...nitro, cloudflare: { ...cloudflare, wrangler } }
 }

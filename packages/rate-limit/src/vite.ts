@@ -54,7 +54,7 @@ function mergeNitroConfig(
   const baseNitro = { ...nitro, plugins }
   if (!nitroCloudflare || provider !== "cloudflare" || declarations.length === 0) {
     registerCloudflareProviderOutput(config, "rate-limit", {})
-    return baseNitro
+    return composeNitroCloudflareProviderOutput(config, baseNitro)
   }
   if (!namespace) {
     throw new Error("[vitehub] Cloudflare Rate Limit requires rateLimit.namespace to isolate counters between deployments.")

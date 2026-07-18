@@ -201,6 +201,21 @@ describe("hubBlob", () => {
     expect(nitroPlugin).not.toContain("cloudflare:workers")
   })
 
+  it("removes an early R2 contribution when the final Nitro host changes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-final-nitro-cleanup-"))
+    const plugin = hubBlob({ binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" })
+    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+    const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
+    const value = { nitro: { preset: "cloudflare_module" }, plugins: [{ name: "nitro:main" }], root }
+
+    config(value, { command: "build" })
+    ;(value.nitro as Record<string, unknown>).preset = "vercel"
+    const resolved = { ...value, build: { outDir: "dist" } }
+    await configResolved(resolved as never)
+
+    expect(resolved).not.toHaveProperty("nitro.cloudflare.wrangler.r2_buckets.0")
+  })
+
   it("does not contribute Cloudflare config for plain Vite or non-R2 stores", { timeout: 30_000 }, async () => {
     const config = (plugin: ReturnType<typeof hubBlob>, value: Record<string, unknown>) =>
       (plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown)(value, { command: "build" })

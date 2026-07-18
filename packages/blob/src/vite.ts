@@ -80,7 +80,7 @@ function isNitroCloudflareHost(value: unknown): boolean {
 function mergeNitroCloudflareBlobOutput(config: object, nitro: Record<string, unknown>, blob: BlobModuleOptions | undefined, cloudflareOwnedByNitro: boolean): Record<string, unknown> {
   if (!cloudflareOwnedByNitro) {
     registerCloudflareProviderOutput(config, "blob", {})
-    return nitro
+    return composeNitroCloudflareProviderOutput(config, nitro)
   }
   const bindings = createCloudflareR2Bindings(resolveBlobViteConfig(blob, { hosting: "cloudflare" }).blob)
   const cloudflare = cloneNitroConfig(nitro.cloudflare)

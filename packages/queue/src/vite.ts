@@ -56,12 +56,12 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
   const plugins = Array.isArray(nitro.plugins) ? nitro.plugins.filter(plugin => queue !== false || plugin !== generatedQueueNitroPlugin) : []
   if (queue === false) {
     registerCloudflareProviderOutput(config, "queue", {})
-    return { ...nitro, plugins }
+    return composeNitroCloudflareProviderOutput(config, { ...nitro, plugins })
   }
   if (!plugins.includes(generatedQueueNitroPlugin)) plugins.unshift(generatedQueueNitroPlugin)
   if (resolveQueueHosting(queue, nitro) !== "cloudflare") {
     registerCloudflareProviderOutput(config, "queue", {})
-    return { ...nitro, plugins }
+    return composeNitroCloudflareProviderOutput(config, { ...nitro, plugins })
   }
   const cloudflare = cloneNitroConfig(nitro.cloudflare)
   const wrangler = cloneNitroConfig(cloudflare.wrangler)
