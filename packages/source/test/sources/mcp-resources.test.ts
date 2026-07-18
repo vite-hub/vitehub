@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { mcpResources } from "../../src/index.ts"
+import { mcpResources, SourceError } from "../../src/index.ts"
 
 import type { McpResourcesClient } from "../../src/index.ts"
 
@@ -79,6 +79,56 @@ describe("mcpResources", () => {
       mimeType: "application/json",
       uri: "resource://nuxt-com/blog-posts",
     })
+  })
+
+  it("redacts MCP provider failures while retaining the internal cause", async () => {
+    const cause = new Error("Bearer secret-token failed at https://mcp.example/private")
+    const client = createClient()
+    client.listResources = vi.fn().mockRejectedValue(cause)
+    const source = mcpResources({ server: client })
+
+    const error = await source.getKeys({ rootDir: "/tmp" }).catch(error => error)
+
+    expect(error).toBeInstanceOf(SourceError)
+    expect(error).toMatchObject({
+      cause,
+      code: "SOURCE_PROVIDER_REQUEST_FAILED",
+      details: { operation: "list-resources", provider: "mcp" },
+    })
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|mcp\.example|private/)
+  })
+
+  it("preserves raw MCP abort reasons", async () => {
+    const reason = new Error("caller stopped MCP read")
+    const controller = new AbortController()
+    controller.abort(reason)
+    const client = createClient()
+    client.listResources = vi.fn().mockRejectedValue(new Error("provider abort wrapper"))
+    const source = mcpResources({ server: client })
+
+    await expect(source.getKeys({
+      abortSignal: controller.signal,
+      rootDir: "/tmp",
+    })).rejects.toBe(reason)
+  })
+
+  it("does not serialize duplicate MCP resource URIs", async () => {
+    const client = createClient()
+    client.listResources = vi.fn().mockResolvedValue({
+      resources: [
+        { mimeType: "text/plain", name: "one", uri: "https://user:secret-token@mcp.example/same.txt" },
+        { mimeType: "text/plain", name: "two", uri: "https://mcp.example/same.txt" },
+      ],
+    })
+    const source = mcpResources({ path: () => "safe/same.txt", server: client })
+
+    const error = await source.getKeys({ rootDir: "/tmp" }).catch(error => error)
+
+    expect(error).toMatchObject({
+      code: "SOURCE_PROVIDER_RESPONSE_INVALID",
+      details: { key: "safe/same.txt", operation: "list-resources", provider: "mcp" },
+    })
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|mcp\.example|https:/)
   })
 
   it("filters resources and supports custom paths", async () => {

@@ -65,4 +65,21 @@ describe("@vite-hub/source registry", () => {
 
     expect(receivedSignal).toBe(controller.signal)
   })
+
+  it("preserves errors thrown by custom Sources", async () => {
+    const failure = new Error("custom source failure")
+    registerSources({
+      custom: custom({
+        name: "custom",
+        async getKeys() {
+          throw failure
+        },
+        async getItem(key) {
+          return { key }
+        },
+      }),
+    })
+
+    await expect(useSource("custom").keys()).rejects.toBe(failure)
+  })
 })

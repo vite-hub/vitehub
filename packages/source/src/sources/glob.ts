@@ -1,6 +1,6 @@
 import { glob as tinyglobby } from "tinyglobby"
 
-import { SourceError } from "../core/errors.ts"
+import { SourcePathError, sourceItemNotFoundError, sourceProviderRequestError } from "../core/errors.ts"
 import { matchesAny, normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
 
 import type { Source, SourceContext, SourceItem } from "../core/types.ts"
@@ -26,13 +26,19 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
   async function loadKeys(ctx: SourceContext) {
     const cwd = await resolveCwd(resolveSourceRoot(ctx), options.cwd)
     const ignore = normalizePatterns(options.ignore)
-    const files = await tinyglobby(options.include, {
-      cwd,
-      dot: options.dot ?? false,
-      followSymbolicLinks: options.followSymlinks ?? false,
-      ignore: ["**/.git/**", "**/node_modules/**", ...ignore],
-      onlyFiles: true,
-    })
+    let files: string[]
+    try {
+      files = await tinyglobby(options.include, {
+        cwd,
+        dot: options.dot ?? false,
+        followSymbolicLinks: options.followSymlinks ?? false,
+        ignore: ["**/.git/**", "**/node_modules/**", ...ignore],
+        onlyFiles: true,
+      })
+    }
+    catch (cause) {
+      throw sourceProviderRequestError("filesystem", "list", { cause })
+    }
     return files
       .map(file => normalizeSourcePath(file))
       .filter(file => matchesAny(file, options.include) && !matchesAny(file, ignore))
@@ -70,10 +76,10 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
     const keys = await getKnownKeys(ctx)
     if (keys.includes(key)) return
     if (options.keyCache !== false) {
-      throw new SourceError(`[vitehub] glob could not find ${JSON.stringify(key)}.`)
+      throw sourceItemNotFoundError("glob", key)
     }
     if ((await refreshKeys(ctx)).includes(key)) return
-    throw new SourceError(`[vitehub] glob could not find ${JSON.stringify(key)}.`)
+    throw sourceItemNotFoundError("glob", key)
   }
 
   const source: Source<TKey> = {
@@ -90,7 +96,7 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
       const { stat } = await import("node:fs/promises")
       const { resolve } = await import("node:path")
       const cwd = await resolveCwd(resolveSourceRoot(ctx), options.cwd)
-      const info = await stat(resolve(cwd, key))
+      const info = await runFileOperation("metadata", key, () => stat(resolve(cwd, key)))
       return {
         digest: `${info.size}:${info.mtimeMs}`,
       }
@@ -101,8 +107,8 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
       const { resolve } = await import("node:path")
       const cwd = await resolveCwd(resolveSourceRoot(ctx), options.cwd)
       const prefix = normalizeSafeSourcePath(options.prefix || "", { allowEmpty: true })
-      const bytes = await readFile(resolve(cwd, key))
-      const info = await stat(resolve(cwd, key))
+      const bytes = await runFileOperation("read", key, () => readFile(resolve(cwd, key)))
+      const info = await runFileOperation("metadata", key, () => stat(resolve(cwd, key)))
       return {
         key,
         path: normalizeSourcePath(prefix ? `${prefix}/${key}` : key),
@@ -125,12 +131,36 @@ function resolveSourceRoot(ctx: SourceContext) {
 async function resolveCwd(rootDir: string, cwd = "."): Promise<string> {
   const { realpath } = await import("node:fs/promises")
   const { isAbsolute, relative, resolve } = await import("node:path")
-  const resolvedRoot = await realpath(resolve(rootDir))
+  let resolvedRoot: string
+  try {
+    resolvedRoot = await realpath(resolve(rootDir))
+  }
+  catch (cause) {
+    throw sourceProviderRequestError("filesystem", "resolve-root", { cause })
+  }
   const resolvedCwdPath = isAbsolute(cwd) ? resolve(cwd) : resolve(resolvedRoot, cwd)
-  const resolvedCwd = await realpath(resolvedCwdPath)
+  let resolvedCwd: string
+  try {
+    resolvedCwd = await realpath(resolvedCwdPath)
+  }
+  catch (cause) {
+    throw sourceProviderRequestError("filesystem", "resolve", { cause })
+  }
   const rel = relative(resolvedRoot, resolvedCwd)
   if (rel && (rel.startsWith("..") || isAbsolute(rel))) {
-    throw new SourceError(`[vitehub] glob cwd escapes the source root: ${JSON.stringify(cwd)}.`)
+    throw new SourcePathError(cwd)
   }
   return resolvedCwd
+}
+
+async function runFileOperation<TResult>(operation: string, key: string, run: () => Promise<TResult>): Promise<TResult> {
+  try {
+    return await run()
+  }
+  catch (cause) {
+    if (typeof cause === "object" && cause !== null && "code" in cause && cause.code === "ENOENT") {
+      throw sourceItemNotFoundError("glob", key)
+    }
+    throw sourceProviderRequestError("filesystem", operation, { cause })
+  }
 }

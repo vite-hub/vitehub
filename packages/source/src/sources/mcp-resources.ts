@@ -1,4 +1,9 @@
-import { SourceError } from "../core/errors.ts"
+import {
+  SourceError,
+  sourceItemNotFoundError,
+  sourceProviderRequestError,
+  sourceProviderResponseInvalidError,
+} from "../core/errors.ts"
 import { matchesAny, normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
 
 import type { Source, SourceCacheOptions, SourceContent, SourceContext } from "../core/types.ts"
@@ -84,26 +89,30 @@ async function createMcpTransport(config: McpResourcesTransportConfig): Promise<
   return new StreamableHTTPClientTransport(new URL(url), options)
 }
 
-async function createMcpClient(config: McpResourcesClientConfig): Promise<McpResourcesClient> {
-  const [{ Client }, transport] = await Promise.all([
-    import("@modelcontextprotocol/sdk/client/index.js"),
-    createMcpTransport(config.transport),
-  ])
-  const client = new Client({
-    name: "vitehub-source",
-    version: "0.0.1",
+async function createMcpClient(config: McpResourcesClientConfig, signal?: AbortSignal): Promise<McpResourcesClient> {
+  return await runMcpProviderOperation("connect", undefined, signal, async () => {
+    const [{ Client }, transport] = await Promise.all([
+      import("@modelcontextprotocol/sdk/client/index.js"),
+      createMcpTransport(config.transport),
+    ])
+    const client = new Client({
+      name: "vitehub-source",
+      version: "0.0.1",
+    })
+    await client.connect(transport)
+    return client
   })
-  await client.connect(transport)
-  return client
 }
 
 async function resolveMcpClient(server: McpResourcesServer, ctx: SourceContext) {
-  const resolved = typeof server === "function" ? await server(ctx) : server
+  const resolved = typeof server === "function"
+    ? await runMcpProviderOperation("resolve", undefined, ctx.abortSignal, () => server(ctx))
+    : server
   if (isMcpResourcesClient(resolved)) {
     return { client: resolved, ownsClient: false }
   }
   if (isMcpResourcesClientConfig(resolved)) {
-    return { client: await createMcpClient(resolved), ownsClient: true }
+    return { client: await createMcpClient(resolved, ctx.abortSignal), ownsClient: true }
   }
   throw new TypeError("[vitehub] mcpResources({ server }) must resolve to an MCP client or MCP client config.")
 }
@@ -114,7 +123,9 @@ async function withMcpClient<T>(server: McpResourcesServer, ctx: SourceContext, 
     return await callback(client)
   }
   finally {
-    if (ownsClient) await client.close?.()
+    if (ownsClient && client.close) {
+      await runMcpProviderOperation("close", undefined, ctx.abortSignal, () => client.close!())
+    }
   }
 }
 
@@ -184,11 +195,16 @@ function shouldInclude(path: string, options: Pick<McpResourcesSourceOptions, "i
   return true
 }
 
-async function listAllResources(client: McpResourcesClient, request: McpResourcesRequestOptions | undefined) {
+async function listAllResources(client: McpResourcesClient, request: McpResourcesRequestOptions | undefined, signal?: AbortSignal) {
   const resources: McpResourceDescriptor[] = []
   let cursor: string | undefined
   do {
-    const page = await client.listResources(cursor ? { cursor } : undefined, request)
+    const page = await runMcpProviderOperation(
+      "list-resources",
+      request,
+      signal,
+      () => client.listResources(cursor ? { cursor } : undefined, request),
+    )
     resources.push(...page.resources)
     cursor = page.nextCursor
   } while (cursor)
@@ -199,14 +215,22 @@ async function readResourceContents(
   client: McpResourcesClient,
   resource: McpResourceDescriptor,
   request: McpResourcesRequestOptions | undefined,
+  signal?: AbortSignal,
 ) {
-  return (await client.readResource({ uri: resource.uri }, request)).contents
+  const response = await runMcpProviderOperation(
+    "read-resource",
+    request,
+    signal,
+    () => client.readResource({ uri: resource.uri }, request),
+  )
+  return response.contents
 }
 
 async function createEntries<TKey extends string>(
   resources: McpResourceDescriptor[],
   options: McpResourcesSourceOptions<TKey>,
   client?: McpResourcesClient,
+  signal?: AbortSignal,
 ) {
   const entries: ResourceEntry<TKey>[] = []
   const seen = new Map<string, string>()
@@ -214,14 +238,14 @@ async function createEntries<TKey extends string>(
     let contents: McpResourceContent[] | undefined
     let resolvedResource = resource
     if (client && resourcePathNeedsContentMimeType(resource, options)) {
-      contents = await readResourceContents(client, resource, options.request)
+      contents = await readResourceContents(client, resource, options.request, signal)
       resolvedResource = resourceWithContentMimeType(resource, contents)
     }
     const key = resourceKey(resolvedResource, options)
     if (!shouldInclude(key, options)) continue
     const existingUri = seen.get(key)
     if (existingUri) {
-      throw new SourceError(`[vitehub] mcpResources produced duplicate path ${JSON.stringify(key)} for ${JSON.stringify(existingUri)} and ${JSON.stringify(resource.uri)}.`)
+      throw sourceProviderResponseInvalidError("mcp", "list-resources", { key })
     }
     seen.set(key, resource.uri)
     entries.push({ contents, key, resource: resolvedResource })
@@ -252,7 +276,7 @@ function createResourceItem<TKey extends string>(
 ) {
   const content = contents.find(item => item.uri === resource.uri) || contents[0]
   if (!content) {
-    throw new SourceError(`[vitehub] mcpResources could not read resource ${JSON.stringify(resource.uri)}.`)
+    throw sourceProviderResponseInvalidError("mcp", "read-resource", { key })
   }
   const multipleContents = contents.length > 1
   return {
@@ -278,15 +302,15 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
 
   async function getEntries(ctx: SourceContext) {
     return await withMcpClient(options.server, ctx, async (client) => {
-      return await createEntries(await listAllResources(client, options.request), options, client)
+      return await createEntries(await listAllResources(client, options.request, ctx.abortSignal), options, client, ctx.abortSignal)
     })
   }
 
   async function getItems(ctx: SourceContext) {
     return await withMcpClient(options.server, ctx, async (client) => {
-      const entries = await createEntries(await listAllResources(client, options.request), options, client)
+      const entries = await createEntries(await listAllResources(client, options.request, ctx.abortSignal), options, client, ctx.abortSignal)
       return await Promise.all(entries.map(async ({ contents, key, resource }) => {
-        const result = contents ?? await readResourceContents(client, resource, options.request)
+        const result = contents ?? await readResourceContents(client, resource, options.request, ctx.abortSignal)
         return createResourceItem(key, resource, result)
       }))
     })
@@ -324,11 +348,16 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
     },
     async getItem(key, ctx) {
       return await withMcpClient(options.server, ctx, async (client) => {
-        const entry = (await createEntries(await listAllResources(client, options.request), options, client)).find(entry => entry.key === key)
+        const entry = (await createEntries(
+          await listAllResources(client, options.request, ctx.abortSignal),
+          options,
+          client,
+          ctx.abortSignal,
+        )).find(entry => entry.key === key)
         if (!entry) {
-          throw new SourceError(`[vitehub] mcpResources could not find ${JSON.stringify(key)}.`)
+          throw sourceItemNotFoundError("mcpResources", key)
         }
-        const result = entry.contents ?? await readResourceContents(client, entry.resource, options.request)
+        const result = entry.contents ?? await readResourceContents(client, entry.resource, options.request, ctx.abortSignal)
         return createResourceItem(key, entry.resource, result)
       })
     },
@@ -356,5 +385,22 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
       }
       return results
     },
+  }
+}
+
+async function runMcpProviderOperation<TResult>(
+  operation: string,
+  request: McpResourcesRequestOptions | undefined,
+  signal: AbortSignal | undefined,
+  run: () => Promise<TResult> | TResult,
+): Promise<TResult> {
+  try {
+    return await run()
+  }
+  catch (cause) {
+    if (signal?.aborted) throw signal.reason
+    if (request?.signal?.aborted) throw request.signal.reason
+    if (cause instanceof SourceError) throw cause
+    throw sourceProviderRequestError("mcp", operation, { cause })
   }
 }

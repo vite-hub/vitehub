@@ -24,8 +24,8 @@ Use the error family to choose the next proof path before changing implementatio
 | `WorkspaceNotFoundError` | Workspace Package | The requested Workspace is not registered. |
 | `WorkspacePathError` | Workspace Package | A Workspace path is invalid or outside allowed shape. |
 | `SourceError` | Source Package | Source retrieval or Source Loader behavior failed. |
-| `SourceNotFoundError` | Source Package | The requested Source key or Source Path is missing. |
-| `SourcePathError` | Source Package | A Source Path is invalid. |
+| `SourceNotFoundError` | Source Package | The requested Source is not registered. |
+| `SourcePathError` | Source Package | A Source Path is invalid or escapes its Source root. |
 | `ScheduleError` | Schedule Package | Static or runtime schedule behavior failed. |
 | `SandboxError` | Sandbox Package | Sandbox Provider setup, execution, or output recovery failed. |
 | `NotSupportedError` | Sandbox shared runtime | A selected provider or operation is unsupported. |

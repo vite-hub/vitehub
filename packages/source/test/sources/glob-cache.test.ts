@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { glob as tinyglobby } from "tinyglobby"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { glob } from "../../src/index.ts"
+import { SourceError, glob } from "../../src/index.ts"
 
 vi.mock("tinyglobby", () => ({
   glob: vi.fn(async () => ["docs/README.md"]),
@@ -67,7 +67,14 @@ describe("@vite-hub/source glob source cache", () => {
     const docs = glob({ include: "**/*.md" })
     const ctx = { rootDir: root }
 
-    await expect(docs.getKeys(ctx)).rejects.toThrow("transient failure")
+    const error = await docs.getKeys(ctx).catch(error => error)
+    expect(error).toBeInstanceOf(SourceError)
+    expect(error).toMatchObject({
+      cause: expect.objectContaining({ message: "transient failure" }),
+      code: "SOURCE_PROVIDER_REQUEST_FAILED",
+      details: { operation: "list", provider: "filesystem" },
+    })
+    expect(JSON.stringify(error)).not.toContain("transient failure")
     await expect(docs.getKeys(ctx)).resolves.toEqual(["docs/README.md"])
     expect(tinyglobby).toHaveBeenCalledTimes(2)
   })

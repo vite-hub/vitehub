@@ -1,13 +1,12 @@
-import { SourceError } from "../../core/errors.ts"
+import { sourceProviderRequestError, sourceProviderResponseInvalidError } from "../../core/errors.ts"
 
 export async function requestGitHubJson<T>(input: {
-  ref: string
-  repo: string
+  operation: string
   signal?: AbortSignal
   token?: string
   url: string
 }): Promise<T> {
-  const response = await fetch(input.url, {
+  const response = await requestGitHub(input.operation, input.signal, () => fetch(input.url, {
     headers: {
       accept: "application/vnd.github+json",
       ...(input.token ? { authorization: `Bearer ${input.token}` } : {}),
@@ -15,16 +14,19 @@ export async function requestGitHubJson<T>(input: {
       "x-github-api-version": "2022-11-28",
     },
     signal: input.signal,
-  })
+  }))
 
   if (!response.ok) {
-    if (response.status === 404) {
-      throw new SourceError(`[vitehub] github(${JSON.stringify(input.repo)}) could not access the repository or ref ${JSON.stringify(input.ref)}. Check that the repo exists, the ref exists, and auth can access it.`)
-    }
-    throw new SourceError(`[vitehub] github(${JSON.stringify(input.repo)}) request failed with ${response.status} for ${input.url}.`)
+    throw sourceProviderRequestError("github", input.operation, { status: response.status })
   }
 
-  return await response.json() as T
+  try {
+    return await response.json() as T
+  }
+  catch (cause) {
+    if (input.signal?.aborted) throw input.signal.reason
+    throw sourceProviderResponseInvalidError("github", input.operation, { cause })
+  }
 }
 
 export async function fetchGitHubArchive(input: {
@@ -33,20 +35,34 @@ export async function fetchGitHubArchive(input: {
   signal?: AbortSignal
   token?: string
 }) {
-  const response = await fetch(`https://codeload.github.com/${input.repo}/tar.gz/${encodeURIComponent(input.ref)}`, {
+  const operation = "read-archive"
+  const response = await requestGitHub(operation, input.signal, () => fetch(`https://codeload.github.com/${input.repo}/tar.gz/${encodeURIComponent(input.ref)}`, {
     headers: {
       ...(input.token ? { authorization: `Bearer ${input.token}` } : {}),
       "user-agent": "vitehub-source",
     },
     signal: input.signal,
-  })
+  }))
 
   if (!response.ok) {
-    if (response.status === 404) {
-      throw new SourceError(`[vitehub] github(${JSON.stringify(input.repo)}) could not access the repository or ref ${JSON.stringify(input.ref)}. Check that the repo exists and the ref exists.`)
-    }
-    throw new SourceError(`[vitehub] github(${JSON.stringify(input.repo)}) archive request failed with ${response.status}.`)
+    throw sourceProviderRequestError("github", operation, { status: response.status })
   }
 
-  return new Uint8Array(await response.arrayBuffer())
+  try {
+    return new Uint8Array(await response.arrayBuffer())
+  }
+  catch (cause) {
+    if (input.signal?.aborted) throw input.signal.reason
+    throw sourceProviderResponseInvalidError("github", operation, { cause })
+  }
+}
+
+async function requestGitHub(operation: string, signal: AbortSignal | undefined, request: () => Promise<Response>): Promise<Response> {
+  try {
+    return await request()
+  }
+  catch (cause) {
+    if (signal?.aborted) throw signal.reason
+    throw sourceProviderRequestError("github", operation, { cause })
+  }
 }

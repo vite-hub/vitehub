@@ -1,6 +1,6 @@
 import { lookup } from "mrmime"
 
-import { SourceError, SourcePathError } from "../core/errors.ts"
+import { SourcePathError, sourceItemNotFoundError, sourceProviderRequestError } from "../core/errors.ts"
 import { normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
 
 import type { Source, SourceContent, SourceContext } from "../core/types.ts"
@@ -39,19 +39,39 @@ function resolveSourceRoot(ctx: SourceContext) {
   return ctx.sourceRootDir || ctx.rootDir
 }
 
-async function readSourceFile<TKey extends string>(options: FileSourceOptions<TKey>, ctx: SourceContext) {
+async function readSourceFile<TKey extends string>(options: FileSourceOptions<TKey>, ctx: SourceContext, key: TKey) {
   if (!("path" in options) || !options.path) {
     throw new TypeError("[vitehub] file requires path when content is not provided.")
   }
   const { readFile } = await import("node:fs/promises")
-  return new Uint8Array(await readFile(await resolveSafeSourceFilePath(options.path, ctx)))
+  const target = await resolveSafeSourceFilePath(options.path, key, ctx)
+  try {
+    return new Uint8Array(await readFile(target))
+  }
+  catch (cause) {
+    if (isFileNotFoundError(cause)) throw sourceItemNotFoundError("file", key)
+    throw sourceProviderRequestError("filesystem", "read", { cause })
+  }
 }
 
-async function resolveSafeSourceFilePath(path: string, ctx: SourceContext) {
+async function resolveSafeSourceFilePath(path: string, key: string, ctx: SourceContext) {
   const { realpath } = await import("node:fs/promises")
   const { relative, resolve, sep } = await import("node:path")
-  const root = await realpath(resolve(resolveSourceRoot(ctx)))
-  const target = await realpath(resolve(root, normalizeSafeSourcePath(path)))
+  let root: string
+  try {
+    root = await realpath(resolve(resolveSourceRoot(ctx)))
+  }
+  catch (cause) {
+    throw sourceProviderRequestError("filesystem", "resolve-root", { cause })
+  }
+  let target: string
+  try {
+    target = await realpath(resolve(root, normalizeSafeSourcePath(path)))
+  }
+  catch (cause) {
+    if (isFileNotFoundError(cause)) throw sourceItemNotFoundError("file", key)
+    throw sourceProviderRequestError("filesystem", "resolve", { cause })
+  }
   const rel = relative(root, target)
 
   if (rel === ".." || rel.startsWith(`..${sep}`)) {
@@ -59,6 +79,10 @@ async function resolveSafeSourceFilePath(path: string, ctx: SourceContext) {
   }
 
   return target
+}
+
+function isFileNotFoundError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT"
 }
 
 export function file<const TKey extends string = string>(input: FileSourceInput<TKey>): Source<TKey> {
@@ -74,17 +98,25 @@ export function file<const TKey extends string = string>(input: FileSourceInput<
       if (requestedKey !== key) return
       if (!("path" in options) || !options.path) return
       const { stat } = await import("node:fs/promises")
-      const info = await stat(await resolveSafeSourceFilePath(options.path, ctx))
+      const target = await resolveSafeSourceFilePath(options.path, key, ctx)
+      let info
+      try {
+        info = await stat(target)
+      }
+      catch (cause) {
+        if (isFileNotFoundError(cause)) throw sourceItemNotFoundError("file", key)
+        throw sourceProviderRequestError("filesystem", "metadata", { cause })
+      }
       return {
         digest: `${info.size}:${info.mtimeMs}`,
       }
     },
     async getItem(requestedKey: TKey, ctx: SourceContext) {
       if (requestedKey !== key) {
-        throw new SourceError(`[vitehub] file could not find ${JSON.stringify(requestedKey)}.`)
+        throw sourceItemNotFoundError("file", requestedKey)
       }
       const content = typeof options.content === "undefined"
-        ? await readSourceFile(options, ctx)
+        ? await readSourceFile(options, ctx, key)
         : options.content
       return {
         key,

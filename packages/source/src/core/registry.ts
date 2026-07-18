@@ -1,4 +1,4 @@
-import { SourceNotFoundError, SourceError } from "./errors.ts"
+import { SourceNotFoundError, sourceContentMissingError } from "./errors.ts"
 import { decodeSourceContent, normalizeSafeSourcePath, normalizeSourcePath } from "./path.ts"
 
 import type {
@@ -50,10 +50,6 @@ function createSourceContext(name: string, context: Partial<SourceContext> = {})
   }
 }
 
-function createMissingContentError(key: string) {
-  return new SourceError(`[vitehub] Source item ${JSON.stringify(key)} does not provide readable content.`)
-}
-
 function isNestedUnder(path: string, prefix: string) {
   return !prefix || path === prefix || path.startsWith(`${prefix}/`)
 }
@@ -103,7 +99,7 @@ export function useSource<TName extends SourceName>(
       options?: TOptions,
     ): Promise<ReadSourceResult<TOptions>> {
       const item = await get(key)
-      if (typeof item.content === "undefined") throw createMissingContentError(key)
+      if (typeof item.content === "undefined") throw sourceContentMissingError(name, key)
       return decodeSourceContent(item.content, options)
     },
     async meta(key) {

@@ -1126,6 +1126,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: catalog:ai
         version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       mrmime:
         specifier: catalog:workspace
         version: 2.0.1

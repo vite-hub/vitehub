@@ -136,9 +136,9 @@ describe("@vite-hub/source local file sources", () => {
       "README.md",
     ])
     await expect(glob({ cwd: outside, include: "**/*.md" }).getKeys({ rootDir: root }))
-      .rejects.toThrow("glob cwd escapes the source root")
+      .rejects.toThrow("Source path escapes the source root")
     await expect(glob({ cwd: "workspace/outside", include: "**/*.md" }).getKeys({ rootDir: root }))
-      .rejects.toThrow("glob cwd escapes the source root")
+      .rejects.toThrow("Source path escapes the source root")
   })
 
   it("rejects file provider symlinks that escape the source root", async () => {
@@ -152,5 +152,19 @@ describe("@vite-hub/source local file sources", () => {
 
     await expect(readme.getItem("linked.md", { rootDir: root })).rejects.toThrow("Source path escapes the source root")
     await expect(readme.getMeta?.("linked.md", { rootDir: root })).rejects.toThrow("Source path escapes the source root")
+  })
+
+  it("does not serialize unsafe requested file keys", async () => {
+    const readme = file({ content: "# Docs\n", workspacePath: "README.md" })
+    const error = await readme.getItem(
+      "https://user:secret-token@provider.example/private" as "README.md",
+      { rootDir: process.cwd() },
+    ).catch(error => error)
+
+    expect(error).toMatchObject({
+      code: "SOURCE_ITEM_NOT_FOUND",
+      details: { source: "file" },
+    })
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|provider\.example|https:/)
   })
 })

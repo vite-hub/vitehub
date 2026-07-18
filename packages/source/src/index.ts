@@ -12,6 +12,12 @@ export {
   SourcePathError,
   SourceError,
 } from "./core/errors.ts"
+export type {
+  SourceErrorCode,
+  SourceErrorDetails,
+  SourceErrorOptions,
+  SourceProvider,
+} from "./core/errors.ts"
 export {
   custom,
   file,

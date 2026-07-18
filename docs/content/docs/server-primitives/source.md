@@ -221,6 +221,22 @@ The Source Package owns retrieval. The Workspace Package owns Mount placement, S
 
 Workspace and other consuming packages can wrap Sources in discovered Definitions, runtime registries, generated metadata, or Provider Output when they need placement, persistence, or deployment wiring.
 
+## Errors
+
+Built-in loaders throw `SourceError` with a stable `code` and safe `details`. Use `toJSON()` at a public boundary; it excludes causes, stacks, provider bodies, request URLs, credentials, absolute paths, and arbitrary SDK messages. The original provider failure remains available as `cause` for protected server-side diagnostics, and caller abort reasons keep their original identity.
+
+Direct construction and subclasses must provide a stable code:
+
+```ts
+throw new SourceError('[vitehub] custom source request failed.', {
+  code: 'SOURCE_PROVIDER_REQUEST_FAILED',
+  details: { operation: 'read', provider: 'custom' },
+  cause,
+})
+```
+
+Custom Sources retain ownership of the values they throw. Map failures to `SourceError` inside a custom adapter when they may cross a public boundary; otherwise `useSource()` preserves the thrown value unchanged.
+
 ## Production boundaries
 
 Treat Sources as read-only retrieval boundaries. Secrets for private origins should come from Server Env or trusted callbacks, not from model-authored input.

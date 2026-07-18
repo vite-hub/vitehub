@@ -1,7 +1,7 @@
 import { createMemoryStorage, setStorage } from "ocache"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { clearSources, github, registerSources, useSource } from "../../src/index.ts"
+import { clearSources, github, registerSources, SourceError, useSource } from "../../src/index.ts"
 import { createTarGz, jsonResponse, stubGitHubSource } from "./fixtures/github.ts"
 
 const loadGitArchiveFiles = vi.hoisted(() => vi.fn())
@@ -307,8 +307,10 @@ describe("@vite-hub/source GitHub source", () => {
 
     const docs = github({ ref: "missing-ref", repo: "acme/app", root: "docs" })
 
-    await expect(docs.getMeta?.("README.md", { rootDir: process.cwd() }))
-      .rejects.toThrow("could not access the repository or ref")
+    await expect(docs.getMeta?.("README.md", { rootDir: process.cwd() })).rejects.toMatchObject({
+      code: "SOURCE_PROVIDER_REQUEST_FAILED",
+      details: { operation: "validate-ref", provider: "github", status: 404 },
+    })
   })
 
   it("returns missing GitHub metadata from the abort-signal contents path after validating the ref", async () => {
@@ -345,7 +347,80 @@ describe("@vite-hub/source GitHub source", () => {
     await expect(docs.getMeta?.("README.md", {
       abortSignal: new AbortController().signal,
       rootDir: process.cwd(),
-    })).rejects.toThrow("could not access the repository or ref")
+    })).rejects.toMatchObject({
+      code: "SOURCE_PROVIDER_REQUEST_FAILED",
+      details: { operation: "validate-ref", provider: "github", status: 404 },
+    })
+  })
+
+  it("redacts GitHub transport failures while retaining the internal cause", async () => {
+    const cause = new Error("Bearer secret-token failed at https://api.github.com/repos/private/repo")
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(cause))
+    const docs = github({ auth: () => "secret-token", ref: "main", repo: "private/repo" })
+
+    const error = await docs.getItem("README.md", {
+      abortSignal: new AbortController().signal,
+      rootDir: process.cwd(),
+    }).catch(error => error)
+
+    expect(error).toBeInstanceOf(SourceError)
+    expect(error).toMatchObject({
+      cause,
+      code: "SOURCE_PROVIDER_REQUEST_FAILED",
+      details: { operation: "read-item", provider: "github" },
+    })
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|api\.github\.com|private\/repo/)
+  })
+
+  it("serializes GitHub status failures without response bodies or request URLs", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
+      "secret-token from https://api.github.com/repos/private/repo",
+      { status: 503 },
+    )))
+    const docs = github({ auth: () => "secret-token", ref: "main", repo: "private/repo" })
+
+    const error = await docs.getItem("README.md", {
+      abortSignal: new AbortController().signal,
+      rootDir: process.cwd(),
+    }).catch(error => error)
+
+    expect(error).toMatchObject({
+      code: "SOURCE_PROVIDER_REQUEST_FAILED",
+      details: { operation: "read-item", provider: "github", status: 503 },
+    })
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|api\.github\.com|private\/repo/)
+  })
+
+  it("maps invalid GitHub responses without serializing provider content", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
+      "secret-token from https://api.github.com/repos/private/repo",
+      { status: 200 },
+    )))
+    const docs = github({ auth: () => "secret-token", ref: "main", repo: "private/repo" })
+
+    const error = await docs.getItem("README.md", {
+      abortSignal: new AbortController().signal,
+      rootDir: process.cwd(),
+    }).catch(error => error)
+
+    expect(error).toMatchObject({
+      code: "SOURCE_PROVIDER_RESPONSE_INVALID",
+      details: { operation: "read-item", provider: "github" },
+    })
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|api\.github\.com|private\/repo/)
+  })
+
+  it("preserves raw GitHub abort reasons", async () => {
+    const reason = new Error("caller stopped GitHub read")
+    const controller = new AbortController()
+    controller.abort(reason)
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("provider abort wrapper")))
+    const docs = github({ ref: "main", repo: "acme/app" })
+
+    await expect(docs.getItem("README.md", {
+      abortSignal: controller.signal,
+      rootDir: process.cwd(),
+    })).rejects.toBe(reason)
   })
 
   it("reads non-ASCII paths from GitHub archive PAX headers", async () => {
