@@ -379,6 +379,7 @@ new QueueError<'WELCOME_EMAIL_REJECTED'>({
 | `QUEUE_DEFINITION_NOT_FOUND` | No discovered Queue Definition matches the requested name. |
 | `QUEUE_DEFINITION_LOAD_FAILED` | A discovered Queue Definition could not be loaded. |
 | `QUEUE_PROVIDER_OPERATION_FAILED` | Queue client creation, send, or batch send failed. |
+| `QUEUE_PROVIDER_RESPONSE_INVALID` | A successful Vercel send returned a missing or malformed `messageId`. |
 | `CLOUDFLARE_BINDING_RESOLUTION_REQUIRED` | A direct Cloudflare client was created without a concrete binding. |
 | `CLOUDFLARE_BINDING_INVALID` | The Cloudflare binding does not expose `send()` and `sendBatch()`. |
 | `CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS` | Cloudflare received unsupported enqueue options such as `idempotencyKey` or `retentionSeconds`. |
