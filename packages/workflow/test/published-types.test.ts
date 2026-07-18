@@ -46,3 +46,28 @@ it("keeps Effect internals out of published Workflow artifacts", async () => {
   expect(manifest.optionalDependencies?.effect).toBeUndefined()
   expect(manifest.peerDependencies?.effect).toBeUndefined()
 })
+
+it("keeps built Workflow error boundaries safe for hostile inputs and mutation", async () => {
+  const { ApplicationWorkflowError, WorkflowError } = await import("../dist/index.js")
+  const secret = "https://user:token@example.com/private"
+  const builtIn = new WorkflowError({
+    code: "WORKFLOW_DISABLED",
+    details: { token: secret, value: 1n },
+    message: secret,
+  } as never)
+  const application = new ApplicationWorkflowError({
+    code: "CUSTOM_WORKFLOW_FAILURE",
+    details: { context: { operation: "start" } },
+    message: "Custom workflow failure.",
+  })
+
+  expect(Reflect.set(builtIn, "message", secret)).toBe(false)
+  expect(Reflect.set(application.details!.context, "operation", secret)).toBe(false)
+  expect(JSON.stringify(builtIn)).not.toContain(secret)
+  expect(JSON.stringify(application)).not.toContain(secret)
+  expect(() => new ApplicationWorkflowError({
+    code: "CUSTOM_WORKFLOW_FAILURE",
+    details: { value: 1n } as never,
+    message: "Custom workflow failure.",
+  })).toThrow("ApplicationWorkflowError details")
+})

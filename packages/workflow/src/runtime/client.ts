@@ -24,7 +24,6 @@ async function loadRequiredWorkflowDefinition(name: string) {
     throw new WorkflowError({
       code: "WORKFLOW_DEFINITION_NOT_FOUND",
       details: safeWorkflowName(name) ? { name } : undefined,
-      message: "Workflow definition was not found.",
     })
   }
   return definition
@@ -170,7 +169,6 @@ export async function runWorkflow<TPayload = unknown, TResult = unknown>(
   if (config === false) {
     throw new WorkflowError({
       code: "WORKFLOW_DISABLED",
-      message: "Workflow is disabled.",
     })
   }
 
@@ -191,7 +189,6 @@ export async function getWorkflowRun<TPayload = unknown, TResult = unknown>(name
   if (config === false) {
     throw new WorkflowError({
       code: "WORKFLOW_DISABLED",
-      message: "Workflow is disabled.",
     })
   }
 
@@ -207,7 +204,6 @@ export async function cancelWorkflow<TPayload = unknown, TResult = unknown>(name
   if (config === false) {
     throw new WorkflowError({
       code: "WORKFLOW_DISABLED",
-      message: "Workflow is disabled.",
     })
   }
 
@@ -227,7 +223,6 @@ export async function resumeWorkflowSignal<TPayload = unknown>(token: string, pa
   if (config === false) {
     throw new WorkflowError({
       code: "WORKFLOW_DISABLED",
-      message: "Workflow is disabled.",
     })
   }
   return await getWorkflowRuntimeAdapter(config).resume(token, payload)

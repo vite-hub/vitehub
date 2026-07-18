@@ -11,6 +11,7 @@ import { getWorkflowRunState, loadWorkflowDefinition, setWorkflowRun } from "./s
 import { cancelVercelWorkflow, inspectVercelWorkflowRun, resumeVercelWorkflowSignal, startVercelWorkflow } from "./vercel.ts"
 
 import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowRun, WorkflowRunStatus, WorkflowSignalResult } from "../types.ts"
+import type { WorkflowOperationName } from "../errors.ts"
 
 interface RunWorkflowAdapterContext<TPayload = unknown, TResult = unknown> {
   definition: WorkflowDefinition<TPayload, TResult>
@@ -34,11 +35,10 @@ interface WorkflowRuntimeAdapter {
   run<TPayload = unknown, TResult = unknown>(context: RunWorkflowAdapterContext<TPayload, TResult>): Promise<WorkflowRun<TPayload, TResult>>
 }
 
-function unsupportedOperation(provider: string, operation: string): never {
+function unsupportedOperation(provider: "cloudflare" | "openworkflow" | "vercel", operation: WorkflowOperationName): never {
   throw new WorkflowError({
     code: "WORKFLOW_OPERATION_UNSUPPORTED",
     details: { operation, provider },
-    message: `Workflow provider ${JSON.stringify(provider)} does not support ${operation}.`,
   })
 }
 
@@ -195,7 +195,6 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
         throw new WorkflowError({
           code: "WORKFLOW_RUN_ID_UNSUPPORTED",
           details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
-          message: "Native Vercel workflows assign their own run IDs.",
         })
       }
       return await startVercelWorkflow(name, definition, payload)

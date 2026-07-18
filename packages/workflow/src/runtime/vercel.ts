@@ -105,7 +105,6 @@ async function getVercelWorkflowRuntime(): Promise<VercelWorkflowRuntime> {
       cause: error,
       code: "VERCEL_WORKFLOW_SDK_LOAD_FAILED",
       details: { provider: "vercel" },
-      message: "Vercel Workflow DevKit load failed. Install the optional workflow peer dependency.",
     })
   }
 }
@@ -197,7 +196,6 @@ function getNativeWorkflowName<TPayload, TResult>(name: string, definition: Work
     throw new WorkflowError({
       code: "WORKFLOW_NATIVE_ENTRY_INVALID",
       details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
-      message: "Workflow has no transformed native Vercel entry.",
     })
   }
   return workflowName
@@ -251,7 +249,6 @@ export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>
     throw new WorkflowError({
       code: "WORKFLOW_NATIVE_ENTRY_REQUIRED",
       details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
-      message: "Workflow has no native durable entry for Vercel.",
     })
   }
   const context: WorkflowExecutionContext<TPayload> = {

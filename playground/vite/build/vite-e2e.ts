@@ -304,7 +304,7 @@ function renderSandboxRuntimeModule(file: string) {
 function renderWorkflowRuntimeModule(file: string) {
   return [
     `export { defineWorkflow } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/definition.ts")))}`,
-    `export { WorkflowError } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/errors.ts")))}`,
+    `export { ApplicationWorkflowError, WorkflowError } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/errors.ts")))}`,
     `export { createWorkflow, deferWorkflow, getWorkflowRun, runWorkflow } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/client.ts")))}`,
     `export { readRequestPayload, readValidatedPayload, validatePayload } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/payload.ts")))}`,
     "",
