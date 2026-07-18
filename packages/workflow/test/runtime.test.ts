@@ -9,7 +9,7 @@ import type { WorkflowProviderStep } from "../src/types.ts"
 import { WorkflowError } from "../src/errors.ts"
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
 import { getOpenWorkflowRuntime, resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
-import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
+import { createOpenWorkflowWorker, startOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 import { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, resumeWorkflowSignal, runWorkflow } from "../src/runtime/client.ts"
 import { createWorkflowSteps } from "../src/runtime/execute.ts"
@@ -142,6 +142,23 @@ function setOpenWorkflowMockImporter(): void {
     }
     return await import(specifier) as never
   })
+}
+
+function interceptProcessSignals(): {
+  listeners: Map<string, () => void>
+  off: ReturnType<typeof vi.spyOn>
+  on: ReturnType<typeof vi.spyOn>
+} {
+  const listeners = new Map<string, () => void>()
+  const on = vi.spyOn(process, "on").mockImplementation(((event: string, listener: () => void) => {
+    listeners.set(event, listener)
+    return process
+  }) as typeof process.on)
+  const off = vi.spyOn(process, "off").mockImplementation(((event: string, listener: () => void) => {
+    if (listeners.get(event) === listener) listeners.delete(event)
+    return process
+  }) as typeof process.off)
+  return { listeners, off, on }
 }
 
 beforeEach(async () => {
@@ -856,6 +873,122 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.newWorker).toHaveBeenCalledWith({ concurrency: 3 })
     await worker.start()
     expect(worker.start).toHaveBeenCalled()
+  })
+
+  it("owns OpenWorkflow worker listeners until a cached public stop fails", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const controller = new AbortController()
+    const addEventListener = vi.spyOn(controller.signal, "addEventListener")
+    const removeEventListener = vi.spyOn(controller.signal, "removeEventListener")
+    const processSignals = interceptProcessSignals()
+    const cause = new Error("stop failed")
+    const stop = vi.fn(async () => { throw cause })
+    openWorkflowMock.newWorker.mockReturnValueOnce({
+      options: undefined,
+      start: vi.fn(async () => {}),
+      stop,
+    })
+
+    const worker = await startOpenWorkflowWorker({
+      signal: controller.signal,
+    })
+
+    expect(worker.start).toHaveBeenCalledOnce()
+    expect(addEventListener).toHaveBeenCalledWith("abort", expect.any(Function), { once: true })
+
+    const firstStop = worker.stop()
+    const secondStop = worker.stop()
+
+    expect(secondStop).toBe(firstStop)
+    await expect(firstStop).rejects.toMatchObject({
+      cause,
+      code: "OPENWORKFLOW_WORKER_STOP_FAILED",
+      provider: "openworkflow",
+    })
+    await expect(secondStop).rejects.toMatchObject({ cause })
+    expect(stop).toHaveBeenCalledOnce()
+    expect(removeEventListener).toHaveBeenCalledWith("abort", expect.any(Function))
+    expect(processSignals.off).toHaveBeenCalledTimes(2)
+
+    controller.abort()
+    expect(stop).toHaveBeenCalledOnce()
+  })
+
+  it("reports abort-triggered OpenWorkflow worker stop failures after removing listeners", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const cause = new Error("stop failed")
+    const stop = vi.fn(async () => { throw cause })
+    openWorkflowMock.newWorker.mockReturnValueOnce({
+      options: undefined,
+      start: vi.fn(async () => {}),
+      stop,
+    })
+    const controller = new AbortController()
+    const removeEventListener = vi.spyOn(controller.signal, "removeEventListener")
+    const processSignals = interceptProcessSignals()
+    const onError = vi.fn()
+
+    await startOpenWorkflowWorker({ onError, signal: controller.signal })
+    const sigint = processSignals.listeners.get("SIGINT")
+    const sigterm = processSignals.listeners.get("SIGTERM")
+
+    controller.abort()
+
+    await vi.waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+        cause,
+        code: "OPENWORKFLOW_WORKER_STOP_FAILED",
+        provider: "openworkflow",
+      }))
+    })
+    expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(WorkflowError)
+    expect(stop).toHaveBeenCalledOnce()
+    expect(removeEventListener).toHaveBeenCalledWith("abort", expect.any(Function))
+    expect(processSignals.off).toHaveBeenCalledWith("SIGINT", sigint)
+    expect(processSignals.off).toHaveBeenCalledWith("SIGTERM", sigterm)
+    expect(processSignals.on).toHaveBeenCalledTimes(2)
+  })
+
+  it("reports process-triggered OpenWorkflow worker stop failures without returning a promise to the host", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const cause = new Error("stop failed")
+    const stop = vi.fn(async () => { throw cause })
+    openWorkflowMock.newWorker.mockReturnValueOnce({
+      options: undefined,
+      start: vi.fn(async () => {}),
+      stop,
+    })
+    const processSignals = interceptProcessSignals()
+    const onError = vi.fn()
+
+    const worker = await startOpenWorkflowWorker({ onError })
+    const sigint = processSignals.listeners.get("SIGINT")
+    expect(sigint).toBeDefined()
+
+    const returned = sigint?.()
+
+    expect(returned).toBeUndefined()
+    await vi.waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+        cause,
+        code: "OPENWORKFLOW_WORKER_STOP_FAILED",
+      }))
+    })
+    await expect(worker.stop()).rejects.toMatchObject({
+      cause,
+      code: "OPENWORKFLOW_WORKER_STOP_FAILED",
+    })
+    expect(stop).toHaveBeenCalledOnce()
+    expect(processSignals.off).toHaveBeenCalledTimes(2)
   })
 
   it("registers inline workflow definitions in OpenWorkflow workers", async () => {
