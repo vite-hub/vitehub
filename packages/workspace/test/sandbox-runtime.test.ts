@@ -9,6 +9,10 @@ import { getWorkspaceDependencyRuntimeLoaders, setWorkspaceDependencyRuntimeLoad
 import { setSandboxRuntimeConfig } from "@vite-hub/sandbox/runtime/state"
 
 type FakeEntry = { content?: string | Uint8Array, target?: string, type: "directory" | "file" | "symlink" }
+type FakeSandboxOptions = {
+  onReadFile?: (path: string) => Promise<void>
+  stopError?: unknown
+}
 
 const tempDirs: string[] = []
 
@@ -18,7 +22,7 @@ async function createTempDir() {
   return dir
 }
 
-function createFakeSandbox(provider: "cloudflare" | "vercel") {
+function createFakeSandbox(provider: "cloudflare" | "vercel", hooks: FakeSandboxOptions = {}) {
   const files = new Map<string, FakeEntry>([
     ["/workspace", { type: "directory" }],
   ])
@@ -63,6 +67,7 @@ function createFakeSandbox(provider: "cloudflare" | "vercel") {
         files.set(path, { content, type: "file" })
       },
       async readFile(path: string, options?: { encoding?: "binary" | "utf8" }): Promise<string | Uint8Array> {
+        await hooks.onReadFile?.(path)
         const entry = files.get(path)
         if (!entry || (entry.type !== "file" && entry.type !== "symlink")) throw new Error(`missing file: ${path}`)
         if (entry.type === "symlink")
@@ -120,6 +125,7 @@ function createFakeSandbox(provider: "cloudflare" | "vercel") {
       },
       async stop() {
         calls.push("stop")
+        if (hooks.stopError !== undefined) throw hooks.stopError
       },
     },
   }
@@ -142,6 +148,135 @@ afterEach(async () => {
 })
 
 describe("sandbox workspace runtime", () => {
+  it("releases a Vercel sandbox when session setup fails", async () => {
+    const setupError = new Error("materialization failed")
+    const fake = createFakeSandbox("vercel")
+    fake.sandbox.writeFile = vi.fn(async () => {
+      throw setupError
+    })
+    const sandboxPackage = await import("@vite-hub/sandbox")
+    vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
+    setSandboxRuntimeConfig({ provider: "vercel", runtime: "node24" })
+
+    const workspace = createWorkspace({
+      ...defineWorkspace({ runtime: "sandbox", store: { provider: "memory" } }),
+      name: "docs",
+    })
+    await workspace.writeFile("README.md", "# Docs\n")
+
+    await expect(workspace.startSession()).rejects.toBe(setupError)
+    expect(fake.calls.filter(call => call === "stop")).toHaveLength(1)
+  })
+
+  it("preserves setup and cleanup failures without exposing FiberFailure", async () => {
+    const setupError = new Error("materialization failed")
+    const stopError = new Error("sandbox stop failed")
+    const fake = createFakeSandbox("vercel", { stopError })
+    fake.sandbox.writeFile = vi.fn(async () => {
+      throw setupError
+    })
+    const sandboxPackage = await import("@vite-hub/sandbox")
+    vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
+    setSandboxRuntimeConfig({ provider: "vercel", runtime: "node24" })
+
+    const workspace = createWorkspace({
+      ...defineWorkspace({ runtime: "sandbox", store: { provider: "memory" } }),
+      name: "docs",
+    })
+    await workspace.writeFile("README.md", "# Docs\n")
+
+    const failure = await workspace.startSession().catch(error => error)
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors).toEqual([setupError, stopError])
+    expect((failure as Error).name).not.toBe("FiberFailure")
+    expect(fake.calls.filter(call => call === "stop")).toHaveLength(1)
+  })
+
+  it("never stops caller-owned Cloudflare sandboxes", async () => {
+    const setupError = new Error("materialization failed")
+    const fake = createFakeSandbox("cloudflare")
+    fake.sandbox.writeFile = vi.fn(async () => {
+      throw setupError
+    })
+    const sandboxPackage = await import("@vite-hub/sandbox")
+    vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
+    setSandboxRuntimeConfig({ provider: "cloudflare", binding: "SANDBOX" })
+
+    const workspace = createWorkspace({
+      ...defineWorkspace({ runtime: "sandbox", store: { provider: "memory" } }),
+      name: "docs",
+    })
+    await workspace.writeFile("README.md", "# Docs\n")
+
+    await expect(workspace.startSession()).rejects.toBe(setupError)
+    expect(fake.calls).not.toContain("stop")
+  })
+
+  it("stops a Vercel sandbox exactly once across concurrent closes", async () => {
+    const fake = createFakeSandbox("vercel")
+    const sandboxPackage = await import("@vite-hub/sandbox")
+    vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
+    setSandboxRuntimeConfig({ provider: "vercel", runtime: "node24" })
+
+    const workspace = createWorkspace({
+      ...defineWorkspace({ runtime: "sandbox", store: { provider: "memory" } }),
+      name: "docs",
+    })
+    const session = await workspace.startSession()
+
+    await Promise.all([session.close(), session.close(), session.close()])
+
+    expect(fake.calls.filter(call => call === "stop")).toHaveLength(1)
+  })
+
+  it("returns Vercel cleanup failures by identity without exposing FiberFailure", async () => {
+    const stopError = new Error("sandbox stop failed")
+    const fake = createFakeSandbox("vercel", { stopError })
+    const sandboxPackage = await import("@vite-hub/sandbox")
+    vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
+    setSandboxRuntimeConfig({ provider: "vercel", runtime: "node24" })
+
+    const workspace = createWorkspace({
+      ...defineWorkspace({ runtime: "sandbox", store: { provider: "memory" } }),
+      name: "docs",
+    })
+    const session = await workspace.startSession()
+    const failure = await session.close().catch(error => error)
+
+    expect(failure).toBe(stopError)
+    expect((failure as Error).name).not.toBe("FiberFailure")
+    expect(fake.calls.filter(call => call === "stop")).toHaveLength(1)
+  })
+
+  it("bounds concurrent sandbox snapshot reads at 16", async () => {
+    let activeReads = 0
+    let maximumReads = 0
+    const fake = createFakeSandbox("cloudflare", {
+      async onReadFile() {
+        activeReads += 1
+        maximumReads = Math.max(maximumReads, activeReads)
+        await new Promise(resolve => setTimeout(resolve, 5))
+        activeReads -= 1
+      },
+    })
+    const sandboxPackage = await import("@vite-hub/sandbox")
+    vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
+    setSandboxRuntimeConfig({ provider: "cloudflare", binding: "SANDBOX" })
+
+    const workspace = createWorkspace({
+      ...defineWorkspace({ runtime: "sandbox", store: { provider: "memory" } }),
+      name: "docs",
+    })
+    await Promise.all(Array.from({ length: 40 }, (_, index) =>
+      workspace.writeFile(`files/${index}.txt`, String(index))))
+
+    const session = await workspace.startSession()
+
+    expect(maximumReads).toBe(16)
+    await session.close()
+  })
+
   it("uses configured generated-host sandbox loaders", async () => {
     const fake = createFakeSandbox("cloudflare")
     const createSandboxWithConfig = vi.fn(async () => fake.sandbox)
