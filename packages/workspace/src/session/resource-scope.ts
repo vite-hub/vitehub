@@ -103,12 +103,29 @@ function makeWorkspaceResourceScope<Resource, Setup>(
         finishRegistration()
         throw error
       }
+      const childFailures = await runWorkspaceEffect(Ref.make<readonly {
+        cause: unknown
+        parentOwned: boolean
+      }[]>([]))
 
       const useExit = await Promise.resolve().then(() => use(async (finalizer) => {
         try {
           await runWorkspaceEffect(Scope.addFinalizer(
             childScope,
-            Effect.orDie(tryWorkspacePromise(`${operation}.Child.release`, () => finalizer())),
+            Effect.catchTag(
+              tryWorkspacePromise(`${operation}.Child.release`, () => finalizer()),
+              "WorkspaceEffectFailure",
+              failure => Effect.gen(function* () {
+                const parentOwned = closed
+                yield* Ref.update(childFailures, current => [...current, {
+                  cause: failure.cause,
+                  parentOwned,
+                }])
+                if (parentOwned) {
+                  yield* Ref.update(failures, current => [...current, failure.cause])
+                }
+              }),
+            ),
           ))
         }
         finally {
@@ -120,19 +137,29 @@ function makeWorkspaceResourceScope<Resource, Setup>(
       )
       finishRegistration()
 
-      const closeExit = await runWorkspaceEffect(Scope.close(childScope, Exit.void)).then(
-        () => ({ _tag: "Success" }) as const,
-        error => ({ _tag: "Failure", error }) as const,
-      )
+      const closeResult = await runWorkspaceEffect(Effect.gen(function* () {
+        const exit = yield* Effect.exit(Scope.close(childScope, Exit.void))
+        const cleanupCauses = yield* Ref.get(childFailures)
+        return { cleanupCauses, exit }
+      }))
+      const closeCauses = [
+        ...(Exit.isFailure(closeResult.exit) ? workspaceEffectCauseValues(closeResult.exit.cause) : []),
+        ...closeResult.cleanupCauses.filter(failure => !failure.parentOwned).map(failure => failure.cause),
+      ]
+      const closeError = closeCauses.length === 0
+        ? undefined
+        : closeCauses.length === 1
+          ? closeCauses[0]
+          : new AggregateError(closeCauses, "[vitehub] Workspace child cleanup failed for multiple reasons.")
 
-      if (useExit._tag === "Failure" && closeExit._tag === "Failure") {
+      if (useExit._tag === "Failure" && closeError !== undefined) {
         throw new AggregateError(
-          [useExit.error, closeExit.error],
+          [useExit.error, closeError],
           "[vitehub] Workspace child operation failed and cleanup also failed.",
         )
       }
       if (useExit._tag === "Failure") throw useExit.error
-      if (closeExit._tag === "Failure") throw closeExit.error
+      if (closeError !== undefined) throw closeError
       return useExit.value
     },
   }
