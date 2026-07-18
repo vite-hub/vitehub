@@ -358,7 +358,34 @@ describe("trusted host workspace runtime", () => {
     await scope.close()
   })
 
-  it("preserves child and root cleanup failures in order", async () => {
+  it("keeps primary, child, and root failures at their owning boundaries", async () => {
+    const operationError = new Error("child operation failed")
+    const childCleanupError = new Error("child cleanup failed")
+    const rootCleanupError = new Error("root cleanup failed")
+    const scope = await openTrustedHostWorkspaceScope(
+      async () => "root",
+      async () => undefined,
+      async () => {
+        throw rootCleanupError
+      },
+    )
+
+    const childFailure = await scope.runChild(async (registerFinalizer) => {
+      await registerFinalizer(async () => {
+        throw childCleanupError
+      })
+      throw operationError
+    }).catch(error => error)
+    const rootFailure = await scope.close().catch(error => error)
+
+    expect(childFailure).toBeInstanceOf(AggregateError)
+    expect((childFailure as AggregateError).errors).toEqual([operationError, childCleanupError])
+    expect((childFailure as Error).name).not.toBe("FiberFailure")
+    expect(rootFailure).toBe(rootCleanupError)
+    expect((rootFailure as Error).name).not.toBe("FiberFailure")
+  })
+
+  it("preserves child and root cleanup failures across concurrent closes", async () => {
     const childCleanupError = new Error("child cleanup failed")
     const rootCleanupError = new Error("root cleanup failed")
     let finishChild!: () => void
@@ -386,7 +413,9 @@ describe("trusted host workspace runtime", () => {
     })
 
     await childRegistered
-    const [closeFailure] = await Promise.all([
+    const [closeFailure, secondCloseFailure, thirdCloseFailure] = await Promise.all([
+      scope.close().catch(error => error),
+      scope.close().catch(error => error),
       scope.close().catch(error => error),
       child,
     ])
@@ -394,6 +423,8 @@ describe("trusted host workspace runtime", () => {
     expect(closeFailure).toBeInstanceOf(AggregateError)
     expect((closeFailure as AggregateError).errors).toEqual([childCleanupError, rootCleanupError])
     expect((closeFailure as Error).name).not.toBe("FiberFailure")
+    expect(secondCloseFailure).toBe(closeFailure)
+    expect(thirdCloseFailure).toBe(closeFailure)
   })
 
   it("waits for every active command before the session closes", async () => {
