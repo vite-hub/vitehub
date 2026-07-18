@@ -21,7 +21,7 @@ export function workspaceEffectCauseValues(
       return reason.error instanceof WorkspaceEffectFailure ? reason.error.cause : reason.error
     }
     if (Cause.isDieReason(reason)) {
-      return reason.defect instanceof WorkspaceEffectFailure ? reason.defect.cause : reason.defect
+      return reason.defect
     }
     return interruptionError(signal)
   })
