@@ -1,11 +1,11 @@
-import { NotSupportedError, SandboxError } from "@vite-hub/sandbox"
+import { NotSupportedError, SandboxError } from "@vite-hub/sandbox/errors"
 
 import type {
   SandboxErrorCode,
   SandboxErrorDetails,
   SandboxErrorJSON,
   SandboxErrorOptions,
-} from "@vite-hub/sandbox"
+} from "@vite-hub/sandbox/errors"
 
 const code = "SANDBOX_TIMEOUT" satisfies SandboxErrorCode
 const options = {

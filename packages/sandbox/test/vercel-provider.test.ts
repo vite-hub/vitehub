@@ -55,3 +55,53 @@ describe("resolveSandboxProvider", () => {
     })
   })
 })
+
+describe("Vercel lifecycle errors", () => {
+  afterEach(() => {
+    vi.doUnmock("@vercel/sandbox")
+    vi.resetModules()
+  })
+
+  it.each([
+    ["create", async (provider: typeof import("../src/sandbox/providers/vercel.ts")) => provider.createVercelSandboxClient({ provider: "vercel" })],
+    ["list", async (provider: typeof import("../src/sandbox/providers/vercel.ts")) => provider.VercelSandboxStatic.list()],
+    ["get", async (provider: typeof import("../src/sandbox/providers/vercel.ts")) => provider.VercelSandboxStatic.get("sandbox-id")],
+  ] as const)("normalizes %s SDK rejections", async (operation, invoke) => {
+    const cause = new Error(`Vercel ${operation} failed with token=secret`)
+    vi.doMock("@vercel/sandbox", () => ({
+      Sandbox: {
+        create: vi.fn(async () => { throw cause }),
+        get: vi.fn(async () => { throw cause }),
+        list: vi.fn(async () => { throw cause }),
+      },
+    }))
+
+    const provider = await import("../src/sandbox/providers/vercel.ts")
+    const { SandboxError } = await import("../src/sandbox/errors.ts")
+    const error = await invoke(provider).catch(error => error)
+
+    expect(error).toBeInstanceOf(SandboxError)
+    expect(error).toMatchObject({
+      cause,
+      code: "SANDBOX_RUNTIME_ERROR",
+      details: { operation, provider: "vercel" },
+      message: "Sandbox execution failed.",
+    })
+    expect(JSON.stringify(error)).not.toContain(cause.message)
+  })
+
+  it("does not normalize local Vercel instance shape errors", async () => {
+    vi.doMock("@vercel/sandbox", () => ({
+      Sandbox: {
+        create: vi.fn(async () => ({})),
+      },
+    }))
+
+    const { createVercelSandboxClient } = await import("../src/sandbox/providers/vercel.ts")
+    const { SandboxError } = await import("../src/sandbox/errors.ts")
+    const error = await createVercelSandboxClient({ provider: "vercel" }).catch(error => error)
+
+    expect(error).toBeInstanceOf(TypeError)
+    expect(error).not.toBeInstanceOf(SandboxError)
+  })
+})

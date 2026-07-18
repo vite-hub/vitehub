@@ -17,6 +17,7 @@ export default defineConfig({
     },
     entry: [
       "src/index.ts",
+      "src/errors.ts",
       "src/vite.ts",
       "src/runtime/empty-registry.ts",
       "src/runtime/provider-loader.ts",
