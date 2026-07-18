@@ -77,6 +77,11 @@ describe("WorkflowError", () => {
     const error = new CustomWorkflowError({ code: "WORKFLOW_DISABLED" })
     expect(error.metadata).toBe("consumer-owned")
     expect(error.toJSON()).toEqual({ code: "WORKFLOW_DISABLED", message: "Workflow is disabled." })
+    expect(Object.getOwnPropertyDescriptor(error, "toJSON")).toMatchObject({
+      configurable: false,
+      enumerable: false,
+      writable: false,
+    })
   })
 
   it("captures trusted serialization before prototype instrumentation", () => {

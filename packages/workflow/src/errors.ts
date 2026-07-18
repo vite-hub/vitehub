@@ -306,11 +306,14 @@ function countApplicationEntries(state: { entries: number }, count: number): voi
 
 function sealPublicError(error: ViteHubError<string, ViteHubErrorDetails>): void {
   deepFreeze(error.details)
-  Object.defineProperty(error, "toJSON", {
-    configurable: false,
-    value: () => trustedViteHubErrorToJSON.call(error),
-    writable: false,
-  })
+  if (!Object.getOwnPropertyDescriptor(error, "toJSON")) {
+    Object.defineProperty(error, "toJSON", {
+      configurable: false,
+      enumerable: false,
+      value: () => trustedViteHubErrorToJSON.call(error),
+      writable: false,
+    })
+  }
   for (const key of ["code", "details", "message", "name", "requestId", "retryable"] as const) {
     const descriptor = Object.getOwnPropertyDescriptor(error, key)
     if (descriptor && "writable" in descriptor) {

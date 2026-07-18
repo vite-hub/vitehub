@@ -60,9 +60,24 @@ it("keeps built Workflow error boundaries safe for hostile inputs and mutation",
     details: { context: { operation: "start" } },
     message: "Custom workflow failure.",
   })
+  class DerivedWorkflowError extends WorkflowError<"WORKFLOW_DISABLED"> {
+    readonly metadata = "consumer-owned"
+
+    override toJSON(): never {
+      throw new Error(secret)
+    }
+  }
+  const derived = new DerivedWorkflowError({ code: "WORKFLOW_DISABLED" })
 
   expect(Reflect.set(builtIn, "message", secret)).toBe(false)
   expect(Reflect.set(application.details!.context, "operation", secret)).toBe(false)
+  expect(derived.metadata).toBe("consumer-owned")
+  expect(derived.toJSON()).toEqual({ code: "WORKFLOW_DISABLED", message: "Workflow is disabled." })
+  expect(Object.getOwnPropertyDescriptor(derived, "toJSON")).toMatchObject({
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  })
   expect(JSON.stringify(builtIn)).not.toContain(secret)
   expect(JSON.stringify(application)).not.toContain(secret)
   expect(() => new ApplicationWorkflowError({
