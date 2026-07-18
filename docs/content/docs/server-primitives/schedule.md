@@ -246,6 +246,8 @@ When the host fires a native wake, call `context.wake({ scheduleId, scheduledAt 
 
 Use `createProcessScheduleWakeDriver()` from `@vite-hub/schedule/runtime/process` when a custom long-running host wants the same in-process wake behavior without generated Nitro wiring.
 
+`startScheduleRunner()` has been removed. Existing self-hosted processes should install `createProcessScheduleWakeDriver()` through `installScheduleRuntime()` and await `controller.close()` during host shutdown.
+
 Static provider output remains build-time configuration; selecting the Process Runtime also executes discovered Static Schedule Definitions without requiring provider output.
 
 ## Storage
