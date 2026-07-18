@@ -1807,7 +1807,8 @@ describe("agent capability runtime", () => {
   it("closes streamed output as failed when source iterator return rejects", async () => {
     const { withCapabilityCleanup } = await import("../src/capability-runtime.ts")
     const returnError = new Error("return failed")
-    const close = vi.fn(async () => {})
+    const closeError = new Error("close failed")
+    const close = vi.fn(async () => { throw closeError })
     const iterator = {
       next: vi.fn(async () => ({ done: false as const, value: "hello" })),
       return: vi.fn(async () => { throw returnError }),
@@ -1820,7 +1821,9 @@ describe("agent capability runtime", () => {
       for await (const _chunk of withCapabilityCleanup(stream, close)) break
     }
 
-    await expect(consume()).rejects.toThrow("return failed")
+    const failure = await consume().catch(error => error) as AggregateError
+    expect(failure.message).toBe("[vitehub] Agent stream return failed and finish lifecycle also failed.")
+    expect(failure.errors).toEqual([returnError, closeError])
     expect(close).toHaveBeenCalledWith({ error: returnError, failed: true })
   })
 
@@ -1842,6 +1845,25 @@ describe("agent capability runtime", () => {
 
     await expect(consume()).rejects.toThrow("return failed")
     expect(close).toHaveBeenCalledWith({ error: returnError, failed: true })
+  })
+
+  it("preserves AbortSignal reasons while returning the source iterator", async () => {
+    const { withCapabilityCleanup } = await import("../src/capability-runtime.ts")
+    const abort = new AbortController()
+    const abortReason = new Error("client disconnected")
+    const close = vi.fn(async () => {})
+    const iterator = {
+      next: vi.fn(() => new Promise<IteratorResult<unknown>>(() => {})),
+      return: vi.fn(async () => ({ done: true as const, value: undefined })),
+    }
+    const stream = withCapabilityCleanup({ [Symbol.asyncIterator]: () => iterator }, close, { abortSignal: abort.signal })
+    const next = stream[Symbol.asyncIterator]().next()
+
+    abort.abort(abortReason)
+
+    await expect(next).rejects.toBe(abortReason)
+    expect(iterator.return).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledWith({ error: abortReason, failed: true })
   })
 
   it("preserves read-only Response metadata while wrapping body cleanup", async () => {

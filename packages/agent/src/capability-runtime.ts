@@ -14,8 +14,12 @@ import {
   resolveInputAgentInvoker,
 } from "./invoker.ts"
 import { runObservedAgentHook } from "./hooks.ts"
-import { nextWithAbort } from "./internal/abortable-stream.ts"
 import { openAgentCapabilityScope } from "./internal/capability-scope.ts"
+import {
+  withAgentReadableStreamCleanup,
+  withAgentStreamCleanup,
+} from "./internal/stream-lifetime.ts"
+import type { AgentStreamCleanupOutcome } from "./internal/stream-lifetime.ts"
 import type {
   AgentCapabilitiesInput,
   AgentCapabilitiesResolverContext,
@@ -1368,115 +1372,22 @@ export async function createAgentInvocationExtensions(
   return extensions
 }
 
-type CapabilityCleanupOutcome =
-  | { failed: false }
-  | { error: unknown, failed: true }
-
-async function closeCapabilityStreamIterator(
-  iterator: AsyncIterator<unknown>,
-  completed: boolean,
-  outcome: CapabilityCleanupOutcome,
-  close: (outcome: CapabilityCleanupOutcome) => Promise<void>,
-): Promise<void> {
-  if (!completed) {
-    let returnTask: Promise<IteratorResult<unknown>> | undefined
-    try {
-      returnTask = iterator.return?.()
-    }
-    catch (returnError) {
-      returnTask = Promise.reject(returnError)
-    }
-    if (outcome.failed) void returnTask?.catch(() => {})
-    else {
-      try {
-        await returnTask
-      }
-      catch (returnError) {
-        try {
-          await close({ error: returnError, failed: true })
-        }
-        catch (closeError) {
-          throw new AggregateError([returnError, closeError], "[vitehub] Agent stream return failed and finish lifecycle also failed.")
-        }
-        throw returnError
-      }
-    }
-  }
-  await close(outcome)
-}
-
 export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
   stream: T,
-  close: (outcome: CapabilityCleanupOutcome) => Promise<void>,
+  close: (outcome: AgentStreamCleanupOutcome) => Promise<void>,
   options: { abortSignal?: AbortSignal } = {},
 ): AsyncIterable<unknown> {
-  return (async function* () {
-    const iterator = stream[Symbol.asyncIterator]()
-    let completed = false
-    let error: unknown
-    let failed = false
-    try {
-      for (;;) {
-        const result = await nextWithAbort(iterator.next(), options.abortSignal, "[vitehub] Agent Invocation stream aborted.")
-        if (result.done) {
-          completed = true
-          break
-        }
-        yield result.value
-      }
-    }
-    catch (caught) {
-      failed = true
-      error = caught
-      throw caught
-    }
-    finally {
-      await closeCapabilityStreamIterator(iterator, completed, failed ? { error, failed: true } : { failed: false }, close)
-    }
-  })()
+  return withAgentStreamCleanup(stream, close, {
+    ...options,
+    returnFailureMessage: "[vitehub] Agent stream return failed and finish lifecycle also failed.",
+  })
 }
 
-export function withResponseCleanup(response: Response, close: (outcome: CapabilityCleanupOutcome) => Promise<void>): Response | Promise<Response> {
+export function withResponseCleanup(response: Response, close: (outcome: AgentStreamCleanupOutcome) => Promise<void>): Response | Promise<Response> {
   if (!response.body) {
     return close({ failed: false }).then(() => response)
   }
-  const reader = response.body.getReader()
-  let closed = false
-  async function closeOnce(outcome: CapabilityCleanupOutcome = { failed: false }) {
-    if (closed) return
-    closed = true
-    await close(outcome)
-  }
-  const wrapped = new Response(new ReadableStream({
-    async cancel(reason) {
-      let cancelOutcome: CapabilityCleanupOutcome = reason === undefined ? { failed: false } : { error: reason, failed: true }
-      try {
-        await reader.cancel(reason)
-      }
-      catch (error) {
-        cancelOutcome = { error, failed: true }
-        throw error
-      }
-      finally {
-        await closeOnce(cancelOutcome)
-      }
-    },
-    async pull(controller) {
-      try {
-        const result = await reader.read()
-        if (result.done) {
-          await closeOnce()
-          controller.close()
-          return
-        }
-        controller.enqueue(result.value)
-      }
-      catch (error) {
-        await closeOnce({ error, failed: true })
-        throw error
-      }
-    },
-  }), response)
+  const wrapped = new Response(withAgentReadableStreamCleanup(response.body, close), response)
   Object.defineProperties(wrapped, {
     redirected: { configurable: true, enumerable: true, value: response.redirected },
     type: { configurable: true, enumerable: true, value: response.type },

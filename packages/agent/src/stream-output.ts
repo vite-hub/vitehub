@@ -1,4 +1,7 @@
 import { isAsyncIterable } from "./internal/stream-result.ts"
+import {
+  withAgentReadableStreamCleanup,
+} from "./internal/stream-lifetime.ts"
 import { usageRecordFromStreamChunk } from "./agent-output.ts"
 
 import type { AgentUsageRecord, MaybePromise } from "./types.ts"
@@ -13,9 +16,7 @@ interface AgentUIMessageStreamWriter {
   write(event: unknown): void
 }
 
-type StreamCleanupOutcome =
-  | { failed: false }
-  | { error: unknown, failed: true }
+import type { AgentStreamCleanupOutcome as StreamCleanupOutcome } from "./internal/stream-lifetime.ts"
 
 const uiMessageStreamHeaders = {
   "cache-control": "no-cache",
@@ -97,44 +98,7 @@ export function withReadableStreamCleanup<T>(
   cleanup: (outcome: StreamCleanupOutcome) => Promise<void>,
   options: { onChunk?: (chunk: T) => void } = {},
 ): ReadableStream<T> {
-  const reader = stream.getReader()
-  let cleaned = false
-  const runCleanup = async (outcome: StreamCleanupOutcome = { failed: false }) => {
-    if (cleaned) return
-    cleaned = true
-    await cleanup(outcome)
-  }
-  return new ReadableStream<T>({
-    async pull(controller) {
-      try {
-        const result = await reader.read()
-        if (result.done) {
-          await runCleanup()
-          controller.close()
-          return
-        }
-        options.onChunk?.(result.value)
-        controller.enqueue(result.value)
-      }
-      catch (error) {
-        await runCleanup({ error, failed: true })
-        controller.error(error)
-      }
-    },
-    async cancel(reason) {
-      let outcome: StreamCleanupOutcome = reason === undefined ? { failed: false } : { error: reason, failed: true }
-      try {
-        await reader.cancel(reason)
-      }
-      catch (error) {
-        outcome = { error, failed: true }
-        throw error
-      }
-      finally {
-        await runCleanup(outcome)
-      }
-    },
-  })
+  return withAgentReadableStreamCleanup(stream, cleanup, options.onChunk)
 }
 
 function textFromRenderedOutput(rendered: unknown): string | undefined {
