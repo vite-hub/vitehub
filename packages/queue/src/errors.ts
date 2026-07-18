@@ -83,6 +83,7 @@ function parseBuiltInQueueErrorCode(value: unknown): QueueErrorCode | undefined 
     case "QUEUE_DEFINITION_NOT_FOUND":
     case "QUEUE_DISABLED":
     case "QUEUE_PROVIDER_OPERATION_FAILED":
+    case "QUEUE_PROVIDER_RESPONSE_INVALID":
     case "VERCEL_PROVIDER_EXPECTED":
     case "VERCEL_QUEUE_REGION_REQUIRED":
     case "VERCEL_QUEUE_SDK_INVALID":
@@ -146,6 +147,8 @@ function normalizeBuiltInDetails(code: QueueErrorCode, value: unknown): ViteHubE
         operation: parseQueueProviderOperation(details?.operation),
         provider: parseQueueProvider(details?.provider),
       })
+    case "QUEUE_PROVIDER_RESPONSE_INVALID":
+      return Object.freeze({ operation: "send", provider: "vercel" })
     case "VERCEL_PROVIDER_EXPECTED":
       return Object.freeze({ provider: parseQueueProvider(details?.provider) })
     case "VERCEL_QUEUE_REGION_REQUIRED":
@@ -178,6 +181,8 @@ function builtInQueueErrorMessage(code: QueueErrorCode, details: ViteHubErrorDet
       return "[vitehub] Queue runtime is disabled."
     case "QUEUE_PROVIDER_OPERATION_FAILED":
       return `[vitehub] ${details!.provider} queue provider failed during ${details!.operation}.`
+    case "QUEUE_PROVIDER_RESPONSE_INVALID":
+      return "[vitehub] Vercel queue provider returned an invalid send response."
     case "VERCEL_PROVIDER_EXPECTED":
       return "[vitehub] Hosted Vercel Queue Delivery requires the Vercel provider."
     case "VERCEL_QUEUE_REGION_REQUIRED":
@@ -191,6 +196,7 @@ function builtInQueueErrorMessage(code: QueueErrorCode, details: ViteHubErrorDet
     case "VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS":
       return "[vitehub] Vercel queue does not support one or more enqueue options."
   }
+  throw new TypeError("[vitehub] Invalid Queue error options.")
 }
 
 function parseCustomQueueErrorCode(value: unknown): string {

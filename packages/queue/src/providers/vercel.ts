@@ -55,7 +55,6 @@ function invalidVercelSendResponse(cause: unknown): never {
     cause,
     code: "QUEUE_PROVIDER_RESPONSE_INVALID",
     details: { operation: "send", provider: "vercel" },
-    message: "[vitehub] Vercel queue provider returned an invalid send response.",
   })
 }
 

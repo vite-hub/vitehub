@@ -61,6 +61,23 @@ describe("QueueError", () => {
       message: "[vitehub] vercel queue provider failed during send.",
     })
     expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private/)
+
+    const invalidResponse = new QueueError({
+      code: "QUEUE_PROVIDER_RESPONSE_INVALID",
+      details: {
+        operation: "send-batch",
+        provider: "cloudflare",
+        token: "secret-token",
+      },
+      message: "Bearer secret-token failed at https://queue.example/private",
+    } as never)
+
+    expect(invalidResponse.toJSON()).toEqual({
+      code: "QUEUE_PROVIDER_RESPONSE_INVALID",
+      details: { operation: "send", provider: "vercel" },
+      message: "[vitehub] Vercel queue provider returned an invalid send response.",
+    })
+    expect(JSON.stringify(invalidResponse)).not.toMatch(/secret-token|queue\.example|private/)
   })
 
   it("rejects invalid runtime codes and built-in details with a fixed error", () => {
