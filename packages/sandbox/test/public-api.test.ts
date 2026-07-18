@@ -3,7 +3,7 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { defineSandbox, NotSupportedError, runSandbox, SandboxError } from "../src/index.ts"
+import { defineSandbox, runSandbox } from "../src/index.ts"
 
 describe("sandbox public api", () => {
   it("keeps the factory surface minimal", async () => {
@@ -20,13 +20,6 @@ describe("sandbox public api", () => {
       runtime: { command: "node", args: ["--trace-warnings"] },
       timeout: 1_000,
     })
-  })
-
-  it("exports the structured error contract", () => {
-    expect(new SandboxError({ code: "SANDBOX_RUNTIME_ERROR", message: "failed" })).toBeInstanceOf(
-      Error,
-    )
-    expect(new NotSupportedError("snapshot", "vercel")).toBeInstanceOf(SandboxError)
   })
 
   it("returns a result wrapper instead of throwing", async () => {

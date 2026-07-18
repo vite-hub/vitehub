@@ -18,45 +18,17 @@ export type SandboxErrorCode
     | 'SANDBOX_TRANSPORT_ERROR'
     | 'SANDBOX_VALIDATION_ERROR'
 
-export type SandboxOperation
-  = | 'create'
-    | 'createCodeContext'
-    | 'createSession'
-    | 'deleteCodeContext'
-    | 'deleteFile'
-    | 'deleteSession'
-    | 'deleteSnapshot'
-    | 'destroy'
-    | 'exec'
-    | 'exposePort'
-    | 'extendTimeout'
-    | 'get'
-    | 'getExposedPorts'
-    | 'getSession'
-    | 'getSnapshot'
-    | 'gitCheckout'
-    | 'list'
-    | 'listCodeContexts'
-    | 'listFiles'
-    | 'listSnapshots'
-    | 'mkdir'
-    | 'mountBucket'
-    | 'moveFile'
-    | 'readFile'
-    | 'readFileStream'
-    | 'runCode'
-    | 'setEnvVars'
-    | 'snapshot'
-    | 'startProcess'
-    | 'stop'
-    | 'unexposePort'
-    | 'unmountBucket'
-    | 'updateNetworkPolicy'
-    | 'waitForExit'
-    | 'waitForLog'
-    | 'waitForPort'
-    | 'writeFile'
-    | 'wsConnect'
+const sandboxOperations = [
+  'create', 'createCodeContext', 'createSession', 'deleteCodeContext', 'deleteFile',
+  'deleteSession', 'deleteSnapshot', 'destroy', 'exec', 'exposePort', 'extendTimeout',
+  'get', 'getExposedPorts', 'getSession', 'getSnapshot', 'gitCheckout', 'list',
+  'listCodeContexts', 'listFiles', 'listSnapshots', 'mkdir', 'mountBucket', 'moveFile',
+  'readFile', 'readFileStream', 'runCode', 'setEnvVars', 'snapshot', 'startProcess',
+  'stop', 'unexposePort', 'unmountBucket', 'updateNetworkPolicy', 'waitForExit',
+  'waitForLog', 'waitForPort', 'writeFile', 'wsConnect',
+] as const
+
+export type SandboxOperation = typeof sandboxOperations[number]
 
 export interface SandboxErrorDetails extends ViteHubErrorDetails {
   operation?: SandboxOperation
@@ -79,46 +51,7 @@ export interface SandboxErrorInternals extends SandboxErrorOptions {
 }
 
 const internalsByError = new WeakMap<SandboxError, SandboxErrorInternals>()
-const operations = new Set<SandboxOperation>([
-  'create',
-  'createCodeContext',
-  'createSession',
-  'deleteCodeContext',
-  'deleteFile',
-  'deleteSession',
-  'deleteSnapshot',
-  'destroy',
-  'exec',
-  'exposePort',
-  'extendTimeout',
-  'get',
-  'getExposedPorts',
-  'getSession',
-  'getSnapshot',
-  'gitCheckout',
-  'list',
-  'listCodeContexts',
-  'listFiles',
-  'listSnapshots',
-  'mkdir',
-  'mountBucket',
-  'moveFile',
-  'readFile',
-  'readFileStream',
-  'runCode',
-  'setEnvVars',
-  'snapshot',
-  'startProcess',
-  'stop',
-  'unexposePort',
-  'unmountBucket',
-  'updateNetworkPolicy',
-  'waitForExit',
-  'waitForLog',
-  'waitForPort',
-  'writeFile',
-  'wsConnect',
-])
+const operations = new Set<string>(sandboxOperations)
 
 const messages: Record<SandboxErrorCode, string> = {
   SANDBOX_EXEC_FAILED: 'Sandbox provider execution failed.',
