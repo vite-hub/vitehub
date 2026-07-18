@@ -781,8 +781,6 @@ function cleanSecret(value: unknown): string | undefined {
   return typeof secret === "string" && secret.trim() ? secret.trim() : undefined
 }
 
-const serverEnvModuleId = "#vitehub/env/server"
-
 async function githubEnv(event?: unknown): Promise<Record<string, unknown>> {
   const fallback = typeof process === "object" && process?.env
     ? {
@@ -795,7 +793,8 @@ async function githubEnv(event?: unknown): Promise<Record<string, unknown>> {
       }
     : {}
   try {
-    const module = await import(/* @vite-ignore */ serverEnvModuleId) as { useServerEnv?: (event?: unknown) => unknown }
+    // @ts-expect-error Generated and resolved by hubEnv() in the consumer build.
+    const module = await import("#vitehub/env/server") as { useServerEnv?: (event?: unknown) => unknown }
     const env = module.useServerEnv?.(event)
     const github = isRecord(env) && isRecord(env.github)
       ? Object.fromEntries(Object.entries(env.github).filter(([, value]) => value !== undefined))
