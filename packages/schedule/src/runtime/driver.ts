@@ -395,7 +395,7 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
               if (!isRuntimeScheduleDue(staticSchedule.record, input.scheduledAt)) {
                 throw new ScheduleError(`Static Schedule is not due: ${staticSchedule.name}`, {
                   code: "SCHEDULE_NOT_DUE",
-                  details: { id: input.scheduleId, scheduledAt: input.scheduledAt },
+                  details: { id: input.scheduleId, scheduledAt: input.scheduledAt.toISOString() },
                   httpStatus: 409,
                 })
               }
