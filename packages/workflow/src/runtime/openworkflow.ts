@@ -1,4 +1,5 @@
 import { runWorkflowHandler } from "./execute.ts"
+import { WorkflowError } from "../errors.ts"
 
 import type { RetryPolicy } from "openworkflow"
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowStepOptions } from "../types.ts"
@@ -24,7 +25,7 @@ interface OpenWorkflowRuntime {
   workflows: Map<string, OpenWorkflowRunnable>
 }
 
-const runtimes = new Map<string, Promise<OpenWorkflowRuntime>>()
+let runtimes = new Map<string, Promise<OpenWorkflowRuntime>>()
 
 function readEnv(name: string): string | undefined {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
@@ -57,11 +58,11 @@ function normalizeSqlitePath(path: string): string {
   return path.startsWith("file:") ? path.slice("file:".length) : path
 }
 
-async function prepareSqlitePath(path: string): Promise<string> {
+async function prepareSqlitePath(path: string, importer: OpenWorkflowImporter): Promise<string> {
   if (path !== ":memory:") {
     const [{ mkdirSync }, { dirname }] = await Promise.all([
-      openWorkflowImporter<NodeFsModule>("node:fs"),
-      openWorkflowImporter<NodePathModule>("node:path"),
+      importer<NodeFsModule>("node:fs"),
+      importer<NodePathModule>("node:path"),
     ])
     mkdirSync(dirname(path), { recursive: true })
   }
@@ -112,16 +113,19 @@ function getRuntimeKey(config: ResolvedWorkflowOptions): string {
   return JSON.stringify(getOpenWorkflowConfig(config))
 }
 
-async function createOpenWorkflowRuntime(config: ResolvedWorkflowOptions): Promise<OpenWorkflowRuntime> {
+async function createOpenWorkflowRuntime(
+  config: ResolvedWorkflowOptions,
+  importer: OpenWorkflowImporter,
+): Promise<OpenWorkflowRuntime> {
   const options = getOpenWorkflowConfig(config)
   const [{ OpenWorkflow }, backendModule] = await Promise.all([
-    openWorkflowImporter<OpenWorkflowModule>("openworkflow"),
+    importer<OpenWorkflowModule>("openworkflow"),
     options.backend === "sqlite"
-      ? openWorkflowImporter<OpenWorkflowSqliteModule>("openworkflow/sqlite")
-      : openWorkflowImporter<OpenWorkflowPostgresModule>("openworkflow/postgres"),
+      ? importer<OpenWorkflowSqliteModule>("openworkflow/sqlite")
+      : importer<OpenWorkflowPostgresModule>("openworkflow/postgres"),
   ])
   const backend = options.backend === "sqlite"
-    ? (backendModule as OpenWorkflowSqliteModule).BackendSqlite.connect(await prepareSqlitePath(options.path), {
+    ? (backendModule as OpenWorkflowSqliteModule).BackendSqlite.connect(await prepareSqlitePath(options.path, importer), {
         namespaceId: options.namespaceId,
         ...(typeof options.runMigrations === "boolean" ? { runMigrations: options.runMigrations } : {}),
       })
@@ -139,13 +143,24 @@ async function createOpenWorkflowRuntime(config: ResolvedWorkflowOptions): Promi
 }
 
 export async function getOpenWorkflowRuntime(config: ResolvedWorkflowOptions): Promise<OpenWorkflowRuntime> {
+  const cache = runtimes
   const key = getRuntimeKey(config)
-  let runtime = runtimes.get(key)
+  let runtime = cache.get(key)
   if (!runtime) {
-    runtime = createOpenWorkflowRuntime(config)
-    runtimes.set(key, runtime)
+    runtime = createOpenWorkflowRuntime(config, openWorkflowImporter)
+    cache.set(key, runtime)
+    void runtime.catch(() => {
+      if (cache.get(key) === runtime) cache.delete(key)
+    })
   }
-  return await runtime
+  const resolved = await runtime
+  if (cache !== runtimes) {
+    throw new WorkflowError("OpenWorkflow runtime was reset while it was being acquired.", {
+      code: "OPENWORKFLOW_RUNTIME_RESET",
+      provider: "openworkflow",
+    })
+  }
+  return resolved
 }
 
 function toOpenWorkflowRetryPolicy(options: WorkflowStepOptions): Partial<RetryPolicy> | undefined {
@@ -276,14 +291,25 @@ export async function getOpenWorkflowRun<TPayload = unknown, TResult = unknown>(
 }
 
 export async function resetOpenWorkflowRuntime(): Promise<void> {
-  const settled = await Promise.allSettled(runtimes.values())
-  runtimes.clear()
+  const closing = runtimes
+  runtimes = new Map()
   openWorkflowImporter = defaultImporter
-  await Promise.all(settled.map(async (entry) => {
-    if (entry.status === "fulfilled") {
-      await entry.value.backend.stop()
-    }
-  }))
+  const settled = await Promise.allSettled(closing.values())
+  const fulfilled = settled.flatMap(entry => entry.status === "fulfilled"
+    ? [entry.value]
+    : [])
+  const stopped = await Promise.allSettled(fulfilled.map(runtime => Promise.resolve().then(() => runtime.backend.stop())))
+  const failures = stopped.flatMap(entry => entry.status === "rejected"
+    ? [new WorkflowError("OpenWorkflow backend cleanup failed.", {
+        cause: entry.reason,
+        code: "OPENWORKFLOW_BACKEND_CLOSE_FAILED",
+        provider: "openworkflow",
+      })]
+    : [])
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) {
+    throw new AggregateError(failures, "OpenWorkflow backend cleanup failed for multiple runtimes.")
+  }
 }
 
 export function setOpenWorkflowImporter(importer: OpenWorkflowImporter): void {
