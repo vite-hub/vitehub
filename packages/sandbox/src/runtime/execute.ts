@@ -1,4 +1,5 @@
 import { SandboxError } from '../sandbox/errors'
+import { isSandboxAbort } from '../sandbox/provider-call'
 import { createEntrySource } from './entry-script'
 import {
   createExecutionFiles,
@@ -83,6 +84,8 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
     outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, execution, definitionOptions?.timeout, execution)
   }
   catch (error) {
+    if (isSandboxAbort(error))
+      throw error
     if (execution) {
       outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, error, definitionOptions?.timeout, execution)
     }

@@ -1,5 +1,6 @@
 import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS } from '../../../internal/shared/cloudflare-retry'
 import { readSandboxErrorInternals, SandboxError } from '../../errors'
+import { isSandboxAbort } from '../../provider-call'
 import { sleep } from '../_shared'
 
 export const CLOUDFLARE_CONTROL_PLANE_TIMEOUT_MS = 15_000
@@ -59,6 +60,8 @@ export async function withCloudflareTransportRetry<T>(operation: string, run: ()
       return await run()
     }
     catch (error) {
+      if (isSandboxAbort(error))
+        throw error
       const sandboxError = error instanceof SandboxError
         ? error
         : createCloudflareTransportError(operation, error)

@@ -19,18 +19,44 @@ export type SandboxErrorCode
     | 'SANDBOX_VALIDATION_ERROR'
 
 export type SandboxOperation
-  = | 'deleteFile'
+  = | 'create'
+    | 'createCodeContext'
+    | 'createSession'
+    | 'deleteCodeContext'
+    | 'deleteFile'
+    | 'deleteSession'
+    | 'deleteSnapshot'
     | 'destroy'
     | 'exec'
     | 'exposePort'
+    | 'extendTimeout'
+    | 'get'
     | 'getExposedPorts'
+    | 'getSession'
+    | 'getSnapshot'
+    | 'gitCheckout'
+    | 'list'
+    | 'listCodeContexts'
     | 'listFiles'
+    | 'listSnapshots'
     | 'mkdir'
+    | 'mountBucket'
     | 'moveFile'
     | 'readFile'
+    | 'readFileStream'
+    | 'runCode'
+    | 'setEnvVars'
+    | 'snapshot'
+    | 'startProcess'
+    | 'stop'
+    | 'unexposePort'
+    | 'unmountBucket'
+    | 'updateNetworkPolicy'
     | 'waitForExit'
     | 'waitForLog'
+    | 'waitForPort'
     | 'writeFile'
+    | 'wsConnect'
 
 export interface SandboxErrorDetails extends ViteHubErrorDetails {
   operation?: SandboxOperation
@@ -54,18 +80,44 @@ export interface SandboxErrorInternals extends SandboxErrorOptions {
 
 const internalsByError = new WeakMap<SandboxError, SandboxErrorInternals>()
 const operations = new Set<SandboxOperation>([
+  'create',
+  'createCodeContext',
+  'createSession',
+  'deleteCodeContext',
   'deleteFile',
+  'deleteSession',
+  'deleteSnapshot',
   'destroy',
   'exec',
   'exposePort',
+  'extendTimeout',
+  'get',
   'getExposedPorts',
+  'getSession',
+  'getSnapshot',
+  'gitCheckout',
+  'list',
+  'listCodeContexts',
   'listFiles',
+  'listSnapshots',
   'mkdir',
+  'mountBucket',
   'moveFile',
   'readFile',
+  'readFileStream',
+  'runCode',
+  'setEnvVars',
+  'snapshot',
+  'startProcess',
+  'stop',
+  'unexposePort',
+  'unmountBucket',
+  'updateNetworkPolicy',
   'waitForExit',
   'waitForLog',
+  'waitForPort',
   'writeFile',
+  'wsConnect',
 ])
 
 const messages: Record<SandboxErrorCode, string> = {

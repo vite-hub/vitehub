@@ -46,18 +46,21 @@ describe("sandbox public api", () => {
 
   it("publishes the ViteHub-owned error contract without Effect or Better Result", async () => {
     const dist = join(import.meta.dirname, "../dist")
-    const declarationFiles = (await readdir(dist)).filter(file => file.endsWith(".d.ts"))
+    const artifactFiles = await readdir(dist, { recursive: true })
+    const declarationFiles = artifactFiles.filter(file => file.endsWith(".d.ts"))
+    const javascriptFiles = artifactFiles.filter(file => file.endsWith(".js"))
     const declarations = (await Promise.all(declarationFiles.map(file => readFile(join(dist, file), "utf8")))).join("\n")
-    const [bundle, packageJson] = await Promise.all([
-      readFile(join(dist, "index.js"), "utf8"),
+    const [javascript, packageJson] = await Promise.all([
+      Promise.all(javascriptFiles.map(file => readFile(join(dist, file), "utf8"))).then(files => files.join("\n")),
       readFile(join(import.meta.dirname, "../package.json"), "utf8"),
     ])
 
     expect(declarations).toContain("class SandboxError extends ViteHubError")
     expect(declarations).toContain("type SandboxErrorJSON")
     expect(declarations).not.toMatch(/from ["']effect(?:\/[^"']*)?["']/)
-    expect(bundle).not.toContain("better-result")
-    expect(bundle).not.toContain("FiberFailure")
+    expect(javascript).not.toContain("better-result")
+    expect(javascript).not.toContain("FiberFailure")
+    expect(javascript).not.toMatch(/from ["']effect(?:\/[^"']*)?["']/)
     expect(packageJson).not.toContain('"better-result"')
     expect(packageJson).not.toContain('"effect"')
   })

@@ -1,6 +1,7 @@
 import type { VercelSandboxClient, VercelSandboxInstance, VercelSandboxListItem, VercelSandboxProviderOptions, VercelSandboxSDK } from '../types'
 import { VercelSandboxAdapter } from '../adapters'
 import { SandboxError } from '../errors'
+import { callSandboxProvider } from '../provider-call'
 import type { ResolvedVercelSandboxCredentials } from './shared'
 
 type ResolvedVercelSandboxProvider = VercelSandboxProviderOptions & { credentials?: ResolvedVercelSandboxCredentials }
@@ -65,9 +66,15 @@ async function loadVercelSandbox(): Promise<VercelSandboxSDK> {
     const module = await import('@vercel/sandbox')
     return {
       Sandbox: {
-        create: async options => wrapVercelSandbox(await module.Sandbox.create(options as Parameters<typeof module.Sandbox.create>[0])),
+        create: async options => wrapVercelSandbox(await callSandboxProvider(
+          { code: 'SANDBOX_RUNTIME_ERROR', operation: 'create', provider: 'vercel' },
+          () => module.Sandbox.create(options as Parameters<typeof module.Sandbox.create>[0]),
+        )),
         list: async () => {
-          const result = await module.Sandbox.list() as { sandboxes?: VercelSandboxListItem[], json?: { sandboxes?: VercelSandboxListItem[], pagination?: { count: number, next: number | null, prev: number | null } }, pagination?: { count: number, next: number | null, prev: number | null } }
+          const result = await callSandboxProvider(
+            { code: 'SANDBOX_RUNTIME_ERROR', operation: 'list', provider: 'vercel' },
+            () => module.Sandbox.list(),
+          ) as { sandboxes?: VercelSandboxListItem[], json?: { sandboxes?: VercelSandboxListItem[], pagination?: { count: number, next: number | null, prev: number | null } }, pagination?: { count: number, next: number | null, prev: number | null } }
           const json = result.json || result
           return {
             pagination: json.pagination,
@@ -80,7 +87,10 @@ async function loadVercelSandbox(): Promise<VercelSandboxSDK> {
         },
         get: async params => {
           const query = typeof params === 'string' ? { sandboxId: params } : params
-          const sandbox = await module.Sandbox.get(query)
+          const sandbox = await callSandboxProvider(
+            { code: 'SANDBOX_RUNTIME_ERROR', operation: 'get', provider: 'vercel' },
+            () => module.Sandbox.get(query),
+          )
           return sandbox ? wrapVercelSandbox(sandbox) : null
         },
       },

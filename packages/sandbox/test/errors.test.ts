@@ -29,7 +29,7 @@ describe("SandboxError", () => {
     expect(error).toBeInstanceOf(SandboxError)
     expect(error.toJSON()).toEqual({
       code: "SANDBOX_NOT_SUPPORTED",
-      details: { provider: "vercel" },
+      details: { operation: "snapshot", provider: "vercel" },
       message: "Sandbox operation is not supported by the selected provider.",
     })
   })

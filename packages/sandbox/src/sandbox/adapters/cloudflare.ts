@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer'
 
 import { NotSupportedError, SandboxError } from '../errors'
+import { wrapSandboxProviderNative } from '../provider-call'
 import { shellQuote } from '../utils'
 import { BaseSandboxAdapter } from './base'
 import { CloudflareProcessHandle, type CloudflareNativeProcessHandle } from './cloudflare/process'
@@ -171,7 +172,7 @@ export class CloudflareSandboxAdapter extends BaseSandboxAdapter<'cloudflare'> {
   constructor(id: string, stub: CloudflareSandboxStub) {
     super()
     this.id = id
-    this.native = stub
+    this.native = wrapSandboxProviderNative(stub, 'cloudflare')
   }
 
   get supports(): SandboxCapabilities {

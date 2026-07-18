@@ -1,6 +1,7 @@
 import type { CloudflareSandboxClient, CloudflareSandboxProviderOptions, CloudflareSandboxStub } from '../types'
 import { CloudflareSandboxAdapter } from '../adapters/cloudflare'
 import { SandboxError } from '../errors'
+import { callSandboxProvider } from '../provider-call'
 
 async function loadCloudflareSandbox() {
   try {
@@ -26,6 +27,9 @@ export async function createCloudflareSandboxClient(provider: CloudflareSandboxP
   const id = provider.sandboxId ?? `cloudflare-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const cloudflareSandbox = provider.getSandbox ? undefined : await loadCloudflareSandbox()
   const getSandbox = provider.getSandbox ?? ((ns, sandboxId, opts) => cloudflareSandbox!(ns as never, sandboxId, opts) as unknown as CloudflareSandboxStub)
-  const stub = getSandbox(provider.namespace, id, provider.cloudflare)
+  const stub = callSandboxProvider(
+    { code: 'SANDBOX_RUNTIME_ERROR', operation: 'create', provider: 'cloudflare' },
+    () => getSandbox(provider.namespace!, id, provider.cloudflare),
+  )
   return new CloudflareSandboxAdapter(id, stub)
 }

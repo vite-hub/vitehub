@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from "vitest"
 
 import { toSandboxError } from "../src/runtime/error-normalization.ts"
 import { CloudflareSandboxAdapter } from "../src/sandbox/adapters/cloudflare.ts"
+import { VercelSandboxAdapter } from "../src/sandbox/adapters/vercel.ts"
 import { readSandboxErrorInternals, SandboxError } from "../src/sandbox/errors.ts"
 import type { CloudflareSandboxStub } from "../src/sandbox/types/common.ts"
+import type { VercelSandboxInstance } from "../src/sandbox/types/vercel.ts"
 
 async function captureSandboxError(promise: Promise<unknown>): Promise<SandboxError> {
   try {
@@ -114,6 +116,65 @@ describe("SandboxError public contract", () => {
     expect(error).toMatchObject({ code: "SANDBOX_EXEC_FAILED", message: "Sandbox provider execution failed." })
     expect(readSandboxErrorInternals(error).message).toContain(secret)
     expect(JSON.stringify(error)).not.toContain(secret)
+  })
+
+  it("normalizes exported Cloudflare namespace failures", async () => {
+    const secret = "cloudflare-native-token=vh_secret_321"
+    const adapter = new CloudflareSandboxAdapter("sandbox-id", {
+      destroy: vi.fn(),
+      exec: vi.fn(),
+      gitCheckout: vi.fn(async () => {
+        throw new Error(secret)
+      }),
+      readFile: vi.fn(),
+      writeFile: vi.fn(),
+    } as unknown as CloudflareSandboxStub)
+
+    const error = await captureSandboxError(adapter.cloudflare.gitCheckout("https://example.test/private"))
+    expect(error).toMatchObject({
+      code: "SANDBOX_TRANSPORT_ERROR",
+      details: { operation: "gitCheckout", provider: "cloudflare" },
+      message: "Sandbox provider request failed.",
+    })
+    expect(JSON.stringify(error)).not.toContain(secret)
+  })
+
+  it("normalizes nested Vercel filesystem failures", async () => {
+    const secret = "vercel-native-token=vh_secret_852"
+    const adapter = new VercelSandboxAdapter("sandbox-id", {
+      fs: {
+        writeFile: vi.fn(async () => {
+          throw new Error(secret)
+        }),
+      },
+    } as unknown as VercelSandboxInstance, { createdAt: "now", runtime: "node24" })
+
+    const error = await captureSandboxError(adapter.writeFile("/private", "content"))
+    expect(error).toMatchObject({
+      code: "SANDBOX_TRANSPORT_ERROR",
+      details: { operation: "writeFile", provider: "vercel" },
+      message: "Sandbox provider request failed.",
+    })
+    expect(JSON.stringify(error)).not.toContain(secret)
+  })
+
+  it("preserves exact signal reasons and AbortErrors across native calls", async () => {
+    const reason = new Error("cancelled with private reason")
+    const controller = new AbortController()
+    controller.abort(reason)
+    const abortError = new DOMException("private abort", "AbortError")
+    const readFile = vi.fn(async (_path: string, options?: { signal?: AbortSignal }) => {
+      throw options?.signal?.reason
+    })
+    const writeFile = vi.fn(async () => {
+      throw abortError
+    })
+    const adapter = new VercelSandboxAdapter("sandbox-id", {
+      fs: { readFile, writeFile },
+    } as unknown as VercelSandboxInstance, { createdAt: "now", runtime: "node24" })
+
+    await expect(adapter.native.fs!.readFile("/private", { signal: controller.signal })).rejects.toBe(reason)
+    await expect(adapter.writeFile("/private", "content")).rejects.toBe(abortError)
   })
 
   it("keeps Cloudflare SDK-load failures private", async () => {

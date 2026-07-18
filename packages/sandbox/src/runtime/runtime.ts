@@ -6,6 +6,7 @@ import {
 } from '../internal/shared/resource-runtime'
 import { sleep } from '../internal/shared/utils'
 import { SandboxError } from '../sandbox/errors'
+import { isSandboxAbort } from '../sandbox/provider-call'
 import { detectSandbox, isSandboxAvailable } from '../sandbox/providers/shared'
 import { validateSandboxConfig } from '../sandbox/validation'
 import { safeUseRequest } from '../internal/shared/runtime'
@@ -132,6 +133,8 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
             )
           }
           catch (error) {
+            if (isSandboxAbort(error))
+              throw error
             const sandboxError = toSandboxError(error)
             const shouldRetry = provider.provider === 'cloudflare'
               && attempt < CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS.length
@@ -200,6 +203,8 @@ export async function runSandboxRuntime<TPayload = unknown, TResult = unknown>(
     return ok(await sandbox.run(payload, options))
   }
   catch (error) {
+    if (isSandboxAbort(error))
+      throw error
     return err(toSandboxError(error))
   }
 }

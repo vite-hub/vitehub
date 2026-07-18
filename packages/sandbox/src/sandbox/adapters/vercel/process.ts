@@ -1,4 +1,5 @@
 import { SandboxError } from '../../errors'
+import { callSandboxProvider } from '../../provider-call'
 import { normalizeLogPattern, waitForPortProbe } from '../_shared'
 
 import type { SandboxExecOptions, SandboxProcess, SandboxWaitForPortOptions } from '../../types/common'
@@ -260,6 +261,9 @@ export class VercelProcessHandle implements SandboxProcess {
   }
 
   async waitForPort(port: number, opts?: SandboxWaitForPortOptions): Promise<void> {
-    await waitForPortProbe(fetch, port, opts, this.resolvePortUrl ? () => this.resolvePortUrl!(port) : undefined)
+    await callSandboxProvider(
+      { operation: 'waitForPort', provider: 'vercel' },
+      () => waitForPortProbe(fetch, port, opts, this.resolvePortUrl ? () => this.resolvePortUrl!(port) : undefined),
+    )
   }
 }

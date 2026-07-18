@@ -3,6 +3,7 @@ import { posix } from 'node:path'
 import { Readable } from 'node:stream'
 
 import { NotSupportedError, SandboxError } from '../errors'
+import { isSandboxAbort, wrapSandboxProviderNative } from '../provider-call'
 import { BaseSandboxAdapter } from './base'
 import { asRecord, buildCommandLabel, normalizeVercelExecError } from './vercel/error'
 import { collectDetachedCommandOutput, VercelProcessHandle } from './vercel/process'
@@ -113,7 +114,7 @@ export class VercelSandboxAdapter extends BaseSandboxAdapter<'vercel'> {
     super()
     this.id = id
     this.metadata = metadata
-    this.native = instance
+    this.native = wrapSandboxProviderNative(instance, 'vercel')
   }
 
   override get vercel(): VercelSandboxNamespace {
@@ -147,6 +148,8 @@ export class VercelSandboxAdapter extends BaseSandboxAdapter<'vercel'> {
       }
     }
     catch (error) {
+      if (isSandboxAbort(error))
+        throw error
       throw normalizeVercelExecError(command, args, error)
     }
   }
