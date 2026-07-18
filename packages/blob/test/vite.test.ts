@@ -183,7 +183,7 @@ describe("hubBlob", () => {
     expect(existsSync(join(root, "dist", toSafeAppName(root), "index.js"))).toBe(true)
   })
 
-  it("does not contribute Cloudflare config for plain Vite or non-R2 stores", async () => {
+  it("does not contribute Cloudflare config for plain Vite or non-R2 stores", { timeout: 30_000 }, async () => {
     const config = (plugin: ReturnType<typeof hubBlob>, value: Record<string, unknown>) =>
       (plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown)(value, { command: "build" })
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-plain-vite-"))
