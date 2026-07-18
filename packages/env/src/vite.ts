@@ -290,7 +290,7 @@ function createViteTypes(
     "  export function usePublicEnv(): PublicEnv",
     "}",
     "declare module \"#vitehub/env/server\" {",
-    `  import type { SecretEnv } from ${JSON.stringify(runtimeImports.secret)}`,
+    `  type SecretEnv<T> = import(${JSON.stringify(runtimeImports.secret)}).SecretEnv<T>`,
     "  export interface ServerEnv {",
     ...createServerTypeFields(serverRegistry, 4),
     "  }",

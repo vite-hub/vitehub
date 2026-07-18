@@ -253,10 +253,11 @@ describe("Vite plugin", () => {
   it("can generate env runtime modules through a facade import path", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-facade-runtime-imports-"))
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "facade-app", type: "module" }), "utf8")
+    await writeFile(join(root, "secret.d.ts"), "export interface SecretEnv<T> { unseal(): T }\n", "utf8")
 
     const plugin = hubEnv({
       runtimeImports: {
-        secret: "#app/env/secret",
+        secret: "../../secret.js",
         server: "#app/env/server",
       },
     })
@@ -277,8 +278,21 @@ describe("Vite plugin", () => {
     } as never)
 
     await expect(readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")).resolves.toContain("from \"#app/env/server\"")
-    await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("from \"#app/env/secret\"")
-    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("from \"#app/env/secret\"")
+    await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("from \"../../secret.js\"")
+    const typesPath = join(root, ".vitehub", "types", "env.d.ts")
+    await expect(readFile(typesPath, "utf8")).resolves.toContain("import(\"../../secret.js\").SecretEnv<T>")
+    const program = createProgram({
+      options: {
+        module: ModuleKind.NodeNext,
+        moduleResolution: ModuleResolutionKind.NodeNext,
+        noEmit: true,
+        skipLibCheck: false,
+        strict: true,
+        target: ScriptTarget.ES2022,
+      },
+      rootNames: [typesPath],
+    })
+    expect(getPreEmitDiagnostics(program).map(diagnostic => flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
   })
 
   it("applies prefixes to inferred Vite env names", async () => {
