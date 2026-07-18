@@ -176,6 +176,11 @@ describe("workflow runtime", () => {
       details,
       message: "Workflow provider operation failed.",
     })
+    expect(JSON.parse(JSON.stringify(error))).toEqual({
+      code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+      details,
+      message: "Workflow provider operation failed.",
+    })
     expect(JSON.stringify(error)).not.toContain("provider-secret")
   }
 
@@ -761,6 +766,31 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("narrows OpenWorkflow client construction failures as connection failures", async () => {
+    const cause = new Error("provider-secret:client")
+    class RejectingOpenWorkflow {
+      constructor() {
+        throw cause
+      }
+    }
+    setOpenWorkflowImporter(async (specifier) => {
+      if (specifier === "openworkflow") return { OpenWorkflow: RejectingOpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+      }
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expectProviderFailure(runWorkflow("welcome", {}), cause, {
+      operation: "connect",
+      provider: "openworkflow",
+    })
+  })
+
   it("narrows OpenWorkflow run failures at the public boundary", async () => {
     const cause = new Error("provider-secret:run")
     class RejectingOpenWorkflow {
@@ -786,6 +816,37 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("narrows malformed OpenWorkflow run results at the public boundary", async () => {
+    const cause = new Error("provider-secret:run-result")
+    class MalformedOpenWorkflow {
+      defineWorkflow() {
+        return {
+          run: async () => ({
+            get workflowRun() {
+              throw cause
+            },
+          }),
+        }
+      }
+    }
+    setOpenWorkflowImporter(async (specifier) => {
+      if (specifier === "openworkflow") return { OpenWorkflow: MalformedOpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+      }
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expectProviderFailure(runWorkflow("welcome", {}), cause, {
+      operation: "run",
+      provider: "openworkflow",
+    })
+  })
+
   it("narrows OpenWorkflow get failures at the public boundary", async () => {
     const cause = new Error("provider-secret:get")
     setOpenWorkflowImporter(async (specifier) => {
@@ -795,6 +856,37 @@ describe("workflow runtime", () => {
           BackendSqlite: {
             connect: () => ({
               getWorkflowRun: async () => { throw cause },
+              stop: vi.fn(),
+            }),
+          },
+        } as never
+      }
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expectProviderFailure(getWorkflowRun("welcome", "private-run"), cause, {
+      operation: "get",
+      provider: "openworkflow",
+    })
+  })
+
+  it("narrows malformed OpenWorkflow get results at the public boundary", async () => {
+    const cause = new Error("provider-secret:get-result")
+    setOpenWorkflowImporter(async (specifier) => {
+      if (specifier === "openworkflow") return { OpenWorkflow: openWorkflowMock.OpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        return {
+          BackendSqlite: {
+            connect: () => ({
+              getWorkflowRun: async () => ({
+                get workflowName() {
+                  throw cause
+                },
+              }),
               stop: vi.fn(),
             }),
           },
