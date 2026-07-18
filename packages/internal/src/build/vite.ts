@@ -46,13 +46,17 @@ interface NitroVercelConfig {
   plugins?: readonly { name: string }[]
 }
 
+export function hasNitroVitePlugin(config: { plugins?: readonly { name: string }[] }): boolean {
+  return config.plugins?.some(plugin => plugin.name === "nitro:main") === true
+}
+
 export function resolveNitroVercelFunctionName(
   config: NitroVercelConfig,
   product: string,
   env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
   const preset = config.nitro?.preset || env.NITRO_PRESET || env.SERVER_PRESET
-  const nitro = Boolean(preset) || config.plugins?.some(plugin => plugin.name === "nitro:main")
+  const nitro = Boolean(preset) || hasNitroVitePlugin(config)
   const clientOutDir = config.environments?.client?.build?.outDir
   const vercel = preset
     ? preset.startsWith("vercel")

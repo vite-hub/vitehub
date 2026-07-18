@@ -1,8 +1,8 @@
-import { mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
-import { createDefaultVercelOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg, toGeneratedPath } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
@@ -18,6 +18,8 @@ import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } fro
 import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
 export const queuePackageName = "@vite-hub/queue"
+const cloudflareQueueWorkerMarker = "vitehub-queue-worker"
+const cloudflareQueueOutputState = ".vitehub/queue/cloudflare-output.json"
 const productName = "queue"
 
 const generatedRegistryFileName = "registry.mjs"
@@ -75,6 +77,8 @@ interface GeneratedQueueArtifacts {
 
 interface GenerateProviderOutputsOptions {
   clientOutDir: string
+  cloudflareOwnedByNitro?: boolean
+  definitions?: DiscoveredQueueDefinition[]
   queue: QueueModuleOptions | undefined
   rootDir: string
   serverFunctionName?: string
@@ -125,12 +129,11 @@ function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registr
   ].filter(Boolean).join("\n")
 }
 
-async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions | undefined) {
+async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions | undefined, definitions = discoverQueueDefinitions({ rootDir })) {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
-  const definitions = discoverQueueDefinitions({ rootDir })
   const userAppEntry = resolveUserAppEntry(rootDir)
 
   await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
@@ -199,11 +202,10 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
   ].join("\n")
 }
 
-export async function writeQueueNitroIntegration(rootDir: string, queue: QueueModuleOptions | undefined, hosting: string, cloudflareQueues = true): Promise<void> {
+export async function writeQueueNitroIntegration(rootDir: string, queue: QueueModuleOptions | undefined, hosting: string, cloudflareQueues = true, definitions: DiscoveredQueueDefinition[] = discoverQueueDefinitions({ rootDir })): Promise<void> {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const pluginFile = resolve(rootDir, generatedQueueNitroPlugin)
-  const definitions = discoverQueueDefinitions({ rootDir })
   const queueConfig = resolveOutputQueueConfig(typeof queue === "undefined" ? {} : queue, hosting)
   await Promise.all([
     mkdir(dirname(pluginFile), { recursive: true }),
@@ -243,6 +245,7 @@ function createCloudflareOutput(artifacts: GeneratedQueueArtifacts): CloudflareP
   return {
     bundleEntry: artifacts.cloudflareWorkerFile,
     bundleOptions: {
+      banner: `// ${cloudflareQueueWorkerMarker}`,
       conditions: ["workerd", "worker", "browser", "default"],
       external: ["@vercel/queue", "node:async_hooks", "node:fs", "node:fs/promises", "node:path", "node:url"],
       format: "esm",
@@ -250,6 +253,62 @@ function createCloudflareOutput(artifacts: GeneratedQueueArtifacts): CloudflareP
     },
     wranglerConfigKeys: ["queues"],
     wranglerConfig,
+  }
+}
+
+function isLegacyCloudflareQueueWorker(contents: string, wrangler: unknown): boolean {
+  if (!contents.includes("createQueueCloudflareWorker({")
+    || !contents.includes("getCloudflareQueueDefinitionName(batch.queue)")
+    || !contents.includes('label: "queue"')
+    || contents.includes("cloudflare:queue")) return false
+  if (!wrangler || typeof wrangler !== "object" || Array.isArray(wrangler)) return false
+  const config = wrangler as Record<string, unknown>
+  const observability = config.observability
+  return config.main === "index.js"
+    && Array.isArray(config.compatibility_flags)
+    && config.compatibility_flags.includes("nodejs_compat")
+    && Boolean(observability)
+    && typeof observability === "object"
+    && !Array.isArray(observability)
+    && (observability as Record<string, unknown>).enabled === true
+}
+
+async function createNitroCloudflareCleanup(rootDir: string, hasCurrentContribution: boolean) {
+  const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+  let ownsWorker = false
+  let ownsQueues = false
+  try {
+    const contents = await readFile(resolve(outputRoot, "index.js"), "utf8")
+    if (contents.includes(cloudflareQueueWorkerMarker)) {
+      ownsWorker = true
+    } else {
+      const wrangler = JSON.parse(await readFile(resolve(outputRoot, "wrangler.json"), "utf8")) as unknown
+      ownsWorker = isLegacyCloudflareQueueWorker(contents, wrangler)
+    }
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  try {
+    const [state, wrangler] = await Promise.all([
+      readFile(resolve(rootDir, cloudflareQueueOutputState), "utf8").then(value => JSON.parse(value) as Record<string, unknown>),
+      readFile(resolve(outputRoot, "wrangler.json"), "utf8").then(value => JSON.parse(value) as Record<string, unknown>),
+    ])
+    ownsQueues = JSON.stringify(state.queues) === JSON.stringify(wrangler.queues)
+    await rm(resolve(rootDir, cloudflareQueueOutputState), { force: true })
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  return {
+    fileNames: ownsWorker ? ["index.js"] : [],
+    outputRoot,
+    wranglerConfigOwnership: {
+      keys: [
+        ...(ownsWorker ? ["compatibility_date", "compatibility_flags", "main", "observability"] : []),
+        ...(ownsWorker || (ownsQueues && !hasCurrentContribution) ? ["queues"] : []),
+      ],
+    },
   }
 }
 
@@ -357,15 +416,18 @@ async function writeVercelQueueFunctions(rootDir: string, queue: QueueModuleOpti
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedQueueArtifacts> {
-  const artifacts = await writeProviderEntries(options.rootDir, options.queue)
-  const createCloudflare = shouldCreateCloudflareOutput(options.queue)
+  const artifacts = await writeProviderEntries(options.rootDir, options.queue, options.definitions)
+  const usesCloudflare = shouldCreateCloudflareOutput(options.queue)
+  const createCloudflare = !options.cloudflareOwnedByNitro && usesCloudflare
   const createVercel = shouldCreateVercelOutput(options.queue)
-  if (!createCloudflare && createVercel) {
+  if (!createCloudflare) {
     await writeProviderDeploymentOutputs({
-      cleanup: {
-        cloudflare: { wranglerConfigOwnership: { keys: ["queues"] } },
-      },
       clientOutDir: options.clientOutDir,
+      cleanup: {
+        cloudflare: options.cloudflareOwnedByNitro
+          ? () => createNitroCloudflareCleanup(options.rootDir, usesCloudflare && artifacts.definitions.length > 0)
+          : { wranglerConfigOwnership: { keys: ["queues"] } },
+      },
       rootDir: options.rootDir,
     })
   }
@@ -378,6 +440,14 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     rootDir: options.rootDir,
     vercel: createVercel ? createVercelOutput(artifacts, options.serverFunctionName) : undefined,
   })
+  if (createCloudflare) {
+    const queues = createCloudflareQueueBindings(artifacts.definitions)
+    await mkdir(dirname(resolve(options.rootDir, cloudflareQueueOutputState)), { recursive: true })
+    await writeFile(resolve(options.rootDir, cloudflareQueueOutputState), `${JSON.stringify({ queues }, null, 2)}\n`, "utf8")
+  }
+  else {
+    await rm(resolve(options.rootDir, cloudflareQueueOutputState), { force: true })
+  }
   await writeVercelQueueFunctions(options.rootDir, options.queue, artifacts)
   return artifacts
 }

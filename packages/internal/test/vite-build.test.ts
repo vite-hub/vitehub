@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest"
 
-import { resolveNitroVercelFunctionName } from "../src/build/vite.ts"
+import { hasNitroVitePlugin, resolveNitroVercelFunctionName } from "../src/build/vite.ts"
 
 describe("Vite provider builds", () => {
+  it("distinguishes the Nitro host plugin from ViteHub bridge plugins", () => {
+    expect(hasNitroVitePlugin({ plugins: [{ name: "nitro:main" }] })).toBe(true)
+    expect(hasNitroVitePlugin({ plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/queue/vite" }] })).toBe(false)
+  })
+
   it("isolates provider functions when Nitro owns the Vercel output", () => {
     const plugins = [{ name: "vitehub" }, { name: "nitro:main" }]
 
