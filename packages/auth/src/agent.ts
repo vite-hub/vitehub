@@ -9,7 +9,6 @@ import type {
   AgentRuntimeConfig,
   MaybePromise,
 } from "@vite-hub/agent"
-import type { ViteHubErrorDetails } from "@vite-hub/runtime"
 
 export interface AuthenticatedUser {
   email?: string | null
@@ -86,7 +85,6 @@ export interface AuthenticatedOptions<
 }
 
 export interface AuthenticationRequiredErrorOptions extends ErrorOptions {
-  details?: ViteHubErrorDetails
   message?: string
 }
 
@@ -103,7 +101,6 @@ export class AuthenticationRequiredError extends ViteHubError<"AUTHENTICATION_RE
 
     super("AUTHENTICATION_REQUIRED", message, {
       cause: options.cause,
-      details: options.details,
     })
     this.name = "AuthenticationRequiredError"
     Object.defineProperty(this, "statusCode", {
@@ -113,25 +110,20 @@ export class AuthenticationRequiredError extends ViteHubError<"AUTHENTICATION_RE
   }
 }
 
-export type AuthenticationProviderOperation = "get-auth-for-request" | "get-session"
+export type AuthSessionErrorOptions = ErrorOptions
 
-export interface AuthenticationProviderErrorOptions extends ErrorOptions {
-  operation: AuthenticationProviderOperation
-}
+export class AuthSessionError extends ViteHubError<"AUTH_SESSION_FAILED"> {
+  declare readonly statusCode: 503
 
-export class AuthenticationProviderError extends ViteHubError<
-  "AUTH_PROVIDER_OPERATION_FAILED",
-  { operation: AuthenticationProviderOperation, provider: "better-auth" }
-> {
-  constructor(options: AuthenticationProviderErrorOptions) {
-    super("AUTH_PROVIDER_OPERATION_FAILED", "[vitehub] Authentication provider operation failed.", {
+  constructor(options: AuthSessionErrorOptions = {}) {
+    super("AUTH_SESSION_FAILED", "[vitehub] Authentication session resolution failed.", {
       cause: options.cause,
-      details: {
-        operation: options.operation,
-        provider: "better-auth",
-      },
     })
-    this.name = "AuthenticationProviderError"
+    this.name = "AuthSessionError"
+    Object.defineProperty(this, "statusCode", {
+      enumerable: true,
+      value: 503,
+    })
   }
 }
 
@@ -191,28 +183,49 @@ async function defaultAuthenticatedSource(
 ): Promise<AuthenticatedSession | null | undefined> {
   if (!context.request) return undefined
 
-  let auth: BetterAuthSessionApi
   try {
-    auth = getAuthForRequest(context.request) as BetterAuthSessionApi
-  }
-  catch (cause) {
-    throw new AuthenticationProviderError({ cause, operation: "get-auth-for-request" })
-  }
+    const auth = getAuthForRequest(context.request) as BetterAuthSessionApi
+    const getSession = auth.api?.getSession
+    if (!getSession) {
+      throw new AuthSessionError({
+        cause: new TypeError("Better Auth did not expose api.getSession()."),
+      })
+    }
 
-  let session: unknown
-  try {
-    session = await auth.api?.getSession?.({
+    const session = await getSession.call(auth.api, {
       headers: context.request.headers,
       query: {
         disableCookieCache: true,
         disableRefresh: true,
       },
     })
+    if (session == null) return session
+
+    const normalized = normalizeAuthenticatedSession(session)
+    if (!normalized) {
+      throw new AuthSessionError({
+        cause: new TypeError("Better Auth returned an invalid session response."),
+      })
+    }
+    return normalized
   }
-  catch (cause) {
-    throw new AuthenticationProviderError({ cause, operation: "get-session" })
+  catch (error) {
+    if (error instanceof AuthSessionError || error instanceof AuthenticationRequiredError || isAuthAbortError(error)) {
+      throw error
+    }
+    throw new AuthSessionError({ cause: error })
   }
-  return normalizeAuthenticatedSession(session)
+}
+
+function isAuthAbortError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false
+
+  try {
+    return "name" in error && error.name === "AbortError"
+  }
+  catch {
+    return false
+  }
 }
 
 function createAuthenticatedContext<
