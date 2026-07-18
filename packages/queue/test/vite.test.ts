@@ -49,7 +49,7 @@ describe("hubQueue", () => {
     const registry = await readFile(join(root, ".vitehub", "queue", "registry.mjs"), "utf8")
     expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig)")
     expect(nitroPlugin).toContain("setQueueRuntimeRegistry(queueRegistry)")
-    expect(nitroPlugin).toContain("enterQueueRuntimeEvent(event)")
+    expect(nitroPlugin).toContain("event.node?.req?.runtime?.cloudflare?.env ?? event.env ?? vitehubEnv")
     expect(nitroPlugin).toContain("setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })")
     expect(nitroPlugin).toContain("cloudflare:queue")
     expect(nitroPlugin).toContain("queueWorker.queue(batch, env, context)")
@@ -86,6 +86,21 @@ describe("hubQueue", () => {
     const plugin = hubQueue({})
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ queue: {}, root, nitro: { preset: "vercel" } } as never)
     expect(await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")).not.toContain("@vercel/queue")
+  })
+
+  it("refreshes the Nitro registry when Queue Definitions change", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
+    roots.push(root)
+    const plugin = hubQueue({ provider: "vercel" })
+    const resolved = { root, nitro: { preset: "vercel" } }
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(resolved as never)
+    const definition = join(root, "welcome.queue.ts")
+    await writeFile(definition, "export default { handler: async () => undefined }\n")
+    await (plugin.handleHotUpdate as (context: unknown) => Promise<void>)({
+      file: definition,
+      server: { config: resolved },
+    })
+    expect(await readFile(join(root, ".vitehub", "queue", "registry.mjs"), "utf8")).toContain("welcome.queue.ts")
   })
 
   it("preserves custom bindings and skips Cloudflare Pages consumers", async () => {
