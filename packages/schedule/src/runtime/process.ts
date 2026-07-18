@@ -1,6 +1,10 @@
 import { Clock, Context, Duration, Effect, Layer, ManagedRuntime, Scheduler } from "effect"
 
-import { makeProcessWakeRuntime, ProcessWakeBoundaryError } from "../internal/process-wake-runtime.ts"
+import {
+  makeProcessWakeRuntime,
+  ProcessWakeBoundaryError,
+  unwrapProcessWakeExit,
+} from "../internal/process-wake-runtime.ts"
 
 import type { ProcessWakeRuntime } from "../internal/process-wake-runtime.ts"
 import type { RuntimeScheduleWakeDriverFactory } from "./driver.ts"
@@ -24,11 +28,6 @@ function validateOptions(options: ProcessScheduleWakeDriverOptions): { concurren
     throw new TypeError("Process Schedule Wake Driver concurrency must be a positive integer.")
   }
   return { concurrency, intervalMs }
-}
-
-interface BoundaryResult<A> {
-  readonly error?: ProcessWakeBoundaryError
-  readonly value?: A
 }
 
 class ProcessWakeRuntimeService extends Context.Service<ProcessWakeRuntimeService, ProcessWakeRuntime>()("@vite-hub/schedule/ProcessWakeRuntime") {}
@@ -61,12 +60,6 @@ function createProcessScheduler(): Scheduler.Scheduler {
   })
 }
 
-async function unwrapBoundary<A>(promise: Promise<BoundaryResult<A>>): Promise<A> {
-  const result = await promise
-  if (result.error) throw result.error.cause
-  return result.value as A
-}
-
 export function createProcessScheduleWakeDriver(options: ProcessScheduleWakeDriverOptions = {}): RuntimeScheduleWakeDriverFactory {
   return (context) => {
     const { concurrency, intervalMs } = validateOptions(options)
@@ -84,12 +77,7 @@ export function createProcessScheduleWakeDriver(options: ProcessScheduleWakeDriv
     let closed = false
 
     function run<A>(effect: Effect.Effect<A, ProcessWakeBoundaryError, ProcessWakeRuntimeService>): Promise<A> {
-      return unwrapBoundary(runtime.runPromise(effect.pipe(
-        Effect.match({
-          onFailure: error => ({ error }),
-          onSuccess: value => ({ value }),
-        }),
-      )))
+      return unwrapProcessWakeExit(runtime.runPromiseExit(effect))
     }
 
     return {

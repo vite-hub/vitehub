@@ -2,7 +2,7 @@ import { Clock, Effect } from "effect"
 import { TestClock } from "effect/testing"
 import { expect, it, vi } from "vitest"
 
-import { makeProcessWakeRuntime } from "../src/internal/process-wake-runtime.ts"
+import { makeProcessWakeRuntime, unwrapProcessWakeExit } from "../src/internal/process-wake-runtime.ts"
 
 import type { RuntimeScheduleRecord, RuntimeScheduleWake } from "../src/types.ts"
 
@@ -60,4 +60,32 @@ it("drives process wake scanning with TestClock", async () => {
     { scheduleId: "daily", scheduledAt: new Date(0) },
     { scheduleId: "daily", scheduledAt: new Date(60_000) },
   ])
+})
+
+it("preserves defect identity without exposing Effect FiberFailure", async () => {
+  const defect = new Error("process wake defect")
+  const failure = await unwrapProcessWakeExit(Effect.runPromiseExit(Effect.die(defect))).then(
+    () => undefined,
+    error => error,
+  )
+
+  expect(failure).toBe(defect)
+  expect(failure).not.toMatchObject({ name: "FiberFailure" })
+})
+
+it("preserves interruption identity without exposing Effect FiberFailure", async () => {
+  const reason = new Error("caller canceled process wake")
+  const controller = new AbortController()
+  const result = unwrapProcessWakeExit(
+    Effect.runPromiseExit(Effect.never, { signal: controller.signal }),
+    controller.signal,
+  ).then(
+    () => undefined,
+    error => error,
+  )
+  controller.abort(reason)
+  const failure = await result
+
+  expect(failure).toBe(reason)
+  expect(failure).not.toMatchObject({ name: "FiberFailure" })
 })

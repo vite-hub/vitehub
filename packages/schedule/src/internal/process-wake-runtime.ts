@@ -1,4 +1,4 @@
-import { Cause, Clock, Data, Duration, Effect, FiberSet, Queue, Ref, Semaphore } from "effect"
+import { Cause, Clock, Data, Duration, Effect, Exit, FiberSet, Queue, Ref, Semaphore } from "effect"
 
 import { isRuntimeScheduleDue } from "../runtime/due.ts"
 
@@ -8,6 +8,37 @@ import type { RuntimeScheduleWakeDriverContext } from "../runtime/driver.ts"
 export class ProcessWakeBoundaryError extends Data.TaggedError("ProcessWakeBoundaryError")<{
   readonly cause: unknown
 }> {}
+
+function interruptionError(signal?: AbortSignal): unknown {
+  if (signal?.aborted && signal.reason !== undefined) return signal.reason
+  const error = new Error("[vitehub] Process Schedule Wake Driver operation was interrupted.")
+  error.name = "AbortError"
+  return error
+}
+
+function processWakeCauseValues(
+  cause: Cause.Cause<unknown>,
+  signal?: AbortSignal,
+): unknown[] {
+  return cause.reasons.map((reason) => {
+    if (Cause.isFailReason(reason)) {
+      return reason.error instanceof ProcessWakeBoundaryError ? reason.error.cause : reason.error
+    }
+    if (Cause.isDieReason(reason)) return reason.defect
+    return interruptionError(signal)
+  })
+}
+
+export async function unwrapProcessWakeExit<A>(
+  promise: Promise<Exit.Exit<A, ProcessWakeBoundaryError>>,
+  signal?: AbortSignal,
+): Promise<A> {
+  const exit = await promise
+  if (Exit.isSuccess(exit)) return exit.value
+  const causes = processWakeCauseValues(exit.cause, signal)
+  if (causes.length === 1) throw causes[0]
+  throw new AggregateError(causes, "[vitehub] Process Schedule Wake Driver operation failed for multiple reasons.")
+}
 
 interface ProcessWakeState {
   readonly active: Set<string>
