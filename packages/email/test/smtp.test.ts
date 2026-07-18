@@ -116,6 +116,30 @@ describe("smtp", () => {
     })).rejects.toBe(abort)
   })
 
+  it.each([
+    null,
+    "provider rejected delivery",
+    503,
+    new Proxy({}, { get: () => { throw new Error("hostile getter") } }),
+  ])("normalizes hostile SMTP rejection values without losing the cause", async (cause) => {
+    nodemailer.sendMail.mockRejectedValue(cause)
+    const client = createEmail({ driver: smtp("smtp://localhost") })
+
+    const error = await client.send({
+      from: "hello@example.com",
+      subject: "Welcome",
+      text: "Hello",
+      to: "maxi@example.com",
+    }).catch(error => error)
+
+    expect(error).toMatchObject({
+      code: "provider",
+      driver: "smtp",
+      message: "[vitehub] SMTP delivery failed.",
+    })
+    expect(error.cause).toBe(cause)
+  })
+
   it("rejects a missing provider message id", async () => {
     nodemailer.sendMail.mockResolvedValue({})
     const driver = smtp("smtp://localhost")

@@ -7,11 +7,14 @@ import type SMTPTransport from "nodemailer/lib/smtp-transport/index.js"
 import type { EmailAddress, EmailAddressList, EmailDriver, EmailDriverResult, EmailMessage } from "../types.ts"
 import type { EmailErrorCode } from "../errors.ts"
 
-interface SMTPError {
-  code?: string
-  message?: string
-  response?: string
-  responseCode?: number
+function readSmtpErrorField(error: unknown, field: "code" | "message" | "response" | "responseCode"): unknown {
+  if ((typeof error !== "object" && typeof error !== "function") || error === null) return
+  try {
+    return (error as Record<string, unknown>)[field]
+  }
+  catch {
+    return undefined
+  }
 }
 
 function smtpAddress(address: EmailAddress): string | Mail.Address {
@@ -24,11 +27,15 @@ function smtpAddresses(addresses: EmailAddressList): Array<string | Mail.Address
   return (Array.isArray(addresses) ? addresses : [addresses]).map(smtpAddress)
 }
 
-function smtpErrorCode(error: SMTPError): EmailErrorCode {
-  if (error.code === "EAUTH" || error.responseCode === 535) return "authentication"
-  if (error.code === "ETIMEDOUT") return "timeout"
-  if (["ECONNECTION", "EDNS", "ESOCKET"].includes(error.code ?? "")) return "network"
-  if (/rate.?limit|throttl|too many/i.test(`${error.message ?? ""} ${error.response ?? ""}`)) return "rate-limit"
+function smtpErrorCode(error: unknown): EmailErrorCode {
+  const code = readSmtpErrorField(error, "code")
+  const message = readSmtpErrorField(error, "message")
+  const response = readSmtpErrorField(error, "response")
+  const responseCode = readSmtpErrorField(error, "responseCode")
+  if (code === "EAUTH" || responseCode === 535) return "authentication"
+  if (code === "ETIMEDOUT") return "timeout"
+  if (typeof code === "string" && ["ECONNECTION", "EDNS", "ESOCKET"].includes(code)) return "network"
+  if (/rate.?limit|throttl|too many/i.test(`${typeof message === "string" ? message : ""} ${typeof response === "string" ? response : ""}`)) return "rate-limit"
   return "provider"
 }
 
@@ -72,8 +79,7 @@ export function smtp(transport: string | SMTPTransport.Options): EmailDriver {
       catch (error) {
         if (error instanceof EmailError) throw error
         if (isEmailAbortError(error)) throw error
-        const smtpError = error as SMTPError
-        throw new EmailError(smtpErrorCode(smtpError), "[vitehub] SMTP delivery failed.", {
+        throw new EmailError(smtpErrorCode(error), "[vitehub] SMTP delivery failed.", {
           cause: error,
           driver: "smtp",
         })

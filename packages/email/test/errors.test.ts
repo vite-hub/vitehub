@@ -59,4 +59,24 @@ describe("EmailError", () => {
     })
     expect(JSON.stringify(error)).not.toContain("email-secret")
   })
+
+  it("drops details outside the Email allowlist at runtime", () => {
+    const error = new EmailError({
+      code: "provider",
+      details: {
+        driver: "smtp",
+        operation: "delete",
+        responseBody: "token=email-secret",
+        url: "https://provider.example/send",
+      } as never,
+      message: "[vitehub] Email delivery failed.",
+    })
+
+    expect(error.toJSON()).toEqual({
+      code: "provider",
+      details: { driver: "smtp" },
+      message: "[vitehub] Email delivery failed.",
+    })
+    expect(JSON.stringify(error)).not.toMatch(/email-secret|provider\.example|responseBody|url/)
+  })
 })

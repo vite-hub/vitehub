@@ -47,6 +47,10 @@ it("exports the structured Email error contract", () => {
   } satisfies EmailErrorOptions)
   expectTypeOf(new EmailError("network", "SMTP delivery failed.", { driver: "smtp" }).driver)
     .toEqualTypeOf<string | undefined>()
+  // @ts-expect-error Email details expose only the owned driver and send operation.
+  new EmailError({ code: "provider", details: { responseBody: "secret" }, message: "Delivery failed." })
+  // @ts-expect-error Email has no public operation other than send.
+  new EmailError({ code: "provider", details: { operation: "delete" }, message: "Delivery failed." })
 })
 
 it("exports Markdown and test helpers from dedicated entrypoints", () => {

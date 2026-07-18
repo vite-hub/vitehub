@@ -64,7 +64,7 @@ const result = await email.send({
 
 A successful send returns `{ id, driver: "smtp" }`; the provider supplies `id`. Invalid messages and delivery failures throw `EmailError` with a stable `code`. SMTP and core-wrapped provider failures keep the raw failure in `cause` while exposing a safe message. Custom drivers must follow the same rule when they throw `EmailError` directly.
 
-`EmailError` extends ViteHub's shared structured error contract. Use the object form in custom drivers and `toJSON()` when an error crosses a public boundary; serialization includes the safe code, message, and driver details while excluding `cause` and the stack.
+`EmailError` extends ViteHub's shared structured error contract. Use the object form in custom drivers and `toJSON()` when an error crosses a public boundary; serialization includes the safe code, message, and bounded driver plus optional `operation: "send"` while excluding every other provider detail, `cause`, and the stack.
 
 ```ts
 import { EmailError } from "@vite-hub/email"

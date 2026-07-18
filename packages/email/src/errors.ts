@@ -1,6 +1,6 @@
 import { ViteHubError } from "@vite-hub/runtime"
 
-import type { ViteHubErrorDetails, ViteHubErrorOptions } from "@vite-hub/runtime"
+import type { ViteHubErrorOptions } from "@vite-hub/runtime"
 
 export type EmailErrorCode =
   | "authentication"
@@ -11,8 +11,9 @@ export type EmailErrorCode =
   | "rate-limit"
   | "timeout"
 
-export type EmailErrorDetails = ViteHubErrorDetails & {
+export type EmailErrorDetails = {
   readonly driver?: string
+  readonly operation?: "send"
 }
 
 export interface EmailErrorMetadata extends ViteHubErrorOptions<EmailErrorDetails> {
@@ -57,11 +58,11 @@ export class EmailError extends ViteHubError<EmailErrorCode, EmailErrorDetails> 
     const inputDetails = typeof options.details === "object" && options.details !== null && !Array.isArray(options.details)
       ? options.details
       : undefined
-    const { driver: detailsDriver, ...otherDetails } = inputDetails ?? {}
-    const driver = safeEmailDriver(options.driver ?? detailsDriver)
-    const details = Object.keys(otherDetails).length === 0 && driver === undefined
+    const driver = safeEmailDriver(options.driver ?? inputDetails?.driver)
+    const operation: "send" | undefined = inputDetails?.operation === "send" ? "send" : undefined
+    const details: EmailErrorDetails | undefined = operation === undefined && driver === undefined
       ? undefined
-      : { ...otherDetails, ...(driver === undefined ? {} : { driver }) }
+      : { ...(driver === undefined ? {} : { driver }), ...(operation === undefined ? {} : { operation }) }
 
     super(code, resolvedMessage, {
       cause: options.cause,
