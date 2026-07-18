@@ -65,6 +65,7 @@ function renderWorkspaceYaml(overrides) {
     "  '@swc/core': true",
     "  cbor-extract: true",
     "  esbuild: true",
+    "  msgpackr-extract: false",
     "  node-liblzma: true",
     "catalog:",
     "  vite: npm:@voidzero-dev/vite-plus-core@latest",
