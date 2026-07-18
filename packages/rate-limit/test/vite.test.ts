@@ -214,7 +214,7 @@ describe("hubRateLimit", () => {
     const installer = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")
     expect(installer).toContain('const config = {"provider":"memory"}')
     expect(installer).not.toContain("Registry")
-    expect(installer).toContain("enterRateLimitRuntimeEvent(event)")
+    expect(installer).toContain("enterRateLimitRuntimeEvent(Object.assign(event")
   })
 
   it("installs the Cloudflare runtime in plain Vite SSR modules", async () => {
