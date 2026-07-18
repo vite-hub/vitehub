@@ -247,7 +247,10 @@ export const makeProcessWakeRuntime = Effect.fn("ScheduleProcessDriver.make")(fu
     ),
   )
   const scanLoop = Effect.forever(
-    Effect.andThen(clock.sleep(Duration.millis(options.intervalMs)), scanIteration),
+    Effect.andThen(
+      clock.sleep(Duration.millis(options.intervalMs)),
+      FiberSet.run(scannerFibers, scanIteration, { startImmediately: true }),
+    ),
   )
 
   const reconcile = Effect.fn("ScheduleProcessDriver.reconcile")(function* (
