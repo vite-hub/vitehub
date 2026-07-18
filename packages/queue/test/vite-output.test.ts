@@ -171,6 +171,7 @@ describe("Vite provider outputs", () => {
     await expect(readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       triggers: { crons: ["0 0 * * *"] },
     })
+    expect(existsSync(join(rootDir, ".vercel", "output", "static", basename(rootDir), "wrangler.json"))).toBe(false)
   })
 
   it("leaves Cloudflare Worker output to Nitro", async () => {
@@ -179,8 +180,13 @@ describe("Vite provider outputs", () => {
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(cloudflareOutputRoot, { recursive: true })
     await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
+    await writeFile(join(cloudflareOutputRoot, "index.js"), "export default {}\n", "utf8")
     await writeFile(join(cloudflareOutputRoot, "wrangler.json"), `${JSON.stringify({
+      compatibility_date: "2026-04-20",
+      main: "index.js",
+      observability: { enabled: true },
       queues: { producers: [{ binding: "STALE", queue: "stale" }] },
+      triggers: { crons: ["0 0 * * *"] },
     }, null, 2)}\n`, "utf8")
 
     await generateProviderOutputs({
@@ -191,7 +197,9 @@ describe("Vite provider outputs", () => {
     })
 
     expect(existsSync(join(cloudflareOutputRoot, "index.js"))).toBe(false)
-    expect(existsSync(join(cloudflareOutputRoot, "wrangler.json"))).toBe(false)
+    await expect(readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      triggers: { crons: ["0 0 * * *"] },
+    })
   })
 
   it("does not preload Vercel queue without queue definitions", async () => {

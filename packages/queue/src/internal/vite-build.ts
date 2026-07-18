@@ -361,11 +361,24 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const artifacts = await writeProviderEntries(options.rootDir, options.queue)
   const createCloudflare = !options.cloudflareOwnedByNitro && shouldCreateCloudflareOutput(options.queue)
   const createVercel = shouldCreateVercelOutput(options.queue)
+  if (!createCloudflare) {
+    await writeProviderDeploymentOutputs({
+      clientOutDir: options.clientOutDir,
+      cleanup: {
+        cloudflare: options.cloudflareOwnedByNitro
+          ? {
+              fileNames: ["index.js"],
+              wranglerConfigOwnership: { keys: ["compatibility_date", "compatibility_flags", "main", "observability", "queues"] },
+            }
+          : { wranglerConfigOwnership: { keys: ["queues"] } },
+      },
+      rootDir: options.rootDir,
+    })
+  }
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
     cloudflare: createCloudflare ? createCloudflareOutput(artifacts) : undefined,
     cleanup: {
-      cloudflare: createCloudflare ? undefined : { wranglerConfigOwnership: { keys: ["queues"] } },
       vercel: { serverFunctionName: options.serverFunctionName ?? "__server.func" },
     },
     rootDir: options.rootDir,

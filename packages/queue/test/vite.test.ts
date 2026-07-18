@@ -1,8 +1,11 @@
+import { existsSync } from "node:fs"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
+
+import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 
 import { hubQueue } from "../src/vite.ts"
 
@@ -114,10 +117,12 @@ describe("hubQueue", () => {
     const initial = { nitro: {}, root }
     ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(initial)
     expect(initial.nitro).not.toHaveProperty("cloudflare")
-    const resolved = { nitro: { ...initial.nitro, preset: "cloudflare_module" }, queue: undefined, root }
+    const resolved = { build: { outDir: "dist" }, command: "build", nitro: { ...initial.nitro, preset: "cloudflare_module" }, queue: undefined, root }
     await (plugin.configResolved as (config: unknown) => Promise<void>)(resolved as never)
     expect(resolved).toHaveProperty("nitro.cloudflare.wrangler.queues.producers")
     expect(resolved).toHaveProperty("nitro.rollupConfig.external", ["cloudflare:workers"])
+    await (plugin.closeBundle as () => Promise<void>)()
+    expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "index.js"))).toBe(false)
 
     const disabled = { nitro: { preset: "cloudflare_module", plugins: [".vitehub/nitro/queue/plugin.ts", "server/plugin.ts"] }, queue: false, root }
     ;(hubQueue(false).config as unknown as (config: Record<string, unknown>) => void)(disabled)
@@ -157,7 +162,7 @@ describe("hubQueue", () => {
 
     await (plugin.configResolved as (config: unknown) => Promise<void>)({
       build: { outDir: "dist" },
-      command: "serve",
+      command: "build",
       nitro: underscorePages.nitro,
       plugins: [],
       queue: { binding: "JOBS", provider: "cloudflare" },
@@ -167,6 +172,8 @@ describe("hubQueue", () => {
     const pagesPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     expect(pagesPlugin).not.toContain("cloudflare:queue")
     expect(pagesPlugin).not.toContain("cloudflare:workers")
+    await (plugin.closeBundle as () => Promise<void>)()
+    expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "index.js"))).toBe(true)
   })
 
   it("rejects ambiguous and conflicting custom Cloudflare bindings", async () => {

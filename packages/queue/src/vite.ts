@@ -94,7 +94,6 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
   let queue: QueueModuleOptions | undefined = options
   let hosting = "vercel"
   let cloudflareQueues = true
-  let configHookRan = false
   let nitroOwnsCloudflareWorker = false
 
   return {
@@ -107,17 +106,16 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
     config(config) {
       queue = config.queue ?? queue
       const nitro = (config as { nitro?: unknown }).nitro
-      nitroOwnsCloudflareWorker = Boolean(nitro && resolveQueueHosting(queue, cloneNitroConfig(nitro)) === "cloudflare")
-      configHookRan = true
+      const nitroConfig = cloneNitroConfig(nitro)
+      nitroOwnsCloudflareWorker = Boolean(nitro && resolveQueueHosting(queue, nitroConfig) === "cloudflare" && supportsCloudflareQueues(nitroConfig))
       ;(config as { nitro?: unknown }).nitro = mergeNitroConfig(config, nitro, queue, config.root || process.cwd())
     },
     async configResolved(config) {
       resolved = config
       queue = config.queue ?? queue
       const configuredNitro = (config as { nitro?: unknown }).nitro
-      if (!configHookRan) {
-        nitroOwnsCloudflareWorker = Boolean(configuredNitro && resolveQueueHosting(queue, cloneNitroConfig(configuredNitro)) === "cloudflare")
-      }
+      const configuredNitroConfig = cloneNitroConfig(configuredNitro)
+      nitroOwnsCloudflareWorker = Boolean(configuredNitro && resolveQueueHosting(queue, configuredNitroConfig) === "cloudflare" && supportsCloudflareQueues(configuredNitroConfig))
       const nitro = mergeNitroConfig(config, configuredNitro, queue, config.root)
       ;(config as { nitro?: unknown }).nitro = nitro
       hosting = resolveQueueHosting(queue, nitro)
