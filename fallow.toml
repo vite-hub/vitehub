@@ -33,7 +33,6 @@ dynamicallyLoaded = [
   "packages/env/examples/**/server/**",
   "packages/env/examples/**/src/server.ts",
   "packages/queue/test/e2e-live.mjs",
-  "packages/queue/test/published-runtime.test.ts",
   "packages/queue/test/**/*.test-d.ts",
   "packages/rate-limit/test/**/*.test-d.ts",
   "packages/rate-limit/examples/**/src/**/*.ts",

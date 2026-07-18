@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { QueueError } from "../dist/index.js"
+const distEntry = new URL("../dist/index.js", import.meta.url)
+const { QueueError } = await import(distEntry.href)
 
 describe("published Queue error runtime", () => {
   it("closes built-in messages and details after packaging", () => {
