@@ -1,5 +1,6 @@
 import agentRegistry from "#vitehub/agent/registry"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
+import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
 import { cloneWithPropertyDescriptors } from "./internal/stream-result.ts"
 import { AgentOutputValidationError, validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
@@ -952,15 +953,6 @@ async function applyChannelDeliveryEffectIntents<
   }
 }
 
-function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<void>): (...args: TArgs) => Promise<void> {
-  let called = false
-  return async (...args) => {
-    if (called) return
-    called = true
-    await callback(...args)
-  }
-}
-
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
 export { defineFinishEffect } from "./delivery-effects.ts"
@@ -1848,13 +1840,14 @@ async function finishStreamAgentInvocation<
   CALL_OPTIONS,
 >(
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+  lifecycle: AgentInvocationLifecycle<AgentInvocationFinishOutcome>,
   result: unknown,
   outcome: AgentInvocationFinishOutcome,
   failureMessage: string,
   outputExtensions = new Map<string, unknown>(),
 ): Promise<void> {
   if (outcome.status === "error") {
-    await finishAgentInvocation(context, outcome)
+    await lifecycle.finish(outcome)
     return
   }
   let finishResult: unknown
@@ -1868,9 +1861,9 @@ async function finishStreamAgentInvocation<
       : resultWithUsageRecord(finishResult, usageRecord)
   }
   catch (finishError) {
-    await finishFailedAgentInvocation(context, finishError, failureMessage)
+    await lifecycle.fail({ error: finishError, status: "error" }, finishError, failureMessage)
   }
-  await finishAgentInvocation(context, { result: finishResult, status: "success", usage: finishUsage })
+  await lifecycle.finish({ result: finishResult, status: "success", usage: finishUsage })
 }
 
 function traceUiMessageStream<
@@ -2260,29 +2253,13 @@ async function finishAgentInvocation<
   }
 }
 
-async function finishFailedAgentInvocation<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
-  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
-  error: unknown,
-  message: string,
-): Promise<never> {
-  try {
-    await finishAgentInvocation(context, { error, status: "error" })
-  }
-  catch (finishError) {
-    throw new AggregateError([error, finishError], message)
-  }
-  throw error
-}
-
 async function finalizeAgentInvocationResult<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
   TResult,
 >(
   context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS> & { hasCapabilityCleanup: boolean },
+  lifecycle: AgentInvocationLifecycle<AgentInvocationFinishOutcome>,
   result: unknown,
   finalizeObject: (result: unknown) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, finishUsage?: AgentUsageRecord, value: TResult }>,
   failureMessage: string,
@@ -2293,15 +2270,12 @@ async function finalizeAgentInvocationResult<
   } = {},
 ): Promise<Response | AsyncIterable<unknown> | TResult> {
   const shouldWrapOutput = shouldWrapInvocationOutput(context)
-  let finishLifecycleStarted = false
   try {
     if (result instanceof Response) {
-      const response = shouldWrapOutput ? await withResponseCleanup(result, outcome => finishAgentInvocation(context, finishOutcomeFromCleanup(outcome, result))) : result
-      finishLifecycleStarted = shouldWrapOutput
+      const response = shouldWrapOutput ? await withResponseCleanup(result, outcome => lifecycle.finish(finishOutcomeFromCleanup(outcome, result))) : result
       return response
     }
     if (isAsyncIterable(result) && !hasTraceableStreamResult(result) && !options.finalizeRawStreams) {
-      finishLifecycleStarted = shouldWrapOutput
       const stream = options.wrapStream?.(result) || result
       if (shouldWrapOutput) {
         const streamed = withStreamedResult(stream, result)
@@ -2309,25 +2283,23 @@ async function finalizeAgentInvocationResult<
           return withCapabilityCleanup(streamed.stream, async (outcome) => {
             const finishOutcome = finishOutcomeFromCleanup(outcome, result)
             const usage = streamed.finishUsage()
-            return finishAgentInvocation(context, finishOutcome.status === "success"
+            return lifecycle.finish(finishOutcome.status === "success"
               ? { ...finishOutcome, usage: usage ? await resolveAgentUsageRecord({ usageRecord: usage }, context.run) : undefined }
               : finishOutcome)
           }, { abortSignal: context.input.abortSignal })
         }
-        return withCapabilityCleanup(streamed.stream, outcome => finishStreamAgentInvocation(context, streamed.finishResult(), finishOutcomeFromCleanup(outcome), failureMessage, options.outputExtensions), { abortSignal: context.input.abortSignal })
+        return withCapabilityCleanup(streamed.stream, outcome => finishStreamAgentInvocation(context, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), failureMessage, options.outputExtensions), { abortSignal: context.input.abortSignal })
       }
       return stream
     }
     const finalized = await finalizeObject(result)
-    finishLifecycleStarted = true
     if (!finalized.deferFinish) {
-      await finishAgentInvocation(context, { result: finalized.finishResult, status: "success", usage: finalized.finishUsage })
+      await lifecycle.finish({ result: finalized.finishResult, status: "success", usage: finalized.finishUsage })
     }
     return finalized.value
   }
   catch (error) {
-    if (finishLifecycleStarted) throw error
-    return await finishFailedAgentInvocation(context, error, failureMessage)
+    return await lifecycle.fail({ error, status: "error" }, error, failureMessage)
   }
 }
 
@@ -2365,13 +2337,15 @@ async function executeAgentInvocation<
     ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>
     : undefined
   const invocation = await createAgentInvocationContext(definition, context, input)
-  invocation.close = once(invocation.close)
+  const lifecycle = await openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
+    outcome => finishAgentInvocation(invocation, outcome),
+  )
 
   const runFailureMessage = "[vitehub] Agent run failed and finish lifecycle also failed."
   const streamFailureMessage = "[vitehub] Agent stream failed and finish lifecycle also failed."
   const handledFailureMessage = options.kind === "run" ? runFailureMessage : streamFailureMessage
   if (invocation.handledResponse) {
-    return await finalizeAgentInvocationResult(invocation, invocation.handledResponse, async result => ({ finishResult: result, value: result }), handledFailureMessage)
+    return await finalizeAgentInvocationResult(invocation, lifecycle, invocation.handledResponse, async result => ({ finishResult: result, value: result }), handledFailureMessage)
   }
 
   const executionFailureMessage = options.kind === "run" || customRun ? runFailureMessage : streamFailureMessage
@@ -2388,7 +2362,7 @@ async function executeAgentInvocation<
     }
   }
   catch (error) {
-    return await finishFailedAgentInvocation(invocation, error, executionFailureMessage)
+    return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
   }
 
   const outputExtensions = new Map<string, unknown>()
@@ -2403,11 +2377,11 @@ async function executeAgentInvocation<
     }
   }
   catch (error) {
-    return await finishFailedAgentInvocation(invocation, error, executionFailureMessage)
+    return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
   }
 
   if (options.kind === "run") {
-    return await finalizeAgentInvocationResult(invocation, result, async (result) => {
+    return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
       const driverUsageRecord = await resolveFinishUsageRecord(invocation, result)
       const rendered = options.renderOutput
         ? renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
@@ -2438,12 +2412,12 @@ async function executeAgentInvocation<
     })
   }
 
-  return await finalizeAgentInvocationResult(invocation, result, async (result) => {
+  return await finalizeAgentInvocationResult(invocation, lifecycle, result, async (result) => {
     const driverUsageRecord = await resolveFinishUsageRecord(invocation, result)
     const rendered = renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
     if (options.output === "ui-message-stream") {
       return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, invocation), shouldWrapInvocationOutput(invocation), async (outcome, streamedText, streamedUsageRecord) => {
-        await finishStreamAgentInvocation(invocation, resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+        await finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(rendered, streamedText || "", streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
       })
     }
 
@@ -2468,7 +2442,7 @@ async function executeAgentInvocation<
     const shouldWrapOutput = shouldWrapInvocationOutput(invocation)
     const value = shouldWrapOutput
       ? withCapabilityCleanup(tracedStream, async (outcome) => {
-          await finishStreamAgentInvocation(invocation, streamed.finishResult(), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
+          await finishStreamAgentInvocation(invocation, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), streamFailureMessage, outputExtensions)
         }, { abortSignal: invocation.input.abortSignal }) as AsyncIterable<StreamEvent>
       : tracedStream
     return {
