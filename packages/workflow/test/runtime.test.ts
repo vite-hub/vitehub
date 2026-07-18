@@ -184,6 +184,21 @@ describe("workflow runtime", () => {
     expect(JSON.stringify(error)).not.toContain("provider-secret")
   }
 
+  async function expectInvalidProviderResult(
+    request: Promise<unknown>,
+    operation: string,
+    field: string,
+  ) {
+    const error = await request.catch(error => error)
+    expect(error).toBeInstanceOf(WorkflowError)
+    expect(error).toMatchObject({
+      cause: new TypeError(`Vercel Workflow provider returned an invalid ${field}.`),
+      code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+      details: { operation, provider: "vercel" },
+      message: "Workflow provider operation failed.",
+    })
+  }
+
   it("defines inline workflows and returns a typed runtime handle", async () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
 
@@ -1243,6 +1258,100 @@ describe("workflow runtime", () => {
       status: "unknown",
       steps: [{ id: "step-unknown", status: "unknown" }],
     })
+  })
+
+  it("narrows malformed and hostile Vercel results at the provider boundary", async () => {
+    const native = Object.assign(async () => "native", { workflowId: "durable-welcome" })
+    const createRun = (overrides: Record<string, unknown> = {}) => ({
+      cancel: vi.fn(),
+      completedAt: Promise.resolve(undefined),
+      createdAt: Promise.resolve(new Date()),
+      exists: Promise.resolve(true),
+      returnValue: Promise.resolve(undefined),
+      runId: "wdk-malformed",
+      startedAt: Promise.resolve(undefined),
+      status: Promise.resolve("pending"),
+      workflowName: Promise.resolve(native.workflowId),
+      ...overrides,
+    }) as VercelRun
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({
+        default: { handler: async () => "inline", options: { native } },
+      }),
+    })
+
+    const invalidRuns: [Record<string, unknown>, string][] = [
+      [{ exists: Promise.resolve("yes") }, "existence state"],
+      [{ workflowName: Promise.resolve(42) }, "workflow name"],
+      [{ status: Promise.resolve(42) }, "status"],
+      [{ createdAt: Promise.resolve("today") }, "creation date"],
+      [{ startedAt: Promise.resolve("today") }, "start date"],
+      [{ completedAt: Promise.resolve("today") }, "completion date"],
+    ]
+    for (const [overrides, field] of invalidRuns) {
+      setVercelWorkflowRuntimeLoader(async () => ({
+        getRun: () => createRun(overrides),
+        listSteps: async () => [],
+        resumeHook: vi.fn(),
+        start: vi.fn(),
+      }))
+      await expectInvalidProviderResult(getWorkflowRun("welcome", "wdk-malformed"), "get-run", field)
+    }
+
+    const step = {
+      attempt: 1,
+      status: "pending",
+      stepId: "step-1",
+      stepName: "transcribe",
+    }
+    const invalidSteps: [unknown, string][] = [
+      [{ not: "an array" }, "step list"],
+      [[null], "step"],
+      [[{ ...step, attempt: "one" }], "step attempt"],
+      [[{ ...step, stepId: 42 }], "step ID"],
+      [[{ ...step, stepName: 42 }], "step name"],
+      [[{ ...step, completedAt: "today" }], "step completion date"],
+      [[{ ...step, startedAt: "today" }], "step start date"],
+      [[{ ...step, status: 42 }], "status"],
+    ]
+    for (const [steps, field] of invalidSteps) {
+      setVercelWorkflowRuntimeLoader(async () => ({
+        getRun: () => createRun(),
+        listSteps: async () => steps as never,
+        resumeHook: vi.fn(),
+        start: vi.fn(),
+      }))
+      await expectInvalidProviderResult(getWorkflowRun("welcome", "wdk-malformed"), "list-steps", field)
+    }
+
+    const stepCause = new Error("provider-secret:step-result")
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: () => createRun(),
+      listSteps: async () => [new Proxy({}, { get: () => { throw stepCause } })] as never,
+      resumeHook: vi.fn(),
+      start: vi.fn(),
+    }))
+    await expectProviderFailure(getWorkflowRun("welcome", "wdk-malformed"), stepCause, {
+      operation: "list-steps",
+      provider: "vercel",
+    })
+
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: vi.fn(),
+      listSteps: vi.fn(),
+      resumeHook: vi.fn(),
+      start: async () => ({ runId: 42 }) as never,
+    }))
+    await expectInvalidProviderResult(runWorkflow("welcome", {}), "start", "run ID")
+
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: vi.fn(),
+      listSteps: vi.fn(),
+      resumeHook: async () => ({ runId: 42 }) as never,
+      start: vi.fn(),
+    }))
+    await expectInvalidProviderResult(resumeWorkflowSignal("opaque", {}), "resume-signal", "run ID")
   })
 
   it("fails unsupported inline cancellation and non-Vercel signals explicitly", async () => {
