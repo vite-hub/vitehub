@@ -65,7 +65,7 @@ export default defineEventHandler(async () => {
 | `runQueue`, `deferQueue`, `getQueue` from `@vite-hub/queue` | Enqueue jobs and access discovered QueueClients. |
 | `createQueueClient` from `@vite-hub/queue` | Create a direct provider QueueClient. |
 | `createQueueMessageId` from `@vite-hub/queue` | Generate a ViteHub message id with an optional prefix. |
-| `QueueError` from `@vite-hub/queue` | Catch Queue-specific runtime errors. |
+| `QueueError` from `@vite-hub/queue` | Throw structured Queue Delivery failures or catch Queue-specific runtime errors. |
 | `createCloudflareQueueBatchHandler` from `@vite-hub/queue` | Build a Cloudflare batch handler outside generated Provider Output. |
 | `getCloudflareQueueName`, `getCloudflareQueueBindingName`, `getCloudflareQueueDefinitionName`, `getVercelQueueTopicName` from `@vite-hub/queue` | Inspect provider-derived names. Application code should not persist these names as source authority. |
 | `handleHostedVercelQueueCallback` from `@vite-hub/queue/runtime/hosted`, `createQueueCloudflareWorker` from `@vite-hub/queue` | Host adapter helpers used by generated Provider Output. Install `@vercel/functions` when importing the Vercel-specific runtime. |
@@ -159,6 +159,37 @@ The handler receives a normalized Queue Job.
 
 Handler return values belong to Queue Delivery. `runQueue()` does not return the handler result.
 
+Throw `QueueError` when the Queue Definition can classify a delivery failure. Delivery retries by default; set `retryable: false` only when another attempt cannot succeed, such as a payload that fails deterministic validation.
+
+```ts [server/queues/image-expiry.ts]
+import { defineQueue, QueueError } from '@vite-hub/queue'
+
+export default defineQueue<{ key?: string }>(async ({ payload }) => {
+  if (!payload.key) {
+    throw new QueueError({
+      code: 'EXPIRY_INVALID_PAYLOAD',
+      details: { field: 'key' },
+      message: 'Image expiry payload requires a key.',
+      retryable: false,
+    })
+  }
+
+  try {
+    await deleteImage(payload.key)
+  }
+  catch (cause) {
+    throw new QueueError({
+      cause,
+      code: 'EXPIRY_FAILED',
+      details: { key: payload.key },
+      message: 'Image expiry failed.',
+    })
+  }
+})
+```
+
+ViteHub reports each failed delivery before choosing its provider action. The report includes the Queue Definition name, message id, attempt count, `code`, `details`, and effective retry policy; it does not serialize `cause`. Cloudflare acknowledges a non-retryable error, while Vercel returns `{ acknowledge: true }`. Other errors retain the provider's normal retry behavior.
+
 ## Queue Definition options
 
 Pass Definition Options as the second argument to `defineQueue()`.
@@ -183,11 +214,15 @@ Controls Cloudflare batch delivery concurrency for this Queue Definition. Defaul
 
 ### `onError` `(error, message, batch) => 'ack' | 'retry' | { retry: { delaySeconds?: number } } | void`
 
-Handles Cloudflare message delivery errors. Return `'ack'` to acknowledge the failed message, `'retry'` or `void` to retry it, or `{ retry: { delaySeconds } }` to retry with a delay.
+Handles Cloudflare message delivery errors. Return `'ack'` to acknowledge the failed message, `'retry'` to retry it, or `{ retry: { delaySeconds } }` to retry with a delay. Returning `void` applies the default Queue Delivery policy.
+
+An explicit return value overrides `QueueError.retryable`. Returning `void` uses the structured error's default action.
 
 ### `callbackOptions` `{ retry?: VercelQueueRetryHandler, visibilityTimeoutSeconds?: number }`
 
 Passes Vercel callback options to `@vercel/queue` for this Queue Definition.
+
+When `retry` returns a directive, that directive overrides `QueueError.retryable`. Returning `void` acknowledges a non-retryable `QueueError` and preserves normal retries for other errors.
 
 ### `onDispatchError` `(error, context) => unknown | Promise<unknown>`
 
@@ -323,10 +358,23 @@ await createQueueClient({
 
 ## Errors
 
-Queue APIs throw `QueueError` with `code`, `provider`, `method`, `httpStatus`, and `details` when those fields are available.
+Queue APIs throw `QueueError`, which extends the shared `ViteHubError` foundation. It always has a `code` and can carry `details`, `requestId`, `retryable`, `provider`, `method`, `httpStatus`, and `cause`.
+
+Queue Definitions should use the structured constructor shown above. Existing provider and configuration call sites can use the string form:
+
+```ts
+new QueueError('Queue provider failed.', {
+  cause,
+  code: 'QUEUE_PROVIDER_FAILED',
+  provider: 'vercel',
+})
+```
+
+`JSON.stringify(error)` uses the shared safe shape and omits `cause`, `provider`, `method`, and `httpStatus`. Read those fields directly in protected server-side diagnostics.
 
 | Code | Meaning |
 | --- | --- |
+| `QUEUE_ERROR` | A caller constructed `QueueError` without a more specific code. |
 | `QUEUE_DISABLED` | Queue runtime support is disabled. |
 | `QUEUE_DEFINITION_NOT_FOUND` | No discovered Queue Definition matches the requested name. |
 | `CLOUDFLARE_BINDING_RESOLUTION_REQUIRED` | A direct Cloudflare client was created without a concrete binding. |

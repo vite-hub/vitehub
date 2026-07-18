@@ -19,7 +19,7 @@ Use the error family to choose the next proof path before changing implementatio
 | `AuthenticationRequiredError` | Auth Package | A route or Agent Invoker bridge needs an authenticated application user; inspect code `AUTHENTICATION_REQUIRED` and `statusCode: 401`. |
 | `AuthenticationProviderError` | Auth Package | The default Better Auth request or session operation failed; inspect code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details. |
 | `EmailError` | Email Package | Message validation, missing Email Definition, delivery credentials, throttling, network, timeout, or provider delivery failed. |
-| `QueueError` | Queue Package | Queue dispatch, callback, or provider handling failed. |
+| `QueueError` | Queue Package | Queue dispatch, callback, provider handling, or a structured Queue Delivery failed. `retryable: false` acknowledges the reported delivery unless an explicit provider callback directive overrides it. |
 | `WorkspaceError` | Workspace Package | Workspace runtime, store, rule, or file-tree behavior failed. |
 | `WorkspaceNotFoundError` | Workspace Package | The requested Workspace is not registered. |
 | `WorkspacePathError` | Workspace Package | A Workspace path is invalid or outside allowed shape. |

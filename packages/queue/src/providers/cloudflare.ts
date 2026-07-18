@@ -1,5 +1,7 @@
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
 import { QueueError } from "../errors.ts"
+import { getCloudflareQueueDefinitionName } from "../integrations/cloudflare.ts"
+import { isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
 
 import type { CloudflareQueueBatchErrorAction, CloudflareQueueBatchHandlerOptions, CloudflareQueueBinding, CloudflareQueueClient, CloudflareQueueMessage, CloudflareQueueMessageBatch, CloudflareQueueProviderOptions, QueueEnqueueOptions } from "../types.ts"
 
@@ -11,7 +13,7 @@ function toSendOptions(options: QueueEnqueueOptions = {}) {
   const unsupported = [
     options.idempotencyKey !== undefined ? "idempotencyKey" : undefined,
     options.retentionSeconds !== undefined ? "retentionSeconds" : undefined,
-  ].filter(Boolean)
+  ].filter((option): option is string => typeof option === "string")
 
   if (unsupported.length) {
     throw new QueueError(`Cloudflare queue does not support enqueue options: ${unsupported.join(", ")}.`, {
@@ -29,9 +31,14 @@ function toSendOptions(options: QueueEnqueueOptions = {}) {
   }
 }
 
-function resolveAction(action: CloudflareQueueBatchErrorAction | void, message: CloudflareQueueMessage) {
+function resolveAction(action: CloudflareQueueBatchErrorAction | void, message: CloudflareQueueMessage, fallback: "ack" | "retry") {
   if (action === "ack") {
     message.ack()
+    return
+  }
+
+  if (action === "retry") {
+    message.retry()
     return
   }
 
@@ -40,7 +47,11 @@ function resolveAction(action: CloudflareQueueBatchErrorAction | void, message: 
     return
   }
 
-  message.retry()
+  if (fallback === "ack") {
+    message.ack()
+  } else {
+    message.retry()
+  }
 }
 
 export function createCloudflareQueueBatchHandler<TPayload = unknown>(options: CloudflareQueueBatchHandlerOptions<TPayload>) {
@@ -61,7 +72,14 @@ export function createCloudflareQueueBatchHandler<TPayload = unknown>(options: C
           await options.onMessage(message, batch)
           message.ack()
         } catch (error) {
-          resolveAction(options.onError ? await options.onError(error, message, batch) : undefined, message)
+          reportQueueDeliveryError(error, {
+            attempts: message.attempts,
+            id: message.id,
+            provider: "cloudflare",
+            queue: getCloudflareQueueDefinitionName(batch.queue),
+          })
+          const action = options.onError ? await options.onError(error, message, batch) : undefined
+          resolveAction(action, message, isNonRetryableQueueError(error) ? "ack" : "retry")
         }
       }
     }

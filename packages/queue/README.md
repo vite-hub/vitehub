@@ -55,6 +55,27 @@ export default defineConfig({
 })
 ```
 
+Throw `QueueError` when a Queue Definition can classify the failure. Delivery retries by default; set `retryable: false` for a permanent failure such as an invalid payload.
+
+```ts
+import { defineQueue, QueueError } from "@vite-hub/queue"
+
+export default defineQueue<{ email?: string }>(async ({ payload }) => {
+  if (!payload.email) {
+    throw new QueueError({
+      code: "WELCOME_EMAIL_INVALID_PAYLOAD",
+      details: { field: "email" },
+      message: "Welcome email payload requires an email address.",
+      retryable: false,
+    })
+  }
+
+  await sendWelcomeEmail(payload.email)
+})
+```
+
+ViteHub reports each failed delivery with its queue name, message id, attempt count, code, details, and retry policy before choosing the provider action. Cloudflare `onError` and Vercel `callbackOptions.retry` directives override the default action when they return an explicit directive.
+
 ## Vite Integration
 
 Use `hubQueue()` in Vite to discover `server/queues/<name>.ts` and `src/<name>.queue.ts`. The handler name comes from the file path, while provider output maps it to [Cloudflare Queues](https://developers.cloudflare.com/queues/) or [Vercel Queues](https://vercel.com/docs/queues).

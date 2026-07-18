@@ -2,6 +2,7 @@ import { expectTypeOf, it } from "vitest"
 import type { Plugin } from "vite"
 
 import { defineQueue } from "../src/definition.ts"
+import { QueueError, type QueueErrorOptions } from "../src/errors.ts"
 import { hubQueue } from "../src/vite.ts"
 
 it("returns a vite plugin", () => {
@@ -17,4 +18,18 @@ it("infers queue payload types", () => {
     metadata?: unknown
     payload: { email: string }
   }]>()
+})
+
+it("types structured Queue errors", () => {
+  const options = {
+    code: "INVALID_PAYLOAD",
+    details: { field: "email" },
+    message: "Invalid payload.",
+    retryable: false,
+  } satisfies QueueErrorOptions
+  const error = new QueueError(options)
+
+  expectTypeOf(error.code).toEqualTypeOf<string>()
+  expectTypeOf(error.retryable).toEqualTypeOf<boolean | undefined>()
+  expectTypeOf(new QueueError("Provider failed.", { provider: "vercel" })).toEqualTypeOf<QueueError>()
 })

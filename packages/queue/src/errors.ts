@@ -1,23 +1,30 @@
-interface QueueErrorMetadata {
-  cause?: unknown
+import { ViteHubError, type ViteHubErrorOptions } from "@vite-hub/runtime"
+
+export interface QueueErrorMetadata extends ViteHubErrorOptions {
   code?: string
-  details?: Record<string, unknown>
   httpStatus?: number
   method?: string
   provider?: string
 }
 
-export class QueueError extends Error {
-  readonly code?: string
-  readonly details?: Record<string, unknown>
+export interface QueueErrorOptions extends QueueErrorMetadata {
+  message: string
+}
+
+export class QueueError extends ViteHubError {
   readonly httpStatus?: number
   readonly method?: string
   readonly provider?: string
-  override readonly cause?: unknown
 
-  constructor(message: string, metadata: QueueErrorMetadata = {}) {
-    super(message)
+  constructor(options: QueueErrorOptions)
+  constructor(message: string, metadata?: QueueErrorMetadata)
+  constructor(messageOrOptions: string | QueueErrorOptions, metadata: QueueErrorMetadata = {}) {
+    const options = typeof messageOrOptions === "string" ? metadata : messageOrOptions
+    const message = typeof messageOrOptions === "string" ? messageOrOptions : messageOrOptions.message
+    super(options.code || "QUEUE_ERROR", message, options)
     this.name = "QueueError"
-    Object.assign(this, metadata)
+    this.httpStatus = options.httpStatus
+    this.method = options.method
+    this.provider = options.provider
   }
 }
