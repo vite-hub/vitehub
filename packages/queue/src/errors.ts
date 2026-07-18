@@ -112,6 +112,10 @@ function readDetails(value: unknown): Record<string, unknown> | undefined {
   return value as Record<string, unknown>
 }
 
+function validateFixedDetail(value: unknown, expected: string): void {
+  if (value !== undefined && value !== expected) throw new TypeError("[vitehub] Invalid Queue error options.")
+}
+
 function parseUnsupportedOptions<TOption extends string>(
   value: unknown,
   allowed: readonly TOption[],
@@ -129,8 +133,10 @@ function normalizeBuiltInDetails(code: QueueErrorCode, value: unknown): ViteHubE
   switch (code) {
     case "CLOUDFLARE_BINDING_INVALID":
     case "CLOUDFLARE_BINDING_RESOLUTION_REQUIRED":
+      validateFixedDetail(details?.provider, "cloudflare")
       return Object.freeze({ provider: "cloudflare" })
     case "CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS":
+      validateFixedDetail(details?.provider, "cloudflare")
       return Object.freeze({
         provider: "cloudflare",
         unsupported: parseUnsupportedOptions(details?.unsupported, ["idempotencyKey", "retentionSeconds"]),
@@ -141,6 +147,7 @@ function normalizeBuiltInDetails(code: QueueErrorCode, value: unknown): ViteHubE
       return queue ? Object.freeze({ queue }) : undefined
     }
     case "QUEUE_DISABLED":
+      if (details) throw new TypeError("[vitehub] Invalid Queue error options.")
       return
     case "QUEUE_PROVIDER_OPERATION_FAILED":
       return Object.freeze({
@@ -148,16 +155,22 @@ function normalizeBuiltInDetails(code: QueueErrorCode, value: unknown): ViteHubE
         provider: parseQueueProvider(details?.provider),
       })
     case "QUEUE_PROVIDER_RESPONSE_INVALID":
+      validateFixedDetail(details?.operation, "send")
+      validateFixedDetail(details?.provider, "vercel")
       return Object.freeze({ operation: "send", provider: "vercel" })
     case "VERCEL_PROVIDER_EXPECTED":
       return Object.freeze({ provider: parseQueueProvider(details?.provider) })
     case "VERCEL_QUEUE_REGION_REQUIRED":
     case "VERCEL_QUEUE_SDK_INVALID":
     case "VERCEL_TOPIC_RESOLUTION_REQUIRED":
+      validateFixedDetail(details?.provider, "vercel")
       return Object.freeze({ provider: "vercel" })
     case "VERCEL_QUEUE_SDK_LOAD_FAILED":
+      validateFixedDetail(details?.operation, "load-sdk")
+      validateFixedDetail(details?.provider, "vercel")
       return Object.freeze({ operation: "load-sdk", provider: "vercel" })
     case "VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS":
+      validateFixedDetail(details?.provider, "vercel")
       return Object.freeze({
         provider: "vercel",
         unsupported: parseUnsupportedOptions(details?.unsupported, ["contentType"]),

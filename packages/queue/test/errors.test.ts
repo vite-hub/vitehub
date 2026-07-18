@@ -65,8 +65,8 @@ describe("QueueError", () => {
     const invalidResponse = new QueueError({
       code: "QUEUE_PROVIDER_RESPONSE_INVALID",
       details: {
-        operation: "send-batch",
-        provider: "cloudflare",
+        operation: "send",
+        provider: "vercel",
         token: "secret-token",
       },
       message: "Bearer secret-token failed at https://queue.example/private",
@@ -91,6 +91,14 @@ describe("QueueError", () => {
         code: "Bearer secret-token",
         details: { url: "https://queue.example/private" },
         message: "Provider body secret-token",
+      },
+      {
+        code: "QUEUE_DISABLED",
+        details: { provider: "vercel" },
+      },
+      {
+        code: "QUEUE_PROVIDER_RESPONSE_INVALID",
+        details: { operation: "send-batch", provider: "cloudflare", token: "secret-token" },
       },
       {
         code: "QUEUE_DISABLED",

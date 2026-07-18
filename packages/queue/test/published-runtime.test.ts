@@ -24,7 +24,7 @@ describe("published Queue error runtime", () => {
 
     const invalidResponse = new QueueError({
       code: "QUEUE_PROVIDER_RESPONSE_INVALID",
-      details: { operation: "send-batch", provider: "cloudflare", token: "secret-token" },
+      details: { operation: "send", provider: "vercel", token: "secret-token" },
       message: "Bearer secret-token failed at https://queue.example/private",
     } as never)
 
@@ -42,6 +42,14 @@ describe("published Queue error runtime", () => {
         code: "QUEUE_PROVIDER_OPERATION_FAILED",
         details: { operation: "cancel", provider: "vercel", token: "secret-token" },
         message: "Provider body secret-token",
+      },
+      {
+        code: "QUEUE_PROVIDER_RESPONSE_INVALID",
+        details: { operation: "send-batch", provider: "cloudflare", token: "secret-token" },
+      },
+      {
+        code: "QUEUE_DISABLED",
+        details: { provider: "vercel" },
       },
       {
         code: "IMPLICIT_CUSTOM_ERROR",
