@@ -258,7 +258,8 @@ function createCloudflareOutput(artifacts: GeneratedQueueArtifacts): CloudflareP
 function isLegacyCloudflareQueueWorker(contents: string, wrangler: unknown): boolean {
   if (!contents.includes("createQueueCloudflareWorker({")
     || !contents.includes("getCloudflareQueueDefinitionName(batch.queue)")
-    || !contents.includes('label: "queue"')) return false
+    || !contents.includes('label: "queue"')
+    || contents.includes("cloudflare:queue")) return false
   if (!wrangler || typeof wrangler !== "object" || Array.isArray(wrangler)) return false
   const config = wrangler as Record<string, unknown>
   const observability = config.observability
