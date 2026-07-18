@@ -173,7 +173,7 @@ function sealScheduleError(error: ScheduleError): void {
   const snapshot = Object.freeze(error.toJSON())
   Object.defineProperty(error, "toJSON", {
     configurable: false,
-    enumerable: true,
+    enumerable: false,
     value: () => snapshot,
     writable: false,
   })
