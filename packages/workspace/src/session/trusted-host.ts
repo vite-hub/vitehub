@@ -7,6 +7,9 @@ import { WorkspaceError } from "../core/errors.ts"
 import { contentToBytes, decodeFile, matchesAny, normalizeSafeWorkspacePath, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../storage/utils.ts"
 import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDiff, filterSessionEntries, isMissingWorkspacePathError, scopedSearchQuery } from "./scope.ts"
+import { openTrustedHostWorkspaceScope } from "./trusted-host-scope.ts"
+
+import type { TrustedHostWorkspaceScope } from "./trusted-host-scope.ts"
 
 import type {
   ExecOptions,
@@ -228,10 +231,16 @@ async function commitLocalChanges(
   await workspace.snapshot({ name: "local-commit" })
 }
 
-async function execLocal(root: string, command: string, args: string[] = [], options: ExecOptions = {}): Promise<ExecResult> {
+async function execLocal(
+  scope: TrustedHostWorkspaceScope<string, Awaited<ReturnType<typeof snapshotLocal>>>,
+  root: string,
+  command: string,
+  args: string[] = [],
+  options: ExecOptions = {},
+): Promise<ExecResult> {
   const cwd = toLocalPath(root, normalizeSessionCwd(options.cwd), { allowGenerated: true })
   if (options.abortSignal?.aborted) return { args, command, exitCode: 130, stderr: "Command aborted", stdout: "" }
-  return await new Promise((resolve) => {
+  return await scope.runChild(async (registerFinalizer) => {
     const child = spawn(command, args, {
       cwd,
       env: { ...process.env, ...options.env },
@@ -241,19 +250,20 @@ async function execLocal(root: string, command: string, args: string[] = [], opt
     let stderr = ""
     let timedOut = false
     let aborted = false
+    let settled = false
     let killTimer: NodeJS.Timeout | undefined
     const terminate = () => {
       child.kill("SIGTERM")
       killTimer = setTimeout(() => child.kill("SIGKILL"), 100)
     }
     const abort = () => {
-      if (timedOut || aborted) return
+      if (timedOut || aborted || settled) return
       aborted = true
       terminate()
     }
     const timer = options.timeout
       ? setTimeout(() => {
-          if (timedOut || aborted) return
+          if (timedOut || aborted || settled) return
           timedOut = true
           terminate()
         }, options.timeout)
@@ -269,19 +279,20 @@ async function execLocal(root: string, command: string, args: string[] = [], opt
     child.stderr?.setEncoding("utf8")
     child.stdout?.on("data", chunk => stdout += chunk)
     child.stderr?.on("data", chunk => stderr += chunk)
-    child.on("error", error => {
-      clearTimers()
-      resolve({
+    const result = new Promise<ExecResult>((resolve) => {
+      const finish = (value: ExecResult) => {
+        settled = true
+        clearTimers()
+        resolve(value)
+      }
+      child.on("error", error => finish({
         args,
         command,
         exitCode: aborted ? 130 : 127,
         stderr: aborted ? `${stderr}${stderr ? "\n" : ""}Command aborted` : error instanceof Error ? error.message : String(error),
         stdout,
-      })
-    })
-    child.on("close", (code, signal) => {
-      clearTimers()
-      resolve({
+      }))
+      child.on("close", (code, signal) => finish({
         args,
         command,
         exitCode: aborted ? 130 : timedOut ? 124 : code ?? 1,
@@ -289,8 +300,13 @@ async function execLocal(root: string, command: string, args: string[] = [], opt
           ? `${stderr}${stderr ? "\n" : ""}Command aborted${signal ? ` (${signal})` : ""}`
           : timedOut ? `${stderr}${stderr ? "\n" : ""}Command timed out${signal ? ` (${signal})` : ""}` : stderr,
         stdout,
-      })
+      }))
     })
+    await registerFinalizer(async () => {
+      abort()
+      await result
+    })
+    return await result
   })
 }
 
@@ -300,17 +316,18 @@ export async function createTrustedHostWorkspaceSession(
   options?: WorkspaceSessionOptions,
 ): Promise<WorkspaceSession> {
   assertTrustedHostWorkspaceRuntimeAllowed(definition)
-  const root = await mkdtemp(join(tmpdir(), `vitehub-workspace-${workspace.name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "workspace"}-`))
+  const trustedHostScope = await openTrustedHostWorkspaceScope(
+    () => mkdtemp(join(tmpdir(), `vitehub-workspace-${workspace.name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "workspace"}-`)),
+    root => materializeWorkspace(workspace, root, options),
+    root => rm(root, { force: true, recursive: true }),
+  )
+  const root = trustedHostScope.resource
   const sessionPaths = normalizeSessionPaths(options)
-  let baseline = await materializeWorkspace(workspace, root, options).catch(async (error) => {
-    await rm(root, { force: true, recursive: true })
-    throw error
-  })
+  let baseline = trustedHostScope.setup
   const mediaTypes = new Map<string, string>()
-  let closed = false
 
   function assertOpen() {
-    if (closed)
+    if (trustedHostScope.isClosed())
       throw new WorkspaceError("[vitehub] Workspace trusted-host session is already closed.")
   }
 
@@ -396,12 +413,10 @@ export async function createTrustedHostWorkspaceSession(
     },
     async exec(command, args = [], options = {}) {
       assertOpen()
-      return await execLocal(root, command, args, options)
+      return await execLocal(trustedHostScope, root, command, args, options)
     },
     async close() {
-      if (closed) return
-      closed = true
-      await rm(root, { force: true, recursive: true })
+      await trustedHostScope.close()
     },
   }
 }
