@@ -16,7 +16,7 @@ Use the error family to choose the next proof path before changing implementatio
 | `CapabilityDeniedError` | Runtime Package | Runtime policy denied a capability operation. |
 | `ApprovalRequiredError` | Runtime Package | A policy decision requires an Approval Request before execution. |
 | `EnvError` | Env Package | Env Declaration resolution, validation, or diagnostics failed. |
-| `AuthenticationRequiredError` | Auth Package | A route or Agent Invoker bridge needs an authenticated application user. |
+| `AuthenticationRequiredError` | Auth Package | A route or Agent Invoker bridge needs an authenticated application user; inspect code `AUTHENTICATION_REQUIRED` and `statusCode: 401`. |
 | `EmailError` | Email Package | Message validation, missing Email Definition, delivery credentials, throttling, network, timeout, or provider delivery failed. |
 | `QueueError` | Queue Package | Queue dispatch, callback, or provider handling failed. |
 | `WorkspaceError` | Workspace Package | Workspace runtime, store, rule, or file-tree behavior failed. |
@@ -47,7 +47,7 @@ Use the error family to choose the next proof path before changing implementatio
 
 ## Local response
 
-Start with the owning package and the failing proof path. For packages that generate Provider Output, inspect that output before changing runtime code. Email emits no Provider Output; inspect `EmailError.code` and `driver`, then use `cause` only in protected server-side diagnostics.
+Start with the owning package and the failing proof path. For packages that generate Provider Output, inspect that output before changing runtime code. Authenticated Agent bridges expose `AuthenticationRequiredError.code` and `statusCode`; use safe `details` for boundary context and `cause` only in protected server-side diagnostics. Email emits no Provider Output; inspect `EmailError.code` and `driver` the same way.
 
 ```bash [Terminal]
 pnpm vitehub provision run --provider cloudflare --dry-run

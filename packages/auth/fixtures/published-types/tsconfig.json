@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "strict": true,
+    "types": []
+  },
+  "files": [
+    "agent-peer.d.ts",
+    "consumer.ts"
+  ]
+}

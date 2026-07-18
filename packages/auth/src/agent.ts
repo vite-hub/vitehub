@@ -1,5 +1,7 @@
 import { getAuth, getAuthForRequest } from "./server.ts"
 
+import { ViteHubError } from "@vite-hub/runtime"
+
 import type {
   AgentInvoker,
   AgentInvokerOptions,
@@ -7,6 +9,7 @@ import type {
   AgentRuntimeConfig,
   MaybePromise,
 } from "@vite-hub/agent"
+import type { ViteHubErrorDetails } from "@vite-hub/runtime"
 
 export interface AuthenticatedUser {
   email?: string | null
@@ -82,11 +85,26 @@ export interface AuthenticatedOptions<
   source?: AuthenticatedSource<TRuntimeConfig, CALL_OPTIONS, TUser, TSession>
 }
 
-export class AuthenticationRequiredError extends Error {
+export interface AuthenticationRequiredErrorOptions extends ErrorOptions {
+  details?: ViteHubErrorDetails
+  message?: string
+}
+
+export class AuthenticationRequiredError extends ViteHubError<"AUTHENTICATION_REQUIRED"> {
   declare readonly statusCode: 401
 
-  constructor(message = "[vitehub] Authentication required.") {
-    super(message)
+  constructor(options?: AuthenticationRequiredErrorOptions)
+  constructor(message?: string)
+  constructor(messageOrOptions: AuthenticationRequiredErrorOptions | string = {}) {
+    const options = typeof messageOrOptions === "string" ? {} : messageOrOptions
+    const message = typeof messageOrOptions === "string"
+      ? messageOrOptions
+      : messageOrOptions.message ?? "[vitehub] Authentication required."
+
+    super("AUTHENTICATION_REQUIRED", message, {
+      cause: options.cause,
+      details: options.details,
+    })
     this.name = "AuthenticationRequiredError"
     Object.defineProperty(this, "statusCode", {
       enumerable: true,
