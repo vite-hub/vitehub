@@ -24,6 +24,8 @@ describe("QueueError", () => {
       message: "Invalid image expiry payload.",
       retryable: false,
     })
+    expect(Reflect.set(error, "toJSON", () => ({ message: "private provider detail" }))).toBe(false)
+    expect(Object.keys(error)).not.toContain("toJSON")
     expect(JSON.stringify(error)).not.toContain("private provider detail")
   })
 

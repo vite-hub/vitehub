@@ -338,8 +338,15 @@ export class QueueError<TCode extends string = QueueErrorCode> extends ViteHubEr
       name: { configurable: false, value: "QueueError", writable: false },
       requestId: { configurable: false, value: normalized.requestId, writable: false },
       retryable: { configurable: false, value: normalized.retryable, writable: false },
-      toJSON: { configurable: false, value: this.toJSON.bind(this), writable: false },
     })
+    if (!Object.getOwnPropertyDescriptor(this, "toJSON")) {
+      Object.defineProperty(this, "toJSON", {
+        configurable: false,
+        enumerable: false,
+        value: this.toJSON.bind(this),
+        writable: false,
+      })
+    }
   }
 
   override toJSON(): ViteHubErrorShape<TCode, QueueErrorDetails<TCode>> {

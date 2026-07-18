@@ -20,6 +20,8 @@ describe("published Queue error runtime", () => {
       details: { operation: "send", provider: "vercel" },
       message: "[vitehub] vercel queue provider failed during send.",
     })
+    expect(Reflect.set(error, "toJSON", () => ({ message: "secret-token" }))).toBe(false)
+    expect(Object.keys(error)).not.toContain("toJSON")
     expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private/)
 
     const invalidResponse = new QueueError({
