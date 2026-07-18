@@ -1,8 +1,16 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { pathToFileURL } from "node:url"
 
+import {
+  createProgram,
+  flattenDiagnosticMessageText,
+  getPreEmitDiagnostics,
+  ModuleKind,
+  ModuleResolutionKind,
+  ScriptTarget,
+} from "typescript"
+import { build } from "vite"
 import { describe, expect, it, vi } from "vitest"
 
 import { createRuntimeRegistry } from "../src/core/resolve.ts"
@@ -161,16 +169,9 @@ describe("Vite plugin", () => {
       root,
     } as never)
 
-    const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8"))
-    expect(packageJson.imports).toMatchObject({
-      "#vitehub/env/public": {
-        types: "./.vitehub/env/public.d.ts",
-        default: "./.vitehub/env/public.mjs",
-      },
-      "#vitehub/env/server": {
-        types: "./.vitehub/env/server.d.ts",
-        default: "./.vitehub/env/server.mjs",
-      },
+    expect(JSON.parse(await readFile(join(root, "package.json"), "utf8"))).toEqual({
+      name: "quiver-chat",
+      version: "1.2.3",
     })
 
     const types = await readFile(join(root, ".vitehub/types/env.d.ts"), "utf8")
@@ -194,6 +195,7 @@ describe("Vite plugin", () => {
     expect(types).not.toContain("buildConfig")
     expect(types).not.toContain("useSafeBuildConfig")
     expect(types).not.toContain("virtual:@vite-hub/env/build")
+    expect(types).not.toContain("export {}")
     await expect(readFile(join(root, ".vitehub", "env", "vite.d.ts"), "utf8")).rejects.toThrow()
     await expect(readFile(join(root, ".vitehub", "env", "public.mjs"), "utf8")).resolves.toContain("usePublicEnv")
     await expect(readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")).resolves.toContain("useServerEnv")
@@ -302,6 +304,53 @@ describe("Vite plugin", () => {
     })
   })
 
+  it("builds and typechecks a consumer without package imports", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-consumer-"))
+    const entry = join(root, "consumer.ts")
+    const packageJsonPath = join(root, "package.json")
+    const packageJson = JSON.stringify({ name: "env-consumer", private: true, type: "module" }, null, 2)
+    await writeFile(packageJsonPath, packageJson, "utf8")
+    await writeFile(entry, [
+      `import { usePublicEnv } from "#vitehub/env/public"`,
+      `import { useServerEnv } from "#vitehub/env/server"`,
+      `export const appName: string = usePublicEnv().appName`,
+      `export const token: string = useServerEnv().token.unseal()`,
+      ``,
+    ].join("\n"), "utf8")
+
+    await build({
+      build: {
+        emptyOutDir: true,
+        lib: { entry, fileName: () => "consumer.mjs", formats: ["es"] },
+        outDir: join(root, "dist"),
+        rollupOptions: { external: ["#vitehub/env/server"] },
+      },
+      configFile: false,
+      env: {
+        public: { appName: env({ default: "ViteHub", mode: "build" }) },
+        server: { token: env({ secret: true }) },
+      },
+      logLevel: "silent",
+      plugins: [hubEnv()],
+      root,
+    })
+
+    expect(await readFile(packageJsonPath, "utf8")).toBe(packageJson)
+    const typesPath = join(root, ".vitehub", "types", "env.d.ts")
+    const program = createProgram({
+      options: {
+        module: ModuleKind.NodeNext,
+        moduleResolution: ModuleResolutionKind.NodeNext,
+        noEmit: true,
+        skipLibCheck: true,
+        strict: true,
+        target: ScriptTarget.ES2022,
+      },
+      rootNames: [entry, typesPath],
+    })
+    expect(getPreEmitDiagnostics(program).map(diagnostic => flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
+  }, 15_000)
+
   it("keeps generated env files in project ViteHub state when Vite root is app", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-app-root-"))
     await mkdir(join(root, "app"), { recursive: true })
@@ -328,19 +377,21 @@ describe("Vite plugin", () => {
     await expect(readFile(join(root, "app", ".vitehub", "types", "env.d.ts"), "utf8")).rejects.toThrow()
   })
 
-  it("writes package imports and local targets for nested package roots", async () => {
+  it("writes local targets for nested package roots without changing package imports", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-nested-package-"))
     const appRoot = join(root, "app")
     await mkdir(join(appRoot, "src"), { recursive: true })
     await mkdir(join(root, "server", "workspaces"), { recursive: true })
     await writeFile(join(root, ".env.production"), "PUBLIC_APP_NAME=Quiver\n", "utf8")
-    await writeFile(join(appRoot, "package.json"), JSON.stringify({
+    const packageJsonPath = join(appRoot, "package.json")
+    const packageJson = JSON.stringify({
       imports: {
         "#app/config": "./config.mjs",
       },
       name: "nested-app",
       type: "module",
-    }), "utf8")
+    })
+    await writeFile(packageJsonPath, packageJson, "utf8")
 
     const plugin = hubEnv()
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
@@ -362,30 +413,9 @@ describe("Vite plugin", () => {
       root: appRoot,
     } as never)
 
-    const packageJson = JSON.parse(await readFile(join(appRoot, "package.json"), "utf8"))
-    expect(packageJson.imports).toMatchObject({
-      "#app/config": "./config.mjs",
-      "#vitehub/env/public": {
-        types: "./.vitehub/env/public.d.ts",
-        default: "./.vitehub/env/public.mjs",
-      },
-      "#vitehub/env/server": {
-        types: "./.vitehub/env/server.d.ts",
-        default: "./.vitehub/env/server.mjs",
-      },
-    })
-    expect(JSON.stringify(packageJson.imports)).not.toContain("../.vitehub")
+    expect(await readFile(packageJsonPath, "utf8")).toBe(packageJson)
     await expect(readFile(join(root, ".vitehub", "env", "public.mjs"), "utf8")).resolves.toContain("Quiver")
     await expect(readFile(join(appRoot, ".vitehub", "env", "public.mjs"), "utf8")).resolves.toContain("Quiver")
-
-    const checkModule = join(appRoot, "src", "check.mjs")
-    await writeFile(checkModule, [
-      "import { usePublicEnv } from '#vitehub/env/public';",
-      "export const appName = usePublicEnv().appName;",
-      "",
-    ].join("\n"), "utf8")
-    const imported = await import(pathToFileURL(checkModule).href)
-    expect(imported.appName).toBe("Quiver")
   })
 
   it("keeps generated env files in project ViteHub state when Vite root is nested", async () => {

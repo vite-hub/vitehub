@@ -1,4 +1,4 @@
-import { readFile, rm, stat } from "node:fs/promises"
+import { rm, stat } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -126,7 +126,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         config.logger.info(diagnosticsText)
       }
       const projectRoot = resolveViteHubProjectRoot(config.root, { projectRoot: options.projectRoot })
-      const packageRoot = await resolvePackageImportRoot(config.root, projectRoot)
+      const packageRoot = await resolvePackageRoot(config.root, projectRoot)
       await refreshEnvGeneratedFiles(projectRoot, packageRoot, buildPublicConfig, serverRegistry, runtimeImports)
     },
     load(id) {
@@ -177,10 +177,9 @@ async function refreshEnvGeneratedFiles(
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
 ): Promise<void> {
   await Promise.all([
-    ...(packageRoot ? [
-      syncEnvPackageImports(packageRoot),
-      ...(packageRoot === root ? [] : packageEnvModuleWrites(packageRoot, publicConfig, serverRegistry, runtimeImports)),
-    ] : []),
+    ...(packageRoot && packageRoot !== root
+      ? packageEnvModuleWrites(packageRoot, publicConfig, serverRegistry, runtimeImports)
+      : []),
     writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicConfig, serverRegistry, runtimeImports)),
     writeFileIfChanged(viteHubEnvPublicModulePath(root), createPublicEnvModule(publicConfig)),
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicConfig)),
@@ -204,7 +203,7 @@ function packageEnvModuleWrites(
   ]
 }
 
-async function resolvePackageImportRoot(viteRoot: string, projectRoot: string): Promise<string | undefined> {
+async function resolvePackageRoot(viteRoot: string, projectRoot: string): Promise<string | undefined> {
   const stop = resolve(projectRoot)
   let current = resolve(viteRoot)
 
@@ -226,43 +225,6 @@ async function hasPackageManifest(root: string): Promise<boolean> {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return false
     throw error
   }
-}
-
-async function syncEnvPackageImports(root: string): Promise<void> {
-  const packageJsonPath = resolve(root, "package.json")
-  let source: string
-  try {
-    source = await readFile(packageJsonPath, "utf8")
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
-    throw error
-  }
-
-  const manifest = JSON.parse(source) as Record<string, unknown>
-  const imports = isRecord(manifest.imports) ? { ...manifest.imports } : {}
-  const expectedImports = {
-    [ENV_PUBLIC_ID]: {
-      types: "./.vitehub/env/public.d.ts",
-      default: "./.vitehub/env/public.mjs",
-    },
-    [ENV_SERVER_ID]: {
-      types: "./.vitehub/env/server.d.ts",
-      default: "./.vitehub/env/server.mjs",
-    },
-  }
-
-  let changed = !isRecord(manifest.imports)
-  for (const [id, target] of Object.entries(expectedImports)) {
-    if (JSON.stringify(imports[id]) !== JSON.stringify(target)) {
-      imports[id] = target
-      changed = true
-    }
-  }
-  if (!changed) return
-
-  manifest.imports = imports
-  await writeFileIfChanged(packageJsonPath, `${JSON.stringify(manifest, null, 2)}\n`)
 }
 
 function createPublicEnvModule(publicConfig: Record<string, unknown>): string {
@@ -329,7 +291,6 @@ function createViteTypes(
     "  export function useServerEnv(event?: unknown): ServerEnv",
     "  export function runWithServerEnv<T>(event: unknown, callback: (env: ServerEnv) => T | Promise<T>): Promise<T>",
     "}",
-    "export {}",
     "",
   ].join("\n")
 }
