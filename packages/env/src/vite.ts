@@ -77,6 +77,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
 
   return {
     name: ENV_VITE_PLUGIN_NAME,
+    enforce: "pre",
     api: { getPublicEnv, getServerEnvRegistry },
     async config(config, env) {
       const envConfig = (config as UserConfig & EnvViteUserConfig).env

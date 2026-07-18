@@ -229,6 +229,7 @@ describe("Vite plugin", () => {
     await writeFile(join(root, ".env.production"), "DEFINE_SENTRY_DEBUG=true\n", "utf8")
 
     const plugin = hubEnv()
+    expect(plugin.enforce).toBe("pre")
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
     const result = await configHook({
       env: {
