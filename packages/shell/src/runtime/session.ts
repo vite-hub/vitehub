@@ -155,11 +155,14 @@ class RuntimeShellSession implements ShellSession {
   dispose() {
     this.#disposed = true
     return this.#disposeTask ??= (async () => {
-      const starts = await Promise.allSettled(this.#starts)
+      const pendingStarts = [...this.#starts]
       this.#starts.clear()
       const processes = [...this.#processes.values()]
       this.#processes.clear()
-      const results = await Promise.allSettled(processes.map(process => process.stop()))
+      const [starts, results] = await Promise.all([
+        Promise.allSettled(pendingStarts),
+        Promise.allSettled(processes.map(process => process.stop())),
+      ])
       const failures = [...starts, ...results]
         .flatMap(result => result.status === "rejected" ? [result.reason] : [])
       if (failures.length > 0) throw new AggregateError(failures, shellSessionStopFailureMessage)

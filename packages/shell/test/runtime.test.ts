@@ -262,13 +262,18 @@ describe("@vite-hub/shell just-bash runtime", () => {
       })
       return stoppedProcessObservation("late")
     })
-    const provider = createBackgroundProvider(() => new Promise((resolve) => {
-      resolveProcess = resolve
-    }))
+    const existingStop = vi.fn(async () => stoppedProcessObservation("existing"))
+    const provider = createBackgroundProvider(command => command === "existing"
+      ? Promise.resolve({ command, id: command, stop: existingStop })
+      : new Promise((resolve) => {
+          resolveProcess = resolve
+        }))
     const session = createShellRuntime({ provider }).createSession()
+    await session.startProcess("existing")
     const starting = session.startProcess("late")
 
     const disposing = session.dispose()
+    await vi.waitFor(() => expect(existingStop).toHaveBeenCalledOnce())
     resolveProcess?.({
       command: "late",
       id: "late",
