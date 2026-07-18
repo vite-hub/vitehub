@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { WorkflowProviderStep } from "../src/types.ts"
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
+import { WorkflowError } from "../src/errors.ts"
 import { resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
 import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
@@ -162,6 +163,22 @@ afterEach(() => {
 })
 
 describe("workflow runtime", () => {
+  async function expectProviderFailure(
+    request: Promise<unknown>,
+    cause: unknown,
+    details: { operation: string, provider: string, status?: number },
+  ) {
+    const error = await request.catch(error => error)
+    expect(error).toBeInstanceOf(WorkflowError)
+    expect(error).toMatchObject({
+      cause,
+      code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+      details,
+      message: "Workflow provider operation failed.",
+    })
+    expect(JSON.stringify(error)).not.toContain("provider-secret")
+  }
+
   it("defines inline workflows and returns a typed runtime handle", async () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
 
@@ -387,7 +404,7 @@ describe("workflow runtime", () => {
       },
     })
 
-    await expect(runWorkflow("server/workflows/chat", undefined, { id: "chat" })).rejects.toThrow(/Unknown workflow definition/)
+    await expect(runWorkflow("server/workflows/chat", undefined, { id: "chat" })).rejects.toThrow("Workflow definition was not found.")
     expect(helper).not.toHaveBeenCalled()
   })
 
@@ -402,7 +419,7 @@ describe("workflow runtime", () => {
       },
     })
 
-    await expect(runWorkflow("server/workflows/chat", undefined, { id: "chat" })).rejects.toThrow(/Unknown workflow definition/)
+    await expect(runWorkflow("server/workflows/chat", undefined, { id: "chat" })).rejects.toThrow("Workflow definition was not found.")
     expect(helper).not.toHaveBeenCalled()
   })
 
@@ -448,7 +465,7 @@ describe("workflow runtime", () => {
     await vi.waitFor(() => {
       expect(getInlineWorkflowDefinitions().has("legacy-alpha")).toBe(true)
     })
-    await expect(runWorkflow("beta", undefined, { id: "beta" })).rejects.toThrow(/Unknown workflow definition: beta/)
+    await expect(runWorkflow("beta", undefined, { id: "beta" })).rejects.toThrow("Workflow definition was not found.")
     releaseAlpha()
     await alphaRun
   })
@@ -1003,7 +1020,7 @@ describe("workflow runtime", () => {
 
     await expect(runWorkflow("welcome", {}, { id: "caller-id" })).rejects.toMatchObject({
       code: "WORKFLOW_RUN_ID_UNSUPPORTED",
-      details: { id: "caller-id", name: "welcome", provider: "vercel" },
+      details: { name: "welcome", provider: "vercel" },
     })
   })
 
@@ -1067,6 +1084,167 @@ describe("workflow runtime", () => {
     await expect(getWorkflowRun("welcome", "missing-sdk")).rejects.toMatchObject({
       code: "VERCEL_WORKFLOW_SDK_LOAD_FAILED",
       details: { provider: "vercel" },
+    })
+  })
+
+  it("preserves custom and abort errors from the Vercel runtime loader", async () => {
+    const custom = new WorkflowError({ code: "CUSTOM_RUNTIME_LOAD_FAILED", message: "Custom load failure." })
+    const abort = new DOMException("cancelled", "AbortError")
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({
+        default: { handler: async () => "inline", options: { native: async () => "native" } },
+      }),
+    })
+
+    setVercelWorkflowRuntimeLoader(async () => {
+      throw custom
+    })
+    await expect(getWorkflowRun("welcome", "custom")).rejects.toBe(custom)
+
+    setVercelWorkflowRuntimeLoader(async () => {
+      throw abort
+    })
+    await expect(getWorkflowRun("welcome", "abort")).rejects.toBe(abort)
+  })
+
+  it("narrows every Vercel provider operation at the public boundary", async () => {
+    const native = Object.assign(async () => "native", { workflowId: "durable-welcome" })
+    const createRun = (cancel: () => Promise<void> = async () => {}) => ({
+      cancel,
+      completedAt: Promise.resolve(undefined),
+      createdAt: Promise.resolve(new Date("2026-07-18T00:00:00.000Z")),
+      exists: Promise.resolve(true),
+      returnValue: Promise.resolve(undefined),
+      runId: "wdk-provider-failure",
+      startedAt: Promise.resolve(undefined),
+      status: Promise.resolve("pending"),
+      workflowName: Promise.resolve(native.workflowId),
+    } satisfies VercelRun)
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({
+        default: { handler: async () => "inline", options: { native } },
+      }),
+    })
+
+    const getRunCause = Object.assign(new Error("provider-secret:get-run"), { status: 502 })
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: () => { throw getRunCause },
+      listSteps: vi.fn(),
+      resumeHook: vi.fn(),
+      start: vi.fn(),
+    }) as never)
+    await expectProviderFailure(getWorkflowRun("welcome", "private-run"), getRunCause, {
+      operation: "get-run",
+      provider: "vercel",
+      status: 502,
+    })
+
+    const listCause = new Error("provider-secret:list-steps")
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: () => createRun(),
+      listSteps: async () => { throw listCause },
+      resumeHook: vi.fn(),
+      start: vi.fn(),
+    }))
+    await expectProviderFailure(getWorkflowRun("welcome", "private-run"), listCause, {
+      operation: "list-steps",
+      provider: "vercel",
+    })
+
+    const startCause = new Error("provider-secret:start")
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: vi.fn(),
+      listSteps: vi.fn(),
+      resumeHook: vi.fn(),
+      start: async () => { throw startCause },
+    }) as never)
+    await expectProviderFailure(runWorkflow("welcome", {}), startCause, {
+      operation: "start",
+      provider: "vercel",
+    })
+
+    const cancelCause = new Error("provider-secret:cancel")
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: () => createRun(async () => { throw cancelCause }),
+      listSteps: vi.fn(),
+      resumeHook: vi.fn(),
+      start: vi.fn(),
+    }))
+    await expectProviderFailure(cancelWorkflow("welcome", "private-run"), cancelCause, {
+      operation: "cancel",
+      provider: "vercel",
+    })
+
+    const resumeCause = new Error("provider-secret:resume")
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: vi.fn(),
+      listSteps: vi.fn(),
+      resumeHook: async () => { throw resumeCause },
+      start: vi.fn(),
+    }) as never)
+    await expectProviderFailure(resumeWorkflowSignal("private-token", {}), resumeCause, {
+      operation: "resume-signal",
+      provider: "vercel",
+    })
+  })
+
+  it("narrows every Cloudflare provider operation at the public boundary", async () => {
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+    const enterBinding = (binding: unknown) => enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: { WORKFLOW_CUSTOM: binding } } } },
+    })
+
+    const getCause = new Error("provider-secret:get")
+    enterBinding({ create: vi.fn(), get: async () => { throw getCause } })
+    await expectProviderFailure(getWorkflowRun("welcome", "private-run"), getCause, {
+      operation: "get",
+      provider: "cloudflare",
+    })
+
+    const statusCause = new Error("provider-secret:status")
+    enterBinding({
+      create: vi.fn(),
+      get: async () => ({ id: "private-run", status: async () => { throw statusCause } }),
+    })
+    await expectProviderFailure(getWorkflowRun("welcome", "private-run"), statusCause, {
+      operation: "status",
+      provider: "cloudflare",
+    })
+
+    const createCause = new Error("provider-secret:create")
+    enterBinding({ create: async () => { throw createCause }, get: vi.fn() })
+    await expectProviderFailure(runWorkflow("welcome", {}), createCause, {
+      operation: "create",
+      provider: "cloudflare",
+    })
+  })
+
+  it("omits unsafe workflow names and caller run IDs from public errors", async () => {
+    const unsafeName = "https://provider.example/private?token=provider-secret"
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({})
+
+    const missing = await runWorkflow(unsafeName, {}).catch(error => error)
+    expect(JSON.parse(JSON.stringify(missing))).toEqual({
+      code: "WORKFLOW_DEFINITION_NOT_FOUND",
+      message: "Workflow definition was not found.",
+    })
+
+    setWorkflowRuntimeRegistry({
+      [unsafeName]: async () => ({
+        default: { handler: async () => "inline", options: { native: async () => "native" } },
+      }),
+    })
+    const unsupportedId = await runWorkflow(unsafeName, {}, { id: "provider-secret-run-id" }).catch(error => error)
+    expect(JSON.parse(JSON.stringify(unsupportedId))).toEqual({
+      code: "WORKFLOW_RUN_ID_UNSUPPORTED",
+      details: { provider: "vercel" },
+      message: "Native Vercel workflows assign their own run IDs.",
     })
   })
 

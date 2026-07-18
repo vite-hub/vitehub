@@ -4,6 +4,7 @@ import { normalizeWorkflowOptions } from "../config.ts"
 import { WorkflowError } from "../errors.ts"
 
 import { getWorkflowRuntimeAdapter } from "./adapters.ts"
+import { safeWorkflowName } from "./provider-operation.ts"
 import { getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefinition, registerInlineWorkflowDefinition, runWithWorkflowRuntimeEvent } from "./state.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDeferOptions, WorkflowDefinition, WorkflowHandle, WorkflowHandler, WorkflowRun, WorkflowRunIdValue, WorkflowSignalResult, WorkflowStartOptions } from "../types.ts"
@@ -22,8 +23,8 @@ async function loadRequiredWorkflowDefinition(name: string) {
   if (!definition) {
     throw new WorkflowError({
       code: "WORKFLOW_DEFINITION_NOT_FOUND",
-      details: { name },
-      message: `Unknown workflow definition: ${name}`,
+      details: safeWorkflowName(name) ? { name } : undefined,
+      message: "Workflow definition was not found.",
     })
   }
   return definition
