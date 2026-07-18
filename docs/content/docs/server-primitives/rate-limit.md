@@ -93,7 +93,7 @@ interface RateLimitDecision {
 }
 ```
 
-Use `.consume()` when the application needs this decision for a custom response, explicit logging, or another transport. Provider unavailability follows the declared failure policy and carries its original `cause`; configuration and provider-contract defects still throw normally. Add a `retry-after` header only when `retryAfter` is present, and do not calculate billing or authorization from optional best-effort metadata.
+Use `.consume()` when the application needs this decision for a custom response, explicit logging, or another transport. Provider unavailability follows the declared failure policy and carries its original `cause`; configuration and provider-contract defects still throw normal `TypeError` or `Error` instances. Rate Limit does not add a second coded error family: `.consume()` owns the portable `RateLimitDecision`, while `.enforce()` maps rejection to the host transport's H3 `HTTPError`. Add a `retry-after` header only when `retryAfter` is present, and do not calculate billing or authorization from optional best-effort metadata.
 
 ## Inspect generated guarantees
 
