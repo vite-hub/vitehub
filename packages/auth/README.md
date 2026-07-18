@@ -174,3 +174,16 @@ export default defineAgent({
 ```
 
 By default, the Auth Package reads the same-app Better Auth session from the request and maps the Auth User to an Agent Invoker with `kind: "authUser"`. Customize `id`, `kind`, `label`, or `meta` for normal identity shaping, and use `source` or `map` when the Agent consumes JWTs, bearer tokens, OAuth/OIDC provider output, or product-specific identity.
+
+When authentication is required but unavailable, `authenticated()` throws `AuthenticationRequiredError` with code `AUTHENTICATION_REQUIRED` and `statusCode: 401`. The class keeps its existing string constructor and also accepts safe structured context.
+
+```ts
+import { AuthenticationRequiredError } from "@vite-hub/auth/agent"
+
+const error = new AuthenticationRequiredError({
+  details: { surface: "support-agent" },
+  message: "Sign in to use this Agent.",
+})
+```
+
+`error.toJSON()` includes `code`, `message`, and `details`, while omitting `cause` and stack data. Keep secrets out of `details`; use `cause` only for protected server-side diagnostics.

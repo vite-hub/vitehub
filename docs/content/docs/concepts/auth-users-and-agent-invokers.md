@@ -33,6 +33,8 @@ export default defineAgent({
 
 `authenticated()` is opt-in at the Agent or Entry Surface boundary. Merely defining Auth does not make every Agent Invocation require Auth.
 
+When a required Auth Session is missing, the bridge throws `AuthenticationRequiredError` with code `AUTHENTICATION_REQUIRED` and `statusCode: 401`, so Agent and HTTP entry surfaces can recognize the same failure without parsing its message.
+
 ## What Agent Invoker carries
 
 | Field | Meaning |

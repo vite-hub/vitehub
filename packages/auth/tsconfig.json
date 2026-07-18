@@ -16,6 +16,9 @@
       ],
       "@vite-hub/internal/*": [
         "packages/internal/src/*.ts"
+      ],
+      "@vite-hub/runtime": [
+        "packages/runtime/src/index.ts"
       ]
     }
   },

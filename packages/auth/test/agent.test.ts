@@ -171,6 +171,7 @@ describe("authenticated", () => {
     await expect(resolve(authenticated({
       source: () => undefined,
     }))).rejects.toMatchObject({
+      code: "AUTHENTICATION_REQUIRED",
       message: "[vitehub] Authentication required.",
       name: "AuthenticationRequiredError",
       statusCode: 401,
@@ -203,6 +204,7 @@ describe("authenticated", () => {
 
   it("exposes the auth error class", () => {
     expect(new AuthenticationRequiredError()).toMatchObject({
+      code: "AUTHENTICATION_REQUIRED",
       statusCode: 401,
     })
   })

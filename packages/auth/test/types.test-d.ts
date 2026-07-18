@@ -5,6 +5,8 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import {
   authenticated,
+  AuthenticationRequiredError,
+  type AuthenticationRequiredErrorOptions,
   type AuthenticatedOptions,
   type AuthenticatedSessionData,
   type AuthenticatedUser,
@@ -134,6 +136,13 @@ describe("types", () => {
     expectTypeOf(invoker).toMatchTypeOf<AgentInvokerOptions>()
     expectTypeOf(typedInvoker).toMatchTypeOf<AgentInvokerOptions>()
     expectTypeOf({ kind: "authUser" }).toMatchTypeOf<AuthenticatedOptions>()
+
+    const authError = new AuthenticationRequiredError({
+      details: { surface: "agent-invoker" },
+      message: "Sign in required.",
+    } satisfies AuthenticationRequiredErrorOptions)
+    expectTypeOf(authError.code).toEqualTypeOf<"AUTHENTICATION_REQUIRED">()
+    expectTypeOf(authError.statusCode).toEqualTypeOf<401>()
   })
 
   it("exposes resolved database placement metadata", () => {

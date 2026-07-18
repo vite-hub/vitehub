@@ -52,6 +52,7 @@ export default defineAuth({
 | `handleAuth`, `handleAuthRequest`, `createAuthHandler` from `@vite-hub/auth/server` | Mount or call the Auth handler manually. |
 | `requireAuth` from `@vite-hub/auth/server` | Guard server routes with an Auth Session. |
 | `authenticated` from `@vite-hub/auth/agent` | Map a Better Auth session into an Agent Invoker. |
+| `AuthenticationRequiredError` from `@vite-hub/auth/agent` | Handle missing authentication with a stable code and HTTP status. |
 | `hubAuth` from `@vite-hub/auth/vite` | Register Auth discovery, route exposure, and generated server aliases. |
 
 Create one Primary Auth Definition. ViteHub discovers `server/auth.ts` or `server.auth.ts`.
@@ -216,6 +217,23 @@ export default defineAuth({
 Auth identifies application users and sessions. Agents consume Agent Invokers, so Auth-to-Agent behavior should map trusted Auth state into an Agent Invoker instead of making Auth part of the Agent Definition.
 
 Read [Auth Users and Agent Invokers](/docs/concepts/auth-users-and-agent-invokers) for the mental model and [Official capabilities](/docs/capabilities/official-capabilities) for agent-facing access patterns.
+
+### Handle required authentication
+
+`authenticated()` throws `AuthenticationRequiredError` when it cannot resolve a required Auth Session. The error has code `AUTHENTICATION_REQUIRED`, preserves `statusCode: 401` for HTTP adapters, and serializes safe details without its cause or stack.
+
+```ts
+import { AuthenticationRequiredError } from '@vite-hub/auth/agent'
+
+const error = new AuthenticationRequiredError({
+  details: { surface: 'support-agent' },
+  message: 'Sign in to use this Agent.',
+})
+
+console.log(error.toJSON())
+```
+
+The string constructor remains available for custom messages. Invalid Auth Definitions and invalid `authenticated()` configuration are programmer errors, so they continue to throw `TypeError` rather than authentication failures.
 
 ## Next steps
 
