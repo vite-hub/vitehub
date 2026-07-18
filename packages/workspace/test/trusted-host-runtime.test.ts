@@ -1,11 +1,11 @@
 import { readdir } from "node:fs/promises"
 import { tmpdir } from "node:os"
-
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineWorkspace, fetch as fetchSource } from "../src/index.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
 import { createTrustedHostWorkspaceSession } from "../src/session/trusted-host.ts"
+import { openTrustedHostWorkspaceScope } from "../src/session/trusted-host-scope.ts"
 
 import type { Workspace } from "../src/core/types.ts"
 
@@ -71,6 +71,31 @@ describe("trusted host workspace runtime", () => {
 
     expect(result.exitCode).toBe(0)
     expect(JSON.parse(result.stdout)).toEqual(serviceEnvironment)
+    await session.close()
+  })
+
+  it("preserves command output and exit codes", async () => {
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "trusted-host",
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+
+    const session = await workspace.startSession()
+    const result = await session.exec(process.execPath, [
+      "-e",
+      "process.stdout.write('out'); process.stderr.write('err'); process.exit(7)",
+    ])
+
+    expect(result).toEqual({
+      args: ["-e", "process.stdout.write('out'); process.stderr.write('err'); process.exit(7)"],
+      command: process.execPath,
+      exitCode: 7,
+      stderr: "err",
+      stdout: "out",
+    })
     await session.close()
   })
 
@@ -167,11 +192,13 @@ describe("trusted host workspace runtime", () => {
     const startedAt = Date.now()
     const result = await session.exec(process.execPath, [
       "-e",
-      "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)",
-    ], { timeout: 20 })
+      "const fs = require('node:fs'); process.on('SIGTERM', () => fs.appendFileSync('signals', 'SIGTERM\\n')); setInterval(() => {}, 1000)",
+    ], { timeout: 200 })
 
     expect(result.exitCode).toBe(124)
     expect(result.stderr).toContain("Command timed out")
+    await expect(session.readFile("signals")).resolves.toBe("SIGTERM\n")
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(250)
     expect(Date.now() - startedAt).toBeLessThan(2000)
     await session.close()
   })
@@ -187,17 +214,198 @@ describe("trusted host workspace runtime", () => {
 
     const session = await workspace.startSession()
     const controller = new AbortController()
-    const startedAt = Date.now()
-    setTimeout(() => controller.abort(), 20)
-    const result = await session.exec(process.execPath, [
+    const command = session.exec(process.execPath, [
       "-e",
-      "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)",
+      "const fs = require('node:fs'); process.on('SIGTERM', () => fs.appendFileSync('signals', 'SIGTERM\\n')); fs.writeFileSync('ready', ''); setInterval(() => {}, 1000)",
     ], { abortSignal: controller.signal })
+    while (!await session.readFile("ready").then(() => true, () => false))
+      await new Promise(resolve => setTimeout(resolve, 5))
+    const abortedAt = Date.now()
+    controller.abort()
+    const result = await command
 
     expect(result.exitCode).toBe(130)
     expect(result.stderr).toContain("Command aborted")
-    expect(Date.now() - startedAt).toBeLessThan(2000)
+    await expect(session.readFile("signals")).resolves.toBe("SIGTERM\n")
+    expect(Date.now() - abortedAt).toBeGreaterThanOrEqual(80)
+    expect(Date.now() - abortedAt).toBeLessThan(2000)
     await session.close()
+  })
+
+  it("does not spawn commands for already-aborted signals", async () => {
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "trusted-host",
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+    const controller = new AbortController()
+    controller.abort()
+
+    const session = await workspace.startSession()
+    const result = await session.exec("vitehub-command-that-does-not-exist", [], {
+      abortSignal: controller.signal,
+    })
+
+    expect(result).toEqual({
+      args: [],
+      command: "vitehub-command-that-does-not-exist",
+      exitCode: 130,
+      stderr: "Command aborted",
+      stdout: "",
+    })
+    await session.close()
+  })
+
+  it("removes AbortSignal listeners when commands finish", async () => {
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "trusted-host",
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+    const controller = new AbortController()
+    const addEventListener = vi.spyOn(controller.signal, "addEventListener")
+    const removeEventListener = vi.spyOn(controller.signal, "removeEventListener")
+
+    const session = await workspace.startSession()
+    const result = await session.exec(process.execPath, ["-e", "process.stdout.write('done')"], {
+      abortSignal: controller.signal,
+      timeout: 1000,
+    })
+
+    expect(result).toMatchObject({ exitCode: 0, stdout: "done" })
+    expect(addEventListener).toHaveBeenCalledTimes(1)
+    expect(removeEventListener).toHaveBeenCalledWith("abort", addEventListener.mock.calls[0]?.[1])
+    controller.abort()
+    await session.close()
+  })
+
+  it("stops active child processes before releasing the session root", async () => {
+    const events: string[] = []
+    let finishChild: (() => void) | undefined
+    let markChildStarted!: () => void
+    const childStarted = new Promise<void>((resolve) => {
+      markChildStarted = resolve
+    })
+    const scope = await openTrustedHostWorkspaceScope(
+      async () => "root",
+      async () => undefined,
+      async () => {
+        events.push("root")
+      },
+    )
+    const child = scope.runChild(async (registerFinalizer) => {
+      markChildStarted()
+      const finished = new Promise<void>((resolve) => {
+        finishChild = resolve
+      })
+      await registerFinalizer(async () => {
+        events.push("child")
+        finishChild?.()
+        await finished
+      })
+      await finished
+    })
+
+    await childStarted
+    await scope.close()
+    await child
+
+    expect(events).toEqual(["child", "root"])
+  })
+
+  it("waits for every active command before the session closes", async () => {
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "trusted-host",
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+    const session = await workspace.startSession()
+    const commands = ["one", "two"].map(name => session.exec(process.execPath, [
+      "-e",
+      `const fs = require('node:fs'); process.on('SIGTERM', () => {}); fs.writeFileSync('ready-${name}', ''); setInterval(() => {}, 1000)`,
+    ]))
+
+    while (!await Promise.all(["one", "two"].map(name => session.readFile(`ready-${name}`).then(() => true, () => false))).then(states => states.every(Boolean)))
+      await new Promise(resolve => setTimeout(resolve, 5))
+    const closedAt = Date.now()
+    await Promise.all([session.close(), session.close(), session.close()])
+    const results = await Promise.all(commands)
+
+    expect(results.map(result => result.exitCode)).toEqual([130, 130])
+    expect(results.every(result => result.stderr.includes("Command aborted"))).toBe(true)
+    expect(Date.now() - closedAt).toBeGreaterThanOrEqual(80)
+    expect(Date.now() - closedAt).toBeLessThan(2000)
+  })
+
+  it("releases trusted-host roots exactly once across concurrent closes", async () => {
+    const release = vi.fn(async () => {})
+    const scope = await openTrustedHostWorkspaceScope(
+      async () => "root",
+      async () => undefined,
+      release,
+    )
+
+    await Promise.all([scope.close(), scope.close(), scope.close()])
+
+    expect(release).toHaveBeenCalledTimes(1)
+  })
+
+  it("returns trusted-host cleanup failures by identity without exposing FiberFailure", async () => {
+    const cleanupError = new Error("root cleanup failed")
+    const scope = await openTrustedHostWorkspaceScope(
+      async () => "root",
+      async () => undefined,
+      async () => {
+        throw cleanupError
+      },
+    )
+
+    const failure = await scope.close().catch(error => error)
+
+    expect(failure).toBe(cleanupError)
+    expect((failure as Error).name).not.toBe("FiberFailure")
+  })
+
+  it("preserves trusted-host setup and cleanup failures", async () => {
+    const setupError = new Error("materialization failed")
+    const cleanupError = new Error("root cleanup failed")
+
+    const failure = await openTrustedHostWorkspaceScope(
+      async () => "root",
+      async () => {
+        throw setupError
+      },
+      async () => {
+        throw cleanupError
+      },
+    ).catch(error => error)
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors).toEqual([setupError, cleanupError])
+    expect((failure as Error).name).not.toBe("FiberFailure")
+  })
+
+  it("returns trusted-host setup failures by identity after successful cleanup", async () => {
+    const setupError = new Error("materialization failed")
+    const release = vi.fn(async () => {})
+
+    const failure = await openTrustedHostWorkspaceScope(
+      async () => "root",
+      async () => {
+        throw setupError
+      },
+      release,
+    ).catch(error => error)
+
+    expect(failure).toBe(setupError)
+    expect((failure as Error).name).not.toBe("FiberFailure")
+    expect(release).toHaveBeenCalledTimes(1)
   })
 
   it("materializes generated source descriptors for shell inspection", async () => {
