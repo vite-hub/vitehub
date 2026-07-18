@@ -1,5 +1,5 @@
 import { mkdir, rm, writeFile } from "node:fs/promises"
-import { relative, resolve } from "node:path"
+import { dirname, relative, resolve } from "node:path"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { createDefaultVercelOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
@@ -21,6 +21,7 @@ export const queuePackageName = "@vite-hub/queue"
 const productName = "queue"
 
 const generatedRegistryFileName = "registry.mjs"
+export const generatedQueueNitroPlugin = ".vitehub/nitro/queue/plugin.ts"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
 
@@ -155,7 +156,7 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
   }
 }
 
-function createCloudflareQueueBindings(definitions: DiscoveredQueueDefinition[]) {
+export function createCloudflareQueueBindings(definitions: DiscoveredQueueDefinition[]): CloudflareQueueConfig["queues"] {
   if (!definitions.length) {
     return undefined
   }
@@ -167,6 +168,48 @@ function createCloudflareQueueBindings(definitions: DiscoveredQueueDefinition[])
       queue: getCloudflareQueueName(definition.name),
     })),
   }
+}
+
+function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig: NormalizedQueueOptions, hasDefinitions: boolean, cloudflareQueues: boolean) {
+  const cloudflare = cloudflareQueues && queueConfig !== false && queueConfig.provider === "cloudflare"
+  const vercel = hasDefinitions && queueConfig !== false && queueConfig.provider === "vercel"
+  return [
+    "import { definePlugin } from 'nitro'",
+    ...(vercel ? ["import { waitUntil as vitehubWaitUntil } from '@vercel/functions'", "import * as __vitehubVercelQueue from '@vercel/queue'"] : []),
+    ...(cloudflare ? ["import { createQueueCloudflareWorker } from '@vite-hub/queue/runtime/cloudflare-vite'"] : []),
+    "import { enterQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from '@vite-hub/queue/runtime/state'",
+    `import queueRegistry from ${JSON.stringify(createImportPath(pluginFile, registryFile))}`,
+    "",
+    ...(vercel ? ["globalThis.__vitehubVercelQueue = __vitehubVercelQueue", ""] : []),
+    `const queueConfig = ${JSON.stringify(queueConfig, null, 2)}`,
+    ...(cloudflare ? ["const queueWorker = createQueueCloudflareWorker({ queue: queueConfig, registry: queueRegistry })"] : []),
+    "",
+    "export default definePlugin((nitro) => {",
+    "  setQueueRuntimeConfig(queueConfig)",
+    "  setQueueRuntimeRegistry(queueRegistry)",
+    ...(vercel
+      ? ["  nitro.hooks.hook('request', (event) => enterQueueRuntimeEvent(Object.assign(event, { waitUntil: vitehubWaitUntil })))"]
+      : ["  nitro.hooks.hook('request', (event) => enterQueueRuntimeEvent(event))"]),
+    ...(cloudflare ? ["  nitro.hooks.hook('cloudflare:queue', ({ batch, context, env }) => queueWorker.queue(batch, env, context))"] : []),
+    "})",
+    "",
+  ].join("\n")
+}
+
+export async function writeQueueNitroIntegration(rootDir: string, queue: QueueModuleOptions | undefined, hosting: string, cloudflareQueues = true): Promise<void> {
+  const generatedDir = ensureGeneratedDir(rootDir, productName)
+  const registryFile = resolve(generatedDir, generatedRegistryFileName)
+  const pluginFile = resolve(rootDir, generatedQueueNitroPlugin)
+  const definitions = discoverQueueDefinitions({ rootDir })
+  const queueConfig = resolveOutputQueueConfig(queue, hosting)
+  await Promise.all([
+    mkdir(dirname(pluginFile), { recursive: true }),
+    mkdir(generatedDir, { recursive: true }),
+  ])
+  await Promise.all([
+    writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8"),
+    writeFile(pluginFile, renderNitroPlugin(pluginFile, registryFile, queueConfig, definitions.length > 0, cloudflareQueues), "utf8"),
+  ])
 }
 
 export async function createCloudflareQueueConfig(options: CloudflareQueueConfigOptions = {}): Promise<CloudflareQueueConfig> {
