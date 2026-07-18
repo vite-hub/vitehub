@@ -1,4 +1,4 @@
-import { TranscriptionError } from "./transcription.ts"
+import { isTranscriptionAbortError, TranscriptionError } from "./transcription.ts"
 
 import type {
   TranscriptionDriver,
@@ -81,11 +81,11 @@ function mapWord(value: ElevenLabsWord): TranscriptionWord | undefined {
 
 function mapTranscript(value: unknown): TranscriptionTranscript {
   if (!value || typeof value !== "object") {
-    throw new TranscriptionError("invalid-payload", "[vitehub] ElevenLabs returned an invalid transcript.", { provider: "elevenlabs" })
+    throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
   }
   const transcript = value as ElevenLabsTranscript
   if (typeof transcript.text !== "string") {
-    throw new TranscriptionError("invalid-payload", "[vitehub] ElevenLabs returned a transcript without text.", { provider: "elevenlabs" })
+    throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
   }
   const words = Array.isArray(transcript.words)
     ? transcript.words.map(word => mapWord(word as ElevenLabsWord)).filter((word): word is TranscriptionWord => Boolean(word))
@@ -108,11 +108,11 @@ function mapMetadata(value: unknown): TranscriptionMetadata | undefined {
 
 function receive(payload: unknown): TranscriptionDriverCompletion {
   if (!payload || typeof payload !== "object") {
-    throw new TranscriptionError("invalid-payload", "[vitehub] ElevenLabs completion must be an object.", { provider: "elevenlabs" })
+    throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
   }
   const event = payload as ElevenLabsWebhookEvent
   if (event.type !== "speech_to_text_transcription" || !nonEmptyString(event.data?.request_id)) {
-    throw new TranscriptionError("invalid-payload", "[vitehub] ElevenLabs completion is missing its type or request id.", { provider: "elevenlabs" })
+    throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
   }
   const metadata = mapMetadata(event.data.webhook_metadata)
   if (event.data.transcription) {
@@ -131,23 +131,17 @@ function receive(payload: unknown): TranscriptionDriverCompletion {
   }
 }
 
-function errorDetail(value: { detail?: unknown } | undefined, statusText: string): string {
-  if (typeof value?.detail === "string") return value.detail
-  if (value?.detail) return JSON.stringify(value.detail)
-  return statusText || "unknown provider error"
-}
-
-function errorCode(status: number): "authentication" | "invalid-request" | "provider" | "rate-limit" {
-  if (status === 401 || status === 403) return "authentication"
-  if (status === 429) return "rate-limit"
-  if (status >= 400 && status < 500) return "invalid-request"
-  return "provider"
+function errorCode(status: number): TranscriptionError["code"] {
+  if (status === 401 || status === 403) return "TRANSCRIPTION_AUTHENTICATION_FAILED"
+  if (status === 429) return "TRANSCRIPTION_RATE_LIMITED"
+  if (status >= 400 && status < 500) return "TRANSCRIPTION_INVALID_REQUEST"
+  return "TRANSCRIPTION_PROVIDER_FAILED"
 }
 
 async function resolveApiKey(value: ElevenLabsScribeOptions["apiKey"]): Promise<string> {
   const apiKey = typeof value === "function" ? await value() : value
   if (!nonEmptyString(apiKey)) {
-    throw new TranscriptionError("authentication", "[vitehub] ElevenLabs API key resolver returned an empty value.", { provider: "elevenlabs" })
+    throw new TranscriptionError("TRANSCRIPTION_AUTHENTICATION_FAILED", { provider: "elevenlabs" })
   }
   return apiKey
 }
@@ -180,20 +174,22 @@ export function elevenLabsScribe(options: ElevenLabsScribeOptions): Transcriptio
         })
       }
       catch (cause) {
-        if (cause instanceof TranscriptionError) throw cause
-        throw new TranscriptionError("network", "[vitehub] ElevenLabs transcription request failed.", {
+        if (isTranscriptionAbortError(cause) || cause instanceof TranscriptionError) throw cause
+        throw new TranscriptionError("TRANSCRIPTION_NETWORK_FAILED", {
           cause,
           provider: "elevenlabs",
         })
       }
       const body = await response.json().catch(() => undefined) as { detail?: unknown, request_id?: unknown } | undefined
       if (!response.ok) {
-        throw new TranscriptionError(errorCode(response.status), `[vitehub] ElevenLabs rejected the transcription request (${response.status}): ${errorDetail(body, response.statusText)}`, {
+        throw new TranscriptionError(errorCode(response.status), {
+          cause: body?.detail ?? response.statusText,
           provider: "elevenlabs",
+          status: response.status,
         })
       }
       if (!nonEmptyString(body?.request_id)) {
-        throw new TranscriptionError("provider", "[vitehub] ElevenLabs returned no transcription request id.", { provider: "elevenlabs" })
+        throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
       }
       return { id: body.request_id }
     },

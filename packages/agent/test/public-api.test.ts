@@ -2,7 +2,7 @@ import { readFile, readdir } from "node:fs/promises"
 
 import { expect, it } from "vitest"
 
-const effectImportPattern = /(?:from\s*|import\()\s*["']effect(?:\/[^"']+)?["']/
+const effectImportPattern = /(?:from\s*|import\s*(?:\(\s*)?|require\s*\(\s*)["']effect(?:\/[^"']*)?["']/
 
 async function readBundleGraph(entry: URL): Promise<string> {
   const sources: string[] = []
@@ -35,7 +35,28 @@ it("keeps Effect out of published Agent declarations", async () => {
       .map(path => readFile(new URL(path, dist), "utf8")),
   )
 
-  expect(declarations.join("\n")).not.toMatch(effectImportPattern)
+  const output = declarations.join("\n")
+  expect(output).not.toMatch(effectImportPattern)
+  expect(output).not.toContain("FiberFailure")
+  expect(output).toContain("class AgentOutputValidationError extends ViteHubError")
+  expect(output).toContain("class TranscriptionError extends ViteHubError")
+})
+
+it("pins Effect to the Agent implementation dependency without leaking runtime failures", async () => {
+  const dist = new URL("../dist/", import.meta.url)
+  const javascript = (await Promise.all(
+    (await readdir(dist, { recursive: true }))
+      .filter(path => /\.[cm]?js$/.test(path))
+      .map(path => readFile(new URL(path, dist), "utf8")),
+  )).join("\n")
+  const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as Record<string, Record<string, unknown> | undefined>
+
+  expect(javascript).not.toContain("FiberFailure")
+  expect(manifest.dependencies?.effect).toBe("catalog:effect")
+  expect(manifest.devDependencies?.effect).toBeUndefined()
+  expect(manifest.optionalDependencies?.effect).toBeUndefined()
+  expect(manifest.peerDependencies?.effect).toBeUndefined()
+  expect(JSON.stringify(manifest.exports)).not.toContain("effect")
 })
 
 it("publishes additive Agent Invocation Stream error metadata", async () => {

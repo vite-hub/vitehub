@@ -1,15 +1,25 @@
+import { ViteHubError } from "@vite-hub/runtime"
+
 import { toAgentRunResult } from "../agent-output.ts"
 
 import type { AgentOutputDefinition } from "../types.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 
-export class AgentOutputValidationError extends Error {
-  readonly code: "invalid-json" | "schema-validation"
+const agentOutputErrorMessages = {
+  AGENT_OUTPUT_INVALID_JSON: "[vitehub] Agent output is not valid JSON.",
+  AGENT_OUTPUT_SCHEMA_INVALID: "[vitehub] Agent output failed schema validation.",
+} as const
 
-  constructor(code: AgentOutputValidationError["code"], message: string, options?: ErrorOptions) {
-    super(message, options)
+export type AgentOutputValidationErrorCode = keyof typeof agentOutputErrorMessages
+export type AgentOutputValidationErrorOptions = ErrorOptions
+
+export class AgentOutputValidationError extends ViteHubError<AgentOutputValidationErrorCode> {
+  constructor(code: AgentOutputValidationErrorCode, options: AgentOutputValidationErrorOptions = {}) {
+    if (!Object.hasOwn(agentOutputErrorMessages, code)) {
+      throw new TypeError("[vitehub] AgentOutputValidationError requires a known agent output error code.")
+    }
+    super(code, agentOutputErrorMessages[code], { cause: options.cause, retryable: false })
     this.name = "AgentOutputValidationError"
-    this.code = code
   }
 }
 
@@ -30,8 +40,7 @@ function jsonValueFromResult(result: unknown): unknown {
   }
   catch (cause) {
     throw new AgentOutputValidationError(
-      "invalid-json",
-      "[vitehub] Agent output is not valid JSON.",
+      "AGENT_OUTPUT_INVALID_JSON",
       { cause },
     )
   }
@@ -65,14 +74,13 @@ export async function validateAgentOutput<TOutput>(
   const validation = await output.schema["~standard"].validate(value)
   if (validation.issues?.length) {
     throw new AgentOutputValidationError(
-      "schema-validation",
-      `[vitehub] Agent output failed schema validation: ${formatIssues(validation.issues)}.`,
+      "AGENT_OUTPUT_SCHEMA_INVALID",
+      { cause: new Error(formatIssues(validation.issues)) },
     )
   }
   if (!("value" in validation)) {
     throw new AgentOutputValidationError(
-      "schema-validation",
-      "[vitehub] Agent output failed schema validation.",
+      "AGENT_OUTPUT_SCHEMA_INVALID",
     )
   }
   return validation.value

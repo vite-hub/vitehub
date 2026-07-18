@@ -3,6 +3,7 @@ import { expectTypeOf, it } from "vitest"
 import {
   createTranscription,
   elevenLabsScribe,
+  type TranscriptionError,
   type TranscriptionClient,
   type TranscriptionCompletion,
   type TranscriptionDriver,
@@ -27,6 +28,6 @@ it("keeps provider completion handling exhaustive", async () => {
     expectTypeOf(completion.transcript.text).toEqualTypeOf<string>()
   }
   else {
-    expectTypeOf(completion.error).toEqualTypeOf<string>()
+    expectTypeOf(completion.error).toEqualTypeOf<TranscriptionError>()
   }
 })
