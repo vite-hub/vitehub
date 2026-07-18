@@ -1,5 +1,5 @@
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
+import { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput, shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 
@@ -46,12 +46,18 @@ function supportsCloudflareQueues(nitro: Record<string, unknown>): boolean {
   return !preset.replaceAll("-", "_").includes("cloudflare_pages")
 }
 
-function mergeNitroConfig(value: unknown, queue: QueueModuleOptions | undefined, root: string): Record<string, unknown> {
+function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOptions | undefined, root: string): Record<string, unknown> {
   const nitro = cloneNitroConfig(value)
   const plugins = Array.isArray(nitro.plugins) ? nitro.plugins.filter(plugin => queue !== false || plugin !== generatedQueueNitroPlugin) : []
-  if (queue === false) return { ...nitro, plugins }
+  if (queue === false) {
+    registerCloudflareProviderOutput(config, "queue", {})
+    return { ...nitro, plugins }
+  }
   if (!plugins.includes(generatedQueueNitroPlugin)) plugins.unshift(generatedQueueNitroPlugin)
-  if (resolveQueueHosting(queue, nitro) !== "cloudflare") return { ...nitro, plugins }
+  if (resolveQueueHosting(queue, nitro) !== "cloudflare") {
+    registerCloudflareProviderOutput(config, "queue", {})
+    return { ...nitro, plugins }
+  }
   const cloudflare = cloneNitroConfig(nitro.cloudflare)
   const wrangler = cloneNitroConfig(cloudflare.wrangler)
   const compatibilityFlags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
@@ -59,45 +65,28 @@ function mergeNitroConfig(value: unknown, queue: QueueModuleOptions | undefined,
   const cloudflareQueues = supportsCloudflareQueues(nitro)
   const rollupConfig = cloneNitroConfig(nitro.rollupConfig)
   const generated = createCloudflareQueueBindings(discoverQueueDefinitions({ rootDir: root }))
+  const baseNitro = {
+    ...nitro,
+    ...(cloudflareQueues ? { rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") } } : {}),
+    cloudflare: { ...cloudflare, wrangler: { ...wrangler, compatibility_flags: compatibilityFlags } },
+    plugins,
+  }
   if (!generated) {
-    return {
-      ...nitro,
-      ...(cloudflareQueues ? { rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") } } : {}),
-      cloudflare: { ...cloudflare, wrangler: { ...wrangler, compatibility_flags: compatibilityFlags } },
-      plugins,
-    }
+    registerCloudflareProviderOutput(config, "queue", {})
+    return baseNitro
   }
   const binding = queue?.provider === "cloudflare" && typeof queue.binding === "string" ? queue.binding : undefined
   if (binding && generated.producers.length > 1) {
     throw new Error("A custom Cloudflare queue binding can only be used with one Queue Definition.")
   }
   const generatedProducers = binding ? generated.producers.map(producer => ({ ...producer, binding })) : generated.producers
-  const queues = cloneNitroConfig(wrangler.queues)
-  const consumers = Array.isArray(queues.consumers) ? queues.consumers : []
-  const producers = Array.isArray(queues.producers) ? queues.producers : []
-  return {
-    ...nitro,
-    ...(cloudflareQueues ? { rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") } } : {}),
-    cloudflare: {
-      ...cloudflare,
-      wrangler: {
-        ...wrangler,
-        compatibility_flags: compatibilityFlags,
-        queues: {
-          ...queues,
-          ...(cloudflareQueues ? { consumers: [...consumers, ...generated.consumers.filter(entry => !consumers.some(current => cloneNitroConfig(current).queue === entry.queue))] } : {}),
-          producers: [...producers, ...generatedProducers.filter((entry) => {
-            const existing = producers.find(current => cloneNitroConfig(current).binding === entry.binding)
-            if (existing && cloneNitroConfig(existing).queue !== entry.queue) {
-              throw new Error(`Cloudflare queue binding ${entry.binding} is already assigned to another queue.`)
-            }
-            return !existing
-          })],
-        },
-      },
+  registerCloudflareProviderOutput(config, "queue", {
+    queues: {
+      ...(cloudflareQueues ? { consumers: generated.consumers } : {}),
+      producers: generatedProducers,
     },
-    plugins,
-  }
+  })
+  return composeNitroCloudflareProviderOutput(config, baseNitro)
 }
 
 export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
@@ -105,6 +94,8 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
   let queue: QueueModuleOptions | undefined = options
   let hosting = "vercel"
   let cloudflareQueues = true
+  let configHookRan = false
+  let nitroOwnsCloudflareWorker = false
 
   return {
     name: "@vite-hub/queue/vite",
@@ -115,12 +106,19 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
     },
     config(config) {
       queue = config.queue ?? queue
-      ;(config as { nitro?: unknown }).nitro = mergeNitroConfig((config as { nitro?: unknown }).nitro, queue, config.root || process.cwd())
+      const nitro = (config as { nitro?: unknown }).nitro
+      nitroOwnsCloudflareWorker = Boolean(nitro && resolveQueueHosting(queue, cloneNitroConfig(nitro)) === "cloudflare")
+      configHookRan = true
+      ;(config as { nitro?: unknown }).nitro = mergeNitroConfig(config, nitro, queue, config.root || process.cwd())
     },
     async configResolved(config) {
       resolved = config
       queue = config.queue ?? queue
-      const nitro = mergeNitroConfig((config as { nitro?: unknown }).nitro, queue, config.root)
+      const configuredNitro = (config as { nitro?: unknown }).nitro
+      if (!configHookRan) {
+        nitroOwnsCloudflareWorker = Boolean(configuredNitro && resolveQueueHosting(queue, cloneNitroConfig(configuredNitro)) === "cloudflare")
+      }
+      const nitro = mergeNitroConfig(config, configuredNitro, queue, config.root)
       ;(config as { nitro?: unknown }).nitro = nitro
       hosting = resolveQueueHosting(queue, nitro)
       cloudflareQueues = supportsCloudflareQueues(nitro)
@@ -146,6 +144,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       }
       await generateProviderOutputs({
         clientOutDir: resolved.build.outDir,
+        cloudflareOwnedByNitro: nitroOwnsCloudflareWorker,
         queue: queue ?? { provider: (hosting === "cloudflare" ? "cloudflare" : "vercel") satisfies QueueProvider },
         rootDir: resolved.root,
         serverFunctionName: resolveNitroVercelFunctionName(resolved, "queue"),

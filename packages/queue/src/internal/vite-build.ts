@@ -75,6 +75,7 @@ interface GeneratedQueueArtifacts {
 
 interface GenerateProviderOutputsOptions {
   clientOutDir: string
+  cloudflareOwnedByNitro?: boolean
   queue: QueueModuleOptions | undefined
   rootDir: string
   serverFunctionName?: string
@@ -358,21 +359,13 @@ async function writeVercelQueueFunctions(rootDir: string, queue: QueueModuleOpti
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedQueueArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.queue)
-  const createCloudflare = shouldCreateCloudflareOutput(options.queue)
+  const createCloudflare = !options.cloudflareOwnedByNitro && shouldCreateCloudflareOutput(options.queue)
   const createVercel = shouldCreateVercelOutput(options.queue)
-  if (!createCloudflare && createVercel) {
-    await writeProviderDeploymentOutputs({
-      cleanup: {
-        cloudflare: { wranglerConfigOwnership: { keys: ["queues"] } },
-      },
-      clientOutDir: options.clientOutDir,
-      rootDir: options.rootDir,
-    })
-  }
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
     cloudflare: createCloudflare ? createCloudflareOutput(artifacts) : undefined,
     cleanup: {
+      cloudflare: createCloudflare ? undefined : { wranglerConfigOwnership: { keys: ["queues"] } },
       vercel: { serverFunctionName: options.serverFunctionName ?? "__server.func" },
     },
     rootDir: options.rootDir,

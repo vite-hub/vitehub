@@ -173,6 +173,27 @@ describe("Vite provider outputs", () => {
     })
   })
 
+  it("leaves Cloudflare Worker output to Nitro", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-nitro-cloudflare-")
+    const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(cloudflareOutputRoot, { recursive: true })
+    await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
+    await writeFile(join(cloudflareOutputRoot, "wrangler.json"), `${JSON.stringify({
+      queues: { producers: [{ binding: "STALE", queue: "stale" }] },
+    }, null, 2)}\n`, "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
+      queue: { provider: "cloudflare" },
+      rootDir,
+    })
+
+    expect(existsSync(join(cloudflareOutputRoot, "index.js"))).toBe(false)
+    expect(existsSync(join(cloudflareOutputRoot, "wrangler.json"))).toBe(false)
+  })
+
   it("does not preload Vercel queue without queue definitions", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-no-definitions-")
     await mkdir(join(rootDir, "src"), { recursive: true })
