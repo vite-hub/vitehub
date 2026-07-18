@@ -1,5 +1,10 @@
 import { getAuthForRequest } from "./server.ts"
-import { AuthenticationProviderError } from "./errors.ts"
+import {
+  assertAuthenticationErrorOptions,
+  AuthenticationProviderError,
+  invalidAuthenticationErrorOptions,
+  readAuthenticationErrorOption,
+} from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 
 import { ViteHubError } from "@vite-hub/runtime"
@@ -106,14 +111,24 @@ export class AuthenticationRequiredError extends ViteHubError<"AUTHENTICATION_RE
   constructor(options?: AuthenticationRequiredErrorOptions)
   constructor(message?: string)
   constructor(messageOrOptions: AuthenticationRequiredErrorOptions | string = {}) {
-    const options = typeof messageOrOptions === "string" ? {} : messageOrOptions
-    const message = typeof messageOrOptions === "string"
+    if (typeof messageOrOptions === "string") {
+      if (messageOrOptions.length === 0 || messageOrOptions.length > 16_384) invalidAuthenticationErrorOptions()
+    }
+    else {
+      assertAuthenticationErrorOptions(messageOrOptions)
+    }
+    const cause = typeof messageOrOptions === "string"
+      ? undefined
+      : readAuthenticationErrorOption(messageOrOptions, "cause")
+    const optionMessage = typeof messageOrOptions === "string"
       ? messageOrOptions
-      : messageOrOptions.message ?? "[vitehub] Authentication required."
+      : readAuthenticationErrorOption(messageOrOptions, "message")
+    if (optionMessage !== undefined && (typeof optionMessage !== "string" || optionMessage.length === 0 || optionMessage.length > 16_384)) {
+      invalidAuthenticationErrorOptions()
+    }
+    const message = optionMessage ?? "[vitehub] Authentication required."
 
-    super("AUTHENTICATION_REQUIRED", message, {
-      cause: options.cause,
-    })
+    super("AUTHENTICATION_REQUIRED", message, cause === undefined ? {} : { cause })
     this.name = "AuthenticationRequiredError"
     Object.defineProperty(this, "statusCode", {
       enumerable: true,

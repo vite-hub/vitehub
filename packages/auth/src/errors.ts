@@ -6,13 +6,39 @@ export interface AuthenticationProviderErrorOptions extends ErrorOptions {
   operation: AuthenticationProviderOperation
 }
 
+export function invalidAuthenticationErrorOptions(): never {
+  throw new TypeError("[vitehub] Invalid authentication error options.")
+}
+
+export function assertAuthenticationErrorOptions(value: unknown): asserts value is object {
+  if (typeof value !== "object" || value === null) invalidAuthenticationErrorOptions()
+  try {
+    if (Array.isArray(value)) invalidAuthenticationErrorOptions()
+  }
+  catch {
+    invalidAuthenticationErrorOptions()
+  }
+}
+
+export function readAuthenticationErrorOption(value: object, key: PropertyKey): unknown {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (descriptor === undefined) return undefined
+    if (!("value" in descriptor)) invalidAuthenticationErrorOptions()
+    return descriptor.value
+  }
+  catch {
+    invalidAuthenticationErrorOptions()
+  }
+}
+
 function parseAuthenticationProviderOperation(value: unknown): AuthenticationProviderOperation {
   switch (value) {
     case "get-auth-for-request":
     case "get-session":
       return value
     default:
-      throw new TypeError("[vitehub] Invalid authentication provider operation.")
+      invalidAuthenticationErrorOptions()
   }
 }
 
@@ -21,10 +47,13 @@ export class AuthenticationProviderError extends ViteHubError<
   { operation: AuthenticationProviderOperation, provider: "better-auth" }
 > {
   constructor(options: AuthenticationProviderErrorOptions) {
+    assertAuthenticationErrorOptions(options)
+    const cause = readAuthenticationErrorOption(options, "cause")
+    const operation = parseAuthenticationProviderOperation(readAuthenticationErrorOption(options, "operation"))
     super("AUTH_PROVIDER_OPERATION_FAILED", "[vitehub] Authentication provider operation failed.", {
-      cause: options.cause,
+      cause,
       details: {
-        operation: parseAuthenticationProviderOperation(options.operation),
+        operation,
         provider: "better-auth",
       },
     })

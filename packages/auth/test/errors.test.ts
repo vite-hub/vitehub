@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { ViteHubError } from "@vite-hub/runtime"
 
@@ -34,6 +34,22 @@ describe("AuthenticationRequiredError", () => {
     })
     expect(JSON.stringify(error)).not.toContain("secret-token")
   })
+
+  it("rejects hostile option accessors without invoking them", () => {
+    const getter = vi.fn(() => "private-accessor-secret")
+    const accessor = Object.defineProperty({}, "message", { enumerable: true, get: getter })
+    const hostile = new Proxy({}, {
+      getOwnPropertyDescriptor() {
+        throw new Error("private-proxy-secret")
+      },
+    })
+
+    for (const options of [accessor, hostile, null]) {
+      expect(() => new AuthenticationRequiredError(options as never))
+        .toThrow("[vitehub] Invalid authentication error options.")
+    }
+    expect(getter).not.toHaveBeenCalled()
+  })
 })
 
 describe("AuthenticationProviderError", () => {
@@ -61,6 +77,22 @@ describe("AuthenticationProviderError", () => {
   it("rejects provider operations outside the public vocabulary", () => {
     expect(() => new AuthenticationProviderError({
       operation: "Bearer secret-token at https://auth.example/private" as never,
-    })).toThrow(new TypeError("[vitehub] Invalid authentication provider operation."))
+    })).toThrow(new TypeError("[vitehub] Invalid authentication error options."))
+  })
+
+  it("rejects hostile provider options without invoking accessors", () => {
+    const getter = vi.fn(() => "private-accessor-secret")
+    const accessor = Object.defineProperty({}, "operation", { enumerable: true, get: getter })
+    const hostile = new Proxy({}, {
+      getOwnPropertyDescriptor() {
+        throw new Error("private-proxy-secret")
+      },
+    })
+
+    for (const options of [accessor, hostile, null]) {
+      expect(() => new AuthenticationProviderError(options as never))
+        .toThrow("[vitehub] Invalid authentication error options.")
+    }
+    expect(getter).not.toHaveBeenCalled()
   })
 })
