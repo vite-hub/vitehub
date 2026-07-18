@@ -11,6 +11,7 @@ import type { ProviderOutputConfigOwnership } from "@vite-hub/internal/build/pro
 import type { RateLimitDeclaration } from "../types.ts"
 
 interface CloudflareRateLimitBindingConfig {
+  [key: string]: unknown
   name: string
   namespace_id: string
   simple: {
@@ -88,6 +89,7 @@ export function resolveRateLimitNamespace(configured?: string): string | undefin
 
 export async function writeRateLimitProviderOutput(options: {
   clientOutDir: string
+  cloudflareOwnedByNitro?: boolean
   declarations: RateLimitDeclaration[]
   namespace?: string
   previousDeclarations?: RateLimitDeclaration[]
@@ -105,6 +107,25 @@ export async function writeRateLimitProviderOutput(options: {
       },
     },
   } satisfies ProviderOutputConfigOwnership
+
+  if (options.cloudflareOwnedByNitro) {
+    if (options.provider === "cloudflare" && options.declarations.length > 0 && !options.namespace) {
+      throw new Error("[vitehub] Cloudflare Rate Limit requires rateLimit.namespace to isolate counters between deployments.")
+    }
+    await writeProviderDeploymentOutputs({
+      clientOutDir: options.clientOutDir,
+      cleanup: {
+        cloudflare: {
+          outputRoot: createDefaultCloudflareOutputRoot(options.rootDir),
+          wranglerConfigOwnership: ownership,
+        },
+      },
+      rootDir: options.rootDir,
+    })
+    await writeOutputState(options.rootDir, options.provider === "cloudflare" ? currentBindings : [])
+    await writeRateLimitManifest(options.rootDir, options.declarations, options.provider)
+    return
+  }
 
   if (options.provider === "cloudflare" && options.declarations.length > 0) {
     if (!options.namespace) {
