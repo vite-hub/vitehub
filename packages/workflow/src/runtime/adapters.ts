@@ -6,6 +6,7 @@ import { getVercelWorkflowName } from "../integrations/vercel.ts"
 
 import { runWorkflowHandler } from "./execute.ts"
 import { getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
+import { runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
 import { getWorkflowRunState, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
 import { cancelVercelWorkflow, inspectVercelWorkflowRun, resumeVercelWorkflowSignal, startVercelWorkflow } from "./vercel.ts"
 
@@ -69,8 +70,8 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
     async get({ event, id, name }) {
       const binding = resolveCloudflareBinding(event, config.binding, name)
       if (binding) {
-        const instance = await binding.get(id)
-        const metadata = await instance.status()
+        const instance = await runWorkflowProviderOperation("cloudflare", "get", () => binding.get(id))
+        const metadata = await runWorkflowProviderOperation("cloudflare", "status", () => instance.status())
         return {
           id,
           metadata,
@@ -84,7 +85,7 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
     async run({ definition, event, id, name, options, payload }) {
       const binding = resolveCloudflareBinding(event, config.binding, name)
       if (binding) {
-        const start = binding.create({ id, params: payload })
+        const start = runWorkflowProviderOperation("cloudflare", "create", () => binding.create({ id, params: payload }))
         const waitUntil = options.deferred ? resolveWaitUntil(event) : undefined
         if (waitUntil) {
           waitUntil(start)
@@ -92,7 +93,7 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
         const instance = await start
         return {
           id: instance.id,
-          metadata: await instance.status(),
+          metadata: await runWorkflowProviderOperation("cloudflare", "status", () => instance.status()),
           payload,
           provider: "cloudflare",
           status: "queued",
@@ -193,7 +194,7 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
       if (options.id) {
         throw new WorkflowError({
           code: "WORKFLOW_RUN_ID_UNSUPPORTED",
-          details: { id: options.id, name, provider: "vercel" },
+          details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
           message: "Native Vercel workflows assign their own run IDs.",
         })
       }

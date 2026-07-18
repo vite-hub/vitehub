@@ -1,0 +1,61 @@
+import { describe, expect, it } from "vitest"
+
+import { WorkflowError } from "../src/errors.ts"
+import { runWorkflowProviderOperation, safeWorkflowName } from "../src/runtime/provider-operation.ts"
+
+describe("Workflow provider operation errors", () => {
+  it("keeps provider failures stable and redacts raw data", async () => {
+    const cause = Object.assign(new Error("token=provider-secret"), {
+      request: { url: "https://provider.example/runs/private-id" },
+      response: { body: "private-body", status: 503 },
+    })
+    const error = await runWorkflowProviderOperation("vercel", "start", () => {
+      throw cause
+    }).catch(error => error)
+
+    expect(error).toBeInstanceOf(WorkflowError)
+    expect(error).toMatchObject({
+      cause,
+      code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+      details: { operation: "start", provider: "vercel", status: 503 },
+      message: "Workflow provider operation failed.",
+    })
+    expect(JSON.parse(JSON.stringify(error))).toEqual({
+      code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+      details: { operation: "start", provider: "vercel", status: 503 },
+      message: "Workflow provider operation failed.",
+    })
+    expect(JSON.stringify(error)).not.toContain("provider-secret")
+    expect(JSON.stringify(error)).not.toContain("private-id")
+    expect(JSON.stringify(error)).not.toContain("private-body")
+  })
+
+  it("does not serialize unallowlisted provider status values", async () => {
+    const error = await runWorkflowProviderOperation("cloudflare", "get", async () => {
+      throw { status: "401 token=secret", statusCode: 900 }
+    }).catch(error => error)
+
+    expect(error.details).toEqual({ operation: "get", provider: "cloudflare" })
+    expect(JSON.stringify(error)).not.toContain("secret")
+  })
+
+  it("preserves Workflow and abort errors by exact identity", async () => {
+    const custom = new WorkflowError({ code: "CUSTOM_WORKFLOW_FAILURE", message: "Custom failure." })
+    const abort = new DOMException("cancelled", "AbortError")
+
+    await expect(runWorkflowProviderOperation("vercel", "get-run", () => {
+      throw custom
+    })).rejects.toBe(custom)
+    await expect(runWorkflowProviderOperation("cloudflare", "create", async () => {
+      throw abort
+    })).rejects.toBe(abort)
+  })
+
+  it("only accepts bounded opaque workflow names in error details", () => {
+    expect(safeWorkflowName("daily-report.v2")).toBe("daily-report.v2")
+    expect(safeWorkflowName("https://provider.example/private?id=secret")).toBeUndefined()
+    expect(safeWorkflowName("person@example.com")).toBeUndefined()
+    expect(safeWorkflowName("line\nbreak")).toBeUndefined()
+    expect(safeWorkflowName("a".repeat(129))).toBeUndefined()
+  })
+})
