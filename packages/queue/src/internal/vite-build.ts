@@ -191,7 +191,7 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
     ...(vercel
       ? ["  nitro.hooks.hook('request', (event) => enterQueueRuntimeEvent(Object.assign(event, { waitUntil: vitehubWaitUntil })))"]
       : cloudflare
-        ? ["  nitro.hooks.hook('request', (event) => enterQueueRuntimeEvent(Object.assign(event, { env: event.node?.req?.runtime?.cloudflare?.env ?? event.env ?? vitehubEnv })))"]
+        ? ["  nitro.hooks.hook('request', (event) => enterQueueRuntimeEvent(Object.assign(event, { env: event.env ?? event.context?.cloudflare?.env ?? event.context?._platform?.cloudflare?.env ?? event.req?.runtime?.cloudflare?.env ?? event.node?.req?.runtime?.cloudflare?.env ?? vitehubEnv })))"]
         : ["  nitro.hooks.hook('request', (event) => enterQueueRuntimeEvent(event))"]),
     ...(cloudflare ? ["  nitro.hooks.hook('cloudflare:queue', ({ batch, context, env }) => queueWorker.queue(batch, env, context))"] : []),
     "})",

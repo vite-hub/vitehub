@@ -49,7 +49,9 @@ describe("hubQueue", () => {
     const registry = await readFile(join(root, ".vitehub", "queue", "registry.mjs"), "utf8")
     expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig)")
     expect(nitroPlugin).toContain("setQueueRuntimeRegistry(queueRegistry)")
-    expect(nitroPlugin).toContain("event.node?.req?.runtime?.cloudflare?.env ?? event.env ?? vitehubEnv")
+    expect(nitroPlugin).toContain("event.context?.cloudflare?.env")
+    expect(nitroPlugin).toContain("event.req?.runtime?.cloudflare?.env")
+    expect(nitroPlugin).toContain("event.node?.req?.runtime?.cloudflare?.env")
     expect(nitroPlugin).toContain("setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })")
     expect(nitroPlugin).toContain("cloudflare:queue")
     expect(nitroPlugin).toContain("queueWorker.queue(batch, env, context)")
@@ -117,9 +119,11 @@ describe("hubQueue", () => {
     const underscorePages = { nitro: { preset: "cloudflare_pages" }, root }
     config(underscorePages)
     expect(underscorePages.nitro).not.toHaveProperty("cloudflare.wrangler.queues")
+    expect(underscorePages).toHaveProperty("nitro.cloudflare.wrangler.compatibility_flags", ["nodejs_compat"])
     const hyphenPages = { nitro: { preset: "cloudflare-pages" }, root }
     config(hyphenPages)
     expect(hyphenPages.nitro).not.toHaveProperty("cloudflare.wrangler.queues")
+    expect(hyphenPages).toHaveProperty("nitro.cloudflare.wrangler.compatibility_flags", ["nodejs_compat"])
   })
 
   it("rejects ambiguous and conflicting custom Cloudflare bindings", async () => {

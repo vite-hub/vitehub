@@ -50,11 +50,12 @@ function mergeNitroConfig(value: unknown, queue: QueueModuleOptions | undefined,
   const nitro = cloneNitroConfig(value)
   const plugins = Array.isArray(nitro.plugins) ? [...nitro.plugins] : []
   if (!plugins.includes(generatedQueueNitroPlugin)) plugins.unshift(generatedQueueNitroPlugin)
-  if (queue === false || resolveQueueHosting(queue, nitro) !== "cloudflare" || !supportsCloudflareQueues(nitro)) return { ...nitro, plugins }
+  if (queue === false || resolveQueueHosting(queue, nitro) !== "cloudflare") return { ...nitro, plugins }
   const cloudflare = cloneNitroConfig(nitro.cloudflare)
   const wrangler = cloneNitroConfig(cloudflare.wrangler)
   const compatibilityFlags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
   if (!compatibilityFlags.includes("nodejs_compat")) compatibilityFlags.push("nodejs_compat")
+  if (!supportsCloudflareQueues(nitro)) return { ...nitro, cloudflare: { ...cloudflare, wrangler: { ...wrangler, compatibility_flags: compatibilityFlags } }, plugins }
   const rollupConfig = cloneNitroConfig(nitro.rollupConfig)
   const generated = createCloudflareQueueBindings(discoverQueueDefinitions({ rootDir: root }))
   if (!generated) return { ...nitro, cloudflare: { ...cloudflare, wrangler: { ...wrangler, compatibility_flags: compatibilityFlags } }, rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") }, plugins }

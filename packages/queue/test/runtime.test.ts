@@ -309,6 +309,18 @@ describe("vercel provider", () => {
     expect(vercelQueueMock.options).toEqual({ region: "fra1" })
   })
 
+  it("does not cache regions inferred from Vercel requests", async () => {
+    setQueueRuntimeConfig({ provider: "vercel" })
+    setQueueRuntimeRegistry({
+      welcome: async () => ({ handler: async () => {} }),
+    })
+
+    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "fra1::request" } } } }, () => runQueue("welcome", { email: "ava@example.com" }))
+    expect(vercelQueueMock.options).toEqual({ region: "fra1" })
+    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "iad1::request" } } } }, () => runQueue("welcome", { email: "ava@example.com" }))
+    expect(vercelQueueMock.options).toEqual({ region: "iad1" })
+  })
+
   it("uses Vercel waitUntil for deferred dispatch", async () => {
     process.env.VERCEL_REGION = "iad1"
 
