@@ -1,4 +1,4 @@
-import { WorkflowError } from "../errors.ts"
+import { ApplicationWorkflowError, WorkflowError } from "../errors.ts"
 
 type WorkflowProvider = "cloudflare" | "openworkflow" | "vercel"
 
@@ -16,7 +16,7 @@ type WorkflowProviderOperation =
   | "status"
 
 export function isWorkflowBoundaryError(error: unknown): boolean {
-  if (error instanceof WorkflowError) return true
+  if (error instanceof WorkflowError || error instanceof ApplicationWorkflowError) return true
   if (typeof error !== "object" || error === null) return false
 
   try {
@@ -61,7 +61,6 @@ export async function runWorkflowProviderOperation<T>(
       cause: error,
       code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
       details: { operation, provider, ...(status === undefined ? {} : { status }) },
-      message: "Workflow provider operation failed.",
     })
   }
 }

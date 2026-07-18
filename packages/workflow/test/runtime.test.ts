@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { WorkflowProviderStep } from "../src/types.ts"
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
-import { WorkflowError } from "../src/errors.ts"
+import { ApplicationWorkflowError, WorkflowError } from "../src/errors.ts"
 import { resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
 import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
@@ -1387,7 +1387,7 @@ describe("workflow runtime", () => {
   })
 
   it("preserves custom and abort errors from the Vercel runtime loader", async () => {
-    const custom = new WorkflowError({ code: "CUSTOM_RUNTIME_LOAD_FAILED", message: "Custom load failure." })
+    const custom = new ApplicationWorkflowError({ code: "CUSTOM_RUNTIME_LOAD_FAILED", message: "Custom load failure." })
     const abort = new DOMException("cancelled", "AbortError")
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({

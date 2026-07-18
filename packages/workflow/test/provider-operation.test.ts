@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { WorkflowError } from "../src/errors.ts"
+import { ApplicationWorkflowError, WorkflowError } from "../src/errors.ts"
 import { runWorkflowProviderOperation, safeWorkflowName } from "../src/runtime/provider-operation.ts"
 
 describe("Workflow provider operation errors", () => {
@@ -40,7 +40,7 @@ describe("Workflow provider operation errors", () => {
   })
 
   it("preserves Workflow and abort errors by exact identity", async () => {
-    const custom = new WorkflowError({ code: "CUSTOM_WORKFLOW_FAILURE", message: "Custom failure." })
+    const custom = new ApplicationWorkflowError({ code: "CUSTOM_WORKFLOW_FAILURE", message: "Custom failure." })
     const abort = new DOMException("cancelled", "AbortError")
 
     await expect(runWorkflowProviderOperation("vercel", "get-run", () => {
