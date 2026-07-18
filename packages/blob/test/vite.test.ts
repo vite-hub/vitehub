@@ -90,6 +90,64 @@ describe("hubBlob", () => {
     expect(nitroPlugin).toContain("setBlobRuntimeConfig(blobConfig)")
   })
 
+  it("contributes deduplicated R2 bindings when Nitro owns Cloudflare output", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-r2-"))
+    const plugin = hubBlob({
+      stores: {
+        default: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
+        assets: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
+        assetsAlias: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
+      },
+    })
+    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+    const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
+    const userConfig = {}
+
+    config(userConfig, { command: "build" })
+    expect(userConfig).not.toHaveProperty("nitro.cloudflare.wrangler.r2_buckets")
+
+    const resolved = {
+      blob: {
+        stores: {
+          default: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
+          assets: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
+          assetsAlias: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
+        },
+      },
+      build: { outDir: "dist" },
+      nitro: {
+        ...(userConfig as { nitro?: object }).nitro,
+        cloudflare: {
+          wrangler: {
+            r2_buckets: [{ binding: "ASSETS", bucket_name: "assets", jurisdiction: "eu" }],
+            routes: ["example.com/*"],
+          },
+        },
+        preset: "cloudflare_module",
+      },
+      root,
+    }
+    await configResolved(resolved as never)
+
+    expect(resolved).toHaveProperty("nitro.cloudflare.wrangler.r2_buckets", [
+      { binding: "ASSETS", bucket_name: "assets", jurisdiction: "eu" },
+    ])
+    expect(resolved).toHaveProperty("nitro.cloudflare.wrangler.routes", ["example.com/*"])
+    expect(resolved).not.toHaveProperty("nitro.cloudflare.wrangler.observability")
+  })
+
+  it("does not contribute Cloudflare config for plain Vite or non-R2 stores", () => {
+    const config = (plugin: ReturnType<typeof hubBlob>, value: Record<string, unknown>) =>
+      (plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown)(value, { command: "build" })
+    const plainVite = {}
+    config(hubBlob({ binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" }), plainVite)
+    expect(plainVite).not.toHaveProperty("nitro.cloudflare")
+
+    const fsOnCloudflare = { nitro: { preset: "cloudflare_module" } }
+    config(hubBlob({ base: ".data/blob", driver: "fs" }), fsOnCloudflare)
+    expect(fsOnCloudflare).not.toHaveProperty("nitro.cloudflare")
+  })
+
   it("masks credentials embedded in Nitro runtime setup", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-masked-"))
     const previousToken = process.env.BLOB_READ_WRITE_TOKEN
