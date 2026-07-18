@@ -495,6 +495,28 @@ describe("@vite-hub/source GitHub source", () => {
     expect(JSON.stringify(error)).not.toMatch(/content-token|private\/repo|cause|stack/)
   })
 
+  it("maps malformed GitHub base64 content inside the provider boundary", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({
+      content: "%%% secret-token",
+      encoding: "base64",
+      path: "README.md",
+      sha: "sha-readme",
+      type: "file",
+    })))
+    const docs = github({ ref: "main", repo: "private/repo" })
+
+    const error = await docs.getItem("README.md", {
+      abortSignal: new AbortController().signal,
+      rootDir: process.cwd(),
+    }).catch(error => error)
+
+    expect(error).toMatchObject({
+      code: "SOURCE_PROVIDER_RESPONSE_INVALID",
+      details: { operation: "read-item", provider: "github" },
+    })
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|private\/repo|cause|stack/)
+  })
+
   it("maps corrupt GitHub archives without serializing parser failures", async () => {
     const causeText = "secret-token from https://codeload.github.com/private/repo"
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(causeText, { status: 200 })))

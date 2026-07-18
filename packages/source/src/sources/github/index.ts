@@ -62,6 +62,14 @@ function decodeContentResponse(value: unknown): GitHubContentResponse | GitHubCo
   return Array.isArray(value) ? value.map(decodeContentEntry) : decodeContentEntry(value)
 }
 
+function decodeBase64Content(value: string) {
+  const normalized = value.replace(/\s/g, "")
+  if (!/^(?:[A-Za-z\d+/]{4})*(?:[A-Za-z\d+/]{2}(?:==)?|[A-Za-z\d+/]{3}=?|)$/.test(normalized)) {
+    throw new TypeError("GitHub content response has invalid base64 content.")
+  }
+  return new Uint8Array(Buffer.from(normalized, "base64"))
+}
+
 function dedupeProviderPromise<TResult>(
   promises: Map<string, Promise<TResult>>,
   key: string,
@@ -338,8 +346,15 @@ export function github<const TKey extends string = string>(options: GitHubSource
     if (file.encoding !== "base64" || typeof file.content !== "string") {
       throw sourceContentMissingError("github", key)
     }
+    let content: Uint8Array
+    try {
+      content = decodeBase64Content(file.content)
+    }
+    catch (cause) {
+      throw sourceProviderResponseInvalidError("github", "read-item", { cause })
+    }
     return {
-      content: new Uint8Array(Buffer.from(file.content.replace(/\s/g, ""), "base64")),
+      content,
       key: normalizedKey,
       path: normalizedKey,
       ref,

@@ -1,6 +1,6 @@
 import { lookup } from "mrmime"
 
-import { SourcePathError, sourceItemNotFoundError, sourceProviderRequestError } from "../core/errors.ts"
+import { SourceError, SourcePathError, sourceItemIsDirectoryError, sourceItemNotFoundError, sourceProviderRequestError } from "../core/errors.ts"
 import { normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
 
 import type { Source, SourceContent, SourceContext } from "../core/types.ts"
@@ -43,12 +43,14 @@ async function readSourceFile<TKey extends string>(options: FileSourceOptions<TK
   if (!("path" in options) || !options.path) {
     throw new TypeError("[vitehub] file requires path when content is not provided.")
   }
-  const { readFile } = await import("node:fs/promises")
+  const { readFile, stat } = await import("node:fs/promises")
   const target = await resolveSafeSourceFilePath(options.path, key, ctx)
   try {
+    if ((await stat(target)).isDirectory()) throw sourceItemIsDirectoryError("file", key)
     return new Uint8Array(await readFile(target))
   }
   catch (cause) {
+    if (cause instanceof SourceError) throw cause
     if (isFileNotFoundError(cause)) throw sourceItemNotFoundError("file", key)
     throw sourceProviderRequestError("filesystem", "read", { cause })
   }

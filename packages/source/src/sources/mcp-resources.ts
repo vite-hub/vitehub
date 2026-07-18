@@ -206,6 +206,12 @@ async function listAllResources(client: McpResourcesClient, request: McpResource
       signal,
       () => client.listResources(cursor ? { cursor } : undefined, request),
     )
+    if (!page || typeof page !== "object" || !Array.isArray(page.resources)) {
+      throw sourceProviderResponseInvalidError("mcp", "list-resources", { cause: page })
+    }
+    if (page.nextCursor !== undefined && typeof page.nextCursor !== "string") {
+      throw sourceProviderResponseInvalidError("mcp", "list-resources", { cause: page })
+    }
     resources.push(...page.resources)
     cursor = page.nextCursor
   } while (cursor)
@@ -224,6 +230,9 @@ async function readResourceContents(
     signal,
     () => client.readResource({ uri: resource.uri }, request),
   )
+  if (!response || typeof response !== "object" || !Array.isArray(response.contents)) {
+    throw sourceProviderResponseInvalidError("mcp", "read-resource", { cause: response })
+  }
   return response.contents
 }
 

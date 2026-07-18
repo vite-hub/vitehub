@@ -42,6 +42,17 @@ describe("@vite-hub/source local file sources", () => {
     })
   })
 
+  it("reports directories through the public item contract", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "docs"), { recursive: true })
+    const docs = file("docs")
+
+    await expect(docs.getItem("docs", { rootDir: root })).rejects.toMatchObject({
+      code: "SOURCE_ITEM_IS_DIRECTORY",
+      details: { key: "docs", source: "file" },
+    })
+  })
+
   it("loads file, markdown, and glob providers", async () => {
     const root = await createRoot()
     await mkdir(join(root, "docs"), { recursive: true })

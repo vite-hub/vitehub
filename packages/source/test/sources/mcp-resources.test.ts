@@ -98,6 +98,38 @@ describe("mcpResources", () => {
     expect(JSON.stringify(error)).not.toMatch(/secret-token|mcp\.example|private/)
   })
 
+  it("rejects malformed MCP list pages as invalid provider responses", async () => {
+    const providerPage = { secret: "secret-token from https://mcp.example/private" }
+    const client = createClient()
+    client.listResources = vi.fn().mockResolvedValue(providerPage as never)
+    const source = mcpResources({ server: client })
+
+    const error = await source.getKeys({ rootDir: "/tmp" }).catch(error => error)
+
+    expect(error).toMatchObject({
+      cause: providerPage,
+      code: "SOURCE_PROVIDER_RESPONSE_INVALID",
+      details: { operation: "list-resources", provider: "mcp" },
+    })
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|mcp\.example|private/)
+  })
+
+  it("rejects malformed MCP read payloads as invalid provider responses", async () => {
+    const providerResponse = { secret: "secret-token from https://mcp.example/private" }
+    const client = createClient()
+    client.readResource = vi.fn().mockResolvedValue(providerResponse as never)
+    const source = mcpResources({ server: client })
+
+    const error = await source.getItem("nuxt-com/documentation-pages.json", { rootDir: "/tmp" }).catch(error => error)
+
+    expect(error).toMatchObject({
+      cause: providerResponse,
+      code: "SOURCE_PROVIDER_RESPONSE_INVALID",
+      details: { operation: "read-resource", provider: "mcp" },
+    })
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|mcp\.example|private/)
+  })
+
   it("preserves raw MCP abort reasons", async () => {
     const reason = new Error("caller stopped MCP read")
     const controller = new AbortController()
