@@ -38,4 +38,51 @@ describe("HTTP request", () => {
       url: "https://portal.example.com/inventory",
     })
   })
+
+  it("does not retry caller cancellation and preserves the abort reason", async () => {
+    const controller = new AbortController()
+    const reason = new Error("request cancelled")
+    const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => await new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal
+      if (!signal) return reject(new Error("missing fetch signal"))
+      if (signal.aborted) return reject(signal.reason)
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true })
+    }))
+    vi.stubGlobal("fetch", fetch)
+
+    const request = executeHttpRequest({
+      abortSignal: controller.signal,
+      url: "https://portal.example.com/inventory",
+    })
+    controller.abort(reason)
+
+    await expect(request).rejects.toBe(reason)
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it("does not start a request for an already aborted caller", async () => {
+    const controller = new AbortController()
+    const reason = new Error("already cancelled")
+    controller.abort(reason)
+    const fetch = vi.fn()
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(executeHttpRequest({
+      abortSignal: controller.signal,
+      url: "https://portal.example.com/inventory",
+    })).rejects.toBe(reason)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("still retries non-cancellation GET failures", async () => {
+    const fetch = vi.fn()
+      .mockRejectedValueOnce(new Error("connection reset"))
+      .mockResolvedValueOnce(new Response("\"ok\""))
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(executeHttpRequest({
+      url: "https://portal.example.com/inventory",
+    })).resolves.toMatchObject({ data: "ok" })
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
 })

@@ -190,6 +190,36 @@ describe("fetch sources", () => {
     })
   })
 
+  it("cancels materialized fetch requests with the caller abort reason", async () => {
+    const controller = new AbortController()
+    const reason = new Error("materialization cancelled")
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => await new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal
+      if (!signal) return reject(new Error("missing fetch signal"))
+      if (signal.aborted) return reject(signal.reason)
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true })
+    }))
+    const view = createWorkspaceSourceView({
+      name: "fetch-abort",
+      sources: {
+        status: fetch({
+          url: "https://status.example.com/api/summary",
+          workspacePath: "status/summary.json",
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    const materialization = view.materializeSources({
+      abortSignal: controller.signal,
+      sources: ["status"],
+    })
+    while (!request.mock.calls.length) await Promise.resolve()
+    controller.abort(reason)
+
+    await expect(materialization).rejects.toBe(reason)
+    expect(request).toHaveBeenCalledOnce()
+  })
+
   it("hides stale materialized files from live fetch source listings", async () => {
     const store = createMemoryWorkspaceStore()
     await store.writeFile("status/old.json", {

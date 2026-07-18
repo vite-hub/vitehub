@@ -151,6 +151,7 @@ function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: Fe
       const request = await defaultFetchSourceRequest(options, method, ctx)
       const result = await executeHttpRequest({
         ...request,
+        abortSignal: ctx.abortSignal,
         method,
         url: requestBaseUrl(options.url),
       }, {
@@ -381,6 +382,7 @@ async function executeFetchSourceRequest(
   const request = await defaultFetchSourceRequest(options, method, ctx, { body, query })
   const result = await executeHttpRequest({
     ...request,
+    abortSignal: ctx.abortSignal,
     method,
     url: requestBaseUrl(options.url),
   }, {
