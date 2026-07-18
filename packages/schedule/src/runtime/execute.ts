@@ -43,10 +43,8 @@ interface ExecuteRuntimeScheduleWakeOptions {
 
 function assertRuntimeExecuteOptionsObject(options: unknown): asserts options is ExecuteRuntimeScheduleOptions {
   if (typeof options !== "object" || options === null || Array.isArray(options)) {
-    throw new ScheduleError("Runtime Schedule execute options must be a schedule id or options object.", {
-      code: "SCHEDULE_INVALID_INPUT",
+    throw new ScheduleError("SCHEDULE_INVALID_INPUT", {
       details: invalidScheduleValueDetails("options", options),
-      httpStatus: 400,
     })
   }
 }
@@ -61,10 +59,8 @@ function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: string, s
 
 function validateScheduledAt(scheduledAt: Date): Date {
   if (!(scheduledAt instanceof Date) || Number.isNaN(scheduledAt.getTime())) {
-    throw new ScheduleError("Schedule Run scheduledAt must be a valid Date.", {
-      code: "SCHEDULE_INVALID_SCHEDULED_AT",
+    throw new ScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
       details: invalidScheduleValueDetails("scheduledAt", scheduledAt),
-      httpStatus: 400,
     })
   }
   return scheduledAt
@@ -83,10 +79,7 @@ function toRunError(error: unknown): ScheduleRunError {
 
 function requireUpdatedRun(run: ScheduleRunRecord | undefined): ScheduleRunRecord {
   if (!run) {
-    throw new ScheduleError("Schedule Run bookkeeping update failed.", {
-      code: "SCHEDULE_RUN_NOT_FOUND",
-      httpStatus: 500,
-    })
+    throw new ScheduleError("SCHEDULE_RUN_NOT_FOUND")
   }
   return run
 }
@@ -246,11 +239,7 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
 async function loadRequiredRuntimeSchedule(id: string, store: RuntimeScheduleStore = getRuntimeScheduleStore()): Promise<RuntimeScheduleRecord> {
   const schedule = await store.get(id)
   if (!schedule) {
-    throw new ScheduleError(`Runtime Schedule not found: ${id}`, {
-      code: "SCHEDULE_NOT_FOUND",
-      details: { id },
-      httpStatus: 404,
-    })
+    throw new ScheduleError("SCHEDULE_NOT_FOUND")
   }
   return schedule
 }
@@ -270,33 +259,17 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
 
   const schedule = await loadRequiredRuntimeSchedule(id, runtimeScheduleStore)
   if (!schedule.enabled) {
-    throw new ScheduleError(`Runtime Schedule is disabled: ${id}`, {
-      code: "SCHEDULE_DISABLED",
-      details: { id },
-      httpStatus: 409,
-    })
+    throw new ScheduleError("SCHEDULE_DISABLED")
   }
   if (runtimeOptions.requireDue && !isRuntimeScheduleDue(schedule, scheduledAt)) {
-    throw new ScheduleError(`Runtime Schedule is not due: ${id}`, {
-      code: "SCHEDULE_NOT_DUE",
-      details: { id, scheduledAt: scheduledAt.toISOString() },
-      httpStatus: 409,
-    })
+    throw new ScheduleError("SCHEDULE_NOT_DUE")
   }
   const definition = await loadScheduleDefinition(schedule.target)
   if (!definition) {
-    throw new ScheduleError(`Unknown Runtime Schedule target: ${schedule.target}`, {
-      code: "SCHEDULE_TARGET_NOT_FOUND",
-      details: { target: schedule.target },
-      httpStatus: 404,
-    })
+    throw new ScheduleError("SCHEDULE_TARGET_NOT_FOUND")
   }
   if (definition.options?.allowRuntimeSchedules !== true) {
-    throw new ScheduleError(`Runtime Schedule target is not eligible: ${schedule.target}`, {
-      code: "SCHEDULE_TARGET_NOT_ELIGIBLE",
-      details: { target: schedule.target },
-      httpStatus: 400,
-    })
+    throw new ScheduleError("SCHEDULE_TARGET_NOT_ELIGIBLE")
   }
 
   return await executeSchedule({

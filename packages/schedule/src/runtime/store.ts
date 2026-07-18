@@ -141,11 +141,7 @@ export function createMemoryRuntimeScheduleStore(): RuntimeScheduleStore {
     create(record) {
       assertRuntimeScheduleId(record.id)
       if (records.has(record.id)) {
-        throw new ScheduleError(`Runtime Schedule already exists: ${record.id}`, {
-          code: "SCHEDULE_ALREADY_EXISTS",
-          details: { id: record.id },
-          httpStatus: 409,
-        })
+        throw new ScheduleError("SCHEDULE_ALREADY_EXISTS")
       }
       records.set(record.id, cloneRuntimeSchedule(record))
       return cloneRuntimeSchedule(record)
@@ -191,11 +187,7 @@ export function createKVRuntimeScheduleStore(options: KVScheduleStoreOptions = {
       const key = runtimeScheduleKey(prefix, record.id)
       return await withKVKeyLock(key, async () => {
         if (await store.has(key)) {
-          throw new ScheduleError(`Runtime Schedule already exists: ${record.id}`, {
-            code: "SCHEDULE_ALREADY_EXISTS",
-            details: { id: record.id },
-            httpStatus: 409,
-          })
+          throw new ScheduleError("SCHEDULE_ALREADY_EXISTS")
         }
         await store.set(key, serializeRuntimeSchedule(record))
         return cloneRuntimeSchedule(record)
