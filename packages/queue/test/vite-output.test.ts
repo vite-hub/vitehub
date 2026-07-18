@@ -203,18 +203,25 @@ describe("Vite provider outputs", () => {
     })
   })
 
-  it("preserves another primitive's Cloudflare Worker during Nitro takeover", async () => {
-    const rootDir = await createWorkspaceTempDir("vitehub-queue-shared-nitro-cloudflare-")
+  it("cleans standalone Queue output created before worker banners", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-legacy-nitro-cloudflare-")
     const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
     await mkdir(join(rootDir, "src"), { recursive: true })
-    await mkdir(cloudflareOutputRoot, { recursive: true })
+    await mkdir(join(rootDir, "dist"), { recursive: true })
     await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
-    await writeFile(join(cloudflareOutputRoot, "index.js"), "// workflow worker\n", "utf8")
-    await writeFile(join(cloudflareOutputRoot, "wrangler.json"), `${JSON.stringify({
-      main: "index.js",
-      queues: { producers: [{ binding: "STALE", queue: "stale" }] },
-      workflows: [{ binding: "WORKFLOW", class_name: "Workflow" }],
-    }, null, 2)}\n`, "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist",
+      queue: { provider: "cloudflare" },
+      rootDir,
+    })
+    const workerFile = join(cloudflareOutputRoot, "index.js")
+    const legacyWorker = (await readFile(workerFile, "utf8")).replace("// vitehub-queue-worker\n", "")
+    expect(legacyWorker).not.toContain("vitehub-queue-worker")
+    await writeFile(workerFile, legacyWorker, "utf8")
+    const wranglerFile = join(cloudflareOutputRoot, "wrangler.json")
+    const wrangler = JSON.parse(await readFile(wranglerFile, "utf8")) as Record<string, unknown>
+    await writeFile(wranglerFile, `${JSON.stringify({ ...wrangler, triggers: { crons: ["0 0 * * *"] } }, null, 2)}\n`, "utf8")
 
     await generateProviderOutputs({
       clientOutDir: "dist",
@@ -223,12 +230,44 @@ describe("Vite provider outputs", () => {
       rootDir,
     })
 
-    await expect(readFile(join(cloudflareOutputRoot, "index.js"), "utf8")).resolves.toBe("// workflow worker\n")
-    await expect(readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
-      main: "index.js",
-      queues: { producers: [{ binding: "STALE", queue: "stale" }] },
-      workflows: [{ binding: "WORKFLOW", class_name: "Workflow" }],
+    expect(existsSync(workerFile)).toBe(false)
+    await expect(readFile(wranglerFile, "utf8").then(JSON.parse)).resolves.toEqual({
+      triggers: { crons: ["0 0 * * *"] },
     })
+  })
+
+  it("preserves another primitive's Cloudflare Worker during Nitro takeover", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-shared-nitro-cloudflare-")
+    const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(cloudflareOutputRoot, { recursive: true })
+    await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
+    for (const worker of ["// workflow worker\n", "// vitehub-blob-worker\n", "export default { fetch() {} }\n"]) {
+      await writeFile(join(cloudflareOutputRoot, "index.js"), worker, "utf8")
+      await writeFile(join(cloudflareOutputRoot, "wrangler.json"), `${JSON.stringify({
+        compatibility_flags: ["nodejs_compat"],
+        main: "index.js",
+        observability: { enabled: true },
+        queues: { producers: [{ binding: "STALE", queue: "stale" }] },
+        workflows: [{ binding: "WORKFLOW", class_name: "Workflow" }],
+      }, null, 2)}\n`, "utf8")
+
+      await generateProviderOutputs({
+        clientOutDir: "dist",
+        cloudflareOwnedByNitro: true,
+        queue: { provider: "cloudflare" },
+        rootDir,
+      })
+
+      await expect(readFile(join(cloudflareOutputRoot, "index.js"), "utf8")).resolves.toBe(worker)
+      await expect(readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+        compatibility_flags: ["nodejs_compat"],
+        main: "index.js",
+        observability: { enabled: true },
+        queues: { producers: [{ binding: "STALE", queue: "stale" }] },
+        workflows: [{ binding: "WORKFLOW", class_name: "Workflow" }],
+      })
+    }
   })
 
   it("does not preload Vercel queue without queue definitions", async () => {

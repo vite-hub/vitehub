@@ -1,6 +1,6 @@
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput, shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, hasNitroVitePlugin, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 
 import { createCloudflareQueueBindings, generateProviderOutputs, generatedQueueNitroPlugin, queuePackageName, writeQueueNitroIntegration } from "./internal/vite-build.ts"
@@ -99,8 +99,6 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
   let queue: QueueModuleOptions | undefined = options
   let hosting = "vercel"
   let cloudflareQueues = true
-  let configHookRan = false
-  let hasUserNitroIntegration = false
   let nitroOwnsCloudflareWorker = false
 
   return {
@@ -113,12 +111,6 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
     config(config) {
       queue = config.queue ?? queue
       const nitro = (config as { nitro?: unknown }).nitro
-      const nitroConfig = cloneNitroConfig(nitro)
-      if (!configHookRan) {
-        configHookRan = true
-        hasUserNitroIntegration = Boolean(nitro)
-      }
-      nitroOwnsCloudflareWorker = Boolean(hasUserNitroIntegration && resolveNitroHosting(nitroConfig) === "cloudflare" && supportsCloudflareQueues(nitroConfig))
       ;(config as { nitro?: unknown }).nitro = mergeNitroConfig(config, nitro, queue, config.root || process.cwd())
     },
     async configResolved(config) {
@@ -126,8 +118,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       queue = config.queue ?? queue
       const configuredNitro = (config as { nitro?: unknown }).nitro
       const configuredNitroConfig = cloneNitroConfig(configuredNitro)
-      const nitroOwnsOutput = configHookRan ? hasUserNitroIntegration : Boolean(configuredNitro)
-      nitroOwnsCloudflareWorker = Boolean(nitroOwnsOutput && resolveNitroHosting(configuredNitroConfig) === "cloudflare" && supportsCloudflareQueues(configuredNitroConfig))
+      nitroOwnsCloudflareWorker = hasNitroVitePlugin(config) && resolveNitroHosting(configuredNitroConfig) === "cloudflare" && supportsCloudflareQueues(configuredNitroConfig)
       const nitro = mergeNitroConfig(config, configuredNitro, queue, config.root)
       ;(config as { nitro?: unknown }).nitro = nitro
       hosting = resolveQueueHosting(queue, nitro)

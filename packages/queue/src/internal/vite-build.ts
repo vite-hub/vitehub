@@ -256,11 +256,33 @@ function createCloudflareOutput(artifacts: GeneratedQueueArtifacts): CloudflareP
   }
 }
 
+function isLegacyCloudflareQueueWorker(contents: string, wrangler: unknown): boolean {
+  if (!contents.includes("createQueueCloudflareWorker({")
+    || !contents.includes("getCloudflareQueueDefinitionName(batch.queue)")
+    || !contents.includes('label: "queue"')) return false
+  if (!wrangler || typeof wrangler !== "object" || Array.isArray(wrangler)) return false
+  const config = wrangler as Record<string, unknown>
+  const observability = config.observability
+  return config.main === "index.js"
+    && Array.isArray(config.compatibility_flags)
+    && config.compatibility_flags.includes("nodejs_compat")
+    && Boolean(observability)
+    && typeof observability === "object"
+    && !Array.isArray(observability)
+    && (observability as Record<string, unknown>).enabled === true
+}
+
 async function createNitroCloudflareCleanup(rootDir: string) {
   const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
   let ownsWorker = false
   try {
-    ownsWorker = (await readFile(resolve(outputRoot, "index.js"), "utf8")).includes(cloudflareQueueWorkerMarker)
+    const contents = await readFile(resolve(outputRoot, "index.js"), "utf8")
+    if (contents.includes(cloudflareQueueWorkerMarker)) {
+      ownsWorker = true
+    } else {
+      const wrangler = JSON.parse(await readFile(resolve(outputRoot, "wrangler.json"), "utf8")) as unknown
+      ownsWorker = isLegacyCloudflareQueueWorker(contents, wrangler)
+    }
   }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
