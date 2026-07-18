@@ -358,7 +358,7 @@ await createQueueClient({
 
 ## Errors
 
-Queue APIs throw `QueueError`, which extends the shared `ViteHubError` foundation. Its object constructor requires `code` and `message`; it can also carry code-specific `details`, `requestId`, `retryable`, the compatibility fields `httpStatus`, `method`, and `provider`, and a non-serialized `cause`.
+Queue APIs throw `QueueError`, which extends the shared `ViteHubError` foundation. Its object constructor requires `code` and `message`; it can also carry code-specific `details`, `requestId`, `retryable`, and a non-serialized `cause`.
 
 Built-in failures use the closed `QueueErrorCode` union and allowlisted details. Queue Definitions can add an application code explicitly:
 
@@ -370,22 +370,6 @@ new QueueError<'WELCOME_EMAIL_REJECTED'>({
   message: 'Welcome email was rejected.',
 })
 ```
-
-Existing Queue Definitions can keep the message-first form:
-
-```ts
-new QueueError('Welcome email was rejected.', {
-  cause,
-  code: 'WELCOME_EMAIL_REJECTED',
-  details: { campaign: 'welcome' },
-  httpStatus: 422,
-  method: 'POST',
-  provider: 'vercel',
-  retryable: false,
-})
-```
-
-Use the object form when you want code-specific detail types. `httpStatus`, `method`, and `provider` remain available to server integrations in either form, but they are not part of `toJSON()` or Queue Delivery reports.
 
 `JSON.stringify(error)` uses the shared safe shape and omits `cause`. Built-in provider errors use fixed messages and allowlisted `{ provider, operation }` details, while the raw SDK or binding failure remains available as `error.cause` in protected server-side diagnostics.
 
