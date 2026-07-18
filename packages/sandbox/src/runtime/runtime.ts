@@ -39,9 +39,8 @@ function isRetriableCloudflareSandboxError(error: unknown) {
   const sandboxError = error instanceof SandboxError ? error : undefined
   const metadata = readSandboxErrorMetadata(error)
 
-  const provider = sandboxError?.provider || metadata?.provider
-  if (provider && provider !== 'cloudflare')
-    return false
+  const provider = sandboxError?.details?.provider || metadata?.provider
+  if (provider && provider !== 'cloudflare') return false
 
   const extraMessage = metadata?.cause instanceof Error ? metadata.cause.message : ''
   return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(collectCloudflareErrorMessages(error, extraMessage))
@@ -65,8 +64,13 @@ export async function createSandboxWithConfig(
 
   const validation = validateSandboxConfig(resolvedProvider as SandboxProviderOptions)
   if (!validation.ok) {
-    const firstIssue = validation.issues.find(issue => issue.severity === 'error') || validation.issues[0]
-    throw new SandboxError(firstIssue?.message || `[${provider}] invalid sandbox config`)
+    const firstIssue =
+      validation.issues.find((issue) => issue.severity === 'error') || validation.issues[0]
+    throw new SandboxError({
+      code: 'SANDBOX_VALIDATION_ERROR',
+      details: { provider },
+      message: firstIssue?.message || `[${provider}] invalid sandbox config`,
+    })
   }
 
   return await createSandboxClient(resolvedProvider as SandboxProviderOptions)
@@ -143,9 +147,10 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
           }
         }
 
-        throw new SandboxError('Cloudflare sandbox retries exhausted.', {
+        throw new SandboxError({
           code: 'SANDBOX_RUNTIME_ERROR',
-          provider: provider.provider,
+          details: { provider: provider.provider },
+          message: 'Cloudflare sandbox retries exhausted.',
         })
       },
     }

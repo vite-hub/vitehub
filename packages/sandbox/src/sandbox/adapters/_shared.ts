@@ -53,5 +53,9 @@ export async function waitForPortProbe(
     }
   }
 
-  throw new SandboxError(`Timeout waiting for port ${port}`, 'TIMEOUT')
+  throw new SandboxError({
+    code: 'SANDBOX_TIMEOUT',
+    details: { port },
+    message: `Timeout waiting for port ${port}`,
+  })
 }

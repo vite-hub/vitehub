@@ -99,7 +99,12 @@ class CloudflareNamespaceImpl implements CloudflareSandboxNamespace {
 
   async exposePort(port: number, opts?: SandboxExposePortOptions): Promise<{ url: string }> {
     if (!opts?.hostname)
-      throw new SandboxError('Cloudflare exposePort() requires opts.hostname. Use a custom domain (not *.workers.dev).', 'INVALID_ARGUMENT')
+      throw new SandboxError({
+        code: 'SANDBOX_INVALID_ARGUMENT',
+        details: { operation: 'exposePort', provider: 'cloudflare' },
+        message:
+          'Cloudflare exposePort() requires opts.hostname. Use a custom domain (not *.workers.dev).',
+      })
     if (typeof this.extendedStub.exposePort === 'function')
       return this.extendedStub.exposePort(port, opts)
     throw new NotSupportedError('exposePort', 'cloudflare')
@@ -115,7 +120,12 @@ class CloudflareNamespaceImpl implements CloudflareSandboxNamespace {
 
   async getExposedPorts(hostname?: string): Promise<SandboxExposedPort[]> {
     if (!hostname)
-      throw new SandboxError('Cloudflare getExposedPorts() requires a hostname argument. Use your custom domain hostname.', 'INVALID_ARGUMENT')
+      throw new SandboxError({
+        code: 'SANDBOX_INVALID_ARGUMENT',
+        details: { operation: 'getExposedPorts', provider: 'cloudflare' },
+        message:
+          'Cloudflare getExposedPorts() requires a hostname argument. Use your custom domain hostname.',
+      })
     if (typeof this.extendedStub.getExposedPorts === 'function')
       return this.extendedStub.getExposedPorts(hostname)
     throw new NotSupportedError('getExposedPorts', 'cloudflare')
@@ -206,19 +216,46 @@ export class CloudflareSandboxAdapter extends BaseSandboxAdapter<'cloudflare'> {
   async writeFile(path: string, content: SandboxFileContent): Promise<void> {
     const body = typeof content === 'string' ? content : Buffer.from(content).toString('base64')
     const options = typeof content === 'string' ? undefined : { encoding: 'base64' }
-    const result = await withCloudflareTransportRetry('writeFile', async () => await withCloudflareDeadline('writeFile', CLOUDFLARE_CONTROL_PLANE_TIMEOUT_MS, async () => await this.native.writeFile(path, body, options)))
+    const result = await withCloudflareTransportRetry(
+      'writeFile',
+      async () =>
+        await withCloudflareDeadline(
+          'writeFile',
+          CLOUDFLARE_CONTROL_PLANE_TIMEOUT_MS,
+          async () => await this.native.writeFile(path, body, options),
+        ),
+    )
     if (!result.success)
-      throw new SandboxError(`Failed to write file: ${path}`)
+      throw new SandboxError({
+        code: 'SANDBOX_EXEC_FAILED',
+        details: { operation: 'writeFile', path, provider: 'cloudflare' },
+        message: `Failed to write file: ${path}`,
+      })
   }
 
   async readFile(path: string, opts: SandboxReadFileOptions & { encoding: 'binary' }): Promise<Uint8Array>
   async readFile(path: string, opts?: SandboxReadFileOptions): Promise<string>
   async readFile(path: string, opts?: SandboxReadFileOptions): Promise<string | Uint8Array> {
-    const result = await withCloudflareTransportRetry('readFile', async () => await withCloudflareDeadline('readFile', CLOUDFLARE_READ_FILE_TIMEOUT_MS, async () => await this.native.readFile(path, opts?.encoding === 'binary' ? { encoding: 'base64' } : undefined)))
+    const result = await withCloudflareTransportRetry(
+      'readFile',
+      async () =>
+        await withCloudflareDeadline(
+          'readFile',
+          CLOUDFLARE_READ_FILE_TIMEOUT_MS,
+          async () =>
+            await this.native.readFile(
+              path,
+              opts?.encoding === 'binary' ? { encoding: 'base64' } : undefined,
+            ),
+        ),
+    )
     if (!result.success)
-      throw new SandboxError(`Failed to read file: ${path}`)
-    if (opts?.encoding === 'binary')
-      return new Uint8Array(Buffer.from(result.content, 'base64'))
+      throw new SandboxError({
+        code: 'SANDBOX_EXEC_FAILED',
+        details: { operation: 'readFile', path, provider: 'cloudflare' },
+        message: `Failed to read file: ${path}`,
+      })
+    if (opts?.encoding === 'binary') return new Uint8Array(Buffer.from(result.content, 'base64'))
     return result.content
   }
 
@@ -228,14 +265,30 @@ export class CloudflareSandboxAdapter extends BaseSandboxAdapter<'cloudflare'> {
 
   async mkdir(path: string, opts?: { recursive?: boolean }): Promise<void> {
     if (this.native.mkdir) {
-      const result = await withCloudflareTransportRetry('mkdir', async () => await withCloudflareDeadline('mkdir', CLOUDFLARE_CONTROL_PLANE_TIMEOUT_MS, async () => await this.native.mkdir!(path, opts)))
+      const result = await withCloudflareTransportRetry(
+        'mkdir',
+        async () =>
+          await withCloudflareDeadline(
+            'mkdir',
+            CLOUDFLARE_CONTROL_PLANE_TIMEOUT_MS,
+            async () => await this.native.mkdir!(path, opts),
+          ),
+      )
       if (!result.success)
-        throw new SandboxError(`Failed to create directory: ${path}`)
+        throw new SandboxError({
+          code: 'SANDBOX_EXEC_FAILED',
+          details: { operation: 'mkdir', path, provider: 'cloudflare' },
+          message: `Failed to create directory: ${path}`,
+        })
       return
     }
     const result = await this.exec('mkdir', opts?.recursive ? ['-p', path] : [path])
     if (!result.ok)
-      throw new SandboxError(`Failed to create directory: ${path}. ${result.stderr}`)
+      throw new SandboxError({
+        code: 'SANDBOX_EXEC_FAILED',
+        details: { operation: 'mkdir', path, provider: 'cloudflare' },
+        message: `Failed to create directory: ${path}. ${result.stderr}`,
+      })
   }
 
   async readFileStream(path: string): Promise<ReadableStream<Uint8Array>> {
@@ -262,7 +315,7 @@ export class CloudflareSandboxAdapter extends BaseSandboxAdapter<'cloudflare'> {
       || typeof processInfo.waitForLog !== 'function'
       || typeof processInfo.waitForPort !== 'function'
     )
-      throw new SandboxError('Cloudflare process handles must provide getLogs(), waitForExit(), waitForLog(), and waitForPort().', 'NOT_SUPPORTED')
+      throw new NotSupportedError('startProcess', 'cloudflare')
 
     return new CloudflareProcessHandle(processInfo.id, processInfo.command, {
       kill: processInfo.kill.bind(processInfo),
@@ -282,8 +335,13 @@ export class CloudflareSandboxAdapter extends BaseSandboxAdapter<'cloudflare'> {
     }
     const result = await this.exec('ls', [opts?.recursive ? '-laR' : '-la', path])
     if (!result.ok)
-      throw new SandboxError(`Failed to list files: ${path}. ${result.stderr}`)
-    return result.stdout.split('\n')
+      throw new SandboxError({
+        code: 'SANDBOX_EXEC_FAILED',
+        details: { operation: 'listFiles', path, provider: 'cloudflare' },
+        message: `Failed to list files: ${path}. ${result.stderr}`,
+      })
+    return result.stdout
+      .split('\n')
       .filter(Boolean)
       .slice(1)
       .map((line) => {
@@ -316,23 +374,39 @@ export class CloudflareSandboxAdapter extends BaseSandboxAdapter<'cloudflare'> {
     if (this.native.deleteFile) {
       const result = await this.native.deleteFile(path)
       if (!result.success)
-        throw new SandboxError(`Failed to delete file: ${path}`)
+        throw new SandboxError({
+          code: 'SANDBOX_EXEC_FAILED',
+          details: { operation: 'deleteFile', path, provider: 'cloudflare' },
+          message: `Failed to delete file: ${path}`,
+        })
       return
     }
     const result = await this.exec('rm', ['-f', path])
     if (!result.ok)
-      throw new SandboxError(`Failed to delete file: ${path}. ${result.stderr}`)
+      throw new SandboxError({
+        code: 'SANDBOX_EXEC_FAILED',
+        details: { operation: 'deleteFile', path, provider: 'cloudflare' },
+        message: `Failed to delete file: ${path}. ${result.stderr}`,
+      })
   }
 
   override async moveFile(src: string, dst: string): Promise<void> {
     if (this.native.moveFile) {
       const result = await this.native.moveFile(src, dst)
       if (!result.success)
-        throw new SandboxError(`Failed to move file: ${src} -> ${dst}`)
+        throw new SandboxError({
+          code: 'SANDBOX_EXEC_FAILED',
+          details: { destination: dst, operation: 'moveFile', provider: 'cloudflare', source: src },
+          message: `Failed to move file: ${src} -> ${dst}`,
+        })
       return
     }
     const result = await this.exec('mv', [src, dst])
     if (!result.ok)
-      throw new SandboxError(`Failed to move file: ${src} -> ${dst}. ${result.stderr}`)
+      throw new SandboxError({
+        code: 'SANDBOX_EXEC_FAILED',
+        details: { destination: dst, operation: 'moveFile', provider: 'cloudflare', source: src },
+        message: `Failed to move file: ${src} -> ${dst}. ${result.stderr}`,
+      })
   }
 }

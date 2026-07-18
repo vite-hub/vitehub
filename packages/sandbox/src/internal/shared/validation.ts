@@ -1,4 +1,4 @@
-import { VitehubError } from './errors'
+import { SandboxError } from '../../sandbox/errors'
 
 export const VALIDATION_FAILED = 'Validation failed'
 
@@ -122,7 +122,10 @@ function readData(value: unknown, issues: readonly ValidationIssue[] | undefined
   return { ...base, message, ...(issues ? { issues } : {}) } as ValidationErrorData
 }
 
-export class VitehubValidationError extends VitehubError {
+export class VitehubValidationError extends SandboxError<
+  'SANDBOX_VALIDATION_ERROR',
+  { status: number }
+> {
   readonly status: number
   readonly statusCode: number
   readonly statusText: string
@@ -136,11 +139,11 @@ export class VitehubValidationError extends VitehubError {
     const issues = readIssues(cause)
     const data = readData(cause, issues)
 
-    super(message, {
+    super({
       cause,
-      code: 'VALIDATION_ERROR',
-      details: data,
-      httpStatus: statusCode,
+      code: 'SANDBOX_VALIDATION_ERROR',
+      details: { status: statusCode },
+      message,
     })
     this.name = 'VitehubValidationError'
     this.status = statusCode

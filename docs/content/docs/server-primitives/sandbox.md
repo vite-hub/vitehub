@@ -56,6 +56,8 @@ export default defineEventHandler(async () => {
 | --- | --- |
 | `defineSandbox` from `@vite-hub/sandbox` | Declare a Sandbox Definition. |
 | `runSandbox` from `@vite-hub/sandbox` | Execute a named Sandbox Definition. |
+| `SandboxError` from `@vite-hub/sandbox` | Throw an app-owned or ViteHub-owned structured Sandbox failure. |
+| `NotSupportedError` from `@vite-hub/sandbox` | Report an operation unsupported by a Sandbox Provider. |
 | `hubSandbox` from `@vite-hub/sandbox/vite` | Register Sandbox discovery, generated types, and provider runtime wiring. |
 | `@vite-hub/sandbox/runtime/providers/cloudflare` | Cloudflare runtime provider loader entry. |
 | `@vite-hub/sandbox/runtime/providers/vercel` | Vercel runtime provider loader entry. |
@@ -147,6 +149,28 @@ The payload is Sandbox Payload. Provider reuse hints such as Sandbox Identity be
 | `sandboxId` | `string` | Provider sandbox identity or reuse hint for this run. |
 
 `runSandbox()` returns a `SandboxRunResult`: `isOk()` results contain `value`, and `isErr()` results contain a normalized `SandboxError`.
+
+## Structured errors
+
+Use `SandboxError` when a caller needs a stable code and JSON-safe context instead of a log message.
+
+```ts
+import { SandboxError } from '@vite-hub/sandbox'
+
+try {
+  await renderPreview()
+}
+catch (cause) {
+  throw new SandboxError({
+    cause,
+    code: 'RENDER_FAILED',
+    details: { previewId },
+    message: 'Preview rendering failed.',
+  })
+}
+```
+
+ViteHub's built-in codes are typed as `SandboxErrorCode`, and app code can use its own stable strings. Keep `details` JSON-safe and free of secrets. `error.toJSON()` includes `code`, `message`, and `details`; it omits `cause`, which remains available only on the in-memory error. Provider adapters can use `NotSupportedError(operation, provider)` for the package-owned unsupported-operation shape.
 
 ## Pair it with Workspace
 

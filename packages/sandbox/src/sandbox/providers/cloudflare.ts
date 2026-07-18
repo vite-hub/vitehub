@@ -5,15 +5,23 @@ import { SandboxError } from '../errors'
 async function loadCloudflareSandbox() {
   try {
     return (await import('@cloudflare/sandbox')).getSandbox
-  }
-  catch (error) {
-    throw new SandboxError(`@cloudflare/sandbox load failed. The Cloudflare provider requires @cloudflare/sandbox to be installed. Original error: ${error instanceof Error ? error.message : error}`)
+  } catch (error) {
+    throw new SandboxError({
+      cause: error,
+      code: 'SANDBOX_RUNTIME_ERROR',
+      details: { provider: 'cloudflare' },
+      message: '@cloudflare/sandbox load failed.',
+    })
   }
 }
 
 export async function createCloudflareSandboxClient(provider: CloudflareSandboxProviderOptions): Promise<CloudflareSandboxClient> {
   if (!provider.namespace)
-    throw new SandboxError('Cloudflare sandbox requires a Durable Objects binding namespace.')
+    throw new SandboxError({
+      code: 'SANDBOX_RUNTIME_ERROR',
+      details: { provider: 'cloudflare' },
+      message: 'Cloudflare sandbox requires a Durable Objects binding namespace.',
+    })
 
   const id = provider.sandboxId ?? `cloudflare-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const cloudflareSandbox = provider.getSandbox ? undefined : await loadCloudflareSandbox()

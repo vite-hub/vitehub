@@ -4,6 +4,8 @@ import { SandboxError } from '../sandbox/errors'
 import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script'
 
 import type { SandboxClient } from '../sandbox/types'
+import type { SandboxProvider } from '../sandbox/types/common'
+import type { ViteHubErrorDetails } from '@vite-hub/runtime'
 
 const MIN_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS = 20_000
 const DEFAULT_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS = 60_000
@@ -37,28 +39,34 @@ function getErrorMessage(error: unknown) {
 function isRecoverableCloudflareExecError(error: unknown) {
   const sandboxError = error instanceof SandboxError ? error : undefined
 
-  if (sandboxError?.provider && sandboxError.provider !== 'cloudflare')
+  if (sandboxError?.details?.provider && sandboxError.details.provider !== 'cloudflare')
     return false
 
-  if (sandboxError?.code === 'TIMEOUT' || sandboxError?.code === 'SANDBOX_TRANSPORT_ERROR')
+  if (sandboxError?.code === 'SANDBOX_TIMEOUT' || sandboxError?.code === 'SANDBOX_TRANSPORT_ERROR')
     return true
 
   return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(collectCloudflareErrorMessages(error))
 }
 
-export function createHandlerError(message: string, provider: string, details?: Record<string, unknown>) {
-  return new SandboxError(message, {
+export function createHandlerError(
+  message: string,
+  provider: SandboxProvider,
+  details?: ViteHubErrorDetails,
+  cause?: unknown,
+) {
+  return new SandboxError({
+    cause,
     code: 'SANDBOX_HANDLER_ERROR',
-    provider,
-    details,
+    details: { provider, ...details },
+    message,
   })
 }
 
-export function createTimeoutError(provider: string, timeout: number) {
-  return new SandboxError(`Sandbox definition timed out after ${timeout}ms.`, {
-    code: 'TIMEOUT',
-    provider,
-    details: { timeout },
+export function createTimeoutError(provider: SandboxProvider, timeout: number) {
+  return new SandboxError({
+    code: 'SANDBOX_TIMEOUT',
+    details: { provider, timeoutMs: timeout },
+    message: `Sandbox definition timed out after ${timeout}ms.`,
   })
 }
 
@@ -103,7 +111,11 @@ function previewExecutionStream(stream?: string) {
 
 function getExecutionDiagnostics(execution?: ExecutionMeta) {
   return {
-    args: Array.isArray(execution?.meta?.args) ? execution?.meta?.args : undefined,
+    args:
+      Array.isArray(execution?.meta?.args) &&
+      execution.meta.args.every((arg) => typeof arg === 'string')
+        ? (execution.meta.args as string[])
+        : undefined,
     command: typeof execution?.meta?.command === 'string' ? execution.meta.command : undefined,
     cwd: typeof execution?.meta?.cwd === 'string' ? execution.meta.cwd : undefined,
     exitCode: typeof execution?.code === 'undefined' ? undefined : execution.code,
@@ -113,15 +125,17 @@ function getExecutionDiagnostics(execution?: ExecutionMeta) {
 }
 
 function getErrorDiagnostics(error: unknown) {
-  if (!error || typeof error !== 'object' || !('details' in error))
-    return {}
+  if (!error || typeof error !== 'object') return {}
 
-  const details = (error as { details?: Record<string, unknown> }).details
-  if (!details || typeof details !== 'object')
-    return {}
+  const details =
+    'details' in error ? (error as { details?: Record<string, unknown> }).details : undefined
+  if (!details || typeof details !== 'object') return {}
 
   return {
-    args: Array.isArray(details.args) ? details.args : undefined,
+    args:
+      Array.isArray(details.args) && details.args.every((arg) => typeof arg === 'string')
+        ? (details.args as string[])
+        : undefined,
     command: typeof details.command === 'string' ? details.command : undefined,
     cwd: typeof details.cwd === 'string' ? details.cwd : undefined,
     exitCode: typeof details.exitCode === 'number' || details.exitCode === null ? details.exitCode : undefined,
@@ -148,16 +162,20 @@ function createExecOutputFailure(
   error: unknown,
   recoveryTimeout: number,
   execution?: ExecutionMeta,
-  details?: Record<string, unknown>,
+  details?: ViteHubErrorDetails,
 ) {
-  return createHandlerError('Sandbox definition execution failed before producing an output file.', sandbox.provider, {
-    outputPath,
-    cause: getErrorMessage(error),
-    recoveryTimeout,
-    ...details,
-    ...getErrorDiagnostics(error),
-    ...getExecutionDiagnostics(execution),
-  })
+  return createHandlerError(
+    'Sandbox definition execution failed before producing an output file.',
+    sandbox.provider,
+    {
+      outputPath,
+      recoveryTimeout,
+      ...details,
+      ...getErrorDiagnostics(error),
+      ...getExecutionDiagnostics(execution),
+    },
+    error,
+  )
 }
 
 async function waitForExecOutput(

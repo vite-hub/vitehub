@@ -32,11 +32,10 @@ export function normalizeVercelExecError(command: string, args: string[], error:
       messageParts.push(`Transport: ${responseContext}.`)
   }
 
-  return new SandboxError(messageParts.join(' '), {
+  return new SandboxError({
     cause: error,
-    code: 'VERCEL_SANDBOX_EXEC_FAILED',
-    details: { command: commandLabel },
-    method: 'exec',
-    provider: 'vercel',
+    code: 'SANDBOX_EXEC_FAILED',
+    details: { command: commandLabel, operation: 'exec', provider: 'vercel' },
+    message: messageParts.join(' '),
   })
 }

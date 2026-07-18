@@ -1,4 +1,5 @@
 export { defineSandbox } from './runtime/registry'
+export { NotSupportedError, SandboxError } from './sandbox/errors'
 export { readRequestPayload } from './internal/shared/request-payload'
 export { readValidatedPayload } from './runtime/validation'
 export { createSandboxWithConfig } from './runtime/runtime'

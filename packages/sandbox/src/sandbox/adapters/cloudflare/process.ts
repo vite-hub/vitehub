@@ -62,7 +62,11 @@ export class CloudflareProcessHandle implements SandboxProcess {
       }
       await sleep(100)
     }
-    throw new SandboxError(`Timeout waiting for log pattern: ${pattern}`, 'TIMEOUT')
+    throw new SandboxError({
+      code: 'SANDBOX_TIMEOUT',
+      details: { pattern: String(pattern) },
+      message: `Timeout waiting for log pattern: ${pattern}`,
+    })
   }
 
   async waitForPort(port: number, opts?: SandboxWaitForPortOptions): Promise<void> {

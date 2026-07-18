@@ -137,9 +137,9 @@ describe("executeSandboxDefinition", () => {
     )).rejects.toMatchObject({
       name: "SandboxError",
       code: "SANDBOX_HANDLER_ERROR",
-      provider: "vercel",
       details: {
         exitCode: 127,
+        provider: "vercel",
         stderrPreview: "runtime command failed",
         stdoutPreview: "booted",
       },

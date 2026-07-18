@@ -24,12 +24,12 @@ const defaultNodeLauncher = 'import(process.argv[1])'
 function toJson(value: unknown, label: string) {
   try {
     return JSON.stringify(value)
-  }
-  catch (error) {
-    throw new SandboxError(`Sandbox ${label} must be JSON-serializable.`, {
-      code: 'SERIALIZATION_ERROR',
+  } catch (error) {
+    throw new SandboxError({
+      code: 'SANDBOX_SERIALIZATION_ERROR',
       details: { label },
       cause: error,
+      message: `Sandbox ${label} must be JSON-serializable.`,
     })
   }
 }
@@ -99,23 +99,29 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
     || tryParseSandboxOutput(extractSandboxOutputFromExecution(execution) || '')
 
   if (!output) {
-    throw createHandlerError('Sandbox definition output is not valid JSON.', sandbox.provider, {
-      output: outputRaw,
-      cause: 'Output file was empty or contained incomplete JSON.',
-    })
+    throw createHandlerError(
+      'Sandbox definition output is not valid JSON.',
+      sandbox.provider,
+      { output: outputRaw },
+      'Output file was empty or contained incomplete JSON.',
+    )
   }
 
   if (output.ok)
     return output.result as TResult
 
-  throw createHandlerError(output.error?.message || 'Sandbox definition failed.', sandbox.provider, {
-    name: output.error?.name,
-    stack: output.error?.stack,
-    cause: output.error?.cause,
-    stdout: execution?.stdout,
-    stderr: execution?.stderr,
-    exitCode: execution?.code,
-  })
+  throw createHandlerError(
+    output.error?.message || 'Sandbox definition failed.',
+    sandbox.provider,
+    {
+      name: output.error?.name,
+      stack: output.error?.stack,
+      stdout: execution?.stdout,
+      stderr: execution?.stderr,
+      exitCode: execution?.code,
+    },
+    output.error?.cause,
+  )
 }
 
 export async function executeSandboxDefinition<TPayload, TResult>(

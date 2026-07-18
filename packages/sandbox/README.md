@@ -52,6 +52,28 @@ export default defineConfig({
 })
 ```
 
+## Structured errors
+
+Throw `SandboxError` when callers need a stable failure they can inspect without parsing logs or provider messages.
+
+```ts
+import { SandboxError } from "@vite-hub/sandbox"
+
+try {
+  await renderPreview()
+}
+catch (cause) {
+  throw new SandboxError({
+    cause,
+    code: "RENDER_FAILED",
+    details: { previewId },
+    message: "Preview rendering failed.",
+  })
+}
+```
+
+`code` is required and may be one of ViteHub's typed `SandboxErrorCode` values or an app-owned stable string. Keep `details` JSON-safe and free of secrets; `toJSON()` includes the code, message, and details, while the in-memory `cause` is omitted from serialization. `NotSupportedError` provides the package-owned unsupported-operation shape for provider adapters.
+
 ## Vite Integration
 
 Use `hubSandbox()` in Vite to discover directory Definitions under `server/sandboxes/` and suffix Definitions such as `src/<name>.sandbox.ts`. Nested directory paths become nested Sandbox names. Provider config selects [Cloudflare Sandbox SDK](https://developers.cloudflare.com/sandbox/) or [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox/).

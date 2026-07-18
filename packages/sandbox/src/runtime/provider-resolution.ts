@@ -39,11 +39,12 @@ export function resolveRuntimeProvider(provider?: SandboxDefinitionProviderOptio
     return 'cloudflare'
 
   const detected = detectSandbox()
-  if (detected.type === 'cloudflare' || detected.type === 'vercel')
-    return detected.type
+  if (detected.type === 'cloudflare' || detected.type === 'vercel') return detected.type
 
-  throw new SandboxError('Sandbox provider could not be inferred. Configure `sandbox.provider` as `cloudflare` or `vercel`.', {
+  throw new SandboxError({
     code: 'SANDBOX_PROVIDER_REQUIRED',
+    message:
+      'Sandbox provider could not be inferred. Configure `sandbox.provider` as `cloudflare` or `vercel`.',
   })
 }
 

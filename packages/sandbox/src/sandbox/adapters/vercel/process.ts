@@ -14,11 +14,13 @@ export async function waitForExit(result: VercelSandboxCommandResult, timeout?: 
       result.wait(),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
-          reject(new SandboxError('Vercel sandbox exec timed out.', {
-            code: 'VERCEL_SANDBOX_EXEC_TIMEOUT',
-            method: 'exec',
-            provider: 'vercel',
-          }))
+          reject(
+            new SandboxError({
+              code: 'SANDBOX_TIMEOUT',
+              details: { operation: 'exec', provider: 'vercel', timeoutMs: timeout },
+              message: 'Vercel sandbox exec timed out.',
+            }),
+          )
         }, timeout)
       }),
     ])
@@ -189,7 +191,19 @@ export class VercelProcessHandle implements SandboxProcess {
     const waitResult = timeout
       ? await Promise.race([
           this.cmdResult.wait(),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new SandboxError('Process wait timeout', 'TIMEOUT')), timeout)),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new SandboxError({
+                    code: 'SANDBOX_TIMEOUT',
+                    details: { operation: 'waitForExit', provider: 'vercel', timeoutMs: timeout },
+                    message: 'Process wait timeout',
+                  }),
+                ),
+              timeout,
+            ),
+          ),
         ])
       : await this.cmdResult.wait()
 
@@ -214,7 +228,11 @@ export class VercelProcessHandle implements SandboxProcess {
       }
 
       if (this.logsPumpDone) {
-        throw new SandboxError(`Process exited before log pattern was found: ${pattern}`, 'PROCESS_EXITED')
+        throw new SandboxError({
+          code: 'SANDBOX_PROCESS_EXITED',
+          details: { operation: 'waitForLog', pattern: String(pattern), provider: 'vercel' },
+          message: `Process exited before log pattern was found: ${pattern}`,
+        })
       }
 
       const remaining = timeout - (Date.now() - startTime)
@@ -229,7 +247,16 @@ export class VercelProcessHandle implements SandboxProcess {
       throw this.logsPumpError
     }
 
-    throw new SandboxError(`Timeout waiting for log pattern: ${pattern}`, 'TIMEOUT')
+    throw new SandboxError({
+      code: 'SANDBOX_TIMEOUT',
+      details: {
+        operation: 'waitForLog',
+        pattern: String(pattern),
+        provider: 'vercel',
+        timeoutMs: timeout,
+      },
+      message: `Timeout waiting for log pattern: ${pattern}`,
+    })
   }
 
   async waitForPort(port: number, opts?: SandboxWaitForPortOptions): Promise<void> {

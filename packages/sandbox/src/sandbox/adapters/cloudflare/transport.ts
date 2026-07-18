@@ -9,19 +9,18 @@ export const CLOUDFLARE_EXEC_REQUEST_TIMEOUT_MS = 180_000
 
 export function createCloudflareTransportError(operation: string, error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
-  return new SandboxError(message, {
+  return new SandboxError({
     cause: error,
     code: 'SANDBOX_TRANSPORT_ERROR',
-    details: { operation },
-    provider: 'cloudflare',
+    details: { operation, provider: 'cloudflare' },
+    message,
   })
 }
 
 export function isRetriableCloudflareTransportError(error: unknown) {
   const sandboxError = error instanceof SandboxError ? error : undefined
   const message = error instanceof Error ? error.message : String(error)
-  if (sandboxError?.code === 'TIMEOUT')
-    return true
+  if (sandboxError?.code === 'SANDBOX_TIMEOUT') return true
   return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(message)
 }
 
@@ -33,11 +32,13 @@ export async function withCloudflareDeadline<T>(operation: string, timeoutMs: nu
       run(),
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
-          reject(new SandboxError(`Cloudflare sandbox ${operation} timed out after ${timeoutMs}ms.`, {
-            code: 'TIMEOUT',
-            details: { operation, timeout: timeoutMs },
-            provider: 'cloudflare',
-          }))
+          reject(
+            new SandboxError({
+              code: 'SANDBOX_TIMEOUT',
+              details: { operation, provider: 'cloudflare', timeoutMs },
+              message: `Cloudflare sandbox ${operation} timed out after ${timeoutMs}ms.`,
+            }),
+          )
         }, timeoutMs)
       }),
     ])
@@ -70,10 +71,10 @@ export async function withCloudflareTransportRetry<T>(operation: string, run: ()
     }
   }
 
-  throw new SandboxError(`Cloudflare sandbox ${operation} retries exhausted.`, {
+  throw new SandboxError({
     code: 'SANDBOX_TRANSPORT_ERROR',
-    details: { operation },
-    provider: 'cloudflare',
+    details: { operation, provider: 'cloudflare' },
+    message: `Cloudflare sandbox ${operation} retries exhausted.`,
   })
 }
 

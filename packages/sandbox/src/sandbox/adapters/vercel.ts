@@ -170,9 +170,12 @@ export class VercelSandboxAdapter extends BaseSandboxAdapter<'vercel'> {
 
     const buffer = await this.native.readFileToBuffer({ path })
     if (!buffer)
-      throw new SandboxError(`Failed to read file: ${path}`)
-    if (opts?.encoding === 'binary')
-      return buffer
+      throw new SandboxError({
+        code: 'SANDBOX_EXEC_FAILED',
+        details: { operation: 'readFile', path, provider: 'vercel' },
+        message: `Failed to read file: ${path}`,
+      })
+    if (opts?.encoding === 'binary') return buffer
     return Buffer.from(buffer).toString()
   }
 
@@ -192,7 +195,11 @@ export class VercelSandboxAdapter extends BaseSandboxAdapter<'vercel'> {
     if (opts?.recursive) {
       const result = await this.exec('mkdir', ['-p', path])
       if (!result.ok)
-        throw new SandboxError(`Failed to create directory: ${path}. ${result.stderr}`)
+        throw new SandboxError({
+          code: 'SANDBOX_EXEC_FAILED',
+          details: { operation: 'mkdir', path, provider: 'vercel' },
+          message: `Failed to create directory: ${path}. ${result.stderr}`,
+        })
       return
     }
     await this.native.mkDir(path)
@@ -201,7 +208,11 @@ export class VercelSandboxAdapter extends BaseSandboxAdapter<'vercel'> {
   async readFileStream(path: string): Promise<ReadableStream<Uint8Array>> {
     const stream = await this.native.readFile({ path })
     if (!stream)
-      throw new SandboxError(`Failed to read file: ${path}`)
+      throw new SandboxError({
+        code: 'SANDBOX_EXEC_FAILED',
+        details: { operation: 'readFile', path, provider: 'vercel' },
+        message: `Failed to read file: ${path}`,
+      })
     return Readable.toWeb(stream) as ReadableStream<Uint8Array>
   }
 
@@ -227,8 +238,13 @@ export class VercelSandboxAdapter extends BaseSandboxAdapter<'vercel'> {
       args.push('-printf', '%y\t%s\t%T@\t%p\0')
       const result = await this.exec('find', args)
       if (!result.ok)
-        throw new SandboxError(`Failed to list files: ${path}. ${result.stderr}`)
-      return result.stdout.split('\0')
+        throw new SandboxError({
+          code: 'SANDBOX_EXEC_FAILED',
+          details: { operation: 'listFiles', path, provider: 'vercel' },
+          message: `Failed to list files: ${path}. ${result.stderr}`,
+        })
+      return result.stdout
+        .split('\0')
         .filter(Boolean)
         .map((line): SandboxFileEntry | undefined => {
           const [kind, size, mtime, filePath] = line.split('\t')
@@ -300,7 +316,11 @@ export class VercelSandboxAdapter extends BaseSandboxAdapter<'vercel'> {
     }
     const result = await this.exec('rm', ['-rf', path])
     if (!result.ok)
-      throw new SandboxError(`Failed to delete file: ${path}. ${result.stderr}`)
+      throw new SandboxError({
+        code: 'SANDBOX_EXEC_FAILED',
+        details: { operation: 'deleteFile', path, provider: 'vercel' },
+        message: `Failed to delete file: ${path}. ${result.stderr}`,
+      })
   }
 
   override async moveFile(src: string, dst: string): Promise<void> {
@@ -310,6 +330,10 @@ export class VercelSandboxAdapter extends BaseSandboxAdapter<'vercel'> {
     }
     const result = await this.exec('mv', [src, dst])
     if (!result.ok)
-      throw new SandboxError(`Failed to move file: ${src} -> ${dst}. ${result.stderr}`)
+      throw new SandboxError({
+        code: 'SANDBOX_EXEC_FAILED',
+        details: { destination: dst, operation: 'moveFile', provider: 'vercel', source: src },
+        message: `Failed to move file: ${src} -> ${dst}. ${result.stderr}`,
+      })
   }
 }

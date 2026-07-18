@@ -25,8 +25,13 @@ export const VercelSandboxStatic = {
 export async function createSandboxClient(provider: SandboxProviderOptions): Promise<SandboxClient> {
   const validation = validateSandboxConfig(provider)
   if (!validation.ok) {
-    const firstIssue = validation.issues.find(issue => issue.severity === 'error') || validation.issues[0]
-    throw new SandboxError(firstIssue?.message || `[${provider.provider}] invalid sandbox config`)
+    const firstIssue =
+      validation.issues.find((issue) => issue.severity === 'error') || validation.issues[0]
+    throw new SandboxError({
+      code: 'SANDBOX_VALIDATION_ERROR',
+      details: { provider: provider.provider },
+      message: firstIssue?.message || `[${provider.provider}] invalid sandbox config`,
+    })
   }
 
   const { createSandboxClient } = await import('vitehub-sandbox-provider-loader').catch(() => {
