@@ -1,5 +1,5 @@
 import { ViteHubError } from "@vite-hub/runtime"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { env, EnvError, resolveServerEnv } from "../src/index.ts"
 import { createSourceContext, resolveEnvEntries, validateEnvConfigShape } from "../src/core/resolve.ts"
@@ -23,6 +23,28 @@ describe("EnvError", () => {
     })
     expect(JSON.stringify(error)).not.toContain("secret provider failure")
     expect(() => new EnvError({ code: "ENV_CUSTOM_FAILED" } as never)).toThrow(TypeError)
+  })
+
+  it("rejects hostile constructor accessors and proxies with a fixed Env failure", () => {
+    const getter = vi.fn(() => "private-accessor-secret")
+    const accessorOptions = Object.defineProperty({}, "code", { enumerable: true, get: getter })
+    const accessorDetails = Object.defineProperty({}, "source", { enumerable: true, get: getter })
+    const hostileDetails = new Proxy({}, {
+      getOwnPropertyDescriptor() {
+        throw new Error("private-proxy-secret")
+      },
+    })
+
+    for (const options of [
+      accessorOptions,
+      { code: "ENV_SOURCE_FAILED", details: accessorDetails },
+      { code: "ENV_SOURCE_FAILED", details: hostileDetails },
+    ]) {
+      expect(() => new EnvError(options as never))
+        .toThrow("[vitehub] EnvError requires valid error options.")
+    }
+
+    expect(getter).not.toHaveBeenCalled()
   })
 
   it("classifies invalid declarations and missing runtime values without exposing diagnostics", () => {

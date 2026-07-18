@@ -39,16 +39,57 @@ export interface EnvErrorOptions<TCode extends EnvErrorCode = EnvErrorCode>
 
 const envSourceIdentifierSet = new Set<EnvSourceIdentifier>(envSourceIdentifiers)
 
+function invalidEnvErrorOptions(): never {
+  throw new TypeError("[vitehub] EnvError requires valid error options.")
+}
+
+function readOwnDataProperty(value: object, key: PropertyKey): unknown {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (descriptor === undefined) return undefined
+    if (!("value" in descriptor)) invalidEnvErrorOptions()
+    return descriptor.value
+  }
+  catch {
+    invalidEnvErrorOptions()
+  }
+}
+
+function isArray(value: unknown): value is unknown[] {
+  try {
+    return Array.isArray(value)
+  }
+  catch {
+    invalidEnvErrorOptions()
+  }
+}
+
+interface NormalizedEnvError<TCode extends EnvErrorCode> {
+  cause?: unknown
+  code: TCode
+  details?: EnvErrorDetails<TCode>
+}
+
+function normalizeEnvError<TCode extends EnvErrorCode>(value: unknown): NormalizedEnvError<TCode> {
+  if (typeof value !== "object" || value === null || isArray(value)) invalidEnvErrorOptions()
+  const code = readOwnDataProperty(value, "code")
+  if (typeof code !== "string" || !Object.hasOwn(envErrorMessages, code)) invalidEnvErrorOptions()
+  const cause = readOwnDataProperty(value, "cause")
+  const details = normalizeDetails(code as TCode, readOwnDataProperty(value, "details"))
+  return {
+    ...(cause === undefined ? {} : { cause }),
+    code: code as TCode,
+    ...(details === undefined ? {} : { details }),
+  }
+}
+
 export class EnvError<TCode extends EnvErrorCode = EnvErrorCode>
   extends ViteHubError<TCode, EnvErrorDetails<TCode>> {
   constructor(options: EnvErrorOptions<TCode>) {
-    if (!Object.hasOwn(envErrorMessages, options.code)) {
-      throw new TypeError("[vitehub] EnvError requires a known Env error code.")
-    }
-    const details = normalizeDetails(options.code, options.details)
-    super(options.code, envErrorMessages[options.code], {
-      ...(options.cause === undefined ? {} : { cause: options.cause }),
-      ...(details === undefined ? {} : { details }),
+    const normalized = normalizeEnvError<TCode>(options)
+    super(normalized.code, envErrorMessages[normalized.code], {
+      ...(normalized.cause === undefined ? {} : { cause: normalized.cause }),
+      ...(normalized.details === undefined ? {} : { details: normalized.details }),
     })
     this.name = "EnvError"
   }
@@ -110,16 +151,17 @@ function publicSourceIdentifier(source: string): EnvSourceIdentifier {
 
 function normalizeDetails<TCode extends EnvErrorCode>(
   code: TCode,
-  details: EnvErrorDetails<TCode> | undefined,
+  details: unknown,
 ): EnvErrorDetails<TCode> | undefined {
-  if (!details || typeof details !== "object" || Array.isArray(details)) return undefined
+  if (!details || typeof details !== "object" || isArray(details)) return undefined
   const normalized: { path?: string, source?: EnvSourceIdentifier } = {}
-  if ((code === "ENV_DECLARATION_INVALID" || code === "ENV_REQUIRED_MISSING") && "path" in details) {
-    const path = safePath(details.path)
+  if (code === "ENV_DECLARATION_INVALID" || code === "ENV_REQUIRED_MISSING") {
+    const path = safePath(readOwnDataProperty(details, "path"))
     if (path) normalized.path = path
   }
-  if (code !== "ENV_DECLARATION_INVALID" && "source" in details && envSourceIdentifierSet.has(details.source as EnvSourceIdentifier)) {
-    normalized.source = details.source as EnvSourceIdentifier
+  if (code !== "ENV_DECLARATION_INVALID") {
+    const source = readOwnDataProperty(details, "source")
+    if (envSourceIdentifierSet.has(source as EnvSourceIdentifier)) normalized.source = source as EnvSourceIdentifier
   }
   return Object.keys(normalized).length ? normalized as EnvErrorDetails<TCode> : undefined
 }
