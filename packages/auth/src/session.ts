@@ -46,8 +46,9 @@ export async function getAuthenticationSession(
   if (value == null) return value
   let session: ResolvedAuthenticationSession | undefined
   try {
-    if (isResolvedAuthenticationSession(value)) {
-      session = value
+    const resolved = resolveAuthenticationSession(value)
+    if (resolved) {
+      session = resolved
       inspect?.(session)
     }
   }
@@ -74,13 +75,12 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined
 }
 
-function isResolvedAuthenticationSession(value: unknown): value is ResolvedAuthenticationSession {
-  if (!isRecord(value)) return false
+function resolveAuthenticationSession(value: unknown): ResolvedAuthenticationSession | undefined {
+  if (!isRecord(value)) return
   const session = value.session
   const user = value.user
-  return isRecord(session)
-    && isRecord(user)
-    && Boolean(readString(user.id))
+  if (!isRecord(session) || !isRecord(user) || !readString(user.id)) return
+  return { session, user: user as ResolvedAuthenticationSession["user"] }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

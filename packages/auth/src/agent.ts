@@ -4,6 +4,7 @@ import {
   AuthenticationProviderError,
   invalidAuthenticationErrorOptions,
   readAuthenticationErrorOption,
+  throwAuthenticationProviderError,
 } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 
@@ -178,7 +179,6 @@ async function defaultAuthenticatedSource(
   if (!context.request) return undefined
 
   const auth = getAuthForRequest(context.request)
-  let label: string | undefined
   const session = await getAuthenticationSession(auth, {
     headers: context.request.headers,
     query: {
@@ -186,13 +186,31 @@ async function defaultAuthenticatedSource(
       disableRefresh: true,
     },
   }, value => {
-    label = defaultLabel(value.user as AuthenticatedUser)
+    defaultAuthenticationFields.set(value, {
+      label: () => readProviderField(() => defaultLabel(value.user as AuthenticatedUser)),
+      sessionId: () => readProviderField(() => readString(value.session.id)),
+      userId: readString(value.user.id)!,
+    })
   }) as AuthenticatedSession | null | undefined
-  if (session) defaultAuthenticationLabels.set(session, label!)
   return session
 }
 
-const defaultAuthenticationLabels = new WeakMap<object, string>()
+interface DefaultAuthenticationFields {
+  label: () => string
+  sessionId: () => string | undefined
+  userId: string
+}
+
+const defaultAuthenticationFields = new WeakMap<object, DefaultAuthenticationFields>()
+
+function readProviderField<T>(read: () => T): T {
+  try {
+    return read()
+  }
+  catch (cause) {
+    throwAuthenticationProviderError(cause, "get-session")
+  }
+}
 
 function createAuthenticatedContext<
   TRuntimeConfig extends AgentRuntimeConfig,
@@ -220,14 +238,15 @@ async function createDefaultInvoker<
   options: AuthenticatedOptions<TRuntimeConfig, CALL_OPTIONS, TUser, TSession>,
   context: AuthenticatedContext<TRuntimeConfig, CALL_OPTIONS, TUser, TSession>,
 ): Promise<AgentInvoker> {
-  const userId = await resolveAuthenticatedValue(options.id, context) ?? readString(context.user.id)
+  const providerFields = defaultAuthenticationFields.get(context.auth)
+  const userId = await resolveAuthenticatedValue(options.id, context) ?? providerFields?.userId ?? readString(context.user.id)
   if (!userId) throw new AuthenticationRequiredError("[vitehub] Authenticated user is missing an id.")
 
   const kind = await resolveAuthenticatedValue(options.kind, context) ?? "authUser"
   const label = await resolveAuthenticatedValue(options.label, context)
-    ?? defaultAuthenticationLabels.get(context.auth)
+    ?? providerFields?.label()
     ?? defaultLabel(context.user)
-  const sessionId = readString(context.session.id)
+  const sessionId = providerFields ? providerFields.sessionId() : readString(context.session.id)
   const meta = normalizeMeta(await resolveAuthenticatedValue(options.meta, context))
 
   return {
@@ -236,7 +255,7 @@ async function createDefaultInvoker<
     label,
     meta: {
       ...meta,
-      authUserId: readString(context.user.id) ?? userId,
+      authUserId: providerFields?.userId ?? readString(context.user.id) ?? userId,
       ...(sessionId ? { authSessionId: sessionId } : {}),
     },
   }

@@ -228,6 +228,44 @@ describe("authenticated", () => {
     expect(error.cause).toBe(cause)
   })
 
+  it("does not read default label fields when a mapper provides the invoker", async () => {
+    const request = new Request("https://example.com/api/agent")
+    serverMocks.getSession.mockResolvedValueOnce({
+      session: {},
+      user: {
+        get email() {
+          throw new Error("unused email getter")
+        },
+        id: "user_1",
+      },
+    })
+
+    await expect(resolve(authenticated({
+      map: () => ({ id: "mapped", kind: "custom" }),
+    }), createContext({ request }))).resolves.toEqual({ id: "mapped", kind: "custom" })
+  })
+
+  it("snapshots the provider response wrapper before leaving the boundary", async () => {
+    const request = new Request("https://example.com/api/agent")
+    const session = { id: "session_1" }
+    const user = { email: "auth@example.com", id: "user_1" }
+    let userReads = 0
+    serverMocks.getSession.mockResolvedValueOnce({
+      session,
+      get user() {
+        userReads++
+        if (userReads > 1) throw new Error("outer user getter reread")
+        return user
+      },
+    })
+
+    await expect(resolve(authenticated(), createContext({ request }))).resolves.toMatchObject({
+      id: "user_1",
+      label: "auth@example.com",
+    })
+    expect(userReads).toBe(1)
+  })
+
   it("distinguishes invalid Better Auth responses from missing sessions", async () => {
     const request = new Request("https://example.com/api/agent")
     serverMocks.getSession.mockResolvedValueOnce(null)
@@ -253,7 +291,7 @@ describe("authenticated", () => {
 
     await resolve(authenticated({
       map: (context) => {
-        expect(context.auth).toBe(authSession)
+        expect(context.auth).not.toBe(authSession)
         expect(context.session).toBe(session)
         expect(context.user).toBe(user)
         return { id: user.organization.id, kind: "organization" }
