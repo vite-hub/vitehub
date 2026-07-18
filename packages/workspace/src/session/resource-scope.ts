@@ -83,6 +83,10 @@ function makeWorkspaceResourceScope<Resource, Setup>(
     isClosed: () => closed,
     async runChild(use) {
       const childScope = await runWorkspaceEffect(Scope.fork(scope, "sequential"))
+      if (closed) {
+        await runWorkspaceEffect(Scope.close(childScope, Exit.void))
+        throw new Error("[vitehub] Workspace resource scope is already closed.")
+      }
       try {
         return await use(finalizer => runWorkspaceEffect(
           Scope.addFinalizer(childScope, Effect.promise(finalizer)),

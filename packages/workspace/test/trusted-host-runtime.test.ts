@@ -356,6 +356,20 @@ describe("trusted host workspace runtime", () => {
     expect(release).toHaveBeenCalledTimes(1)
   })
 
+  it("does not start child work after the parent scope closes", async () => {
+    const scope = await openTrustedHostWorkspaceScope(
+      async () => "root",
+      async () => undefined,
+      async () => {},
+    )
+    const use = vi.fn(async () => {})
+
+    await scope.close()
+
+    await expect(scope.runChild(use)).rejects.toThrow("Workspace resource scope is already closed")
+    expect(use).not.toHaveBeenCalled()
+  })
+
   it("returns trusted-host cleanup failures by identity without exposing FiberFailure", async () => {
     const cleanupError = new Error("root cleanup failed")
     const scope = await openTrustedHostWorkspaceScope(
