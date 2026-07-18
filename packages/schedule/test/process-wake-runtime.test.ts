@@ -1,0 +1,63 @@
+import { Clock, Effect } from "effect"
+import { TestClock } from "effect/testing"
+import { expect, it, vi } from "vitest"
+
+import { makeProcessWakeRuntime } from "../src/internal/process-wake-runtime.ts"
+
+import type { RuntimeScheduleRecord, RuntimeScheduleWake } from "../src/types.ts"
+
+function record(): RuntimeScheduleRecord {
+  const epoch = new Date(0)
+  return {
+    createdAt: epoch,
+    cron: "* * * * *",
+    enabled: true,
+    id: "daily",
+    target: "report",
+    updatedAt: epoch,
+  }
+}
+
+it("drives process wake scanning with TestClock", async () => {
+  const wakes: RuntimeScheduleWake[] = []
+  let resolveFirst!: () => void
+  let resolveSecond!: () => void
+  const firstWake = new Promise<void>((resolve) => {
+    resolveFirst = resolve
+  })
+  const secondWake = new Promise<void>((resolve) => {
+    resolveSecond = resolve
+  })
+
+  await Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const testClock = yield* TestClock.make()
+        const runtime = yield* makeProcessWakeRuntime({
+          concurrency: 1,
+          context: {
+            reportError: vi.fn(),
+            async wake(input) {
+              wakes.push(input)
+              if (wakes.length === 1) resolveFirst()
+              if (wakes.length === 2) resolveSecond()
+            },
+          },
+          intervalMs: 60_000,
+        }).pipe(Effect.provideService(Clock.Clock, testClock))
+
+        yield* runtime.reconcile([record()])
+        yield* Effect.promise(() => firstWake)
+        yield* Effect.yieldNow
+        yield* testClock.adjust(60_000)
+        yield* Effect.promise(() => secondWake)
+        yield* runtime.close
+      }),
+    ),
+  )
+
+  expect(wakes).toEqual([
+    { scheduleId: "daily", scheduledAt: new Date(0) },
+    { scheduleId: "daily", scheduledAt: new Date(60_000) },
+  ])
+})
