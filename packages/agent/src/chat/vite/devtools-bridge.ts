@@ -571,15 +571,6 @@ function createUserUIMessage(text: string): UIMessage {
   }
 }
 
-function createAssistantUIMessage(text: string, metadata: Record<string, unknown> = {}): UIMessage {
-  return {
-    id: randomId("devtools-assistant"),
-    metadata,
-    parts: [{ text, type: "text" }],
-    role: "assistant",
-  }
-}
-
 function uiMessageMetadata(message: UIMessage): Record<string, unknown> | undefined {
   return isRecord(message.metadata) ? message.metadata : undefined
 }

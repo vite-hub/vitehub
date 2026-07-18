@@ -7,7 +7,6 @@ import type {
   AgentCapabilityCliContribution,
   AgentCapabilityCliExecutionInput,
   AgentCapabilityCliExecutionResult,
-  AgentCapabilityCliOutputDefinition,
   AgentCapabilityCliOutputFormat,
   AgentCapabilityCliStandardSchemaV1,
   AgentCapabilityDefinition,
@@ -155,29 +154,6 @@ function firstExample(cliName: string, path: string[], command: AgentCapabilityC
 function toolInputExample(cliName: string, path: string[], command: AgentCapabilityCliCommand): string {
   const example = firstExample(cliName, path, command)
   return example.startsWith(`${cliName} `) ? example.slice(cliName.length + 1) : example
-}
-
-export function renderCapabilityCliInstructions<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(
-  capabilityId: string,
-  cli: AgentCapabilityCliContribution<TRuntimeConfig, Name>,
-): string {
-  const leaves = commandLeaves(cli)
-  return [
-    `## Capability CLI: ${cli.name}`,
-    "",
-    cli.description || `Use the \`${cli.name}\` CLI for Capability "${capabilityId}".`,
-    "",
-    `Use \`${cli.name}\` commands for this capability instead of generic Bash or shell commands.`,
-    "",
-    "Available commands:",
-    ...leaves.map(({ command, path }) => {
-      const effects = command.effects?.length ? ` Effects: ${command.effects.join(", ")}.` : ""
-      return `- \`${firstExample(cli.name, path, command)}\` - ${command.description || path.join(" ")}.${effects}`
-    }),
-  ].join("\n")
 }
 
 function nodeHelp<TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName>(

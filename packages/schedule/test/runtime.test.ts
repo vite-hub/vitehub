@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 
-import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore, createScheduleRun, defineScheduleTarget, executeRuntimeSchedule, executeStaticSchedule, ScheduleError, schedules } from "../src/index.ts"
+import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, defineScheduleTarget, executeRuntimeSchedule, executeStaticSchedule, ScheduleError, schedules } from "../src/index.ts"
 import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 import type { KVStorage } from "@vite-hub/kv"
 
