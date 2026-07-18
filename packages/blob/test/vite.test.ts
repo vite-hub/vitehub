@@ -103,10 +103,12 @@ describe("hubBlob", () => {
     })
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
-    const userConfig = {}
+    const userConfig = { nitro: { preset: "cloudflare_module" } }
 
     config(userConfig, { command: "build" })
-    expect(userConfig).not.toHaveProperty("nitro.cloudflare.wrangler.r2_buckets")
+    expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.r2_buckets", [
+      { binding: "ASSETS", bucket_name: "assets" },
+    ])
 
     const resolved = {
       blob: {
@@ -135,6 +137,8 @@ describe("hubBlob", () => {
       { binding: "ASSETS", bucket_name: "assets", jurisdiction: "eu" },
     ])
     expect(resolved).toHaveProperty("nitro.cloudflare.wrangler.routes", ["example.com/*"])
+    expect(resolved).toHaveProperty("nitro.cloudflare.wrangler.compatibility_flags", ["nodejs_compat"])
+    expect(resolved).toHaveProperty("nitro.rollupConfig.external", ["cloudflare:workers"])
     expect(resolved).not.toHaveProperty("nitro.cloudflare.wrangler.observability")
   })
 
@@ -159,6 +163,8 @@ describe("hubBlob", () => {
       const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
       expect(nitroPlugin).toContain('"driver":"cloudflare-r2"')
       expect(nitroPlugin).toContain('"bucketName":"assets"')
+      expect(nitroPlugin).toContain("import { env as vitehubEnv } from 'cloudflare:workers'")
+      expect(nitroPlugin).toContain("setActiveCloudflareEnv(vitehubEnv)")
     }
     finally {
       if (typeof previousBucket === "undefined") delete process.env.BLOB_BUCKET_NAME
@@ -177,7 +183,11 @@ describe("hubBlob", () => {
     const value = { nitro: { preset: "cloudflare_module" } }
 
     config(value, { command: "build" })
-    await configResolved({ build: { outDir: "dist/client" }, nitro: { preset: "vercel" }, root } as never)
+    await configResolved({
+      build: { outDir: "dist/client" },
+      nitro: { cloudflare: { wrangler: { routes: ["inactive.example/*"] } }, preset: "vercel" },
+      root,
+    } as never)
     await closeBundle()
 
     expect(existsSync(join(root, "dist", toSafeAppName(root), "index.js"))).toBe(true)
@@ -205,7 +215,8 @@ describe("hubBlob", () => {
 
     const fsOnCloudflare = { nitro: { preset: "cloudflare_module" } }
     config(hubBlob({ base: ".data/blob", driver: "fs" }), fsOnCloudflare)
-    expect(fsOnCloudflare).not.toHaveProperty("nitro.cloudflare")
+    expect(fsOnCloudflare).not.toHaveProperty("nitro.cloudflare.wrangler.r2_buckets")
+    expect(fsOnCloudflare).toHaveProperty("nitro.cloudflare.wrangler.compatibility_flags", ["nodejs_compat"])
   })
 
   it("masks credentials embedded in Nitro runtime setup", async () => {

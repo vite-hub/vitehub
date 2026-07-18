@@ -54,18 +54,40 @@ function cloneNitroConfig(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
 }
 
+function mergeNitroExternal(value: unknown, addition: string): unknown {
+  if (typeof value === "undefined") return [addition]
+  if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
+  if (typeof value === "string" || value instanceof RegExp) return [value, addition]
+  if (typeof value === "function") {
+    return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
+  }
+  return value
+}
+
 function isNitroCloudflareHost(value: unknown): boolean {
   const nitro = cloneNitroConfig(value)
   const preset = typeof nitro.preset === "string" ? nitro.preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
-  return getHostingProvider(preset) === "cloudflare" || Object.hasOwn(nitro, "cloudflare")
+  return typeof preset === "string" ? getHostingProvider(preset) === "cloudflare" : Object.hasOwn(nitro, "cloudflare")
 }
 
 function mergeNitroCloudflareBlobOutput(config: object, nitro: Record<string, unknown>, blob: BlobModuleOptions | undefined, cloudflareOwnedByNitro: boolean): Record<string, unknown> {
-  const bindings = cloudflareOwnedByNitro
-    ? createCloudflareR2Bindings(resolveBlobViteConfig(blob, { hosting: "cloudflare" }).blob)
-    : undefined
+  if (!cloudflareOwnedByNitro) {
+    registerCloudflareProviderOutput(config, "blob", {})
+    return nitro
+  }
+  const bindings = createCloudflareR2Bindings(resolveBlobViteConfig(blob, { hosting: "cloudflare" }).blob)
+  const cloudflare = cloneNitroConfig(nitro.cloudflare)
+  const wrangler = cloneNitroConfig(cloudflare.wrangler)
+  const compatibilityFlags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
+  if (!compatibilityFlags.includes("nodejs_compat")) compatibilityFlags.push("nodejs_compat")
+  const rollupConfig = cloneNitroConfig(nitro.rollupConfig)
+  const baseNitro = {
+    ...nitro,
+    cloudflare: { ...cloudflare, wrangler: { ...wrangler, compatibility_flags: compatibilityFlags } },
+    rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") },
+  }
   registerCloudflareProviderOutput(config, "blob", bindings ? { r2Buckets: bindings } : {})
-  return bindings ? composeNitroCloudflareProviderOutput(config, nitro) : nitro
+  return composeNitroCloudflareProviderOutput(config, baseNitro)
 }
 
 function normalizeNitroRoute(route: string): string {
@@ -92,17 +114,19 @@ function mergeNitroBlobConfig(value: unknown, serve?: BlobServeConfig): Record<s
   }
 }
 
-function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], importBase = blobPackageName): string {
+function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName): string {
   return [
-    `import { setBlobRuntimeConfig } from '${importBase}/runtime/state'`,
+    cloudflare ? "import { env as vitehubEnv } from 'cloudflare:workers'" : undefined,
+    `import { ${cloudflare ? "setActiveCloudflareEnv, " : ""}setBlobRuntimeConfig } from '${importBase}/runtime/state'`,
     "",
     `const blobConfig = ${JSON.stringify(blob)}`,
     "",
     "export default function vitehubBlobPlugin() {",
+    cloudflare ? "  setActiveCloudflareEnv(vitehubEnv)" : undefined,
     "  setBlobRuntimeConfig(blobConfig)",
     "}",
     "",
-  ].join("\n")
+  ].filter(line => typeof line === "string").join("\n")
 }
 
 function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPackageName): string {
@@ -121,8 +145,8 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   ].join("\n")
 }
 
-async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConfig["blob"], importBase = blobPackageName): Promise<void> {
-  await writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, importBase))
+async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName): Promise<void> {
+  await writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase))
   const serve = blob ? blob.serve : undefined
   if (!serve) return
   const file = resolve(root, generatedBlobServeRouteHandler)
@@ -184,7 +208,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       ;(config as { nitro?: unknown }).nitro = mergeNitroCloudflareBlobOutput(config, cloneNitroConfig(configuredNitro), blob, cloudflareOwnedByNitro)
       providerOutput = useComposedProviderOutput(config)
       runtimeConfig = resolveBlobViteConfig(blob, cloudflareOwnedByNitro ? { hosting: "cloudflare" } : undefined)
-      await refreshBlobGeneratedFiles(config.root, runtimeConfig.blob, importBase)
+      await refreshBlobGeneratedFiles(config.root, runtimeConfig.blob, cloudflareOwnedByNitro, importBase)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
