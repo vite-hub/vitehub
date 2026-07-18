@@ -53,6 +53,17 @@ describe("EnvError", () => {
       code: "ENV_RUNTIME_VALUE_INVALID",
       details: { source: "env:PORT" },
     }))
+
+    expect(() => resolveServerEnv({
+      token: {
+        required: true,
+        secret: true,
+        source: { kind: "env", label: "env:TOKEN", name: "TOKEN", names: ["TOKEN"], serializable: true },
+      },
+    }, { env: { TOKEN: {} } })).toThrow(expect.objectContaining({
+      code: "ENV_RUNTIME_VALUE_INVALID",
+      details: { source: "env:TOKEN" },
+    }))
   })
 
   it("keeps declaration misuse and schema helpers outside the Env error family", () => {

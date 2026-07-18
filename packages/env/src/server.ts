@@ -50,11 +50,11 @@ function runtimeEnv(event?: unknown): RuntimeEnv {
   }
 }
 
-function readRuntimeSource(entry: RuntimeEnvEntry, env: RuntimeEnv): string | undefined {
+function readRuntimeSource(entry: RuntimeEnvEntry, env: RuntimeEnv): { found: boolean, value?: unknown } {
   for (const name of entry.source.names || [entry.source.name]) {
-    const value = env[name]
-    if (typeof value === "string") return value
+    if (name in env) return { found: true, value: env[name] }
   }
+  return { found: false }
 }
 
 function resolveRegistryValue(value: unknown, env: RuntimeEnv): unknown {
@@ -63,7 +63,8 @@ function resolveRegistryValue(value: unknown, env: RuntimeEnv): unknown {
   }
 
   if (isRuntimeEnvEntry(value)) {
-    const resolved = readRuntimeSource(value, env) ?? value.default
+    const source = readRuntimeSource(value, env)
+    const resolved = source.found ? source.value : value.default
     if (typeof resolved === "undefined") {
       if (value.required) {
         throw missingRequiredEnv(value.source.label, `Missing Runtime Env from ${value.source.label}.`)
