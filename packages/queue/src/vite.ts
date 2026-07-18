@@ -48,9 +48,10 @@ function supportsCloudflareQueues(nitro: Record<string, unknown>): boolean {
 
 function mergeNitroConfig(value: unknown, queue: QueueModuleOptions | undefined, root: string): Record<string, unknown> {
   const nitro = cloneNitroConfig(value)
-  const plugins = Array.isArray(nitro.plugins) ? [...nitro.plugins] : []
+  const plugins = Array.isArray(nitro.plugins) ? nitro.plugins.filter(plugin => queue !== false || plugin !== generatedQueueNitroPlugin) : []
+  if (queue === false) return { ...nitro, plugins }
   if (!plugins.includes(generatedQueueNitroPlugin)) plugins.unshift(generatedQueueNitroPlugin)
-  if (queue === false || resolveQueueHosting(queue, nitro) !== "cloudflare") return { ...nitro, plugins }
+  if (resolveQueueHosting(queue, nitro) !== "cloudflare") return { ...nitro, plugins }
   const cloudflare = cloneNitroConfig(nitro.cloudflare)
   const wrangler = cloneNitroConfig(cloudflare.wrangler)
   const compatibilityFlags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
@@ -112,7 +113,8 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
     async configResolved(config) {
       resolved = config
       queue = config.queue ?? queue
-      const nitro = cloneNitroConfig((config as { nitro?: unknown }).nitro)
+      const nitro = mergeNitroConfig((config as { nitro?: unknown }).nitro, queue, config.root)
+      ;(config as { nitro?: unknown }).nitro = nitro
       hosting = resolveQueueHosting(queue, nitro)
       cloudflareQueues = supportsCloudflareQueues(nitro)
       await writeQueueNitroIntegration(config.root, queue, hosting, cloudflareQueues)

@@ -52,6 +52,7 @@ describe("hubQueue", () => {
     expect(nitroPlugin).toContain("event.context?.cloudflare?.env")
     expect(nitroPlugin).toContain("event.req?.runtime?.cloudflare?.env")
     expect(nitroPlugin).toContain("event.node?.req?.runtime?.cloudflare?.env")
+    expect(nitroPlugin).toContain("waitUntil: vitehubWaitUntil")
     expect(nitroPlugin).toContain("setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })")
     expect(nitroPlugin).toContain("cloudflare:queue")
     expect(nitroPlugin).toContain("queueWorker.queue(batch, env, context)")
@@ -103,6 +104,25 @@ describe("hubQueue", () => {
       server: { config: resolved },
     })
     expect(await readFile(join(root, ".vitehub", "queue", "registry.mjs"), "utf8")).toContain("welcome.queue.ts")
+  })
+
+  it("uses the final Nitro preset and skips disabled runtime registration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue()
+    const initial = { nitro: {}, root }
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(initial)
+    expect(initial.nitro).not.toHaveProperty("cloudflare")
+    const resolved = { nitro: { ...initial.nitro, preset: "cloudflare_module" }, queue: undefined, root }
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(resolved as never)
+    expect(resolved).toHaveProperty("nitro.cloudflare.wrangler.queues.producers")
+    expect(resolved).toHaveProperty("nitro.rollupConfig.external", ["cloudflare:workers"])
+
+    const disabled = { nitro: { preset: "cloudflare_module", plugins: [".vitehub/nitro/queue/plugin.ts", "server/plugin.ts"] }, queue: false, root }
+    ;(hubQueue(false).config as unknown as (config: Record<string, unknown>) => void)(disabled)
+    expect(disabled.nitro.plugins).toEqual(["server/plugin.ts"])
+    expect(disabled.nitro).not.toHaveProperty("cloudflare")
   })
 
   it("preserves custom bindings and skips Cloudflare Pages consumers", async () => {
