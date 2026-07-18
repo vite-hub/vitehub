@@ -54,6 +54,28 @@ export async function sync(event: unknown) {
 }
 ```
 
+## Structured errors
+
+Throw `EnvError` when application-owned Env resolution needs a stable failure that callers can inspect.
+
+```ts
+import { EnvError } from "@vite-hub/env"
+
+try {
+  await resolveVaultEnv()
+}
+catch (cause) {
+  throw new EnvError({
+    cause,
+    code: "ENV_SOURCE_FAILED",
+    details: { source: "vault:runtime" },
+    message: "Runtime Env source failed.",
+  })
+}
+```
+
+`code` is required and may be one of ViteHub's typed `EnvErrorCode` values or an app-owned stable string. Built-in Git and package metadata failures use `ENV_SOURCE_FAILED` with the public source label in `details.source`. Keep `details` JSON-safe and free of secret values; `toJSON()` includes the code, message, and details, while the in-memory `cause` is omitted from serialization. Invalid `env()` calls remain `TypeError`, and `parseSchema()` keeps the schema library's ordinary error boundary.
+
 ## Vite Integration
 
 Use `hubEnv()` in Vite to resolve public/build env, generate `#vitehub/env/public` and `#vitehub/env/server`, and keep environment declarations close to the app config. Runtime secrets are read from the host environment at request time and are wrapped in `SecretEnv` until explicitly unsealed.
