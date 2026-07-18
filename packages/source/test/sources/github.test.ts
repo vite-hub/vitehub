@@ -353,6 +353,50 @@ describe("@vite-hub/source GitHub source", () => {
     })
   })
 
+  it("returns missing GitHub items from the contents path after validating the ref", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      const requestUrl = String(url)
+      if (requestUrl.endsWith("/commits/main")) return jsonResponse({ sha: "latest-commit-sha" })
+      if (requestUrl.includes("/contents/docs/missing.md")) return new Response("not found", { status: 404 })
+      throw new Error(`Unexpected GitHub request: ${requestUrl}`)
+    }))
+
+    const docs = github({ ref: "main", repo: "acme/app", root: "docs" })
+
+    await expect(docs.getItem("missing.md", {
+      abortSignal: new AbortController().signal,
+      rootDir: process.cwd(),
+    })).rejects.toMatchObject({
+      code: "SOURCE_ITEM_NOT_FOUND",
+      details: { key: "missing.md", source: "github" },
+    })
+
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => String(url))).toEqual([
+      "https://api.github.com/repos/acme/app/contents/docs/missing.md?ref=main",
+      "https://api.github.com/repos/acme/app/commits/main",
+    ])
+  })
+
+  it("does not hide invalid GitHub refs as missing items", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      const requestUrl = String(url)
+      if (requestUrl.includes("/contents/docs/README.md") || requestUrl.endsWith("/commits/missing-ref")) {
+        return new Response("not found", { status: 404 })
+      }
+      throw new Error(`Unexpected GitHub request: ${requestUrl}`)
+    }))
+
+    const docs = github({ ref: "missing-ref", repo: "acme/app", root: "docs" })
+
+    await expect(docs.getItem("README.md", {
+      abortSignal: new AbortController().signal,
+      rootDir: process.cwd(),
+    })).rejects.toMatchObject({
+      code: "SOURCE_PROVIDER_REQUEST_FAILED",
+      details: { operation: "validate-ref", provider: "github", status: 404 },
+    })
+  })
+
   it("redacts GitHub transport failures while retaining the internal cause", async () => {
     const cause = new Error("Bearer secret-token failed at https://api.github.com/repos/private/repo")
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(cause))

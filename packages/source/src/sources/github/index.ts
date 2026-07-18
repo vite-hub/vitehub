@@ -262,12 +262,22 @@ export function github<const TKey extends string = string>(options: GitHubSource
     }
     const ref = await getRef(token, signal)
     const repoPath = repoPathForKey(normalizedKey)
-    const file = await requestGitHubJson<GitHubContentResponse | GitHubContentResponse[]>({
-      operation: "read-item",
-      signal,
-      token,
-      url: contentsUrl(repoPath, ref),
-    })
+    let file: GitHubContentResponse | GitHubContentResponse[]
+    try {
+      file = await requestGitHubJson<GitHubContentResponse | GitHubContentResponse[]>({
+        operation: "read-item",
+        signal,
+        token,
+        url: contentsUrl(repoPath, ref),
+      })
+    }
+    catch (error) {
+      if (isGitHubAccessError(error)) {
+        await validateConfiguredRef(token, signal)
+        throw sourceItemNotFoundError("github", key)
+      }
+      throw error
+    }
     if (Array.isArray(file) || file.type === "dir") {
       throw sourceItemIsDirectoryError("github", key)
     }

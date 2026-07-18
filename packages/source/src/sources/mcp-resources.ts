@@ -254,8 +254,12 @@ async function createEntries<TKey extends string>(
 }
 
 function decodeBase64(value: string) {
-  if (typeof Buffer !== "undefined") return new Uint8Array(Buffer.from(value, "base64"))
-  const binary = atob(value)
+  const normalized = value.replace(/\s/g, "")
+  if (!/^(?:[A-Za-z\d+/]{4})*(?:[A-Za-z\d+/]{2}(?:==)?|[A-Za-z\d+/]{3}=?|)$/.test(normalized)) {
+    throw new TypeError("[vitehub] MCP resource blob is not valid base64.")
+  }
+  if (typeof Buffer !== "undefined") return new Uint8Array(Buffer.from(normalized, "base64"))
+  const binary = atob(normalized)
   const bytes = new Uint8Array(binary.length)
   for (let index = 0; index < binary.length; index++) {
     bytes[index] = binary.charCodeAt(index)
@@ -263,10 +267,17 @@ function decodeBase64(value: string) {
   return bytes
 }
 
-function contentToSourceContent(content: McpResourceContent): SourceContent {
+function contentToSourceContent(content: McpResourceContent, key: string): SourceContent {
   if ("text" in content && typeof content.text === "string") return content.text
-  if ("blob" in content && typeof content.blob === "string") return decodeBase64(content.blob)
-  return ""
+  if ("blob" in content && typeof content.blob === "string") {
+    try {
+      return decodeBase64(content.blob)
+    }
+    catch {
+      throw sourceProviderResponseInvalidError("mcp", "read-resource", { cause: content, key })
+    }
+  }
+  throw sourceProviderResponseInvalidError("mcp", "read-resource", { cause: content, key })
 }
 
 function createResourceItem<TKey extends string>(
@@ -278,11 +289,12 @@ function createResourceItem<TKey extends string>(
   if (!content) {
     throw sourceProviderResponseInvalidError("mcp", "read-resource", { key })
   }
+  const sourceContents = contents.map(item => contentToSourceContent(item, key))
   const multipleContents = contents.length > 1
   return {
     key,
     path: key,
-    content: multipleContents ? JSON.stringify(contents, null, 2) : contentToSourceContent(content),
+    content: multipleContents ? JSON.stringify(contents, null, 2) : sourceContents[contents.indexOf(content)]!,
     mediaType: multipleContents ? "application/json" : content.mimeType || resource.mimeType,
     metadata: {
       description: resource.description,

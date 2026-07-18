@@ -131,6 +131,64 @@ describe("mcpResources", () => {
     expect(JSON.stringify(error)).not.toMatch(/secret-token|mcp\.example|https:/)
   })
 
+  it("rejects MCP contents without text or blob without serializing the provider payload", async () => {
+    const invalidContent = {
+      secret: "secret-token from https://mcp.example/private",
+      uri: "resource://nuxt-com/documentation-pages",
+    }
+    const client = createClient()
+    client.listResources = vi.fn().mockResolvedValue({
+      resources: [{
+        mimeType: "text/plain",
+        name: "documentation-pages.txt",
+        uri: invalidContent.uri,
+      }],
+    })
+    client.readResource = vi.fn().mockResolvedValue({ contents: [invalidContent] } as never)
+    const source = mcpResources({ server: client })
+
+    const error = await source.getItem("nuxt-com/documentation-pages.txt", { rootDir: "/tmp" }).catch(error => error)
+
+    expect(error).toBeInstanceOf(SourceError)
+    expect(error).toMatchObject({
+      cause: invalidContent,
+      code: "SOURCE_PROVIDER_RESPONSE_INVALID",
+      details: {
+        key: "nuxt-com/documentation-pages.txt",
+        operation: "read-resource",
+        provider: "mcp",
+      },
+    })
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|mcp\.example|private/)
+  })
+
+  it("rejects malformed MCP base64 blobs as invalid provider responses", async () => {
+    const invalidContent = {
+      blob: "%%% secret-token",
+      mimeType: "application/octet-stream",
+      uri: "resource://nuxt-com/archive.bin",
+    }
+    const client = createClient()
+    client.listResources = vi.fn().mockResolvedValue({
+      resources: [{
+        mimeType: "application/octet-stream",
+        name: "archive.bin",
+        uri: invalidContent.uri,
+      }],
+    })
+    client.readResource = vi.fn().mockResolvedValue({ contents: [invalidContent] } as never)
+    const source = mcpResources({ server: client })
+
+    const error = await source.getItem("nuxt-com/archive.bin", { rootDir: "/tmp" }).catch(error => error)
+
+    expect(error).toMatchObject({
+      cause: invalidContent,
+      code: "SOURCE_PROVIDER_RESPONSE_INVALID",
+      details: { key: "nuxt-com/archive.bin", operation: "read-resource", provider: "mcp" },
+    })
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|mcp\.example|private/)
+  })
+
   it("filters resources and supports custom paths", async () => {
     const source = mcpResources({
       exclude: "**/blog-posts.json",

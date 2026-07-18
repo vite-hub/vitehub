@@ -197,6 +197,10 @@ export async function loadGitArchiveFiles<TKey extends string>(
     const sha = Buffer.from(await executeGit(["-C", dir, "rev-parse", "FETCH_HEAD"], options)).toString("utf8").trim()
     return await readGitArchiveFiles(dir, { ...input, sha }, executeGit, options)
   }
+  catch (error) {
+    if (input.signal?.aborted) throw input.signal.reason
+    throw error
+  }
   finally {
     await rm(dir, { force: true, recursive: true })
   }

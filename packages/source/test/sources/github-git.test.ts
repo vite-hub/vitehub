@@ -127,12 +127,13 @@ describe("@vite-hub/source GitHub git materialization", () => {
   })
 
   it("propagates aborts and removes the temporary checkout", async () => {
+    const reason = new Error("caller stopped sparse checkout")
     const controller = new AbortController()
     let checkoutDir: string | undefined
     const runGit: NonNullable<Parameters<typeof loadGitArchiveFiles>[1]> = async (args) => {
       checkoutDir = args.at(-1)
-      controller.abort()
-      throw controller.signal.reason
+      controller.abort(reason)
+      throw new Error("git abort wrapper")
     }
 
     await expect(loadGitArchiveFiles({
@@ -142,7 +143,7 @@ describe("@vite-hub/source GitHub git materialization", () => {
       shouldInclude: () => true,
       signal: controller.signal,
       sparsePatterns: ["docs/**"],
-    }, runGit)).rejects.toMatchObject({ name: "AbortError" })
+    }, runGit)).rejects.toBe(reason)
 
     if (!checkoutDir) throw new Error("Expected git init to receive the temporary checkout path.")
     await expect(access(checkoutDir)).rejects.toMatchObject({ code: "ENOENT" })
