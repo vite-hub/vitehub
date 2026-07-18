@@ -266,6 +266,27 @@ describe("authenticated", () => {
     expect(userReads).toBe(1)
   })
 
+  it("keeps default identity snapshots local when a provider reuses one response", async () => {
+    const request = new Request("https://example.com/api/agent")
+    let userReads = 0
+    const authSession = {
+      session: {},
+      get user() {
+        userReads++
+        return { email: `user-${userReads}@example.com`, id: `user_${userReads}` }
+      },
+    }
+    serverMocks.getSession.mockResolvedValue(authSession)
+
+    const [first, second] = await Promise.all([
+      resolve(authenticated(), createContext({ request })),
+      resolve(authenticated(), createContext({ request })),
+    ])
+
+    expect(first).toMatchObject({ id: "user_1", label: "user-1@example.com" })
+    expect(second).toMatchObject({ id: "user_2", label: "user-2@example.com" })
+  })
+
   it("distinguishes invalid Better Auth responses from missing sessions", async () => {
     const request = new Request("https://example.com/api/agent")
     serverMocks.getSession.mockResolvedValueOnce(null)
@@ -291,7 +312,7 @@ describe("authenticated", () => {
 
     await resolve(authenticated({
       map: (context) => {
-        expect(context.auth).not.toBe(authSession)
+        expect(context.auth).toBe(authSession)
         expect(context.session).toBe(session)
         expect(context.user).toBe(user)
         return { id: user.organization.id, kind: "organization" }

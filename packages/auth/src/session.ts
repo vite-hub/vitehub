@@ -17,10 +17,15 @@ interface ResolvedAuthenticationSession {
   user: Record<string, unknown> & { id: string }
 }
 
+interface AuthenticationSessionSnapshot extends ResolvedAuthenticationSession {
+  auth: ResolvedAuthenticationSession
+  userId: string
+}
+
 export async function getAuthenticationSession(
   auth: unknown,
   input: BetterAuthGetSessionInput,
-  inspect?: (session: ResolvedAuthenticationSession) => void,
+  inspect?: (session: AuthenticationSessionSnapshot) => void,
 ): Promise<ResolvedAuthenticationSession | null | undefined> {
   let api: Record<string, unknown> | undefined
   let getSession: unknown
@@ -46,10 +51,10 @@ export async function getAuthenticationSession(
   if (value == null) return value
   let session: ResolvedAuthenticationSession | undefined
   try {
-    const resolved = resolveAuthenticationSession(value)
-    if (resolved) {
-      session = resolved
-      inspect?.(session)
+    const snapshot = resolveAuthenticationSession(value)
+    if (snapshot) {
+      session = snapshot.auth
+      inspect?.(snapshot)
     }
   }
   catch (cause) {
@@ -75,12 +80,19 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined
 }
 
-function resolveAuthenticationSession(value: unknown): ResolvedAuthenticationSession | undefined {
+function resolveAuthenticationSession(value: unknown): AuthenticationSessionSnapshot | undefined {
   if (!isRecord(value)) return
   const session = value.session
   const user = value.user
-  if (!isRecord(session) || !isRecord(user) || !readString(user.id)) return
-  return { session, user: user as ResolvedAuthenticationSession["user"] }
+  if (!isRecord(session) || !isRecord(user)) return
+  const userId = readString(user.id)
+  if (!userId) return
+  return {
+    auth: value as unknown as ResolvedAuthenticationSession,
+    session,
+    user: user as ResolvedAuthenticationSession["user"],
+    userId,
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

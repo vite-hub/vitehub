@@ -1,11 +1,9 @@
 import {
+  AuthenticationProviderError,
+  type AuthenticationProviderErrorOptions,
   AuthenticationRequiredError,
   type AuthenticationRequiredErrorOptions,
 } from "@vite-hub/auth/agent"
-import {
-  AuthenticationProviderError,
-  type AuthenticationProviderErrorOptions,
-} from "@vite-hub/auth/server"
 
 import type { ViteHubErrorShape } from "@vite-hub/runtime"
 
