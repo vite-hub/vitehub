@@ -45,6 +45,7 @@
     "test": "vp run -t @vite-hub/auth#build && vp test"
   },
   "dependencies": {
+    "@vite-hub/runtime": "workspace:*",
     "better-auth": "catalog:auth"
   },
   "devDependencies": {
