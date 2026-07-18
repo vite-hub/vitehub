@@ -7,13 +7,21 @@ const options: SourceErrorOptions<"SOURCE_ITEM_NOT_FOUND"> = {
   details: { key: "README.md", source: "docs" },
 }
 
-const error = new SourceError("Missing source item", options)
+const error = new SourceError({
+  ...options,
+  message: "Missing source item",
+})
 error.code satisfies SourceErrorCode
 error.toJSON().details?.key satisfies string | undefined
 
+new SourceError("Missing source item", options)
+
 class ConsumerSourceError extends SourceError<"SOURCE_ITEM_NOT_FOUND"> {
   constructor() {
-    super("Missing source item", options)
+    super({
+      ...options,
+      message: "Missing source item",
+    })
   }
 }
 

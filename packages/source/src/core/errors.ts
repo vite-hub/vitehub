@@ -30,8 +30,16 @@ export interface SourceErrorOptions<TCode extends SourceErrorCode = SourceErrorC
 }
 
 export class SourceError<TCode extends SourceErrorCode = SourceErrorCode> extends ViteHubError<TCode, SourceErrorDetails<TCode>> {
-  constructor(message: string, options: SourceErrorOptions<TCode>) {
-    super(options.code, message, options)
+  constructor(options: SourceErrorOptions<TCode> & { message: string })
+  constructor(message: string, options: SourceErrorOptions<TCode>)
+  constructor(
+    input: string | (SourceErrorOptions<TCode> & { message: string }),
+    legacyOptions?: SourceErrorOptions<TCode>,
+  ) {
+    const { code, message, ...options } = typeof input === "string"
+      ? { ...legacyOptions!, message: input }
+      : input
+    super(code, message, options)
     this.name = "SourceError"
   }
 }
@@ -39,9 +47,10 @@ export class SourceError<TCode extends SourceErrorCode = SourceErrorCode> extend
 export class SourceNotFoundError extends SourceError<"SOURCE_NOT_FOUND"> {
   constructor(name: string) {
     const source = normalizePublicSourceIdentifier(name)
-    super(source ? `[vitehub] Source "${source}" is not registered.` : "[vitehub] Source is not registered.", {
+    super({
       code: "SOURCE_NOT_FOUND",
       details: source ? { source } : undefined,
+      message: source ? `[vitehub] Source "${source}" is not registered.` : "[vitehub] Source is not registered.",
     })
     this.name = "SourceNotFoundError"
   }
@@ -49,9 +58,10 @@ export class SourceNotFoundError extends SourceError<"SOURCE_NOT_FOUND"> {
 
 export class SourcePathError extends SourceError<"SOURCE_PATH_INVALID"> {
   constructor(path: unknown) {
-    super("[vitehub] Source path escapes the source root.", {
+    super({
       code: "SOURCE_PATH_INVALID",
       details: { field: "path", valueType: sourceValueType(path) },
+      message: "[vitehub] Source path escapes the source root.",
     })
     this.name = "SourcePathError"
   }
@@ -59,25 +69,28 @@ export class SourcePathError extends SourceError<"SOURCE_PATH_INVALID"> {
 
 export function sourceContentMissingError(source: string, key: string): SourceError<"SOURCE_CONTENT_MISSING"> {
   const details = sourceItemDetails(source, key)
-  return new SourceError(sourceContentMissingMessage(details), {
+  return new SourceError({
     code: "SOURCE_CONTENT_MISSING",
     details,
+    message: sourceContentMissingMessage(details),
   })
 }
 
 export function sourceItemIsDirectoryError(source: string, key: string): SourceError<"SOURCE_ITEM_IS_DIRECTORY"> {
   const details = sourceItemDetails(source, key)
-  return new SourceError(sourceItemIsDirectoryMessage(details), {
+  return new SourceError({
     code: "SOURCE_ITEM_IS_DIRECTORY",
     details,
+    message: sourceItemIsDirectoryMessage(details),
   })
 }
 
 export function sourceItemNotFoundError(source: string, key: string): SourceError<"SOURCE_ITEM_NOT_FOUND"> {
   const details = sourceItemDetails(source, key)
-  return new SourceError(sourceItemNotFoundMessage(details), {
+  return new SourceError({
     code: "SOURCE_ITEM_NOT_FOUND",
     details,
+    message: sourceItemNotFoundMessage(details),
   })
 }
 
@@ -86,7 +99,7 @@ export function sourceProviderRequestError(
   operation: string,
   options: { cause?: unknown, status?: number } = {},
 ): SourceError<"SOURCE_PROVIDER_REQUEST_FAILED"> {
-  return new SourceError(`[vitehub] ${provider} source request failed during ${operation}.`, {
+  return new SourceError({
     cause: options.cause,
     code: "SOURCE_PROVIDER_REQUEST_FAILED",
     details: {
@@ -94,6 +107,7 @@ export function sourceProviderRequestError(
       provider,
       ...(options.status === undefined ? {} : { status: options.status }),
     },
+    message: `[vitehub] ${provider} source request failed during ${operation}.`,
   })
 }
 
@@ -103,7 +117,7 @@ export function sourceProviderResponseInvalidError(
   options: { cause?: unknown, key?: string } = {},
 ): SourceError<"SOURCE_PROVIDER_RESPONSE_INVALID"> {
   const key = normalizePublicSourceIdentifier(options.key)
-  return new SourceError(`[vitehub] ${provider} source returned an invalid response during ${operation}.`, {
+  return new SourceError({
     cause: options.cause,
     code: "SOURCE_PROVIDER_RESPONSE_INVALID",
     details: {
@@ -111,6 +125,7 @@ export function sourceProviderResponseInvalidError(
       provider,
       ...(key === undefined ? {} : { key }),
     },
+    message: `[vitehub] ${provider} source returned an invalid response during ${operation}.`,
   })
 }
 

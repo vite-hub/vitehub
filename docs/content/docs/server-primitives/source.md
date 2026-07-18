@@ -225,15 +225,18 @@ Workspace and other consuming packages can wrap Sources in discovered Definition
 
 Built-in loaders throw `SourceError` with a stable `code` and safe `details`. Use `toJSON()` at a public boundary; it excludes causes, stacks, provider bodies, request URLs, credentials, absolute paths, and arbitrary SDK messages. The original provider failure remains available as `cause` for protected server-side diagnostics, and caller abort reasons keep their original identity.
 
-Direct construction and subclasses must provide a stable code:
+Direct construction and subclasses use an object with a stable code:
 
 ```ts
-throw new SourceError('[vitehub] custom source request failed.', {
+throw new SourceError({
   code: 'SOURCE_PROVIDER_REQUEST_FAILED',
   details: { operation: 'read', provider: 'custom' },
   cause,
+  message: '[vitehub] custom source request failed.',
 })
 ```
+
+The positional `new SourceError(message, options)` form remains available for existing consumers.
 
 Custom Sources retain ownership of the values they throw. Map failures to `SourceError` inside a custom adapter when they may cross a public boundary; otherwise `useSource()` preserves the thrown value unchanged.
 

@@ -454,6 +454,22 @@ describe("@vite-hub/source GitHub source", () => {
     expect(JSON.stringify(error)).not.toMatch(/secret-token|api\.github\.com|private\/repo/)
   })
 
+  it("maps corrupt GitHub archives without serializing parser failures", async () => {
+    const causeText = "secret-token from https://codeload.github.com/private/repo"
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(causeText, { status: 200 })))
+    const docs = github({ auth: () => "secret-token", ref: "main", repo: "private/repo" })
+
+    const error = await docs.getKeys({ rootDir: process.cwd() }).catch(error => error)
+
+    expect(error).toBeInstanceOf(SourceError)
+    expect(error).toMatchObject({
+      cause: expect.any(Error),
+      code: "SOURCE_PROVIDER_RESPONSE_INVALID",
+      details: { operation: "read-archive", provider: "github" },
+    })
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|codeload\.github\.com|private\/repo|stack/)
+  })
+
   it("preserves raw GitHub abort reasons", async () => {
     const reason = new Error("caller stopped GitHub read")
     const controller = new AbortController()

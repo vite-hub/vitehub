@@ -38,12 +38,15 @@ Built-in loaders throw `SourceError` with a stable `code` and JSON-safe `details
 ```ts
 import { SourceError } from "@vite-hub/source"
 
-throw new SourceError("[vitehub] custom source request failed.", {
+throw new SourceError({
   code: "SOURCE_PROVIDER_REQUEST_FAILED",
   details: { operation: "read", provider: "custom" },
   cause,
+  message: "[vitehub] custom source request failed.",
 })
 ```
+
+The positional `new SourceError(message, options)` form remains available for existing consumers.
 
 `SourceNotFoundError` and `SourcePathError` preserve their specialized class identity for registry and path failures. Configuration mistakes such as a missing `file()` path remain `TypeError` because they are programmer errors rather than Source runtime failures.
 

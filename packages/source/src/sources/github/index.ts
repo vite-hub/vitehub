@@ -6,6 +6,7 @@ import {
   sourceContentMissingError,
   sourceItemIsDirectoryError,
   sourceItemNotFoundError,
+  sourceProviderResponseInvalidError,
 } from "../../core/errors.ts"
 import { matchesAny, normalizeSourcePath } from "../../core/path.ts"
 import { parseGitHubArchive } from "./archive.ts"
@@ -141,7 +142,14 @@ export function github<const TKey extends string = string>(options: GitHubSource
   async function loadArchiveFiles(token = auth, signal?: AbortSignal, resolvedRef?: string) {
     const ref = resolvedRef ?? await getRef(token, signal)
     const archive = await fetchGitHubArchive({ ref, repo: options.repo, signal, token })
-    return parseGitHubArchive(archive)
+    let entries: ReturnType<typeof parseGitHubArchive>
+    try {
+      entries = parseGitHubArchive(archive)
+    }
+    catch (cause) {
+      throw sourceProviderResponseInvalidError("github", "read-archive", { cause })
+    }
+    return entries
       .map((entry): GitHubFile<TKey> | undefined => {
         const key = keyForRepoPath(entry.path)
         if (!key || !shouldInclude(key)) return undefined

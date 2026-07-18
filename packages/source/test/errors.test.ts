@@ -6,10 +6,11 @@ import { SourceError, SourceNotFoundError, SourcePathError } from "../src/index.
 describe("@vite-hub/source public errors", () => {
   it("serializes stable fields without internal causes or stacks", () => {
     const cause = new Error("authorization=Bearer secret-token at https://provider.example/private")
-    const error = new SourceError("[vitehub] github source request failed during read-item.", {
+    const error = new SourceError({
       cause,
       code: "SOURCE_PROVIDER_REQUEST_FAILED",
       details: { operation: "read-item", provider: "github", status: 503 },
+      message: "[vitehub] github source request failed during read-item.",
     })
 
     expect(error).toBeInstanceOf(Error)
@@ -23,6 +24,19 @@ describe("@vite-hub/source public errors", () => {
     expect(JSON.stringify(error)).not.toContain("secret-token")
     expect(JSON.stringify(error)).not.toContain("provider.example")
     expect(JSON.stringify(error)).not.toContain("stack")
+  })
+
+  it("retains positional construction compatibility", () => {
+    const error = new SourceError("Missing source item", {
+      code: "SOURCE_ITEM_NOT_FOUND",
+      details: { key: "README.md", source: "docs" },
+    })
+
+    expect(error.toJSON()).toEqual({
+      code: "SOURCE_ITEM_NOT_FOUND",
+      details: { key: "README.md", source: "docs" },
+      message: "Missing source item",
+    })
   })
 
   it("omits unsafe source names and paths from serialized errors", () => {
