@@ -4,6 +4,7 @@ import type { ApplicationWorkflowErrorOptions, WorkflowErrorCode, WorkflowErrorO
 
 const code = "WORKFLOW_DEFINITION_NOT_FOUND" satisfies WorkflowErrorCode
 declare const dynamicCode: WorkflowErrorCode
+const disabledOptions: WorkflowErrorOptions = { code: "WORKFLOW_DISABLED" }
 const options = {
   code: "TRANSCRIPTION_FAILED" as const,
   details: { attempt: 2, provider: "vercel" },
@@ -15,6 +16,7 @@ applicationError.code satisfies "TRANSCRIPTION_FAILED"
 applicationError.toJSON().details satisfies { attempt: number, provider: string } | undefined
 
 new WorkflowError({ code }) satisfies WorkflowError<"WORKFLOW_DEFINITION_NOT_FOUND">
+new WorkflowError(disabledOptions)
 new WorkflowError({
   code: dynamicCode,
   details: { operation: "start", provider: "vercel" },

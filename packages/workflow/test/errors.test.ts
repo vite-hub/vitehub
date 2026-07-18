@@ -78,6 +78,18 @@ describe("WorkflowError", () => {
     expect(error.metadata).toBe("consumer-owned")
     expect(error.toJSON()).toEqual({ code: "WORKFLOW_DISABLED", message: "Workflow is disabled." })
   })
+
+  it("captures trusted serialization before prototype instrumentation", () => {
+    const error = new WorkflowError({ code: "WORKFLOW_DISABLED" })
+    const original = ViteHubError.prototype.toJSON
+    try {
+      ViteHubError.prototype.toJSON = () => ({ message: "private patched diagnostics" }) as never
+      expect(error.toJSON()).toEqual({ code: "WORKFLOW_DISABLED", message: "Workflow is disabled." })
+    }
+    finally {
+      ViteHubError.prototype.toJSON = original
+    }
+  })
 })
 
 describe("ApplicationWorkflowError", () => {
