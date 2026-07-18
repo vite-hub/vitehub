@@ -135,6 +135,7 @@ describe("Vite provider outputs", () => {
 
     await generateProviderOutputs({
       clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
       queue: { provider: "vercel" },
       rootDir,
     })

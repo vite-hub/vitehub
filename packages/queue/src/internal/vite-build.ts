@@ -400,13 +400,14 @@ async function writeVercelQueueFunctions(rootDir: string, queue: QueueModuleOpti
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedQueueArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.queue, options.definitions)
-  const createCloudflare = !options.cloudflareOwnedByNitro && shouldCreateCloudflareOutput(options.queue)
+  const usesCloudflare = shouldCreateCloudflareOutput(options.queue)
+  const createCloudflare = !options.cloudflareOwnedByNitro && usesCloudflare
   const createVercel = shouldCreateVercelOutput(options.queue)
   if (!createCloudflare) {
     await writeProviderDeploymentOutputs({
       clientOutDir: options.clientOutDir,
       cleanup: {
-        cloudflare: options.cloudflareOwnedByNitro
+        cloudflare: options.cloudflareOwnedByNitro && usesCloudflare
           ? () => createNitroCloudflareCleanup(options.rootDir)
           : { wranglerConfigOwnership: { keys: ["queues"] } },
       },
