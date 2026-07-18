@@ -48,7 +48,7 @@ type QueueErrorDetailOptions<TCode extends string> = TCode extends QueueErrorCod
 
 export type QueueErrorOptions<TCode extends string = QueueErrorCode> = TCode extends string
   ? TCode extends QueueErrorCode
-    ? Omit<ViteHubErrorOptions, "details"> & QueueErrorDetailOptions<TCode> & {
+    ? Omit<ViteHubErrorOptions, "details" | "retryable"> & QueueErrorDetailOptions<TCode> & {
       readonly code: NoInfer<TCode>
       readonly custom?: never
     }
@@ -267,7 +267,7 @@ function normalizeQueueError(options: unknown): NormalizedQueueError {
     if (input.requestId !== undefined && requestId === undefined) {
       throw new TypeError("[vitehub] Invalid Queue error options.")
     }
-    if (input.retryable !== undefined && typeof input.retryable !== "boolean") {
+    if (input.retryable !== undefined && (builtInCode || typeof input.retryable !== "boolean")) {
       throw new TypeError("[vitehub] Invalid Queue error options.")
     }
 
@@ -284,7 +284,7 @@ function normalizeQueueError(options: unknown): NormalizedQueueError {
       details,
       message,
       requestId,
-      retryable: input.retryable as boolean | undefined,
+      retryable: builtInCode ? undefined : input.retryable as boolean | undefined,
     }
   }
   catch {

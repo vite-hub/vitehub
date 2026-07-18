@@ -80,6 +80,10 @@ describe("QueueError", () => {
         custom: true,
         message: "Provider body secret-token",
       },
+      {
+        code: "QUEUE_DISABLED",
+        retryable: false,
+      },
     ]
 
     for (const input of invalidInputs) {

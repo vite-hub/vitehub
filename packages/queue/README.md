@@ -75,7 +75,7 @@ export default defineQueue<{ email?: string }>(async ({ payload }) => {
 })
 ```
 
-Custom application codes use an explicit generic and `custom: true`, while ViteHub's built-in codes are available as `QueueErrorCode`. The marker makes application-owned messages and details an explicit public contract at runtime. ViteHub reports each failed delivery with safe queue and message identifiers, attempt count, code, details, and retry policy before choosing the provider action. Cloudflare `onError` and Vercel `callbackOptions.retry` directives override the default action when they return an explicit directive.
+Custom application codes use an explicit generic and `custom: true`, while ViteHub's built-in codes are available as `QueueErrorCode`. The marker makes application-owned messages, details, and retry policy an explicit public contract at runtime; `retryable` is available only on custom errors because ViteHub owns the retry policy for built-in failures. ViteHub reports each failed delivery with safe queue and message identifiers, attempt count, code, details, and retry policy before choosing the provider action. Cloudflare `onError` and Vercel `callbackOptions.retry` directives override the default action when they return an explicit directive.
 
 ## Vite Integration
 

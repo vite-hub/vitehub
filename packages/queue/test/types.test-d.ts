@@ -57,6 +57,8 @@ it("types structured Queue errors", () => {
   })
   // @ts-expect-error QUEUE_DISABLED does not publish arbitrary details.
   new QueueError({ code: "QUEUE_DISABLED", details: { queue: "private" } })
+  // @ts-expect-error Built-in retry policy is owned by ViteHub.
+  new QueueError({ code: "QUEUE_DISABLED", retryable: false })
   // @ts-expect-error The legacy message-first constructor was removed.
   new QueueError("Provider failed.")
 })

@@ -33,6 +33,10 @@ describe("published Queue error runtime", () => {
         code: "IMPLICIT_CUSTOM_ERROR",
         message: "Provider body secret-token",
       },
+      {
+        code: "QUEUE_DISABLED",
+        retryable: false,
+      },
     ]) {
       expect(() => new QueueError(input as never)).toThrow("[vitehub] Invalid Queue error options.")
     }

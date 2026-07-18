@@ -24,5 +24,7 @@ new QueueError({
   // @ts-expect-error Built-in details are code-specific.
   details: { operation: "cancel", provider: "vercel" },
 })
+// @ts-expect-error Built-in retry policy is owned by ViteHub.
+new QueueError({ code: "QUEUE_DISABLED", retryable: false })
 // @ts-expect-error The legacy message-first constructor was removed.
 new QueueError("Provider failed.")
