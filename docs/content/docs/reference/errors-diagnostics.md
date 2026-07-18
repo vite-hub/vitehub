@@ -8,6 +8,8 @@ icon: i-lucide-circle-alert
 Errors and diagnostics belong to the package that owns the failing boundary.
 Use the error family to choose the next proof path before changing implementation code.
 
+Errors built on `ViteHubError` snapshot their public `code`, `message`, `details`, `requestId`, and `retryable` fields at construction. The snapshot and its details are frozen, `cause` remains private, and later mutation cannot change `toJSON()`. Details must be bounded JSON data without accessors, cycles, `bigint`, non-finite numbers, or class instances; invalid public contracts fail with a fixed `TypeError` instead of serializing the rejected value. This intentionally breaks callers that relied on mutating an error after construction or passed non-JSON detail objects.
+
 ## Error families
 
 | Error | Owner | Usually means |
