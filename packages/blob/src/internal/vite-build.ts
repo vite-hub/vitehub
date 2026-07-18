@@ -336,11 +336,35 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
   }
 }
 
+function isLegacyCloudflareBlobWorker(worker: string, wrangler: unknown): boolean {
+  if (!wrangler || typeof wrangler !== "object" || Array.isArray(wrangler)) return false
+  const config = wrangler as Record<string, unknown>
+  const compatibilityFlags = Array.isArray(config.compatibility_flags) ? config.compatibility_flags : []
+  const observability = config.observability && typeof config.observability === "object" && !Array.isArray(config.observability)
+    ? config.observability as Record<string, unknown>
+    : {}
+  return worker.includes("function createBlobCloudflareWorker(")
+    && worker.includes("setBlobRuntimeConfig(")
+    && worker.includes("R2 binding")
+    && config.main === "index.js"
+    && compatibilityFlags.includes("nodejs_compat")
+    && observability.enabled === true
+}
+
 async function createNitroCloudflareCleanup(rootDir: string) {
   const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
   let ownsWorker = false
   try {
-    ownsWorker = (await readFile(resolve(outputRoot, "index.js"), "utf8")).includes(cloudflareBlobWorkerMarker)
+    const worker = await readFile(resolve(outputRoot, "index.js"), "utf8")
+    ownsWorker = worker.includes(cloudflareBlobWorkerMarker)
+    if (!ownsWorker) {
+      try {
+        ownsWorker = isLegacyCloudflareBlobWorker(worker, JSON.parse(await readFile(resolve(outputRoot, "wrangler.json"), "utf8")))
+      }
+      catch (error) {
+        if (!(error instanceof SyntaxError) && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      }
+    }
   }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error

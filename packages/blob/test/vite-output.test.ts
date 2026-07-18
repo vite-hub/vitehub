@@ -253,10 +253,15 @@ describe("Vite provider outputs", () => {
     await mkdir(cloudflareOutput, { recursive: true })
     await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
     await writeFile(join(cloudflareOutput, "index.js"), "// workflow worker\nexport default {}\n", "utf8")
-    await writeFile(join(cloudflareOutput, "wrangler.json"), `${JSON.stringify({
+    const foreignWrangler = {
+      compatibility_date: "2026-06-01",
+      compatibility_flags: ["nodejs_compat"],
+      main: "index.js",
+      observability: { enabled: true },
       r2_buckets: [{ binding: "ASSETS", bucket_name: "assets", jurisdiction: "eu" }],
       triggers: { crons: ["0 0 * * *"] },
-    }, null, 2)}\n`, "utf8")
+    }
+    await writeFile(join(cloudflareOutput, "wrangler.json"), `${JSON.stringify(foreignWrangler, null, 2)}\n`, "utf8")
 
     const options = {
       blob: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
@@ -268,20 +273,16 @@ describe("Vite provider outputs", () => {
     await generateProviderOutputs(options)
 
     await expect(readFile(join(cloudflareOutput, "index.js"), "utf8")).resolves.toBe("// workflow worker\nexport default {}\n")
-    await expect(readFile(join(cloudflareOutput, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
-      r2_buckets: [{ binding: "ASSETS", bucket_name: "assets", jurisdiction: "eu" }],
-      triggers: { crons: ["0 0 * * *"] },
-    })
+    await expect(readFile(join(cloudflareOutput, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual(foreignWrangler)
 
-    await writeFile(join(cloudflareOutput, "index.js"), "// vitehub-blob-worker\nexport default 'standalone blob'\n", "utf8")
-    await writeFile(join(cloudflareOutput, "wrangler.json"), `${JSON.stringify({
-      compatibility_date: "2026-06-01",
-      compatibility_flags: ["nodejs_compat"],
-      main: "index.js",
-      observability: { enabled: true },
-      r2_buckets: [{ binding: "ASSETS", bucket_name: "assets" }],
-      triggers: { crons: ["0 0 * * *"] },
-    }, null, 2)}\n`, "utf8")
+    await generateProviderOutputs({ ...options, cloudflareOwnedByNitro: false })
+    const currentWorker = await readFile(join(cloudflareOutput, "index.js"), "utf8")
+    const legacyWorker = currentWorker.replace("// vitehub-blob-worker\n", "")
+    expect(currentWorker).toBe(`// vitehub-blob-worker\n${legacyWorker}`)
+    expect(legacyWorker).toContain("function createBlobCloudflareWorker(")
+    expect(legacyWorker).toContain("setBlobRuntimeConfig(")
+    expect(legacyWorker).toContain("R2 binding")
+    await writeFile(join(cloudflareOutput, "index.js"), legacyWorker, "utf8")
     await generateProviderOutputs(options)
 
     expect(existsSync(join(cloudflareOutput, "index.js"))).toBe(false)
