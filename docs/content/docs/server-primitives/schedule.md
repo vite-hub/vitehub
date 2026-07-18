@@ -61,7 +61,7 @@ export default defineSchedule({
 | `createProcessScheduleWakeDriver` from `@vite-hub/schedule/runtime/process` | Scan and wake due Runtime Schedules inside a long-running process. |
 | `hubSchedule`, `createScheduleNitroConfig` from `@vite-hub/schedule/vite` | Register discovery and generated provider output. |
 
-Schedule Definition, Runtime Schedule, Schedule Run, Schedule Store, and runner types are exported from `@vite-hub/schedule`.
+Schedule Definition, Runtime Schedule, Schedule Run, and Schedule Store types are exported from `@vite-hub/schedule`.
 
 ## Configure the Vite Integration
 
@@ -245,6 +245,8 @@ Runtime Schedule creates, updates, and deletes are serialized through the instal
 When the host fires a native wake, call `context.wake({ scheduleId, scheduledAt })` with the exact stored Runtime Schedule id and occurrence time. Call `controller.close()` during host shutdown to release process resources; closing does not delete definitions, schedules, or run history.
 
 Use `createProcessScheduleWakeDriver()` from `@vite-hub/schedule/runtime/process` when a custom long-running host wants the same in-process wake behavior without generated Nitro wiring.
+
+`startScheduleRunner()` has been removed. Existing self-hosted processes should install `createProcessScheduleWakeDriver()` through `installScheduleRuntime()` and await `controller.close()` during host shutdown.
 
 Static provider output remains build-time configuration; selecting the Process Runtime also executes discovered Static Schedule Definitions without requiring provider output.
 

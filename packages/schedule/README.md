@@ -121,4 +121,6 @@ The driver receives the complete stored Runtime Schedule snapshot, including dis
 
 Long-running hosts can use `createProcessScheduleWakeDriver()` from `@vite-hub/schedule/runtime/process` when they install the runtime directly. It keeps wake registration inside the current process; it does not install cron, systemd, or another operating-system scheduler.
 
+`startScheduleRunner()` has been removed. Existing self-hosted processes should install `createProcessScheduleWakeDriver()` through `installScheduleRuntime()` as shown above, then await `controller.close()` during host shutdown.
+
 Learn more at [vitehub.dev](https://vitehub.dev).

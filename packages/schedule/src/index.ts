@@ -2,7 +2,6 @@ export { defineSchedule, defineScheduleTarget } from "./definition.ts"
 export { discoverScheduleDefinitions } from "./discovery.ts"
 export { ScheduleError } from "./errors.ts"
 export { createScheduleRun, executeRuntimeSchedule, executeSchedule, executeStaticSchedule } from "./runtime/execute.ts"
-export { startScheduleRunner } from "./runtime/runner.ts"
 export { schedules, validateRuntimeScheduleCron } from "./runtime/client.ts"
 export { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore } from "./runtime/store.ts"
 export {
@@ -44,8 +43,3 @@ export type {
   ScheduleTargetDefinition,
   ScheduleTargetDefinitionInput,
 } from "./types.ts"
-
-export type {
-  ScheduleRunnerController,
-  ScheduleRunnerOptions,
-} from "./runtime/runner.ts"
