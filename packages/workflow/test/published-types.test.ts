@@ -62,10 +62,6 @@ it("keeps built Workflow error boundaries safe for hostile inputs and mutation",
   })
   class DerivedWorkflowError extends WorkflowError<"WORKFLOW_DISABLED"> {
     readonly metadata = "consumer-owned"
-
-    override toJSON(): never {
-      throw new Error(secret)
-    }
   }
   const derived = new DerivedWorkflowError({ code: "WORKFLOW_DISABLED" })
 

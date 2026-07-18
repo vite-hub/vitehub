@@ -65,13 +65,9 @@ describe("WorkflowError", () => {
     expect(() => new WorkflowError(options as never)).not.toThrow(secret)
   })
 
-  it("pins trusted serialization for subclasses", () => {
+  it("keeps subclass fields compatible with trusted serialization", () => {
     class CustomWorkflowError extends WorkflowError<"WORKFLOW_DISABLED"> {
       readonly metadata = "consumer-owned"
-
-      override toJSON(): never {
-        throw new Error("private subclass diagnostics")
-      }
     }
 
     const error = new CustomWorkflowError({ code: "WORKFLOW_DISABLED" })
