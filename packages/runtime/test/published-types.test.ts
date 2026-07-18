@@ -12,7 +12,7 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(packageRoot, "../../node_modules/typescript/bin/tsc")
 
-it("publishes the ViteHub error contract", { timeout: 30_000 }, async () => {
+it("publishes the ViteHub error contract", { timeout: 15_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-runtime-types-"))
 
   try {
