@@ -21,12 +21,12 @@ describe("hubQueue", () => {
     const plugin = hubQueue({ provider: "cloudflare" })
     const config = plugin.config as unknown as (config: Record<string, unknown>) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    const userConfig = { nitro: { plugins: ["server/plugin.ts"] }, root }
+    const userConfig = { nitro: { cloudflare: { wrangler: { compatibility_flags: ["custom"] } }, plugins: ["server/plugin.ts"] }, root }
 
     config(userConfig)
     expect(userConfig).toMatchObject({
       nitro: {
-        cloudflare: { wrangler: { queues: { consumers: [{ queue: "queue--77656c636f6d65" }], producers: [{ binding: "QUEUE_77656C636F6D65", queue: "queue--77656c636f6d65" }] } } },
+        cloudflare: { wrangler: { compatibility_flags: ["custom", "nodejs_compat"], queues: { consumers: [{ queue: "queue--77656c636f6d65" }], producers: [{ binding: "QUEUE_77656C636F6D65", queue: "queue--77656c636f6d65" }] } } },
         plugins: [".vitehub/nitro/queue/plugin.ts", "server/plugin.ts"],
         rollupConfig: { external: ["cloudflare:workers"] },
       },
