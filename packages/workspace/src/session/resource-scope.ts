@@ -69,6 +69,7 @@ function makeWorkspaceResourceScope<Resource, Setup>(
 ): WorkspaceResourceScope<Resource, Setup> {
   let closed = false
   let closePromise: Promise<void> | undefined
+  let pendingRegistrations = Promise.resolve()
 
   return {
     resource,
@@ -76,23 +77,29 @@ function makeWorkspaceResourceScope<Resource, Setup>(
     close() {
       if (!closePromise) {
         closed = true
-        closePromise = runWorkspaceEffect(closeResourceScope(scope, failures, Exit.void, operation))
+        closePromise = pendingRegistrations.then(
+          () => runWorkspaceEffect(closeResourceScope(scope, failures, Exit.void, operation)),
+        )
       }
       return closePromise
     },
     isClosed: () => closed,
     async runChild(use) {
+      if (closed) throw new Error("[vitehub] Workspace resource scope is already closed.")
+      let finishRegistration!: () => void
+      const registration = new Promise<void>((resolve) => {
+        finishRegistration = resolve
+      })
+      pendingRegistrations = Promise.all([pendingRegistrations, registration]).then(() => {})
       const childScope = await runWorkspaceEffect(Scope.fork(scope, "sequential"))
-      if (closed) {
-        await runWorkspaceEffect(Scope.close(childScope, Exit.void))
-        throw new Error("[vitehub] Workspace resource scope is already closed.")
-      }
       try {
-        return await use(finalizer => runWorkspaceEffect(
-          Scope.addFinalizer(childScope, Effect.promise(finalizer)),
-        ))
+        return await use(async (finalizer) => {
+          await runWorkspaceEffect(Scope.addFinalizer(childScope, Effect.promise(finalizer)))
+          finishRegistration()
+        })
       }
       finally {
+        finishRegistration()
         await runWorkspaceEffect(Scope.close(childScope, Exit.void))
       }
     },
