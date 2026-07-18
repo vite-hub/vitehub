@@ -241,6 +241,18 @@ async function execLocal(
   const cwd = toLocalPath(root, normalizeSessionCwd(options.cwd), { allowGenerated: true })
   if (options.abortSignal?.aborted) return { args, command, exitCode: 130, stderr: "Command aborted", stdout: "" }
   return await scope.runChild(async (registerFinalizer) => {
+    let closeRequested = false
+    let abort = () => {
+      closeRequested = true
+    }
+    let result: Promise<ExecResult> | undefined
+    await registerFinalizer(async () => {
+      abort()
+      await result
+    })
+    if (closeRequested)
+      return { args, command, exitCode: 130, stderr: "Command aborted", stdout: "" }
+
     const child = spawn(command, args, {
       cwd,
       env: { ...process.env, ...options.env },
@@ -256,7 +268,7 @@ async function execLocal(
       child.kill("SIGTERM")
       killTimer = setTimeout(() => child.kill("SIGKILL"), 100)
     }
-    const abort = () => {
+    abort = () => {
       if (timedOut || aborted || settled) return
       aborted = true
       terminate()
@@ -279,7 +291,7 @@ async function execLocal(
     child.stderr?.setEncoding("utf8")
     child.stdout?.on("data", chunk => stdout += chunk)
     child.stderr?.on("data", chunk => stderr += chunk)
-    const result = new Promise<ExecResult>((resolve) => {
+    result = new Promise<ExecResult>((resolve) => {
       const finish = (value: ExecResult) => {
         settled = true
         clearTimers()
@@ -301,10 +313,6 @@ async function execLocal(
           : timedOut ? `${stderr}${stderr ? "\n" : ""}Command timed out${signal ? ` (${signal})` : ""}` : stderr,
         stdout,
       }))
-    })
-    await registerFinalizer(async () => {
-      abort()
-      await result
     })
     return await result
   })
