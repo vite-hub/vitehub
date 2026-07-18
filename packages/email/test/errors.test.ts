@@ -43,6 +43,18 @@ describe("EmailError", () => {
     })
   })
 
+  it("rejects arbitrary runtime codes in both constructor forms", () => {
+    expect(() => new EmailError({
+      code: "smtp-auth-secret" as never,
+      message: "Provider-controlled message",
+    })).toThrow(new TypeError("[vitehub] Invalid Email error code."))
+
+    expect(() => new EmailError(
+      "smtp-auth-secret" as never,
+      "Provider-controlled message",
+    )).toThrow(new TypeError("[vitehub] Invalid Email error code."))
+  })
+
   it("only serializes bounded opaque driver identifiers", () => {
     const secret = "https://provider.example/send?token=email-secret"
     const error = new EmailError({

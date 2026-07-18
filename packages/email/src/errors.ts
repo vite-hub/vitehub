@@ -42,6 +42,21 @@ function safeEmailDriver(value: unknown): string | undefined {
     : undefined
 }
 
+function parseEmailErrorCode(value: unknown): EmailErrorCode {
+  switch (value) {
+    case "authentication":
+    case "invalid-message":
+    case "network":
+    case "not-configured":
+    case "provider":
+    case "rate-limit":
+    case "timeout":
+      return value
+    default:
+      throw new TypeError("[vitehub] Invalid Email error code.")
+  }
+}
+
 export class EmailError extends ViteHubError<EmailErrorCode, EmailErrorDetails> {
   readonly driver?: string
 
@@ -53,7 +68,7 @@ export class EmailError extends ViteHubError<EmailErrorCode, EmailErrorDetails> 
     metadata: EmailErrorMetadata = {},
   ) {
     const options = typeof codeOrOptions === "string" ? metadata : codeOrOptions
-    const code = typeof codeOrOptions === "string" ? codeOrOptions : codeOrOptions.code
+    const code = parseEmailErrorCode(typeof codeOrOptions === "string" ? codeOrOptions : codeOrOptions.code)
     const resolvedMessage = typeof codeOrOptions === "string" ? message! : codeOrOptions.message
     const inputDetails = typeof options.details === "object" && options.details !== null && !Array.isArray(options.details)
       ? options.details

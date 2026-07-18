@@ -77,7 +77,7 @@ throw new EmailError({
 })
 ```
 
-The positional `new EmailError(code, message, metadata)` form remains supported. Missing driver configuration stays a `TypeError` because it is a programmer error rather than a delivery failure.
+The positional `new EmailError(code, message, metadata)` form remains supported. Both constructor forms reject codes outside the closed `EmailErrorCode` union at runtime, including calls from JavaScript or through TypeScript casts. Missing driver configuration stays a `TypeError` because it is a programmer error rather than a delivery failure.
 
 ## Grant an Agent permission to send
 

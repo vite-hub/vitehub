@@ -51,6 +51,10 @@ it("exports the structured Email error contract", () => {
   new EmailError({ code: "provider", details: { responseBody: "secret" }, message: "Delivery failed." })
   // @ts-expect-error Email has no public operation other than send.
   new EmailError({ code: "provider", details: { operation: "delete" }, message: "Delivery failed." })
+  // @ts-expect-error Email codes are a closed ViteHub-owned union.
+  new EmailError({ code: "smtp-auth-secret", message: "Delivery failed." })
+  // @ts-expect-error The positional constructor uses the same closed code union.
+  new EmailError("smtp-auth-secret", "Delivery failed.")
 })
 
 it("exports Markdown and test helpers from dedicated entrypoints", () => {
