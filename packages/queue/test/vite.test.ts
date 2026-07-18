@@ -88,6 +88,11 @@ describe("hubQueue", () => {
     expect(nitroPlugin).not.toContain("@vercel/queue")
     expect(nitroPlugin).not.toContain("cloudflare:workers")
     expect(nitroPlugin).not.toContain("cloudflare:queue")
+    await (plugin.handleHotUpdate as (context: unknown) => Promise<void>)({
+      file: join(root, "welcome.queue.ts"),
+      server: { config },
+    })
+    expect(await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")).toContain("const queueConfig = false")
   })
 
   it("enables inferred queue config when hubQueue options are omitted", async () => {

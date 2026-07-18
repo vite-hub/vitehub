@@ -103,6 +103,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
   let cloudflareQueues = true
   let configuredDefinitions: DiscoveredQueueDefinition[] = []
   let nitroOwnsCloudflareWorker = false
+  let nitroQueue: QueueModuleOptions | undefined = queue
 
   return {
     name: "@vite-hub/queue/vite",
@@ -128,7 +129,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       hosting = resolveQueueHosting(queue, nitro)
       cloudflareQueues = supportsCloudflareQueues(nitro)
       const nitroHosting = resolveNitroHosting(nitro)
-      const nitroQueue = queue !== false && queue?.provider && nitroHosting && queue.provider !== nitroHosting ? false : queue
+      nitroQueue = queue !== false && queue?.provider && nitroHosting && queue.provider !== nitroHosting ? false : queue
       await writeQueueNitroIntegration(config.root, nitroQueue, hosting, cloudflareQueues, configuredDefinitions)
     },
     configEnvironment(name, config) {
@@ -143,7 +144,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       const file = context.file.replace(/\\/g, "/")
       if (!/\.queue\.(?:c|m)?[jt]s$/i.test(file) && !/\/server\/queues\/.*\.(?:c|m)?[jt]s$/i.test(file)) return
       resolved = context.server.config
-      await writeQueueNitroIntegration(resolved.root, queue, hosting, cloudflareQueues)
+      await writeQueueNitroIntegration(resolved.root, nitroQueue, hosting, cloudflareQueues)
     },
     async closeBundle() {
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
