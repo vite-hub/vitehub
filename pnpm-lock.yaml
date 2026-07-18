@@ -997,6 +997,9 @@ importers:
 
   packages/sandbox:
     dependencies:
+      effect:
+        specifier: catalog:effect
+        version: 4.0.0-beta.99
       esbuild:
         specifier: catalog:tooling
         version: 0.28.1

@@ -9,8 +9,7 @@ import {
   CLOUDFLARE_READ_FILE_TIMEOUT_MS,
   CLOUDFLARE_STOP_TIMEOUT_MS,
   resolveExecRequestTimeout,
-  withCloudflareDeadline,
-  withCloudflareTransportRetry,
+  runCloudflareTransportOperation,
 } from './cloudflare/transport'
 
 import type { CloudflareSandboxNamespace, CloudflareSandboxSession, CloudflareSandboxSessionOptions, SandboxCodeContext, SandboxCodeContextOptions, SandboxCodeExecutionResult, SandboxExposedPort, SandboxExposePortOptions, SandboxGitCheckoutOptions, SandboxGitCheckoutResult, SandboxMountBucketOptions, SandboxRunCodeOptions } from '../types/cloudflare'
@@ -186,7 +185,7 @@ export class CloudflareSandboxAdapter extends BaseSandboxAdapter<'cloudflare'> {
 
   async exec(command: string, args: string[] = [], opts?: SandboxExecOptions): Promise<SandboxExecResult> {
     const cmd = args.length ? `${shellQuote(command)} ${args.map(shellQuote).join(' ')}` : shellQuote(command)
-    const result = await withCloudflareTransportRetry('exec', async () => await withCloudflareDeadline('exec', resolveExecRequestTimeout(opts?.timeout), async () => await this.native.exec(cmd, {
+    const result = await runCloudflareTransportOperation('exec', resolveExecRequestTimeout(opts?.timeout), async () => await this.native.exec(cmd, {
       timeout: opts?.timeout,
       env: opts?.env,
       cwd: opts?.cwd,
@@ -199,14 +198,14 @@ export class CloudflareSandboxAdapter extends BaseSandboxAdapter<'cloudflare'> {
               opts?.onStderr?.(data)
           }
         : undefined,
-    })))
+    }))
     return { ok: result.success, stdout: result.stdout, stderr: result.stderr, code: result.exitCode }
   }
 
   async writeFile(path: string, content: SandboxFileContent): Promise<void> {
     const body = typeof content === 'string' ? content : Buffer.from(content).toString('base64')
     const options = typeof content === 'string' ? undefined : { encoding: 'base64' }
-    const result = await withCloudflareTransportRetry('writeFile', async () => await withCloudflareDeadline('writeFile', CLOUDFLARE_CONTROL_PLANE_TIMEOUT_MS, async () => await this.native.writeFile(path, body, options)))
+    const result = await runCloudflareTransportOperation('writeFile', CLOUDFLARE_CONTROL_PLANE_TIMEOUT_MS, async () => await this.native.writeFile(path, body, options))
     if (!result.success)
       throw new SandboxError(`Failed to write file: ${path}`)
   }
@@ -214,7 +213,7 @@ export class CloudflareSandboxAdapter extends BaseSandboxAdapter<'cloudflare'> {
   async readFile(path: string, opts: SandboxReadFileOptions & { encoding: 'binary' }): Promise<Uint8Array>
   async readFile(path: string, opts?: SandboxReadFileOptions): Promise<string>
   async readFile(path: string, opts?: SandboxReadFileOptions): Promise<string | Uint8Array> {
-    const result = await withCloudflareTransportRetry('readFile', async () => await withCloudflareDeadline('readFile', CLOUDFLARE_READ_FILE_TIMEOUT_MS, async () => await this.native.readFile(path, opts?.encoding === 'binary' ? { encoding: 'base64' } : undefined)))
+    const result = await runCloudflareTransportOperation('readFile', CLOUDFLARE_READ_FILE_TIMEOUT_MS, async () => await this.native.readFile(path, opts?.encoding === 'binary' ? { encoding: 'base64' } : undefined))
     if (!result.success)
       throw new SandboxError(`Failed to read file: ${path}`)
     if (opts?.encoding === 'binary')
@@ -223,12 +222,12 @@ export class CloudflareSandboxAdapter extends BaseSandboxAdapter<'cloudflare'> {
   }
 
   async stop(): Promise<void> {
-    await withCloudflareTransportRetry('destroy', async () => await withCloudflareDeadline('destroy', CLOUDFLARE_STOP_TIMEOUT_MS, async () => await this.native.destroy()))
+    await runCloudflareTransportOperation('destroy', CLOUDFLARE_STOP_TIMEOUT_MS, async () => await this.native.destroy())
   }
 
   async mkdir(path: string, opts?: { recursive?: boolean }): Promise<void> {
     if (this.native.mkdir) {
-      const result = await withCloudflareTransportRetry('mkdir', async () => await withCloudflareDeadline('mkdir', CLOUDFLARE_CONTROL_PLANE_TIMEOUT_MS, async () => await this.native.mkdir!(path, opts)))
+      const result = await runCloudflareTransportOperation('mkdir', CLOUDFLARE_CONTROL_PLANE_TIMEOUT_MS, async () => await this.native.mkdir!(path, opts))
       if (!result.success)
         throw new SandboxError(`Failed to create directory: ${path}`)
       return

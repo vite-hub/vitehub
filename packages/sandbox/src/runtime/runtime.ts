@@ -1,10 +1,10 @@
-import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
+import { runCloudflareSandboxExecution } from '../internal/shared/cloudflare-attempt'
+import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
 import {
   createResourceRuntime,
   type ProviderPort,
   type ResourceRuntimeContext,
 } from '../internal/shared/resource-runtime'
-import { sleep } from '../internal/shared/utils'
 import { SandboxError } from '../sandbox/errors'
 import { detectSandbox, isSandboxAvailable } from '../sandbox/providers/shared'
 import { validateSandboxConfig } from '../sandbox/validation'
@@ -97,55 +97,33 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
 
     return {
       name: context.name,
-      async run(payload, options = {}) {
-        const cloudflareSandboxId = provider.provider === 'cloudflare'
-          ? createCloudflareExecutionSandboxId(context.name, options.sandboxId || provider.sandboxId)
-          : undefined
-        const attempts = provider.provider === 'cloudflare'
-          ? CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS.length + 1
-          : 1
+      async run<TPayload = unknown, TResult = unknown>(payload: TPayload | undefined, options: SandboxExecutionOptions = {}): Promise<TResult> {
+        const execute = async (sandbox: SandboxClient) => await executeSandboxDefinition<TPayload, TResult>(
+          sandbox,
+          context.name,
+          context.definition.options,
+          context.definition.bundle,
+          payload,
+          options.context,
+        )
 
-        for (let attempt = 0; attempt < attempts; attempt++) {
-          let sandbox: SandboxClient | undefined
-
+        if (provider.provider !== 'cloudflare') {
+          const sandbox = await runtimeProvider.createSandboxClient(provider as SandboxProviderOptions)
           try {
-            const createdSandbox = await runtimeProvider.createSandboxClient(
-              cloudflareSandboxId
-                ? {
-                    ...provider,
-                    sandboxId: cloudflareSandboxId,
-                  } as SandboxProviderOptions
-                : provider as SandboxProviderOptions,
-            )
-            sandbox = createdSandbox
-            return await executeSandboxDefinition(
-              createdSandbox,
-              context.name,
-              context.definition.options,
-              context.definition.bundle,
-              payload,
-              options.context,
-            )
-          }
-          catch (error) {
-            const sandboxError = toSandboxError(error)
-            const shouldRetry = provider.provider === 'cloudflare'
-              && attempt < CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS.length
-              && isRetriableCloudflareSandboxError(sandboxError)
-
-            if (!shouldRetry)
-              throw sandboxError
-
-            await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt])
+            return await execute(sandbox)
           }
           finally {
-            await sandbox?.stop().catch(() => {})
+            await sandbox.stop().catch(() => {})
           }
         }
 
-        throw new SandboxError('Cloudflare sandbox retries exhausted.', {
-          code: 'SANDBOX_RUNTIME_ERROR',
-          provider: provider.provider,
+        const sandboxId = createCloudflareExecutionSandboxId(context.name, options.sandboxId || provider.sandboxId)
+        return await runCloudflareSandboxExecution({
+          acquire: async () => await runtimeProvider.createSandboxClient({ ...provider, sandboxId }),
+          isRetriable: isRetriableCloudflareSandboxError,
+          mapError: toSandboxError,
+          release: async sandbox => await sandbox.stop(),
+          use: execute,
         })
       },
     }
