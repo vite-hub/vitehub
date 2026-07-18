@@ -206,6 +206,28 @@ describe("authenticated", () => {
     expect(JSON.stringify(error)).not.toContain("secret")
   })
 
+  it("normalizes default label getter failures from Better Auth", async () => {
+    const request = new Request("https://example.com/api/agent")
+    const cause = new Error("protected email getter failure")
+    serverMocks.getSession.mockResolvedValueOnce({
+      session: {},
+      user: {
+        get email() {
+          throw cause
+        },
+        id: "user_1",
+      },
+    })
+
+    const error = await resolve(authenticated(), createContext({ request })).catch(error => error)
+
+    expect(error).toBeInstanceOf(AuthenticationProviderError)
+    expect(error).toMatchObject({
+      details: { operation: "get-session", provider: "better-auth" },
+    })
+    expect(error.cause).toBe(cause)
+  })
+
   it("distinguishes invalid Better Auth responses from missing sessions", async () => {
     const request = new Request("https://example.com/api/agent")
     serverMocks.getSession.mockResolvedValueOnce(null)

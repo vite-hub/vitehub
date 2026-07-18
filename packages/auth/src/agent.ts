@@ -178,14 +178,21 @@ async function defaultAuthenticatedSource(
   if (!context.request) return undefined
 
   const auth = getAuthForRequest(context.request)
-  return await getAuthenticationSession(auth, {
+  let label: string | undefined
+  const session = await getAuthenticationSession(auth, {
     headers: context.request.headers,
     query: {
       disableCookieCache: true,
       disableRefresh: true,
     },
+  }, value => {
+    label = defaultLabel(value.user as AuthenticatedUser)
   }) as AuthenticatedSession | null | undefined
+  if (session) defaultAuthenticationLabels.set(session, label!)
+  return session
 }
+
+const defaultAuthenticationLabels = new WeakMap<object, string>()
 
 function createAuthenticatedContext<
   TRuntimeConfig extends AgentRuntimeConfig,
@@ -217,7 +224,9 @@ async function createDefaultInvoker<
   if (!userId) throw new AuthenticationRequiredError("[vitehub] Authenticated user is missing an id.")
 
   const kind = await resolveAuthenticatedValue(options.kind, context) ?? "authUser"
-  const label = await resolveAuthenticatedValue(options.label, context) ?? defaultLabel(context.user)
+  const label = await resolveAuthenticatedValue(options.label, context)
+    ?? defaultAuthenticationLabels.get(context.auth)
+    ?? defaultLabel(context.user)
   const sessionId = readString(context.session.id)
   const meta = normalizeMeta(await resolveAuthenticatedValue(options.meta, context))
 
