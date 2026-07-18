@@ -135,7 +135,6 @@ describe("Vite provider outputs", () => {
 
     await generateProviderOutputs({
       clientOutDir: "dist",
-      cloudflareOwnedByNitro: true,
       queue: { provider: "vercel" },
       rootDir,
     })
@@ -176,7 +175,7 @@ describe("Vite provider outputs", () => {
     expect(existsSync(join(rootDir, ".vercel", "output", "static", basename(rootDir), "wrangler.json"))).toBe(false)
   })
 
-  it("leaves Cloudflare Worker output to Nitro", async () => {
+  it("cleans a Queue-owned Cloudflare Worker when Queue is disabled under Nitro", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-nitro-cloudflare-")
     const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
     await mkdir(join(rootDir, "src"), { recursive: true })
@@ -194,7 +193,7 @@ describe("Vite provider outputs", () => {
     await generateProviderOutputs({
       clientOutDir: "dist",
       cloudflareOwnedByNitro: true,
-      queue: { provider: "cloudflare" },
+      queue: false,
       rootDir,
     })
 

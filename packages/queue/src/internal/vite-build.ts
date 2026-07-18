@@ -407,7 +407,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     await writeProviderDeploymentOutputs({
       clientOutDir: options.clientOutDir,
       cleanup: {
-        cloudflare: options.cloudflareOwnedByNitro && usesCloudflare
+        cloudflare: options.cloudflareOwnedByNitro
           ? () => createNitroCloudflareCleanup(options.rootDir)
           : { wranglerConfigOwnership: { keys: ["queues"] } },
       },
