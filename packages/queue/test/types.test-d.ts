@@ -2,6 +2,7 @@ import { expectTypeOf, it } from "vitest"
 import type { Plugin } from "vite"
 
 import { defineQueue } from "../src/definition.ts"
+import { deferQueue, runQueue } from "../src/runtime/client.ts"
 import { hubQueue } from "../src/vite.ts"
 
 it("returns a vite plugin", () => {
@@ -17,4 +18,10 @@ it("infers queue payload types", () => {
     metadata?: unknown
     payload: { email: string }
   }]>()
+})
+
+it("types Queue Enqueue payloads separately from options", () => {
+  expectTypeOf(runQueue("welcome", { payload: "value" })).toEqualTypeOf<Promise<{ messageId?: string, status: "queued" }>>()
+  expectTypeOf(runQueue("welcome", { email: "ava@example.com" }, { delaySeconds: 60 })).toEqualTypeOf<Promise<{ messageId?: string, status: "queued" }>>()
+  expectTypeOf(deferQueue("welcome", { payload: "value" }, { id: "message-1" })).toEqualTypeOf<void>()
 })

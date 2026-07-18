@@ -203,8 +203,7 @@ import { runQueue } from '@vite-hub/queue'
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email: string }>(event)
 
-  return runQueue('welcome-email', {
-    payload: { email: body.email },
+  return runQueue('welcome-email', { email: body.email }, {
     idempotencyKey: `welcome:${body.email}`,
   })
 })
@@ -218,18 +217,18 @@ await runQueue('welcome-email', { email: 'ava@example.com' })
 
 ## Queue Enqueue options
 
-Queue Enqueue accepts either a raw payload or an envelope with `payload` and options.
+Queue Enqueue accepts a payload followed by optional provider-neutral enqueue options.
 
 ```ts
-await runQueue('welcome-email', {
-  payload: { email: 'ava@example.com' },
+await runQueue('welcome-email', { email: 'ava@example.com' }, {
   delaySeconds: 60,
 })
 ```
 
+Move options from the previous envelope form into the third argument: `runQueue(name, { payload, ...options })` becomes `runQueue(name, payload, options)`. The lower-level `QueueClient.send()` API continues to accept an envelope for direct provider calls.
+
 | Option | Type | Cloudflare | Vercel | Description |
 | --- | --- | --- | --- | --- |
-| `payload` | `TPayload` | Yes | Yes | The payload delivered to the Queue Definition. Required when using the envelope form. |
 | `id` | `string` | Yes | Yes | ViteHub message id. If omitted, ViteHub generates one. |
 | `contentType` | `CloudflareQueueContentType` | Yes | No | Cloudflare message content type. Values: `bytes`, `json`, `text`, `v8`. |
 | `delaySeconds` | `number` | Yes | Yes | Provider-supported enqueue delay. |
@@ -262,7 +261,7 @@ Queue does not include an in-memory Queue Provider for local Queue Delivery. Tes
 
 ## Runtime Helpers
 
-### `runQueue(name, input)`
+### `runQueue(name, payload, options?)`
 
 Enqueues one Queue Job and returns the Queue Provider acceptance result.
 
@@ -279,7 +278,7 @@ type QueueSendResult = {
 }
 ```
 
-### `deferQueue(name, input)`
+### `deferQueue(name, payload, options?)`
 
 Schedules Queue Enqueue through the current request's `waitUntil` support and returns `void`.
 

@@ -21,6 +21,21 @@ export function createQueueMessageId(prefix = "queue"): string {
   return `${prefix}_${Date.now().toString(36)}_${fallbackCounter.toString(36)}`
 }
 
+export function normalizeQueueEnqueuePayload<TPayload = unknown>(payload: TPayload, options: QueueEnqueueOptions = {}): NormalizedQueueEnqueueInput<TPayload> {
+  const { contentType, delaySeconds, id, idempotencyKey, region, retentionSeconds } = options
+  return {
+    id: typeof id === "string" && id.length > 0 ? id : createQueueMessageId(),
+    options: {
+      ...(contentType !== undefined ? { contentType } : {}),
+      ...(delaySeconds !== undefined ? { delaySeconds } : {}),
+      ...(idempotencyKey !== undefined ? { idempotencyKey } : {}),
+      ...(region !== undefined ? { region } : {}),
+      ...(retentionSeconds !== undefined ? { retentionSeconds } : {}),
+    },
+    payload,
+  }
+}
+
 function isQueueEnvelope<TPayload = unknown>(input: QueueEnqueueInput<TPayload>): input is QueueEnqueueEnvelope<TPayload> {
   if (typeof input !== "object" || input === null || Array.isArray(input) || !("payload" in input)) {
     return false
@@ -30,24 +45,9 @@ function isQueueEnvelope<TPayload = unknown>(input: QueueEnqueueInput<TPayload>)
 
 export function normalizeQueueEnqueueInput<TPayload = unknown>(input: QueueEnqueueInput<TPayload>): NormalizedQueueEnqueueInput<TPayload> {
   if (!isQueueEnvelope(input)) {
-    return {
-      id: createQueueMessageId(),
-      options: {},
-      payload: input,
-    }
+    return normalizeQueueEnqueuePayload(input)
   }
 
-  const { contentType, delaySeconds, id, idempotencyKey, payload, region, retentionSeconds } = input
-  const options: QueueEnqueueOptions = {
-    ...(contentType !== undefined ? { contentType } : {}),
-    ...(delaySeconds !== undefined ? { delaySeconds } : {}),
-    ...(idempotencyKey !== undefined ? { idempotencyKey } : {}),
-    ...(region !== undefined ? { region } : {}),
-    ...(retentionSeconds !== undefined ? { retentionSeconds } : {}),
-  }
-  return {
-    id: typeof id === "string" && id.length > 0 ? id : createQueueMessageId(),
-    options,
-    payload,
-  }
+  const { payload, ...options } = input
+  return normalizeQueueEnqueuePayload(payload, options)
 }

@@ -1,14 +1,14 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { normalizeQueueOptions } from "../config.ts"
-import { normalizeQueueEnqueueInput } from "../enqueue.ts"
+import { normalizeQueueEnqueuePayload } from "../enqueue.ts"
 import { QueueError } from "../errors.ts"
 import { getCloudflareQueueBindingName } from "../integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 
 import { getQueueClientCache, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent } from "./state.ts"
 
-import type { CloudflareQueueClient, CloudflareQueueProviderOptions, QueueClient, QueueEnqueueInput, QueueProviderOptions, QueueSendResult, ResolvedQueueOptions, VercelQueueProviderOptions } from "../types.ts"
+import type { CloudflareQueueClient, CloudflareQueueProviderOptions, QueueClient, QueueEnqueueOptions, QueueProviderOptions, QueueSendResult, ResolvedQueueOptions, VercelQueueProviderOptions } from "../types.ts"
 
 function createQueueDefinitionNotFoundError(name: string): QueueError {
   return new QueueError(`Unknown queue definition: ${name}. Queue Runtime Registry is installed by generated Provider Output; direct Node scripts cannot discover Queue Definitions by themselves.`, {
@@ -120,13 +120,13 @@ export async function getQueue(name: string): Promise<QueueClient> {
   return await pending
 }
 
-export async function runQueue<TPayload = unknown>(name: string, input: QueueEnqueueInput<TPayload>): Promise<QueueSendResult> {
+export async function runQueue<TPayload = unknown>(name: string, payload: TPayload, options: QueueEnqueueOptions = {}): Promise<QueueSendResult> {
   const definition = await loadQueueDefinition(name)
   if (!definition) {
     throw createQueueDefinitionNotFoundError(name)
   }
 
-  const normalized = normalizeQueueEnqueueInput(input)
+  const normalized = normalizeQueueEnqueuePayload(payload, options)
   const queue = await getQueue(name)
   return await queue.send({
     ...normalized.options,
@@ -135,9 +135,9 @@ export async function runQueue<TPayload = unknown>(name: string, input: QueueEnq
   })
 }
 
-export function deferQueue<TPayload = unknown>(name: string, input: QueueEnqueueInput<TPayload>): void {
+export function deferQueue<TPayload = unknown>(name: string, payload: TPayload, options: QueueEnqueueOptions = {}): void {
   const request = getQueueRuntimeEvent()
-  const task = () => runWithQueueRuntimeEvent(request, () => runQueue(name, input))
+  const task = () => runWithQueueRuntimeEvent(request, () => runQueue(name, payload, options))
   const handleError = async (error: unknown) => {
     console.error(`[vitehub] Deferred queue dispatch failed for "${name}"`, error)
     try {

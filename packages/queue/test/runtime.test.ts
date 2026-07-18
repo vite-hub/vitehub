@@ -123,6 +123,29 @@ describe("cloudflare queue runtime", () => {
     expect(vercelQueueMock.send).not.toHaveBeenCalled()
   })
 
+  it("keeps envelope-shaped payloads intact", async () => {
+    const send = vi.fn(async () => {})
+    const worker = createQueueCloudflareWorker({
+      app: async () => Response.json(await runQueue("welcome", { payload: "value" })),
+      registry: {
+        welcome: async () => ({
+          default: {
+            handler: async () => {},
+          },
+        }),
+      },
+    })
+
+    await worker.fetch(new Request("https://example.com/"), {
+      [getCloudflareQueueBindingName("welcome")]: {
+        send,
+        sendBatch: vi.fn(async () => {}),
+      },
+    }, { waitUntil: vi.fn() })
+
+    expect(send).toHaveBeenCalledWith({ payload: "value" }, expect.any(Object))
+  })
+
   it("uses nested Cloudflare waitUntil for deferred dispatch", async () => {
     const send = vi.fn(async () => {})
     const waitUntil = vi.fn()
@@ -147,13 +170,13 @@ describe("cloudflare queue runtime", () => {
         },
       },
     }, async () => {
-      deferQueue("welcome", { email: "ava@example.com" })
+      deferQueue("welcome", { payload: "value" }, { delaySeconds: 60 })
       await Promise.resolve()
     })
 
     expect(waitUntil).toHaveBeenCalledTimes(1)
     await waitUntil.mock.calls[0]?.[0]
-    expect(send).toHaveBeenCalledTimes(1)
+    expect(send).toHaveBeenCalledWith({ payload: "value" }, expect.objectContaining({ delaySeconds: 60 }))
     expect(vercelQueueMock.send).not.toHaveBeenCalled()
   })
 

@@ -149,19 +149,14 @@ export interface QueueDefinition<TPayload = unknown, TResult = unknown> {
 export interface QueueEnqueueOptions {
   contentType?: CloudflareQueueContentType
   delaySeconds?: number
+  id?: string
   idempotencyKey?: string
   region?: string
   retentionSeconds?: number
 }
 
-export type QueueEnqueueEnvelope<TPayload = unknown> = {
+export type QueueEnqueueEnvelope<TPayload = unknown> = QueueEnqueueOptions & {
   payload: TPayload
-  contentType?: CloudflareQueueContentType
-  delaySeconds?: number
-  id?: string
-  idempotencyKey?: string
-  region?: string
-  retentionSeconds?: number
 }
 
 export type QueueEnqueueInput<TPayload = unknown> = TPayload | QueueEnqueueEnvelope<TPayload>
