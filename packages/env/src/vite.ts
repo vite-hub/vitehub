@@ -149,8 +149,11 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       },
     },
     transform(code) {
-      if (!code.includes("/* @vite-ignore */") || !code.includes(ENV_SERVER_ID)) return
-      return code.replace(/\/\* @vite-ignore \*\/\s*("#vitehub\/env\/server")/g, "$1")
+      if (!code.includes("/* @vitehub-env */") || !code.includes(ENV_SERVER_ID)) return
+      return code.replace(
+        /\/\* @vite-ignore \*\/\s*\/\* @vitehub-env \*\/\s*[\w$]+/g,
+        JSON.stringify(ENV_SERVER_ID),
+      )
     },
   }
 }

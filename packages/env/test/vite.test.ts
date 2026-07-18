@@ -224,7 +224,8 @@ describe("Vite plugin", () => {
     expect(serverLoaded).toContain("runWithServerEnv")
 
     const transformHook = plugin.transform as (code: string) => string | undefined
-    expect(transformHook('import(\n/* @vite-ignore */\n"#vitehub/env/server"\n)')).toBe('import(\n"#vitehub/env/server"\n)')
+    expect(transformHook('const envId = "#vitehub/env/server"; import(\n/* @vite-ignore */ /* @vitehub-env */ envId\n)'))
+      .toBe('const envId = "#vitehub/env/server"; import(\n"#vitehub/env/server"\n)')
   })
 
   it("does not read package metadata unless packageJson is declared", async () => {
