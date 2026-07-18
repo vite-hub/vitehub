@@ -260,7 +260,7 @@ describe("Vite provider outputs", () => {
 
     const options = {
       blob: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
-      clientOutDir: "dist/client",
+      clientOutDir: "dist",
       cloudflareOwnedByNitro: true,
       rootDir,
       serverFunctionName: "__blob.func",
@@ -280,6 +280,7 @@ describe("Vite provider outputs", () => {
     await expect(readFile(join(cloudflareOutput, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       triggers: { crons: ["0 0 * * *"] },
     })
+    expect(existsSync(join(rootDir, ".vercel", "output", "static", toSafeAppName(rootDir), "index.js"))).toBe(false)
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__blob.func", "index.mjs"))).toBe(true)
   })
 

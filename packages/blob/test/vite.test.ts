@@ -1,8 +1,10 @@
+import { existsSync } from "node:fs"
 import { mkdtemp, readFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
+import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 
 import { BLOB_VIRTUAL_CONFIG_ID, hubBlob } from "../src/vite.ts"
 
@@ -136,12 +138,70 @@ describe("hubBlob", () => {
     expect(resolved).not.toHaveProperty("nitro.cloudflare.wrangler.observability")
   })
 
-  it("does not contribute Cloudflare config for plain Vite or non-R2 stores", () => {
+  it("uses Cloudflare defaults for the Nitro runtime when hosting is inferred", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-inferred-cloudflare-"))
+    const previousBucket = process.env.BLOB_BUCKET_NAME
+    const previousHosting = process.env.VITEHUB_HOSTING
+    process.env.BLOB_BUCKET_NAME = "assets"
+    process.env.VITEHUB_HOSTING = "cloudflare"
+    try {
+      const plugin = hubBlob()
+      const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+      const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
+      const value = { nitro: {}, build: { outDir: "dist" }, root }
+
+      config(value, { command: "build" })
+      await configResolved(value as never)
+
+      expect(value).toHaveProperty("nitro.cloudflare.wrangler.r2_buckets", [
+        { binding: "BLOB", bucket_name: "assets" },
+      ])
+      const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
+      expect(nitroPlugin).toContain('"driver":"cloudflare-r2"')
+      expect(nitroPlugin).toContain('"bucketName":"assets"')
+    }
+    finally {
+      if (typeof previousBucket === "undefined") delete process.env.BLOB_BUCKET_NAME
+      else process.env.BLOB_BUCKET_NAME = previousBucket
+      if (typeof previousHosting === "undefined") delete process.env.VITEHUB_HOSTING
+      else process.env.VITEHUB_HOSTING = previousHosting
+    }
+  })
+
+  it("uses final Nitro ownership when the resolved preset changes", { timeout: 30_000 }, async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-final-nitro-host-"))
+    const plugin = hubBlob({ binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" })
+    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+    const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
+    const closeBundle = plugin.closeBundle as () => void | Promise<void>
+    const value = { nitro: { preset: "cloudflare_module" } }
+
+    config(value, { command: "build" })
+    await configResolved({ build: { outDir: "dist/client" }, nitro: { preset: "vercel" }, root } as never)
+    await closeBundle()
+
+    expect(existsSync(join(root, "dist", toSafeAppName(root), "index.js"))).toBe(true)
+  })
+
+  it("does not contribute Cloudflare config for plain Vite or non-R2 stores", async () => {
     const config = (plugin: ReturnType<typeof hubBlob>, value: Record<string, unknown>) =>
       (plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown)(value, { command: "build" })
-    const plainVite = {}
-    config(hubBlob({ binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" }), plainVite)
-    expect(plainVite).not.toHaveProperty("nitro.cloudflare")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-plain-vite-"))
+    const previousPreset = process.env.NITRO_PRESET
+    process.env.NITRO_PRESET = "cloudflare_module"
+    try {
+      const plugin = hubBlob({ binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" })
+      const plainVite = { build: { outDir: "dist" }, root }
+      config(plugin, plainVite)
+      expect(plainVite).not.toHaveProperty("nitro.cloudflare")
+      await (plugin.configResolved as (config: unknown) => void | Promise<void>)(plainVite as never)
+      await (plugin.closeBundle as () => void | Promise<void>)()
+      expect(existsSync(join(root, "dist", toSafeAppName(root), "index.js"))).toBe(true)
+    }
+    finally {
+      if (typeof previousPreset === "undefined") delete process.env.NITRO_PRESET
+      else process.env.NITRO_PRESET = previousPreset
+    }
 
     const fsOnCloudflare = { nitro: { preset: "cloudflare_module" } }
     config(hubBlob({ base: ".data/blob", driver: "fs" }), fsOnCloudflare)

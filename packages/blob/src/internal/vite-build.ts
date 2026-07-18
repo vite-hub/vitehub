@@ -441,15 +441,17 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.blob)
   const localOnly = !shouldCreateProviderOutput(options.blob)
   const createCloudflare = !localOnly && !options.cloudflareOwnedByNitro
+  if (options.cloudflareOwnedByNitro && !localOnly) {
+    await writeProviderDeploymentOutputs({
+      clientOutDir: options.clientOutDir,
+      cleanup: { cloudflare: () => createNitroCloudflareCleanup(options.rootDir) },
+      rootDir: options.rootDir,
+    })
+  }
   await writeProviderDeploymentOutputs({
     afterWrite: localOnly ? undefined : () => copyVercelBlobRuntimePackages(options),
     clientOutDir: options.clientOutDir,
     cloudflare: createCloudflare ? createCloudflareOutput(options.blob, artifacts, options.providerOutput) : undefined,
-    cleanup: {
-      cloudflare: options.cloudflareOwnedByNitro && !localOnly
-        ? () => createNitroCloudflareCleanup(options.rootDir)
-        : undefined,
-    },
     rootDir: options.rootDir,
     vercel: localOnly ? undefined : createVercelOutput(artifacts, options.providerOutput, options.serverFunctionName),
   })

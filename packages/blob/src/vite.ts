@@ -56,7 +56,7 @@ function cloneNitroConfig(value: unknown): Record<string, unknown> {
 
 function isNitroCloudflareHost(value: unknown): boolean {
   const nitro = cloneNitroConfig(value)
-  const preset = typeof nitro.preset === "string" ? nitro.preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET
+  const preset = typeof nitro.preset === "string" ? nitro.preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
   return getHostingProvider(preset) === "cloudflare" || Object.hasOwn(nitro, "cloudflare")
 }
 
@@ -135,6 +135,8 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
   let clientOutDir = "dist"
   let command: "build" | "serve" = "serve"
   let cloudflareOwnedByNitro = false
+  let configHookRan = false
+  let hasNitroIntegration = false
   let providerArtifacts: Awaited<ReturnType<typeof prepareProviderOutputs>> | undefined
   let providerOutput: ComposedProviderOutput | undefined
   let rootDir = process.cwd()
@@ -156,9 +158,13 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
     config(config, env) {
       command = env.command
       blob = config.blob ?? blob
-      const blobConfig = resolveBlobViteConfig(blob)
       const configuredNitro = (config as { nitro?: unknown }).nitro
-      cloudflareOwnedByNitro = isNitroCloudflareHost(configuredNitro)
+      if (!configHookRan) {
+        configHookRan = true
+        hasNitroIntegration = Boolean(configuredNitro)
+      }
+      cloudflareOwnedByNitro = hasNitroIntegration && isNitroCloudflareHost(configuredNitro)
+      const blobConfig = resolveBlobViteConfig(blob, cloudflareOwnedByNitro ? { hosting: "cloudflare" } : undefined)
       const nitro = mergeNitroBlobConfig(
         configuredNitro,
         blobConfig.blob ? blobConfig.blob.serve : undefined,
@@ -173,10 +179,11 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       rootDir = config.root
       blob = config.blob ?? blob
       const configuredNitro = (config as { nitro?: unknown }).nitro
-      cloudflareOwnedByNitro ||= isNitroCloudflareHost(configuredNitro)
+      const nitroOwnsOutput = configHookRan ? hasNitroIntegration : Boolean(configuredNitro)
+      cloudflareOwnedByNitro = nitroOwnsOutput && isNitroCloudflareHost(configuredNitro)
       ;(config as { nitro?: unknown }).nitro = mergeNitroCloudflareBlobOutput(config, cloneNitroConfig(configuredNitro), blob, cloudflareOwnedByNitro)
       providerOutput = useComposedProviderOutput(config)
-      runtimeConfig = resolveBlobViteConfig(blob)
+      runtimeConfig = resolveBlobViteConfig(blob, cloudflareOwnedByNitro ? { hosting: "cloudflare" } : undefined)
       await refreshBlobGeneratedFiles(config.root, runtimeConfig.blob, importBase)
     },
     configEnvironment(name, config) {
