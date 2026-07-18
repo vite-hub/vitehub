@@ -1,6 +1,6 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
 
-import { ScheduleError } from "../errors.ts"
+import { assertRuntimeScheduleId, invalidScheduleValueDetails, ScheduleError } from "../errors.ts"
 import { isRuntimeScheduleDue } from "./due.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 import { createLocalWaitUntil } from "./wait-until.ts"
@@ -45,7 +45,7 @@ function assertRuntimeExecuteOptionsObject(options: unknown): asserts options is
   if (typeof options !== "object" || options === null || Array.isArray(options)) {
     throw new ScheduleError("Runtime Schedule execute options must be a schedule id or options object.", {
       code: "SCHEDULE_INVALID_INPUT",
-      details: { options },
+      details: invalidScheduleValueDetails("options", options),
       httpStatus: 400,
     })
   }
@@ -63,7 +63,7 @@ function validateScheduledAt(scheduledAt: Date): Date {
   if (!(scheduledAt instanceof Date) || Number.isNaN(scheduledAt.getTime())) {
     throw new ScheduleError("Schedule Run scheduledAt must be a valid Date.", {
       code: "SCHEDULE_INVALID_SCHEDULED_AT",
-      details: { scheduledAt },
+      details: invalidScheduleValueDetails("scheduledAt", scheduledAt),
       httpStatus: 400,
     })
   }
@@ -258,6 +258,7 @@ async function loadRequiredRuntimeSchedule(id: string, store: RuntimeScheduleSto
 export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOptions | string): Promise<ScheduleRunRecord> {
   const runtimeOptions = typeof options === "string" ? { id: options } : options
   assertRuntimeExecuteOptionsObject(runtimeOptions)
+  assertRuntimeScheduleId(runtimeOptions.id)
   const id = runtimeOptions.id
   const scheduledAt = validateScheduledAt(runtimeOptions.scheduledAt ?? new Date())
   const runtimeScheduleStore = runtimeOptions.runtimeScheduleStore
@@ -278,7 +279,7 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
   if (runtimeOptions.requireDue && !isRuntimeScheduleDue(schedule, scheduledAt)) {
     throw new ScheduleError(`Runtime Schedule is not due: ${id}`, {
       code: "SCHEDULE_NOT_DUE",
-      details: { id, scheduledAt },
+      details: { id, scheduledAt: scheduledAt.toISOString() },
       httpStatus: 409,
     })
   }

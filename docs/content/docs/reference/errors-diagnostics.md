@@ -45,6 +45,10 @@ Use the error family to choose the next proof path before changing implementatio
 | Trace Events | Runtime policy, approval, capability, lifecycle, and error records. |
 | Package tests | Contract failures owned by the primitive package. |
 
+### Schedule errors
+
+`ScheduleError` requires a stable `ScheduleErrorCode` when constructed. Its JSON form contains only `code`, `details`, `message`, `requestId`, and `retryable`; server-only fields such as `cause`, `stack`, and the `httpStatus` transport hint are not serialized. Validation failures describe the invalid field and value type without including the value itself.
+
 ## Local response
 
 Start with the owning package and the failing proof path. For packages that generate Provider Output, inspect that output before changing runtime code. Email emits no Provider Output; inspect `EmailError.code` and `driver`, then use `cause` only in protected server-side diagnostics.

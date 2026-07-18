@@ -1,7 +1,7 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
 import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
 
-import { ScheduleError } from "../errors.ts"
+import { assertRuntimeScheduleId, invalidScheduleValueDetails, ScheduleError } from "../errors.ts"
 import { executeRuntimeSchedule } from "./execute.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 
@@ -71,7 +71,7 @@ export function validateRuntimeScheduleCron(cron: unknown): void {
   if (typeof cron !== "string" || cron.trim() !== cron || cron.length === 0) {
     throw new ScheduleError("Runtime Schedule cron must be a five-field cron expression.", {
       code: "SCHEDULE_INVALID_CRON",
-      details: { cron },
+      details: invalidScheduleValueDetails("cron", cron),
       httpStatus: 400,
     })
   }
@@ -80,7 +80,7 @@ export function validateRuntimeScheduleCron(cron: unknown): void {
   if (fields.length !== 5) {
     throw new ScheduleError("Runtime Schedule cron must be a five-field cron expression.", {
       code: "SCHEDULE_INVALID_CRON",
-      details: { cron },
+      details: invalidScheduleValueDetails("cron", cron),
       httpStatus: 400,
     })
   }
@@ -96,9 +96,9 @@ export function validateRuntimeScheduleCron(cron: unknown): void {
     })
   }
   catch {
-    throw new ScheduleError(`Invalid Runtime Schedule cron expression: ${cron}`, {
+    throw new ScheduleError("Runtime Schedule cron must be a valid five-field cron expression.", {
       code: "SCHEDULE_INVALID_CRON",
-      details: { cron },
+      details: invalidScheduleValueDetails("cron", cron),
       httpStatus: 400,
     })
   }
@@ -108,7 +108,7 @@ function validateRuntimeScheduleTimeZone(timeZone: unknown): void {
   if (!isIanaTimeZone(timeZone)) {
     throw new ScheduleError("Runtime Schedule timeZone must be a valid IANA time zone.", {
       code: "SCHEDULE_INVALID_TIME_ZONE",
-      details: { timeZone },
+      details: invalidScheduleValueDetails("timeZone", timeZone),
       httpStatus: 400,
     })
   }
@@ -118,7 +118,7 @@ async function assertRuntimeTarget(target: unknown): Promise<void> {
   if (typeof target !== "string" || !target.trim()) {
     throw new ScheduleError("Runtime Schedule target must be a non-empty string.", {
       code: "SCHEDULE_INVALID_TARGET",
-      details: { target },
+      details: invalidScheduleValueDetails("target", target),
       httpStatus: 400,
     })
   }
@@ -145,7 +145,7 @@ function assertRuntimeScheduleInputObject(input: unknown, operation: "create" | 
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     throw new ScheduleError(`Runtime Schedule ${operation} input must be an object.`, {
       code: "SCHEDULE_INVALID_INPUT",
-      details: { input },
+      details: invalidScheduleValueDetails("input", input),
       httpStatus: 400,
     })
   }
@@ -154,9 +154,9 @@ function assertRuntimeScheduleInputObject(input: unknown, operation: "create" | 
 function assertRuntimeScheduleInputKeys(input: Record<string, unknown>, allowed: Set<string>, operation: "create" | "update"): void {
   const unknownKey = Object.keys(input).find(key => !allowed.has(key))
   if (unknownKey) {
-    throw new ScheduleError(`Runtime Schedule ${operation} does not support "${unknownKey}".`, {
+    throw new ScheduleError(`Runtime Schedule ${operation} contains an unsupported field.`, {
       code: "SCHEDULE_INVALID_INPUT",
-      details: { key: unknownKey },
+      details: invalidScheduleValueDetails("input", input),
       httpStatus: 400,
     })
   }
@@ -167,17 +167,13 @@ async function validateCreateInput(input: RuntimeScheduleCreateInput): Promise<v
   assertRuntimeScheduleInputKeys(input, runtimeScheduleCreateInputKeys, "create")
   await assertRuntimeTarget(input.target)
   validateRuntimeScheduleCron(input.cron)
-  if (input.id !== undefined && (typeof input.id !== "string" || !input.id.trim())) {
-    throw new ScheduleError("Runtime Schedule id must be a non-empty string when provided.", {
-      code: "SCHEDULE_INVALID_ID",
-      details: { id: input.id },
-      httpStatus: 400,
-    })
+  if (input.id !== undefined) {
+    assertRuntimeScheduleId(input.id)
   }
   if (input.enabled !== undefined && typeof input.enabled !== "boolean") {
     throw new ScheduleError("Runtime Schedule enabled must be a boolean when provided.", {
       code: "SCHEDULE_INVALID_ENABLED",
-      details: { enabled: input.enabled },
+      details: invalidScheduleValueDetails("enabled", input.enabled),
       httpStatus: 400,
     })
   }
@@ -198,7 +194,7 @@ async function validateUpdateInput(input: RuntimeScheduleUpdateInput): Promise<v
   if (input.enabled !== undefined && typeof input.enabled !== "boolean") {
     throw new ScheduleError("Runtime Schedule enabled must be a boolean when provided.", {
       code: "SCHEDULE_INVALID_ENABLED",
-      details: { enabled: input.enabled },
+      details: invalidScheduleValueDetails("enabled", input.enabled),
       httpStatus: 400,
     })
   }
@@ -208,6 +204,7 @@ async function validateUpdateInput(input: RuntimeScheduleUpdateInput): Promise<v
 }
 
 async function updateRuntimeSchedule<TTarget extends ScheduleTargetName, TInput>(id: string, input: RuntimeScheduleUpdateInput<TTarget, TInput>): Promise<RuntimeScheduleRecord<TInput>> {
+  assertRuntimeScheduleId(id)
   await validateUpdateInput(input)
   const updated = await getRuntimeScheduleStore().update(id, {
     ...input,
