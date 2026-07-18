@@ -343,6 +343,25 @@ describe("trusted host workspace runtime", () => {
     expect(Date.now() - closedAt).toBeLessThan(2000)
   })
 
+  it("aborts commands accepted immediately before close", async () => {
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "trusted-host",
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+    const session = await workspace.startSession()
+
+    const command = session.exec(process.execPath, ["-e", "setInterval(() => {}, 1000)"])
+    await session.close()
+
+    await expect(command).resolves.toMatchObject({
+      exitCode: 130,
+      stderr: expect.stringContaining("Command aborted"),
+    })
+  })
+
   it("releases trusted-host roots exactly once across concurrent closes", async () => {
     const release = vi.fn(async () => {})
     const scope = await openTrustedHostWorkspaceScope(
