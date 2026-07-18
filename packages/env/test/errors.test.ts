@@ -2,7 +2,7 @@ import { ViteHubError } from "@vite-hub/runtime"
 import { describe, expect, it } from "vitest"
 
 import { env, EnvError, resolveServerEnv } from "../src/index.ts"
-import { validateEnvConfigShape } from "../src/core/resolve.ts"
+import { createSourceContext, resolveEnvEntries, validateEnvConfigShape } from "../src/core/resolve.ts"
 import { parseSchema } from "../src/schema.ts"
 
 describe("EnvError", () => {
@@ -66,5 +66,48 @@ describe("EnvError", () => {
       expect(error).toBeInstanceOf(Error)
       expect(error).not.toBeInstanceOf(EnvError)
     }
+  })
+
+  it("normalizes built-in Git and package metadata source failures", async () => {
+    const context = createSourceContext({ env: {}, mode: "build", rootDir: "/app" })
+    const input = {
+      context,
+      exposure: "build public" as const,
+      section: "env.public" as const,
+      timing: "build",
+    }
+    const gitCause = new Error("git credential leaked")
+    context.git.branch = async () => {
+      throw gitCause
+    }
+
+    const gitError = await resolveEnvEntries({
+      branch: env({ mode: "build", source: env.gitBranch() }),
+    }, input).then(() => undefined, error => error)
+
+    expect(gitError).toMatchObject({
+      cause: gitCause,
+      code: "ENV_SOURCE_FAILED",
+      details: { source: "git:branch" },
+      message: "Env source git:branch failed.",
+    })
+    expect(JSON.stringify(gitError)).not.toContain("git credential leaked")
+
+    const packageCause = new Error("private package metadata leaked")
+    context.packageJson = async () => {
+      throw packageCause
+    }
+
+    const packageError = await resolveEnvEntries({
+      name: env({ mode: "build", source: env.packageJson("name") }),
+    }, input).then(() => undefined, error => error)
+
+    expect(packageError).toMatchObject({
+      cause: packageCause,
+      code: "ENV_SOURCE_FAILED",
+      details: { source: "package.json:name" },
+      message: "Env source package.json:name failed.",
+    })
+    expect(JSON.stringify(packageError)).not.toContain("private package metadata leaked")
   })
 })

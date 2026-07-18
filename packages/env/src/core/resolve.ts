@@ -5,7 +5,7 @@ import { promisify } from "node:util"
 
 import { parseSchema } from "../schema.ts"
 import { defaultStringSchema, isDefaultStringEnvVariable } from "./declarations.ts"
-import { invalidEnvDeclaration, missingRequiredEnv } from "./errors.ts"
+import { envSourceFailed, invalidEnvDeclaration, missingRequiredEnv } from "./errors.ts"
 
 import type {
   EnvBuildConfigOptions,
@@ -333,19 +333,28 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
       }
       return { label: source.label, value: undefined }
     case "git-branch":
-      return { label: source.label, value: await context.git.branch() }
+      return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.branch()) }
     case "git-commit":
-      return { label: source.label, value: await context.git.commit({ short: source.short }) }
+      return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.commit({ short: source.short })) }
     case "git-ref":
-      return { label: source.label, value: await context.git.ref() }
+      return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.ref()) }
     case "git-sha":
-      return { label: source.label, value: await context.git.sha({ short: source.short }) }
+      return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.sha({ short: source.short })) }
     case "git-tag":
-      return { label: source.label, value: await context.git.tag() }
+      return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.tag()) }
     case "build-timestamp":
       return { label: source.label, value: context.build.timestamp() }
     case "package-json":
-      return { label: source.label, value: readPath(await context.packageJson(), source.path) }
+      return { label: source.label, value: readPath(await resolveBuiltInSource(source.label, () => context.packageJson()), source.path) }
+  }
+}
+
+async function resolveBuiltInSource<T>(source: string, resolveSource: () => T | Promise<T>): Promise<T> {
+  try {
+    return await resolveSource()
+  }
+  catch (cause) {
+    throw envSourceFailed(source, cause)
   }
 }
 

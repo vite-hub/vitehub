@@ -164,7 +164,7 @@ export async function listIssues() {
 
 ## Structured errors
 
-Env resolution failures use `EnvError` with stable codes and JSON-safe context. Built-in codes distinguish invalid declarations, missing required values, and invalid runtime values; application code can use its own stable code for an application-owned Env Source.
+Env resolution failures use `EnvError` with stable codes and JSON-safe context. Built-in codes distinguish invalid declarations, missing required values, invalid runtime values, and failed Git or package metadata sources; application code can use its own stable code for an application-owned Env Source.
 
 ```ts
 import { EnvError } from '@vite-hub/env'
@@ -182,7 +182,7 @@ catch (cause) {
 }
 ```
 
-Keep `details` free of secret values. `error.toJSON()` includes `code`, `message`, and `details`; it omits `cause`, which remains available only on the in-memory error. Invalid calls to declaration helpers remain `TypeError`, while `parseSchema()` continues to throw ordinary schema errors.
+Keep `details` free of secret values. `ENV_SOURCE_FAILED` exposes only the public source label as `details.source`; the underlying failure remains in `cause`. `error.toJSON()` includes `code`, `message`, and `details`; it omits `cause`, which remains available only on the in-memory error. Invalid calls to declaration helpers remain `TypeError`, while `parseSchema()` continues to throw ordinary schema errors.
 
 ## Provider output
 

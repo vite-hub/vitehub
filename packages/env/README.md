@@ -74,7 +74,7 @@ catch (cause) {
 }
 ```
 
-`code` is required and may be one of ViteHub's typed `EnvErrorCode` values or an app-owned stable string. Keep `details` JSON-safe and free of secret values; `toJSON()` includes the code, message, and details, while the in-memory `cause` is omitted from serialization. Invalid `env()` calls remain `TypeError`, and `parseSchema()` keeps the schema library's ordinary error boundary.
+`code` is required and may be one of ViteHub's typed `EnvErrorCode` values or an app-owned stable string. Built-in Git and package metadata failures use `ENV_SOURCE_FAILED` with the public source label in `details.source`. Keep `details` JSON-safe and free of secret values; `toJSON()` includes the code, message, and details, while the in-memory `cause` is omitted from serialization. Invalid `env()` calls remain `TypeError`, and `parseSchema()` keeps the schema library's ordinary error boundary.
 
 ## Vite Integration
 

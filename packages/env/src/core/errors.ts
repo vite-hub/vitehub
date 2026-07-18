@@ -6,6 +6,7 @@ export type EnvErrorCode =
   | "ENV_DECLARATION_INVALID"
   | "ENV_REQUIRED_MISSING"
   | "ENV_RUNTIME_VALUE_INVALID"
+  | "ENV_SOURCE_FAILED"
 
 export interface EnvErrorOptions<
   TCode extends string = string,
@@ -47,5 +48,14 @@ export function invalidRuntimeEnvValue(source: string, message: string): EnvErro
     code: "ENV_RUNTIME_VALUE_INVALID",
     details: { source },
     message,
+  })
+}
+
+export function envSourceFailed(source: string, cause: unknown): EnvError<"ENV_SOURCE_FAILED", { source: string }> {
+  return new EnvError({
+    cause,
+    code: "ENV_SOURCE_FAILED",
+    details: { source },
+    message: `Env source ${source} failed.`,
   })
 }
