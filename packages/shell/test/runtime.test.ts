@@ -232,6 +232,27 @@ describe("@vite-hub/shell just-bash runtime", () => {
     expect(stops.get("three")).toHaveBeenCalledOnce()
   })
 
+  it("caches a synchronously thrown process stop failure", async () => {
+    const failure = new Error("synchronous stop failure")
+    const stop = vi.fn(() => { throw failure })
+    const provider = createBackgroundProvider(async (command: string): Promise<ShellProcess> => ({
+      command,
+      id: command,
+      stop,
+    }))
+    const session = createShellRuntime({ provider }).createSession()
+    const process = await session.startProcess("one")
+
+    const firstStop = process.stop()
+    const secondStop = process.stop()
+
+    expect(secondStop).toBe(firstStop)
+    await expect(firstStop).rejects.toBe(failure)
+    await expect(secondStop).rejects.toBe(failure)
+    expect(stop).toHaveBeenCalledOnce()
+    expect(await session.listProcesses()).toHaveLength(0)
+  })
+
   it("stops a process whose provider resolves after session disposal", async () => {
     let resolveProcess: ((process: ShellProcess) => void) | undefined
     const stop = vi.fn(async () => stoppedProcessObservation("late"))

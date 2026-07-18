@@ -106,7 +106,7 @@ class RuntimeShellSession implements ShellSession {
     })
     let stopTask: Promise<ShellObservation> | undefined
     let trackedProcess: ShellProcess
-    const stop = () => stopTask ??= process.stop().finally(() => {
+    const stop = () => stopTask ??= Promise.resolve().then(() => process.stop()).finally(() => {
       this.#processes.delete(trackedProcess)
     })
     trackedProcess = { ...process, stop }
