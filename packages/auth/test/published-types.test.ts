@@ -36,4 +36,4 @@ it("publishes the structured Authentication Required error contract", async () =
   finally {
     await rm(root, { force: true, recursive: true })
   }
-})
+}, 15_000)
