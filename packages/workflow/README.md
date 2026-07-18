@@ -72,6 +72,28 @@ export default defineEventHandler(async (event) => {
 
 `getWorkflowRun()` normalizes provider run and step state, including timestamps, attempts, and failures. `cancelWorkflow()` cancels a durable run, and `resumeWorkflowSignal()` forwards an opaque signal token created inside the native workflow. Providers that cannot perform an operation fail explicitly instead of simulating it.
 
+Throw `WorkflowError` when callers need a stable, inspectable failure instead of parsing log output or provider-specific messages.
+
+```ts
+import { WorkflowError } from "@vite-hub/workflow"
+
+async function transcribe(recordingId: string) {
+  try {
+    return await transcribeRecording(recordingId)
+  }
+  catch (cause) {
+    throw new WorkflowError({
+      cause,
+      code: "TRANSCRIPTION_FAILED",
+      details: { recordingId },
+      message: "Transcription failed.",
+    })
+  }
+}
+```
+
+`code` is required and remains available through `error.toJSON()`. ViteHub's built-in codes are typed as `WorkflowErrorCode`, while app code can use its own stable strings. Keep `details` JSON-safe and free of secrets; `toJSON()` omits `cause`, which remains available only on the in-memory error. Workflow Step retry behavior belongs in the Step's retry options rather than the error.
+
 ```ts
 // vite.config.ts
 import { hubWorkflow } from "@vite-hub/workflow/vite"

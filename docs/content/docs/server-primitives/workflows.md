@@ -58,7 +58,7 @@ export default defineEventHandler(async () => {
 | `runWorkflow`, `deferWorkflow`, `getWorkflowRun` from `@vite-hub/workflow` | Start, defer, or inspect Workflow Runs. |
 | `createWorkflow` from `@vite-hub/workflow` | Create an inline Workflow Handle for app-owned code. |
 | `normalizeWorkflowOptions` from `@vite-hub/workflow` | Resolve Integration Options to a concrete Workflow Provider. |
-| `WorkflowError` from `@vite-hub/workflow` | Handle provider and runtime failures. |
+| `WorkflowError` from `@vite-hub/workflow` | Throw or handle structured Workflow failures with stable codes. |
 | `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `@vite-hub/workflow` | Read provider request payloads in custom runtime entrypoints. |
 | `hubWorkflow` from `@vite-hub/workflow/vite` | Register Workflow discovery and provider output generation. |
 
@@ -159,6 +159,30 @@ The run id belongs to Invocation Options. Use a stable id when the provider shou
 | `createWorkflow(name, options?)` | Returns a handle with `run`, `defer`, and `getRun`. |
 
 `WorkflowStartOptions` currently accepts `id`.
+
+## Structured errors
+
+Throw `WorkflowError` when app code needs a stable failure contract across Workflow Providers.
+
+```ts [server/workflows/transcribe.ts]
+import { WorkflowError, defineWorkflow } from '@vite-hub/workflow'
+
+export default defineWorkflow<{ recordingId: string }>(async ({ payload }) => {
+  try {
+    return await transcribeRecording(payload.recordingId)
+  }
+  catch (cause) {
+    throw new WorkflowError({
+      cause,
+      code: 'TRANSCRIPTION_FAILED',
+      details: { recordingId: payload.recordingId },
+      message: 'Transcription failed.',
+    })
+  }
+})
+```
+
+Every `WorkflowError` requires a `code` and `message`. ViteHub's built-in codes are typed as `WorkflowErrorCode`, while app code can use its own stable strings. Calling `error.toJSON()` returns `code`, `message`, and JSON-safe `details`; it omits `cause`, which stays on the in-memory error for logging and debugging. Configure retries on the Workflow Step; throwing an error does not override the Step's retry policy.
 
 ## Workflow Run shape
 

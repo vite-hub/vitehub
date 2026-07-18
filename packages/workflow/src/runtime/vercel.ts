@@ -97,10 +97,11 @@ async function getVercelWorkflowRuntime(): Promise<VercelWorkflowRuntime> {
     return await runtimeLoader()
   }
   catch (error) {
-    throw new WorkflowError(`Vercel Workflow DevKit load failed. Install the optional workflow peer dependency. Original error: ${error instanceof Error ? error.message : error}`, {
+    throw new WorkflowError({
       cause: error,
       code: "VERCEL_WORKFLOW_SDK_LOAD_FAILED",
-      provider: "vercel",
+      details: { provider: "vercel" },
+      message: "Vercel Workflow DevKit load failed. Install the optional workflow peer dependency.",
     })
   }
 }
@@ -144,10 +145,10 @@ function normalizeStepError(error: unknown): { code?: string; message: string } 
 function getNativeWorkflowName<TPayload, TResult>(name: string, definition: WorkflowDefinition<TPayload, TResult>): string {
   const workflowName = (definition.options?.native as WorkflowDefinition<TPayload, TResult>["handler"] & { workflowId?: string } | undefined)?.workflowId
   if (!workflowName) {
-    throw new WorkflowError(`Workflow ${JSON.stringify(name)} has no transformed native Vercel entry.`, {
+    throw new WorkflowError({
       code: "WORKFLOW_NATIVE_ENTRY_INVALID",
-      details: { name },
-      provider: "vercel",
+      details: { name, provider: "vercel" },
+      message: `Workflow ${JSON.stringify(name)} has no transformed native Vercel entry.`,
     })
   }
   return workflowName
@@ -188,10 +189,10 @@ export async function inspectVercelWorkflowRun<TPayload = unknown, TResult = unk
 export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>(name: string, definition: WorkflowDefinition<TPayload, TResult>, payload?: TPayload): Promise<WorkflowRun<TPayload, TResult>> {
   const native = definition.options?.native
   if (!native) {
-    throw new WorkflowError(`Workflow ${JSON.stringify(name)} has no native durable entry for Vercel.`, {
+    throw new WorkflowError({
       code: "WORKFLOW_NATIVE_ENTRY_REQUIRED",
-      details: { name },
-      provider: "vercel",
+      details: { name, provider: "vercel" },
+      message: `Workflow ${JSON.stringify(name)} has no native durable entry for Vercel.`,
     })
   }
   const context: WorkflowExecutionContext<TPayload> = {

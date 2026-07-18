@@ -20,10 +20,10 @@ function getActiveWorkflowConfig(): false | ResolvedWorkflowOptions {
 async function loadRequiredWorkflowDefinition(name: string) {
   const definition = await loadWorkflowDefinition(name)
   if (!definition) {
-    throw new WorkflowError(`Unknown workflow definition: ${name}`, {
+    throw new WorkflowError({
       code: "WORKFLOW_DEFINITION_NOT_FOUND",
       details: { name },
-      httpStatus: 404,
+      message: `Unknown workflow definition: ${name}`,
     })
   }
   return definition
@@ -167,9 +167,9 @@ export async function runWorkflow<TPayload = unknown, TResult = unknown>(
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const config = getActiveWorkflowConfig()
   if (config === false) {
-    throw new WorkflowError("Workflow is disabled.", {
+    throw new WorkflowError({
       code: "WORKFLOW_DISABLED",
-      httpStatus: 400,
+      message: "Workflow is disabled.",
     })
   }
 
@@ -188,9 +188,9 @@ export async function runWorkflow<TPayload = unknown, TResult = unknown>(
 export async function getWorkflowRun<TPayload = unknown, TResult = unknown>(name: string, id: string): Promise<WorkflowRun<TPayload, TResult>> {
   const config = getActiveWorkflowConfig()
   if (config === false) {
-    throw new WorkflowError("Workflow is disabled.", {
+    throw new WorkflowError({
       code: "WORKFLOW_DISABLED",
-      httpStatus: 400,
+      message: "Workflow is disabled.",
     })
   }
 
@@ -204,9 +204,9 @@ export async function getWorkflowRun<TPayload = unknown, TResult = unknown>(name
 export async function cancelWorkflow<TPayload = unknown, TResult = unknown>(name: string, id: string): Promise<WorkflowRun<TPayload, TResult>> {
   const config = getActiveWorkflowConfig()
   if (config === false) {
-    throw new WorkflowError("Workflow is disabled.", {
+    throw new WorkflowError({
       code: "WORKFLOW_DISABLED",
-      httpStatus: 400,
+      message: "Workflow is disabled.",
     })
   }
 
@@ -224,9 +224,9 @@ export async function resumeWorkflowSignal<TPayload = unknown>(token: string, pa
   }
   const config = getActiveWorkflowConfig()
   if (config === false) {
-    throw new WorkflowError("Workflow is disabled.", {
+    throw new WorkflowError({
       code: "WORKFLOW_DISABLED",
-      httpStatus: 400,
+      message: "Workflow is disabled.",
     })
   }
   return await getWorkflowRuntimeAdapter(config).resume(token, payload)
