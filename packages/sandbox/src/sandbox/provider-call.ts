@@ -94,8 +94,8 @@ export function wrapSandboxProviderNative<T extends object>(native: T, provider:
     return existing as T
 
   const wrapped = new Proxy(native, {
-    get(target, property, receiver) {
-      const value = Reflect.get(target, property, receiver)
+    get(target, property) {
+      const value = Reflect.get(target, property, target)
       if (typeof value === 'function') {
         return (...args: unknown[]) => {
           const options = {
