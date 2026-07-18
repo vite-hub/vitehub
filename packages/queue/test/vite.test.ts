@@ -227,6 +227,28 @@ describe("hubQueue", () => {
     await expect((plugin.closeBundle as () => Promise<void>)()).rejects.toThrow("changed after config resolution")
   })
 
+  it("removes Queue bindings when final config discovery is empty", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-empty-final-"))
+    roots.push(root)
+    const definition = join(root, "welcome.queue.ts")
+    await writeFile(definition, "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue({ provider: "cloudflare" })
+    const config = { nitro: { preset: "cloudflare_module" }, root }
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    expect(config).toHaveProperty("nitro.cloudflare.wrangler.queues")
+    await rm(definition)
+
+    const resolvedConfig = {
+      ...config,
+      build: { outDir: "dist" },
+      command: "build",
+      plugins: [{ name: "nitro:main" }],
+    }
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(resolvedConfig as never)
+
+    expect(resolvedConfig.nitro).not.toHaveProperty("cloudflare.wrangler.queues")
+  })
+
   it("rejects Queue Definitions removed after Nitro config resolution", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-late-removed-"))
     roots.push(root)

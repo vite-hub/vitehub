@@ -78,7 +78,7 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
   }
   if (!generated) {
     registerCloudflareProviderOutput(config, "queue", {})
-    return baseNitro
+    return composeNitroCloudflareProviderOutput(config, baseNitro)
   }
   const binding = queue?.provider === "cloudflare" && typeof queue.binding === "string" ? queue.binding : undefined
   if (binding && generated.producers.length > 1) {
