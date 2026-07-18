@@ -239,6 +239,54 @@ describe("elevenLabsScribe", () => {
     expect(JSON.stringify(completion)).not.toContain("Unsupported audio")
   })
 
+  it("does not copy extra driver fields into public completions", async () => {
+    const driver = fixtureDriver({
+      receive: vi.fn(async () => ({
+        error: "private failure",
+        id: "operation-1",
+        rawProviderBody: "private body",
+        status: "failed",
+      } as never)),
+    })
+
+    const completion = await createTranscription({ driver }).receive({})
+    expect(completion).not.toHaveProperty("rawProviderBody")
+    expect(JSON.stringify(completion)).not.toContain("private body")
+  })
+
+  it("normalizes invalid ElevenLabs metadata serialization", async () => {
+    const client = createTranscription({
+      driver: elevenLabsScribe({ apiKey: "secret", fetch: vi.fn(), webhookId: "webhook-1" }),
+    })
+
+    const metadata: Record<string, unknown> = {}
+    metadata.circular = metadata
+    const error = await client.submit({
+      metadata,
+      source: { url: "https://example.com/audio.mp3" },
+    }).then(() => undefined, cause => cause as TranscriptionError)
+
+    expect(error).toMatchObject({
+      code: "TRANSCRIPTION_INVALID_REQUEST",
+      details: { provider: "elevenlabs" },
+    })
+    expect(JSON.stringify(error)).not.toContain("circular")
+  })
+
+  it("normalizes malformed ElevenLabs transcript words", async () => {
+    const client = createTranscription({
+      driver: elevenLabsScribe({ apiKey: "secret", fetch: vi.fn(), webhookId: "webhook-1" }),
+    })
+
+    await expect(client.receive({
+      data: { request_id: "request-1", transcription: { text: "Hello", words: [null] } },
+      type: "speech_to_text_transcription",
+    })).rejects.toMatchObject({
+      code: "TRANSCRIPTION_INVALID_PAYLOAD",
+      details: { provider: "elevenlabs" },
+    })
+  })
+
   it.each([
     [401, "TRANSCRIPTION_AUTHENTICATION_FAILED", false],
     [422, "TRANSCRIPTION_INVALID_REQUEST", false],

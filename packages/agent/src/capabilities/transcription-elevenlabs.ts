@@ -107,27 +107,33 @@ function mapMetadata(value: unknown): TranscriptionMetadata | undefined {
 }
 
 function receive(payload: unknown): TranscriptionDriverCompletion {
-  if (!payload || typeof payload !== "object") {
-    throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
-  }
-  const event = payload as ElevenLabsWebhookEvent
-  if (event.type !== "speech_to_text_transcription" || !nonEmptyString(event.data?.request_id)) {
-    throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
-  }
-  const metadata = mapMetadata(event.data.webhook_metadata)
-  if (event.data.transcription) {
+  try {
+    if (!payload || typeof payload !== "object") {
+      throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
+    }
+    const event = payload as ElevenLabsWebhookEvent
+    if (event.type !== "speech_to_text_transcription" || !nonEmptyString(event.data?.request_id)) {
+      throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider: "elevenlabs" })
+    }
+    const metadata = mapMetadata(event.data.webhook_metadata)
+    if (event.data.transcription) {
+      return {
+        id: event.data.request_id,
+        ...(metadata ? { metadata } : {}),
+        status: "completed",
+        transcript: mapTranscript(event.data.transcription),
+      }
+    }
     return {
+      error: nonEmptyString(event.data.error) ? event.data.error : "ElevenLabs returned no transcription.",
       id: event.data.request_id,
       ...(metadata ? { metadata } : {}),
-      status: "completed",
-      transcript: mapTranscript(event.data.transcription),
+      status: "failed",
     }
   }
-  return {
-    error: nonEmptyString(event.data.error) ? event.data.error : "ElevenLabs returned no transcription.",
-    id: event.data.request_id,
-    ...(metadata ? { metadata } : {}),
-    status: "failed",
+  catch (cause) {
+    if (cause instanceof TranscriptionError) throw cause
+    throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { cause, provider: "elevenlabs" })
   }
 }
 
@@ -154,11 +160,16 @@ export function elevenLabsScribe(options: ElevenLabsScribeOptions): Transcriptio
     receive,
     async submit(input: TranscriptionSubmitInput) {
       const form = new FormData()
-      form.set("model_id", options.model || "scribe_v2")
-      form.set("source_url", input.source.url)
-      form.set("webhook", "true")
-      form.set("webhook_id", options.webhookId)
-      if (input.metadata) form.set("webhook_metadata", JSON.stringify(input.metadata))
+      try {
+        form.set("model_id", options.model || "scribe_v2")
+        form.set("source_url", input.source.url)
+        form.set("webhook", "true")
+        form.set("webhook_id", options.webhookId)
+        if (input.metadata) form.set("webhook_metadata", JSON.stringify(input.metadata))
+      }
+      catch (cause) {
+        throw new TranscriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause, provider: "elevenlabs" })
+      }
       if (options.diarize !== undefined) form.set("diarize", String(options.diarize))
       if (options.noVerbatim !== undefined) form.set("no_verbatim", String(options.noVerbatim))
       if (options.tagAudioEvents !== undefined) form.set("tag_audio_events", String(options.tagAudioEvents))

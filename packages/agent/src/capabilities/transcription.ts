@@ -221,17 +221,25 @@ function normalizeCompletion(completion: TranscriptionDriverCompletion, provider
     if (completion.status === "failed") {
       if (typeof completion.error !== "string" || !completion.error.trim()) throw invalidPayload(provider)
       return {
-        ...completion,
         error: new TranscriptionError("TRANSCRIPTION_PROVIDER_FAILED", {
           cause: new Error(completion.error),
           provider,
         }),
+        id: completion.id,
+        ...(completion.metadata ? { metadata: completion.metadata } : {}),
         provider,
+        status: "failed",
       }
     }
     if (completion.status === "completed") {
       assertTranscript(completion.transcript, provider)
-      return { ...completion, provider }
+      return {
+        id: completion.id,
+        ...(completion.metadata ? { metadata: completion.metadata } : {}),
+        provider,
+        status: "completed",
+        transcript: completion.transcript,
+      }
     }
     throw invalidPayload(provider)
   })
