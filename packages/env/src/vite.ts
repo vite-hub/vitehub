@@ -77,7 +77,6 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
 
   return {
     name: ENV_VITE_PLUGIN_NAME,
-    enforce: "pre",
     api: { getPublicEnv, getServerEnvRegistry },
     async config(config, env) {
       const envConfig = (config as UserConfig & EnvViteUserConfig).env
@@ -138,13 +137,20 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         return createServerEnvModule(serverRegistry, runtimeImports)
       }
     },
-    resolveId(id) {
-      if (id === ENV_PUBLIC_ID) {
-        return RESOLVED_PUBLIC_ID
-      }
-      if (id === ENV_SERVER_ID) {
-        return RESOLVED_SERVER_ID
-      }
+    resolveId: {
+      order: "pre",
+      handler(id) {
+        if (id === ENV_PUBLIC_ID) {
+          return RESOLVED_PUBLIC_ID
+        }
+        if (id === ENV_SERVER_ID) {
+          return RESOLVED_SERVER_ID
+        }
+      },
+    },
+    transform(code) {
+      if (!code.includes("/* @vite-ignore */") || !code.includes(ENV_SERVER_ID)) return
+      return code.replace(/\/\* @vite-ignore \*\/\s*("#vitehub\/env\/server")/g, "$1")
     },
   }
 }
@@ -183,7 +189,7 @@ async function refreshEnvGeneratedFiles(
           ...packageEnvModuleWrites(packageRoot, publicConfig, serverRegistry, runtimeImports),
           writeFileIfChanged(
             viteHubEnvAmbientTypesPath(packageRoot),
-            createViteTypes(publicConfig, serverRegistry, runtimeImports),
+            createAmbientTypesReference(packageRoot, root),
           ),
         ]
       : []),
@@ -194,6 +200,12 @@ async function refreshEnvGeneratedFiles(
     writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
     ...legacyEnvAmbientTypesPaths(root).map(path => rm(path, { force: true })),
   ])
+}
+
+function createAmbientTypesReference(packageRoot: string, projectRoot: string): string {
+  const target = relative(dirname(viteHubEnvAmbientTypesPath(packageRoot)), viteHubEnvAmbientTypesPath(projectRoot)).replace(/\\/g, "/")
+  const specifier = target.startsWith(".") ? target : `./${target}`
+  return `/// <reference path=${JSON.stringify(specifier)} />\n`
 }
 
 function packageEnvModuleWrites(
@@ -291,9 +303,8 @@ function createViteTypes(
     "  export function usePublicEnv(): PublicEnv",
     "}",
     "declare module \"#vitehub/env/server\" {",
-    `  type SecretEnv<T> = import(${JSON.stringify(runtimeImports.secret)}).SecretEnv<T>`,
     "  export interface ServerEnv {",
-    ...createServerTypeFields(serverRegistry, 4),
+    ...createServerTypeFields(serverRegistry, 4, `import(${JSON.stringify(runtimeImports.secret)}).SecretEnv`),
     "  }",
     "  export function useServerEnv(event?: unknown): ServerEnv",
     "  export function runWithServerEnv<T>(event: unknown, callback: (env: ServerEnv) => T | Promise<T>): Promise<T>",
@@ -307,19 +318,19 @@ function createPublicTypeFields(publicConfig: Record<string, unknown>, indent: n
   return Object.entries(publicConfig).map(([key, value]) => `${prefix}${JSON.stringify(key)}: ${typeof value}`)
 }
 
-function createServerTypeFields(registry: EnvRuntimeRegistry, indent: number): string[] {
+function createServerTypeFields(registry: EnvRuntimeRegistry, indent: number, secretType = "SecretEnv"): string[] {
   const prefix = " ".repeat(indent)
   return Object.entries(registry).map(([key, value]) => {
     const optional = isOptionalServerValue(value) ? "?" : ""
-    return `${prefix}${JSON.stringify(key)}${optional}: ${serverTypeFor(value, indent)}`
+    return `${prefix}${JSON.stringify(key)}${optional}: ${serverTypeFor(value, indent, secretType)}`
   })
 }
 
-function serverTypeFor(value: EnvRuntimeRegistryValue, indent: number): string {
+function serverTypeFor(value: EnvRuntimeRegistryValue, indent: number, secretType: string): string {
   if (isLiteralEntry(value)) return literalType(value.value)
-  if (isEnvEntry(value)) return value.secret ? "SecretEnv<string>" : "string"
+  if (isEnvEntry(value)) return value.secret ? `${secretType}<string>` : "string"
 
-  const fields = createServerTypeFields(value as EnvRuntimeRegistry, indent + 2)
+  const fields = createServerTypeFields(value as EnvRuntimeRegistry, indent + 2, secretType)
   if (!fields.length) return "Record<string, never>"
   const prefix = " ".repeat(indent)
   return `{\n${fields.join("\n")}\n${prefix}}`

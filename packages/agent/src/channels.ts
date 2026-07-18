@@ -793,8 +793,8 @@ async function githubEnv(event?: unknown): Promise<Record<string, unknown>> {
       }
     : {}
   try {
-    // @ts-expect-error Generated and resolved by hubEnv() in the consumer build.
-    const module = await import("#vitehub/env/server") as { useServerEnv?: (event?: unknown) => unknown }
+    // hubEnv() removes the ignore marker so Vite can resolve its generated module.
+    const module = await import(/* @vite-ignore */ "#vitehub/env/server") as { useServerEnv?: (event?: unknown) => unknown }
     const env = module.useServerEnv?.(event)
     const github = isRecord(env) && isRecord(env.github)
       ? Object.fromEntries(Object.entries(env.github).filter(([, value]) => value !== undefined))
