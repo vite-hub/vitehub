@@ -223,7 +223,7 @@ Workspace and other consuming packages can wrap Sources in discovered Definition
 
 ## Errors
 
-Built-in loaders throw `SourceError` with a stable `code` and code-specific safe `details`. Runtime construction rejects codes, providers, operations, status values, and path value types outside the public Source vocabulary, while dropping fields a code does not own. Use `toJSON()` at a public boundary; it excludes causes, stacks, provider bodies, request URLs, credentials, absolute paths, and arbitrary SDK messages. The original provider failure remains available as `cause` for protected server-side diagnostics, and caller abort reasons keep their original identity.
+Built-in loaders throw `SourceError` with a stable `code`, code-specific safe `details`, and a public message derived from that safe context. Runtime construction rejects codes, providers, operations, status values, and path value types outside the public Source vocabulary, while dropping fields a code does not own. Use `toJSON()` at a public boundary; it excludes caller-supplied messages, causes, stacks, provider bodies, request URLs, credentials, absolute paths, and arbitrary SDK messages. The original provider failure remains available as `cause` for protected server-side diagnostics, and caller abort reasons keep their original identity.
 
 Direct construction and subclasses use an object with a stable code:
 
@@ -232,11 +232,10 @@ throw new SourceError({
   code: 'SOURCE_PROVIDER_REQUEST_FAILED',
   details: { operation: 'read', provider: 'custom' },
   cause,
-  message: '[vitehub] custom source request failed.',
 })
 ```
 
-The positional `new SourceError(message, options)` form remains available for existing consumers.
+The positional `new SourceError(message, options)` form remains accepted for existing consumers, but its message is no longer public; `SourceError` derives the serialized message from `code` and safe `details`. Keep raw diagnostics in `cause`.
 
 Custom Sources retain ownership of the values they throw. Map failures to `SourceError` inside a custom adapter when they may cross a public boundary; otherwise `useSource()` preserves the thrown value unchanged.
 

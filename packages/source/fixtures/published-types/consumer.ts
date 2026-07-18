@@ -17,6 +17,7 @@ error.toJSON().details?.key satisfies string | undefined
 "string" satisfies SourceValueType
 
 new SourceError("Missing source item", options)
+new SourceError({ code: "SOURCE_NOT_FOUND" })
 
 class ConsumerSourceError extends SourceError<"SOURCE_ITEM_NOT_FOUND"> {
   constructor() {

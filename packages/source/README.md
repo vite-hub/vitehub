@@ -33,7 +33,7 @@ const first = await docs.read(keys[0]!)
 
 ## Errors
 
-Built-in loaders throw `SourceError` with a stable `code` and code-specific JSON-safe `details`. Runtime construction rejects codes, providers, operations, status values, and path value types outside the public Source vocabulary, while dropping fields a code does not own. `toJSON()` excludes the original `cause`, stack, credentials, request URLs, absolute paths, and provider response bodies; the protected server runtime can still inspect `error.cause` for diagnostics.
+Built-in loaders throw `SourceError` with a stable `code`, code-specific JSON-safe `details`, and a public message derived from that safe context. Runtime construction rejects codes, providers, operations, status values, and path value types outside the public Source vocabulary, while dropping fields a code does not own. `toJSON()` excludes caller-supplied messages, the original `cause`, stack, credentials, request URLs, absolute paths, and provider response bodies; the protected server runtime can still inspect `error.cause` for diagnostics.
 
 ```ts
 import { SourceError } from "@vite-hub/source"
@@ -42,11 +42,10 @@ throw new SourceError({
   code: "SOURCE_PROVIDER_REQUEST_FAILED",
   details: { operation: "read", provider: "custom" },
   cause,
-  message: "[vitehub] custom source request failed.",
 })
 ```
 
-The positional `new SourceError(message, options)` form remains available for existing consumers.
+The positional `new SourceError(message, options)` form remains accepted for existing consumers, but its message is no longer public; `SourceError` derives the serialized message from `code` and safe `details`. Keep raw diagnostics in `cause`.
 
 `SourceNotFoundError` and `SourcePathError` preserve their specialized class identity for registry and path failures. Configuration mistakes such as a missing `file()` path remain `TypeError` because they are programmer errors rather than Source runtime failures.
 

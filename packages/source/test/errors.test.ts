@@ -27,16 +27,35 @@ describe("@vite-hub/source public errors", () => {
   })
 
   it("retains positional construction compatibility", () => {
-    const error = new SourceError("Missing source item", {
+    const cause = new Error("Bearer secret-token")
+    const error = new SourceError("Bearer secret-token", {
+      cause,
       code: "SOURCE_ITEM_NOT_FOUND",
       details: { key: "README.md", source: "docs" },
     })
 
+    expect(error.cause).toBe(cause)
     expect(error.toJSON()).toEqual({
       code: "SOURCE_ITEM_NOT_FOUND",
       details: { key: "README.md", source: "docs" },
-      message: "Missing source item",
+      message: "[vitehub] docs could not find \"README.md\".",
     })
+    expect(JSON.stringify(error)).not.toContain("secret-token")
+  })
+
+  it("derives object-constructor messages from safe code-owned context", () => {
+    const error = new SourceError({
+      code: "SOURCE_PROVIDER_REQUEST_FAILED",
+      details: { operation: "read", provider: "custom" },
+      message: "Bearer secret-token at https://provider.example/private",
+    })
+
+    expect(error.toJSON()).toEqual({
+      code: "SOURCE_PROVIDER_REQUEST_FAILED",
+      details: { operation: "read", provider: "custom" },
+      message: "[vitehub] custom source request failed during read.",
+    })
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|provider\.example/)
   })
 
   it("rejects unknown codes in both constructor forms", () => {
@@ -63,7 +82,7 @@ describe("@vite-hub/source public errors", () => {
     expect(error.toJSON()).toEqual({
       code: "SOURCE_PROVIDER_REQUEST_FAILED",
       details: { operation: "read-item", provider: "github" },
-      message: "Provider failed.",
+      message: "[vitehub] github source request failed during read-item.",
     })
     for (const [code, details] of [
       ["SOURCE_PROVIDER_REQUEST_FAILED", { operation: "Bearer secret-token at https://provider.example/private", provider: "github" }],
