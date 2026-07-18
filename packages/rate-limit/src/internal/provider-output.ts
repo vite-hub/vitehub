@@ -52,7 +52,7 @@ async function writeOutputState(rootDir: string, bindings: string[], standalone 
     return
   }
   await mkdir(dirname(file), { recursive: true })
-  await writeFile(file, `${JSON.stringify({ bindings, ...(standalone ? { standalone: true } : {}) }, null, 2)}\n`, "utf8")
+  await writeFile(file, `${JSON.stringify({ bindings, standalone }, null, 2)}\n`, "utf8")
 }
 
 function namespaceId(namespace: string, rateLimitId: string): string {

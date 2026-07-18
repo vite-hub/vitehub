@@ -273,7 +273,7 @@ function isLegacyCloudflareQueueWorker(contents: string, wrangler: unknown): boo
     && (observability as Record<string, unknown>).enabled === true
 }
 
-async function createNitroCloudflareCleanup(rootDir: string) {
+async function createNitroCloudflareCleanup(rootDir: string, hasCurrentContribution: boolean) {
   const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
   let ownsWorker = false
   let ownsQueues = false
@@ -306,7 +306,7 @@ async function createNitroCloudflareCleanup(rootDir: string) {
     wranglerConfigOwnership: {
       keys: [
         ...(ownsWorker ? ["compatibility_date", "compatibility_flags", "main", "observability"] : []),
-        ...(ownsQueues || ownsWorker ? ["queues"] : []),
+        ...(ownsWorker || (ownsQueues && !hasCurrentContribution) ? ["queues"] : []),
       ],
     },
   }
@@ -425,7 +425,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
       clientOutDir: options.clientOutDir,
       cleanup: {
         cloudflare: options.cloudflareOwnedByNitro
-          ? () => createNitroCloudflareCleanup(options.rootDir)
+          ? () => createNitroCloudflareCleanup(options.rootDir, usesCloudflare && artifacts.definitions.length > 0)
           : { wranglerConfigOwnership: { keys: ["queues"] } },
       },
       rootDir: options.rootDir,

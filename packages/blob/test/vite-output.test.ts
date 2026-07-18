@@ -319,7 +319,7 @@ describe("Vite provider outputs", () => {
     expect(existsSync(join(cloudflareOutput, "wrangler.json"))).toBe(false)
   })
 
-  it("cleans standalone R2 bindings after another primitive replaces the Worker", { timeout: 30_000 }, async () => {
+  it("preserves current Nitro R2 bindings after another primitive replaces the Worker", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-shared-worker-")
     const outputRoot = join(rootDir, "dist", toSafeAppName(rootDir))
     await mkdir(join(rootDir, "src"), { recursive: true })
@@ -331,7 +331,7 @@ describe("Vite provider outputs", () => {
     await generateProviderOutputs({ ...options, cloudflareOwnedByNitro: true })
 
     await expect(readFile(join(outputRoot, "index.js"), "utf8")).resolves.toBe("// workflow worker\n")
-    expect(await readFile(join(outputRoot, "wrangler.json"), "utf8").then(JSON.parse)).not.toHaveProperty("r2_buckets")
+    expect(await readFile(join(outputRoot, "wrangler.json"), "utf8").then(JSON.parse)).toHaveProperty("r2_buckets")
   })
 
   it("omits Cloudflare bucket bindings when none are configured", { timeout: 15_000 }, async () => {

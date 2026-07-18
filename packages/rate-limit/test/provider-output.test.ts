@@ -103,6 +103,7 @@ describe("Rate Limit Provider Output", () => {
     await expect(readFile(configFile, "utf8").then(JSON.parse)).resolves.toEqual(existingConfig)
     await expect(readFile(join(root, ".vitehub", "rate-limit", "cloudflare-output.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       bindings: [getCloudflareRateLimitBindingName("upload")],
+      standalone: false,
     })
     await expect(readFile(join(root, ".vitehub", "rate-limit", "manifest.json"), "utf8")).resolves.toContain('"provider": "cloudflare"')
   })

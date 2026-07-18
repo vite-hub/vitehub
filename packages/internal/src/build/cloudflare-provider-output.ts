@@ -151,7 +151,9 @@ export function composeNitroCloudflareProviderOutput(config: object, value: unkn
   const nitro = cloneRecord(value)
   const cloudflare = cloneRecord(nitro.cloudflare)
   const catalog = useCloudflareProviderOutput(config)
-  const inherited = value && typeof value === "object" ? cloudflareProviderOutputByNitro.get(value) : undefined
+  const inherited = value && typeof value === "object"
+    ? (value as Record<symbol, CloudflareProviderOutputCatalog | undefined>)[cloudflareProviderOutputKey] ?? cloudflareProviderOutputByNitro.get(value)
+    : undefined
   if (inherited && inherited !== catalog) {
     for (const [owner, contribution] of inherited.appliedByOwner) catalog.appliedByOwner.set(owner, contribution)
     catalog.contributionsByOwner = new Map([...inherited.contributionsByOwner, ...catalog.contributionsByOwner])
@@ -167,6 +169,7 @@ export function composeNitroCloudflareProviderOutput(config: object, value: unkn
   const output = !Object.keys(cloudflare).length && !Object.keys(wrangler).length
     ? nitro
     : { ...nitro, cloudflare: { ...cloudflare, wrangler } }
+  Object.defineProperty(output, cloudflareProviderOutputKey, { enumerable: true, value: catalog })
   cloudflareProviderOutputByNitro.set(output, catalog)
   return output
 }

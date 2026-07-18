@@ -351,7 +351,7 @@ function isLegacyCloudflareBlobWorker(worker: string, wrangler: unknown): boolea
     && observability.enabled === true
 }
 
-async function createNitroCloudflareCleanup(rootDir: string) {
+async function createNitroCloudflareCleanup(rootDir: string, hasCurrentContribution: boolean) {
   const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
   let ownsWorker = false
   let ownsR2Buckets = false
@@ -387,7 +387,7 @@ async function createNitroCloudflareCleanup(rootDir: string) {
     wranglerConfigOwnership: {
       keys: [
         ...(ownsWorker ? ["compatibility_date", "compatibility_flags", "main", "observability"] : []),
-        ...(ownsR2Buckets || ownsWorker ? ["r2_buckets"] : []),
+        ...(ownsWorker || (ownsR2Buckets && !hasCurrentContribution) ? ["r2_buckets"] : []),
       ],
     },
   }
@@ -482,10 +482,11 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.blob)
   const localOnly = !shouldCreateProviderOutput(options.blob)
   const createCloudflare = !localOnly && !options.cloudflareOwnedByNitro
+  const hasCurrentCloudflareContribution = Boolean(createCloudflareR2Bindings(resolveBlobConfig(options.blob, "cloudflare"))?.length)
   if (options.cloudflareOwnedByNitro && !localOnly) {
     await writeProviderDeploymentOutputs({
       clientOutDir: options.clientOutDir,
-      cleanup: { cloudflare: () => createNitroCloudflareCleanup(options.rootDir) },
+      cleanup: { cloudflare: () => createNitroCloudflareCleanup(options.rootDir, hasCurrentCloudflareContribution) },
       rootDir: options.rootDir,
     })
   }

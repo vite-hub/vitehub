@@ -19,32 +19,29 @@ describe("Cloudflare provider output", () => {
       rateLimits: [{ name: "UPLOADS", namespace_id: "1", simple: { limit: 10, period: 60 } }],
     })
 
-    expect(
-      composeNitroCloudflareProviderOutput(config, {
-        cloudflare: {
-          wrangler: {
-            compatibility_date: "2026-07-18",
-            name: undefined,
-            queues: { producers: [{ binding: "USER", queue: "user", delivery_delay: 1 }] },
-            routes: ["example.com/*"],
-          },
-        },
-      }),
-    ).toEqual({
+    const output = composeNitroCloudflareProviderOutput(config, {
       cloudflare: {
         wrangler: {
           compatibility_date: "2026-07-18",
-          queues: {
-            producers: [
-              { binding: "USER", queue: "user", delivery_delay: 1 },
-              { binding: "JOBS", queue: "jobs" },
-              { binding: "EMAILS", queue: "emails" },
-            ],
-          },
-          r2_buckets: [{ binding: "BLOB", bucket_name: "assets" }],
-          ratelimits: [{ name: "UPLOADS", namespace_id: "1", simple: { limit: 10, period: 60 } }],
+          name: undefined,
+          queues: { producers: [{ binding: "USER", queue: "user", delivery_delay: 1 }] },
           routes: ["example.com/*"],
         },
+      },
+    })
+    expect(output.cloudflare).toEqual({
+      wrangler: {
+        compatibility_date: "2026-07-18",
+        queues: {
+          producers: [
+            { binding: "USER", queue: "user", delivery_delay: 1 },
+            { binding: "JOBS", queue: "jobs" },
+            { binding: "EMAILS", queue: "emails" },
+          ],
+        },
+        r2_buckets: [{ binding: "BLOB", bucket_name: "assets" }],
+        ratelimits: [{ name: "UPLOADS", namespace_id: "1", simple: { limit: 10, period: 60 } }],
+        routes: ["example.com/*"],
       },
     })
   })
@@ -101,6 +98,19 @@ describe("Cloudflare provider output", () => {
     )
     registerCloudflareProviderOutput(config, "queue", {})
     expect(composeNitroCloudflareProviderOutput(config, second)).not.toHaveProperty("cloudflare.wrangler.queues")
+  })
+
+  it("carries applied ownership through copied Nitro configs", () => {
+    const firstConfig = {}
+    registerCloudflareProviderOutput(firstConfig, "queue", {
+      queues: { producers: [{ binding: "OLD", queue: "old" }] },
+    })
+    const first = composeNitroCloudflareProviderOutput(firstConfig, {})
+    const copied = { ...first, cloudflare: { ...(first.cloudflare as object) } }
+    const finalConfig = {}
+    registerCloudflareProviderOutput(finalConfig, "queue", {})
+
+    expect(composeNitroCloudflareProviderOutput(finalConfig, copied)).not.toHaveProperty("cloudflare.wrangler.queues")
   })
 
   it("preserves non-plain Nitro config outside Wrangler composition", () => {
