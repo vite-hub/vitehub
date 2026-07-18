@@ -64,19 +64,19 @@ interface RateLimitDecisionBase extends RateLimitDriverResult {
   windowMs: number
 }
 
-export interface RateLimitAllowedDecision extends RateLimitDecisionBase {
+interface RateLimitAllowedDecision extends RateLimitDecisionBase {
   allowed: true
   cause?: never
   reason?: never
 }
 
-export interface RateLimitLimitedDecision extends RateLimitDecisionBase {
+interface RateLimitLimitedDecision extends RateLimitDecisionBase {
   allowed: false
   cause?: never
   reason: "limited"
 }
 
-export interface RateLimitUnavailableDecision extends RateLimitDecisionBase {
+interface RateLimitUnavailableDecision extends RateLimitDecisionBase {
   cause: unknown
   reason: "unavailable"
 }
