@@ -71,6 +71,39 @@ describe("Rate Limit Provider Output", () => {
     })
   })
 
+  it("leaves Nitro-owned Cloudflare output untouched while persisting generated state", async () => {
+    const { declarations, root } = await projectWithDeclaration()
+    const outputRoot = createDefaultCloudflareOutputRoot(root)
+    const configFile = join(outputRoot, "wrangler.json")
+    const existingConfig = {
+      ratelimits: [
+        { name: "NITRO", namespace_id: "7", simple: { limit: 2, period: 10 } },
+        { name: getCloudflareRateLimitBindingName("upload"), namespace_id: "8", simple: { limit: 10, period: 60 } },
+      ],
+      vars: { APP: "vitehub" },
+    }
+    await mkdir(outputRoot, { recursive: true })
+    await writeFile(configFile, `${JSON.stringify(existingConfig, null, 2)}\n`)
+
+    await writeRateLimitProviderOutput({
+      clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
+      declarations,
+      namespace: "acme-image-service",
+      provider: "cloudflare",
+      rootDir: root,
+    })
+
+    await expect(readFile(configFile, "utf8").then(JSON.parse)).resolves.toEqual({
+      ratelimits: [{ name: "NITRO", namespace_id: "7", simple: { limit: 2, period: 10 } }],
+      vars: { APP: "vitehub" },
+    })
+    await expect(readFile(join(root, ".vitehub", "rate-limit", "cloudflare-output.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      bindings: [getCloudflareRateLimitBindingName("upload")],
+    })
+    await expect(readFile(join(root, ".vitehub", "rate-limit", "manifest.json"), "utf8")).resolves.toContain('"provider": "cloudflare"')
+  })
+
   it("rejects unsupported Cloudflare guarantees", async () => {
     const strict = await projectWithDeclaration({ enforcement: "strict", limit: 10, window: "1m" })
     expect(() => createCloudflareRateLimitBindings(strict.declarations, "test")).toThrow("best-effort")
