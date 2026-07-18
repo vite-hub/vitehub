@@ -8,12 +8,12 @@ let runtimeConfig: false | ResolvedQueueOptions | undefined
 let registryOverride: QueueDefinitionRegistry | undefined
 
 const queueEventStorage = new AsyncLocalStorage<unknown>()
-let queueEventFallback: unknown
+let queueEventDefaults: unknown
 const queueClientCache = new Map<string, Promise<unknown>>()
 
 export function setQueueRuntimeConfig(config: false | ResolvedQueueOptions | undefined): void {
   runtimeConfig = config
-  if (typeof config === "undefined") queueEventFallback = undefined
+  if (typeof config === "undefined") queueEventDefaults = undefined
   queueClientCache.clear()
 }
 
@@ -29,14 +29,16 @@ export function enterQueueRuntimeEvent(event: unknown): void {
   try {
     queueEventStorage.enterWith(event)
   }
-  catch {
-    queueEventFallback = event
-  }
+  catch {}
   setActiveCloudflareEnv(getCloudflareEnv(event))
 }
 
 export function getQueueRuntimeEvent(): unknown {
-  return queueEventStorage.getStore() ?? queueEventFallback
+  return queueEventStorage.getStore() ?? queueEventDefaults
+}
+
+export function setQueueRuntimeEventDefaults(event: unknown): void {
+  queueEventDefaults = event
 }
 
 export function setQueueRuntimeRegistry(registry: QueueDefinitionRegistry | undefined): void {

@@ -64,7 +64,7 @@ describe("cloudflare queue runtime", () => {
     const event = { env }
     expect(() => enterQueueRuntimeEvent(event)).not.toThrow()
     expect(getActiveCloudflareEnv()).toBe(env)
-    expect(getQueueRuntimeEvent()).toBe(event)
+    expect(getQueueRuntimeEvent()).toBeUndefined()
   })
 
   it("points direct Node scripts at generated provider output when no registry is loaded", async () => {

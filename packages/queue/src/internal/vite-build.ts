@@ -176,8 +176,8 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
   return [
     "import { definePlugin } from 'nitro'",
     ...(vercel ? ["import { waitUntil as vitehubWaitUntil } from '@vercel/functions'", "import * as __vitehubVercelQueue from '@vercel/queue'"] : []),
-    ...(cloudflare ? ["import { createQueueCloudflareWorker } from '@vite-hub/queue/runtime/cloudflare-vite'"] : []),
-    "import { enterQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from '@vite-hub/queue/runtime/state'",
+    ...(cloudflare ? ["import { env as vitehubEnv, waitUntil as vitehubWaitUntil } from 'cloudflare:workers'", "import { createQueueCloudflareWorker } from '@vite-hub/queue/runtime/cloudflare-vite'"] : []),
+    "import { enterQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeEventDefaults, setQueueRuntimeRegistry } from '@vite-hub/queue/runtime/state'",
     `import queueRegistry from ${JSON.stringify(createImportPath(pluginFile, registryFile))}`,
     "",
     ...(vercel ? ["globalThis.__vitehubVercelQueue = __vitehubVercelQueue", ""] : []),
@@ -187,6 +187,7 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
     "export default definePlugin((nitro) => {",
     "  setQueueRuntimeConfig(queueConfig)",
     "  setQueueRuntimeRegistry(queueRegistry)",
+    ...(cloudflare ? ["  setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })"] : []),
     ...(vercel
       ? ["  nitro.hooks.hook('request', (event) => enterQueueRuntimeEvent(Object.assign(event, { waitUntil: vitehubWaitUntil })))"]
       : ["  nitro.hooks.hook('request', (event) => enterQueueRuntimeEvent(event))"]),

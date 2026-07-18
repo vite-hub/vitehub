@@ -32,21 +32,24 @@ function resolveQueueHosting(queue: QueueModuleOptions | undefined, nitro: Recor
 }
 
 function supportsCloudflareQueues(nitro: Record<string, unknown>): boolean {
-  const preset = typeof nitro.preset === "string" ? nitro.preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || ""
-  return !preset.includes("cloudflare_pages")
+  const preset = typeof nitro.preset === "string" ? nitro.preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING || ""
+  return !preset.replaceAll("-", "_").includes("cloudflare_pages")
 }
 
 function mergeNitroConfig(value: unknown, queue: QueueModuleOptions | undefined, root: string): Record<string, unknown> {
   const nitro = cloneNitroConfig(value)
   const plugins = Array.isArray(nitro.plugins) ? [...nitro.plugins] : []
-  if (!plugins.includes(generatedQueueNitroPlugin)) plugins.push(generatedQueueNitroPlugin)
+  if (!plugins.includes(generatedQueueNitroPlugin)) plugins.unshift(generatedQueueNitroPlugin)
   if (typeof queue === "undefined" || queue === false || resolveQueueHosting(queue, nitro) !== "cloudflare" || !supportsCloudflareQueues(nitro)) return { ...nitro, plugins }
   const cloudflare = cloneNitroConfig(nitro.cloudflare)
   const wrangler = cloneNitroConfig(cloudflare.wrangler)
   const generated = createCloudflareQueueBindings(discoverQueueDefinitions({ rootDir: root }))
   if (!generated) return { ...nitro, plugins }
   const binding = queue.provider === "cloudflare" && typeof queue.binding === "string" ? queue.binding : undefined
-  const generatedProducers = binding ? generated.producers.slice(0, 1).map(producer => ({ ...producer, binding })) : generated.producers
+  if (binding && generated.producers.length > 1) {
+    throw new Error("A custom Cloudflare queue binding can only be used with one Queue Definition.")
+  }
+  const generatedProducers = binding ? generated.producers.map(producer => ({ ...producer, binding })) : generated.producers
   const queues = cloneNitroConfig(wrangler.queues)
   const consumers = Array.isArray(queues.consumers) ? queues.consumers : []
   const producers = Array.isArray(queues.producers) ? queues.producers : []
@@ -59,7 +62,13 @@ function mergeNitroConfig(value: unknown, queue: QueueModuleOptions | undefined,
         queues: {
           ...queues,
           consumers: [...consumers, ...generated.consumers.filter(entry => !consumers.some(current => cloneNitroConfig(current).queue === entry.queue))],
-          producers: [...producers, ...generatedProducers.filter(entry => !producers.some(current => cloneNitroConfig(current).binding === entry.binding))],
+          producers: [...producers, ...generatedProducers.filter((entry) => {
+            const existing = producers.find(current => cloneNitroConfig(current).binding === entry.binding)
+            if (existing && cloneNitroConfig(existing).queue !== entry.queue) {
+              throw new Error(`Cloudflare queue binding ${entry.binding} is already assigned to another queue.`)
+            }
+            return !existing
+          })],
         },
       },
     },

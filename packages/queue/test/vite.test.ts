@@ -26,11 +26,11 @@ describe("hubQueue", () => {
     expect(config(userConfig)).toMatchObject({
       nitro: {
         cloudflare: { wrangler: { queues: { consumers: [{ queue: "queue--77656c636f6d65" }], producers: [{ binding: "QUEUE_77656C636F6D65", queue: "queue--77656c636f6d65" }] } } },
-        plugins: ["server/plugin.ts", ".vitehub/nitro/queue/plugin.ts"],
+        plugins: [".vitehub/nitro/queue/plugin.ts", "server/plugin.ts"],
       },
     })
     expect(config(userConfig)).toMatchObject({
-      nitro: { plugins: ["server/plugin.ts", ".vitehub/nitro/queue/plugin.ts"] },
+      nitro: { plugins: [".vitehub/nitro/queue/plugin.ts", "server/plugin.ts"] },
     })
 
     await configResolved({
@@ -47,6 +47,7 @@ describe("hubQueue", () => {
     expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig)")
     expect(nitroPlugin).toContain("setQueueRuntimeRegistry(queueRegistry)")
     expect(nitroPlugin).toContain("enterQueueRuntimeEvent(event)")
+    expect(nitroPlugin).toContain("setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })")
     expect(nitroPlugin).toContain("nitro.hooks.hook('cloudflare:queue'")
     expect(nitroPlugin).toContain("queueWorker.queue(batch, env, context)")
     expect(registry).toContain("welcome.queue.ts")
@@ -79,5 +80,20 @@ describe("hubQueue", () => {
       nitro: { cloudflare: { wrangler: { queues: { producers: [{ binding: "JOBS" }] } } } },
     })
     expect(config({ nitro: { preset: "cloudflare_pages" }, root }).nitro).not.toHaveProperty("cloudflare.wrangler.queues")
+    expect(config({ nitro: { preset: "cloudflare-pages" }, root }).nitro).not.toHaveProperty("cloudflare.wrangler.queues")
+  })
+
+  it("rejects ambiguous and conflicting custom Cloudflare bindings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
+    roots.push(root)
+    await writeFile(join(root, "first.queue.ts"), "export default { handler: async () => undefined }\n")
+    await writeFile(join(root, "second.queue.ts"), "export default { handler: async () => undefined }\n")
+    const custom = hubQueue({ provider: "cloudflare", binding: "JOBS" }).config as unknown as (config: Record<string, unknown>) => unknown
+    expect(() => custom({ nitro: { preset: "cloudflare_module" }, root })).toThrow(/only be used with one Queue Definition/)
+
+    await rm(join(root, "second.queue.ts"))
+    const generatedBinding = "QUEUE_6669727374"
+    const config = hubQueue({ provider: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => unknown
+    expect(() => config({ nitro: { preset: "cloudflare_module", cloudflare: { wrangler: { queues: { producers: [{ binding: generatedBinding, queue: "other" }] } } } }, root })).toThrow(/already assigned/)
   })
 })
