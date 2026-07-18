@@ -38,11 +38,15 @@ function createPolicyObservation(command: string, cwd: string | undefined, messa
   }
 }
 
+const shellSessionDisposedMessage = "[vitehub] Shell session is disposed."
+const shellSessionStopFailureMessage = "[vitehub] Shell session failed to stop multiple background processes."
+
 class RuntimeShellSession implements ShellSession {
   readonly boundary
   readonly policy: ShellSessionPolicy
   #disposed = false
-  #processes = new Map<string, ShellProcess>()
+  #disposeTask: Promise<ShellObservation> | undefined
+  #processes = new Set<ShellProcess>()
   #shellCalls = 0
 
   constructor(
@@ -60,7 +64,7 @@ class RuntimeShellSession implements ShellSession {
 
   async exec(command: string, options: ShellRuntimeExecOptions = {}) {
     if (this.#disposed) {
-      return createPolicyObservation(command, options.cwd, "[vitehub] Shell session is disposed.")
+      return createPolicyObservation(command, options.cwd, shellSessionDisposedMessage)
     }
     if (typeof this.policy.maxShellCalls === "number" && this.#shellCalls >= this.policy.maxShellCalls) {
       return createPolicyObservation(
@@ -88,7 +92,7 @@ class RuntimeShellSession implements ShellSession {
   }
 
   async startProcess(command: string, options: ShellRuntimeExecOptions = {}) {
-    if (this.#disposed) throw new Error("[vitehub] Shell session is disposed.")
+    if (this.#disposed) throw new Error(shellSessionDisposedMessage)
     if (!this.provider.startProcess || !this.boundary.processes.background) {
       throw new Error("[vitehub] Shell provider does not support long-running processes.")
     }
@@ -100,18 +104,25 @@ class RuntimeShellSession implements ShellSession {
       env: { ...this.env, ...options.env },
       timeout: options.timeout ?? this.policy.timeout,
     })
-    const trackedProcess: ShellProcess = {
-      ...process,
-      stop: async () => {
-        try {
-          return await process.stop()
-        }
-        finally {
-          this.#processes.delete(process.id)
-        }
-      },
+    let stopTask: Promise<ShellObservation> | undefined
+    let trackedProcess: ShellProcess
+    const stop = () => stopTask ??= process.stop().finally(() => {
+      this.#processes.delete(trackedProcess)
+    })
+    trackedProcess = { ...process, stop }
+    if (this.#disposed) {
+      try {
+        await stop()
+      }
+      catch (error) {
+        throw new AggregateError(
+          [new Error(shellSessionDisposedMessage), error],
+          "[vitehub] Shell session was disposed while starting a background process, and stopping it failed.",
+        )
+      }
+      throw new Error(shellSessionDisposedMessage)
     }
-    this.#processes.set(process.id, trackedProcess)
+    this.#processes.add(trackedProcess)
     return trackedProcess
   }
 
@@ -119,14 +130,21 @@ class RuntimeShellSession implements ShellSession {
     return [...this.#processes.values()]
   }
 
-  async dispose() {
+  dispose() {
     this.#disposed = true
-    return {
-      event: "session_disposed",
-      exitCode: null,
-      stderr: "",
-      stdout: "",
-    } satisfies ShellObservation
+    return this.#disposeTask ??= (async () => {
+      const processes = [...this.#processes.values()]
+      this.#processes.clear()
+      const results = await Promise.allSettled(processes.map(process => process.stop()))
+      const failures = results.flatMap(result => result.status === "rejected" ? [result.reason] : [])
+      if (failures.length > 0) throw new AggregateError(failures, shellSessionStopFailureMessage)
+      return {
+        event: "session_disposed" as const,
+        exitCode: null,
+        stderr: "",
+        stdout: "",
+      }
+    })()
   }
 }
 

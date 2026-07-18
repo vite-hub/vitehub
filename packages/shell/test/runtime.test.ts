@@ -17,7 +17,6 @@ import { createCloudflareShellProvider } from "../src/providers/cloudflare.ts"
 import type {
   ShellExecutionProvider,
   ShellProcess,
-  ShellRuntimeExecOptions,
 } from "../src/index.ts"
 import type {
   ReadonlyShellWorkspace,
@@ -36,6 +35,48 @@ function createReadonlyRuntime(workspace: ReadonlyShellWorkspace) {
       fs: createReadonlyWorkspaceFs(workspace),
     }),
   })
+}
+
+function createBackgroundProvider(
+  startProcess: NonNullable<ShellExecutionProvider["startProcess"]>,
+): ShellExecutionProvider {
+  return {
+    boundary: {
+      cwd: true,
+      env: true,
+      filesystem: { writable: false },
+      network: false,
+      processes: {
+        background: true,
+        interactive: false,
+      },
+      streaming: false,
+      timeout: {
+        enforcedBy: "runtime",
+        supported: true,
+      },
+    },
+    async exec(command: string) {
+      return {
+        command,
+        event: "command_finished",
+        exitCode: 0,
+        stderr: "",
+        stdout: "",
+      }
+    },
+    startProcess,
+  }
+}
+
+function stoppedProcessObservation(command: string) {
+  return {
+    command,
+    event: "command_finished" as const,
+    exitCode: 0,
+    stderr: "",
+    stdout: "",
+  }
 }
 
 describe("@vite-hub/shell just-bash runtime", () => {
@@ -120,47 +161,17 @@ describe("@vite-hub/shell just-bash runtime", () => {
   })
 
   it("unregisters stopped long-running processes from session state", async () => {
-    const provider: ShellExecutionProvider = {
-      boundary: {
-        cwd: true,
-        env: true,
-        filesystem: { writable: false },
-        network: false,
-        processes: {
-          background: true,
-          interactive: false,
-        },
-        streaming: false,
-        timeout: {
-          enforcedBy: "runtime",
-          supported: true,
-        },
-      },
-      async exec(command: string, _options?: ShellRuntimeExecOptions) {
-        return {
-          command,
-          event: "command_finished",
-          exitCode: 0,
-          stderr: "",
-          stdout: "",
-        }
-      },
-      async startProcess(command: string): Promise<ShellProcess> {
-        return {
-          command,
-          id: command,
-          async stop() {
-            return {
-              command,
-              event: "command_finished",
-              exitCode: 0,
-              stderr: "",
-              stdout: "",
-            }
-          },
-        }
-      },
-    }
+    const stops = new Map<string, ReturnType<typeof vi.fn>>()
+    const startProcess = vi.fn(async (command: string): Promise<ShellProcess> => {
+      const stop = vi.fn(async () => stoppedProcessObservation(command))
+      stops.set(command, stop)
+      return {
+        command,
+        id: command,
+        stop,
+      }
+    })
+    const provider = createBackgroundProvider(startProcess)
     const session = createShellRuntime({ provider }).createSession({ policy: { maxProcesses: 1 } })
 
     const first = await session.startProcess("one")
@@ -168,8 +179,78 @@ describe("@vite-hub/shell just-bash runtime", () => {
     await expect(session.startProcess("two")).rejects.toThrow("process budget exhausted after 1 processes")
 
     await expect(first.stop()).resolves.toMatchObject({ exitCode: 0 })
+    await expect(first.stop()).resolves.toMatchObject({ exitCode: 0 })
+    expect(stops.get("one")).toHaveBeenCalledOnce()
     expect(await session.listProcesses()).toHaveLength(0)
+
     await expect(session.startProcess("two")).resolves.toMatchObject({ id: "two" })
+    await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
+    await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
+    expect(stops.get("two")).toHaveBeenCalledOnce()
+    expect(await session.listProcesses()).toHaveLength(0)
+    await expect(session.startProcess("three")).rejects.toThrow("Shell session is disposed")
+    expect(startProcess).toHaveBeenCalledTimes(2)
+    await expect(session.exec("pwd")).resolves.toMatchObject({ event: "policy_denied" })
+  })
+
+  it("stops every remaining process in deterministic order and aggregates failures", async () => {
+    const firstError = new Error("first stop failed")
+    const secondError = new Error("second stop failed")
+    const stopOrder: string[] = []
+    const stops = new Map<string, ReturnType<typeof vi.fn>>()
+    const provider = createBackgroundProvider(async (command: string): Promise<ShellProcess> => {
+      const stop = vi.fn(async () => {
+        stopOrder.push(command)
+        if (command === "one") throw firstError
+        if (command === "two") throw secondError
+        return stoppedProcessObservation(command)
+      })
+      stops.set(command, stop)
+      return {
+        command,
+        id: "shared-provider-id",
+        stop,
+      }
+    })
+    const session = createShellRuntime({ provider }).createSession()
+
+    await session.startProcess("one")
+    await session.startProcess("two")
+    await session.startProcess("three")
+    expect(await session.listProcesses()).toHaveLength(3)
+
+    const failure = await session.dispose().catch(error => error) as AggregateError
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect(failure.message).toBe("[vitehub] Shell session failed to stop multiple background processes.")
+    expect(failure.errors).toEqual([firstError, secondError])
+    expect(stopOrder).toEqual(["one", "two", "three"])
+    expect(await session.listProcesses()).toHaveLength(0)
+
+    await expect(session.dispose()).rejects.toBe(failure)
+    expect(stops.get("one")).toHaveBeenCalledOnce()
+    expect(stops.get("two")).toHaveBeenCalledOnce()
+    expect(stops.get("three")).toHaveBeenCalledOnce()
+  })
+
+  it("stops a process whose provider resolves after session disposal", async () => {
+    let resolveProcess: ((process: ShellProcess) => void) | undefined
+    const stop = vi.fn(async () => stoppedProcessObservation("late"))
+    const provider = createBackgroundProvider(() => new Promise((resolve) => {
+      resolveProcess = resolve
+    }))
+    const session = createShellRuntime({ provider }).createSession()
+    const starting = session.startProcess("late")
+
+    await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
+    resolveProcess?.({
+      command: "late",
+      id: "late",
+      stop,
+    })
+
+    await expect(starting).rejects.toThrow("Shell session is disposed")
+    expect(stop).toHaveBeenCalledOnce()
+    expect(await session.listProcesses()).toHaveLength(0)
   })
 
   it("executes workspace inspection commands", async () => {
