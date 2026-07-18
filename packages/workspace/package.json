@@ -135,6 +135,7 @@
   "dependencies": {
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/markdown-template": "workspace:*",
+    "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",
     "exsolve": "catalog:unjs",
