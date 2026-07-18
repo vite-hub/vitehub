@@ -85,7 +85,7 @@ type WorkflowErrorOptionsFor<TCode extends WorkflowErrorCode> = ErrorOptions & {
 
 export type WorkflowErrorOptions<TCode extends WorkflowErrorCode = WorkflowErrorCode> =
   [WorkflowErrorCode] extends [TCode]
-    ? ErrorOptions & { code: TCode, details?: WorkflowErrorDetails<TCode> }
+    ? ErrorOptions & { code: TCode, details: WorkflowErrorDetails<TCode> }
     : TCode extends WorkflowErrorCode ? WorkflowErrorOptionsFor<TCode> : never
 
 export class WorkflowError<TCode extends WorkflowErrorCode = WorkflowErrorCode> extends ViteHubError<TCode, WorkflowErrorDetails<TCode>> {
@@ -234,10 +234,11 @@ function cloneApplicationDetailValue(value: unknown, depth: number, state: { ent
       throw new TypeError("ApplicationWorkflowError details must contain only plain objects and arrays.")
     }
 
-    const entries = safeApplicationKeys(value)
+    const keys = safeApplicationKeys(value)
+    countApplicationEntries(state, keys.length)
+    const entries = keys
       .map(key => [key, readApplicationValue(value, key)] as const)
       .filter(([, nested]) => nested !== undefined)
-    countApplicationEntries(state, entries.length)
     return Object.fromEntries(entries.map(([key, nested]) => [key, cloneApplicationDetailValue(nested, depth + 1, state)]))
   }
   finally {
@@ -312,7 +313,6 @@ function sealPublicError(error: ViteHubError<string, ViteHubErrorDetails>): void
       Object.defineProperty(error, key, { ...descriptor, configurable: false, writable: false })
     }
   }
-  Object.preventExtensions(error)
 }
 
 function deepFreeze(value: unknown): void {

@@ -15,7 +15,12 @@ applicationError.code satisfies "TRANSCRIPTION_FAILED"
 applicationError.toJSON().details satisfies { attempt: number, provider: string } | undefined
 
 new WorkflowError({ code }) satisfies WorkflowError<"WORKFLOW_DEFINITION_NOT_FOUND">
-new WorkflowError({ code: dynamicCode }) satisfies WorkflowError<WorkflowErrorCode>
+new WorkflowError({
+  code: dynamicCode,
+  details: { operation: "start", provider: "vercel" },
+}) satisfies WorkflowError<WorkflowErrorCode>
+// @ts-expect-error Dynamic built-in codes must provide details for codes that require them.
+new WorkflowError({ code: dynamicCode })
 
 const providerOptions = {
   code: "WORKFLOW_PROVIDER_OPERATION_FAILED" as const,

@@ -67,12 +67,15 @@ describe("WorkflowError", () => {
 
   it("pins trusted serialization for subclasses", () => {
     class CustomWorkflowError extends WorkflowError<"WORKFLOW_DISABLED"> {
+      readonly metadata = "consumer-owned"
+
       override toJSON(): never {
         throw new Error("private subclass diagnostics")
       }
     }
 
     const error = new CustomWorkflowError({ code: "WORKFLOW_DISABLED" })
+    expect(error.metadata).toBe("consumer-owned")
     expect(error.toJSON()).toEqual({ code: "WORKFLOW_DISABLED", message: "Workflow is disabled." })
   })
 })
@@ -183,5 +186,14 @@ describe("ApplicationWorkflowError", () => {
       code: "CUSTOM_CODE",
       message: "x".repeat(513),
     })).toThrow("message between 1 and 512 characters")
+  })
+
+  it("counts omitted undefined properties against the entry limit", () => {
+    const details = Object.fromEntries(Array.from({ length: 65 }, (_, index) => [`key${index}`, undefined]))
+    expect(() => new ApplicationWorkflowError({
+      code: "CUSTOM_WORKFLOW_FAILURE",
+      details,
+      message: "Custom workflow failure.",
+    })).toThrow("maximum of 64 entries")
   })
 })
