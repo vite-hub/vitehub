@@ -1,4 +1,5 @@
-import { SandboxError } from '../../errors'
+import { readSandboxErrorInternals, SandboxError } from '../../errors'
+import { isSandboxAbort } from '../../provider-call'
 import { normalizeLogPattern, sleep } from '../_shared'
 
 import type { SandboxProcess, SandboxWaitForPortOptions } from '../../types/common'
@@ -47,7 +48,11 @@ export class CloudflareProcessHandle implements SandboxProcess {
       return await this.processInfo.waitForLog(pattern, timeout)
     }
     catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      if (isSandboxAbort(error))
+        throw error
+      const message = error instanceof SandboxError
+        ? readSandboxErrorInternals(error).message
+        : error instanceof Error ? error.message : String(error)
       if (!/ProcessExitedBeforeReadyError|before becoming ready|exited with code/i.test(message))
         throw error
     }

@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer'
 import { posix } from 'node:path'
 import { Readable } from 'node:stream'
 
-import { NotSupportedError, SandboxError } from '../errors'
+import { NotSupportedError, readSandboxErrorInternals, SandboxError } from '../errors'
 import { isSandboxAbort, wrapSandboxProviderNative } from '../provider-call'
 import { BaseSandboxAdapter } from './base'
 import { asRecord, buildCommandLabel, normalizeVercelExecError } from './vercel/error'
@@ -10,6 +10,14 @@ import { collectDetachedCommandOutput, VercelProcessHandle } from './vercel/proc
 
 import type { SandboxExecOptions, SandboxExecResult, SandboxFileContent, SandboxFileEntry, SandboxListFilesOptions, SandboxProcess, SandboxProcessOptions, SandboxReadFileOptions } from '../types/common'
 import type { SandboxNetworkPolicy, VercelSandboxInstance, VercelSandboxMetadata, VercelSandboxNamespace, VercelSandboxSnapshot } from '../types/vercel'
+
+function isMissingFileError(error: unknown): boolean {
+  const internals = error instanceof SandboxError ? readSandboxErrorInternals(error) : undefined
+  const cause = internals?.cause ?? error
+  const code = cause && typeof cause === 'object' && 'code' in cause ? cause.code : undefined
+  const message = internals?.message ?? (cause instanceof Error ? cause.message : String(cause))
+  return code === 'ENOENT' || code === 'NOT_FOUND' || /\b(?:enoent|no such file|not found)\b/i.test(message)
+}
 
 class VercelNamespaceImpl implements VercelSandboxNamespace {
   readonly native: VercelSandboxInstance
@@ -299,17 +307,14 @@ export class VercelSandboxAdapter extends BaseSandboxAdapter<'vercel'> {
         await fs.access(path)
         return true
       }
-      catch {
+      catch (error) {
+        if (isSandboxAbort(error) || !isMissingFileError(error))
+          throw error
         return false
       }
     }
-    try {
-      const result = await this.exec('test', ['-e', path])
-      return result.ok
-    }
-    catch {
-      return false
-    }
+    const result = await this.exec('test', ['-e', path])
+    return result.ok
   }
 
   override async deleteFile(path: string): Promise<void> {

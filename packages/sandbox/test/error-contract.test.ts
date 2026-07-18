@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { toSandboxError } from "../src/runtime/error-normalization.ts"
+import { readExecOutputWithRecovery } from "../src/runtime/output-recovery.ts"
 import { CloudflareSandboxAdapter } from "../src/sandbox/adapters/cloudflare.ts"
+import { CloudflareProcessHandle } from "../src/sandbox/adapters/cloudflare/process.ts"
 import { VercelSandboxAdapter } from "../src/sandbox/adapters/vercel.ts"
+import { collectDetachedCommandOutput } from "../src/sandbox/adapters/vercel/process.ts"
 import { readSandboxErrorInternals, SandboxError } from "../src/sandbox/errors.ts"
 import type { CloudflareSandboxStub } from "../src/sandbox/types/common.ts"
 import type { VercelSandboxInstance } from "../src/sandbox/types/vercel.ts"
@@ -175,6 +178,93 @@ describe("SandboxError public contract", () => {
 
     await expect(adapter.native.fs!.readFile("/private", { signal: controller.signal })).rejects.toBe(reason)
     await expect(adapter.writeFile("/private", "content")).rejects.toBe(abortError)
+  })
+
+  it("preserves cross-realm AbortError-shaped rejections", async () => {
+    const abortError = { message: "private cross-realm abort", name: "AbortError" }
+    const adapter = new VercelSandboxAdapter("sandbox-id", {
+      fs: {
+        writeFile: vi.fn(async () => {
+          throw abortError
+        }),
+      },
+    } as unknown as VercelSandboxInstance, { createdAt: "now", runtime: "node24" })
+
+    await expect(adapter.writeFile("/private", "content")).rejects.toBe(abortError)
+  })
+
+  it("does not turn provider failures or cancellation into missing files", async () => {
+    const missing = Object.assign(new Error("no such file"), { code: "ENOENT" })
+    const transport = new Error("private transport failure")
+    const abortError = new DOMException("private abort", "AbortError")
+    const access = vi.fn()
+      .mockRejectedValueOnce(missing)
+      .mockRejectedValueOnce(transport)
+      .mockRejectedValueOnce(abortError)
+    const vercel = new VercelSandboxAdapter("sandbox-id", {
+      fs: { access },
+    } as unknown as VercelSandboxInstance, { createdAt: "now", runtime: "node24" })
+
+    await expect(vercel.exists("/missing")).resolves.toBe(false)
+    await expect(vercel.exists("/transport")).rejects.toMatchObject({
+      code: "SANDBOX_TRANSPORT_ERROR",
+      message: "Sandbox provider request failed.",
+    })
+    await expect(vercel.exists("/aborted")).rejects.toBe(abortError)
+
+    const cloudflare = new CloudflareSandboxAdapter("sandbox-id", {
+      destroy: vi.fn(),
+      exec: vi.fn(async () => {
+        throw transport
+      }),
+      readFile: vi.fn(),
+      writeFile: vi.fn(),
+    } as unknown as CloudflareSandboxStub)
+    await expect(cloudflare.exists("/transport")).rejects.toMatchObject({
+      code: "SANDBOX_TRANSPORT_ERROR",
+      message: "Sandbox provider request failed.",
+    })
+  })
+
+  it("preserves cancellation during output recovery and detached log collection", async () => {
+    const abortError = new DOMException("private abort", "AbortError")
+    const sandbox = {
+      provider: "cloudflare",
+      readFile: vi.fn(async () => {
+        throw abortError
+      }),
+    }
+    await expect(readExecOutputWithRecovery(sandbox as never, "/output", new Error("exec failed"))).rejects.toBe(abortError)
+    await expect(readExecOutputWithRecovery({ provider: "cloudflare", readFile: vi.fn() } as never, "/output", abortError)).rejects.toBe(abortError)
+
+    const command = {
+      async *logs() {
+        yield { data: "partial", stream: "stdout" as const }
+        throw abortError
+      },
+      stderr: vi.fn(async () => ""),
+      stdout: vi.fn(async () => "partial"),
+      wait: vi.fn(async () => ({ exitCode: 0 })),
+    }
+    await expect(collectDetachedCommandOutput(command as never)).rejects.toBe(abortError)
+  })
+
+  it("uses private Cloudflare process diagnostics for log fallback", async () => {
+    const processError = new SandboxError({
+      code: "SANDBOX_TRANSPORT_ERROR",
+      message: "ProcessExitedBeforeReadyError: exited with code 1",
+    })
+    const handle = new CloudflareProcessHandle("process-id", "node server.js", {
+      getLogs: vi.fn(async () => ({ stderr: "", stdout: "server ready\n" })),
+      kill: vi.fn(),
+      waitForExit: vi.fn(),
+      waitForLog: vi.fn(async () => {
+        throw processError
+      }),
+      waitForPort: vi.fn(),
+    })
+
+    await expect(handle.waitForLog("server ready", 100)).resolves.toEqual({ line: "server ready" })
   })
 
   it("keeps Cloudflare SDK-load failures private", async () => {

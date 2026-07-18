@@ -35,7 +35,7 @@ function findAbortSignal(values: readonly unknown[]): AbortSignal | undefined {
 
 export function isSandboxAbort(error: unknown, signal?: AbortSignal): boolean {
   return !!(signal?.aborted && error === signal.reason)
-    || (error instanceof Error && error.name === 'AbortError')
+    || (!!error && typeof error === 'object' && 'name' in error && error.name === 'AbortError')
 }
 
 export function normalizeSandboxProviderError(error: unknown, options: ProviderCallOptions): unknown {

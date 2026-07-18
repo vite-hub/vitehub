@@ -362,13 +362,8 @@ export class CloudflareSandboxAdapter extends BaseSandboxAdapter<'cloudflare'> {
       const result = await this.native.exists(path)
       return result.exists
     }
-    try {
-      const result = await this.exec('test', ['-e', path])
-      return result.ok
-    }
-    catch {
-      return false
-    }
+    const result = await this.exec('test', ['-e', path])
+    return result.ok
   }
 
   override async deleteFile(path: string): Promise<void> {

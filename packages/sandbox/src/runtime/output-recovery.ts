@@ -1,6 +1,7 @@
 import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
 import { sleep } from '../internal/shared/utils'
 import { readSandboxErrorInternals, SandboxError } from '../sandbox/errors'
+import { isSandboxAbort } from '../sandbox/provider-call'
 import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script'
 
 import type { SandboxClient } from '../sandbox/types'
@@ -190,6 +191,9 @@ async function waitForExecOutput(
   execution: ExecutionMeta | undefined,
   shouldAccept: (output: string) => boolean,
 ) {
+  if (isSandboxAbort(error))
+    throw error
+
   const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
   const deadline = Date.now() + recoveryTimeout
   let lastError: unknown = error
@@ -203,6 +207,8 @@ async function waitForExecOutput(
         return output
     }
     catch (readError) {
+      if (isSandboxAbort(readError))
+        throw readError
       lastError = readError
     }
 
@@ -222,6 +228,9 @@ async function recoverExecOutput(
   timeout?: number,
   execution?: ExecutionMeta,
 ) {
+  if (isSandboxAbort(error))
+    throw error
+
   if (sandbox.provider !== 'cloudflare' || !isRecoverableCloudflareExecError(error))
     return null
 
@@ -264,6 +273,9 @@ export async function readExecOutputWithRecovery(
   timeout?: number,
   execution?: ExecutionMeta,
 ) {
+  if (isSandboxAbort(error))
+    throw error
+
   const executionOutput = extractSandboxOutputFromExecution(execution)
     || extractSandboxOutputFromExecution(error as { stdout?: string, stderr?: string } | undefined)
   if (executionOutput)
@@ -274,7 +286,9 @@ export async function readExecOutputWithRecovery(
     if (tryParseSandboxOutput(output))
       return output
   }
-  catch {
+  catch (readError) {
+    if (isSandboxAbort(readError))
+      throw readError
     return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution)
   }
 

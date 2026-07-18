@@ -1,5 +1,5 @@
 import { SandboxError } from '../../errors'
-import { callSandboxProvider } from '../../provider-call'
+import { callSandboxProvider, isSandboxAbort } from '../../provider-call'
 import { normalizeLogPattern, waitForPortProbe } from '../_shared'
 
 import type { SandboxExecOptions, SandboxProcess, SandboxWaitForPortOptions } from '../../types/common'
@@ -55,12 +55,13 @@ export async function collectDetachedCommandOutput(
       }
     }
     catch (error) {
+      if (isSandboxAbort(error))
+        throw error
       logsError = error
     }
   })()
 
-  const waitResult = await waitForExit(result, opts?.timeout)
-  await logsPromise
+  const [waitResult] = await Promise.all([waitForExit(result, opts?.timeout), logsPromise])
 
   if (logsError || (!stdout && !stderr)) {
     try {
@@ -70,6 +71,8 @@ export async function collectDetachedCommandOutput(
       stderr ||= stderrSnapshot
     }
     catch (error) {
+      if (isSandboxAbort(error))
+        throw error
       if (!logsError)
         logsError = error
     }
