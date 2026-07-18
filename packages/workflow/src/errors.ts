@@ -39,7 +39,6 @@ const maximumApplicationMessageLength = 512
 const maximumApplicationDetailDepth = 5
 const maximumApplicationDetailEntries = 64
 const applicationDetailAccessor = Symbol("application detail accessor")
-const trustedViteHubErrorToJSON = ViteHubError.prototype.toJSON
 
 export type WorkflowErrorCode = keyof typeof workflowErrorMessages
 export type WorkflowOperationName = typeof workflowOperationNames[number]
@@ -305,22 +304,10 @@ function countApplicationEntries(state: { entries: number }, count: number): voi
 }
 
 function sealPublicError(error: ViteHubError<string, ViteHubErrorDetails>): void {
-  deepFreeze(error.details)
-  Object.defineProperty(error, "toJSON", {
-    configurable: false,
-    value: () => trustedViteHubErrorToJSON.call(error),
-    writable: false,
-  })
   for (const key of ["code", "details", "message", "name", "requestId", "retryable"] as const) {
     const descriptor = Object.getOwnPropertyDescriptor(error, key)
     if (descriptor && "writable" in descriptor) {
       Object.defineProperty(error, key, { ...descriptor, configurable: false, writable: false })
     }
   }
-}
-
-function deepFreeze(value: unknown): void {
-  if (typeof value !== "object" || value === null || Object.isFrozen(value)) return
-  for (const nested of Object.values(value)) deepFreeze(nested)
-  Object.freeze(value)
 }

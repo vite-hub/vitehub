@@ -65,20 +65,6 @@ describe("WorkflowError", () => {
     expect(() => new WorkflowError(options as never)).not.toThrow(secret)
   })
 
-  it("pins trusted serialization for subclasses", () => {
-    class CustomWorkflowError extends WorkflowError<"WORKFLOW_DISABLED"> {
-      readonly metadata = "consumer-owned"
-
-      override toJSON(): never {
-        throw new Error("private subclass diagnostics")
-      }
-    }
-
-    const error = new CustomWorkflowError({ code: "WORKFLOW_DISABLED" })
-    expect(error.metadata).toBe("consumer-owned")
-    expect(error.toJSON()).toEqual({ code: "WORKFLOW_DISABLED", message: "Workflow is disabled." })
-  })
-
   it("captures trusted serialization before prototype instrumentation", () => {
     const error = new WorkflowError({ code: "WORKFLOW_DISABLED" })
     const original = ViteHubError.prototype.toJSON
