@@ -39,6 +39,7 @@ interface CloudflareProviderOutputCatalog {
 }
 
 const cloudflareProviderOutputKey = Symbol.for("vitehub.cloudflareProviderOutput")
+const cloudflareProviderOutputByNitro = new WeakMap<object, CloudflareProviderOutputCatalog>()
 
 function cloneRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
@@ -145,6 +146,11 @@ export function composeNitroCloudflareProviderOutput(config: object, value: unkn
   const nitro = cloneRecord(value)
   const cloudflare = cloneRecord(nitro.cloudflare)
   const catalog = useCloudflareProviderOutput(config)
+  const inherited = value && typeof value === "object" ? cloudflareProviderOutputByNitro.get(value) : undefined
+  if (inherited && inherited !== catalog) {
+    for (const [owner, contribution] of inherited.appliedByOwner) catalog.appliedByOwner.set(owner, contribution)
+    catalog.contributionsByOwner = new Map([...inherited.contributionsByOwner, ...catalog.contributionsByOwner])
+  }
   let wrangler = cloneProviderRecord(cloudflare.wrangler)
   for (const contribution of catalog.appliedByOwner.values()) wrangler = removeContribution(wrangler, contribution)
   catalog.appliedByOwner.clear()
@@ -153,6 +159,9 @@ export function composeNitroCloudflareProviderOutput(config: object, value: unkn
     wrangler = merged
     catalog.appliedByOwner.set(owner, applied)
   }
-  if (!Object.keys(cloudflare).length && !Object.keys(wrangler).length) return nitro
-  return { ...nitro, cloudflare: { ...cloudflare, wrangler } }
+  const output = !Object.keys(cloudflare).length && !Object.keys(wrangler).length
+    ? nitro
+    : { ...nitro, cloudflare: { ...cloudflare, wrangler } }
+  cloudflareProviderOutputByNitro.set(output, catalog)
+  return output
 }

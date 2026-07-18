@@ -206,7 +206,8 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       blob = config.blob ?? blob
       const configuredNitro = (config as { nitro?: unknown }).nitro
       cloudflareOwnedByNitro = hasNitroVitePlugin(config) && isNitroCloudflareHost(configuredNitro)
-      ;(config as { nitro?: unknown }).nitro = mergeNitroCloudflareBlobOutput(config, cloneNitroConfig(configuredNitro), blob, cloudflareOwnedByNitro)
+      const nitro = configuredNitro && typeof configuredNitro === "object" && !Array.isArray(configuredNitro) ? configuredNitro as Record<string, unknown> : {}
+      ;(config as { nitro?: unknown }).nitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflareOwnedByNitro)
       providerOutput = useComposedProviderOutput(config)
       runtimeConfig = resolveBlobViteConfig(blob, cloudflareOwnedByNitro ? { hosting: "cloudflare" } : undefined)
       await refreshBlobGeneratedFiles(config.root, runtimeConfig.blob, cloudflareOwnedByNitro, importBase)
