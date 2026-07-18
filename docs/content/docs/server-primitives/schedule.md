@@ -61,7 +61,7 @@ export default defineSchedule({
 | `createProcessScheduleWakeDriver` from `@vite-hub/schedule/runtime/process` | Scan and wake due Runtime Schedules inside a long-running process. |
 | `hubSchedule`, `createScheduleNitroConfig` from `@vite-hub/schedule/vite` | Register discovery and generated provider output. |
 
-Schedule Definition, Runtime Schedule, Schedule Run, Schedule Store, and runner types are exported from `@vite-hub/schedule`.
+Schedule Definition, Runtime Schedule, Schedule Run, and Schedule Store types are exported from `@vite-hub/schedule`.
 
 ## Configure the Vite Integration
 
