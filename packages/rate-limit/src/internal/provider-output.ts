@@ -114,9 +114,7 @@ export async function writeRateLimitProviderOutput(options: {
     if (options.provider === "cloudflare" && options.declarations.length > 0 && !options.namespace) {
       throw new Error("[vitehub] Cloudflare Rate Limit requires rateLimit.namespace to isolate counters between deployments.")
     }
-    const hasComposedBindings = options.provider === "cloudflare" && options.declarations.length > 0
-    const staleBindings = hasComposedBindings ? state.bindings.filter(binding => !currentBindings.includes(binding)) : state.bindings
-    if (state.standalone && staleBindings.length > 0) {
+    if (state.standalone && state.bindings.length > 0) {
       await writeProviderDeploymentOutputs({
         clientOutDir: options.clientOutDir,
         cleanup: {
@@ -126,7 +124,7 @@ export async function writeRateLimitProviderOutput(options: {
               arrays: {
                 ratelimits: {
                   key: "name",
-                  values: staleBindings,
+                  values: state.bindings,
                 },
               },
             },

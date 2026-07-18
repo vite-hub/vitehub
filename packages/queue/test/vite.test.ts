@@ -5,7 +5,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot } from "@vite-hub/internal/build/deployment-output"
 
 import { hubQueue } from "../src/vite.ts"
 
@@ -108,6 +108,22 @@ describe("hubQueue", () => {
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     expect(nitroPlugin).toContain('"provider": "vercel"')
     expect(nitroPlugin).not.toContain("const queueConfig = false")
+  })
+
+  it("keeps omitted Queue config disabled without a detected host", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-omitted-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue()
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      build: { outDir: "dist" },
+      command: "build",
+      nitro: {},
+      plugins: [],
+      root,
+    } as never)
+    await (plugin.closeBundle as () => Promise<void>)()
+    expect(existsSync(join(createDefaultVercelOutputRoot(root), "functions"))).toBe(false)
   })
 
   it("does not load the optional Vercel SDK without definitions", async () => {
@@ -241,6 +257,22 @@ describe("hubQueue", () => {
       build: { outDir: "dist" },
       command: "build",
       nitro: { preset: "cloudflare_module" },
+      plugins: [{ name: "nitro:main" }],
+      root,
+    } as never)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+
+    await expect((plugin.closeBundle as () => Promise<void>)()).rejects.toThrow("changed after config resolution")
+  })
+
+  it("rejects late Queue Definitions for Vercel Nitro", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-vercel-late-"))
+    roots.push(root)
+    const plugin = hubQueue({ provider: "vercel" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      build: { outDir: "dist" },
+      command: "build",
+      nitro: { preset: "vercel" },
       plugins: [{ name: "nitro:main" }],
       root,
     } as never)

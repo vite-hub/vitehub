@@ -104,6 +104,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
   let configuredDefinitions: DiscoveredQueueDefinition[] = []
   let nitroOwnsCloudflareWorker = false
   let nitroQueue: QueueModuleOptions | undefined = queue
+  let validatesNitroDefinitions = false
 
   return {
     name: "@vite-hub/queue/vite",
@@ -130,6 +131,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       cloudflareQueues = supportsCloudflareQueues(nitro)
       const nitroHosting = resolveNitroHosting(nitro)
       nitroQueue = queue !== false && queue?.provider && nitroHosting && queue.provider !== nitroHosting ? false : queue
+      validatesNitroDefinitions = hasNitroVitePlugin(config) && nitroQueue !== false
       await writeQueueNitroIntegration(config.root, nitroQueue, hosting, cloudflareQueues, configuredDefinitions)
     },
     configEnvironment(name, config) {
@@ -151,7 +153,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         return
       }
       let definitions: DiscoveredQueueDefinition[] | undefined
-      if (nitroOwnsCloudflareWorker) {
+      if (validatesNitroDefinitions) {
         definitions = discoverQueueDefinitions({ rootDir: resolved.root })
         if (JSON.stringify(definitions) !== JSON.stringify(configuredDefinitions)) {
           throw new Error("[vitehub] Nitro Cloudflare Queue Definitions changed after config resolution. Generate Queue Definition source files before Vite config resolves.")
@@ -161,7 +163,9 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         clientOutDir: resolved.build.outDir,
         cloudflareOwnedByNitro: nitroOwnsCloudflareWorker,
         definitions,
-        queue: queue ?? { provider: (hosting === "cloudflare" ? "cloudflare" : "vercel") satisfies QueueProvider },
+        queue: queue ?? (resolveNitroHosting(cloneNitroConfig((resolved as { nitro?: unknown }).nitro))
+          ? { provider: (hosting === "cloudflare" ? "cloudflare" : "vercel") satisfies QueueProvider }
+          : undefined),
         rootDir: resolved.root,
         serverFunctionName: resolveNitroVercelFunctionName(resolved, "queue"),
       })

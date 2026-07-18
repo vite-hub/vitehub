@@ -71,7 +71,7 @@ describe("Rate Limit Provider Output", () => {
     })
   })
 
-  it("leaves Nitro-owned Cloudflare output untouched without claiming standalone state", async () => {
+  it("removes previously standalone bindings without touching Nitro-owned entries", async () => {
     const { declarations, root } = await projectWithDeclaration()
     const outputRoot = createDefaultCloudflareOutputRoot(root)
     const configFile = join(outputRoot, "wrangler.json")
@@ -100,7 +100,10 @@ describe("Rate Limit Provider Output", () => {
       rootDir: root,
     })
 
-    await expect(readFile(configFile, "utf8").then(JSON.parse)).resolves.toEqual(existingConfig)
+    await expect(readFile(configFile, "utf8").then(JSON.parse)).resolves.toEqual({
+      ratelimits: [existingConfig.ratelimits[0]],
+      vars: { APP: "vitehub" },
+    })
     await expect(access(join(root, ".vitehub", "rate-limit", "cloudflare-output.json"))).rejects.toMatchObject({ code: "ENOENT" })
     await expect(readFile(join(root, ".vitehub", "rate-limit", "manifest.json"), "utf8")).resolves.toContain('"provider": "cloudflare"')
   })
@@ -126,6 +129,23 @@ describe("Rate Limit Provider Output", () => {
     })
 
     await expect(readFile(configFile, "utf8").then(JSON.parse)).resolves.toEqual({ vars: { APP: "vitehub" } })
+  })
+
+  it("cleans unchanged standalone bindings during Nitro takeover", async () => {
+    const { declarations, root } = await projectWithDeclaration()
+    const configFile = join(createDefaultCloudflareOutputRoot(root), "wrangler.json")
+    await writeRateLimitProviderOutput({ clientOutDir: "dist", declarations, namespace: "acme-image-service", provider: "cloudflare", rootDir: root })
+
+    await writeRateLimitProviderOutput({
+      clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
+      declarations,
+      namespace: "acme-image-service",
+      provider: "cloudflare",
+      rootDir: root,
+    })
+
+    await expect(access(configFile)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("cleans only marker-owned standalone bindings when Nitro transitions to memory", async () => {

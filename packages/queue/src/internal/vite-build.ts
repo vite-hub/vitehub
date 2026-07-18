@@ -64,7 +64,7 @@ function shouldCreateCloudflareOutput(queue: QueueModuleOptions | undefined) {
 
 function shouldCreateVercelOutput(queue: QueueModuleOptions | undefined) {
   const queueConfig = resolveOutputQueueConfig(queue, "vercel")
-  return queueConfig === false || queueConfig.provider === "vercel"
+  return queueConfig !== false && queueConfig.provider === "vercel"
 }
 
 interface GeneratedQueueArtifacts {
