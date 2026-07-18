@@ -84,6 +84,23 @@ describe("Agent structured output", () => {
     })
   })
 
+  it("handles hostile output-error constructor options", () => {
+    const secret = "https://user:token@example.com/private"
+    const options = new Proxy({}, {
+      get() {
+        throw new Error(secret)
+      },
+    })
+    const error = new AgentOutputValidationError("AGENT_OUTPUT_INVALID_JSON", options as never)
+
+    expect(error.toJSON()).toEqual({
+      code: "AGENT_OUTPUT_INVALID_JSON",
+      message: "[vitehub] Agent output is not valid JSON.",
+      retryable: false,
+    })
+    expect(JSON.stringify(error)).not.toContain(secret)
+  })
+
   it("preserves custom schema failures exactly", async () => {
     const cause = new Error("private validator failure")
     const agent = defineAgent({

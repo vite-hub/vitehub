@@ -14,12 +14,22 @@ export type AgentOutputValidationErrorCode = keyof typeof agentOutputErrorMessag
 export type AgentOutputValidationErrorOptions = ErrorOptions
 
 export class AgentOutputValidationError extends ViteHubError<AgentOutputValidationErrorCode> {
-  constructor(code: AgentOutputValidationErrorCode, options: AgentOutputValidationErrorOptions = {}) {
-    if (!Object.hasOwn(agentOutputErrorMessages, code)) {
+  constructor(code: AgentOutputValidationErrorCode, options?: AgentOutputValidationErrorOptions) {
+    if (typeof code !== "string" || !Object.hasOwn(agentOutputErrorMessages, code)) {
       throw new TypeError("[vitehub] AgentOutputValidationError requires a known agent output error code.")
     }
-    super(code, agentOutputErrorMessages[code], { cause: options.cause, retryable: false })
+    super(code, agentOutputErrorMessages[code], { cause: readErrorCause(options), retryable: false })
     this.name = "AgentOutputValidationError"
+  }
+}
+
+function readErrorCause(options: unknown): unknown {
+  if ((typeof options !== "object" || options === null) && typeof options !== "function") return undefined
+  try {
+    return Reflect.get(options, "cause")
+  }
+  catch {
+    return undefined
   }
 }
 

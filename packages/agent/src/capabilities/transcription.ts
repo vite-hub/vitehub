@@ -1,7 +1,7 @@
 import { ViteHubError } from "@vite-hub/runtime"
 
 import type { MaybePromise } from "../types.ts"
-import type { ViteHubErrorDetails, ViteHubErrorShape } from "@vite-hub/runtime"
+import type { ViteHubErrorShape } from "@vite-hub/runtime"
 
 const transcriptionErrorMessages = {
   TRANSCRIPTION_AUTHENTICATION_FAILED: "[vitehub] Transcription authentication failed.",
@@ -102,7 +102,7 @@ export interface CreateTranscriptionOptions {
   driver: TranscriptionDriver
 }
 
-export interface TranscriptionErrorDetails extends ViteHubErrorDetails {
+export type TranscriptionErrorDetails = {
   provider?: string
   status?: number
 }
@@ -115,14 +115,15 @@ export interface TranscriptionErrorOptions extends ErrorOptions {
 }
 
 export class TranscriptionError extends ViteHubError<TranscriptionErrorCode, TranscriptionErrorDetails> {
-  constructor(code: TranscriptionErrorCode, options: TranscriptionErrorOptions = {}) {
-    if (!Object.hasOwn(transcriptionErrorMessages, code)) {
+  constructor(code: TranscriptionErrorCode, options?: TranscriptionErrorOptions) {
+    if (typeof code !== "string" || !Object.hasOwn(transcriptionErrorMessages, code)) {
       throw new TypeError("[vitehub] TranscriptionError requires a known transcription error code.")
     }
     const details = safeErrorDetails(options)
     const retryable = transcriptionErrorRetryability[code]
+    const cause = readErrorOption(options, "cause")
     super(code, transcriptionErrorMessages[code], {
-      ...(options.cause === undefined ? {} : { cause: options.cause }),
+      ...(cause === undefined ? {} : { cause }),
       ...(details ? { details } : {}),
       ...(retryable === undefined ? {} : { retryable }),
     })
@@ -276,13 +277,24 @@ export function isTranscriptionAbortError(value: unknown): boolean {
   }
 }
 
-function safeErrorDetails(options: TranscriptionErrorOptions): TranscriptionErrorDetails | undefined {
-  const provider = safeProvider(options.provider)
-  const status = typeof options.status === "number"
-    && Number.isInteger(options.status)
-    && options.status >= 100
-    && options.status <= 599
-    ? options.status
+function readErrorOption(options: unknown, key: "cause" | "provider" | "status"): unknown {
+  if ((typeof options !== "object" || options === null) && typeof options !== "function") return undefined
+  try {
+    return Reflect.get(options, key)
+  }
+  catch {
+    return undefined
+  }
+}
+
+function safeErrorDetails(options: unknown): TranscriptionErrorDetails | undefined {
+  const provider = safeProvider(readErrorOption(options, "provider"))
+  const rawStatus = readErrorOption(options, "status")
+  const status = typeof rawStatus === "number"
+    && Number.isInteger(rawStatus)
+    && rawStatus >= 100
+    && rawStatus <= 599
+    ? rawStatus
     : undefined
   return provider || status ? { ...(provider ? { provider } : {}), ...(status ? { status } : {}) } : undefined
 }

@@ -123,6 +123,22 @@ describe("createTranscription", () => {
     })
   })
 
+  it("handles hostile error constructor options", () => {
+    const secret = "https://user:token@example.com/private"
+    const options = new Proxy({}, {
+      get() {
+        throw new Error(secret)
+      },
+    })
+    const error = new TranscriptionError("TRANSCRIPTION_PROVIDER_FAILED", options as never)
+
+    expect(error.toJSON()).toEqual({
+      code: "TRANSCRIPTION_PROVIDER_FAILED",
+      message: "[vitehub] Transcription provider failed.",
+    })
+    expect(JSON.stringify(error)).not.toContain(secret)
+  })
+
   it.each([
     ["TRANSCRIPTION_AUTHENTICATION_FAILED", false],
     ["TRANSCRIPTION_INVALID_PAYLOAD", false],

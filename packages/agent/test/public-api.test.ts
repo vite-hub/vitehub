@@ -42,6 +42,22 @@ it("keeps Effect out of published Agent declarations", async () => {
   expect(output).toContain("class TranscriptionError extends ViteHubError")
 })
 
+it("keeps built Agent error constructors safe for hostile options", async () => {
+  const { AgentOutputValidationError } = await import("../dist/index.js")
+  const { TranscriptionError } = await import("../dist/capabilities.js")
+  const secret = "https://user:token@example.com/private"
+  const options = new Proxy({}, {
+    get() {
+      throw new Error(secret)
+    },
+  })
+
+  const transcription = new TranscriptionError("TRANSCRIPTION_PROVIDER_FAILED", options)
+  const output = new AgentOutputValidationError("AGENT_OUTPUT_INVALID_JSON", options)
+  expect(JSON.stringify(transcription)).not.toContain(secret)
+  expect(JSON.stringify(output)).not.toContain(secret)
+})
+
 it("pins Effect to the Agent implementation dependency without leaking runtime failures", async () => {
   const dist = new URL("../dist/", import.meta.url)
   const javascript = (await Promise.all(
