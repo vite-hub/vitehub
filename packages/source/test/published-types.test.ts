@@ -12,6 +12,8 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const repositoryRoot = resolve(packageRoot, "../..")
 const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(repositoryRoot, "node_modules/typescript/bin/tsc")
+const processTimeout = 15_000
+const testTimeout = 45_000
 
 it("publishes the Source error contract to installed consumers", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-source-types-"))
@@ -29,7 +31,7 @@ it("publishes the Source error contract to installed consumers", async () => {
   finally {
     await rm(root, { force: true, recursive: true })
   }
-}, 15_000)
+}, testTimeout)
 
 it("keeps Effect out of Source declarations and runtime bundles", async () => {
   const files = await listFiles(join(packageRoot, "dist"))
@@ -52,7 +54,11 @@ it("keeps Effect out of Source declarations and runtime bundles", async () => {
 
 async function run(command: string, args: string[], cwd: string) {
   try {
-    return await execFileAsync(command, args, { cwd })
+    return await execFileAsync(command, args, {
+      cwd,
+      killSignal: "SIGKILL",
+      timeout: processTimeout,
+    })
   }
   catch (error) {
     const output = error as Error & { stderr?: string, stdout?: string }
