@@ -52,7 +52,9 @@ function runtimeEnv(event?: unknown): RuntimeEnv {
 
 function readRuntimeSource(entry: RuntimeEnvEntry, env: RuntimeEnv): { found: boolean, value?: unknown } {
   for (const name of entry.source.names || [entry.source.name]) {
-    if (name in env) return { found: true, value: env[name] }
+    if (Object.hasOwn(env, name) && typeof env[name] !== "undefined") {
+      return { found: true, value: env[name] }
+    }
   }
   return { found: false }
 }
