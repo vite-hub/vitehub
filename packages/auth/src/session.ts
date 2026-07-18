@@ -20,6 +20,7 @@ interface ResolvedAuthenticationSession {
 export async function getAuthenticationSession(
   auth: unknown,
   input: BetterAuthGetSessionInput,
+  inspect?: (session: ResolvedAuthenticationSession) => void,
 ): Promise<ResolvedAuthenticationSession | null | undefined> {
   let api: Record<string, unknown> | undefined
   let getSession: unknown
@@ -45,7 +46,10 @@ export async function getAuthenticationSession(
   if (value == null) return value
   let session: ResolvedAuthenticationSession | undefined
   try {
-    if (isResolvedAuthenticationSession(value)) session = value
+    if (isResolvedAuthenticationSession(value)) {
+      session = value
+      inspect?.(session)
+    }
   }
   catch (cause) {
     throwAuthenticationProviderError(cause, "get-session")

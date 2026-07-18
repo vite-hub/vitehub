@@ -5,9 +5,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import {
   authenticated,
-  AuthenticationProviderError,
   AuthenticationRequiredError,
-  type AuthenticationProviderErrorOptions,
   type AuthenticationRequiredErrorOptions,
   type AuthenticatedOptions,
   type AuthenticatedSessionData,
@@ -26,7 +24,14 @@ import {
   type AuthRuntimeOptions,
   type ResolvedAuthDatabaseConfiguration,
 } from "../src/index.ts"
-import { auth, createAuthForRequest, handleAuthRequest, requireAuth } from "../src/server.ts"
+import {
+  auth,
+  createAuthForRequest,
+  handleAuthRequest,
+  AuthenticationProviderError,
+  type AuthenticationProviderErrorOptions,
+  requireAuth,
+} from "../src/server.ts"
 import { hubAuth } from "../src/vite.ts"
 
 import type { AgentInvokerOptions, AgentRuntimeConfig } from "@vite-hub/agent"
