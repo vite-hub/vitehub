@@ -56,10 +56,17 @@ function mergeNitroConfig(value: unknown, queue: QueueModuleOptions | undefined,
   const wrangler = cloneNitroConfig(cloudflare.wrangler)
   const compatibilityFlags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
   if (!compatibilityFlags.includes("nodejs_compat")) compatibilityFlags.push("nodejs_compat")
-  if (!supportsCloudflareQueues(nitro)) return { ...nitro, cloudflare: { ...cloudflare, wrangler: { ...wrangler, compatibility_flags: compatibilityFlags } }, plugins }
+  const cloudflareQueues = supportsCloudflareQueues(nitro)
   const rollupConfig = cloneNitroConfig(nitro.rollupConfig)
   const generated = createCloudflareQueueBindings(discoverQueueDefinitions({ rootDir: root }))
-  if (!generated) return { ...nitro, cloudflare: { ...cloudflare, wrangler: { ...wrangler, compatibility_flags: compatibilityFlags } }, rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") }, plugins }
+  if (!generated) {
+    return {
+      ...nitro,
+      ...(cloudflareQueues ? { rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") } } : {}),
+      cloudflare: { ...cloudflare, wrangler: { ...wrangler, compatibility_flags: compatibilityFlags } },
+      plugins,
+    }
+  }
   const binding = queue?.provider === "cloudflare" && typeof queue.binding === "string" ? queue.binding : undefined
   if (binding && generated.producers.length > 1) {
     throw new Error("A custom Cloudflare queue binding can only be used with one Queue Definition.")
@@ -70,7 +77,7 @@ function mergeNitroConfig(value: unknown, queue: QueueModuleOptions | undefined,
   const producers = Array.isArray(queues.producers) ? queues.producers : []
   return {
     ...nitro,
-    rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") },
+    ...(cloudflareQueues ? { rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") } } : {}),
     cloudflare: {
       ...cloudflare,
       wrangler: {
@@ -78,7 +85,7 @@ function mergeNitroConfig(value: unknown, queue: QueueModuleOptions | undefined,
         compatibility_flags: compatibilityFlags,
         queues: {
           ...queues,
-          consumers: [...consumers, ...generated.consumers.filter(entry => !consumers.some(current => cloneNitroConfig(current).queue === entry.queue))],
+          ...(cloudflareQueues ? { consumers: [...consumers, ...generated.consumers.filter(entry => !consumers.some(current => cloneNitroConfig(current).queue === entry.queue))] } : {}),
           producers: [...producers, ...generatedProducers.filter((entry) => {
             const existing = producers.find(current => cloneNitroConfig(current).binding === entry.binding)
             if (existing && cloneNitroConfig(existing).queue !== entry.queue) {

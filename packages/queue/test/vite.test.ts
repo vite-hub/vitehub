@@ -138,12 +138,35 @@ describe("hubQueue", () => {
     })
     const underscorePages = { nitro: { preset: "cloudflare_pages" }, root }
     config(underscorePages)
-    expect(underscorePages.nitro).not.toHaveProperty("cloudflare.wrangler.queues")
-    expect(underscorePages).toHaveProperty("nitro.cloudflare.wrangler.compatibility_flags", ["nodejs_compat"])
+    expect(underscorePages).toMatchObject({
+      nitro: {
+        cloudflare: {
+          wrangler: {
+            compatibility_flags: ["nodejs_compat"],
+            queues: { producers: [{ binding: "JOBS", queue: "queue--77656c636f6d65" }] },
+          },
+        },
+      },
+    })
+    expect(underscorePages.nitro).not.toHaveProperty("cloudflare.wrangler.queues.consumers")
+    expect(underscorePages.nitro).not.toHaveProperty("rollupConfig.external")
     const hyphenPages = { nitro: { preset: "cloudflare-pages" }, root }
     config(hyphenPages)
-    expect(hyphenPages.nitro).not.toHaveProperty("cloudflare.wrangler.queues")
-    expect(hyphenPages).toHaveProperty("nitro.cloudflare.wrangler.compatibility_flags", ["nodejs_compat"])
+    expect(hyphenPages).toHaveProperty("nitro.cloudflare.wrangler.queues.producers", [{ binding: "JOBS", queue: "queue--77656c636f6d65" }])
+    expect(hyphenPages.nitro).not.toHaveProperty("cloudflare.wrangler.queues.consumers")
+
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      build: { outDir: "dist" },
+      command: "serve",
+      nitro: underscorePages.nitro,
+      plugins: [],
+      queue: { binding: "JOBS", provider: "cloudflare" },
+      resolve: { alias: [] },
+      root,
+    } as never)
+    const pagesPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+    expect(pagesPlugin).not.toContain("cloudflare:queue")
+    expect(pagesPlugin).not.toContain("cloudflare:workers")
   })
 
   it("rejects ambiguous and conflicting custom Cloudflare bindings", async () => {
