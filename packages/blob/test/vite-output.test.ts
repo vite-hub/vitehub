@@ -274,6 +274,14 @@ describe("Vite provider outputs", () => {
     })
 
     await writeFile(join(cloudflareOutput, "index.js"), "// vitehub-blob-worker\nexport default 'standalone blob'\n", "utf8")
+    await writeFile(join(cloudflareOutput, "wrangler.json"), `${JSON.stringify({
+      compatibility_date: "2026-06-01",
+      compatibility_flags: ["nodejs_compat"],
+      main: "index.js",
+      observability: { enabled: true },
+      r2_buckets: [{ binding: "ASSETS", bucket_name: "assets" }],
+      triggers: { crons: ["0 0 * * *"] },
+    }, null, 2)}\n`, "utf8")
     await generateProviderOutputs(options)
 
     expect(existsSync(join(cloudflareOutput, "index.js"))).toBe(false)

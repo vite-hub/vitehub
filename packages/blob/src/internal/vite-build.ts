@@ -348,7 +348,9 @@ async function createNitroCloudflareCleanup(rootDir: string) {
   return {
     fileNames: ownsWorker ? ["index.js"] : [],
     outputRoot,
-    wranglerConfigOwnership: { keys: ownsWorker ? ["r2_buckets"] : [] },
+    wranglerConfigOwnership: {
+      keys: ownsWorker ? ["compatibility_date", "compatibility_flags", "main", "observability", "r2_buckets"] : [],
+    },
   }
 }
 

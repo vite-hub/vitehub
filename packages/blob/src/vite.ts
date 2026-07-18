@@ -128,9 +128,10 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: 
     "",
     `const blobConfig = ${JSON.stringify(blob)}`,
     "",
-    "export default function vitehubBlobPlugin() {",
+    `export default function vitehubBlobPlugin(${cloudflare ? "nitro" : ""}) {`,
     cloudflare ? "  setActiveCloudflareEnv(vitehubEnv)" : undefined,
     "  setBlobRuntimeConfig(blobConfig)",
+    cloudflare ? "  nitro.hooks.hook('request', (event) => setActiveCloudflareEnv(event.env ?? event.context?.cloudflare?.env ?? event.context?._platform?.cloudflare?.env ?? event.req?.runtime?.cloudflare?.env ?? event.node?.req?.runtime?.cloudflare?.env ?? vitehubEnv))" : undefined,
     "}",
     "",
   ].filter(line => typeof line === "string").join("\n")

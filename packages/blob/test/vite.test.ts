@@ -167,6 +167,9 @@ describe("hubBlob", () => {
       expect(nitroPlugin).toContain('"bucketName":"assets"')
       expect(nitroPlugin).toContain("import { env as vitehubEnv } from 'cloudflare:workers'")
       expect(nitroPlugin).toContain("setActiveCloudflareEnv(vitehubEnv)")
+      expect(nitroPlugin).toContain("hooks.hook('request'")
+      expect(nitroPlugin).toContain("event.context?._platform?.cloudflare?.env")
+      expect(nitroPlugin).toContain("event.node?.req?.runtime?.cloudflare?.env ?? vitehubEnv")
     }
     finally {
       if (typeof previousBucket === "undefined") delete process.env.BLOB_BUCKET_NAME
