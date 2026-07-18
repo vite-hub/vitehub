@@ -5,6 +5,8 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import {
   authenticated,
+  AuthenticationProviderError,
+  type AuthenticationProviderErrorOptions,
   AuthenticationRequiredError,
   type AuthenticationRequiredErrorOptions,
   type AuthenticatedOptions,
@@ -143,6 +145,15 @@ describe("types", () => {
     } satisfies AuthenticationRequiredErrorOptions)
     expectTypeOf(authError.code).toEqualTypeOf<"AUTHENTICATION_REQUIRED">()
     expectTypeOf(authError.statusCode).toEqualTypeOf<401>()
+
+    const providerError = new AuthenticationProviderError({
+      operation: "get-session",
+    } satisfies AuthenticationProviderErrorOptions)
+    expectTypeOf(providerError.code).toEqualTypeOf<"AUTH_PROVIDER_OPERATION_FAILED">()
+    expectTypeOf(providerError.details).toEqualTypeOf<{
+      operation: "get-auth-for-request" | "get-session"
+      provider: "better-auth"
+    } | undefined>()
   })
 
   it("exposes resolved database placement metadata", () => {

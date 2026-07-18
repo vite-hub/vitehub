@@ -62,6 +62,9 @@
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/env#build && vp test"
   },
+  "dependencies": {
+    "@vite-hub/runtime": "workspace:*"
+  },
   "devDependencies": {
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",

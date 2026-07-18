@@ -1,4 +1,4 @@
-import { getAuth, getAuthForRequest } from "./server.ts"
+import { getAuthForRequest } from "./server.ts"
 
 import { ViteHubError } from "@vite-hub/runtime"
 
@@ -113,6 +113,28 @@ export class AuthenticationRequiredError extends ViteHubError<"AUTHENTICATION_RE
   }
 }
 
+export type AuthenticationProviderOperation = "get-auth-for-request" | "get-session"
+
+export interface AuthenticationProviderErrorOptions extends ErrorOptions {
+  operation: AuthenticationProviderOperation
+}
+
+export class AuthenticationProviderError extends ViteHubError<
+  "AUTH_PROVIDER_OPERATION_FAILED",
+  { operation: AuthenticationProviderOperation, provider: "better-auth" }
+> {
+  constructor(options: AuthenticationProviderErrorOptions) {
+    super("AUTH_PROVIDER_OPERATION_FAILED", "[vitehub] Authentication provider operation failed.", {
+      cause: options.cause,
+      details: {
+        operation: options.operation,
+        provider: "better-auth",
+      },
+    })
+    this.name = "AuthenticationProviderError"
+  }
+}
+
 interface BetterAuthGetSessionInput {
   headers: Headers
   query?: {
@@ -169,14 +191,27 @@ async function defaultAuthenticatedSource(
 ): Promise<AuthenticatedSession | null | undefined> {
   if (!context.request) return undefined
 
-  const auth = (context.request ? getAuthForRequest(context.request) : getAuth()) as BetterAuthSessionApi
-  const session = await auth.api?.getSession?.({
-    headers: context.request.headers,
-    query: {
-      disableCookieCache: true,
-      disableRefresh: true,
-    },
-  })
+  let auth: BetterAuthSessionApi
+  try {
+    auth = getAuthForRequest(context.request) as BetterAuthSessionApi
+  }
+  catch (cause) {
+    throw new AuthenticationProviderError({ cause, operation: "get-auth-for-request" })
+  }
+
+  let session: unknown
+  try {
+    session = await auth.api?.getSession?.({
+      headers: context.request.headers,
+      query: {
+        disableCookieCache: true,
+        disableRefresh: true,
+      },
+    })
+  }
+  catch (cause) {
+    throw new AuthenticationProviderError({ cause, operation: "get-session" })
+  }
   return normalizeAuthenticatedSession(session)
 }
 
