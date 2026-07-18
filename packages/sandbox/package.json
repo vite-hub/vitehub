@@ -40,10 +40,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./errors": {
-      "types": "./dist/errors.d.ts",
-      "import": "./dist/errors.js"
-    },
     "./runtime/empty-registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
       "import": "./dist/runtime/empty-registry.js"
