@@ -6,6 +6,7 @@ import {
 } from "../core/errors.ts"
 import { matchesAny, normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
 
+import type { SourceProviderOperation } from "../core/errors.ts"
 import type { Source, SourceCacheOptions, SourceContent, SourceContext } from "../core/types.ts"
 import type { Client as SdkMcpClient } from "@modelcontextprotocol/sdk/client/index.js"
 import type { SSEClientTransportOptions } from "@modelcontextprotocol/sdk/client/sse.js"
@@ -401,7 +402,7 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
 }
 
 async function runMcpProviderOperation<TResult>(
-  operation: string,
+  operation: SourceProviderOperation,
   request: McpResourcesRequestOptions | undefined,
   signal: AbortSignal | undefined,
   run: () => Promise<TResult> | TResult,

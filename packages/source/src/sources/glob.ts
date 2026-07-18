@@ -3,6 +3,7 @@ import { glob as tinyglobby } from "tinyglobby"
 import { SourcePathError, sourceItemNotFoundError, sourceProviderRequestError } from "../core/errors.ts"
 import { matchesAny, normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
 
+import type { SourceProviderOperation } from "../core/errors.ts"
 import type { Source, SourceContext, SourceItem } from "../core/types.ts"
 
 export interface GlobSourceOptions {
@@ -153,7 +154,7 @@ async function resolveCwd(rootDir: string, cwd = "."): Promise<string> {
   return resolvedCwd
 }
 
-async function runFileOperation<TResult>(operation: string, key: string, run: () => Promise<TResult>): Promise<TResult> {
+async function runFileOperation<TResult>(operation: SourceProviderOperation, key: string, run: () => Promise<TResult>): Promise<TResult> {
   try {
     return await run()
   }

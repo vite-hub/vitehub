@@ -1,7 +1,9 @@
 import { sourceProviderRequestError, sourceProviderResponseInvalidError } from "../../core/errors.ts"
 
+import type { SourceProviderOperation } from "../../core/errors.ts"
+
 export async function requestGitHubJson<T>(input: {
-  operation: string
+  operation: SourceProviderOperation
   signal?: AbortSignal
   token?: string
   url: string
@@ -57,7 +59,7 @@ export async function fetchGitHubArchive(input: {
   }
 }
 
-async function requestGitHub(operation: string, signal: AbortSignal | undefined, request: () => Promise<Response>): Promise<Response> {
+async function requestGitHub(operation: SourceProviderOperation, signal: AbortSignal | undefined, request: () => Promise<Response>): Promise<Response> {
   try {
     return await request()
   }

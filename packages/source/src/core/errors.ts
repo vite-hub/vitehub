@@ -1,6 +1,6 @@
 import { ViteHubError } from "@vite-hub/runtime"
 
-import type { ViteHubErrorDetails, ViteHubErrorOptions } from "@vite-hub/runtime"
+import type { ViteHubErrorOptions } from "@vite-hub/runtime"
 
 export type SourceErrorCode =
   | "SOURCE_CONTENT_MISSING"
@@ -13,17 +13,47 @@ export type SourceErrorCode =
 
 export type SourceProvider = "custom" | "filesystem" | "github" | "mcp"
 
+export type SourceProviderOperation =
+  | "close"
+  | "connect"
+  | "list"
+  | "list-resources"
+  | "metadata"
+  | "read"
+  | "read-archive"
+  | "read-item"
+  | "read-metadata"
+  | "read-resource"
+  | "resolve"
+  | "resolve-ref"
+  | "resolve-repository"
+  | "resolve-root"
+  | "validate-ref"
+
+export type SourceValueType =
+  | "array"
+  | "bigint"
+  | "boolean"
+  | "date"
+  | "function"
+  | "null"
+  | "number"
+  | "object"
+  | "string"
+  | "symbol"
+  | "undefined"
+
 type SourceErrorDetailMap = {
   SOURCE_CONTENT_MISSING: { readonly key?: string, readonly source?: string }
   SOURCE_ITEM_IS_DIRECTORY: { readonly key?: string, readonly source?: string }
   SOURCE_ITEM_NOT_FOUND: { readonly key?: string, readonly source?: string }
   SOURCE_NOT_FOUND: { readonly source?: string }
-  SOURCE_PATH_INVALID: { readonly field: "path", readonly valueType: string }
-  SOURCE_PROVIDER_REQUEST_FAILED: { readonly operation: string, readonly provider: SourceProvider, readonly status?: number }
-  SOURCE_PROVIDER_RESPONSE_INVALID: { readonly key?: string, readonly operation: string, readonly provider: SourceProvider }
+  SOURCE_PATH_INVALID: { readonly field: "path", readonly valueType: SourceValueType }
+  SOURCE_PROVIDER_REQUEST_FAILED: { readonly operation: SourceProviderOperation, readonly provider: SourceProvider, readonly status?: number }
+  SOURCE_PROVIDER_RESPONSE_INVALID: { readonly key?: string, readonly operation: SourceProviderOperation, readonly provider: SourceProvider }
 }
 
-export type SourceErrorDetails<TCode extends SourceErrorCode = SourceErrorCode> = SourceErrorDetailMap[TCode] & ViteHubErrorDetails
+export type SourceErrorDetails<TCode extends SourceErrorCode = SourceErrorCode> = SourceErrorDetailMap[TCode]
 
 export interface SourceErrorOptions<TCode extends SourceErrorCode = SourceErrorCode> extends ViteHubErrorOptions<SourceErrorDetails<TCode>> {
   code: TCode
@@ -36,10 +66,17 @@ export class SourceError<TCode extends SourceErrorCode = SourceErrorCode> extend
     input: string | (SourceErrorOptions<TCode> & { message: string }),
     legacyOptions?: SourceErrorOptions<TCode>,
   ) {
-    const { code, message, ...options } = typeof input === "string"
+    const { code: inputCode, message, ...options } = typeof input === "string"
       ? { ...legacyOptions!, message: input }
       : input
-    super(code, message, options)
+    const code = parseSourceErrorCode(inputCode) as TCode
+    const details = parseSourceErrorDetails(code, options.details) as SourceErrorDetails<TCode> | undefined
+    super(code, message, {
+      cause: options.cause,
+      ...(details === undefined ? {} : { details }),
+      requestId: options.requestId,
+      retryable: options.retryable,
+    })
     this.name = "SourceError"
   }
 }
@@ -96,7 +133,7 @@ export function sourceItemNotFoundError(source: string, key: string): SourceErro
 
 export function sourceProviderRequestError(
   provider: SourceProvider,
-  operation: string,
+  operation: SourceProviderOperation,
   options: { cause?: unknown, status?: number } = {},
 ): SourceError<"SOURCE_PROVIDER_REQUEST_FAILED"> {
   return new SourceError({
@@ -113,7 +150,7 @@ export function sourceProviderRequestError(
 
 export function sourceProviderResponseInvalidError(
   provider: SourceProvider,
-  operation: string,
+  operation: SourceProviderOperation,
   options: { cause?: unknown, key?: string } = {},
 ): SourceError<"SOURCE_PROVIDER_RESPONSE_INVALID"> {
   const key = normalizePublicSourceIdentifier(options.key)
@@ -129,7 +166,7 @@ export function sourceProviderResponseInvalidError(
   })
 }
 
-function sourceValueType(value: unknown): string {
+function sourceValueType(value: unknown): SourceValueType {
   if (value === null) return "null"
   if (Array.isArray(value)) return "array"
   if (value instanceof Date) return "date"
@@ -147,12 +184,130 @@ function normalizePublicSourceIdentifier(value: unknown): string | undefined {
   return value
 }
 
-function sourceItemDetails(source: string, key: string) {
+function sourceItemDetails(source: unknown, key: unknown) {
   const safeSource = normalizePublicSourceIdentifier(source)
   const safeKey = normalizePublicSourceIdentifier(key)
   return {
     ...(safeKey === undefined ? {} : { key: safeKey }),
     ...(safeSource === undefined ? {} : { source: safeSource }),
+  }
+}
+
+function parseSourceErrorCode(value: unknown): SourceErrorCode {
+  switch (value) {
+    case "SOURCE_CONTENT_MISSING":
+    case "SOURCE_ITEM_IS_DIRECTORY":
+    case "SOURCE_ITEM_NOT_FOUND":
+    case "SOURCE_NOT_FOUND":
+    case "SOURCE_PATH_INVALID":
+    case "SOURCE_PROVIDER_REQUEST_FAILED":
+    case "SOURCE_PROVIDER_RESPONSE_INVALID":
+      return value
+    default:
+      throw new TypeError("[vitehub] Invalid Source error code.")
+  }
+}
+
+function parseSourceErrorDetails(
+  code: SourceErrorCode,
+  value: unknown,
+): SourceErrorDetails | undefined {
+  if (value === undefined) return
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError("[vitehub] Invalid Source error details.")
+  }
+
+  try {
+    const details = value as Record<string, unknown>
+    switch (code) {
+      case "SOURCE_CONTENT_MISSING":
+      case "SOURCE_ITEM_IS_DIRECTORY":
+      case "SOURCE_ITEM_NOT_FOUND":
+        return sourceItemDetails(details.source, details.key)
+      case "SOURCE_NOT_FOUND": {
+        const source = normalizePublicSourceIdentifier(details.source)
+        return source === undefined ? {} : { source }
+      }
+      case "SOURCE_PATH_INVALID":
+        if (details.field !== "path") throw new TypeError()
+        return { field: "path", valueType: parseSourceValueType(details.valueType) }
+      case "SOURCE_PROVIDER_REQUEST_FAILED": {
+        const status = details.status
+        if (status !== undefined && (!Number.isInteger(status) || (status as number) < 100 || (status as number) > 599)) {
+          throw new TypeError()
+        }
+        return {
+          operation: parseSourceProviderOperation(details.operation),
+          provider: parseSourceProvider(details.provider),
+          ...(status === undefined ? {} : { status: status as number }),
+        }
+      }
+      case "SOURCE_PROVIDER_RESPONSE_INVALID": {
+        const key = normalizePublicSourceIdentifier(details.key)
+        return {
+          ...(key === undefined ? {} : { key }),
+          operation: parseSourceProviderOperation(details.operation),
+          provider: parseSourceProvider(details.provider),
+        }
+      }
+    }
+  }
+  catch {
+    throw new TypeError("[vitehub] Invalid Source error details.")
+  }
+}
+
+function parseSourceProvider(value: unknown): SourceProvider {
+  switch (value) {
+    case "custom":
+    case "filesystem":
+    case "github":
+    case "mcp":
+      return value
+    default:
+      throw new TypeError()
+  }
+}
+
+function parseSourceProviderOperation(value: unknown): SourceProviderOperation {
+  switch (value) {
+    case "close":
+    case "connect":
+    case "list":
+    case "list-resources":
+    case "metadata":
+    case "read":
+    case "read-archive":
+    case "read-item":
+    case "read-metadata":
+    case "read-resource":
+    case "resolve":
+    case "resolve-ref":
+    case "resolve-repository":
+    case "resolve-root":
+    case "validate-ref":
+      return value
+    default:
+      throw new TypeError()
+  }
+}
+
+function parseSourceValueType(value: unknown): SourceValueType {
+  switch (value) {
+    case "array":
+    case "bigint":
+    case "boolean":
+    case "date":
+    case "function":
+    case "null":
+    case "number":
+    case "object":
+    case "string":
+    case "symbol":
+    case "undefined":
+      return value
+    default:
+      throw new TypeError()
   }
 }
 

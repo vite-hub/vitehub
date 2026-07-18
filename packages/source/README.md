@@ -33,7 +33,7 @@ const first = await docs.read(keys[0]!)
 
 ## Errors
 
-Built-in loaders throw `SourceError` with a stable `code` and JSON-safe `details`. `toJSON()` excludes the original `cause`, stack, credentials, request URLs, absolute paths, and provider response bodies; the protected server runtime can still inspect `error.cause` for diagnostics.
+Built-in loaders throw `SourceError` with a stable `code` and code-specific JSON-safe `details`. Runtime construction rejects codes, providers, operations, status values, and path value types outside the public Source vocabulary, while dropping fields a code does not own. `toJSON()` excludes the original `cause`, stack, credentials, request URLs, absolute paths, and provider response bodies; the protected server runtime can still inspect `error.cause` for diagnostics.
 
 ```ts
 import { SourceError } from "@vite-hub/source"

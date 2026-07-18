@@ -39,6 +39,46 @@ describe("@vite-hub/source public errors", () => {
     })
   })
 
+  it("rejects unknown codes in both constructor forms", () => {
+    expect(() => new SourceError({
+      code: "Bearer secret-token at https://provider.example/private" as never,
+      message: "Provider failed.",
+    })).toThrow(new TypeError("[vitehub] Invalid Source error code."))
+    expect(() => new SourceError("Provider failed.", {
+      code: "Bearer secret-token at https://provider.example/private" as never,
+    })).toThrow(new TypeError("[vitehub] Invalid Source error code."))
+  })
+
+  it("allows only observed provider details at runtime", () => {
+    const error = new SourceError({
+      code: "SOURCE_PROVIDER_REQUEST_FAILED",
+      details: {
+        operation: "read-item",
+        provider: "github",
+        token: "secret-token",
+      } as never,
+      message: "Provider failed.",
+    })
+
+    expect(error.toJSON()).toEqual({
+      code: "SOURCE_PROVIDER_REQUEST_FAILED",
+      details: { operation: "read-item", provider: "github" },
+      message: "Provider failed.",
+    })
+    for (const [code, details] of [
+      ["SOURCE_PROVIDER_REQUEST_FAILED", { operation: "Bearer secret-token at https://provider.example/private", provider: "github" }],
+      ["SOURCE_PROVIDER_REQUEST_FAILED", { operation: "read-item", provider: "private-provider" }],
+      ["SOURCE_PROVIDER_REQUEST_FAILED", { operation: "read-item", provider: "github", status: 99 }],
+      ["SOURCE_PATH_INVALID", { field: "path", valueType: "private-value-type" }],
+    ] as const) {
+      expect(() => new SourceError({
+        code: code as never,
+        details: details as never,
+        message: "Provider failed.",
+      })).toThrow(new TypeError("[vitehub] Invalid Source error details."))
+    }
+  })
+
   it("omits unsafe source names and paths from serialized errors", () => {
     const source = new SourceNotFoundError("https://user:secret-token@provider.example/private")
     const path = new SourcePathError("/Users/private/project/.env")

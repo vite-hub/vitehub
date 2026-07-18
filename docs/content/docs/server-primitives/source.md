@@ -223,7 +223,7 @@ Workspace and other consuming packages can wrap Sources in discovered Definition
 
 ## Errors
 
-Built-in loaders throw `SourceError` with a stable `code` and safe `details`. Use `toJSON()` at a public boundary; it excludes causes, stacks, provider bodies, request URLs, credentials, absolute paths, and arbitrary SDK messages. The original provider failure remains available as `cause` for protected server-side diagnostics, and caller abort reasons keep their original identity.
+Built-in loaders throw `SourceError` with a stable `code` and code-specific safe `details`. Runtime construction rejects codes, providers, operations, status values, and path value types outside the public Source vocabulary, while dropping fields a code does not own. Use `toJSON()` at a public boundary; it excludes causes, stacks, provider bodies, request URLs, credentials, absolute paths, and arbitrary SDK messages. The original provider failure remains available as `cause` for protected server-side diagnostics, and caller abort reasons keep their original identity.
 
 Direct construction and subclasses use an object with a stable code:
 

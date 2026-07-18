@@ -17,6 +17,8 @@ export type {
   SourceErrorDetails,
   SourceErrorOptions,
   SourceProvider,
+  SourceProviderOperation,
+  SourceValueType,
 } from "./core/errors.ts"
 export {
   custom,
