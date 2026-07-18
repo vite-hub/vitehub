@@ -317,6 +317,85 @@ describe("trusted host workspace runtime", () => {
     expect(events).toEqual(["child", "root"])
   })
 
+  it("returns child cleanup failures by identity without exposing FiberFailure", async () => {
+    const cleanupError = new Error("child cleanup failed")
+    const scope = await openTrustedHostWorkspaceScope(
+      async () => "root",
+      async () => undefined,
+      async () => {},
+    )
+
+    const failure = await scope.runChild(async (registerFinalizer) => {
+      await registerFinalizer(async () => {
+        throw cleanupError
+      })
+    }).catch(error => error)
+
+    expect(failure).toBe(cleanupError)
+    expect((failure as Error).name).not.toBe("FiberFailure")
+    await scope.close()
+  })
+
+  it("preserves child operation and cleanup failures in order", async () => {
+    const operationError = new Error("child operation failed")
+    const cleanupError = new Error("child cleanup failed")
+    const scope = await openTrustedHostWorkspaceScope(
+      async () => "root",
+      async () => undefined,
+      async () => {},
+    )
+
+    const failure = await scope.runChild(async (registerFinalizer) => {
+      await registerFinalizer(async () => {
+        throw cleanupError
+      })
+      throw operationError
+    }).catch(error => error)
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors).toEqual([operationError, cleanupError])
+    expect((failure as Error).name).not.toBe("FiberFailure")
+    await scope.close()
+  })
+
+  it("preserves child and root cleanup failures in order", async () => {
+    const childCleanupError = new Error("child cleanup failed")
+    const rootCleanupError = new Error("root cleanup failed")
+    let finishChild!: () => void
+    let markChildRegistered!: () => void
+    const childFinished = new Promise<void>((resolve) => {
+      finishChild = resolve
+    })
+    const childRegistered = new Promise<void>((resolve) => {
+      markChildRegistered = resolve
+    })
+    const scope = await openTrustedHostWorkspaceScope(
+      async () => "root",
+      async () => undefined,
+      async () => {
+        throw rootCleanupError
+      },
+    )
+    const child = scope.runChild(async (registerFinalizer) => {
+      await registerFinalizer(async () => {
+        finishChild()
+        throw childCleanupError
+      })
+      markChildRegistered()
+      await childFinished
+    })
+
+    await childRegistered
+    const [closeFailure] = await Promise.all([
+      scope.close().catch(error => error),
+      child,
+    ])
+
+    expect(closeFailure).toBeInstanceOf(AggregateError)
+    expect((closeFailure as AggregateError).errors).toEqual([childCleanupError, rootCleanupError])
+    expect((closeFailure as Error).name).not.toBe("FiberFailure")
+  })
+
   it("waits for every active command before the session closes", async () => {
     const workspace = createWorkspace({
       ...defineWorkspace({

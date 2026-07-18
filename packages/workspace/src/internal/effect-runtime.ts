@@ -20,7 +20,9 @@ export function workspaceEffectCauseValues(
     if (Cause.isFailReason(reason)) {
       return reason.error instanceof WorkspaceEffectFailure ? reason.error.cause : reason.error
     }
-    if (Cause.isDieReason(reason)) return reason.defect
+    if (Cause.isDieReason(reason)) {
+      return reason.defect instanceof WorkspaceEffectFailure ? reason.defect.cause : reason.defect
+    }
     return interruptionError(signal)
   })
 }

@@ -33,8 +33,12 @@ const closeResourceScope = Effect.fn("Workspace.ResourceScope.close")(function* 
   exit: Exit.Exit<unknown, unknown>,
   operation: string,
 ) {
-  yield* Scope.close(scope, exit)
-  const causes = yield* Ref.get(failures)
+  const closeExit = yield* Effect.exit(Scope.close(scope, exit))
+  const scopeCauses = Exit.isFailure(closeExit)
+    ? workspaceEffectCauseValues(closeExit.cause)
+    : []
+  const releaseCauses = yield* Ref.get(failures)
+  const causes = [...scopeCauses, ...releaseCauses]
   if (causes.length) {
     return yield* Effect.fail(new WorkspaceEffectFailure({
       cause: causes.length === 1
@@ -91,17 +95,45 @@ function makeWorkspaceResourceScope<Resource, Setup>(
         finishRegistration = resolve
       })
       pendingRegistrations = Promise.all([pendingRegistrations, registration]).then(() => {})
-      const childScope = await runWorkspaceEffect(Scope.fork(scope, "sequential"))
+      let childScope: Scope.Closeable
       try {
-        return await use(async (finalizer) => {
-          await runWorkspaceEffect(Scope.addFinalizer(childScope, Effect.promise(finalizer)))
-          finishRegistration()
-        })
+        childScope = await runWorkspaceEffect(Scope.fork(scope, "sequential"))
       }
-      finally {
+      catch (error) {
         finishRegistration()
-        await runWorkspaceEffect(Scope.close(childScope, Exit.void))
+        throw error
       }
+
+      const useExit = await Promise.resolve().then(() => use(async (finalizer) => {
+        try {
+          await runWorkspaceEffect(Scope.addFinalizer(
+            childScope,
+            Effect.orDie(tryWorkspacePromise(`${operation}.Child.release`, () => finalizer())),
+          ))
+        }
+        finally {
+          finishRegistration()
+        }
+      })).then(
+        value => ({ _tag: "Success", value }) as const,
+        error => ({ _tag: "Failure", error }) as const,
+      )
+      finishRegistration()
+
+      const closeExit = await runWorkspaceEffect(Scope.close(childScope, Exit.void)).then(
+        () => ({ _tag: "Success" }) as const,
+        error => ({ _tag: "Failure", error }) as const,
+      )
+
+      if (useExit._tag === "Failure" && closeExit._tag === "Failure") {
+        throw new AggregateError(
+          [useExit.error, closeExit.error],
+          "[vitehub] Workspace child operation failed and cleanup also failed.",
+        )
+      }
+      if (useExit._tag === "Failure") throw useExit.error
+      if (closeExit._tag === "Failure") throw closeExit.error
+      return useExit.value
     },
   }
 }
