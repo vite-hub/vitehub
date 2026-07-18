@@ -89,7 +89,7 @@ describe("lazy sources", () => {
   it("rejects unsafe custom file-list paths", () => {
     expect(() => custom({
       files: [{ content: "private", path: "../private.md" }],
-    })).toThrow("Workspace path escapes the workspace root")
+    })).toThrow("Workspace path is invalid")
   })
 
   it("exposes source-backed behavior through the source view seam", async () => {
@@ -514,7 +514,7 @@ describe("lazy sources", () => {
 
     await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
       sources: [expect.objectContaining({
-        error: expect.stringContaining("Workspace path escapes the workspace root"),
+        error: expect.stringContaining("Workspace path is invalid"),
         status: "error",
       })],
     })

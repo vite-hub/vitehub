@@ -321,9 +321,9 @@ describe("Cloudflare Artifacts workspace store", () => {
       provider: "cloudflare-artifacts",
     }, "docs")
 
-    await expect(store.writeFile("../x", { path: "../x", content: "x" })).rejects.toThrow("Workspace path escapes")
-    await expect(store.writeFile(".git/config", { path: ".git/config", content: "x" })).rejects.toThrow("Workspace path escapes")
-    await expect(store.readFile(".vitehub/meta/loader.json")).rejects.toThrow("Workspace path escapes")
+    await expect(store.writeFile("../x", { path: "../x", content: "x" })).rejects.toThrow("Workspace path is invalid")
+    await expect(store.writeFile(".git/config", { path: ".git/config", content: "x" })).rejects.toThrow("Workspace path is invalid")
+    await expect(store.readFile(".vitehub/meta/loader.json")).rejects.toThrow("Workspace path is invalid")
   })
 
   it("requires recursive deletion for non-empty directories", async () => {

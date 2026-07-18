@@ -1520,6 +1520,6 @@ describe("sources, loaders, and publishers", () => {
       },
     } as unknown as WorkspaceStore
 
-    await expect(collectWorkspaceStoreAssetBundle("unsafe", workspace)).rejects.toThrow("escapes the workspace root")
+    await expect(collectWorkspaceStoreAssetBundle("unsafe", workspace)).rejects.toThrow("Workspace path is invalid")
   })
 })

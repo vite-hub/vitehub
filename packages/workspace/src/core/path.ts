@@ -2,7 +2,7 @@ import { relative, resolve, sep } from "node:path"
 import { createHash } from "node:crypto"
 import { minimatch } from "minimatch"
 
-import { WorkspacePathError } from "./errors.ts"
+import { WorkspacePathError, workspacePathErrorReason } from "./errors.ts"
 
 import type { ReadFileOptions, ReadFileResult, WorkspaceContent, WorkspaceContentStream } from "./types.ts"
 
@@ -17,13 +17,11 @@ export interface SafeWorkspacePathOptions {
 }
 
 export function normalizeSafeWorkspacePath(path = "", options: SafeWorkspacePathOptions = {}): string {
-  const raw = path.replace(/\\/g, "/")
   const normalized = normalizeWorkspacePath(path)
-  const parts = normalized.split("/").filter(Boolean)
-
-  if (!options.allowEmpty && !normalized) throw new WorkspacePathError(path)
-  if (raw.startsWith("/") || parts.some(part => part === "." || part === "..")) throw new WorkspacePathError(path)
-  if (!options.allowReserved && (parts[0] === ".git" || parts[0] === ".vitehub")) throw new WorkspacePathError(path)
+  const reason = workspacePathErrorReason(path)
+  if (reason && !(reason === "empty" && options.allowEmpty) && !(reason === "reserved" && options.allowReserved)) {
+    throw new WorkspacePathError(path)
+  }
 
   return normalized
 }
