@@ -115,7 +115,7 @@ Applications should use the canonical `vite-hub` paths for framework and provide
 | Import | Runtime values | Public types |
 | --- | --- | --- |
 | `vite-hub` | `vitehub` | Framework Vite Integration options. |
-| `vite-hub/email` | `createEmail`, `defineEmail`, `EmailError` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailMessage`, `EmailDriver`, `EmailDriverResult`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode`, `EmailErrorOptions` |
+| `vite-hub/email` | `createEmail`, `defineEmail`, `EmailError` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailMessage`, `EmailDriver`, `EmailDriverResult`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode`, `EmailErrorDetails`, `EmailErrorMetadata`, `EmailErrorOptions` |
 | `vite-hub/email/server` | `email` | — |
 | `vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmailMarkdown` |
 | `@vite-hub/email/drivers/smtp` | `smtp` | Nodemailer owns the accepted SMTP option types. |
@@ -248,8 +248,10 @@ async function send(message: EmailMessage): Promise<{ id: string }> {
   })
 
   if (response.status === 401) {
-    throw new EmailError('authentication', '[vitehub] Email provider rejected its credentials.', {
+    throw new EmailError({
+      code: 'authentication',
       driver: 'http',
+      message: '[vitehub] Email provider rejected its credentials.',
     })
   }
   if (!response.ok) throw new Error(`Email provider returned ${response.status}`)
@@ -294,7 +296,7 @@ Use `createMemoryEmailDriver()` when another client or test harness should own t
 
 ## Handle delivery errors
 
-Use `EmailError.code` for control flow and `driver` to identify the failing adapter. SMTP and core-wrapped provider failures keep the raw failure in `cause` and expose a safe message. A custom driver owns the same safety boundary when it throws `EmailError` directly.
+Use `EmailError.code` for control flow and `driver` to identify the failing adapter. `toJSON()` returns the stable code, safe message, and JSON-safe details, including the driver when present; it excludes `cause` and the stack. SMTP and core-wrapped provider failures keep the raw failure in `cause` for protected server diagnostics. A custom driver owns the same safety boundary when it throws `EmailError` directly.
 
 ```ts [server/send.ts]
 import { EmailError, type EmailMessage } from 'vite-hub/email'
@@ -306,10 +308,7 @@ export async function send(message: EmailMessage) {
   }
   catch (error) {
     if (error instanceof EmailError) {
-      console.error('Email delivery failed', {
-        code: error.code,
-        driver: error.driver,
-      })
+      console.error('Email delivery failed', error.toJSON())
     }
     throw error
   }

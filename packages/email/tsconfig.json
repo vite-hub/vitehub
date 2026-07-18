@@ -11,6 +11,9 @@
       "#vitehub/email/definition": [
         "packages/email/src/runtime/empty-definition.ts"
       ],
+      "@vite-hub/runtime": [
+        "packages/runtime/src/index.ts"
+      ],
       "@vite-hub/internal/*": [
         "packages/internal/src/*.ts"
       ]

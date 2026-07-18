@@ -3,10 +3,12 @@ import { expectTypeOf, it } from "vitest"
 import {
   createEmail,
   defineEmail,
+  EmailError,
   type EmailAddress,
   type EmailClient,
   type EmailDefinition,
   type EmailDriver,
+  type EmailErrorOptions,
   type EmailMessage,
   type EmailSendResult,
 } from "../src/index.ts"
@@ -34,6 +36,17 @@ it("exports the portable Email contract", () => {
   expectTypeOf(email.send).returns.toEqualTypeOf<Promise<EmailSendResult>>()
   expectTypeOf(driver.send).returns.toEqualTypeOf<Promise<{ id: string }>>()
   expectTypeOf(message.to).toEqualTypeOf<EmailAddress | readonly EmailAddress[]>()
+})
+
+it("exports the structured Email error contract", () => {
+  expectTypeOf(EmailError).toBeConstructibleWith({
+    code: "provider",
+    details: { operation: "send" },
+    driver: "fixture",
+    message: "Email delivery failed.",
+  } satisfies EmailErrorOptions)
+  expectTypeOf(new EmailError("network", "SMTP delivery failed.", { driver: "smtp" }).driver)
+    .toEqualTypeOf<string | undefined>()
 })
 
 it("exports Markdown and test helpers from dedicated entrypoints", () => {

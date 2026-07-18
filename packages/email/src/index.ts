@@ -13,4 +13,9 @@ export type {
   EmailMessage,
   EmailSendResult,
 } from "./types.ts"
-export type { EmailErrorCode, EmailErrorOptions } from "./errors.ts"
+export type {
+  EmailErrorCode,
+  EmailErrorDetails,
+  EmailErrorMetadata,
+  EmailErrorOptions,
+} from "./errors.ts"

@@ -147,6 +147,7 @@ After the Capability calls the Email primitive, handle `EmailError.code` accordi
 
 ViteHub-produced `EmailError.message` values are safe for the public runtime boundary.
 ViteHub-wrapped provider failures remain in `cause` for protected server-side diagnostics and may contain addresses, credentials, or response content; custom drivers must preserve the same rule.
+Use `EmailError.toJSON()` when recording or returning the structured failure without its protected cause or stack.
 
 ## Keep Dynamic Markdown application-owned
 

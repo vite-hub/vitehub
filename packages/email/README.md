@@ -64,6 +64,21 @@ const result = await email.send({
 
 A successful send returns `{ id, driver: "smtp" }`; the provider supplies `id`. Invalid messages and delivery failures throw `EmailError` with a stable `code`. SMTP and core-wrapped provider failures keep the raw failure in `cause` while exposing a safe message. Custom drivers must follow the same rule when they throw `EmailError` directly.
 
+`EmailError` extends ViteHub's shared structured error contract. Use the object form in custom drivers and `toJSON()` when an error crosses a public boundary; serialization includes the safe code, message, and driver details while excluding `cause` and the stack.
+
+```ts
+import { EmailError } from "@vite-hub/email"
+
+throw new EmailError({
+  code: "authentication",
+  driver: "custom",
+  message: "[vitehub] Email provider rejected its credentials.",
+  cause,
+})
+```
+
+The positional `new EmailError(code, message, metadata)` form remains supported. Missing driver configuration stays a `TypeError` because it is a programmer error rather than a delivery failure.
+
 ## Grant an Agent permission to send
 
 The official [`email()` Agent Capability](https://vitehub.dev/docs/capabilities/email) exposes one policy-controlled plain-text send tool through the discovered Email Definition. The application fixes the sender and keeps provider credentials below the Capability boundary; richer messages remain application-owned compositions.

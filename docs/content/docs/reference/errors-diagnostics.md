@@ -17,7 +17,7 @@ Use the error family to choose the next proof path before changing implementatio
 | `ApprovalRequiredError` | Runtime Package | A policy decision requires an Approval Request before execution. |
 | `EnvError` | Env Package | Env Declaration resolution, validation, or diagnostics failed. |
 | `AuthenticationRequiredError` | Auth Package | A route or Agent Invoker bridge needs an authenticated application user. |
-| `EmailError` | Email Package | Message validation, missing Email Definition, delivery credentials, throttling, network, timeout, or provider delivery failed. |
+| `EmailError` | Email Package | A structured Email validation, configuration, or provider delivery failure with a stable code and safe details. |
 | `QueueError` | Queue Package | Queue dispatch, callback, or provider handling failed. |
 | `WorkspaceError` | Workspace Package | Workspace runtime, store, rule, or file-tree behavior failed. |
 | `WorkspaceNotFoundError` | Workspace Package | The requested Workspace is not registered. |
@@ -47,7 +47,7 @@ Use the error family to choose the next proof path before changing implementatio
 
 ## Local response
 
-Start with the owning package and the failing proof path. For packages that generate Provider Output, inspect that output before changing runtime code. Email emits no Provider Output; inspect `EmailError.code` and `driver`, then use `cause` only in protected server-side diagnostics.
+Start with the owning package and the failing proof path. For packages that generate Provider Output, inspect that output before changing runtime code. Email emits no Provider Output; inspect `EmailError.toJSON()` or its `code` and `driver`, then use `cause` only in protected server-side diagnostics because serialization deliberately excludes it.
 
 ```bash [Terminal]
 pnpm vitehub provision run --provider cloudflare --dry-run
