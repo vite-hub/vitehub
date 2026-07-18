@@ -1,7 +1,13 @@
 export { normalizeQueueOptions } from "./config.ts"
 export { defineQueue } from "./definition.ts"
 export { createQueueMessageId } from "./enqueue.ts"
-export { QueueError, type QueueErrorMetadata, type QueueErrorOptions } from "./errors.ts"
+export {
+  QueueError,
+  type QueueErrorCode,
+  type QueueErrorDetails,
+  type QueueErrorOptions,
+  type QueueProviderOperation,
+} from "./errors.ts"
 export { createCloudflareQueueBatchHandler } from "./providers/cloudflare.ts"
 export { getCloudflareQueueBindingName, getCloudflareQueueDefinitionName, getCloudflareQueueName } from "./integrations/cloudflare.ts"
 export { getVercelQueueTopicName } from "./integrations/vercel.ts"

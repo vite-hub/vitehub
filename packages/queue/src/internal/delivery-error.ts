@@ -1,4 +1,4 @@
-import { QueueError } from "../errors.ts"
+import { normalizePublicQueueIdentifier, QueueError } from "../errors.ts"
 
 interface QueueDeliveryErrorContext {
   attempts: number
@@ -7,7 +7,9 @@ interface QueueDeliveryErrorContext {
   queue: string
 }
 
-interface QueueDeliveryErrorReport extends QueueDeliveryErrorContext {
+interface QueueDeliveryErrorReport extends Omit<QueueDeliveryErrorContext, "id" | "queue"> {
+  id?: string
+  queue?: string
   error: {
     code?: string
     details?: QueueError["details"]
@@ -22,13 +24,18 @@ export function isNonRetryableQueueError(error: unknown): boolean {
 }
 
 export function createQueueDeliveryErrorReport(error: unknown, context: QueueDeliveryErrorContext): QueueDeliveryErrorReport {
-  const resolved = error instanceof Error ? error : new Error(String(error))
+  const queueError = error instanceof QueueError ? error : undefined
+  const id = normalizePublicQueueIdentifier(context.id)
+  const queue = normalizePublicQueueIdentifier(context.queue)
   return {
-    ...context,
+    attempts: context.attempts,
+    provider: context.provider,
+    ...(id ? { id } : {}),
+    ...(queue ? { queue } : {}),
     error: {
-      ...(error instanceof QueueError ? { code: error.code, details: error.details } : {}),
-      message: resolved.message,
-      name: resolved.name,
+      ...(queueError ? { code: queueError.code, details: queueError.details } : {}),
+      message: queueError?.message || "[vitehub] Queue Delivery failed.",
+      name: queueError ? "QueueError" : "Error",
     },
     retryable: !isNonRetryableQueueError(error),
   }

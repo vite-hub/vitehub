@@ -62,7 +62,7 @@ import { defineQueue, QueueError } from "@vite-hub/queue"
 
 export default defineQueue<{ email?: string }>(async ({ payload }) => {
   if (!payload.email) {
-    throw new QueueError({
+    throw new QueueError<"WELCOME_EMAIL_INVALID_PAYLOAD">({
       code: "WELCOME_EMAIL_INVALID_PAYLOAD",
       details: { field: "email" },
       message: "Welcome email payload requires an email address.",
@@ -74,7 +74,7 @@ export default defineQueue<{ email?: string }>(async ({ payload }) => {
 })
 ```
 
-ViteHub reports each failed delivery with its queue name, message id, attempt count, code, details, and retry policy before choosing the provider action. Cloudflare `onError` and Vercel `callbackOptions.retry` directives override the default action when they return an explicit directive.
+Custom application codes use an explicit generic, while ViteHub's built-in codes are available as `QueueErrorCode`. ViteHub reports each failed delivery with safe queue and message identifiers, attempt count, code, details, and retry policy before choosing the provider action. Cloudflare `onError` and Vercel `callbackOptions.retry` directives override the default action when they return an explicit directive.
 
 ## Vite Integration
 

@@ -3,7 +3,7 @@ import { createServer } from "node:http"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { QueueError } from "../src/errors.ts"
-import { createCloudflareQueueBatchHandler } from "../src/providers/cloudflare.ts"
+import { createCloudflareQueueBatchHandler, createCloudflareQueueClient } from "../src/providers/cloudflare.ts"
 import { getCloudflareQueueBindingName } from "../src/integrations/cloudflare.ts"
 import { createVercelQueueClient } from "../src/providers/vercel.ts"
 import { handleHostedVercelQueueCallback } from "../src/runtime/hosted.ts"
@@ -53,6 +53,7 @@ afterEach(() => {
   vercelFunctionsMock.waitUntil.mockClear()
   delete process.env.QUEUE_REGION
   delete process.env.VERCEL_REGION
+  delete (globalThis as Record<string, unknown>).__vitehubVercelQueue
   vi.restoreAllMocks()
 })
 
@@ -96,7 +97,7 @@ describe("cloudflare queue runtime", () => {
     const batchHandler = createCloudflareQueueBatchHandler<string>({
       onError,
       onMessage: async () => {
-        throw new QueueError({
+        throw new QueueError<"INVALID_PAYLOAD">({
           code: "INVALID_PAYLOAD",
           message: "Invalid payload.",
           retryable: false,
@@ -121,6 +122,79 @@ describe("cloudflare queue runtime", () => {
     expect(onError).toHaveBeenCalledTimes(2)
     expect(report).toHaveBeenCalledTimes(2)
     expect(report.mock.calls[0]?.[1]).toMatchObject({ queue: "image-expiry", retryable: false })
+  })
+
+  it("maps Cloudflare send failures without exposing provider payloads", async () => {
+    const cause = new Error("Bearer secret-token failed at https://queue.example/private")
+    const binding = {
+      send: vi.fn().mockRejectedValue(cause),
+      sendBatch: vi.fn().mockRejectedValue(cause),
+    }
+    const client = createCloudflareQueueClient({ binding, provider: "cloudflare" })
+
+    const sendError = await client.send({ email: "ava@example.com" }).catch(error => error)
+    const batchError = await client.sendBatch([{ body: { email: "ava@example.com" } }]).catch(error => error)
+
+    expect(sendError).toMatchObject({
+      cause,
+      code: "QUEUE_PROVIDER_OPERATION_FAILED",
+      details: { operation: "send", provider: "cloudflare" },
+      message: "[vitehub] cloudflare queue provider failed during send.",
+    })
+    expect(batchError).toMatchObject({
+      cause,
+      code: "QUEUE_PROVIDER_OPERATION_FAILED",
+      details: { operation: "send-batch", provider: "cloudflare" },
+      message: "[vitehub] cloudflare queue provider failed during send-batch.",
+    })
+    expect(JSON.stringify([sendError, batchError])).not.toMatch(/secret-token|queue\.example|private/)
+  })
+
+  it("preserves abort and custom Queue errors from Cloudflare send", async () => {
+    const abort = Object.assign(new Error("caller stopped queue send"), { name: "AbortError" })
+    const custom = new QueueError<"WELCOME_EMAIL_REJECTED">({
+      code: "WELCOME_EMAIL_REJECTED",
+      message: "Welcome email was rejected.",
+    })
+    const send = vi.fn()
+      .mockRejectedValueOnce(abort)
+      .mockRejectedValueOnce(custom)
+    const client = createCloudflareQueueClient({
+      binding: { send, sendBatch: vi.fn(async () => {}) },
+      provider: "cloudflare",
+    })
+
+    await expect(client.send({ email: "ava@example.com" })).rejects.toBe(abort)
+    await expect(client.send({ email: "ava@example.com" })).rejects.toBe(custom)
+  })
+
+  it("redacts unsafe queue identifiers from definition lookup failures", async () => {
+    const name = "https://user:secret-token@queue.example/private"
+
+    const error = await runQueue(name, { email: "ava@example.com" }).catch(error => error)
+
+    expect(error).toMatchObject({
+      code: "QUEUE_DEFINITION_NOT_FOUND",
+      message: "[vitehub] Queue Definition is not registered. Queue Runtime Registry is installed by generated Provider Output.",
+    })
+    expect(error.details).toBeUndefined()
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private|https:/)
+  })
+
+  it("maps Queue Definition loader failures while retaining the internal cause", async () => {
+    const cause = new Error("Bearer secret-token failed at https://queue.example/private")
+    const name = "https://user:secret-token@queue.example/private"
+    setQueueRuntimeRegistry({ [name]: async () => Promise.reject(cause) })
+
+    const error = await runQueue(name, { email: "ava@example.com" }).catch(error => error)
+
+    expect(error).toMatchObject({
+      cause,
+      code: "QUEUE_DEFINITION_LOAD_FAILED",
+      message: "[vitehub] Queue Definition could not be loaded.",
+    })
+    expect(error.details).toBeUndefined()
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private|https:/)
   })
 
   it("defaults omitted queue config to the Cloudflare provider", async () => {
@@ -307,12 +381,57 @@ describe("vercel provider", () => {
     }))
   })
 
+  it("maps Vercel send failures without exposing provider payloads", async () => {
+    const cause = new Error("Bearer secret-token failed at https://queue.example/private")
+    const client = await createVercelQueueClient({
+      client: {
+        handleCallback: vi.fn(() => async () => new Response("queued")),
+        send: vi.fn().mockRejectedValue(cause),
+      },
+      provider: "vercel",
+      topic: "topic--77656c636f6d65",
+    })
+
+    const error = await client.send({ email: "ava@example.com" }).catch(error => error)
+
+    expect(error).toMatchObject({
+      cause,
+      code: "QUEUE_PROVIDER_OPERATION_FAILED",
+      details: { operation: "send", provider: "vercel" },
+      message: "[vitehub] vercel queue provider failed during send.",
+    })
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private/)
+  })
+
+  it("redacts Vercel SDK load failures while retaining the internal cause", async () => {
+    const cause = new Error("Cannot load secret-token from https://queue.example/private")
+    Object.defineProperty(globalThis, "__vitehubVercelQueue", {
+      configurable: true,
+      get() {
+        throw cause
+      },
+    })
+
+    const error = await createVercelQueueClient({
+      provider: "vercel",
+      topic: "topic--77656c636f6d65",
+    }).catch(error => error)
+
+    expect(error).toMatchObject({
+      cause,
+      code: "VERCEL_QUEUE_SDK_LOAD_FAILED",
+      details: { operation: "load-sdk", provider: "vercel" },
+      message: "[vitehub] Vercel queue SDK could not be loaded.",
+    })
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private/)
+  })
+
   it("acknowledges permanent failures when the retry callback returns undefined", async () => {
     const report = vi.spyOn(console, "error").mockImplementation(() => {})
     const retry = vi.fn(() => undefined)
     const definition = {
       handler: async () => {
-        throw new QueueError({
+        throw new QueueError<"INVALID_PAYLOAD">({
           cause: new Error("private provider detail"),
           code: "INVALID_PAYLOAD",
           message: "Invalid payload.",
@@ -353,7 +472,7 @@ describe("vercel provider", () => {
     const retry = vi.fn(() => ({ afterSeconds: 30 } as const))
     const definition = {
       handler: async () => {
-        throw new QueueError({ code: "INVALID_PAYLOAD", message: "Invalid payload.", retryable: false })
+        throw new QueueError<"INVALID_PAYLOAD">({ code: "INVALID_PAYLOAD", message: "Invalid payload.", retryable: false })
       },
       options: { callbackOptions: { retry } },
     }

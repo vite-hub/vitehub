@@ -67,10 +67,10 @@ function createVercelCallbackOptions(name: string, options: VercelQueueCallbackO
 export async function handleHostedVercelQueueCallback(event: { method?: string, request?: Request }, name: string, definition: QueueDefinition): Promise<unknown> {
   const queue = await getQueue(name)
   if (queue.provider !== "vercel") {
-    throw new QueueError(`Queue "${name}" resolved to provider "${queue.provider}", expected "vercel".`, {
+    throw new QueueError<"VERCEL_PROVIDER_EXPECTED">({
       code: "VERCEL_PROVIDER_EXPECTED",
-      httpStatus: 400,
-      provider: queue.provider,
+      details: { provider: queue.provider },
+      message: "[vitehub] Hosted Vercel Queue Delivery requires the Vercel provider.",
     })
   }
 

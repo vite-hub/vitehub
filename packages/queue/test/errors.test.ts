@@ -7,7 +7,7 @@ import { createQueueDeliveryErrorReport } from "../src/internal/delivery-error.t
 describe("QueueError", () => {
   it("supports structured construction on the shared error foundation", () => {
     const cause = new Error("private provider detail")
-    const error = new QueueError({
+    const error = new QueueError<"EXPIRY_INVALID_PAYLOAD">({
       cause,
       code: "EXPIRY_INVALID_PAYLOAD",
       details: { counter: "expiry_invalid_payload" },
@@ -26,25 +26,26 @@ describe("QueueError", () => {
     expect(JSON.stringify(error)).not.toContain("private provider detail")
   })
 
-  it("preserves string construction for provider errors", () => {
-    const error = new QueueError("Queue provider failed.", {
-      code: "QUEUE_PROVIDER_FAILED",
-      httpStatus: 502,
-      method: "send",
-      provider: "vercel",
+  it("publishes built-in provider failures through allowlisted details", () => {
+    const cause = new Error("Bearer secret-token failed at https://queue.example/private")
+    const error = new QueueError<"QUEUE_PROVIDER_OPERATION_FAILED">({
+      cause,
+      code: "QUEUE_PROVIDER_OPERATION_FAILED",
+      details: { operation: "send", provider: "vercel" },
+      message: "[vitehub] vercel queue provider failed during send.",
     })
 
-    expect(error).toMatchObject({
-      code: "QUEUE_PROVIDER_FAILED",
-      httpStatus: 502,
-      message: "Queue provider failed.",
-      method: "send",
-      provider: "vercel",
+    expect(error.toJSON()).toEqual({
+      code: "QUEUE_PROVIDER_OPERATION_FAILED",
+      details: { operation: "send", provider: "vercel" },
+      message: "[vitehub] vercel queue provider failed during send.",
     })
+    expect(error.cause).toBe(cause)
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private/)
   })
 
   it("omits causes from Queue Delivery reports", () => {
-    const error = new QueueError({
+    const error = new QueueError<"DELIVERY_FAILED">({
       cause: new Error("private provider detail"),
       code: "DELIVERY_FAILED",
       message: "Queue Delivery failed.",
@@ -70,5 +71,25 @@ describe("QueueError", () => {
       retryable: true,
     })
     expect(JSON.stringify(report)).not.toContain("private provider detail")
+  })
+
+  it("omits unsafe queue and message identifiers from delivery reports", () => {
+    const report = createQueueDeliveryErrorReport(
+      new Error("Bearer secret-token failed at https://queue.example/private"),
+      {
+        attempts: 1,
+        id: "https://queue.example/messages/secret-token",
+        provider: "vercel",
+        queue: "../private/.env",
+      },
+    )
+
+    expect(report).toEqual({
+      attempts: 1,
+      error: { message: "[vitehub] Queue Delivery failed.", name: "Error" },
+      provider: "vercel",
+      retryable: true,
+    })
+    expect(JSON.stringify(report)).not.toMatch(/secret-token|queue\.example|private|\.env/)
   })
 })

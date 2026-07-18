@@ -166,7 +166,7 @@ import { defineQueue, QueueError } from '@vite-hub/queue'
 
 export default defineQueue<{ key?: string }>(async ({ payload }) => {
   if (!payload.key) {
-    throw new QueueError({
+    throw new QueueError<"EXPIRY_INVALID_PAYLOAD">({
       code: 'EXPIRY_INVALID_PAYLOAD',
       details: { field: 'key' },
       message: 'Image expiry payload requires a key.',
@@ -178,7 +178,7 @@ export default defineQueue<{ key?: string }>(async ({ payload }) => {
     await deleteImage(payload.key)
   }
   catch (cause) {
-    throw new QueueError({
+    throw new QueueError<"EXPIRY_FAILED">({
       cause,
       code: 'EXPIRY_FAILED',
       details: { key: payload.key },
@@ -188,7 +188,7 @@ export default defineQueue<{ key?: string }>(async ({ payload }) => {
 })
 ```
 
-ViteHub reports each failed delivery before choosing its provider action. The report includes the Queue Definition name, message id, attempt count, `code`, `details`, and effective retry policy; it does not serialize `cause`. Cloudflare acknowledges a non-retryable error, while Vercel returns `{ acknowledge: true }`. Other errors retain the provider's normal retry behavior.
+Custom application codes require an explicit generic, which keeps them separate from ViteHub's observed `QueueErrorCode` union. ViteHub reports each failed delivery before choosing its provider action. The report includes safe Queue Definition and message identifiers, attempt count, `code`, `details`, and effective retry policy; it does not serialize `cause` or unsafe identifiers. Cloudflare acknowledges a non-retryable error, while Vercel returns `{ acknowledge: true }`. Other errors retain the provider's normal retry behavior.
 
 ## Queue Definition options
 
@@ -358,30 +358,34 @@ await createQueueClient({
 
 ## Errors
 
-Queue APIs throw `QueueError`, which extends the shared `ViteHubError` foundation. It always has a `code` and can carry `details`, `requestId`, `retryable`, `provider`, `method`, `httpStatus`, and `cause`.
+Queue APIs throw `QueueError`, which extends the shared `ViteHubError` foundation. Its object constructor requires `code` and `message`; it can also carry code-specific `details`, `requestId`, `retryable`, and a non-serialized `cause`.
 
-Queue Definitions should use the structured constructor shown above. Existing provider and configuration call sites can use the string form:
+Built-in failures use the closed `QueueErrorCode` union and allowlisted details. Queue Definitions can add an application code explicitly:
 
 ```ts
-new QueueError('Queue provider failed.', {
+new QueueError<'WELCOME_EMAIL_REJECTED'>({
   cause,
-  code: 'QUEUE_PROVIDER_FAILED',
-  provider: 'vercel',
+  code: 'WELCOME_EMAIL_REJECTED',
+  details: { campaign: 'welcome' },
+  message: 'Welcome email was rejected.',
 })
 ```
 
-`JSON.stringify(error)` uses the shared safe shape and omits `cause`, `provider`, `method`, and `httpStatus`. Read those fields directly in protected server-side diagnostics.
+`JSON.stringify(error)` uses the shared safe shape and omits `cause`. Built-in provider errors use fixed messages and allowlisted `{ provider, operation }` details, while the raw SDK or binding failure remains available as `error.cause` in protected server-side diagnostics.
 
 | Code | Meaning |
 | --- | --- |
-| `QUEUE_ERROR` | A caller constructed `QueueError` without a more specific code. |
 | `QUEUE_DISABLED` | Queue runtime support is disabled. |
 | `QUEUE_DEFINITION_NOT_FOUND` | No discovered Queue Definition matches the requested name. |
+| `QUEUE_DEFINITION_LOAD_FAILED` | A discovered Queue Definition could not be loaded. |
+| `QUEUE_PROVIDER_OPERATION_FAILED` | Queue client creation, send, or batch send failed. |
 | `CLOUDFLARE_BINDING_RESOLUTION_REQUIRED` | A direct Cloudflare client was created without a concrete binding. |
 | `CLOUDFLARE_BINDING_INVALID` | The Cloudflare binding does not expose `send()` and `sendBatch()`. |
 | `CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS` | Cloudflare received unsupported enqueue options such as `idempotencyKey` or `retentionSeconds`. |
 | `VERCEL_QUEUE_SDK_LOAD_FAILED` | `@vercel/queue` could not be loaded. |
+| `VERCEL_QUEUE_SDK_INVALID` | `@vercel/queue` did not expose the expected client API. |
 | `VERCEL_QUEUE_REGION_REQUIRED` | Vercel region could not be resolved for the installed SDK shape. |
+| `VERCEL_PROVIDER_EXPECTED` | Hosted Vercel Queue Delivery resolved another provider. |
 | `VERCEL_TOPIC_RESOLUTION_REQUIRED` | A direct Vercel client was created without a topic. |
 | `VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS` | Vercel received unsupported enqueue options such as `contentType`. |
 

@@ -1,5 +1,5 @@
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { QueueError } from "../errors.ts"
+import { isQueueBoundaryIdentity, QueueError, runQueueProviderOperation } from "../errors.ts"
 import { getQueueRuntimeEvent } from "../runtime/state.ts"
 
 import type { VercelQueueClient, VercelQueueProviderOptions, VercelQueueSDK } from "../types.ts"
@@ -69,20 +69,22 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
     }
   }
   catch (error) {
-    throw new QueueError(`@vercel/queue load failed. The Vercel provider requires @vercel/queue to be installed. Original error: ${error instanceof Error ? error.message : error}`, {
+    if (isQueueBoundaryIdentity(error)) throw error
+    throw new QueueError<"VERCEL_QUEUE_SDK_LOAD_FAILED">({
       cause: error,
       code: "VERCEL_QUEUE_SDK_LOAD_FAILED",
-      provider: "vercel",
+      details: { operation: "load-sdk", provider: "vercel" },
+      message: "[vitehub] Vercel queue SDK could not be loaded.",
     })
   }
 
   const resolvedRegion = resolveVercelRegion(region)
   if ("QueueClient" in module && typeof module.QueueClient === "function") {
     if (!resolvedRegion) {
-      throw new QueueError("Vercel queue region could not be resolved. Set `queue.region`, `QUEUE_REGION`, or run inside a Vercel request context.", {
+      throw new QueueError<"VERCEL_QUEUE_REGION_REQUIRED">({
         code: "VERCEL_QUEUE_REGION_REQUIRED",
-        httpStatus: 500,
-        provider: "vercel",
+        details: { provider: "vercel" },
+        message: "[vitehub] Vercel queue region could not be resolved.",
       })
     }
 
@@ -96,19 +98,20 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
     }
   }
 
-  throw new QueueError("@vercel/queue does not expose the expected queue client API.", {
+  throw new QueueError<"VERCEL_QUEUE_SDK_INVALID">({
     code: "VERCEL_QUEUE_SDK_INVALID",
-    provider: "vercel",
+    details: { provider: "vercel" },
+    message: "[vitehub] Vercel queue SDK does not expose the expected client API.",
   })
 }
 
 export async function createVercelQueueClient(provider: VercelQueueProviderOptions): Promise<VercelQueueClient> {
   const topic = provider.topic
   if (!topic) {
-    throw new QueueError("Vercel queue topics are derived from discovered queue names. Direct clients require a topic.", {
+    throw new QueueError<"VERCEL_TOPIC_RESOLUTION_REQUIRED">({
       code: "VERCEL_TOPIC_RESOLUTION_REQUIRED",
-      httpStatus: 400,
-      provider: "vercel",
+      details: { provider: "vercel" },
+      message: "[vitehub] Vercel queue requires a concrete topic.",
     })
   }
 
@@ -120,23 +123,22 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
     async send(input) {
       const normalized = normalizeQueueEnqueueInput(input)
       if (normalized.options.contentType !== undefined) {
-        throw new QueueError("Vercel queue does not support enqueue options: contentType.", {
+        throw new QueueError<"VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS">({
           code: "VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS",
-          details: { unsupported: ["contentType"] },
-          httpStatus: 400,
-          method: "send",
-          provider: "vercel",
+          details: { provider: "vercel", unsupported: ["contentType"] },
+          message: "[vitehub] Vercel queue does not support one or more enqueue options.",
         })
       }
 
       return {
         status: "queued",
-        messageId: (await client.send(topic, normalized.payload, {
-          delaySeconds: normalized.options.delaySeconds,
-          idempotencyKey: normalized.options.idempotencyKey || normalized.id,
-          region: normalized.options.region ?? provider.region,
-          retentionSeconds: normalized.options.retentionSeconds,
-        })).messageId ?? undefined,
+        messageId: (await runQueueProviderOperation("vercel", "send", () =>
+          client.send(topic, normalized.payload, {
+            delaySeconds: normalized.options.delaySeconds,
+            idempotencyKey: normalized.options.idempotencyKey || normalized.id,
+            region: normalized.options.region ?? provider.region,
+            retentionSeconds: normalized.options.retentionSeconds,
+          }))).messageId ?? undefined,
       }
     },
     callback: client.handleCallback.bind(client),
