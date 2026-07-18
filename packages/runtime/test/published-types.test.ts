@@ -5,29 +5,60 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
-import { it } from "vitest"
+import { afterAll, beforeAll, it } from "vitest"
 
 const execFileAsync = promisify(execFile)
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(packageRoot, "../../node_modules/typescript/bin/tsc")
+const phaseTimeout = 15_000
+const phaseEnvelopeTimeout = 20_000
+let consumerRoot: string | undefined
 
-it("publishes the ViteHub error contract", { timeout: 15_000 }, async () => {
-  const root = await mkdtemp(join(tmpdir(), "vitehub-runtime-types-"))
-
+async function runProcess(command: string, args: string[], cwd: string): Promise<void> {
   try {
-    await cp(fixtureRoot, root, { recursive: true })
-    const npmCache = join(root, ".npm-cache")
-    await execFileAsync("npm", ["pack", "--pack-destination", root, "--ignore-scripts", "--cache", npmCache], {
-      cwd: packageRoot,
+    await execFileAsync(command, args, {
+      cwd,
+      killSignal: "SIGKILL",
+      timeout: phaseTimeout,
     })
-    await execFileAsync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", "--cache", npmCache], {
-      cwd: root,
-    })
+  }
+  catch (error) {
+    const output = error as Error & { stderr?: string, stdout?: string }
+    throw new Error([output.message, output.stdout, output.stderr].filter(Boolean).join("\n"), { cause: error })
+  }
+}
 
-    await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root])
-  }
-  finally {
-    await rm(root, { force: true, recursive: true })
-  }
+beforeAll(async () => {
+  consumerRoot = await mkdtemp(join(tmpdir(), "vitehub-runtime-types-"))
+  await cp(fixtureRoot, consumerRoot, { recursive: true })
+  await runProcess("npm", [
+    "pack",
+    "--pack-destination",
+    consumerRoot,
+    "--ignore-scripts",
+    "--cache",
+    join(consumerRoot, ".npm-cache"),
+  ], packageRoot)
+}, phaseEnvelopeTimeout)
+
+afterAll(async () => {
+  if (consumerRoot) await rm(consumerRoot, { force: true, recursive: true })
+})
+
+it("installs the real packed Runtime package", { timeout: phaseEnvelopeTimeout }, async () => {
+  const root = consumerRoot!
+  await runProcess("npm", [
+    "install",
+    "--ignore-scripts",
+    "--no-audit",
+    "--no-fund",
+    "--package-lock=false",
+    "--cache",
+    join(root, ".npm-cache"),
+  ], root)
+})
+
+it("publishes the ViteHub error contract", { timeout: phaseEnvelopeTimeout }, async () => {
+  await runProcess(process.execPath, [tsc, "--noEmit", "-p", consumerRoot!], packageRoot)
 })
