@@ -201,6 +201,19 @@ describe("hubBlob", () => {
     expect(nitroPlugin).not.toContain("cloudflare:workers")
   })
 
+  it("does not yield Cloudflare output to a non-Cloudflare Nitro host", async () => {
+    const plugin = hubBlob({ binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" })
+    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+    const value = {
+      nitro: { cloudflare: { wrangler: { routes: ["example.com/*"] } }, preset: "vercel" },
+      plugins: [{ name: "nitro:main" }],
+    }
+
+    config(value, { command: "build" })
+
+    expect(value).not.toHaveProperty("nitro.cloudflare.wrangler.r2_buckets")
+  })
+
   it("removes an early R2 contribution when the final Nitro host changes", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-final-nitro-cleanup-"))
     const plugin = hubBlob({ binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" })

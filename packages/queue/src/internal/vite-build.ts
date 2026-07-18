@@ -445,6 +445,9 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     await mkdir(dirname(resolve(options.rootDir, cloudflareQueueOutputState)), { recursive: true })
     await writeFile(resolve(options.rootDir, cloudflareQueueOutputState), `${JSON.stringify({ queues }, null, 2)}\n`, "utf8")
   }
+  else {
+    await rm(resolve(options.rootDir, cloudflareQueueOutputState), { force: true })
+  }
   await writeVercelQueueFunctions(options.rootDir, options.queue, artifacts)
   return artifacts
 }

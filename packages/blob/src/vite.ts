@@ -74,7 +74,7 @@ function mergeNitroExternal(value: unknown, addition: string): unknown {
 function isNitroCloudflareHost(value: unknown): boolean {
   const nitro = cloneNitroConfig(value)
   const preset = typeof nitro.preset === "string" ? nitro.preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
-  return typeof preset === "string" ? getHostingProvider(preset) === "cloudflare" : Object.hasOwn(nitro, "cloudflare")
+  return typeof preset === "string" && getHostingProvider(preset) === "cloudflare"
 }
 
 function mergeNitroCloudflareBlobOutput(config: object, nitro: Record<string, unknown>, blob: BlobModuleOptions | undefined, cloudflareOwnedByNitro: boolean): Record<string, unknown> {

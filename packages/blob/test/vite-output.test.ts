@@ -334,6 +334,29 @@ describe("Vite provider outputs", () => {
     expect(await readFile(join(outputRoot, "wrangler.json"), "utf8").then(JSON.parse)).toHaveProperty("r2_buckets")
   })
 
+  it("cleans standalone Cloudflare output when Blob becomes local under Nitro", { timeout: 30_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-local-nitro-")
+    const outputRoot = join(rootDir, "dist", toSafeAppName(rootDir))
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
+    await generateProviderOutputs({
+      blob: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
+      clientOutDir: "dist",
+      rootDir,
+    })
+
+    await generateProviderOutputs({
+      blob: { driver: "fs" },
+      clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
+      rootDir,
+    })
+
+    expect(existsSync(join(outputRoot, "index.js"))).toBe(false)
+    expect(existsSync(join(outputRoot, "wrangler.json"))).toBe(false)
+    expect(existsSync(join(rootDir, ".vitehub", "blob", "cloudflare-output.json"))).toBe(false)
+  })
+
   it("omits Cloudflare bucket bindings when none are configured", { timeout: 15_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-no-bucket-")
     await mkdir(join(rootDir, "src"), { recursive: true })

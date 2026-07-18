@@ -71,7 +71,7 @@ describe("Rate Limit Provider Output", () => {
     })
   })
 
-  it("leaves Nitro-owned Cloudflare output untouched while persisting generated state", async () => {
+  it("leaves Nitro-owned Cloudflare output untouched without claiming standalone state", async () => {
     const { declarations, root } = await projectWithDeclaration()
     const outputRoot = createDefaultCloudflareOutputRoot(root)
     const configFile = join(outputRoot, "wrangler.json")
@@ -101,10 +101,7 @@ describe("Rate Limit Provider Output", () => {
     })
 
     await expect(readFile(configFile, "utf8").then(JSON.parse)).resolves.toEqual(existingConfig)
-    await expect(readFile(join(root, ".vitehub", "rate-limit", "cloudflare-output.json"), "utf8").then(JSON.parse)).resolves.toEqual({
-      bindings: [getCloudflareRateLimitBindingName("upload")],
-      standalone: false,
-    })
+    await expect(access(join(root, ".vitehub", "rate-limit", "cloudflare-output.json"))).rejects.toMatchObject({ code: "ENOENT" })
     await expect(readFile(join(root, ".vitehub", "rate-limit", "manifest.json"), "utf8")).resolves.toContain('"provider": "cloudflare"')
   })
 

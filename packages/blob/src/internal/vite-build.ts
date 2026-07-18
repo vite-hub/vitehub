@@ -483,7 +483,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const localOnly = !shouldCreateProviderOutput(options.blob)
   const createCloudflare = !localOnly && !options.cloudflareOwnedByNitro
   const hasCurrentCloudflareContribution = Boolean(createCloudflareR2Bindings(resolveBlobConfig(options.blob, "cloudflare"))?.length)
-  if (options.cloudflareOwnedByNitro && !localOnly) {
+  if (options.cloudflareOwnedByNitro) {
     await writeProviderDeploymentOutputs({
       clientOutDir: options.clientOutDir,
       cleanup: { cloudflare: () => createNitroCloudflareCleanup(options.rootDir, hasCurrentCloudflareContribution) },

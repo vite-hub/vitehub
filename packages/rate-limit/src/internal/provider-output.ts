@@ -135,7 +135,7 @@ export async function writeRateLimitProviderOutput(options: {
         rootDir: options.rootDir,
       })
     }
-    await writeOutputState(options.rootDir, hasComposedBindings ? currentBindings : [])
+    await writeOutputState(options.rootDir, [])
     await writeRateLimitManifest(options.rootDir, options.declarations, options.provider)
     return
   }

@@ -198,6 +198,7 @@ describe("Vite provider outputs", () => {
     })
 
     expect(existsSync(join(cloudflareOutputRoot, "index.js"))).toBe(false)
+    expect(existsSync(join(rootDir, ".vitehub", "queue", "cloudflare-output.json"))).toBe(false)
     await expect(readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       triggers: { crons: ["0 0 * * *"] },
     })
