@@ -77,6 +77,7 @@ describe("Vite provider outputs", () => {
     const vercelConsumerTrigger = JSON.parse(await readFile(vercelConsumerConfig, "utf8")).experimentalTriggers?.[0]
 
     expect(existsSync(cloudflareWorker)).toBe(true)
+    expect(await readFile(cloudflareWorker, "utf8")).toContain("vitehub-queue-worker")
     expect(await readFile(cloudflareConfig, "utf8")).not.toContain("\"run_worker_first\"")
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
@@ -180,8 +181,7 @@ describe("Vite provider outputs", () => {
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(cloudflareOutputRoot, { recursive: true })
     await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
-    await writeFile(join(cloudflareOutputRoot, "index.js"), "export default {}\n", "utf8")
-    await writeFile(join(cloudflareOutputRoot, ".vitehub-queue-output"), "", "utf8")
+    await writeFile(join(cloudflareOutputRoot, "index.js"), "// vitehub-queue-worker\nexport default {}\n", "utf8")
     await writeFile(join(cloudflareOutputRoot, "wrangler.json"), `${JSON.stringify({
       compatibility_date: "2026-04-20",
       main: "index.js",
@@ -226,6 +226,7 @@ describe("Vite provider outputs", () => {
     await expect(readFile(join(cloudflareOutputRoot, "index.js"), "utf8")).resolves.toBe("// workflow worker\n")
     await expect(readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       main: "index.js",
+      queues: { producers: [{ binding: "STALE", queue: "stale" }] },
       workflows: [{ binding: "WORKFLOW", class_name: "Workflow" }],
     })
   })

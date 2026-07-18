@@ -40,7 +40,14 @@ interface CloudflareProviderOutputCatalog {
 const cloudflareProviderOutputKey = Symbol.for("vitehub.cloudflareProviderOutput")
 
 function cloneRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+  return Object.fromEntries(Object.entries(value).flatMap(([key, entry]) => typeof entry === "undefined" ? [] : [[key, cloneProviderValue(entry)]]))
+}
+
+function cloneProviderValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(entry => typeof entry === "undefined" ? null : cloneProviderValue(entry))
+  if (value && typeof value === "object") return cloneRecord(value)
+  return value
 }
 
 function useCloudflareProviderOutput(config: object): CloudflareProviderOutputCatalog {

@@ -24,6 +24,7 @@ describe("Cloudflare provider output", () => {
         cloudflare: {
           wrangler: {
             compatibility_date: "2026-07-18",
+            name: undefined,
             queues: { producers: [{ binding: "USER", queue: "user", delivery_delay: 1 }] },
             routes: ["example.com/*"],
           },

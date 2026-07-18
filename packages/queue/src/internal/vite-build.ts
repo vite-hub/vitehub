@@ -1,4 +1,4 @@
-import { access, mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
@@ -18,7 +18,7 @@ import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } fro
 import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
 export const queuePackageName = "@vite-hub/queue"
-const cloudflareQueueOutputMarker = ".vitehub-queue-output"
+const cloudflareQueueWorkerMarker = "vitehub-queue-worker"
 const productName = "queue"
 
 const generatedRegistryFileName = "registry.mjs"
@@ -245,12 +245,12 @@ function createCloudflareOutput(artifacts: GeneratedQueueArtifacts): CloudflareP
   return {
     bundleEntry: artifacts.cloudflareWorkerFile,
     bundleOptions: {
+      banner: `// ${cloudflareQueueWorkerMarker}`,
       conditions: ["workerd", "worker", "browser", "default"],
       external: ["@vercel/queue", "node:async_hooks", "node:fs", "node:fs/promises", "node:path", "node:url"],
       format: "esm",
       platform: "neutral",
     },
-    files: { [cloudflareQueueOutputMarker]: "" },
     wranglerConfigKeys: ["queues"],
     wranglerConfig,
   }
@@ -258,19 +258,18 @@ function createCloudflareOutput(artifacts: GeneratedQueueArtifacts): CloudflareP
 
 async function createNitroCloudflareCleanup(rootDir: string) {
   const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
-  let ownsWorker = true
+  let ownsWorker = false
   try {
-    await access(resolve(outputRoot, cloudflareQueueOutputMarker))
+    ownsWorker = (await readFile(resolve(outputRoot, "index.js"), "utf8")).includes(cloudflareQueueWorkerMarker)
   }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-    ownsWorker = false
   }
   return {
-    fileNames: ownsWorker ? ["index.js", cloudflareQueueOutputMarker] : [cloudflareQueueOutputMarker],
+    fileNames: ownsWorker ? ["index.js"] : [],
     outputRoot,
     wranglerConfigOwnership: {
-      keys: ownsWorker ? ["compatibility_date", "compatibility_flags", "main", "observability", "queues"] : ["queues"],
+      keys: ownsWorker ? ["compatibility_date", "compatibility_flags", "main", "observability", "queues"] : [],
     },
   }
 }
