@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { ViteHubError } from "@vite-hub/runtime"
 
-import { AuthSessionError, AuthenticationRequiredError } from "../src/agent.ts"
+import { AuthenticationProviderError, AuthenticationRequiredError } from "../src/agent.ts"
 
 describe("AuthenticationRequiredError", () => {
   it("preserves the existing class, message, and HTTP contract", () => {
@@ -20,39 +20,42 @@ describe("AuthenticationRequiredError", () => {
     expect(new AuthenticationRequiredError("Sign in required.").message).toBe("Sign in required.")
   })
 
-  it("preserves an explicit cause without serializing it", () => {
+  it("serializes safe details without exposing its cause", () => {
     const cause = new Error("Bearer secret-token")
     const error = new AuthenticationRequiredError({
       cause,
+      details: { surface: "agent-invoker" },
       message: "Sign in required.",
     })
 
     expect(error.cause).toBe(cause)
     expect(error.toJSON()).toEqual({
       code: "AUTHENTICATION_REQUIRED",
+      details: { surface: "agent-invoker" },
       message: "Sign in required.",
     })
     expect(JSON.stringify(error)).not.toContain("secret-token")
   })
 })
 
-describe("AuthSessionError", () => {
-  it("owns a fixed safe session-resolution contract", () => {
+describe("AuthenticationProviderError", () => {
+  it("owns a fixed safe provider-operation contract", () => {
     const cause = new Error("Bearer secret-token")
-    const error = new AuthSessionError({ cause })
+    const error = new AuthenticationProviderError({ cause, operation: "get-session" })
 
     expect(error).toBeInstanceOf(ViteHubError)
-    expect(error).toBeInstanceOf(AuthSessionError)
+    expect(error).toBeInstanceOf(AuthenticationProviderError)
     expect(error).toMatchObject({
       cause,
-      code: "AUTH_SESSION_FAILED",
-      message: "[vitehub] Authentication session resolution failed.",
-      name: "AuthSessionError",
-      statusCode: 503,
+      code: "AUTH_PROVIDER_OPERATION_FAILED",
+      details: { operation: "get-session", provider: "better-auth" },
+      message: "[vitehub] Authentication provider operation failed.",
+      name: "AuthenticationProviderError",
     })
     expect(error.toJSON()).toEqual({
-      code: "AUTH_SESSION_FAILED",
-      message: "[vitehub] Authentication session resolution failed.",
+      code: "AUTH_PROVIDER_OPERATION_FAILED",
+      details: { operation: "get-session", provider: "better-auth" },
+      message: "[vitehub] Authentication provider operation failed.",
     })
     expect(JSON.stringify(error)).not.toContain("secret-token")
   })

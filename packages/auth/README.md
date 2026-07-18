@@ -183,4 +183,4 @@ import { AuthenticationRequiredError } from "@vite-hub/auth/agent"
 const error = new AuthenticationRequiredError("Sign in to use this Agent.")
 ```
 
-`error.toJSON()` includes `code` and `message`, while omitting `cause` and stack data. If the default Better Auth session lookup fails or returns an invalid non-null response, `authenticated()` throws `AuthSessionError` with code `AUTH_SESSION_FAILED` and `statusCode: 503`; raw provider diagnostics remain available only through `cause`.
+`error.toJSON()` includes `code` and `message`, while omitting `cause` and stack data. If a default Better Auth request or session operation fails, its API is missing, or a non-null response is malformed, `authenticated()` and `requireAuth()` throw `AuthenticationProviderError` with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. Existing Auth errors and structural `AbortError` objects keep their identity, and custom `source`, `map`, and identity callbacks remain outside this provider boundary.

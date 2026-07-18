@@ -1,4 +1,9 @@
 import { getAuthForRequest } from "./server.ts"
+import {
+  AuthenticationProviderError,
+  throwAuthenticationProviderError,
+} from "./errors.ts"
+import { getAuthenticationSession } from "./session.ts"
 
 import { ViteHubError } from "@vite-hub/runtime"
 
@@ -9,6 +14,17 @@ import type {
   AgentRuntimeConfig,
   MaybePromise,
 } from "@vite-hub/agent"
+import type {
+  AuthenticationProviderErrorOptions,
+  AuthenticationProviderOperation,
+} from "./errors.ts"
+import type { ViteHubErrorDetails } from "@vite-hub/runtime"
+
+export { AuthenticationProviderError }
+export type {
+  AuthenticationProviderErrorOptions,
+  AuthenticationProviderOperation,
+}
 
 export interface AuthenticatedUser {
   email?: string | null
@@ -85,6 +101,7 @@ export interface AuthenticatedOptions<
 }
 
 export interface AuthenticationRequiredErrorOptions extends ErrorOptions {
+  details?: ViteHubErrorDetails
   message?: string
 }
 
@@ -101,45 +118,13 @@ export class AuthenticationRequiredError extends ViteHubError<"AUTHENTICATION_RE
 
     super("AUTHENTICATION_REQUIRED", message, {
       cause: options.cause,
+      details: options.details,
     })
     this.name = "AuthenticationRequiredError"
     Object.defineProperty(this, "statusCode", {
       enumerable: true,
       value: 401,
     })
-  }
-}
-
-export type AuthSessionErrorOptions = ErrorOptions
-
-export class AuthSessionError extends ViteHubError<"AUTH_SESSION_FAILED"> {
-  declare readonly statusCode: 503
-
-  constructor(options: AuthSessionErrorOptions = {}) {
-    super("AUTH_SESSION_FAILED", "[vitehub] Authentication session resolution failed.", {
-      cause: options.cause,
-    })
-    this.name = "AuthSessionError"
-    Object.defineProperty(this, "statusCode", {
-      enumerable: true,
-      value: 503,
-    })
-  }
-}
-
-interface BetterAuthGetSessionInput {
-  headers: Headers
-  query?: {
-    disableCookieCache?: boolean
-    disableRefresh?: boolean
-  }
-}
-
-type BetterAuthGetSession = (input: BetterAuthGetSessionInput) => MaybePromise<unknown>
-
-interface BetterAuthSessionApi {
-  api?: {
-    getSession?: BetterAuthGetSession
   }
 }
 
@@ -183,49 +168,21 @@ async function defaultAuthenticatedSource(
 ): Promise<AuthenticatedSession | null | undefined> {
   if (!context.request) return undefined
 
+  let auth: unknown
   try {
-    const auth = getAuthForRequest(context.request) as BetterAuthSessionApi
-    const getSession = auth.api?.getSession
-    if (!getSession) {
-      throw new AuthSessionError({
-        cause: new TypeError("Better Auth did not expose api.getSession()."),
-      })
-    }
-
-    const session = await getSession.call(auth.api, {
-      headers: context.request.headers,
-      query: {
-        disableCookieCache: true,
-        disableRefresh: true,
-      },
-    })
-    if (session == null) return session
-
-    const normalized = normalizeAuthenticatedSession(session)
-    if (!normalized) {
-      throw new AuthSessionError({
-        cause: new TypeError("Better Auth returned an invalid session response."),
-      })
-    }
-    return normalized
+    auth = getAuthForRequest(context.request)
   }
-  catch (error) {
-    if (error instanceof AuthSessionError || error instanceof AuthenticationRequiredError || isAuthAbortError(error)) {
-      throw error
-    }
-    throw new AuthSessionError({ cause: error })
+  catch (cause) {
+    throwAuthenticationProviderError(cause, "get-auth-for-request")
   }
-}
 
-function isAuthAbortError(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false
-
-  try {
-    return "name" in error && error.name === "AbortError"
-  }
-  catch {
-    return false
-  }
+  return await getAuthenticationSession(auth, {
+    headers: context.request.headers,
+    query: {
+      disableCookieCache: true,
+      disableRefresh: true,
+    },
+  }) as AuthenticatedSession | null | undefined
 }
 
 function createAuthenticatedContext<
@@ -288,22 +245,6 @@ function resolveAuthenticatedValue<
     return (value as (context: AuthenticatedContext<TRuntimeConfig, CALL_OPTIONS, TUser, TSession>) => MaybePromise<TValue>)(context)
   }
   return value
-}
-
-function normalizeAuthenticatedSession(value: unknown): AuthenticatedSession | null | undefined {
-  if (!isRecord(value)) return undefined
-  if (!isRecord(value.user) || !isRecord(value.session)) return undefined
-
-  const userId = readString(value.user.id)
-  if (!userId) return undefined
-
-  return {
-    session: value.session as AuthenticatedSessionData,
-    user: {
-      ...value.user,
-      id: userId,
-    } as AuthenticatedUser,
-  }
 }
 
 function defaultLabel(user: AuthenticatedUser): string {

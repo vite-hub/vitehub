@@ -5,9 +5,10 @@
     "moduleResolution": "NodeNext",
     "noEmit": true,
     "strict": true,
-    "types": ["node"]
+    "types": []
   },
   "files": [
+    "agent-peer.d.ts",
     "consumer.ts"
   ]
 }

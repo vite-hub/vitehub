@@ -5,9 +5,9 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import {
   authenticated,
-  AuthSessionError,
+  AuthenticationProviderError,
   AuthenticationRequiredError,
-  type AuthSessionErrorOptions,
+  type AuthenticationProviderErrorOptions,
   type AuthenticationRequiredErrorOptions,
   type AuthenticatedOptions,
   type AuthenticatedSessionData,
@@ -146,13 +146,14 @@ describe("types", () => {
     expectTypeOf(authError.code).toEqualTypeOf<"AUTHENTICATION_REQUIRED">()
     expectTypeOf(authError.statusCode).toEqualTypeOf<401>()
 
-    const sessionError = new AuthSessionError({
+    const providerError = new AuthenticationProviderError({
       cause: new Error("protected provider diagnostic"),
-    } satisfies AuthSessionErrorOptions)
-    expectTypeOf(sessionError.code).toEqualTypeOf<"AUTH_SESSION_FAILED">()
-    expectTypeOf(sessionError.statusCode).toEqualTypeOf<503>()
+      operation: "get-session",
+    } satisfies AuthenticationProviderErrorOptions)
+    expectTypeOf(providerError.code).toEqualTypeOf<"AUTH_PROVIDER_OPERATION_FAILED">()
+    expectTypeOf(providerError.details!.operation).toEqualTypeOf<"get-auth-for-request" | "get-session">()
+    expectTypeOf(providerError.details!.provider).toEqualTypeOf<"better-auth">()
 
-    // @ts-expect-error AuthenticationRequiredError does not serialize arbitrary details.
     new AuthenticationRequiredError({ details: { surface: "agent-invoker" } })
   })
 

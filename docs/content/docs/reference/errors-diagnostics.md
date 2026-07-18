@@ -17,7 +17,7 @@ Use the error family to choose the next proof path before changing implementatio
 | `ApprovalRequiredError` | Runtime Package | A policy decision requires an Approval Request before execution. |
 | `EnvError` | Env Package | Env Declaration or runtime resolution failed with an Env-owned code and JSON-safe context. |
 | `AuthenticationRequiredError` | Auth Package | A route or Agent Invoker bridge needs an authenticated application user; inspect code `AUTHENTICATION_REQUIRED` and `statusCode: 401`. |
-| `AuthSessionError` | Auth Package | The default Better Auth session lookup failed or returned an invalid response; inspect code `AUTH_SESSION_FAILED` and `statusCode: 503`. |
+| `AuthenticationProviderError` | Auth Package | A default Better Auth request or session operation failed; inspect code `AUTH_PROVIDER_OPERATION_FAILED` and its safe operation details. |
 | `EmailError` | Email Package | Message validation, missing Email Definition, delivery credentials, throttling, network, timeout, or provider delivery failed. |
 | `QueueError` | Queue Package | Queue dispatch, callback, or provider handling failed. |
 | `WorkspaceError` | Workspace Package | Workspace runtime, store, rule, or file-tree behavior failed. |
@@ -48,8 +48,7 @@ Use the error family to choose the next proof path before changing implementatio
 
 ## Local response
 
-Start with the owning package and the failing proof path. For packages that generate Provider Output, inspect that output before changing runtime code. Authenticated Agent bridges distinguish a missing session with `AuthenticationRequiredError` from a default provider lookup failure with `AuthSessionError`; use `cause` only in protected server-side diagnostics. Email emits no Provider Output; inspect `EmailError.code` and `driver` the same way.
-
+Start with the owning package and the failing proof path. For packages that generate Provider Output, inspect that output before changing runtime code. Authenticated Agent bridges distinguish a missing session with `AuthenticationRequiredError` from a default provider failure with `AuthenticationProviderError`; `details.operation` identifies request construction or session lookup, while `cause` belongs only in protected server-side diagnostics. Email emits no Provider Output; inspect `EmailError.code` and `driver` the same way.
 For Env, inspect `EnvError.code` first. `ENV_DECLARATION_INVALID` includes `details.path`, `ENV_REQUIRED_MISSING` includes the public source label and sometimes the declaration path, `ENV_RUNTIME_VALUE_INVALID` includes the public source label, and `ENV_SOURCE_FAILED` identifies a failed built-in Git or package metadata source through `details.source`. The serialized shape omits `cause`; never place secret values in `details`.
 
 ```bash [Terminal]

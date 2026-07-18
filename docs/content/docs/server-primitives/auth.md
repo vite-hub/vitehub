@@ -53,7 +53,7 @@ export default defineAuth({
 | `requireAuth` from `@vite-hub/auth/server` | Guard server routes with an Auth Session. |
 | `authenticated` from `@vite-hub/auth/agent` | Map a Better Auth session into an Agent Invoker. |
 | `AuthenticationRequiredError` from `@vite-hub/auth/agent` | Handle missing authentication with a stable code and HTTP status. |
-| `AuthSessionError` from `@vite-hub/auth/agent` | Handle default Better Auth session lookup failures without exposing provider diagnostics. |
+| `AuthenticationProviderError` from `@vite-hub/auth/agent` | Handle default Better Auth request and session failures without exposing provider diagnostics. |
 | `hubAuth` from `@vite-hub/auth/vite` | Register Auth discovery, route exposure, and generated server aliases. |
 
 Create one Primary Auth Definition. ViteHub discovers `server/auth.ts` or `server.auth.ts`.
@@ -231,7 +231,7 @@ const error = new AuthenticationRequiredError('Sign in to use this Agent.')
 console.log(error.toJSON())
 ```
 
-The string constructor remains available for custom messages. The default Better Auth boundary throws `AuthSessionError` with code `AUTH_SESSION_FAILED` and `statusCode: 503` when session lookup fails, its API is missing, or a non-null response is malformed. Custom `source`, `map`, and identity callbacks keep their original error identity. Invalid Auth Definitions and invalid `authenticated()` configuration are programmer errors, so they continue to throw `TypeError` rather than authentication failures.
+The string constructor remains available for custom messages. The default Better Auth boundaries used by `authenticated()` and `requireAuth()` throw `AuthenticationProviderError` with code `AUTH_PROVIDER_OPERATION_FAILED` when request construction or session lookup fails, the session API is missing, or a non-null response is malformed. Safe details identify `get-auth-for-request` or `get-session`; custom `source`, `map`, and identity callbacks, existing ViteHub auth errors, and structural `AbortError` objects keep their original identity. `handleAuthRequest()` remains the direct Better Auth handler boundary. Invalid Auth Definitions and invalid `authenticated()` configuration are programmer errors, so they continue to throw `TypeError` rather than authentication failures.
 
 ## Next steps
 

@@ -2,12 +2,13 @@ import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
 
 import { normalizeAuthBasePath } from "./shared.ts"
+import { throwAuthenticationProviderError } from "./errors.ts"
+import { getAuthenticationSession } from "./session.ts"
 
 import type {
   AuthAccessConfiguration,
   AuthBetterAuthRuntimeOptions,
   AuthDefinition,
-  AuthDefinitionInput,
   AuthDefinitionResolver,
   AuthRequest,
   AuthRequestInput,
@@ -357,8 +358,14 @@ export async function requireAuth(
   definition: AuthDefinition = resolveDefaultDefinition(),
 ): Promise<Response | undefined> {
   const request = unwrapAuthRequest(input)
-  const auth = createAuthForRequest(definition, request, undefined, input)
-  const session = await auth.api.getSession({ headers: request.headers })
+  let auth: unknown
+  try {
+    auth = createAuthForRequest(definition, request, undefined, input)
+  }
+  catch (cause) {
+    throwAuthenticationProviderError(cause, "get-auth-for-request")
+  }
+  const session = await getAuthenticationSession(auth, { headers: request.headers })
   if (session) return
 
   if (!wantsHtml(request)) {
