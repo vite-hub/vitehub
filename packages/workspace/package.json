@@ -138,6 +138,7 @@
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",
+    "effect": "catalog:effect",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",
