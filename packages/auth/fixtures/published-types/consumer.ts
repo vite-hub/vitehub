@@ -1,6 +1,6 @@
 import {
-  AuthenticationProviderError,
-  type AuthenticationProviderErrorOptions,
+  AuthSessionError,
+  type AuthSessionErrorOptions,
   AuthenticationRequiredError,
   type AuthenticationRequiredErrorOptions,
 } from "@vite-hub/auth/agent"
@@ -8,7 +8,7 @@ import {
 import type { ViteHubErrorShape } from "@vite-hub/runtime"
 
 const options = {
-  details: { surface: "agent-invoker" },
+  cause: new Error("protected diagnostic"),
   message: "Sign in required.",
 } satisfies AuthenticationRequiredErrorOptions
 
@@ -19,9 +19,10 @@ error.toJSON() satisfies ViteHubErrorShape<"AUTHENTICATION_REQUIRED">
 
 new AuthenticationRequiredError("Sign in required.")
 
-const providerOptions = {
-  operation: "get-session",
-} satisfies AuthenticationProviderErrorOptions
-const providerError = new AuthenticationProviderError(providerOptions)
-providerError.code satisfies "AUTH_PROVIDER_OPERATION_FAILED"
-providerError.toJSON() satisfies ViteHubErrorShape<"AUTH_PROVIDER_OPERATION_FAILED">
+const sessionOptions = {
+  cause: new Error("protected provider diagnostic"),
+} satisfies AuthSessionErrorOptions
+const sessionError = new AuthSessionError(sessionOptions)
+sessionError.code satisfies "AUTH_SESSION_FAILED"
+sessionError.statusCode satisfies 503
+sessionError.toJSON() satisfies ViteHubErrorShape<"AUTH_SESSION_FAILED">
