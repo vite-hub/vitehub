@@ -146,6 +146,10 @@ files = [
 rules = { "unused-class-members" = "off" }
 
 [[overrides]]
+files = ["packages/workspace/src/core/errors.ts"]
+rules = { "unused-class-members" = "off" }
+
+[[overrides]]
 files = ["packages/workspace/src/storage/memory-fs.ts"]
 rules = { "unused-class-members" = "off" }
 
