@@ -1,5 +1,6 @@
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
+import { invalidRuntimeEnvValue, missingRequiredEnv } from "./core/errors.ts"
 import { SecretEnv } from "./secret.ts"
 
 import type { EnvRuntimeRegistry } from "./types.ts"
@@ -49,11 +50,13 @@ function runtimeEnv(event?: unknown): RuntimeEnv {
   }
 }
 
-function readRuntimeSource(entry: RuntimeEnvEntry, env: RuntimeEnv): string | undefined {
+function readRuntimeSource(entry: RuntimeEnvEntry, env: RuntimeEnv): { found: boolean, value?: unknown } {
   for (const name of entry.source.names || [entry.source.name]) {
-    const value = env[name]
-    if (typeof value === "string") return value
+    if (Object.hasOwn(env, name) && typeof env[name] !== "undefined") {
+      return { found: true, value: env[name] }
+    }
   }
+  return { found: false }
 }
 
 function resolveRegistryValue(value: unknown, env: RuntimeEnv): unknown {
@@ -62,15 +65,16 @@ function resolveRegistryValue(value: unknown, env: RuntimeEnv): unknown {
   }
 
   if (isRuntimeEnvEntry(value)) {
-    const resolved = readRuntimeSource(value, env) ?? value.default
+    const source = readRuntimeSource(value, env)
+    const resolved = source.found ? source.value : value.default
     if (typeof resolved === "undefined") {
       if (value.required) {
-        throw new Error(`Missing Runtime Env from ${value.source.label}.`)
+        throw missingRequiredEnv(value.source.label, `Missing Runtime Env from ${value.source.label}.`)
       }
       return undefined
     }
     if (typeof resolved !== "string") {
-      throw new Error(`Runtime Env from ${value.source.label} must resolve to a string.`)
+      throw invalidRuntimeEnvValue(value.source.label, `Runtime Env from ${value.source.label} must resolve to a string.`)
     }
     return value.secret ? new SecretEnv(resolved) : resolved
   }
