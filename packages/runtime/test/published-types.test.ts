@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { copyFile, cp, mkdir, mkdtemp, rm } from "node:fs/promises"
+import { cp, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -12,15 +12,18 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(packageRoot, "../../node_modules/typescript/bin/tsc")
 
-it("publishes the ViteHub error contract", async () => {
+it("publishes the ViteHub error contract", { timeout: 15_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-runtime-types-"))
 
   try {
     await cp(fixtureRoot, root, { recursive: true })
-    const installedPackageRoot = join(root, "node_modules", "@vite-hub", "runtime")
-    await mkdir(installedPackageRoot, { recursive: true })
-    await copyFile(join(packageRoot, "package.json"), join(installedPackageRoot, "package.json"))
-    await cp(join(packageRoot, "dist"), join(installedPackageRoot, "dist"), { recursive: true })
+    const npmCache = join(root, ".npm-cache")
+    await execFileAsync("npm", ["pack", "--pack-destination", root, "--ignore-scripts", "--cache", npmCache], {
+      cwd: packageRoot,
+    })
+    await execFileAsync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", "--cache", npmCache], {
+      cwd: root,
+    })
 
     await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root])
   }

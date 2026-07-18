@@ -46,6 +46,8 @@ const decision = await resolveCapabilityPolicy("require-approval", {
 
 An omitted policy resolves to `allow`. Pass `require-approval` or `deny` when an operation needs an explicit gate.
 
+`ViteHubError` clones and freezes its JSON-safe public details at construction, and `toJSON()` always returns that immutable snapshot. Put raw provider failures in `cause`; changing the original details or the error's public fields later cannot change serialized output. Accessors, cycles, `bigint`, non-finite numbers, and oversized detail trees are rejected with a fixed `TypeError`, so callers that previously passed mutable or non-JSON detail objects must normalize them first.
+
 ## Used by
 
 Feature packages use Runtime Capability handles instead of passing every provider client through every API. Agent Capabilities consume these handles when they expose KV, Blob, DB, sandbox, shell, or workspace behavior.
