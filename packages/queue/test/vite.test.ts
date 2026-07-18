@@ -23,13 +23,15 @@ describe("hubQueue", () => {
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
     const userConfig = { nitro: { plugins: ["server/plugin.ts"] }, root }
 
-    expect(config(userConfig)).toMatchObject({
+    config(userConfig)
+    expect(userConfig).toMatchObject({
       nitro: {
         cloudflare: { wrangler: { queues: { consumers: [{ queue: "queue--77656c636f6d65" }], producers: [{ binding: "QUEUE_77656C636F6D65", queue: "queue--77656c636f6d65" }] } } },
         plugins: [".vitehub/nitro/queue/plugin.ts", "server/plugin.ts"],
       },
     })
-    expect(config(userConfig)).toMatchObject({
+    config(userConfig)
+    expect(userConfig).toMatchObject({
       nitro: { plugins: [".vitehub/nitro/queue/plugin.ts", "server/plugin.ts"] },
     })
 
@@ -75,12 +77,18 @@ describe("hubQueue", () => {
     roots.push(root)
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
     const plugin = hubQueue({ provider: "cloudflare", binding: "JOBS" })
-    const config = plugin.config as unknown as (config: Record<string, unknown>) => { nitro: Record<string, unknown> }
-    expect(config({ nitro: { preset: "cloudflare_module" }, root })).toMatchObject({
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => void
+    const moduleConfig = { nitro: { preset: "cloudflare_module" }, root }
+    config(moduleConfig)
+    expect(moduleConfig).toMatchObject({
       nitro: { cloudflare: { wrangler: { queues: { producers: [{ binding: "JOBS" }] } } } },
     })
-    expect(config({ nitro: { preset: "cloudflare_pages" }, root }).nitro).not.toHaveProperty("cloudflare.wrangler.queues")
-    expect(config({ nitro: { preset: "cloudflare-pages" }, root }).nitro).not.toHaveProperty("cloudflare.wrangler.queues")
+    const underscorePages = { nitro: { preset: "cloudflare_pages" }, root }
+    config(underscorePages)
+    expect(underscorePages.nitro).not.toHaveProperty("cloudflare.wrangler.queues")
+    const hyphenPages = { nitro: { preset: "cloudflare-pages" }, root }
+    config(hyphenPages)
+    expect(hyphenPages.nitro).not.toHaveProperty("cloudflare.wrangler.queues")
   })
 
   it("rejects ambiguous and conflicting custom Cloudflare bindings", async () => {

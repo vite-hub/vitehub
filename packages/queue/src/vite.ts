@@ -89,8 +89,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
     },
     config(config) {
       queue = config.queue ?? queue
-      const nitro = mergeNitroConfig((config as { nitro?: unknown }).nitro, queue, config.root || process.cwd())
-      return { nitro } as never
+      ;(config as { nitro?: unknown }).nitro = mergeNitroConfig((config as { nitro?: unknown }).nitro, queue, config.root || process.cwd())
     },
     async configResolved(config) {
       resolved = config
