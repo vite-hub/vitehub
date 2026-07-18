@@ -80,6 +80,7 @@ function renderWorkspaceYaml(overrides) {
   return [
     "allowBuilds:",
     "  esbuild: true",
+    "  msgpackr-extract: false",
     "catalog:",
     "  vite: npm:@voidzero-dev/vite-plus-core@latest",
     "  vitest: npm:@voidzero-dev/vite-plus-test@latest",

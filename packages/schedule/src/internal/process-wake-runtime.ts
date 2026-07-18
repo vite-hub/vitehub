@@ -87,6 +87,7 @@ export const makeProcessWakeRuntime = Effect.fn("ScheduleProcessDriver.make")(fu
   const clock = yield* Clock.Clock
   const operationLock = yield* Semaphore.make(1)
   const queue = yield* Queue.bounded<RuntimeScheduleWake, Cause.Done>(options.concurrency)
+  const enqueueFibers = yield* FiberSet.make()
   const scannerFibers = yield* FiberSet.make()
   const workerFibers = yield* FiberSet.make()
   const state = yield* Ref.make<ProcessWakeState>({
@@ -238,7 +239,7 @@ export const makeProcessWakeRuntime = Effect.fn("ScheduleProcessDriver.make")(fu
   const enqueue = (occurrences: readonly RuntimeScheduleWake[]) =>
     occurrences.length === 0
       ? Effect.void
-      : FiberSet.run(scannerFibers, Queue.offerAll(queue, occurrences), { startImmediately: true })
+      : FiberSet.run(enqueueFibers, Queue.offerAll(queue, occurrences), { startImmediately: true })
   const scan = operationLock.withPermits(1)(Effect.flatMap(scanUnlocked(), enqueue))
   const scanIteration = scan.pipe(
     Effect.catchTag("ProcessWakeBoundaryError", (error) =>
@@ -318,7 +319,7 @@ export const makeProcessWakeRuntime = Effect.fn("ScheduleProcessDriver.make")(fu
     if (!shouldClose) return
 
     yield* FiberSet.clear(scannerFibers)
-    yield* Queue.clear(queue)
+    yield* FiberSet.awaitEmpty(enqueueFibers)
     yield* Queue.end(queue)
     yield* FiberSet.awaitEmpty(workerFibers)
     yield* Ref.update(state, (current) => cloneState(current, { closed: true }))

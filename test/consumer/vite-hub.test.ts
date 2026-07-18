@@ -203,6 +203,7 @@ function workspaceConfig(specs: Record<string, string>) {
     "  - .",
     "allowBuilds:",
     "  esbuild: true",
+    "  msgpackr-extract: false",
     "overrides:",
     ...overrides,
     "",
