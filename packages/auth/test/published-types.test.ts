@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { copyFile, cp, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises"
+import { cp, mkdtemp, readFile, readdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -12,20 +12,36 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const workspaceRoot = resolve(packageRoot, "../..")
 const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(workspaceRoot, "node_modules/typescript/bin/tsc")
+const packedPackages = [
+  "agent",
+  "auth",
+  "box",
+  "devtools",
+  "markdown-template",
+  "rate-limit",
+  "runtime",
+  "source",
+  "workspace",
+] as const
 
-it("publishes the structured Authentication Required error contract", { timeout: 15_000 }, async () => {
+async function runPnpm(args: string[], cwd: string): Promise<void> {
+  const npmExecPath = process.env.npm_execpath
+  if (npmExecPath?.includes("pnpm")) {
+    await execFileAsync(process.execPath, [npmExecPath, ...args], { cwd })
+    return
+  }
+  await execFileAsync("corepack", ["pnpm", ...args], { cwd })
+}
+
+it("publishes the structured Auth error contract from installed packages", { timeout: 60_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-auth-types-"))
 
   try {
     await cp(fixtureRoot, root, { recursive: true })
-    await mkdir(join(root, "node_modules"), { recursive: true })
-    for (const name of ["auth", "runtime"]) {
-      const source = join(workspaceRoot, "packages", name)
-      const installed = join(root, "node_modules", "@vite-hub", name)
-      await mkdir(installed, { recursive: true })
-      await copyFile(join(source, "package.json"), join(installed, "package.json"))
-      await cp(join(source, "dist"), join(installed, "dist"), { recursive: true })
+    for (const name of packedPackages) {
+      await runPnpm(["pack", "--pack-destination", root], join(workspaceRoot, "packages", name))
     }
+    await runPnpm(["install", "--ignore-scripts", "--no-frozen-lockfile"], root)
 
     try {
       await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root])

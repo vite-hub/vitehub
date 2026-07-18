@@ -21,23 +21,25 @@ export async function getAuthenticationSession(
   auth: unknown,
   input: BetterAuthGetSessionInput,
 ): Promise<ResolvedAuthenticationSession | null | undefined> {
-  try {
-    const api = readRecordProperty(auth, "api")
-    const getSession = api && readProperty(api, "getSession")
-    if (typeof getSession !== "function") {
-      throw new TypeError("Better Auth did not expose api.getSession().")
-    }
+  const api = readRecordProperty(auth, "api")
+  const getSession = api && readProperty(api, "getSession")
+  if (typeof getSession !== "function") {
+    throw new TypeError("Better Auth did not expose api.getSession().")
+  }
 
-    const value = await Reflect.apply(getSession as BetterAuthGetSession, api, [input])
-    if (value == null) return value
-    if (!isResolvedAuthenticationSession(value)) {
-      throw new TypeError("Better Auth returned an invalid session response.")
-    }
-    return value
+  let value: unknown
+  try {
+    value = await Reflect.apply(getSession as BetterAuthGetSession, api, [input])
   }
   catch (cause) {
     throwAuthenticationProviderError(cause, "get-session")
   }
+
+  if (value == null) return value
+  if (!isResolvedAuthenticationSession(value)) {
+    throw new TypeError("Better Auth returned an invalid session response.")
+  }
+  return value
 }
 
 function readRecordProperty(value: unknown, property: string): Record<string, unknown> | undefined {

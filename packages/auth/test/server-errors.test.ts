@@ -29,21 +29,21 @@ describe("server authentication provider boundaries", () => {
   })
 
   it.each([
-    ["missing API", { api: {} }],
-    ["malformed response", { api: { getSession: () => ({ session: {}, user: {} }) } }],
-  ])("maps a %s from requireAuth", async (_case, auth) => {
+    ["missing API", { api: {} }, "Better Auth did not expose api.getSession()."],
+    ["malformed response", { api: { getSession: () => ({ session: {}, user: {} }) } }, "Better Auth returned an invalid session response."],
+  ])("preserves ViteHub's %s validation", async (_case, auth, message) => {
     providerMocks.betterAuth.mockReturnValueOnce(auth)
 
-    await expect(requireAuth(request, definition)).rejects.toMatchObject({
-      code: "AUTH_PROVIDER_OPERATION_FAILED",
-      details: { operation: "get-session", provider: "better-auth" },
-      name: "AuthenticationProviderError",
-    })
+    await expect(requireAuth(request, definition)).rejects.toEqual(new TypeError(message))
   })
 
-  it("maps Auth construction failures with the owning operation", async () => {
-    const cause = new Error("protected provider configuration")
-    providerMocks.betterAuth.mockImplementationOnce(() => { throw cause })
+  it.each([
+    new Error("protected provider configuration"),
+    new TypeError("fetch failed"),
+  ])("maps Auth construction failures with the owning operation", async (cause) => {
+    providerMocks.betterAuth.mockImplementationOnce(() => {
+      throw cause
+    })
 
     const error = await requireAuth(request, definition).catch(error => error)
 
@@ -51,6 +51,28 @@ describe("server authentication provider boundaries", () => {
     expect(error).toMatchObject({
       cause,
       details: { operation: "get-auth-for-request", provider: "better-auth" },
+    })
+  })
+
+  it("preserves ViteHub configuration TypeErrors exactly", async () => {
+    const configurationError = new TypeError("invalid request configuration")
+    const invalidDefinition = defineAuth(() => {
+      throw configurationError
+    })
+
+    await expect(requireAuth(request, invalidDefinition)).rejects.toBe(configurationError)
+  })
+
+  it("normalizes operational session TypeErrors with their exact cause", async () => {
+    const cause = new TypeError("fetch failed")
+    providerMocks.getSession.mockRejectedValueOnce(cause)
+
+    const error = await requireAuth(request, definition).catch(error => error)
+
+    expect(error).toBeInstanceOf(AuthenticationProviderError)
+    expect(error).toMatchObject({
+      cause,
+      details: { operation: "get-session", provider: "better-auth" },
     })
   })
 

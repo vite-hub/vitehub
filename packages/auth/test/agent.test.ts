@@ -182,25 +182,25 @@ describe("authenticated", () => {
   })
 
   it.each([
-    ["get-auth-for-request", () => serverMocks.getAuthForRequest.mockImplementationOnce(() => { throw new Error("secret request failure") })],
-    ["get-session", () => serverMocks.getSession.mockRejectedValueOnce(new Error("secret session failure"))],
-  ] as const)("normalizes Better Auth %s failures", async (operation, reject) => {
+    new Error("secret session failure"),
+    new TypeError("fetch failed"),
+  ])("normalizes Better Auth session failures, including %s", async (cause) => {
     const request = new Request("https://example.com/api/agent")
-    reject()
+    serverMocks.getSession.mockRejectedValueOnce(cause)
 
     const error = await resolve(authenticated(), createContext({ request })).catch(error => error)
 
     expect(error).toBeInstanceOf(AuthenticationProviderError)
     expect(error).toMatchObject({
       code: "AUTH_PROVIDER_OPERATION_FAILED",
-      details: { operation, provider: "better-auth" },
+      details: { operation: "get-session", provider: "better-auth" },
       message: "[vitehub] Authentication provider operation failed.",
       name: "AuthenticationProviderError",
     })
-    expect(error.cause).toBeInstanceOf(Error)
+    expect(error.cause).toBe(cause)
     expect(JSON.parse(JSON.stringify(error))).toEqual({
       code: "AUTH_PROVIDER_OPERATION_FAILED",
-      details: { operation, provider: "better-auth" },
+      details: { operation: "get-session", provider: "better-auth" },
       message: "[vitehub] Authentication provider operation failed.",
     })
     expect(JSON.stringify(error)).not.toContain("secret")
@@ -212,18 +212,14 @@ describe("authenticated", () => {
     await expect(resolve(authenticated({ required: false }), createContext({ request }))).resolves.toBeUndefined()
 
     serverMocks.getSession.mockResolvedValueOnce({ session: {}, user: {} })
-    await expect(resolve(authenticated(), createContext({ request }))).rejects.toMatchObject({
-      code: "AUTH_PROVIDER_OPERATION_FAILED",
-      details: { operation: "get-session", provider: "better-auth" },
-      name: "AuthenticationProviderError",
-    })
+    await expect(resolve(authenticated(), createContext({ request }))).rejects.toEqual(
+      new TypeError("Better Auth returned an invalid session response."),
+    )
 
     serverMocks.getAuthForRequest.mockReturnValueOnce({ api: {} })
-    await expect(resolve(authenticated(), createContext({ request }))).rejects.toMatchObject({
-      code: "AUTH_PROVIDER_OPERATION_FAILED",
-      details: { operation: "get-session", provider: "better-auth" },
-      name: "AuthenticationProviderError",
-    })
+    await expect(resolve(authenticated(), createContext({ request }))).rejects.toEqual(
+      new TypeError("Better Auth did not expose api.getSession()."),
+    )
   })
 
   it("preserves the exact Better Auth session objects for custom mapping", async () => {

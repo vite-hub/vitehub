@@ -1,8 +1,5 @@
 import { getAuthForRequest } from "./server.ts"
-import {
-  AuthenticationProviderError,
-  throwAuthenticationProviderError,
-} from "./errors.ts"
+import { AuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 
 import { ViteHubError } from "@vite-hub/runtime"
@@ -165,14 +162,7 @@ async function defaultAuthenticatedSource(
 ): Promise<AuthenticatedSession | null | undefined> {
   if (!context.request) return undefined
 
-  let auth: unknown
-  try {
-    auth = getAuthForRequest(context.request)
-  }
-  catch (cause) {
-    throwAuthenticationProviderError(cause, "get-auth-for-request")
-  }
-
+  const auth = getAuthForRequest(context.request)
   return await getAuthenticationSession(auth, {
     headers: context.request.headers,
     query: {

@@ -231,7 +231,7 @@ const error = new AuthenticationRequiredError('Sign in to use this Agent.')
 console.log(error.toJSON())
 ```
 
-The string constructor remains available for custom messages. The default Better Auth boundaries used by `authenticated()` and `requireAuth()` throw `AuthenticationProviderError` with code `AUTH_PROVIDER_OPERATION_FAILED` when request construction or session lookup fails, the session API is missing, or a non-null response is malformed. Safe details identify `get-auth-for-request` or `get-session`; custom `source`, `map`, and identity callbacks, existing ViteHub auth errors, and structural `AbortError` objects keep their original identity. `handleAuthRequest()` remains the direct Better Auth handler boundary. Invalid Auth Definitions and invalid `authenticated()` configuration are programmer errors, so they continue to throw `TypeError` rather than authentication failures.
+The string constructor remains available for custom messages. The default Better Auth boundaries used by `authenticated()` and `requireAuth()` throw `AuthenticationProviderError` with code `AUTH_PROVIDER_OPERATION_FAILED` when request construction or session lookup fails. Safe details identify `get-auth-for-request` or `get-session`; custom `source`, `map`, and identity callbacks, existing ViteHub auth errors, and structural `AbortError` objects keep their original identity. Missing APIs, malformed responses, invalid Auth Definitions, and invalid `authenticated()` configuration are programmer or provider-contract defects, so they continue to throw `TypeError` rather than authentication failures. `handleAuthRequest()` remains the direct Better Auth handler boundary.
 
 ## Next steps
 

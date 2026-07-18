@@ -225,6 +225,25 @@ function createBetterAuthOptionsFromResolved(
   return stripViteHubOptions(options)
 }
 
+function createAuthenticationProvider(options: AuthBetterAuthRuntimeOptions): ViteHubAuth {
+  try {
+    return betterAuth(options) as ViteHubAuth
+  }
+  catch (cause) {
+    throwAuthenticationProviderError(cause, "get-auth-for-request")
+  }
+}
+
+function resolveBetterAuthOptionsForRequest(
+  definition: AuthDefinition,
+  request: Pick<Request, "headers" | "url">,
+  runtimeOptions?: AuthRuntimeOptions,
+  event?: unknown,
+): AuthBetterAuthRuntimeOptions {
+  const requestRuntimeOptions = createAuthRequestRuntimeOptions(definition, request, runtimeOptions, event) as AuthRuntimeOptions & Record<string, unknown>
+  return createBetterAuthOptionsFromResolved(resolveDefinitionOptions(definition, request, event, requestRuntimeOptions))
+}
+
 export function createAuth(
   definition: AuthDefinition,
   runtimeOptions?: AuthRuntimeOptions,
@@ -238,8 +257,7 @@ export function createAuthForRequest(
   runtimeOptions?: AuthRuntimeOptions,
   event?: unknown,
 ): ViteHubAuth {
-  const requestRuntimeOptions = createAuthRequestRuntimeOptions(definition, request, runtimeOptions, event) as AuthRuntimeOptions & Record<string, unknown>
-  return betterAuth(createBetterAuthOptionsFromResolved(resolveDefinitionOptions(definition, request, event, requestRuntimeOptions))) as ViteHubAuth
+  return betterAuth(resolveBetterAuthOptionsForRequest(definition, request, runtimeOptions, event)) as ViteHubAuth
 }
 
 export function handleAuthRequest(
@@ -269,12 +287,12 @@ export function getAuthForDefinition(
   runtimeOptions?: AuthRuntimeOptions,
 ): ViteHubAuth {
   if (hasRuntimeOptions(runtimeOptions)) {
-    return createAuth(definition, runtimeOptions) as unknown as ViteHubAuth
+    return createAuthenticationProvider(createBetterAuthOptions(definition, runtimeOptions))
   }
 
   const state = getAuthRuntimeState()
   if (!state.auth || state.definition !== definition) {
-    state.auth = createAuth(definition) as unknown as ViteHubAuth
+    state.auth = createAuthenticationProvider(createBetterAuthOptions(definition))
     state.definition = definition
   }
   return state.auth
@@ -293,7 +311,7 @@ export function getAuthForRequest(
   if (!hasRequestRuntimeOptions(definition) && !hasRuntimeOptions(runtimeOptions)) {
     return getAuthForDefinition(definition)
   }
-  return createAuthForRequest(definition, request, runtimeOptions, event) as unknown as ViteHubAuth
+  return createAuthenticationProvider(resolveBetterAuthOptionsForRequest(definition, request, runtimeOptions, event))
 }
 
 export function handleAuth(
@@ -358,13 +376,7 @@ export async function requireAuth(
   definition: AuthDefinition = resolveDefaultDefinition(),
 ): Promise<Response | undefined> {
   const request = unwrapAuthRequest(input)
-  let auth: unknown
-  try {
-    auth = createAuthForRequest(definition, request, undefined, input)
-  }
-  catch (cause) {
-    throwAuthenticationProviderError(cause, "get-auth-for-request")
-  }
+  const auth = createAuthenticationProvider(resolveBetterAuthOptionsForRequest(definition, request, undefined, input))
   const session = await getAuthenticationSession(auth, { headers: request.headers })
   if (session) return
 
