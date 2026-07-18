@@ -1932,7 +1932,7 @@ describe("server helpers", () => {
     }), { agentIdentity: { name: "mini" }, capabilities: { schedule: { schedules } } })
 
     expect(response.status).toBe(500)
-    await expect(response.text()).resolves.toContain("requires the run channelId to match a configured Agent Channel")
+    await expect(response.json()).resolves.toEqual({ code: "INTERNAL", error: "Agent request failed." })
     expect(schedules.create).not.toHaveBeenCalled()
   })
 
@@ -1959,9 +1959,7 @@ describe("server helpers", () => {
     }), { agentName: "mini" })
 
     expect(response.status).toBe(500)
-    await expect(response.json()).resolves.toMatchObject({
-      message: expect.stringContaining('Capability "schedule" requires the schedule primitive to be configured.'),
-    })
+    await expect(response.json()).resolves.toEqual({ code: "INTERNAL", error: "Agent request failed." })
   })
 
   it("leaves custom text/event-stream chat Response bodies unchanged", async () => {
@@ -2283,7 +2281,8 @@ describe("server helpers", () => {
 
     expect(rejectedResponse.status).toBe(401)
     await expect(rejectedResponse.json()).resolves.toMatchObject({
-      error: "Agent chat route request was not admitted.",
+      code: "INTERNAL",
+      error: "Agent request failed.",
     })
     expect(authenticate).toHaveBeenCalledWith(expect.objectContaining({
       rawBody: expect.stringContaining("hello"),
@@ -2306,7 +2305,8 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toMatchObject({
-      error: "Agent chat payload requires a messages array.",
+      code: "INTERNAL",
+      error: "Agent request failed.",
     })
   })
 
@@ -2344,7 +2344,8 @@ describe("server helpers", () => {
 
       expect(response.status).toBe(400)
       await expect(response.json()).resolves.toMatchObject({
-        error: "Agent chat route identity must be derived server-side with defineAgent({ invoker }).",
+        code: "INTERNAL",
+        error: "Agent request failed.",
       })
     }
   })
@@ -2527,7 +2528,8 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toMatchObject({
-      error: "Agent chat route identity must be derived server-side with defineAgent({ invoker }).",
+      code: "INTERNAL",
+      error: "Agent request failed.",
     })
   })
 
@@ -3672,7 +3674,7 @@ describe("server helpers", () => {
     }), "custom-support")
 
     expect(response.status).toBe(401)
-    await expect(response.json()).resolves.toEqual({ error: "[vitehub] Webhook secret header \"x-test-secret\" is required." })
+    await expect(response.json()).resolves.toEqual({ code: "INTERNAL", error: "Agent request failed." })
     expect(adapter.handleWebhook).not.toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
   })
@@ -3702,7 +3704,7 @@ describe("server helpers", () => {
     }), "custom-support")
 
     expect(response.status).toBe(401)
-    await expect(response.json()).resolves.toEqual({ error: "[vitehub] Webhook registration \"custom-support\" declares secretHeader \"x-test-secret\" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification." })
+    await expect(response.json()).resolves.toEqual({ code: "INTERNAL", error: "Agent request failed." })
     expect(adapter.handleWebhook).not.toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
   })
@@ -3732,7 +3734,7 @@ describe("server helpers", () => {
     }), "telegram")
 
     expect(response.status).toBe(401)
-    await expect(response.json()).resolves.toEqual({ error: "[vitehub] Webhook secret header \"x-telegram-bot-api-secret-token\" is required." })
+    await expect(response.json()).resolves.toEqual({ code: "INTERNAL", error: "Agent request failed." })
     expect(adapter.handleWebhook).not.toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
   })
@@ -3760,7 +3762,7 @@ describe("server helpers", () => {
     }), "github")
 
     expect(response.status).toBe(401)
-    await expect(response.json()).resolves.toEqual({ error: "[vitehub] Webhook registration \"github\" declares secretHeader \"x-hub-signature-256\" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification." })
+    await expect(response.json()).resolves.toEqual({ code: "INTERNAL", error: "Agent request failed." })
     expect(run).not.toHaveBeenCalled()
   })
 
@@ -3861,7 +3863,7 @@ describe("server helpers", () => {
     const rejected = await handler(request("sha256=wrong"))
 
     expect(rejected.status).toBe(401)
-    await expect(rejected.json()).resolves.toEqual({ error: "[vitehub] Webhook secret verification failed." })
+    await expect(rejected.json()).resolves.toEqual({ code: "INTERNAL", error: "Agent request failed." })
     expect(run).toHaveBeenCalledOnce()
 
     const unsigned = await handler(new Request("https://example.com/api/github/webhook", {
@@ -3875,7 +3877,7 @@ describe("server helpers", () => {
     }))
 
     expect(unsigned.status).toBe(401)
-    await expect(unsigned.json()).resolves.toEqual({ error: "[vitehub] Webhook secret header \"x-hub-signature-256\" is required." })
+    await expect(unsigned.json()).resolves.toEqual({ code: "INTERNAL", error: "Agent request failed." })
     expect(run).toHaveBeenCalledOnce()
   })
 
@@ -4163,7 +4165,7 @@ describe("server helpers", () => {
     const rejected = await handler(request("sha256=wrong"))
 
     expect(rejected.status).toBe(401)
-    await expect(rejected.json()).resolves.toEqual({ error: "[vitehub] Webhook secret verification failed." })
+    await expect(rejected.json()).resolves.toEqual({ code: "INTERNAL", error: "Agent request failed." })
     expect(run).not.toHaveBeenCalled()
   })
 

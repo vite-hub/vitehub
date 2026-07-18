@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
+import { LlmGateRejectedError } from "../src/capabilities/llm-gate.ts"
+import { RateLimitRejectedError } from "../src/capabilities/rate-limit.ts"
 import { createAgentInvocationStreamResponse, readAgentInvocationStream } from "../src/invocation-stream.ts"
 import { writeResponse } from "../src/vite/invocation-stream-endpoint.ts"
 
@@ -21,7 +23,7 @@ describe("Agent Invocation Stream", () => {
     ])
 
     expect(text.trim().split("\n").map(line => JSON.parse(line))).toEqual([
-      { error: "Agent Invocation Stream timed out after 10ms.", type: "error" },
+      { code: "INTERNAL", error: "Agent Invocation Stream failed.", type: "error" },
       { type: "done" },
     ])
     expect(aborted).toBe(true)
@@ -103,7 +105,11 @@ describe("Agent Invocation Stream", () => {
   })
 
   it("closes with an error when event serialization fails", async () => {
-    const response = createAgentInvocationStreamResponse(async (emit) => {
+    let abortReason: unknown
+    const response = createAgentInvocationStreamResponse(async (emit, signal) => {
+      signal.addEventListener("abort", () => {
+        abortReason = signal.reason
+      })
       emit({ data: 1n, type: "data" } as never)
     })
 
@@ -113,12 +119,14 @@ describe("Agent Invocation Stream", () => {
     }
 
     expect(events).toEqual([
-      { error: "Do not know how to serialize a BigInt", type: "error" },
+      { code: "INTERNAL", error: "Agent Invocation Stream event could not be serialized.", type: "error" },
       { type: "done" },
     ])
+    expect(abortReason).toBeInstanceOf(TypeError)
+    expect((abortReason as Error).message).toContain("BigInt")
   })
 
-  it("formats non-Error thrown values as stream errors", async () => {
+  it("redacts unowned thrown values as stream errors", async () => {
     const response = createAgentInvocationStreamResponse(async () => {
       throw { code: "delivery_preview_failed", status: 422 }
     })
@@ -129,8 +137,44 @@ describe("Agent Invocation Stream", () => {
     }
 
     expect(events).toEqual([
-      { error: `{"code":"delivery_preview_failed","status":422}`, type: "error" },
+      { code: "INTERNAL", error: "Agent Invocation Stream failed.", type: "error" },
       { type: "done" },
     ])
+  })
+
+  it("emits allowlisted rate-limit and gate failures without changing event order", async () => {
+    const failures = [
+      [new RateLimitRejectedError("rate-limit", { retryAfter: 30 } as never, "private provider response"), {
+        code: "RATE_LIMIT_REJECTED",
+        details: { capability: "rate-limit", retryAfter: 30 },
+        error: "Rate limit exceeded. Try again later.",
+        type: "error",
+      }],
+      [new LlmGateRejectedError("safety-gate", {
+        allowed: false,
+        category: "unsafe",
+        reason: "private prompt",
+      }, "private classification"), {
+        code: "LLM_GATE_REJECTED",
+        details: { capability: "safety-gate", category: "unsafe" },
+        error: "Agent request was rejected.",
+        type: "error",
+      }],
+    ] as const
+
+    for (const [failure, expected] of failures) {
+      const response = createAgentInvocationStreamResponse(async (emit) => {
+        emit({ label: "before", type: "data" } as never)
+        throw failure
+      })
+      const events = []
+      for await (const event of readAgentInvocationStream(response.body!)) events.push(event)
+
+      expect(events).toEqual([
+        { label: "before", type: "data" },
+        expected,
+        { type: "done" },
+      ])
+    }
   })
 })

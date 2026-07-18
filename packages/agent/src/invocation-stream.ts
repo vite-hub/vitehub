@@ -1,15 +1,24 @@
-import { formatAgentError } from "./agent-error.ts"
+import { toAgentPublicError } from "./public-error.ts"
 import type { StreamEvent } from "./messages.ts"
+import type { AgentPublicErrorCode, AgentPublicErrorDetails } from "./public-error.ts"
 import type { AgentChannelDeliveryEffectIntent, AgentRunMetadata } from "./types.ts"
 
 export const agentInvocationStreamRoute = "/__vitehub/agent/invocation-stream"
 export const agentInvocationStreamHeader = "x-vitehub-agent-dev-loop"
 export const agentInvocationStreamHeaderValue = "1"
 
+export interface AgentInvocationStreamErrorEvent {
+  code?: AgentPublicErrorCode | (string & {})
+  details?: AgentPublicErrorDetails
+  error: string
+  requestId?: string
+  type: "error"
+}
+
 export type AgentInvocationStreamEvent =
   | StreamEvent
   | { channelId?: string, effect: AgentChannelDeliveryEffectIntent, run?: AgentRunMetadata, type: "delivery-preview" }
-  | { error: string, type: "error" }
+  | AgentInvocationStreamErrorEvent
   | { data?: Record<string, unknown>, durationMs?: number, id: string, label?: string, phase: "workspace.prepare" | (string & {}), status: "completed" | "failed" | "started" | "updating", type: "progress" }
   | { agent: string, metadata?: Record<string, unknown>, run?: unknown, trigger?: string, type: "start" }
   | { type: "done" }
@@ -72,13 +81,17 @@ export function createAgentInvocationStreamResponse(
     }
   }
 
-  function fail(controller: ReadableStreamDefaultController<Uint8Array>, cause: unknown): void {
+  function fail(
+    controller: ReadableStreamDefaultController<Uint8Array>,
+    cause: unknown,
+    context: "invocation" | "serialization" = "serialization",
+  ): void {
     if (closed) return
     clearTimeoutSignal()
     abort(cause)
     try {
       write(controller, {
-        error: cause instanceof Error ? cause.message : "Agent Invocation Stream event could not be serialized.",
+        ...toAgentPublicError(cause, context),
         type: "error",
       })
       closeFailed(controller)
@@ -114,7 +127,7 @@ export function createAgentInvocationStreamResponse(
     start(controller) {
       if (options.timeout && options.timeout > 0) {
         timeout = setTimeout(() => {
-          fail(controller, new Error(`Agent Invocation Stream timed out after ${options.timeout}ms.`))
+          fail(controller, new Error(`Agent Invocation Stream timed out after ${options.timeout}ms.`), "invocation")
         }, options.timeout)
       }
       run(event => emit(controller, event), abortController.signal)
@@ -126,7 +139,7 @@ export function createAgentInvocationStreamResponse(
           if (closed || abortController.signal.aborted) return
           clearTimeoutSignal()
           emit(controller, {
-            error: cause instanceof Error ? cause.message : formatAgentError(cause, "Agent Invocation Stream failed."),
+            ...toAgentPublicError(cause, "invocation"),
             type: "error",
           })
           if (emit(controller, { type: "done" })) close(controller)

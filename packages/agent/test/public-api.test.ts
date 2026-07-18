@@ -38,6 +38,20 @@ it("keeps Effect out of published Agent declarations", async () => {
   expect(declarations.join("\n")).not.toMatch(effectImportPattern)
 })
 
+it("publishes additive Agent Invocation Stream error metadata", async () => {
+  const dist = new URL("../dist/", import.meta.url)
+  const declaration = (await Promise.all(
+    (await readdir(dist, { recursive: true }))
+      .filter(path => path.endsWith(".d.ts"))
+      .map(path => readFile(new URL(path, dist), "utf8")),
+  )).join("\n")
+
+  expect(declaration).toMatch(/interface AgentInvocationStreamErrorEvent/)
+  expect(declaration).toMatch(/code\?:/)
+  expect(declaration).toMatch(/details\?: AgentPublicErrorDetails/)
+  expect(declaration).toMatch(/requestId\?: string/)
+})
+
 it("keeps Effect out of provider and browser bundle graphs", async () => {
   for (const entry of ["cloudflare.js", "cloudflare/state.js", "messages.js", "output.js"]) {
     const bundle = await readBundleGraph(new URL(`../dist/${entry}`, import.meta.url))

@@ -814,7 +814,7 @@ function isAbortError(error: unknown): error is Error {
 
 function errorResponse(error: unknown): Response {
   if (error instanceof Response) return error
-  return new Response(error instanceof Error ? error.message : "Agent Invocation Stream endpoint failed.", {
+  return Response.json({ code: "INTERNAL", error: "Agent request failed." }, {
     status: 500,
   })
 }

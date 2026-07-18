@@ -963,7 +963,7 @@ describe("agent chat capability discovery", () => {
     })
 
     expect(response.statusCode).toBe(500)
-    expect(response.body).toContain("Agent Capability CLI \"inventory\" is not defined by this agent")
+    expect(JSON.parse(response.body)).toEqual({ code: "INTERNAL", error: "Agent request failed." })
   })
 
   it("preserves model driver context for Capability CLI dev runs", async () => {

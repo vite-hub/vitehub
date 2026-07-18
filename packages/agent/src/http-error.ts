@@ -1,10 +1,23 @@
 import { LlmGateRejectedError } from "./capabilities/llm-gate.ts"
-import { agentErrorPublicMessage } from "./agent-error.ts"
+import { RateLimitRejectedError } from "./capabilities/rate-limit.ts"
+import { toAgentPublicError } from "./public-error.ts"
 
 function readStatusCode(error: unknown): number | undefined {
-  if (error instanceof LlmGateRejectedError) return (error as unknown as { statusCode: number }).statusCode
+  try {
+    if (error instanceof RateLimitRejectedError) return 429
+    if (error instanceof LlmGateRejectedError) return 403
+  }
+  catch {
+    return
+  }
   if (typeof error !== "object" || error === null) return
-  const statusCode = (error as { statusCode?: unknown }).statusCode
+  let statusCode: unknown
+  try {
+    statusCode = (error as { statusCode?: unknown }).statusCode
+  }
+  catch {
+    return
+  }
   return typeof statusCode === "number" && statusCode >= 400 && statusCode <= 599
     ? statusCode
     : undefined
@@ -15,23 +28,35 @@ export function getHttpErrorStatusCode(error: unknown): number | undefined {
 }
 
 export function getHttpErrorMessage(error: unknown): string {
-  return agentErrorPublicMessage(error, "Agent request failed.")
+  return toAgentPublicError(error, "http").error
 }
 
-function readHeaders(error: unknown): Headers | Record<string, string> | undefined {
-  if (typeof error !== "object" || error === null) return
-  const headers = (error as { headers?: unknown }).headers
-  if (headers instanceof Headers) return headers
-  if (!headers || typeof headers !== "object" || Array.isArray(headers)) return
-  const entries = Object.entries(headers).filter((entry): entry is [string, string] => typeof entry[1] === "string")
-  return entries.length ? Object.fromEntries(entries) : undefined
+function rateLimitHeaders(error: unknown): Record<string, string> | undefined {
+  try {
+    if (!(error instanceof RateLimitRejectedError)) return
+  }
+  catch {
+    return
+  }
+  let value: unknown
+  try {
+    value = error.retryAfter
+  }
+  catch {
+    return
+  }
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return
+  return {
+    "retry-after": String(value),
+    "x-retry-after": String(value),
+  }
 }
 
-export function toHttpErrorResponse(error: unknown): Response | undefined {
-  const statusCode = getHttpErrorStatusCode(error)
+export function toHttpErrorResponse(error: unknown, fallbackStatus?: number): Response | undefined {
+  const statusCode = getHttpErrorStatusCode(error) || fallbackStatus
   if (!statusCode) return
-  return Response.json({ error: getHttpErrorMessage(error) }, {
-    headers: readHeaders(error),
+  return Response.json(toAgentPublicError(error, "http"), {
+    headers: rateLimitHeaders(error),
     status: statusCode,
   })
 }

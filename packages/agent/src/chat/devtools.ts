@@ -731,8 +731,8 @@ async function postChatDevtoolsBridge(ctx: ViteDevToolsNodeContext, route: strin
   return await response.json() as ChatDevtoolsStateResult
 }
 
-function toChatDevtoolsErrorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause)
+function toChatDevtoolsErrorMessage(_cause: unknown): string {
+  return "Chat DevTools stream failed."
 }
 
 async function writeChatDevtoolsStream(

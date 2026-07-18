@@ -48,10 +48,10 @@ export function createChatDevtoolsStreamResponse(run: (emit: (event: ChatDevtool
             controller.close()
           }
         })
-        .catch((cause) => {
+        .catch(() => {
           if (closed || abortController.signal.aborted) return
           emit(controller, {
-            message: cause instanceof Error ? cause.message : "Chat DevTools stream failed.",
+            message: "Chat DevTools stream failed.",
             type: "error",
           })
           if (!closed) {
