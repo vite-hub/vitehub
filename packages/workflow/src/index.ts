@@ -1,6 +1,6 @@
 export { normalizeWorkflowOptions } from "./config.ts"
 export { defineWorkflow } from "./definition.ts"
-export { WorkflowError } from "./errors.ts"
+export { WorkflowError, type WorkflowErrorCode, type WorkflowErrorOptions } from "./errors.ts"
 export { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "./integrations/cloudflare.ts"
 export { getVercelWorkflowName } from "./integrations/vercel.ts"
 export { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, resumeWorkflowSignal, runWorkflow } from "./runtime/client.ts"

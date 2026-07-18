@@ -1003,7 +1003,7 @@ describe("workflow runtime", () => {
 
     await expect(runWorkflow("welcome", {}, { id: "caller-id" })).rejects.toMatchObject({
       code: "WORKFLOW_RUN_ID_UNSUPPORTED",
-      provider: "vercel",
+      details: { id: "caller-id", name: "welcome", provider: "vercel" },
     })
   })
 
@@ -1066,7 +1066,7 @@ describe("workflow runtime", () => {
 
     await expect(getWorkflowRun("welcome", "missing-sdk")).rejects.toMatchObject({
       code: "VERCEL_WORKFLOW_SDK_LOAD_FAILED",
-      provider: "vercel",
+      details: { provider: "vercel" },
     })
   })
 

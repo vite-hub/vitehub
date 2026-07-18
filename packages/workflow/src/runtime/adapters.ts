@@ -34,10 +34,10 @@ interface WorkflowRuntimeAdapter {
 }
 
 function unsupportedOperation(provider: string, operation: string): never {
-  throw new WorkflowError(`Workflow provider ${JSON.stringify(provider)} does not support ${operation}.`, {
+  throw new WorkflowError({
     code: "WORKFLOW_OPERATION_UNSUPPORTED",
-    details: { operation },
-    provider,
+    details: { operation, provider },
+    message: `Workflow provider ${JSON.stringify(provider)} does not support ${operation}.`,
   })
 }
 
@@ -191,10 +191,10 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
         return await fallback.run({ definition, event, id, name, options, payload })
       }
       if (options.id) {
-        throw new WorkflowError("Native Vercel workflows assign their own run IDs.", {
+        throw new WorkflowError({
           code: "WORKFLOW_RUN_ID_UNSUPPORTED",
-          details: { id: options.id, name },
-          provider: "vercel",
+          details: { id: options.id, name, provider: "vercel" },
+          message: "Native Vercel workflows assign their own run IDs.",
         })
       }
       return await startVercelWorkflow(name, definition, payload)
