@@ -28,6 +28,7 @@ describe("hubQueue", () => {
       nitro: {
         cloudflare: { wrangler: { queues: { consumers: [{ queue: "queue--77656c636f6d65" }], producers: [{ binding: "QUEUE_77656C636F6D65", queue: "queue--77656c636f6d65" }] } } },
         plugins: [".vitehub/nitro/queue/plugin.ts", "server/plugin.ts"],
+        rollupConfig: { external: ["cloudflare:workers"] },
       },
     })
     config(userConfig)
@@ -50,7 +51,7 @@ describe("hubQueue", () => {
     expect(nitroPlugin).toContain("setQueueRuntimeRegistry(queueRegistry)")
     expect(nitroPlugin).toContain("enterQueueRuntimeEvent(event)")
     expect(nitroPlugin).toContain("setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })")
-    expect(nitroPlugin).toContain("nitro.hooks.hook('cloudflare:queue'")
+    expect(nitroPlugin).toContain("cloudflare:queue")
     expect(nitroPlugin).toContain("queueWorker.queue(batch, env, context)")
     expect(registry).toContain("welcome.queue.ts")
   })
@@ -62,6 +63,16 @@ describe("hubQueue", () => {
     const plugin = hubQueue({})
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ queue: {}, root, nitro: { preset: "vercel" } } as never)
     expect(await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")).toContain("import * as __vitehubVercelQueue from '@vercel/queue'")
+  })
+
+  it("enables inferred queue config when hubQueue options are omitted", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
+    roots.push(root)
+    const plugin = hubQueue()
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, nitro: { preset: "vercel" } } as never)
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain('"provider": "vercel"')
+    expect(nitroPlugin).not.toContain("const queueConfig = false")
   })
 
   it("does not load the optional Vercel SDK without definitions", async () => {

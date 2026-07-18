@@ -25,6 +25,16 @@ function cloneNitroConfig(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
 }
 
+function mergeNitroExternal(value: unknown, addition: string): unknown {
+  if (typeof value === "undefined") return [addition]
+  if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
+  if (typeof value === "string" || value instanceof RegExp) return [value, addition]
+  if (typeof value === "function") {
+    return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
+  }
+  return value
+}
+
 function resolveQueueHosting(queue: QueueModuleOptions | undefined, nitro: Record<string, unknown>): string {
   if (queue !== false && queue?.provider) return queue.provider
   const preset = typeof nitro.preset === "string" ? nitro.preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
@@ -43,8 +53,9 @@ function mergeNitroConfig(value: unknown, queue: QueueModuleOptions | undefined,
   if (typeof queue === "undefined" || queue === false || resolveQueueHosting(queue, nitro) !== "cloudflare" || !supportsCloudflareQueues(nitro)) return { ...nitro, plugins }
   const cloudflare = cloneNitroConfig(nitro.cloudflare)
   const wrangler = cloneNitroConfig(cloudflare.wrangler)
+  const rollupConfig = cloneNitroConfig(nitro.rollupConfig)
   const generated = createCloudflareQueueBindings(discoverQueueDefinitions({ rootDir: root }))
-  if (!generated) return { ...nitro, plugins }
+  if (!generated) return { ...nitro, rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") }, plugins }
   const binding = queue.provider === "cloudflare" && typeof queue.binding === "string" ? queue.binding : undefined
   if (binding && generated.producers.length > 1) {
     throw new Error("A custom Cloudflare queue binding can only be used with one Queue Definition.")
@@ -55,6 +66,7 @@ function mergeNitroConfig(value: unknown, queue: QueueModuleOptions | undefined,
   const producers = Array.isArray(queues.producers) ? queues.producers : []
   return {
     ...nitro,
+    rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") },
     cloudflare: {
       ...cloudflare,
       wrangler: {

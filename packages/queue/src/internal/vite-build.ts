@@ -202,7 +202,7 @@ export async function writeQueueNitroIntegration(rootDir: string, queue: QueueMo
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const pluginFile = resolve(rootDir, generatedQueueNitroPlugin)
   const definitions = discoverQueueDefinitions({ rootDir })
-  const queueConfig = resolveOutputQueueConfig(queue, hosting)
+  const queueConfig = resolveOutputQueueConfig(typeof queue === "undefined" ? {} : queue, hosting)
   await Promise.all([
     mkdir(dirname(pluginFile), { recursive: true }),
     mkdir(generatedDir, { recursive: true }),

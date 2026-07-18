@@ -296,6 +296,19 @@ describe("vercel provider", () => {
     }))
   })
 
+  it("infers the sdk region from Nitro node request headers", async () => {
+    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "fra1::iad1::request" } } } }, async () => {
+      const client = await createVercelQueueClient({
+        provider: "vercel",
+        topic: "topic--77656c636f6d65",
+      })
+
+      await client.send({ email: "ava@example.com" })
+    })
+
+    expect(vercelQueueMock.options).toEqual({ region: "fra1" })
+  })
+
   it("uses Vercel waitUntil for deferred dispatch", async () => {
     process.env.VERCEL_REGION = "iad1"
 
