@@ -147,6 +147,7 @@
     "@vitejs/devtools-kit": "catalog:vite",
     "chat": "catalog:chat",
     "comark": "catalog:ui",
+    "effect": "catalog:effect",
     "esbuild": "catalog:esbuild-v27"
   },
   "devDependencies": {

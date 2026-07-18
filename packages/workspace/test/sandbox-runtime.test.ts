@@ -11,6 +11,7 @@ import { setSandboxRuntimeConfig } from "@vite-hub/sandbox/runtime/state"
 type FakeEntry = { content?: string | Uint8Array, target?: string, type: "directory" | "file" | "symlink" }
 type FakeSandboxOptions = {
   onReadFile?: (path: string) => Promise<void>
+  onStop?: () => Promise<void>
   stopError?: unknown
 }
 
@@ -125,6 +126,7 @@ function createFakeSandbox(provider: "cloudflare" | "vercel", hooks: FakeSandbox
       },
       async stop() {
         calls.push("stop")
+        await hooks.onStop?.()
         if (hooks.stopError !== undefined) throw hooks.stopError
       },
     },
@@ -228,6 +230,29 @@ describe("sandbox workspace runtime", () => {
     await Promise.all([session.close(), session.close(), session.close()])
 
     expect(fake.calls.filter(call => call === "stop")).toHaveLength(1)
+  })
+
+  it("closes the public session before asynchronous release finishes", async () => {
+    let releaseStop!: () => void
+    const stop = new Promise<void>((resolve) => {
+      releaseStop = resolve
+    })
+    const fake = createFakeSandbox("vercel", { onStop: () => stop })
+    const sandboxPackage = await import("@vite-hub/sandbox")
+    vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
+    setSandboxRuntimeConfig({ provider: "vercel", runtime: "node24" })
+
+    const workspace = createWorkspace({
+      ...defineWorkspace({ runtime: "sandbox", store: { provider: "memory" } }),
+      name: "docs",
+    })
+    await workspace.writeFile("README.md", "# Docs\n")
+    const session = await workspace.startSession()
+
+    const closing = session.close()
+    await expect(session.readFile("README.md")).rejects.toThrow("already closed")
+    releaseStop()
+    await closing
   })
 
   it("returns Vercel cleanup failures by identity without exposing FiberFailure", async () => {
