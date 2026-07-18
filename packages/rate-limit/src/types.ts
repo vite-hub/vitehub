@@ -52,11 +52,36 @@ export interface RateLimitDriverResult {
   used?: number
 }
 
-export interface RateLimitDecision extends RateLimitDriverResult {
+export interface RateLimitDriverUnavailable {
+  readonly cause: unknown
+  readonly unavailable: true
+}
+
+export type RateLimitDriverOutcome = RateLimitDriverResult | RateLimitDriverUnavailable
+
+interface RateLimitDecisionBase extends RateLimitDriverResult {
   limit: number
-  reason?: "limited" | "unavailable"
   windowMs: number
 }
+
+export interface RateLimitAllowedDecision extends RateLimitDecisionBase {
+  allowed: true
+  cause?: never
+  reason?: never
+}
+
+export interface RateLimitLimitedDecision extends RateLimitDecisionBase {
+  allowed: false
+  cause?: never
+  reason: "limited"
+}
+
+export interface RateLimitUnavailableDecision extends RateLimitDecisionBase {
+  cause: unknown
+  reason: "unavailable"
+}
+
+export type RateLimitDecision = RateLimitAllowedDecision | RateLimitLimitedDecision | RateLimitUnavailableDecision
 
 export interface RateLimitDriverCapabilities {
   readonly enforcement: RateLimitEnforcement
@@ -73,7 +98,7 @@ export interface RateLimitDriverCapabilities {
 
 export interface RateLimitDriver {
   capabilities: RateLimitDriverCapabilities
-  consume: (input: RateLimitDriverInput) => MaybePromise<RateLimitDriverResult>
+  consume: (input: RateLimitDriverInput) => MaybePromise<RateLimitDriverOutcome>
   name: string
 }
 
@@ -84,7 +109,8 @@ export interface RateLimiter {
 }
 
 export interface RateLimitHandle {
-  consume: (key: string) => Promise<RateLimitDecision>
+  consume: (key?: string) => Promise<RateLimitDecision>
+  enforce: (key?: string) => Promise<void>
   readonly id: string
   readonly kind: "rate-limit-handle"
   readonly policy: ResolvedRateLimitPolicy
@@ -116,4 +142,5 @@ export interface RateLimitModuleOptions {
 
 export interface RateLimitRuntimeConfig {
   provider: Exclude<RateLimitProvider, "auto">
+  requestKeyFallback?: string
 }

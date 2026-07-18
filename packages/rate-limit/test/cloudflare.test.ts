@@ -58,4 +58,35 @@ describe("Cloudflare Rate Limit driver", () => {
       () => limiter.consume({ key: "user-1" }),
     )).rejects.toThrow("was not found")
   })
+
+  it("reports provider call failures as unavailable", async () => {
+    const cause = new Error("provider unavailable")
+    const limiter = createRateLimiter({
+      driver: cloudflareRateLimitDriver({
+        binding: { limit: async () => { throw cause } },
+      }),
+      failure: "deny",
+      limit: 10,
+      window: "10s",
+    })
+
+    await expect(limiter.consume({ key: "user-1" })).resolves.toMatchObject({
+      allowed: false,
+      cause,
+      reason: "unavailable",
+    })
+  })
+
+  it("does not classify malformed provider responses as unavailability", async () => {
+    const limiter = createRateLimiter({
+      driver: cloudflareRateLimitDriver({
+        binding: { limit: async () => ({ success: "yes" } as never) },
+      }),
+      failure: "allow",
+      limit: 10,
+      window: "10s",
+    })
+
+    await expect(limiter.consume({ key: "user-1" })).rejects.toThrow("returned an invalid result")
+  })
 })
