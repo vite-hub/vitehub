@@ -18,8 +18,11 @@ export {
 
 export type {
   ScheduleErrorCode,
+  ScheduleErrorDetails,
   ScheduleErrorField,
   ScheduleErrorOptions,
+  ScheduleErrorValueType,
+  ScheduleValidationErrorCode,
 } from "./errors.ts"
 
 export type {
