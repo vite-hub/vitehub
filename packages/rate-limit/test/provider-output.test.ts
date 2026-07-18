@@ -149,7 +149,7 @@ describe("Rate Limit Provider Output", () => {
     await writeRateLimitProviderOutput({
       clientOutDir: "dist",
       cloudflareOwnedByNitro: true,
-      declarations: [],
+      declarations,
       provider: "memory",
       rootDir: root,
     })
