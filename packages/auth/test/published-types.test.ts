@@ -12,6 +12,7 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const workspaceRoot = resolve(packageRoot, "../..")
 const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(workspaceRoot, "node_modules/typescript/bin/tsc")
+const childProcessTimeout = 15_000
 const packedPackages = [
   "agent",
   "auth",
@@ -29,10 +30,18 @@ async function runPnpm(args: string[], cwd: string): Promise<void> {
   try {
     const npmExecPath = process.env.npm_execpath
     if (npmExecPath?.includes("pnpm")) {
-      await execFileAsync(process.execPath, [npmExecPath, ...args], { cwd })
+      await execFileAsync(process.execPath, [npmExecPath, ...args], {
+        cwd,
+        killSignal: "SIGKILL",
+        timeout: childProcessTimeout,
+      })
       return
     }
-    await execFileAsync("corepack", ["pnpm", ...args], { cwd })
+    await execFileAsync("corepack", ["pnpm", ...args], {
+      cwd,
+      killSignal: "SIGKILL",
+      timeout: childProcessTimeout,
+    })
   }
   catch (error) {
     const output = error as Error & { stderr?: string, stdout?: string }
@@ -43,23 +52,25 @@ async function runPnpm(args: string[], cwd: string): Promise<void> {
 beforeAll(async () => {
   consumerRoot = await mkdtemp(join(tmpdir(), "vitehub-auth-types-"))
   await cp(fixtureRoot, consumerRoot, { recursive: true })
-  await Promise.all(packedPackages.map(name => (
+  const packResults = await Promise.allSettled(packedPackages.map(name => (
     runPnpm(["pack", "--pack-destination", consumerRoot!], join(workspaceRoot, "packages", name))
   )))
-}, 15_000)
+  const failedPack = packResults.find(result => result.status === "rejected")
+  if (failedPack) throw failedPack.reason
+  await runPnpm(["install", "--prefer-offline", "--ignore-scripts", "--no-frozen-lockfile"], consumerRoot)
+}, 45_000)
 
 afterAll(async () => {
   if (consumerRoot) await rm(consumerRoot, { force: true, recursive: true })
 })
 
-it("installs the real packed Auth dependency graph", { timeout: 15_000 }, async () => {
-  await runPnpm(["install", "--prefer-offline", "--ignore-scripts", "--no-frozen-lockfile"], consumerRoot!)
-})
-
-it("publishes the structured Auth error contract from installed packages", { timeout: 15_000 }, async () => {
+it("publishes the structured Auth error contract from installed packages", { timeout: 20_000 }, async () => {
   const root = consumerRoot!
   try {
-    await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root])
+    await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root], {
+      killSignal: "SIGKILL",
+      timeout: childProcessTimeout,
+    })
   }
   catch (error) {
     const diagnostics = error as Error & { stderr?: string, stdout?: string }
