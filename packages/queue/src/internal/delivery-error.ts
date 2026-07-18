@@ -1,13 +1,13 @@
 import { QueueError } from "../errors.ts"
 
-export interface QueueDeliveryErrorContext {
+interface QueueDeliveryErrorContext {
   attempts: number
   id: string
   provider: "cloudflare" | "vercel"
   queue: string
 }
 
-export interface QueueDeliveryErrorReport extends QueueDeliveryErrorContext {
+interface QueueDeliveryErrorReport extends QueueDeliveryErrorContext {
   error: {
     code?: string
     details?: QueueError["details"]
