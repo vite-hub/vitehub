@@ -348,13 +348,20 @@ describe("Vite provider outputs", () => {
     await generateProviderOutputs({
       blob: { driver: "fs" },
       clientOutDir: "dist",
+      rootDir,
+    })
+
+    expect(existsSync(join(rootDir, ".vitehub", "blob", "cloudflare-output.json"))).toBe(false)
+
+    await generateProviderOutputs({
+      blob: { driver: "fs" },
+      clientOutDir: "dist",
       cloudflareOwnedByNitro: true,
       rootDir,
     })
 
     expect(existsSync(join(outputRoot, "index.js"))).toBe(false)
     expect(existsSync(join(outputRoot, "wrangler.json"))).toBe(false)
-    expect(existsSync(join(rootDir, ".vitehub", "blob", "cloudflare-output.json"))).toBe(false)
   })
 
   it("omits Cloudflare bucket bindings when none are configured", { timeout: 15_000 }, async () => {

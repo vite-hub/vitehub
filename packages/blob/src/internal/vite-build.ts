@@ -502,6 +502,9 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     await mkdir(dirname(resolve(options.rootDir, cloudflareBlobOutputState)), { recursive: true })
     await writeFile(resolve(options.rootDir, cloudflareBlobOutputState), `${JSON.stringify({ r2_buckets: r2Buckets }, null, 2)}\n`, "utf8")
   }
+  else {
+    await rm(resolve(options.rootDir, cloudflareBlobOutputState), { force: true })
+  }
   return artifacts
 }
 
