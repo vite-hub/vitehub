@@ -74,7 +74,6 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
       cause: error,
       code: "VERCEL_QUEUE_SDK_LOAD_FAILED",
       details: { operation: "load-sdk", provider: "vercel" },
-      message: "[vitehub] Vercel queue SDK could not be loaded.",
     })
   }
 
@@ -84,7 +83,6 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
       throw new QueueError<"VERCEL_QUEUE_REGION_REQUIRED">({
         code: "VERCEL_QUEUE_REGION_REQUIRED",
         details: { provider: "vercel" },
-        message: "[vitehub] Vercel queue region could not be resolved.",
       })
     }
 
@@ -101,7 +99,6 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
   throw new QueueError<"VERCEL_QUEUE_SDK_INVALID">({
     code: "VERCEL_QUEUE_SDK_INVALID",
     details: { provider: "vercel" },
-    message: "[vitehub] Vercel queue SDK does not expose the expected client API.",
   })
 }
 
@@ -111,7 +108,6 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
     throw new QueueError<"VERCEL_TOPIC_RESOLUTION_REQUIRED">({
       code: "VERCEL_TOPIC_RESOLUTION_REQUIRED",
       details: { provider: "vercel" },
-      message: "[vitehub] Vercel queue requires a concrete topic.",
     })
   }
 
@@ -126,7 +122,6 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
         throw new QueueError<"VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS">({
           code: "VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS",
           details: { provider: "vercel", unsupported: ["contentType"] },
-          message: "[vitehub] Vercel queue does not support one or more enqueue options.",
         })
       }
 

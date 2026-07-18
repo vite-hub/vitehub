@@ -64,6 +64,7 @@ export default defineQueue<{ email?: string }>(async ({ payload }) => {
   if (!payload.email) {
     throw new QueueError<"WELCOME_EMAIL_INVALID_PAYLOAD">({
       code: "WELCOME_EMAIL_INVALID_PAYLOAD",
+      custom: true,
       details: { field: "email" },
       message: "Welcome email payload requires an email address.",
       retryable: false,
@@ -74,7 +75,7 @@ export default defineQueue<{ email?: string }>(async ({ payload }) => {
 })
 ```
 
-Custom application codes use an explicit generic, while ViteHub's built-in codes are available as `QueueErrorCode`. ViteHub reports each failed delivery with safe queue and message identifiers, attempt count, code, details, and retry policy before choosing the provider action. Cloudflare `onError` and Vercel `callbackOptions.retry` directives override the default action when they return an explicit directive.
+Custom application codes use an explicit generic and `custom: true`, while ViteHub's built-in codes are available as `QueueErrorCode`. The marker makes application-owned messages and details an explicit public contract at runtime. ViteHub reports each failed delivery with safe queue and message identifiers, attempt count, code, details, and retry policy before choosing the provider action. Cloudflare `onError` and Vercel `callbackOptions.retry` directives override the default action when they return an explicit directive.
 
 ## Vite Integration
 

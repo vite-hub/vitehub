@@ -19,7 +19,6 @@ function toSendOptions(options: QueueEnqueueOptions = {}) {
     throw new QueueError<"CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS">({
       code: "CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS",
       details: { provider: "cloudflare", unsupported },
-      message: "[vitehub] Cloudflare queue does not support one or more enqueue options.",
     })
   }
 
@@ -91,7 +90,6 @@ export function createCloudflareQueueClient(provider: CloudflareQueueProviderOpt
     throw new QueueError<"CLOUDFLARE_BINDING_RESOLUTION_REQUIRED">({
       code: "CLOUDFLARE_BINDING_RESOLUTION_REQUIRED",
       details: { provider: "cloudflare" },
-      message: "[vitehub] Cloudflare queue requires a concrete request-scoped binding.",
     })
   }
 
@@ -99,7 +97,6 @@ export function createCloudflareQueueClient(provider: CloudflareQueueProviderOpt
     throw new QueueError<"CLOUDFLARE_BINDING_INVALID">({
       code: "CLOUDFLARE_BINDING_INVALID",
       details: { provider: "cloudflare" },
-      message: "[vitehub] Cloudflare queue binding is invalid.",
     })
   }
 

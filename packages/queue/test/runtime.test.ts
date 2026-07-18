@@ -99,6 +99,7 @@ describe("cloudflare queue runtime", () => {
       onMessage: async () => {
         throw new QueueError<"INVALID_PAYLOAD">({
           code: "INVALID_PAYLOAD",
+          custom: true,
           message: "Invalid payload.",
           retryable: false,
         })
@@ -154,6 +155,7 @@ describe("cloudflare queue runtime", () => {
     const abort = Object.assign(new Error("caller stopped queue send"), { name: "AbortError" })
     const custom = new QueueError<"WELCOME_EMAIL_REJECTED">({
       code: "WELCOME_EMAIL_REJECTED",
+      custom: true,
       message: "Welcome email was rejected.",
     })
     const send = vi.fn()
@@ -434,6 +436,7 @@ describe("vercel provider", () => {
         throw new QueueError<"INVALID_PAYLOAD">({
           cause: new Error("private provider detail"),
           code: "INVALID_PAYLOAD",
+          custom: true,
           message: "Invalid payload.",
           retryable: false,
         })
@@ -472,7 +475,7 @@ describe("vercel provider", () => {
     const retry = vi.fn(() => ({ afterSeconds: 30 } as const))
     const definition = {
       handler: async () => {
-        throw new QueueError<"INVALID_PAYLOAD">({ code: "INVALID_PAYLOAD", message: "Invalid payload.", retryable: false })
+        throw new QueueError<"INVALID_PAYLOAD">({ code: "INVALID_PAYLOAD", custom: true, message: "Invalid payload.", retryable: false })
       },
       options: { callbackOptions: { retry } },
     }

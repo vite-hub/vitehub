@@ -70,7 +70,6 @@ export async function handleHostedVercelQueueCallback(event: { method?: string, 
     throw new QueueError<"VERCEL_PROVIDER_EXPECTED">({
       code: "VERCEL_PROVIDER_EXPECTED",
       details: { provider: queue.provider },
-      message: "[vitehub] Hosted Vercel Queue Delivery requires the Vercel provider.",
     })
   }
 

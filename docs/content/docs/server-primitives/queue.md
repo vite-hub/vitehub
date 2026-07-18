@@ -168,6 +168,7 @@ export default defineQueue<{ key?: string }>(async ({ payload }) => {
   if (!payload.key) {
     throw new QueueError<"EXPIRY_INVALID_PAYLOAD">({
       code: 'EXPIRY_INVALID_PAYLOAD',
+      custom: true,
       details: { field: 'key' },
       message: 'Image expiry payload requires a key.',
       retryable: false,
@@ -181,6 +182,7 @@ export default defineQueue<{ key?: string }>(async ({ payload }) => {
     throw new QueueError<"EXPIRY_FAILED">({
       cause,
       code: 'EXPIRY_FAILED',
+      custom: true,
       details: { key: payload.key },
       message: 'Image expiry failed.',
     })
@@ -188,7 +190,7 @@ export default defineQueue<{ key?: string }>(async ({ payload }) => {
 })
 ```
 
-Custom application codes require an explicit generic, which keeps them separate from ViteHub's observed `QueueErrorCode` union. ViteHub reports each failed delivery before choosing its provider action. The report includes safe Queue Definition and message identifiers, attempt count, `code`, `details`, and effective retry policy; it does not serialize `cause` or unsafe identifiers. Cloudflare acknowledges a non-retryable error, while Vercel returns `{ acknowledge: true }`. Other errors retain the provider's normal retry behavior.
+Custom application codes require an explicit generic and `custom: true`, which keeps them separate from ViteHub's observed `QueueErrorCode` union in both TypeScript and JavaScript. The custom message and details are deliberately public, so keep credentials, provider bodies, and private resource locations in `cause`. ViteHub reports each failed delivery before choosing its provider action. The report includes safe Queue Definition and message identifiers, attempt count, `code`, `details`, and effective retry policy; it does not serialize `cause` or unsafe identifiers. Cloudflare acknowledges a non-retryable error, while Vercel returns `{ acknowledge: true }`. Other errors retain the provider's normal retry behavior.
 
 ## Queue Definition options
 
@@ -358,7 +360,7 @@ await createQueueClient({
 
 ## Errors
 
-Queue APIs throw `QueueError`, which extends the shared `ViteHubError` foundation. Its object constructor requires `code` and `message`; it can also carry code-specific `details`, `requestId`, `retryable`, and a non-serialized `cause`.
+Queue APIs throw `QueueError`, which extends the shared `ViteHubError` foundation. Built-in errors accept a `code` and code-specific details, then derive their public message and allowlisted details from the runtime vocabulary. Custom application errors require `code`, `custom: true`, and `message`; they can also carry public `details`, `requestId`, `retryable`, and a non-serialized `cause`.
 
 Built-in failures use the closed `QueueErrorCode` union and allowlisted details. Queue Definitions can add an application code explicitly:
 
@@ -366,12 +368,15 @@ Built-in failures use the closed `QueueErrorCode` union and allowlisted details.
 new QueueError<'WELCOME_EMAIL_REJECTED'>({
   cause,
   code: 'WELCOME_EMAIL_REJECTED',
+  custom: true,
   details: { campaign: 'welcome' },
   message: 'Welcome email was rejected.',
 })
 ```
 
 `JSON.stringify(error)` uses the shared safe shape and omits `cause`. Built-in provider errors use fixed messages and allowlisted `{ provider, operation }` details, while the raw SDK or binding failure remains available as `error.cause` in protected server-side diagnostics.
+
+When migrating from the first structured Queue error contract, add `custom: true` to every application-defined code. Remove caller-supplied `message` values from built-in codes; ViteHub now derives them and rejects invalid runtime codes or code-specific details instead of serializing them.
 
 | Code | Meaning |
 | --- | --- |

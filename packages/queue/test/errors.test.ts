@@ -10,6 +10,7 @@ describe("QueueError", () => {
     const error = new QueueError<"EXPIRY_INVALID_PAYLOAD">({
       cause,
       code: "EXPIRY_INVALID_PAYLOAD",
+      custom: true,
       details: { counter: "expiry_invalid_payload" },
       message: "Invalid image expiry payload.",
       retryable: false,
@@ -32,7 +33,6 @@ describe("QueueError", () => {
       cause,
       code: "QUEUE_PROVIDER_OPERATION_FAILED",
       details: { operation: "send", provider: "vercel" },
-      message: "[vitehub] vercel queue provider failed during send.",
     })
 
     expect(error.toJSON()).toEqual({
@@ -44,10 +44,79 @@ describe("QueueError", () => {
     expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private/)
   })
 
+  it("derives built-in messages and details from the runtime vocabulary", () => {
+    const error = new QueueError({
+      code: "QUEUE_PROVIDER_OPERATION_FAILED",
+      details: {
+        operation: "send",
+        provider: "vercel",
+        token: "secret-token",
+      },
+      message: "Bearer secret-token failed at https://queue.example/private",
+    } as never)
+
+    expect(error.toJSON()).toEqual({
+      code: "QUEUE_PROVIDER_OPERATION_FAILED",
+      details: { operation: "send", provider: "vercel" },
+      message: "[vitehub] vercel queue provider failed during send.",
+    })
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private/)
+  })
+
+  it("rejects invalid runtime codes and built-in details with a fixed error", () => {
+    const invalidInputs = [
+      {
+        code: "QUEUE_PROVIDER_OPERATION_FAILED",
+        details: { operation: "cancel", provider: "vercel", token: "secret-token" },
+        message: "Bearer secret-token failed at https://queue.example/private",
+      },
+      {
+        code: "Bearer secret-token",
+        details: { url: "https://queue.example/private" },
+        message: "Provider body secret-token",
+      },
+      {
+        code: "QUEUE_DISABLED",
+        custom: true,
+        message: "Provider body secret-token",
+      },
+    ]
+
+    for (const input of invalidInputs) {
+      try {
+        new QueueError(input as never)
+        expect.unreachable("invalid Queue error input should fail")
+      }
+      catch (error) {
+        expect(error).toEqual(new TypeError("[vitehub] Invalid Queue error options."))
+        expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private/)
+      }
+    }
+  })
+
+  it("requires explicit runtime intent for custom application errors", () => {
+    expect(() => new QueueError<"EXPIRY_FAILED">({
+      code: "EXPIRY_FAILED",
+      message: "Image expiry failed.",
+    } as never)).toThrow("[vitehub] Invalid Queue error options.")
+
+    expect(new QueueError<"EXPIRY_FAILED">({
+      code: "EXPIRY_FAILED",
+      custom: true,
+      details: { operation: "delete" },
+      message: "Image expiry failed.",
+    }).toJSON()).toEqual({
+      code: "EXPIRY_FAILED",
+      details: { operation: "delete" },
+      message: "Image expiry failed.",
+    })
+  })
+
   it("omits causes from Queue Delivery reports", () => {
     const error = new QueueError<"DELIVERY_FAILED">({
       cause: new Error("private provider detail"),
       code: "DELIVERY_FAILED",
+      custom: true,
       message: "Queue Delivery failed.",
     })
 
@@ -91,5 +160,59 @@ describe("QueueError", () => {
       retryable: true,
     })
     expect(JSON.stringify(report)).not.toMatch(/secret-token|queue\.example|private|\.env/)
+  })
+
+  it("does not trust forged QueueError instances in delivery reports", () => {
+    const forged = Object.assign(Object.create(QueueError.prototype), {
+      code: "QUEUE_PROVIDER_OPERATION_FAILED",
+      details: { operation: "cancel", provider: "vercel", token: "secret-token" },
+      message: "Bearer secret-token failed at https://queue.example/private",
+      retryable: false,
+    })
+
+    const report = createQueueDeliveryErrorReport(forged, {
+      attempts: 1,
+      id: "message-1",
+      provider: "vercel",
+      queue: "welcome",
+    })
+
+    expect(report).toEqual({
+      attempts: 1,
+      error: { message: "[vitehub] Queue Delivery failed.", name: "Error" },
+      id: "message-1",
+      provider: "vercel",
+      queue: "welcome",
+      retryable: true,
+    })
+    expect(JSON.stringify(report)).not.toMatch(/secret-token|queue\.example|private/)
+  })
+
+  it("snapshots custom public details before delivery reporting", () => {
+    const details = { campaign: "welcome" }
+    const error = new QueueError<"WELCOME_EMAIL_REJECTED">({
+      code: "WELCOME_EMAIL_REJECTED",
+      custom: true,
+      details,
+      message: "Welcome email was rejected.",
+      retryable: false,
+    })
+    details.campaign = "secret-token"
+
+    const report = createQueueDeliveryErrorReport(error, {
+      attempts: 1,
+      id: "message-1",
+      provider: "cloudflare",
+      queue: "welcome",
+    })
+
+    expect(report.error).toEqual({
+      code: "WELCOME_EMAIL_REJECTED",
+      details: { campaign: "welcome" },
+      message: "Welcome email was rejected.",
+      name: "QueueError",
+    })
+    expect(report.retryable).toBe(false)
+    expect(JSON.stringify(report)).not.toContain("secret-token")
   })
 })

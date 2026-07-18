@@ -23,6 +23,7 @@ it("infers queue payload types", () => {
 it("types structured Queue errors", () => {
   const options = {
     code: "INVALID_PAYLOAD",
+    custom: true,
     details: { field: "email" },
     message: "Invalid payload.",
     retryable: false,
@@ -53,10 +54,9 @@ it("types structured Queue errors", () => {
     code: "QUEUE_PROVIDER_OPERATION_FAILED",
     // @ts-expect-error Built-in provider operations use the observed operation union.
     details: { operation: "cancel", provider: "vercel" },
-    message: "Provider failed.",
   })
   // @ts-expect-error QUEUE_DISABLED does not publish arbitrary details.
-  new QueueError({ code: "QUEUE_DISABLED", details: { queue: "private" }, message: "Queue is disabled." })
+  new QueueError({ code: "QUEUE_DISABLED", details: { queue: "private" } })
   // @ts-expect-error The legacy message-first constructor was removed.
   new QueueError("Provider failed.")
 })

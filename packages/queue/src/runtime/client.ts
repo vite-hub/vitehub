@@ -20,7 +20,6 @@ function createQueueDefinitionNotFoundError(name: string): QueueError<"QUEUE_DEF
   return new QueueError<"QUEUE_DEFINITION_NOT_FOUND">({
     code: "QUEUE_DEFINITION_NOT_FOUND",
     details: queue ? { queue } : undefined,
-    message: "[vitehub] Queue Definition is not registered. Queue Runtime Registry is installed by generated Provider Output.",
   })
 }
 
@@ -35,7 +34,6 @@ async function loadNamedQueueDefinition(name: string) {
       cause,
       code: "QUEUE_DEFINITION_LOAD_FAILED",
       details: queue ? { queue } : undefined,
-      message: "[vitehub] Queue Definition could not be loaded.",
     })
   }
 }
@@ -88,7 +86,6 @@ async function createNamedQueueClient(name: string): Promise<QueueClient> {
   if (config === false) {
     throw new QueueError<"QUEUE_DISABLED">({
       code: "QUEUE_DISABLED",
-      message: "[vitehub] Queue runtime is disabled.",
     })
   }
 
