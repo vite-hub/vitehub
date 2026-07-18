@@ -58,7 +58,7 @@ export default defineEventHandler(async () => {
 | `runWorkflow`, `deferWorkflow`, `getWorkflowRun` from `@vite-hub/workflow` | Start, defer, or inspect Workflow Runs. |
 | `createWorkflow` from `@vite-hub/workflow` | Create an inline Workflow Handle for app-owned code. |
 | `normalizeWorkflowOptions` from `@vite-hub/workflow` | Resolve Integration Options to a concrete Workflow Provider. |
-| `WorkflowError` from `@vite-hub/workflow` | Throw or handle structured Workflow failures with stable codes. |
+| `ApplicationWorkflowError`, `WorkflowError` from `@vite-hub/workflow` | Throw or handle structured app-owned and ViteHub-owned Workflow failures with stable codes. |
 | `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `@vite-hub/workflow` | Read provider request payloads in custom runtime entrypoints. |
 | `hubWorkflow` from `@vite-hub/workflow/vite` | Register Workflow discovery and provider output generation. |
 
@@ -162,17 +162,17 @@ The run id belongs to Invocation Options. Use a stable id when the provider shou
 
 ## Structured errors
 
-Throw `WorkflowError` when app code needs a stable failure contract across Workflow Providers.
+Throw `ApplicationWorkflowError` when app code needs a stable failure contract across Workflow Providers. `WorkflowError` is reserved for ViteHub-owned failures with fixed codes, messages, and detail shapes.
 
 ```ts [server/workflows/transcribe.ts]
-import { WorkflowError, defineWorkflow } from '@vite-hub/workflow'
+import { ApplicationWorkflowError, defineWorkflow } from '@vite-hub/workflow'
 
 export default defineWorkflow<{ recordingId: string }>(async ({ payload }) => {
   try {
     return await transcribeRecording(payload.recordingId)
   }
   catch (cause) {
-    throw new WorkflowError({
+    throw new ApplicationWorkflowError({
       cause,
       code: 'TRANSCRIPTION_FAILED',
       details: { recordingId: payload.recordingId },
@@ -182,7 +182,7 @@ export default defineWorkflow<{ recordingId: string }>(async ({ payload }) => {
 })
 ```
 
-Every `WorkflowError` requires a `code` and `message`. ViteHub's built-in codes are typed as `WorkflowErrorCode`, while app code can use its own stable strings. Calling `error.toJSON()` returns `code`, `message`, and JSON-safe `details`; it omits `cause`, which stays on the in-memory error for logging and debugging. Configure retries on the Workflow Step; throwing an error does not override the Step's retry policy.
+Every `ApplicationWorkflowError` requires a non-reserved SCREAMING_SNAKE_CASE `code` and a `message`. Calling `error.toJSON()` returns `code`, `message`, and JSON-safe `details`; it omits `cause`, which stays on the in-memory error for logging and debugging. ViteHub's built-in codes are typed as `WorkflowErrorCode` and use `WorkflowError` with code-derived messages and code-specific details. Configure retries on the Workflow Step; throwing an error does not override the Step's retry policy.
 
 ## Workflow Run shape
 

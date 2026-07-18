@@ -231,9 +231,11 @@ function cloneApplicationDetailValue(value: unknown, depth: number, state: { ent
       throw new TypeError("ApplicationWorkflowError details must contain only plain objects and arrays.")
     }
 
-    const keys = safeApplicationKeys(value)
-    countApplicationEntries(state, keys.length)
-    return Object.fromEntries(keys.map(key => [key, cloneApplicationDetailValue(readApplicationValue(value, key), depth + 1, state)]))
+    const entries = safeApplicationKeys(value)
+      .map(key => [key, readApplicationValue(value, key)] as const)
+      .filter(([, nested]) => nested !== undefined)
+    countApplicationEntries(state, entries.length)
+    return Object.fromEntries(entries.map(([key, nested]) => [key, cloneApplicationDetailValue(nested, depth + 1, state)]))
   }
   finally {
     state.seen.delete(value)
@@ -300,6 +302,7 @@ function sealPublicError(error: ViteHubError<string, ViteHubErrorDetails>): void
       Object.defineProperty(error, key, { ...descriptor, configurable: false, writable: false })
     }
   }
+  Object.preventExtensions(error)
 }
 
 function deepFreeze(value: unknown): void {

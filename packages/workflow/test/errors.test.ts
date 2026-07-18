@@ -33,6 +33,7 @@ describe("WorkflowError", () => {
 
     expect(Reflect.set(error, "code", "SECRET_CODE")).toBe(false)
     expect(Reflect.set(error, "message", secret)).toBe(false)
+    expect(Reflect.set(error, "toJSON", () => ({ message: secret }))).toBe(false)
     expect(Reflect.set(error.details!, "operation", secret)).toBe(false)
     expect(JSON.stringify(error)).not.toContain(secret)
   })
@@ -70,6 +71,7 @@ describe("ApplicationWorkflowError", () => {
     const cause = new Error("private provider diagnostics")
     const details = {
       attempt: 2,
+      optional: undefined,
       provider: { name: "custom", regions: ["arn", "fra"] },
       reference: "https://user:token@example.com/private",
     }
