@@ -181,6 +181,67 @@ describe("agent capability runtime", () => {
     expect(order).toEqual(["resolve:first", "resolve:second", "close:second", "close:first"])
   })
 
+  it("preserves a single capability cleanup failure by identity", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const closeError = new Error("close failed")
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          close: async () => { throw closeError },
+          id: "failing-close",
+        }),
+      ],
+    }, runtime(), {})
+
+    await expect(resolved.close()).rejects.toBe(closeError)
+  })
+
+  it("aggregates capability cleanup failures in reverse acquisition order", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const firstError = new Error("first close failed")
+    const secondError = new Error("second close failed")
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          close: () => { throw firstError },
+          id: "first",
+        }),
+        defineCapability({
+          close: () => { throw secondError },
+          id: "second",
+        }),
+      ],
+    }, runtime(), {})
+
+    const closeError = await resolved.close().catch(error => error)
+    expect(closeError).toBeInstanceOf(AggregateError)
+    expect(closeError.message).toBe("[vitehub] Multiple capability close callbacks failed.")
+    expect(closeError.errors).toEqual([secondError, firstError])
+  })
+
+  it("preserves setup and cleanup failures in the existing aggregate contract", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const setupError = new Error("setup failed")
+    const closeError = new Error("close failed")
+
+    const failure = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          close: () => { throw closeError },
+          id: "initialized",
+        }),
+        defineCapability({
+          id: "failing-setup",
+          resolve: () => { throw setupError },
+        }),
+      ],
+    }, runtime(), {}).catch(error => error)
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect(failure.message).toBe("[vitehub] Capability setup failed and cleanup also failed.")
+    expect(failure.errors).toEqual([setupError, closeError])
+  })
+
   it("applies tool transforms, renderers, and input mutation", async () => {
     const {
       applyCapabilityToolTransforms,

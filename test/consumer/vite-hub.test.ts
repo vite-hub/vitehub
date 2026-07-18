@@ -203,6 +203,7 @@ function workspaceConfig(specs: Record<string, string>) {
     "  - .",
     "allowBuilds:",
     "  esbuild: true",
+    "  msgpackr-extract: true",
     "overrides:",
     ...overrides,
     "",
@@ -451,24 +452,21 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const netlifyProviderImports = importSpecifierOccurrences(netlifyFunctionSource)
         .filter(({ specifier }) => specifier === "vite-hub" || specifier.startsWith("vite-hub/") || specifier.startsWith("@vite-hub/"))
       expect(netlifyProviderImports, "Netlify Agent output must bundle canonical and owner-package imports").toEqual([])
-      const netlifyFunction = await import(`${pathToFileURL(netlifyFunctionPath).href}?contract=${Date.now()}`) as {
-        default: (request: Request, context: { waitUntil: (task: Promise<unknown>) => void }) => Promise<Response>
-      }
-      const netlifyTasks: Promise<unknown>[] = []
-      const netlifyResponse = await netlifyFunction.default(new Request("https://example.com/api/_vitehub/agents/echo/chat", {
-        body: JSON.stringify({
-          messages: [{ id: "user-1", parts: [{ text: "netlify", type: "text" }], role: "user" }],
-        }),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      }), {
-        waitUntil(task) {
-          netlifyTasks.push(task)
-        },
-      })
+      const netlifyInvocation = await run("node", ["--input-type=module", "--eval", `
+        const handler = await import(${JSON.stringify(pathToFileURL(netlifyFunctionPath).href)})
+        const tasks = []
+        const response = await handler.default(new Request("https://example.com/api/_vitehub/agents/echo/chat", {
+          body: JSON.stringify({ messages: [{ id: "user-1", parts: [{ text: "netlify", type: "text" }], role: "user" }] }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        }), { waitUntil: task => tasks.push(task) })
+        const body = await response.text()
+        await Promise.all(tasks)
+        process.stdout.write(JSON.stringify({ body, status: response.status }))
+      `], appDir)
+      const netlifyResponse = JSON.parse(netlifyInvocation.stdout) as { body: string, status: number }
       expect(netlifyResponse.status).toBe(200)
-      expect(await netlifyResponse.text()).toContain("VITE_HUB_SERVER_ONLY:/workspace")
-      await Promise.all(netlifyTasks)
+      expect(netlifyResponse.body).toContain("VITE_HUB_SERVER_ONLY:/workspace")
 
       for (const alias of ["vitehub", "vite-hub"]) {
         const help = await run("pnpm", ["exec", alias, "--help"], appDir)
