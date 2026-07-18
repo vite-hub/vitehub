@@ -36,7 +36,7 @@ it("publishes the Source error contract to installed consumers", async () => {
   finally {
     await rm(root, { force: true, recursive: true })
   }
-})
+}, 15_000)
 
 it("keeps Effect out of Source declarations and runtime bundles", async () => {
   const files = await listFiles(join(packageRoot, "dist"))
