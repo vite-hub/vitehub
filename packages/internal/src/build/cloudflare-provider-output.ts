@@ -89,15 +89,20 @@ function removeEntries(existing: unknown, entries: Array<Record<string, unknown>
 function removeContribution(wrangler: Record<string, unknown>, contribution: CloudflareProviderOutputContribution): Record<string, unknown> {
   const queues = cloneProviderRecord(wrangler.queues)
   const hasQueues = Boolean(contribution.queues?.consumers?.length || contribution.queues?.producers?.length)
+  if (contribution.queues?.consumers?.length) {
+    const consumers = removeEntries(queues.consumers, contribution.queues.consumers)
+    if (consumers.length) queues.consumers = consumers
+    else delete queues.consumers
+  }
+  if (contribution.queues?.producers?.length) {
+    const producers = removeEntries(queues.producers, contribution.queues.producers)
+    if (producers.length) queues.producers = producers
+    else delete queues.producers
+  }
+  const { queues: _queues, ...withoutQueues } = wrangler
   return {
-    ...wrangler,
-    ...(hasQueues ? {
-      queues: {
-        ...queues,
-        consumers: removeEntries(queues.consumers, contribution.queues?.consumers),
-        producers: removeEntries(queues.producers, contribution.queues?.producers),
-      },
-    } : {}),
+    ...(hasQueues ? withoutQueues : wrangler),
+    ...(hasQueues && Object.keys(queues).length ? { queues } : {}),
     ...(contribution.r2Buckets?.length ? { r2_buckets: removeEntries(wrangler.r2_buckets, contribution.r2Buckets) } : {}),
     ...(contribution.rateLimits?.length ? { ratelimits: removeEntries(wrangler.ratelimits, contribution.rateLimits) } : {}),
   }

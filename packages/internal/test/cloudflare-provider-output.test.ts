@@ -94,10 +94,13 @@ describe("Cloudflare provider output", () => {
     const first = composeNitroCloudflareProviderOutput(config, { cloudflare: { wrangler: {} } })
     registerCloudflareProviderOutput(config, "queue", { queues: { producers: [{ binding: "NEW", queue: "new" }] } })
 
-    expect(composeNitroCloudflareProviderOutput(config, first)).toHaveProperty(
+    const second = composeNitroCloudflareProviderOutput(config, first)
+    expect(second).toHaveProperty(
       "cloudflare.wrangler.queues.producers",
       [{ binding: "NEW", queue: "new" }],
     )
+    registerCloudflareProviderOutput(config, "queue", {})
+    expect(composeNitroCloudflareProviderOutput(config, second)).not.toHaveProperty("cloudflare.wrangler.queues")
   })
 
   it("preserves non-plain Nitro config outside Wrangler composition", () => {
