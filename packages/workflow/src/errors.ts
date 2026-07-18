@@ -38,6 +38,7 @@ const safeWorkflowNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 const maximumApplicationMessageLength = 512
 const maximumApplicationDetailDepth = 5
 const maximumApplicationDetailEntries = 64
+const applicationDetailAccessor = Symbol("application detail accessor")
 
 export type WorkflowErrorCode = keyof typeof workflowErrorMessages
 export type WorkflowOperationName = typeof workflowOperationNames[number]
@@ -83,7 +84,9 @@ type WorkflowErrorOptionsFor<TCode extends WorkflowErrorCode> = ErrorOptions & {
     : { details: WorkflowErrorDetails<TCode> })
 
 export type WorkflowErrorOptions<TCode extends WorkflowErrorCode = WorkflowErrorCode> =
-  TCode extends WorkflowErrorCode ? WorkflowErrorOptionsFor<TCode> : never
+  [WorkflowErrorCode] extends [TCode]
+    ? ErrorOptions & { code: TCode, details?: WorkflowErrorDetails<TCode> }
+    : TCode extends WorkflowErrorCode ? WorkflowErrorOptionsFor<TCode> : never
 
 export class WorkflowError<TCode extends WorkflowErrorCode = WorkflowErrorCode> extends ViteHubError<TCode, WorkflowErrorDetails<TCode>> {
   constructor(options: WorkflowErrorOptions<TCode>) {
@@ -277,12 +280,14 @@ function readApplicationValue(value: object, key: string): unknown {
   try {
     const descriptor = Object.getOwnPropertyDescriptor(value, key)
     if (!descriptor || !("value" in descriptor)) {
-      throw new TypeError("ApplicationWorkflowError details must not contain accessors.")
+      throw applicationDetailAccessor
     }
     return descriptor.value
   }
   catch (error) {
-    if (error instanceof TypeError && error.message.startsWith("ApplicationWorkflowError")) throw error
+    if (error === applicationDetailAccessor) {
+      throw new TypeError("ApplicationWorkflowError details must not contain accessors.")
+    }
     throw new TypeError("ApplicationWorkflowError details contain an unreadable value.")
   }
 }
@@ -296,6 +301,11 @@ function countApplicationEntries(state: { entries: number }, count: number): voi
 
 function sealPublicError(error: ViteHubError<string, ViteHubErrorDetails>): void {
   deepFreeze(error.details)
+  Object.defineProperty(error, "toJSON", {
+    configurable: false,
+    value: () => ViteHubError.prototype.toJSON.call(error),
+    writable: false,
+  })
   for (const key of ["code", "details", "message", "name", "requestId", "retryable"] as const) {
     const descriptor = Object.getOwnPropertyDescriptor(error, key)
     if (descriptor && "writable" in descriptor) {

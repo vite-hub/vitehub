@@ -3,6 +3,7 @@ import { ApplicationWorkflowError, WorkflowError } from "@vite-hub/workflow"
 import type { ApplicationWorkflowErrorOptions, WorkflowErrorCode, WorkflowErrorOptions } from "@vite-hub/workflow"
 
 const code = "WORKFLOW_DEFINITION_NOT_FOUND" satisfies WorkflowErrorCode
+declare const dynamicCode: WorkflowErrorCode
 const options = {
   code: "TRANSCRIPTION_FAILED" as const,
   details: { attempt: 2, provider: "vercel" },
@@ -14,6 +15,7 @@ applicationError.code satisfies "TRANSCRIPTION_FAILED"
 applicationError.toJSON().details satisfies { attempt: number, provider: string } | undefined
 
 new WorkflowError({ code }) satisfies WorkflowError<"WORKFLOW_DEFINITION_NOT_FOUND">
+new WorkflowError({ code: dynamicCode }) satisfies WorkflowError<WorkflowErrorCode>
 
 const providerOptions = {
   code: "WORKFLOW_PROVIDER_OPERATION_FAILED" as const,

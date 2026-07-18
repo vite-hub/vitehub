@@ -64,6 +64,17 @@ describe("WorkflowError", () => {
     expect(() => new WorkflowError(options as never)).toThrow("WorkflowError requires a known workflow error code.")
     expect(() => new WorkflowError(options as never)).not.toThrow(secret)
   })
+
+  it("pins trusted serialization for subclasses", () => {
+    class CustomWorkflowError extends WorkflowError<"WORKFLOW_DISABLED"> {
+      override toJSON(): never {
+        throw new Error("private subclass diagnostics")
+      }
+    }
+
+    const error = new CustomWorkflowError({ code: "WORKFLOW_DISABLED" })
+    expect(error.toJSON()).toEqual({ code: "WORKFLOW_DISABLED", message: "Workflow is disabled." })
+  })
 })
 
 describe("ApplicationWorkflowError", () => {
@@ -128,6 +139,14 @@ describe("ApplicationWorkflowError", () => {
       enumerable: true,
       get() {
         return 503
+      },
+    })],
+    ["hostile descriptor traps", new Proxy({ token: true }, {
+      getOwnPropertyDescriptor() {
+        throw new TypeError("ApplicationWorkflowError token=private")
+      },
+      ownKeys() {
+        return ["token"]
       },
     })],
   ])("rejects %s in application details without publishing raw diagnostics", (_, details) => {
