@@ -265,12 +265,20 @@ describe("blob config", () => {
       driver: "fs",
       base: ".data/assets",
       serve: {
+        headers: {
+          "Cache-Control": "public, max-age=300",
+          "X-Content-Type-Options": "nosniff",
+        },
         publicBaseUrl: "https://assets.example",
         route: "assets",
         store: "default",
       },
     })).toEqual({
       serve: {
+        headers: {
+          "Cache-Control": "public, max-age=300",
+          "X-Content-Type-Options": "nosniff",
+        },
         publicBaseUrl: "https://assets.example",
         route: "assets",
         store: "default",
@@ -284,6 +292,20 @@ describe("blob config", () => {
 
   it("rejects invalid serving config", () => {
     expect(() => normalizeBlobOptions({ serve: "yes" } as never)).toThrow("`blob.serve` must be true or a plain object.")
+  })
+
+  it("rejects invalid serving headers", () => {
+    expect(() => normalizeBlobOptions({
+      serve: { headers: ["Cache-Control"] },
+    } as never)).toThrow("`blob.serve.headers` must be a plain object.")
+
+    expect(() => normalizeBlobOptions({
+      serve: { headers: { "Cache-Control": 300 } },
+    } as never)).toThrow("`blob.serve.headers` values must be strings.")
+
+    expect(() => normalizeBlobOptions({
+      serve: { headers: { "Invalid Header": "value" } },
+    } as never)).toThrow("`blob.serve.headers` contains an invalid HTTP header: \"Invalid Header\".")
   })
 
   it("rejects serving from an unknown single Blob store", () => {

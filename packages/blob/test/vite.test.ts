@@ -132,6 +132,10 @@ describe("hubBlob", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-serve-route-"))
     const plugin = hubBlob({
       serve: {
+        headers: {
+          "Cache-Control": "public, max-age=300",
+          "X-Content-Type-Options": "nosniff",
+        },
         route: "/assets",
         store: "media",
       },
@@ -153,8 +157,13 @@ describe("hubBlob", () => {
 
     const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
     expect(handler).toContain("const storeName = \"media\"")
+    expect(handler).toContain("const responseHeaders = {\"Cache-Control\":\"public, max-age=300\",\"X-Content-Type-Options\":\"nosniff\"}")
     expect(handler).toContain("getRouterParam(event, '_', { decode: false })")
+    expect(handler).toContain("setResponseHeaders(event, responseHeaders)")
     expect(handler).toContain("blob.store(storeName).serve(event, pathname)")
+    expect(handler.indexOf("setResponseHeaders(event, responseHeaders)")).toBeLessThan(
+      handler.indexOf("blob.store(storeName).serve(event, pathname)"),
+    )
   })
 
   it("uses a configured package base in physical Nitro imports", async () => {
