@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { authenticated, AuthenticationProviderError, AuthenticationRequiredError } from "../src/agent.ts"
+import { authenticated, AuthSessionError, AuthenticationRequiredError } from "../src/agent.ts"
 
 import type { AgentInvokerOptions, AgentInvokerResolveContext } from "@vite-hub/agent"
 
@@ -57,13 +57,13 @@ async function resolve(options: AgentInvokerOptions, context = createContext()) 
 
 describe("authenticated", () => {
   beforeEach(() => {
+    serverMocks.getSession.mockReset()
     serverMocks.getAuthForRequest.mockReset()
     serverMocks.getAuthForRequest.mockReturnValue({
       api: {
         getSession: serverMocks.getSession,
       },
     })
-    serverMocks.getSession.mockReset()
   })
 
   it("reads Better Auth sessions authoritatively without refreshing cookies", async () => {
@@ -181,37 +181,62 @@ describe("authenticated", () => {
     })
   })
 
-  it.each([
-    ["get-auth-for-request", () => serverMocks.getAuthForRequest.mockImplementationOnce(() => { throw new Error("secret request failure") })],
-    ["get-session", () => serverMocks.getSession.mockRejectedValueOnce(new Error("secret session failure"))],
-  ] as const)("normalizes Better Auth %s failures", async (operation, reject) => {
+  it("maps default Better Auth failures without exposing provider diagnostics", async () => {
     const request = new Request("https://example.com/api/agent")
-    reject()
+    const providerError = new Error("Bearer secret-token")
+    serverMocks.getSession.mockRejectedValue(providerError)
 
-    const error = await resolve(authenticated(), createContext({ request })).catch(error => error)
+    const rejection = resolve(authenticated(), createContext({ request })).catch(error => error as AuthSessionError)
+    const error = await rejection
 
-    expect(error).toBeInstanceOf(AuthenticationProviderError)
+    expect(error).toBeInstanceOf(AuthSessionError)
     expect(error).toMatchObject({
-      code: "AUTH_PROVIDER_OPERATION_FAILED",
-      details: { operation, provider: "better-auth" },
-      message: "[vitehub] Authentication provider operation failed.",
-      name: "AuthenticationProviderError",
+      cause: providerError,
+      code: "AUTH_SESSION_FAILED",
+      message: "[vitehub] Authentication session resolution failed.",
+      statusCode: 503,
     })
-    expect(error.cause).toBeInstanceOf(Error)
-    expect(JSON.parse(JSON.stringify(error))).toEqual({
-      code: "AUTH_PROVIDER_OPERATION_FAILED",
-      details: { operation, provider: "better-auth" },
-      message: "[vitehub] Authentication provider operation failed.",
-    })
-    expect(JSON.stringify(error)).not.toContain("secret")
+    expect(JSON.stringify(error)).not.toContain("secret-token")
   })
 
-  it("preserves application source exceptions", async () => {
-    const error = new Error("application source failure")
+  it("distinguishes invalid Better Auth responses from missing sessions", async () => {
+    const request = new Request("https://example.com/api/agent")
+    serverMocks.getSession.mockResolvedValueOnce(null)
+    await expect(resolve(authenticated({ required: false }), createContext({ request }))).resolves.toBeUndefined()
 
+    serverMocks.getSession.mockResolvedValueOnce({ session: {}, user: {} })
+    await expect(resolve(authenticated(), createContext({ request }))).rejects.toMatchObject({
+      code: "AUTH_SESSION_FAILED",
+      name: "AuthSessionError",
+    })
+
+    serverMocks.getAuthForRequest.mockReturnValueOnce({ api: {} })
+    await expect(resolve(authenticated(), createContext({ request }))).rejects.toMatchObject({
+      code: "AUTH_SESSION_FAILED",
+      name: "AuthSessionError",
+    })
+  })
+
+  it("preserves exact abort and custom extension failures", async () => {
+    const request = new Request("https://example.com/api/agent")
+    const abort = new DOMException("cancelled", "AbortError")
+    serverMocks.getSession.mockRejectedValue(abort)
+    await expect(resolve(authenticated(), createContext({ request }))).rejects.toBe(abort)
+
+    const sourceError = new Error("custom source failed")
+    await expect(resolve(authenticated({ source: () => { throw sourceError } }))).rejects.toBe(sourceError)
+
+    const mapError = new Error("custom map failed")
     await expect(resolve(authenticated({
-      source: () => { throw error },
-    }))).rejects.toBe(error)
+      map: () => { throw mapError },
+      source: () => ({ session: {}, user: { id: "user_1" } }),
+    }))).rejects.toBe(mapError)
+
+    const valueError = new Error("custom value failed")
+    await expect(resolve(authenticated({
+      id: () => { throw valueError },
+      source: () => ({ session: {}, user: { id: "user_1" } }),
+    }))).rejects.toBe(valueError)
   })
 
   it("preserves normal Agent Invoker resolution when auth is optional", async () => {
