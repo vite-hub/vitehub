@@ -55,6 +55,8 @@ const closeSandboxScope = Effect.fn("Workspace.Sandbox.Scope.close")(function* (
 })
 
 export class SandboxWorkspaceScope<Resource extends SandboxResource, Setup> {
+  private closed = false
+
   constructor(
     readonly resource: Resource,
     readonly setup: Setup,
@@ -63,10 +65,11 @@ export class SandboxWorkspaceScope<Resource extends SandboxResource, Setup> {
   ) {}
 
   isClosed(): boolean {
-    return this.scope.state._tag === "Closed"
+    return this.closed
   }
 
   close(): Promise<void> {
+    this.closed = true
     return runWorkspaceEffect(closeSandboxScope(this.scope, this.failures, Exit.void))
   }
 }

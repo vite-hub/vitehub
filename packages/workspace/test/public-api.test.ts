@@ -111,9 +111,20 @@ describe("workspace public API", () => {
     const builtServer = await readFile(new URL("../dist/server.d.ts", import.meta.url), "utf8")
     const builtSandboxStore = await readFile(new URL("../dist/providers/vercel/blob-store.d.ts", import.meta.url), "utf8")
     const distDir = new URL("../dist/", import.meta.url)
-    const declarations = (await Promise.all((await readdir(distDir, { recursive: true }))
+    const distFiles = await readdir(distDir, { recursive: true })
+    const declarations = (await Promise.all(distFiles
       .filter(file => file.endsWith(".d.ts"))
       .map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
+    const effectFreeBundles = (await Promise.all([
+      "cloudflare.js",
+      "source-metadata.js",
+      "runtime/empty-assets-registry.js",
+      "runtime/empty-registry.js",
+      "providers/cloudflare/artifacts-store.js",
+      "providers/github/store.js",
+      "providers/vercel/blob-store.js",
+    ].map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
+    const effectImport = /(?:from\s*|import\s*(?:\(\s*)?)["']effect(?:\/[^"']*)?["']/
 
     expect(packageJson.dependencies?.h3).toBe("catalog:unjs")
     expect(packageJson.dependencies?.["files-sdk"]).toBeUndefined()
@@ -130,7 +141,8 @@ describe("workspace public API", () => {
     expect(declarations).not.toContain("@vercel/blob")
     expect(builtSandboxStore).not.toContain("files-sdk")
     expect(declarations).not.toContain("@vite-hub/sandbox")
-    expect(declarations).not.toMatch(/(?:from\s*|import\s*\(|import\s+)["']effect["']/)
+    expect(declarations).not.toMatch(effectImport)
+    expect(effectFreeBundles).not.toMatch(effectImport)
   })
 
   it("keeps hosted runtime setup off the public Workspace surface", async () => {
