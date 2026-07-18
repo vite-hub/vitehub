@@ -174,12 +174,14 @@ export function createCloudflareQueueBindings(definitions: DiscoveredQueueDefini
 }
 
 function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig: NormalizedQueueOptions, hasDefinitions: boolean, cloudflareQueues: boolean) {
-  const cloudflare = cloudflareQueues && queueConfig !== false && queueConfig.provider === "cloudflare"
+  const cloudflareRuntime = queueConfig !== false && queueConfig.provider === "cloudflare"
+  const cloudflare = cloudflareQueues && cloudflareRuntime
   const vercel = hasDefinitions && queueConfig !== false && queueConfig.provider === "vercel"
   return [
     "import { definePlugin } from 'nitro'",
     ...(vercel ? ["import { waitUntil as vitehubWaitUntil } from '@vercel/functions'", "import * as __vitehubVercelQueue from '@vercel/queue'"] : []),
-    ...(cloudflare ? ["import { env as vitehubEnv, waitUntil as vitehubWaitUntil } from 'cloudflare:workers'", "import { createQueueCloudflareWorker } from '@vite-hub/queue/runtime/cloudflare-vite'"] : []),
+    ...(cloudflareRuntime ? ["import { env as vitehubEnv, waitUntil as vitehubWaitUntil } from 'cloudflare:workers'"] : []),
+    ...(cloudflare ? ["import { createQueueCloudflareWorker } from '@vite-hub/queue/runtime/cloudflare-vite'"] : []),
     "import { enterQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeEventDefaults, setQueueRuntimeRegistry } from '@vite-hub/queue/runtime/state'",
     `import queueRegistry from ${JSON.stringify(createImportPath(pluginFile, registryFile))}`,
     "",
@@ -190,10 +192,10 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
     "export default definePlugin((nitro) => {",
     "  setQueueRuntimeConfig(queueConfig)",
     "  setQueueRuntimeRegistry(queueRegistry)",
-    ...(cloudflare ? ["  setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })"] : []),
+    ...(cloudflareRuntime ? ["  setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })"] : []),
     ...(vercel
       ? ["  nitro.hooks.hook('request', (event) => enterQueueRuntimeEvent(Object.assign(event, { waitUntil: vitehubWaitUntil })))"]
-      : cloudflare
+      : cloudflareRuntime
         ? ["  nitro.hooks.hook('request', (event) => enterQueueRuntimeEvent(Object.assign(event, { env: event.env ?? event.context?.cloudflare?.env ?? event.context?._platform?.cloudflare?.env ?? event.req?.runtime?.cloudflare?.env ?? event.node?.req?.runtime?.cloudflare?.env ?? vitehubEnv, waitUntil: vitehubWaitUntil })))"]
         : ["  nitro.hooks.hook('request', (event) => enterQueueRuntimeEvent(event))"]),
     ...(cloudflare ? ["  nitro.hooks.hook('cloudflare:queue', ({ batch, context, env }) => queueWorker.queue(batch, env, context))"] : []),
