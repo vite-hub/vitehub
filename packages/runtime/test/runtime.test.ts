@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   ApprovalRequiredError,
   CapabilityDeniedError,
+  CapabilityNotFoundError,
   createExecutionContext,
   createTraceEventLog,
   deriveTraceRuns,
@@ -17,6 +18,7 @@ import {
   type ApprovalRequest,
   type LeaseStore,
   type RunLifecycleHooks,
+  ViteHubError,
 } from "../src/index.ts"
 
 describe("@vite-hub/runtime", () => {
@@ -66,7 +68,7 @@ describe("@vite-hub/runtime", () => {
     const request: ApprovalRequest = {
       capability: "refund",
       id: "approval-1",
-      input: { amount: 100 },
+      input: { amount: 100, token: "secret" },
       reason: "High-value refund",
       state: "awaiting-approval",
     }
@@ -76,8 +78,59 @@ describe("@vite-hub/runtime", () => {
       state: "approved",
     }
 
-    expect(new ApprovalRequiredError(request).request).toEqual(request)
+    const error = new ApprovalRequiredError(request)
+
+    expect(error.request).toEqual(request)
+    expect(error).toMatchObject({
+      code: "APPROVAL_REQUIRED",
+      details: { capability: "refund", requestId: "approval-1" },
+      requestId: "approval-1",
+      retryable: false,
+    })
+    expect(error.toJSON()).toEqual({
+      code: "APPROVAL_REQUIRED",
+      details: { capability: "refund", requestId: "approval-1" },
+      message: '[vitehub:runtime] Approval is required for "refund".',
+      requestId: "approval-1",
+      retryable: false,
+    })
+    expect(JSON.stringify(error)).not.toContain("secret")
     expect(decision).toMatchObject({ approved: true, state: "approved" })
+  })
+
+  it("serializes only the public ViteHub error contract", () => {
+    const cause = new Error("provider token: secret")
+    const error = Object.assign(new ViteHubError("PROVIDER_FAILED", "The provider request failed.", {
+      cause,
+      details: { provider: "fixture" },
+      requestId: "request-1",
+      retryable: true,
+    }), {
+      providerResponse: { authorization: "secret" },
+    })
+
+    expect(JSON.parse(JSON.stringify(error))).toEqual({
+      code: "PROVIDER_FAILED",
+      details: { provider: "fixture" },
+      message: "The provider request failed.",
+      requestId: "request-1",
+      retryable: true,
+    })
+    expect(JSON.stringify(error)).not.toContain("secret")
+    expect(error.cause).toBe(cause)
+  })
+
+  it("gives runtime capability failures stable codes and allowlisted details", () => {
+    expect(new CapabilityNotFoundError("kv")).toMatchObject({
+      code: "CAPABILITY_NOT_FOUND",
+      details: { capability: "kv" },
+      retryable: false,
+    })
+    expect(new CapabilityDeniedError("email", "Policy rejected this operation.")).toMatchObject({
+      code: "CAPABILITY_DENIED",
+      details: { capability: "email", reason: "Policy rejected this operation." },
+      retryable: false,
+    })
   })
 
   it("resolves policy decisions", async () => {
