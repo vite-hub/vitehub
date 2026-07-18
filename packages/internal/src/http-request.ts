@@ -18,6 +18,7 @@ export interface StandardSchemaV1<T = unknown> {
 }
 
 export interface HttpRequestOptions {
+  abortSignal?: AbortSignal
   body?: unknown
   cookies?: Record<string, string>
   headers?: Record<string, string>
@@ -65,14 +66,22 @@ export async function executeHttpRequest<TOutput = unknown>(
 ): Promise<HttpRequestResult<TOutput>> {
   const normalized = normalizeHttpRequest(definition)
   const responseType = options.responseType || "json"
-  const response = await fetchWithRetry(normalized)
-  const decoded = await decodeResponse(response, responseType)
-  const data = options.schema ? await parseStandardSchema(options.schema, decoded, "HTTP response") : decoded
-  return {
-    data: data as TOutput,
-    mediaType: response.headers.get("content-type") || undefined,
-    status: response.status,
-    summary: redactedHttpRequestSummary(normalized, responseType),
+  try {
+    const response = await fetchWithRetry(normalized)
+    const decoded = await decodeResponse(response, responseType)
+    normalized.abortSignal?.throwIfAborted()
+    const data = options.schema ? await parseStandardSchema(options.schema, decoded, "HTTP response") : decoded
+    normalized.abortSignal?.throwIfAborted()
+    return {
+      data: data as TOutput,
+      mediaType: response.headers.get("content-type") || undefined,
+      status: response.status,
+      summary: redactedHttpRequestSummary(normalized, responseType),
+    }
+  }
+  catch (error) {
+    normalized.abortSignal?.throwIfAborted()
+    throw error
   }
 }
 
@@ -80,10 +89,12 @@ async function fetchWithRetry(definition: NormalizedHttpRequest): Promise<Respon
   const attempts = definition.method === "GET" || definition.method === "HEAD" ? 2 : 1
   let lastError: unknown
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    definition.abortSignal?.throwIfAborted()
     try {
       return await fetchOnce(definition)
     }
     catch (error) {
+      definition.abortSignal?.throwIfAborted()
       lastError = error
       if (attempt === attempts) break
     }
@@ -96,13 +107,16 @@ async function fetchOnce(definition: NormalizedHttpRequest): Promise<Response> {
   applyCookies(headers, definition.cookies)
   const body = serializeRequestBody(definition.body, headers)
   const controller = definition.timeout ? new AbortController() : undefined
+  const signal = controller && definition.abortSignal
+    ? AbortSignal.any([definition.abortSignal, controller.signal])
+    : controller?.signal || definition.abortSignal
   const timeout = controller ? setTimeout(() => controller.abort(), definition.timeout) : undefined
   try {
     const response = await fetch(urlWithQuery(definition).toString(), {
       body,
       headers,
       method: definition.method,
-      signal: controller?.signal,
+      signal,
     })
     if (!response.ok) {
       throw new Error(`[vitehub] HTTP request failed with status ${response.status}.`)

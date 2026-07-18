@@ -325,6 +325,7 @@ async function defaultFetchSourceRequest(
     ? await options.request(context)
     : options.request
   return {
+    abortSignal: ctx.abortSignal,
     body,
     cookies: {
       ...options.cookies,
