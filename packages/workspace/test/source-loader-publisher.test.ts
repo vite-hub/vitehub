@@ -140,6 +140,9 @@ function stubGitHubSource(files: Record<string, string>, options: StubGitHubSour
     return jsonResponse({
       content: Buffer.from(files[path] || "").toString("base64"),
       encoding: "base64",
+      path,
+      sha: `sha-${path}`,
+      type: "file",
     })
   }))
 }
