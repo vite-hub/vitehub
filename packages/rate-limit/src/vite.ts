@@ -106,7 +106,7 @@ function resolveProvider(options: RateLimitModuleOptions, command: "build" | "se
 function isNitroCloudflareHost(nitro: unknown): boolean {
   if (!nitro || typeof nitro !== "object" || Array.isArray(nitro)) return false
   const preset = cloneNitroConfig(nitro).preset
-  return getHostingProvider(typeof preset === "string" ? preset : process.env.VITEHUB_HOSTING) === "cloudflare"
+  return typeof preset === "string" && getHostingProvider(preset) === "cloudflare"
 }
 
 export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimitVitePlugin {
@@ -200,7 +200,17 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     },
     async closeBundle() {
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
-      await refreshDeclarations()
+      if (cloudflareOwnedByNitro) {
+        const configuredDeclarations = declarations
+        collectDeclarations()
+        if (JSON.stringify(declarations) !== JSON.stringify(configuredDeclarations)) {
+          throw new Error("[vitehub] Nitro Cloudflare Rate Limit declarations changed after config resolution. Generate Rate Limit source files before Vite config resolves.")
+        }
+        await writeRateLimitManifest(resolved.root, declarations, provider)
+      }
+      else {
+        await refreshDeclarations()
+      }
       const namespace = resolveRateLimitNamespace(rateLimit.namespace)
       await writeRateLimitProviderOutput({
         clientOutDir: resolved.build.outDir,

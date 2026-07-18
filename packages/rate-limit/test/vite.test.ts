@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -99,6 +99,48 @@ describe("hubRateLimit", () => {
     const vercelPlugin = hubRateLimit({ namespace: "vite-test", provider: "cloudflare" })
     const vercelConfig = vercelPlugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => { nitro: Record<string, unknown> }
     expect(vercelConfig({ nitro: { preset: "vercel" }, root }, { command: "build" }).nitro).not.toHaveProperty("cloudflare.wrangler.ratelimits")
+  })
+
+  it("keeps standalone output when hosting inference has no Nitro preset", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-plain-cloudflare-"))
+    roots.push(root)
+    await writeCloudflareDeclaration(root)
+    const previousHosting = process.env.VITEHUB_HOSTING
+    process.env.VITEHUB_HOSTING = "cloudflare"
+    try {
+      const plugin = hubRateLimit({ namespace: "vite-test" })
+      const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
+      const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
+      const closeBundle = plugin.closeBundle as () => Promise<void>
+      const userConfig = { root }
+
+      config(userConfig, { command: "build" })
+      await configResolved({ ...userConfig, build: { outDir: "dist" }, command: "build", plugins: [], resolve: { alias: [] } } as never)
+      await closeBundle()
+
+      const [appOutput] = await readdir(join(root, "dist"))
+      await expect(readFile(join(root, "dist", appOutput!, "wrangler.json"), "utf8")).resolves.toContain(getCloudflareRateLimitBindingName("upload"))
+    }
+    finally {
+      if (previousHosting === undefined) delete process.env.VITEHUB_HOSTING
+      else process.env.VITEHUB_HOSTING = previousHosting
+    }
+  })
+
+  it("rejects Nitro Rate Limit declarations generated after config resolution", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-nitro-late-declaration-"))
+    roots.push(root)
+    const plugin = hubRateLimit({ namespace: "vite-test" })
+    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
+    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
+    const closeBundle = plugin.closeBundle as () => Promise<void>
+    const userConfig = { nitro: { preset: "cloudflare-module" }, root }
+
+    config(userConfig, { command: "build" })
+    await configResolved({ ...userConfig, build: { outDir: "dist" }, command: "build", plugins: [], resolve: { alias: [] } } as never)
+    await writeCloudflareDeclaration(root)
+
+    await expect(closeBundle()).rejects.toThrow("changed after config resolution")
   })
 
   it("registers generated Nitro runtime with config-key precedence", async () => {
