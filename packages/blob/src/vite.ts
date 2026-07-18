@@ -197,7 +197,6 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       )
       const composedNitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflareOwnedByNitro)
       ;(config as { nitro?: unknown }).nitro = composedNitro
-      return { nitro: composedNitro } as never
     },
     async configResolved(config) {
       resolved = config

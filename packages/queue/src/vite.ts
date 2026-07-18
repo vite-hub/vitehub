@@ -36,9 +36,8 @@ function mergeNitroExternal(value: unknown, addition: string): unknown {
 }
 
 function resolveQueueHosting(queue: QueueModuleOptions | undefined, nitro: Record<string, unknown>): string {
-  if (queue !== false && queue?.provider) return queue.provider
   const preset = typeof nitro.preset === "string" ? nitro.preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
-  return getHostingProvider(preset) || "vercel"
+  return getHostingProvider(preset) || (queue !== false && queue?.provider) || "vercel"
 }
 
 function resolveNitroHosting(nitro: Record<string, unknown>): string | undefined {
@@ -53,8 +52,11 @@ function supportsCloudflareQueues(nitro: Record<string, unknown>): boolean {
 
 function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOptions | undefined, root: string, definitions = discoverQueueDefinitions({ rootDir: root })): Record<string, unknown> {
   const nitro = cloneNitroConfig(value)
-  const plugins = Array.isArray(nitro.plugins) ? nitro.plugins.filter(plugin => queue !== false || plugin !== generatedQueueNitroPlugin) : []
-  if (queue === false) {
+  const nitroHosting = resolveNitroHosting(nitro)
+  const providerMismatch = queue !== false && queue?.provider && nitroHosting && queue.provider !== nitroHosting
+  const runtimeEnabled = queue !== false && !providerMismatch
+  const plugins = Array.isArray(nitro.plugins) ? nitro.plugins.filter(plugin => runtimeEnabled || plugin !== generatedQueueNitroPlugin) : []
+  if (!runtimeEnabled) {
     registerCloudflareProviderOutput(config, "queue", {})
     return composeNitroCloudflareProviderOutput(config, { ...nitro, plugins })
   }
@@ -125,7 +127,9 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       ;(config as { nitro?: unknown }).nitro = nitro
       hosting = resolveQueueHosting(queue, nitro)
       cloudflareQueues = supportsCloudflareQueues(nitro)
-      await writeQueueNitroIntegration(config.root, queue, hosting, cloudflareQueues, configuredDefinitions)
+      const nitroHosting = resolveNitroHosting(nitro)
+      const nitroQueue = queue !== false && queue?.provider && nitroHosting && queue.provider !== nitroHosting ? false : queue
+      await writeQueueNitroIntegration(config.root, nitroQueue, hosting, cloudflareQueues, configuredDefinitions)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {

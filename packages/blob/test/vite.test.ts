@@ -67,16 +67,19 @@ describe("hubBlob", () => {
       },
     }
 
-    expect(config(userConfig, { command: "build" })).toMatchObject({
+    expect(config(userConfig, { command: "build" })).toBeUndefined()
+    expect(userConfig).toMatchObject({
       nitro: {
         plugins: ["server/plugin.ts", ".vitehub/nitro/blob/plugin.ts"],
       },
     })
-    expect(config({
+    const existingPluginConfig = {
       nitro: {
         plugins: [".vitehub/nitro/blob/plugin.ts"],
       },
-    }, { command: "build" })).toMatchObject({
+    }
+    expect(config(existingPluginConfig, { command: "build" })).toBeUndefined()
+    expect(existingPluginConfig).toMatchObject({
       nitro: {
         plugins: [".vitehub/nitro/blob/plugin.ts"],
       },
@@ -283,7 +286,9 @@ describe("hubBlob", () => {
     const plugin = hubBlob({ serve: true })
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
 
-    expect(config({}, { command: "serve" })).toMatchObject({
+    const userConfig = {}
+    expect(config(userConfig, { command: "serve" })).toBeUndefined()
+    expect(userConfig).toMatchObject({
       nitro: {
         plugins: [".vitehub/nitro/blob/plugin.ts"],
         handlers: [{

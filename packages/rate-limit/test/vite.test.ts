@@ -29,7 +29,7 @@ describe("hubRateLimit", () => {
     roots.push(root)
     await writeCloudflareDeclaration(root)
     const plugin = hubRateLimit({ namespace: "vite-test" })
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => { nitro: Record<string, unknown> }
+    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
     const userConfig = {
       nitro: {
@@ -39,8 +39,8 @@ describe("hubRateLimit", () => {
       root,
     }
 
-    const configured = config(userConfig, { command: "build" })
-    expect(configured.nitro).toMatchObject({
+    expect(config(userConfig, { command: "build" })).toBeUndefined()
+    expect(userConfig.nitro).toMatchObject({
       cloudflare: {
         wrangler: {
           ratelimits: [
@@ -96,12 +96,16 @@ describe("hubRateLimit", () => {
     roots.push(root)
     await writeCloudflareDeclaration(root)
     const memoryPlugin = hubRateLimit({ provider: "memory" })
-    const memoryConfig = memoryPlugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => { nitro: Record<string, unknown> }
-    expect(memoryConfig({ nitro: { preset: "cloudflare-module" }, root }, { command: "build" }).nitro).not.toHaveProperty("cloudflare.wrangler.ratelimits")
+    const memoryConfig = memoryPlugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
+    const memoryUserConfig = { nitro: { preset: "cloudflare-module" }, root }
+    memoryConfig(memoryUserConfig, { command: "build" })
+    expect(memoryUserConfig.nitro).not.toHaveProperty("cloudflare.wrangler.ratelimits")
 
     const vercelPlugin = hubRateLimit({ namespace: "vite-test", provider: "cloudflare" })
-    const vercelConfig = vercelPlugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => { nitro: Record<string, unknown> }
-    expect(vercelConfig({ nitro: { preset: "vercel" }, root }, { command: "build" }).nitro).not.toHaveProperty("cloudflare.wrangler.ratelimits")
+    const vercelConfig = vercelPlugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
+    const vercelUserConfig = { nitro: { preset: "vercel" }, root }
+    vercelConfig(vercelUserConfig, { command: "build" })
+    expect(vercelUserConfig.nitro).not.toHaveProperty("cloudflare.wrangler.ratelimits")
   })
 
   it.each(["NITRO_PRESET", "SERVER_PRESET", "VITEHUB_HOSTING"])("keeps standalone output without Nitro when hosting is selected by %s", async (environmentVariable) => {
@@ -197,7 +201,8 @@ describe("hubRateLimit", () => {
     const config = plugin.config as unknown as (config: Record<string, unknown>) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
     const userConfig = { nitro: { plugins: ["server/plugin.ts"] }, rateLimit: { projectRoot: ".", provider: "memory" } }
-    expect(config(userConfig)).toMatchObject({
+    expect(config(userConfig)).toBeUndefined()
+    expect(userConfig).toMatchObject({
       nitro: { plugins: [".vitehub/nitro/rate-limit/plugin.ts", "server/plugin.ts"] },
     })
 

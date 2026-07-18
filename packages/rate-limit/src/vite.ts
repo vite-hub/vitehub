@@ -152,7 +152,6 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         resolveNitroHosting(configuredNitro) === "cloudflare",
       )
       ;(config as { nitro?: unknown }).nitro = nitro
-      return { nitro } as never
     },
     async configResolved(config) {
       resolved = config
