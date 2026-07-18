@@ -1,4 +1,4 @@
-import { readFile, rm, stat } from "node:fs/promises"
+import { rm, stat } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -126,7 +126,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         config.logger.info(diagnosticsText)
       }
       const projectRoot = resolveViteHubProjectRoot(config.root, { projectRoot: options.projectRoot })
-      const packageRoot = await resolvePackageImportRoot(config.root, projectRoot)
+      const packageRoot = await resolvePackageRoot(config.root, projectRoot)
       await refreshEnvGeneratedFiles(projectRoot, packageRoot, buildPublicConfig, serverRegistry, runtimeImports)
     },
     load(id) {
@@ -137,13 +137,23 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         return createServerEnvModule(serverRegistry, runtimeImports)
       }
     },
-    resolveId(id) {
-      if (id === ENV_PUBLIC_ID) {
-        return RESOLVED_PUBLIC_ID
-      }
-      if (id === ENV_SERVER_ID) {
-        return RESOLVED_SERVER_ID
-      }
+    resolveId: {
+      order: "pre",
+      handler(id) {
+        if (id === ENV_PUBLIC_ID) {
+          return RESOLVED_PUBLIC_ID
+        }
+        if (id === ENV_SERVER_ID) {
+          return RESOLVED_SERVER_ID
+        }
+      },
+    },
+    transform(code) {
+      if (!code.includes("/* @vitehub-env */") || !code.includes(ENV_SERVER_ID)) return
+      return code.replace(
+        /\/\* @vite-ignore \*\/\s*\/\* @vitehub-env \*\/\s*[\w$]+/g,
+        JSON.stringify(ENV_SERVER_ID),
+      )
     },
   }
 }
@@ -177,10 +187,15 @@ async function refreshEnvGeneratedFiles(
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
 ): Promise<void> {
   await Promise.all([
-    ...(packageRoot ? [
-      syncEnvPackageImports(packageRoot),
-      ...(packageRoot === root ? [] : packageEnvModuleWrites(packageRoot, publicConfig, serverRegistry, runtimeImports)),
-    ] : []),
+    ...(packageRoot && packageRoot !== root
+      ? [
+          ...packageEnvModuleWrites(packageRoot, publicConfig, serverRegistry, runtimeImports),
+          writeFileIfChanged(
+            viteHubEnvAmbientTypesPath(packageRoot),
+            createAmbientTypesReference(packageRoot, root),
+          ),
+        ]
+      : []),
     writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicConfig, serverRegistry, runtimeImports)),
     writeFileIfChanged(viteHubEnvPublicModulePath(root), createPublicEnvModule(publicConfig)),
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicConfig)),
@@ -188,6 +203,12 @@ async function refreshEnvGeneratedFiles(
     writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
     ...legacyEnvAmbientTypesPaths(root).map(path => rm(path, { force: true })),
   ])
+}
+
+function createAmbientTypesReference(packageRoot: string, projectRoot: string): string {
+  const target = relative(dirname(viteHubEnvAmbientTypesPath(packageRoot)), viteHubEnvAmbientTypesPath(projectRoot)).replace(/\\/g, "/")
+  const specifier = target.startsWith(".") ? target : `./${target}`
+  return `/// <reference path=${JSON.stringify(specifier)} />\n`
 }
 
 function packageEnvModuleWrites(
@@ -204,7 +225,7 @@ function packageEnvModuleWrites(
   ]
 }
 
-async function resolvePackageImportRoot(viteRoot: string, projectRoot: string): Promise<string | undefined> {
+async function resolvePackageRoot(viteRoot: string, projectRoot: string): Promise<string | undefined> {
   const stop = resolve(projectRoot)
   let current = resolve(viteRoot)
 
@@ -226,43 +247,6 @@ async function hasPackageManifest(root: string): Promise<boolean> {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return false
     throw error
   }
-}
-
-async function syncEnvPackageImports(root: string): Promise<void> {
-  const packageJsonPath = resolve(root, "package.json")
-  let source: string
-  try {
-    source = await readFile(packageJsonPath, "utf8")
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
-    throw error
-  }
-
-  const manifest = JSON.parse(source) as Record<string, unknown>
-  const imports = isRecord(manifest.imports) ? { ...manifest.imports } : {}
-  const expectedImports = {
-    [ENV_PUBLIC_ID]: {
-      types: "./.vitehub/env/public.d.ts",
-      default: "./.vitehub/env/public.mjs",
-    },
-    [ENV_SERVER_ID]: {
-      types: "./.vitehub/env/server.d.ts",
-      default: "./.vitehub/env/server.mjs",
-    },
-  }
-
-  let changed = !isRecord(manifest.imports)
-  for (const [id, target] of Object.entries(expectedImports)) {
-    if (JSON.stringify(imports[id]) !== JSON.stringify(target)) {
-      imports[id] = target
-      changed = true
-    }
-  }
-  if (!changed) return
-
-  manifest.imports = imports
-  await writeFileIfChanged(packageJsonPath, `${JSON.stringify(manifest, null, 2)}\n`)
 }
 
 function createPublicEnvModule(publicConfig: Record<string, unknown>): string {
@@ -322,14 +306,12 @@ function createViteTypes(
     "  export function usePublicEnv(): PublicEnv",
     "}",
     "declare module \"#vitehub/env/server\" {",
-    `  import type { SecretEnv } from ${JSON.stringify(runtimeImports.secret)}`,
     "  export interface ServerEnv {",
-    ...createServerTypeFields(serverRegistry, 4),
+    ...createServerTypeFields(serverRegistry, 4, `import(${JSON.stringify(runtimeImports.secret)}).SecretEnv`),
     "  }",
     "  export function useServerEnv(event?: unknown): ServerEnv",
     "  export function runWithServerEnv<T>(event: unknown, callback: (env: ServerEnv) => T | Promise<T>): Promise<T>",
     "}",
-    "export {}",
     "",
   ].join("\n")
 }
@@ -339,19 +321,19 @@ function createPublicTypeFields(publicConfig: Record<string, unknown>, indent: n
   return Object.entries(publicConfig).map(([key, value]) => `${prefix}${JSON.stringify(key)}: ${typeof value}`)
 }
 
-function createServerTypeFields(registry: EnvRuntimeRegistry, indent: number): string[] {
+function createServerTypeFields(registry: EnvRuntimeRegistry, indent: number, secretType = "SecretEnv"): string[] {
   const prefix = " ".repeat(indent)
   return Object.entries(registry).map(([key, value]) => {
     const optional = isOptionalServerValue(value) ? "?" : ""
-    return `${prefix}${JSON.stringify(key)}${optional}: ${serverTypeFor(value, indent)}`
+    return `${prefix}${JSON.stringify(key)}${optional}: ${serverTypeFor(value, indent, secretType)}`
   })
 }
 
-function serverTypeFor(value: EnvRuntimeRegistryValue, indent: number): string {
+function serverTypeFor(value: EnvRuntimeRegistryValue, indent: number, secretType: string): string {
   if (isLiteralEntry(value)) return literalType(value.value)
-  if (isEnvEntry(value)) return value.secret ? "SecretEnv<string>" : "string"
+  if (isEnvEntry(value)) return value.secret ? `${secretType}<string>` : "string"
 
-  const fields = createServerTypeFields(value as EnvRuntimeRegistry, indent + 2)
+  const fields = createServerTypeFields(value as EnvRuntimeRegistry, indent + 2, secretType)
   if (!fields.length) return "Record<string, never>"
   const prefix = " ".repeat(indent)
   return `{\n${fields.join("\n")}\n${prefix}}`
