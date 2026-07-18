@@ -20,10 +20,7 @@ import type { DevToolsPluginOptions, DevToolsRpcServerFunctions, ViteDevToolsNod
 import type { Plugin } from "vite"
 import type {
   ChatDevtoolsClearInput,
-  ChatDevtoolsConversation,
-  ChatDevtoolsFileTreeItem,
   ChatDevtoolsMetadata,
-  ChatDevtoolsMaterializeSourceInput,
   ChatDevtoolsMessage,
   ChatDevtoolsMessageRole,
   ChatDevtoolsSendInput,
@@ -31,9 +28,7 @@ import type {
   ChatDevtoolsStateResult,
   ChatDevtoolsStreamEvent,
   ChatDevtoolsTool,
-  ChatDevtoolsToolDefinition,
   ChatDevtoolsToolStatus,
-  ChatDevtoolsWarning,
 } from "./devtools-shared.js"
 
 export {

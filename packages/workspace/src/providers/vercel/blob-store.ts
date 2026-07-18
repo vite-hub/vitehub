@@ -308,11 +308,6 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     return blobs
   }
 
-  async #readBytes(path: string): Promise<Uint8Array | undefined> {
-    const file = await this.readFile(path)
-    return file ? contentToBytes(file.content) : undefined
-  }
-
   async #readJson(pathname: string): Promise<unknown> {
     const file = await (await this.#client()).download(pathname).catch(() => null)
     return file ? JSON.parse(await file.text()) : undefined

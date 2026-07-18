@@ -7,7 +7,6 @@ import type {
   AuthAccessConfiguration,
   AuthBetterAuthRuntimeOptions,
   AuthDefinition,
-  AuthDefinitionInput,
   AuthDefinitionResolver,
   AuthRequest,
   AuthRequestInput,

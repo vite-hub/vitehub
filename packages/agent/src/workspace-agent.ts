@@ -772,10 +772,6 @@ export async function resolveWorkspaceInstructionBindings(
   return Object.keys(resolved).length ? resolved : undefined
 }
 
-function cleanInstructions(content: string): string {
-  return content.trim().replace(/\n{3,}/g, "\n\n")
-}
-
 function localWorkspaceRoots<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -998,19 +994,6 @@ function readColocatedAgentInstructionsRaw<
   if (!fs || !path || !hasColocatedAgentInstructions(sourceRootDir)) return undefined
   const file = path.join(sourceRootDir!, colocatedAgentInstructionsPath)
   const content = fs.readFileSync(file, "utf8").trim()
-  if (content) return content
-}
-
-async function readColocatedAgentInstructions<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): Promise<string | undefined> {
-  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
-  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
-  const sourceRootDir = workspaceDefinitionFromOptions(options).sourceRootDir
-  if (!fs || !path || !hasColocatedAgentInstructions(sourceRootDir)) return undefined
-  const file = path.join(sourceRootDir!, colocatedAgentInstructionsPath)
-  const content = (await resolveColocatedAgentInstructionDocument(fs.readFileSync(file, "utf8"), sourceRootDir)).trim()
   if (content) return content
 }
 

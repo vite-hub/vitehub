@@ -8,12 +8,9 @@ import { searchText } from "../core/search.ts"
 import type { ResolvedWorkspaceSource } from "./config.ts"
 import type { ResolvedSourcePath } from "./resolver.ts"
 import type {
-  ListOptions,
   ReadFileOptions,
   ReadFileResult,
   SourceContext,
-  WorkspaceEntry,
-  WorkspaceFile,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
   WorkspaceSourceItem,
@@ -71,11 +68,6 @@ function isSnapshotFresh(meta: SourceSnapshotMetadata | undefined, source: Resol
 
 async function readSourceSnapshotMetadata(store: WorkspaceStore, sourceKey: string) {
   return await store.getMeta?.(sourceSnapshotMetaKey(sourceKey)) as SourceSnapshotMetadata | undefined
-}
-
-export async function hasFreshSourceSnapshot(store: WorkspaceStore, source: ResolvedWorkspaceSource) {
-  const configHash = await sourceConfigHash(source)
-  return isSnapshotFresh(await readSourceSnapshotMetadata(store, source.key), source, configHash)
 }
 
 export async function hasCurrentSourceSnapshot(store: WorkspaceStore, source: ResolvedWorkspaceSource) {
@@ -520,33 +512,6 @@ export async function readResolvedSourceFile<TOptions extends ReadFileOptions | 
   return decodeFile(file.content, options)
 }
 
-export async function materializeSourceFile(
-  resolution: ResolvedSourcePath,
-  store: WorkspaceStore,
-  ctx: SourceContext,
-): Promise<WorkspaceFile> {
-  const existing = await store.readFile(resolution.workspacePath)
-  const storedMeta = await getStoredMaterializedMetadata(store, resolution)
-  if (existing && await shouldReuseMaterializedFile(resolution, storedMeta, ctx)) return existing
-
-  const item = await resolution.source.source.getItem(resolution.sourcePath, ctx)
-  const upstreamMeta = await resolution.source.source.getMeta?.(resolution.sourcePath, ctx)
-  const metadata = createLazyMaterializedMetadata(resolution, item, upstreamMeta)
-  const content = sourceItemContent(item)
-  const nextBase = {
-    path: resolution.workspacePath,
-    mediaType: item.mediaType,
-    metadata: { ...item.metadata, ...metadata },
-  }
-  const next: WorkspaceFile = {
-    ...nextBase,
-    content: content.content ?? await contentStreamToBytes(content.contentStream!),
-  }
-  await store.writeFile(resolution.workspacePath, next)
-  await store.setMeta?.(materializedMetaKey(resolution), metadata)
-  return next
-}
-
 async function writeMaterializedFile(
   store: WorkspaceStore,
   path: string,
@@ -604,100 +569,6 @@ export async function statVirtualSourcePath(
   }
 }
 
-export async function listVirtualSourceEntries(
-  source: ResolvedWorkspaceSource,
-  path: string,
-  options: ListOptions,
-  store: WorkspaceStore,
-  ctx: SourceContext,
-) {
-  const stored = await store.list(path, options)
-  const virtual = new Map<string, WorkspaceEntry>(stored.map(entry => [entry.path, entry]))
-  const keys = await source.source.getKeys(ctx)
-  const requestPath = path
-
-  for (const key of keys) {
-    const fullPath = toMountedSourcePath(source, key)
-    if (requestPath === source.mountPath && !key) continue
-
-    if (!requestPath) {
-      if (!fullPath.includes("/")) continue
-      const firstSegment = fullPath.split("/")[0]
-      if (!virtual.has(firstSegment)) virtual.set(firstSegment, { path: firstSegment, type: "directory" })
-      if (options.recursive) virtual.set(fullPath, virtual.get(fullPath) || { path: fullPath, type: "file" })
-      continue
-    }
-
-    if (requestPath === source.mountPath) {
-      if (!options.recursive) {
-        const relative = key
-        const child = relative.split("/")[0]
-        const childPath = child ? `${source.mountPath}/${child}` : source.mountPath
-        if (!childPath || childPath === source.mountPath) continue
-        if (!virtual.has(childPath)) {
-          virtual.set(childPath, {
-            path: childPath,
-            type: relative.includes("/") ? "directory" : "file",
-          })
-        }
-        continue
-      }
-
-      virtual.set(fullPath, virtual.get(fullPath) || { path: fullPath, type: "file" })
-      addVirtualParents(virtual, source.mountPath, fullPath)
-      continue
-    }
-
-    if (!fullPath.startsWith(`${requestPath}/`)) continue
-    if (!options.recursive) {
-      const remainder = fullPath.slice(requestPath.length + 1)
-      const child = remainder.split("/")[0]
-      const childPath = `${requestPath}/${child}`
-      if (!virtual.has(childPath)) {
-        virtual.set(childPath, {
-          path: childPath,
-          type: remainder.includes("/") ? "directory" : "file",
-        })
-      }
-      continue
-    }
-
-    virtual.set(fullPath, virtual.get(fullPath) || { path: fullPath, type: "file" })
-    addVirtualParents(virtual, requestPath, fullPath)
-  }
-
-  return [...virtual.values()].sort((left, right) => left.path.localeCompare(right.path))
-}
-
-export async function searchResolvedSource(
-  source: ResolvedWorkspaceSource,
-  query: WorkspaceSearchQuery,
-  store: WorkspaceStore,
-  ctx: SourceContext,
-): Promise<WorkspaceSearchHit[]> {
-  const limit = query.limit ?? 100
-  const materializedHits = await searchMaterializedStore(store, {
-    ...query,
-    paths: query.paths?.length ? query.paths : [source.mountPath],
-    limit,
-  })
-  if (materializedHits.length >= limit) return materializedHits.slice(0, limit)
-
-  if (source.source.search) {
-    const hits = await source.source.search({
-      ...query,
-      paths: toSourceSearchPaths(source, query.paths),
-      limit: limit - materializedHits.length,
-    }, ctx)
-    return dedupeSearchHits([...materializedHits, ...hits.map(hit => ({
-      ...hit,
-      path: hit.path.startsWith(source.mountPath) ? hit.path : toMountedSourcePath(source, hit.path),
-    }))]).slice(0, limit)
-  }
-
-  return materializedHits.slice(0, limit)
-}
-
 export async function searchMaterializedStore(store: WorkspaceStore, query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]> {
   const limit = query.limit ?? 100
   const result: WorkspaceSearchHit[] = []
@@ -724,31 +595,6 @@ export async function searchMaterializedStore(store: WorkspaceStore, query: Work
   }
 
   return result.slice(0, limit)
-}
-
-function materializedMetaKey(resolution: ResolvedSourcePath) {
-  return `source:${resolution.sourceKey}:${resolution.workspacePath}:materialized`
-}
-
-async function getStoredMaterializedMetadata(store: WorkspaceStore, resolution: ResolvedSourcePath) {
-  return await store.getMeta?.(materializedMetaKey(resolution)) as LazyMaterializedMetadata | undefined
-}
-
-async function shouldReuseMaterializedFile(
-  resolution: ResolvedSourcePath,
-  metadata: LazyMaterializedMetadata | undefined,
-  ctx: SourceContext,
-): Promise<boolean> {
-  if (!metadata) return false
-  if (resolution.validate === false) return true
-
-  if (resolution.source.source.getMeta) {
-    const upstream = await resolution.source.source.getMeta(resolution.sourcePath, ctx)
-    if (!upstream) return isCacheFresh(metadata, resolution.cache)
-    return !hasSourceMetaChanged(metadata, upstream)
-  }
-
-  return isCacheFresh(metadata, resolution.cache)
 }
 
 function createLazyMaterializedMetadata(
@@ -782,13 +628,6 @@ function hasSourceMetaChanged(current: LazyMaterializedMetadata, upstreamMeta: R
     || current.ref !== next.ref
 }
 
-function isCacheFresh(metadata: LazyMaterializedMetadata, cache: ResolvedSourcePath["cache"]) {
-  if (!cache || typeof cache.maxAge !== "number") return false
-  const createdAt = Date.parse(metadata.validatedAt || metadata.materializedAt)
-  if (!createdAt) return false
-  return Date.now() - createdAt <= cache.maxAge * 1000
-}
-
 function normalizeSourcePath(source: ResolvedWorkspaceSource, workspacePath: string) {
   if (workspacePath === source.mountPath) return ""
   return source.mountPath && workspacePath.startsWith(`${source.mountPath}/`)
@@ -802,34 +641,4 @@ function readStringMeta(meta: Record<string, unknown> | undefined, key: string) 
 
 function readDigest(meta: Record<string, unknown> | undefined) {
   return readStringMeta(meta, "digest") || readStringMeta(meta, "sha")
-}
-
-function toSourceSearchPaths(source: ResolvedWorkspaceSource, paths: string[] | undefined) {
-  if (!paths?.length) return undefined
-  return paths
-    .filter(path => sourceMountContainsPath(source, path))
-    .map(path => normalizeSourcePath(source, path))
-}
-
-function toMountedSourcePath(source: ResolvedWorkspaceSource, key: string) {
-  return normalizeWorkspacePath(posix.join(source.mountPath, key))
-}
-
-function addVirtualParents(entries: Map<string, WorkspaceStat>, basePath: string, path: string) {
-  const relative = path.slice(basePath.length).replace(/^\/+/, "")
-  const parts = relative.split("/").filter(Boolean)
-  for (let index = 1; index < parts.length; index++) {
-    const directory = `${basePath}/${parts.slice(0, index).join("/")}`
-    if (!entries.has(directory)) entries.set(directory, { path: directory, type: "directory" })
-  }
-}
-
-function dedupeSearchHits(hits: WorkspaceSearchHit[]) {
-  const seen = new Set<string>()
-  return hits.filter((hit) => {
-    const key = `${hit.path}:${hit.line}:${hit.column}:${hit.text}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
 }
