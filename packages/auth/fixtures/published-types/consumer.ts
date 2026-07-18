@@ -18,6 +18,8 @@ error.statusCode satisfies 401
 error.toJSON() satisfies ViteHubErrorShape<"AUTHENTICATION_REQUIRED">
 
 new AuthenticationRequiredError("Sign in required.")
+// @ts-expect-error AuthenticationRequiredError has no public details channel.
+new AuthenticationRequiredError({ details: { surface: "agent-invoker" } })
 
 const providerOptions = {
   cause: new Error("protected provider diagnostic"),
@@ -28,3 +30,6 @@ providerError.code satisfies "AUTH_PROVIDER_OPERATION_FAILED"
 providerError.details!.operation satisfies "get-auth-for-request" | "get-session"
 providerError.details!.provider satisfies "better-auth"
 providerError.toJSON() satisfies ViteHubErrorShape<"AUTH_PROVIDER_OPERATION_FAILED">
+
+// @ts-expect-error Provider operations use the closed Auth vocabulary.
+new AuthenticationProviderError({ operation: "refresh-session" })

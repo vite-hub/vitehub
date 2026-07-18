@@ -20,18 +20,16 @@ describe("AuthenticationRequiredError", () => {
     expect(new AuthenticationRequiredError("Sign in required.").message).toBe("Sign in required.")
   })
 
-  it("serializes safe details without exposing its cause", () => {
+  it("keeps protected causes out of its public shape", () => {
     const cause = new Error("Bearer secret-token")
     const error = new AuthenticationRequiredError({
       cause,
-      details: { surface: "agent-invoker" },
       message: "Sign in required.",
     })
 
     expect(error.cause).toBe(cause)
     expect(error.toJSON()).toEqual({
       code: "AUTHENTICATION_REQUIRED",
-      details: { surface: "agent-invoker" },
       message: "Sign in required.",
     })
     expect(JSON.stringify(error)).not.toContain("secret-token")
@@ -58,5 +56,11 @@ describe("AuthenticationProviderError", () => {
       message: "[vitehub] Authentication provider operation failed.",
     })
     expect(JSON.stringify(error)).not.toContain("secret-token")
+  })
+
+  it("rejects provider operations outside the public vocabulary", () => {
+    expect(() => new AuthenticationProviderError({
+      operation: "Bearer secret-token at https://auth.example/private" as never,
+    })).toThrow(new TypeError("[vitehub] Invalid authentication provider operation."))
   })
 })

@@ -18,7 +18,6 @@ import type {
   AuthenticationProviderErrorOptions,
   AuthenticationProviderOperation,
 } from "./errors.ts"
-import type { ViteHubErrorDetails } from "@vite-hub/runtime"
 
 export { AuthenticationProviderError }
 export type {
@@ -101,7 +100,6 @@ export interface AuthenticatedOptions<
 }
 
 export interface AuthenticationRequiredErrorOptions extends ErrorOptions {
-  details?: ViteHubErrorDetails
   message?: string
 }
 
@@ -118,7 +116,6 @@ export class AuthenticationRequiredError extends ViteHubError<"AUTHENTICATION_RE
 
     super("AUTHENTICATION_REQUIRED", message, {
       cause: options.cause,
-      details: options.details,
     })
     this.name = "AuthenticationRequiredError"
     Object.defineProperty(this, "statusCode", {

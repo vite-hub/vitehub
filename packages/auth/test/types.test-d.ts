@@ -154,6 +154,7 @@ describe("types", () => {
     expectTypeOf(providerError.details!.operation).toEqualTypeOf<"get-auth-for-request" | "get-session">()
     expectTypeOf(providerError.details!.provider).toEqualTypeOf<"better-auth">()
 
+    // @ts-expect-error AuthenticationRequiredError has no public details channel.
     new AuthenticationRequiredError({ details: { surface: "agent-invoker" } })
   })
 
