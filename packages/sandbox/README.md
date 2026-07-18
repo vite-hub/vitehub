@@ -54,25 +54,19 @@ export default defineConfig({
 
 ## Structured errors
 
-Throw `SandboxError` when callers need a stable failure they can inspect without parsing logs or provider messages.
+`runSandbox()` returns a `SandboxError` when an invocation fails. Inspect its ViteHub-owned code instead of parsing provider diagnostics.
 
 ```ts
-import { SandboxError } from "@vite-hub/sandbox"
+import { runSandbox } from "@vite-hub/sandbox"
 
-try {
-  await renderPreview()
-}
-catch (cause) {
-  throw new SandboxError({
-    cause,
-    code: "RENDER_FAILED",
-    details: { previewId },
-    message: "Preview rendering failed.",
-  })
+const result = await runSandbox("release-notes")
+
+if (result.isErr() && result.error.code === "SANDBOX_TIMEOUT") {
+  console.error(result.error.message)
 }
 ```
 
-`code` is required and may be one of ViteHub's typed `SandboxErrorCode` values or an app-owned stable string. Keep `details` JSON-safe and free of secrets; `toJSON()` includes the code, message, and details, while the in-memory `cause` is omitted from serialization. `NotSupportedError` provides the package-owned unsupported-operation shape for provider adapters.
+Every code has a fixed safe message. `toJSON()` exposes only the stable code and allowlisted `operation`, `provider`, `status`, and `timeoutMs` details; commands, arguments, paths, URLs, request bodies, output, stacks, and causes stay private. Provider adapters can use `NotSupportedError(operation, provider)` for the package-owned unsupported-operation shape.
 
 ## Vite Integration
 

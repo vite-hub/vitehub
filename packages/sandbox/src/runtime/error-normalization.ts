@@ -1,7 +1,8 @@
-import { SandboxError } from '../sandbox/errors'
+import { readSandboxErrorInternals, SandboxError } from '../sandbox/errors'
 
 import type { SandboxErrorCode } from '../sandbox/errors'
 import type { SandboxProvider } from '../sandbox/types/common'
+import type { ViteHubErrorDetails } from '@vite-hub/runtime'
 
 const sandboxErrorCodes = new Set<SandboxErrorCode>([
   'SANDBOX_EXEC_FAILED',
@@ -46,6 +47,16 @@ export function readSandboxErrorMetadata(error: unknown) {
   if (!error || typeof error !== 'object')
     return undefined
 
+  if (error instanceof SandboxError) {
+    const internals = readSandboxErrorInternals(error)
+    return {
+      cause: internals.cause,
+      code: internals.code,
+      details: internals.details,
+      provider: readProvider(internals.details?.provider),
+    }
+  }
+
   const metadata = error as {
     code?: unknown
     provider?: unknown
@@ -73,7 +84,12 @@ export function toSandboxError(error: unknown) {
   return new SandboxError({
     cause: error,
     code: readSandboxErrorCode(metadata?.code),
-    details: metadata?.provider ? { provider: metadata.provider } : undefined,
+    details: metadata?.details || metadata?.provider
+      ? {
+          ...metadata?.details,
+          ...(metadata?.provider ? { provider: metadata.provider } : {}),
+        } as ViteHubErrorDetails
+      : undefined,
     message: error instanceof Error ? error.message : String(error),
   })
 }

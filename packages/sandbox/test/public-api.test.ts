@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises"
+import { readFile, readdir } from "node:fs/promises"
 import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
@@ -23,20 +23,43 @@ describe("sandbox public api", () => {
   })
 
   it("exports the structured error contract", () => {
-    expect(new SandboxError({ code: "CUSTOM_SANDBOX_ERROR", message: "failed" })).toBeInstanceOf(
+    expect(new SandboxError({ code: "SANDBOX_RUNTIME_ERROR", message: "failed" })).toBeInstanceOf(
       Error,
     )
     expect(new NotSupportedError("snapshot", "vercel")).toBeInstanceOf(SandboxError)
   })
 
   it("returns a result wrapper instead of throwing", async () => {
-    const result = await runSandbox("missing")
+    const secret = "missing?token=vh_secret_123"
+    const result = await runSandbox(secret)
 
     expect(result.isErr()).toBe(true)
     expect(result.isOk()).toBe(false)
     if (result.isErr()) {
-      expect(result.error!.message).toContain("missing")
+      expect(result.error).toMatchObject({
+        code: "SANDBOX_NOT_FOUND",
+        message: "Sandbox definition was not found.",
+      })
+      expect(JSON.stringify(result.error)).not.toContain(secret)
     }
+  })
+
+  it("publishes the ViteHub-owned error contract without Effect or Better Result", async () => {
+    const dist = join(import.meta.dirname, "../dist")
+    const declarationFiles = (await readdir(dist)).filter(file => file.endsWith(".d.ts"))
+    const declarations = (await Promise.all(declarationFiles.map(file => readFile(join(dist, file), "utf8")))).join("\n")
+    const [bundle, packageJson] = await Promise.all([
+      readFile(join(dist, "index.js"), "utf8"),
+      readFile(join(import.meta.dirname, "../package.json"), "utf8"),
+    ])
+
+    expect(declarations).toContain("class SandboxError extends ViteHubError")
+    expect(declarations).toContain("type SandboxErrorJSON")
+    expect(declarations).not.toMatch(/from ["']effect(?:\/[^"']*)?["']/)
+    expect(bundle).not.toContain("better-result")
+    expect(bundle).not.toContain("FiberFailure")
+    expect(packageJson).not.toContain('"better-result"')
+    expect(packageJson).not.toContain('"effect"')
   })
 
   it("emits extensioned provider loader imports for published ESM", async () => {

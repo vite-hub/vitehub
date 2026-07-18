@@ -1,6 +1,6 @@
 import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
 import { sleep } from '../internal/shared/utils'
-import { SandboxError } from '../sandbox/errors'
+import { readSandboxErrorInternals, SandboxError } from '../sandbox/errors'
 import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script'
 
 import type { SandboxClient } from '../sandbox/types'
@@ -16,6 +16,9 @@ const EXEC_OUTPUT_PREVIEW_LENGTH = 500
 type ExecutionMeta = { stdout?: string, stderr?: string, code?: number | null, meta?: Record<string, unknown> }
 
 function getErrorMessage(error: unknown) {
+  if (error instanceof SandboxError)
+    return readSandboxErrorInternals(error).message
+
   if (error instanceof Error)
     return error.message
 
@@ -127,8 +130,9 @@ function getExecutionDiagnostics(execution?: ExecutionMeta) {
 function getErrorDiagnostics(error: unknown) {
   if (!error || typeof error !== 'object') return {}
 
-  const details =
-    'details' in error ? (error as { details?: Record<string, unknown> }).details : undefined
+  const details = error instanceof SandboxError
+    ? readSandboxErrorInternals(error).details
+    : 'details' in error ? (error as { details?: Record<string, unknown> }).details : undefined
   if (!details || typeof details !== 'object') return {}
 
   return {

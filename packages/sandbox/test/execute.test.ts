@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { executeSandboxDefinition } from "../src/runtime/execute.ts"
-import type { SandboxError } from "../src/sandbox/errors.ts"
+import { readSandboxErrorInternals, SandboxError } from "../src/sandbox/errors.ts"
 import type { SandboxClient, SandboxExecResult } from "../src/sandbox/types.ts"
 
 function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult } = {}) {
@@ -124,7 +124,7 @@ describe("executeSandboxDefinition", () => {
       },
     })
 
-    await expect(executeSandboxDefinition(
+    const failure = await executeSandboxDefinition(
       sandbox,
       "release-notes",
       undefined,
@@ -134,15 +134,17 @@ describe("executeSandboxDefinition", () => {
           "definition.mjs": "export default { run() { return { ok: true } } }",
         },
       },
-    )).rejects.toMatchObject({
+    ).catch(error => error)
+
+    expect(failure).toMatchObject({
       name: "SandboxError",
       code: "SANDBOX_HANDLER_ERROR",
-      details: {
-        exitCode: 127,
-        provider: "vercel",
-        stderrPreview: "runtime command failed",
-        stdoutPreview: "booted",
-      },
+      details: { provider: "vercel" },
     } satisfies Partial<SandboxError>)
+    expect(readSandboxErrorInternals(failure as SandboxError).details).toMatchObject({
+      exitCode: 127,
+      stderrPreview: "runtime command failed",
+      stdoutPreview: "booted",
+    })
   })
 })

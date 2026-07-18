@@ -1,4 +1,5 @@
 import { upperFirst } from 'scule'
+import { ViteHubError } from '@vite-hub/runtime'
 
 export function resolveNamedResourceName(feature: string, name: string | undefined) {
   if (!name)
@@ -7,7 +8,7 @@ export function resolveNamedResourceName(feature: string, name: string | undefin
 }
 
 export function createUnknownNamedResourceError(feature: string, name: string) {
-  return new Error(`[vitehub] Unknown ${feature} "${name}".`)
+  return new ViteHubError(`${feature.toUpperCase()}_NOT_FOUND`, `[vitehub] Unknown ${feature} "${name}".`)
 }
 
 export function createInvalidNamedResourceError(feature: string, name: string) {

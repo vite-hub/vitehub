@@ -122,10 +122,7 @@ function readData(value: unknown, issues: readonly ValidationIssue[] | undefined
   return { ...base, message, ...(issues ? { issues } : {}) } as ValidationErrorData
 }
 
-export class VitehubValidationError extends SandboxError<
-  'SANDBOX_VALIDATION_ERROR',
-  { status: number }
-> {
+export class VitehubValidationError extends SandboxError {
   readonly status: number
   readonly statusCode: number
   readonly statusText: string

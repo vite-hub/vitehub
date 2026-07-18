@@ -22,6 +22,9 @@ describe("readValidatedPayload", () => {
           value: "input",
         }),
       },
-    })).rejects.toThrow("Validation failed")
+    })).rejects.toMatchObject({
+      code: "SANDBOX_VALIDATION_ERROR",
+      message: "Sandbox input is invalid.",
+    })
   })
 })

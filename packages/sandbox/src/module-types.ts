@@ -88,7 +88,13 @@ export type {
   VercelSandboxProviderOptions,
 }
 
-export type { SandboxErrorCode, SandboxErrorOptions } from './sandbox/errors'
+export type {
+  SandboxErrorCode,
+  SandboxErrorDetails,
+  SandboxErrorJSON,
+  SandboxErrorOptions,
+  SandboxOperation,
+} from './sandbox/errors'
 
 export function getSandboxFeatureProvider(
   config?: AgentSandboxConfig | false,

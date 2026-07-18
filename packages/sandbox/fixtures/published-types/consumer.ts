@@ -1,23 +1,35 @@
 import { NotSupportedError, SandboxError } from "@vite-hub/sandbox"
 
-import type { SandboxErrorCode, SandboxErrorOptions } from "@vite-hub/sandbox"
+import type {
+  SandboxErrorCode,
+  SandboxErrorDetails,
+  SandboxErrorJSON,
+  SandboxErrorOptions,
+} from "@vite-hub/sandbox"
 
 const code = "SANDBOX_TIMEOUT" satisfies SandboxErrorCode
 const options = {
-  code: "RENDER_FAILED" as const,
-  details: { attempt: 2, provider: "vercel" },
-  message: "Render failed.",
+  code,
+  details: { provider: "vercel", timeoutMs: 1_000 },
+  message: "Private provider diagnostic.",
 } satisfies SandboxErrorOptions
 const error = new SandboxError(options)
 
-error.code satisfies "RENDER_FAILED"
-error.toJSON().details satisfies { attempt: number; provider: string } | undefined
+error.code satisfies SandboxErrorCode
+error.details satisfies SandboxErrorDetails | undefined
+error.toJSON() satisfies SandboxErrorJSON
 
-new SandboxError({ code, message: "Sandbox timed out." })
+new SandboxError({ code, message: "Private timeout diagnostic." })
 new NotSupportedError("snapshot", "vercel")
 
 new SandboxError({
-  code: "INVALID_DETAILS",
+  // @ts-expect-error Sandbox owns the complete public error code vocabulary.
+  code: "CUSTOM_SANDBOX_ERROR",
+  message: "Custom error.",
+})
+
+new SandboxError({
+  code: "SANDBOX_RUNTIME_ERROR",
   // @ts-expect-error Sandbox error details must be JSON-safe.
   details: { failedAt: new Date() },
   message: "Invalid details.",
