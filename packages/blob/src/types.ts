@@ -312,12 +312,14 @@ export type ResolvedBlobStoreConfig =
 export type BlobStoreName = "default" | (string & {})
 
 export type BlobServeOptions = boolean | {
+  headers?: Record<string, string>
   publicBaseUrl?: string
   route?: string
   store?: BlobStoreName
 }
 
 export interface BlobServeConfig {
+  headers?: Record<string, string>
   publicBaseUrl?: string
   route: string
   store: BlobStoreName

@@ -140,11 +140,30 @@ function resolveExplicitStore(
   }
 }
 
+function normalizeServeHeaders(value: unknown): Record<string, string> | undefined {
+  if (value === undefined) return
+  if (!isPlainObject(value)) throw new TypeError("`blob.serve.headers` must be a plain object.")
+
+  const entries = Object.entries(value)
+  for (const [name, headerValue] of entries) {
+    if (typeof headerValue !== "string") throw new TypeError("`blob.serve.headers` values must be strings.")
+    try {
+      new Headers({ [name]: headerValue })
+    }
+    catch {
+      throw new TypeError(`\`blob.serve.headers\` contains an invalid HTTP header: ${JSON.stringify(name)}.`)
+    }
+  }
+  return Object.fromEntries(entries) as Record<string, string>
+}
+
 function normalizeServeOptions(value: BlobServeOptions | undefined): ResolvedBlobModuleOptions["serve"] {
   if (value === undefined || value === false) return
   if (value === true) return { route: DEFAULT_BLOB_SERVE_ROUTE, store: "default" }
   if (!isPlainObject(value)) throw new TypeError("`blob.serve` must be true or a plain object.")
+  const headers = normalizeServeHeaders(value.headers)
   return {
+    ...(headers ? { headers } : {}),
     route: trimmed(value.route) || DEFAULT_BLOB_SERVE_ROUTE,
     store: trimmed(value.store) || "default",
     ...(trimmed(value.publicBaseUrl) ? { publicBaseUrl: trimmed(value.publicBaseUrl) } : {}),

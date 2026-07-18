@@ -37,6 +37,23 @@ describe("types", () => {
     expectTypeOf(config.blob).toMatchTypeOf<BlobModuleOptions | undefined>()
   })
 
+  it("accepts static headers for generated serving routes", () => {
+    const config = {
+      driver: "fs",
+      serve: {
+        headers: {
+          "Cache-Control": "public, max-age=300",
+          "X-Content-Type-Options": "nosniff",
+        },
+      },
+    } satisfies BlobModuleOptions
+
+    expectTypeOf(config.serve.headers).toEqualTypeOf<{
+      "Cache-Control": string
+      "X-Content-Type-Options": string
+    }>()
+  })
+
   it("allows MinIO to resolve common Docker env defaults", () => {
     const config: UserConfig = {
       blob: {

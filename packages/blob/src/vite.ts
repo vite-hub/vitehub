@@ -91,16 +91,29 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], importBase =
 }
 
 function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPackageName): string {
+  const headers = serve.headers && Object.keys(serve.headers).length > 0 ? serve.headers : undefined
   return [
     `import { blob } from '${importBase}'`,
-    "import { createError, defineEventHandler, getRouterParam } from 'h3'",
+    `import { createError, defineEventHandler, getRouterParam${headers ? ", removeResponseHeader, setResponseHeaders" : ""} } from 'h3'`,
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
+    ...(headers ? [`const responseHeaders = ${JSON.stringify(headers)}`] : []),
     "",
     "export default defineEventHandler(async (event) => {",
     "  const pathname = getRouterParam(event, '_', { decode: false }) || ''",
     "  if (!pathname) throw createError({ statusCode: 404, statusMessage: 'Blob not found' })",
-    "  return await blob.store(storeName).serve(event, pathname)",
+    ...(headers ? ["  setResponseHeaders(event, responseHeaders)"] : []),
+    ...(headers
+      ? [
+          "  try {",
+          "    return await blob.store(storeName).serve(event, pathname)",
+          "  }",
+          "  catch (error) {",
+          "    for (const name of Object.keys(responseHeaders)) removeResponseHeader(event, name)",
+          "    throw error",
+          "  }",
+        ]
+      : ["  return await blob.store(storeName).serve(event, pathname)"]),
     "})",
     "",
   ].join("\n")
