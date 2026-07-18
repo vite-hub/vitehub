@@ -15,6 +15,15 @@ const transcriptionErrorMessages = {
 export type TranscriptionErrorCode = keyof typeof transcriptionErrorMessages
 export type TranscriptionMetadata = Readonly<Record<string, unknown>>
 
+const transcriptionErrorRetryability: Record<TranscriptionErrorCode, boolean | undefined> = {
+  TRANSCRIPTION_AUTHENTICATION_FAILED: false,
+  TRANSCRIPTION_INVALID_PAYLOAD: false,
+  TRANSCRIPTION_INVALID_REQUEST: false,
+  TRANSCRIPTION_NETWORK_FAILED: true,
+  TRANSCRIPTION_PROVIDER_FAILED: undefined,
+  TRANSCRIPTION_RATE_LIMITED: true,
+}
+
 export interface TranscriptionSource {
   mediaType?: string
   name?: string
@@ -111,12 +120,11 @@ export class TranscriptionError extends ViteHubError<TranscriptionErrorCode, Tra
       throw new TypeError("[vitehub] TranscriptionError requires a known transcription error code.")
     }
     const details = safeErrorDetails(options)
+    const retryable = transcriptionErrorRetryability[code]
     super(code, transcriptionErrorMessages[code], {
       ...(options.cause === undefined ? {} : { cause: options.cause }),
       ...(details ? { details } : {}),
-      retryable: code === "TRANSCRIPTION_NETWORK_FAILED"
-        || code === "TRANSCRIPTION_PROVIDER_FAILED"
-        || code === "TRANSCRIPTION_RATE_LIMITED",
+      ...(retryable === undefined ? {} : { retryable }),
     })
     this.name = "TranscriptionError"
   }

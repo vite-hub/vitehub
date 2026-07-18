@@ -120,7 +120,22 @@ describe("createTranscription", () => {
     }).toJSON()).toEqual({
       code: "TRANSCRIPTION_PROVIDER_FAILED",
       message: "[vitehub] Transcription provider failed.",
-      retryable: true,
+    })
+  })
+
+  it.each([
+    ["TRANSCRIPTION_AUTHENTICATION_FAILED", false],
+    ["TRANSCRIPTION_INVALID_PAYLOAD", false],
+    ["TRANSCRIPTION_INVALID_REQUEST", false],
+    ["TRANSCRIPTION_NETWORK_FAILED", true],
+    ["TRANSCRIPTION_PROVIDER_FAILED", undefined],
+    ["TRANSCRIPTION_RATE_LIMITED", true],
+  ] as const)("serializes truthful retryability for %s", (code, retryable) => {
+    const error = new TranscriptionError(code)
+    expect(error.toJSON()).toEqual({
+      code,
+      message: error.message,
+      ...(retryable === undefined ? {} : { retryable }),
     })
   })
 })
@@ -209,23 +224,27 @@ describe("elevenLabsScribe", () => {
         code: "TRANSCRIPTION_PROVIDER_FAILED",
         details: { provider: "elevenlabs" },
         message: "[vitehub] Transcription provider failed.",
-        retryable: true,
       },
       id: "request-2",
       metadata: { job_id: "job-1" },
       provider: "elevenlabs",
       status: "failed",
     })
+    expect(completion.status === "failed" && completion.error.toJSON()).toEqual({
+      code: "TRANSCRIPTION_PROVIDER_FAILED",
+      details: { provider: "elevenlabs" },
+      message: "[vitehub] Transcription provider failed.",
+    })
     expect(completion.status === "failed" && (completion.error.cause as Error).message).toBe("Unsupported audio")
     expect(JSON.stringify(completion)).not.toContain("Unsupported audio")
   })
 
   it.each([
-    [401, "TRANSCRIPTION_AUTHENTICATION_FAILED"],
-    [422, "TRANSCRIPTION_INVALID_REQUEST"],
-    [429, "TRANSCRIPTION_RATE_LIMITED"],
-    [503, "TRANSCRIPTION_PROVIDER_FAILED"],
-  ])("maps HTTP %s to a stable %s error", async (status, code) => {
+    [401, "TRANSCRIPTION_AUTHENTICATION_FAILED", false],
+    [422, "TRANSCRIPTION_INVALID_REQUEST", false],
+    [429, "TRANSCRIPTION_RATE_LIMITED", true],
+    [503, "TRANSCRIPTION_PROVIDER_FAILED", undefined],
+  ] as const)("maps HTTP %s to a stable %s error", async (status, code, retryable) => {
     const client = createTranscription({
       driver: elevenLabsScribe({
         apiKey: "secret",
@@ -234,9 +253,12 @@ describe("elevenLabsScribe", () => {
       }),
     })
 
-    await expect(client.submit({ source: { url: "https://example.com/audio.mp3" } })).rejects.toMatchObject({
-      code: code as never,
+    const error = await client.submit({ source: { url: "https://example.com/audio.mp3" } }).then(() => undefined, cause => cause as TranscriptionError)
+    expect(error?.toJSON()).toEqual({
+      code,
       details: { provider: "elevenlabs", status },
+      message: error?.message,
+      ...(retryable === undefined ? {} : { retryable }),
     })
   })
 
