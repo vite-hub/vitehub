@@ -9,6 +9,7 @@ describe("ScheduleError", () => {
     const error = new ScheduleError("SCHEDULE_NOT_FOUND", {
       cause,
       requestId: "request-1",
+      retryable: false,
     })
 
     expect(error).toBeInstanceOf(Error)
@@ -21,6 +22,7 @@ describe("ScheduleError", () => {
       code: "SCHEDULE_NOT_FOUND",
       message: "Runtime Schedule was not found.",
       requestId: "request-1",
+      retryable: false,
     })
 
     const json = JSON.stringify(error)

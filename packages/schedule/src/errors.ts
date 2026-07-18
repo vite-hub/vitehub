@@ -55,6 +55,7 @@ export type ScheduleErrorDetails = {
 
 export type ScheduleErrorOptions<TCode extends ScheduleErrorCode = ScheduleErrorCode> = ErrorOptions & {
   requestId?: string
+  retryable?: boolean
 } & (TCode extends ScheduleValidationErrorCode ? { details?: ScheduleErrorDetails } : { details?: never })
 
 const scheduleErrorMessages: Record<ScheduleErrorCode, string> = {
@@ -67,7 +68,7 @@ const scheduleErrorMessages: Record<ScheduleErrorCode, string> = {
   SCHEDULE_INVALID_SCHEDULED_AT: "Runtime Schedule scheduledAt value is invalid.",
   SCHEDULE_INVALID_TARGET: "Runtime Schedule target is invalid.",
   SCHEDULE_INVALID_TIME_ZONE: "Runtime Schedule time zone is invalid.",
-  SCHEDULE_NOT_DUE: "Runtime Schedule is not due.",
+  SCHEDULE_NOT_DUE: "Schedule is not due.",
   SCHEDULE_NOT_FOUND: "Runtime Schedule was not found.",
   SCHEDULE_RUN_NOT_FOUND: "Schedule Run was not found.",
   SCHEDULE_TARGET_NOT_ELIGIBLE: "Runtime Schedule target is not eligible.",
@@ -120,13 +121,15 @@ function normalizeScheduleErrorDetails(value: unknown): ScheduleErrorDetails | u
   return { field: field as ScheduleErrorField, valueType: valueType as ScheduleErrorValueType }
 }
 
-function normalizeScheduleErrorOptions(code: ScheduleErrorCode, value: unknown): Required<Pick<ErrorOptions, "cause">> & { details?: ScheduleErrorDetails, requestId?: string } {
+function normalizeScheduleErrorOptions(code: ScheduleErrorCode, value: unknown): Required<Pick<ErrorOptions, "cause">> & { details?: ScheduleErrorDetails, requestId?: string, retryable?: boolean } {
   if (typeof value !== "object" || value === null) return { cause: undefined }
   const requestId = readProperty(value, "requestId")
+  const retryable = readProperty(value, "retryable")
   return {
     cause: readProperty(value, "cause"),
     ...(code.startsWith("SCHEDULE_INVALID_") ? { details: normalizeScheduleErrorDetails(readProperty(value, "details")) } : {}),
     ...(typeof requestId === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(requestId) ? { requestId } : {}),
+    ...(typeof retryable === "boolean" ? { retryable } : {}),
   }
 }
 

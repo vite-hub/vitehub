@@ -10,7 +10,7 @@ const error = new ScheduleError(code)
 new ScheduleError("SCHEDULE_INVALID_ID", { details: { field: "id", valueType: "string" } })
 
 // @ts-expect-error Schedule details use a closed field/valueType schema.
-new ScheduleError(code, { details: { field: "id", token: "private", valueType: "string" } })
+new ScheduleError("SCHEDULE_INVALID_ID", { details: { field: "id", token: "private", valueType: "string" } })
 
 error.code satisfies ScheduleErrorCode
 error.toJSON().code satisfies ScheduleErrorCode
