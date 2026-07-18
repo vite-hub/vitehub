@@ -5,6 +5,8 @@ packages:
 catalogMode: prefer
 
 catalogs:
+  effect:
+    effect: 4.0.0-beta.99
   ai:
     "@ai-sdk/harness": 1.0.0
     "@ai-sdk/harness-claude-code": 1.0.0
