@@ -73,8 +73,42 @@ describe("createEmail", () => {
       cause,
       code: "provider",
       driver: "fixture",
-      message: "[vitehub] Email delivery failed through fixture.",
+      message: "[vitehub] Email delivery failed.",
     })
+  })
+
+  it("omits unsafe driver identifiers from public failures", async () => {
+    const secret = "https://provider.example/send?token=email-secret"
+    const cause = new Error("provider body email-secret")
+    const client = createEmail({
+      driver: {
+        name: secret,
+        send: vi.fn(async () => {
+          throw cause
+        }),
+      },
+    })
+
+    const error = await client.send(message).catch(error => error)
+    expect(error).toMatchObject({
+      cause,
+      code: "provider",
+      message: "[vitehub] Email delivery failed.",
+    })
+    expect(error.driver).toBeUndefined()
+    expect(JSON.stringify(error)).not.toContain("email-secret")
+    expect(JSON.stringify(error)).not.toContain("provider.example")
+  })
+
+  it("preserves abort errors from custom drivers by exact identity", async () => {
+    const abort = new DOMException("cancelled", "AbortError")
+    const client = createEmail({
+      driver: fixtureDriver(vi.fn(async () => {
+        throw abort
+      })),
+    })
+
+    await expect(client.send(message)).rejects.toBe(abort)
   })
 
   it("preserves normalized driver errors", async () => {

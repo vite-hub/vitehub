@@ -42,4 +42,21 @@ describe("EmailError", () => {
       message: "[vitehub] Email provider throttled delivery.",
     })
   })
+
+  it("only serializes bounded opaque driver identifiers", () => {
+    const secret = "https://provider.example/send?token=email-secret"
+    const error = new EmailError({
+      code: "provider",
+      details: { driver: secret, operation: "send" },
+      message: "[vitehub] Email delivery failed.",
+    })
+
+    expect(error.driver).toBeUndefined()
+    expect(error.toJSON()).toEqual({
+      code: "provider",
+      details: { operation: "send" },
+      message: "[vitehub] Email delivery failed.",
+    })
+    expect(JSON.stringify(error)).not.toContain("email-secret")
+  })
 })

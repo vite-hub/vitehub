@@ -1,5 +1,5 @@
 import { assertEmailDriver } from "./definition.ts"
-import { EmailError } from "./errors.ts"
+import { EmailError, isEmailAbortError } from "./errors.ts"
 
 import type {
   EmailAddress,
@@ -95,13 +95,14 @@ export function createEmail(options: EmailDefinition): EmailClient {
       try {
         const result = await driver.send(message)
         if (!validDriverResult(result)) {
-          throw new EmailError("provider", `[vitehub] Email driver ${driver.name} returned an invalid message id.`, { driver: driver.name })
+          throw new EmailError("provider", "[vitehub] Email provider returned an invalid message id.", { driver: driver.name })
         }
         return { driver: driver.name, id: result.id }
       }
       catch (error) {
         if (error instanceof EmailError) throw error
-        throw new EmailError("provider", `[vitehub] Email delivery failed through ${driver.name}.`, {
+        if (isEmailAbortError(error)) throw error
+        throw new EmailError("provider", "[vitehub] Email delivery failed.", {
           cause: error,
           driver: driver.name,
         })

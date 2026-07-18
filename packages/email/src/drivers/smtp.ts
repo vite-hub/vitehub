@@ -1,6 +1,6 @@
 import nodemailer from "nodemailer"
 
-import { EmailError } from "../errors.ts"
+import { EmailError, isEmailAbortError } from "../errors.ts"
 
 import type Mail from "nodemailer/lib/mailer/index.js"
 import type SMTPTransport from "nodemailer/lib/smtp-transport/index.js"
@@ -71,6 +71,7 @@ export function smtp(transport: string | SMTPTransport.Options): EmailDriver {
       }
       catch (error) {
         if (error instanceof EmailError) throw error
+        if (isEmailAbortError(error)) throw error
         const smtpError = error as SMTPError
         throw new EmailError(smtpErrorCode(smtpError), "[vitehub] SMTP delivery failed.", {
           cause: error,

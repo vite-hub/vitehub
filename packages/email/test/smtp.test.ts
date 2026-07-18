@@ -103,6 +103,19 @@ describe("smtp", () => {
     })
   })
 
+  it("preserves SMTP abort errors by exact identity", async () => {
+    const abort = new DOMException("cancelled", "AbortError")
+    nodemailer.sendMail.mockRejectedValue(abort)
+    const client = createEmail({ driver: smtp("smtp://localhost") })
+
+    await expect(client.send({
+      from: "hello@example.com",
+      subject: "Welcome",
+      text: "Hello",
+      to: "maxi@example.com",
+    })).rejects.toBe(abort)
+  })
+
   it("rejects a missing provider message id", async () => {
     nodemailer.sendMail.mockResolvedValue({})
     const driver = smtp("smtp://localhost")
