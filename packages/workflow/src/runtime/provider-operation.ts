@@ -1,14 +1,17 @@
 import { WorkflowError } from "../errors.ts"
 
-type WorkflowProvider = "cloudflare" | "vercel"
+type WorkflowProvider = "cloudflare" | "openworkflow" | "vercel"
 
 type WorkflowProviderOperation =
   | "cancel"
+  | "connect"
   | "create"
   | "get"
   | "get-run"
+  | "import"
   | "list-steps"
   | "resume-signal"
+  | "run"
   | "start"
   | "status"
 

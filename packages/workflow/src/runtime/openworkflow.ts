@@ -1,4 +1,5 @@
 import { runWorkflowHandler } from "./execute.ts"
+import { runWorkflowProviderOperation } from "./provider-operation.ts"
 
 import type { RetryPolicy } from "openworkflow"
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowStepOptions } from "../types.ts"
@@ -25,6 +26,10 @@ interface OpenWorkflowRuntime {
 }
 
 const runtimes = new Map<string, Promise<OpenWorkflowRuntime>>()
+
+async function importOpenWorkflowModule<T>(specifier: string): Promise<T> {
+  return await runWorkflowProviderOperation("openworkflow", "import", () => openWorkflowImporter<T>(specifier))
+}
 
 function readEnv(name: string): string | undefined {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
@@ -60,8 +65,8 @@ function normalizeSqlitePath(path: string): string {
 async function prepareSqlitePath(path: string): Promise<string> {
   if (path !== ":memory:") {
     const [{ mkdirSync }, { dirname }] = await Promise.all([
-      openWorkflowImporter<NodeFsModule>("node:fs"),
-      openWorkflowImporter<NodePathModule>("node:path"),
+      importOpenWorkflowModule<NodeFsModule>("node:fs"),
+      importOpenWorkflowModule<NodePathModule>("node:path"),
     ])
     mkdirSync(dirname(path), { recursive: true })
   }
@@ -115,21 +120,24 @@ function getRuntimeKey(config: ResolvedWorkflowOptions): string {
 async function createOpenWorkflowRuntime(config: ResolvedWorkflowOptions): Promise<OpenWorkflowRuntime> {
   const options = getOpenWorkflowConfig(config)
   const [{ OpenWorkflow }, backendModule] = await Promise.all([
-    openWorkflowImporter<OpenWorkflowModule>("openworkflow"),
+    importOpenWorkflowModule<OpenWorkflowModule>("openworkflow"),
     options.backend === "sqlite"
-      ? openWorkflowImporter<OpenWorkflowSqliteModule>("openworkflow/sqlite")
-      : openWorkflowImporter<OpenWorkflowPostgresModule>("openworkflow/postgres"),
+      ? importOpenWorkflowModule<OpenWorkflowSqliteModule>("openworkflow/sqlite")
+      : importOpenWorkflowModule<OpenWorkflowPostgresModule>("openworkflow/postgres"),
   ])
-  const backend = options.backend === "sqlite"
-    ? (backendModule as OpenWorkflowSqliteModule).BackendSqlite.connect(await prepareSqlitePath(options.path), {
+  const backend = await runWorkflowProviderOperation("openworkflow", "connect", async () => {
+    if (options.backend === "sqlite") {
+      return await (backendModule as OpenWorkflowSqliteModule).BackendSqlite.connect(await prepareSqlitePath(options.path), {
         namespaceId: options.namespaceId,
         ...(typeof options.runMigrations === "boolean" ? { runMigrations: options.runMigrations } : {}),
       })
-    : await (backendModule as OpenWorkflowPostgresModule).BackendPostgres.connect(options.url, {
-        namespaceId: options.namespaceId,
-        ...(typeof options.runMigrations === "boolean" ? { runMigrations: options.runMigrations } : {}),
-        schema: options.schema,
-      })
+    }
+    return await (backendModule as OpenWorkflowPostgresModule).BackendPostgres.connect(options.url, {
+      namespaceId: options.namespaceId,
+      ...(typeof options.runMigrations === "boolean" ? { runMigrations: options.runMigrations } : {}),
+      schema: options.schema,
+    })
+  })
 
   return {
     backend,
@@ -244,7 +252,10 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const runtime = await getOpenWorkflowRuntime(config)
   const workflow = await registerOpenWorkflowDefinition(runtime, name, definition as never)
-  const handle = await workflow.run(payload, options.id ? { idempotencyKey: options.id } : undefined)
+  const handle = await runWorkflowProviderOperation("openworkflow", "run", () => workflow.run(
+    payload,
+    options.id ? { idempotencyKey: options.id } : undefined,
+  ))
 
   return {
     id: handle.workflowRun.id,
@@ -264,7 +275,7 @@ export async function getOpenWorkflowRun<TPayload = unknown, TResult = unknown>(
   id: string,
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const runtime = await getOpenWorkflowRuntime(config)
-  const run = await runtime.backend.getWorkflowRun({ workflowRunId: id })
+  const run = await runWorkflowProviderOperation("openworkflow", "get", () => runtime.backend.getWorkflowRun({ workflowRunId: id }))
   const serialized = serializeOpenWorkflowRun(run, name)
   return serialized.id
     ? serialized as WorkflowRun<TPayload, TResult>
