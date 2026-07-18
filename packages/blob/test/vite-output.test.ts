@@ -293,6 +293,32 @@ describe("Vite provider outputs", () => {
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__blob.func", "index.mjs"))).toBe(true)
   })
 
+  it("cleans legacy standalone workers without R2 runtime code when Nitro takes ownership", { timeout: 30_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-nitro-non-r2-")
+    const cloudflareOutput = join(rootDir, "dist", toSafeAppName(rootDir))
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist", "client"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
+
+    const options = {
+      blob: { driver: "vercel-blob", token: "test-token" },
+      clientOutDir: "dist/client",
+      rootDir,
+    } as const
+    await generateProviderOutputs(options)
+    const workerPath = join(cloudflareOutput, "index.js")
+    const legacyWorker = (await readFile(workerPath, "utf8")).replace("// vitehub-blob-worker\n", "")
+    expect(legacyWorker).toContain("function createBlobCloudflareWorker(")
+    expect(legacyWorker).toContain("setBlobRuntimeConfig(")
+    expect(legacyWorker).not.toContain("R2 binding")
+    await writeFile(workerPath, legacyWorker, "utf8")
+
+    await generateProviderOutputs({ ...options, cloudflareOwnedByNitro: true })
+
+    expect(existsSync(workerPath)).toBe(false)
+    expect(existsSync(join(cloudflareOutput, "wrangler.json"))).toBe(false)
+  })
+
   it("omits Cloudflare bucket bindings when none are configured", { timeout: 15_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-no-bucket-")
     await mkdir(join(rootDir, "src"), { recursive: true })

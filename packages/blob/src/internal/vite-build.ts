@@ -345,7 +345,6 @@ function isLegacyCloudflareBlobWorker(worker: string, wrangler: unknown): boolea
     : {}
   return worker.includes("function createBlobCloudflareWorker(")
     && worker.includes("setBlobRuntimeConfig(")
-    && worker.includes("R2 binding")
     && config.main === "index.js"
     && compatibilityFlags.includes("nodejs_compat")
     && observability.enabled === true
