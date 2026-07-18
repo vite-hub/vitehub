@@ -76,7 +76,7 @@ export default defineQueue<{ email?: string }>(async ({ payload }) => {
 
 Custom application codes use an explicit generic, while ViteHub's built-in codes are available as `QueueErrorCode`. ViteHub reports each failed delivery with safe queue and message identifiers, attempt count, code, details, and retry policy before choosing the provider action. Cloudflare `onError` and Vercel `callbackOptions.retry` directives override the default action when they return an explicit directive.
 
-The message-first form remains available for existing Queue Definitions: `new QueueError(message, { code, details, httpStatus, retryable })`. `httpStatus` is available to server integrations but is not serialized in delivery reports or `JSON.stringify(error)`; use the object form when you want code-specific detail types.
+The message-first form remains available for existing Queue Definitions: `new QueueError(message, { code, details, httpStatus, method, provider, retryable })`. The compatibility fields `httpStatus`, `method`, and `provider` are available to server integrations in either form but are not serialized in delivery reports or `JSON.stringify(error)`; use the object form when you want code-specific detail types.
 
 ## Vite Integration
 

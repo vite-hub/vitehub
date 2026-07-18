@@ -5,23 +5,31 @@ const options = {
   details: { field: "email" },
   httpStatus: 422,
   message: "Invalid payload.",
+  method: "POST",
+  provider: "vercel",
   retryable: false,
 } satisfies QueueErrorOptions<"INVALID_PAYLOAD">
 
 const error = new QueueError<"INVALID_PAYLOAD">(options)
 error.code satisfies "INVALID_PAYLOAD"
 error.httpStatus satisfies number | undefined
+error.method satisfies string | undefined
+error.provider satisfies string | undefined
 error.retryable satisfies boolean | undefined
 
 const metadata = {
   code: "INVALID_PAYLOAD",
   details: { field: "email" },
   httpStatus: 422,
+  method: "POST",
+  provider: "vercel",
   retryable: false,
 } satisfies QueueErrorMetadata
 
 const compatibleError = new QueueError("Invalid payload.", metadata)
 compatibleError.httpStatus satisfies number | undefined
+compatibleError.method satisfies string | undefined
+compatibleError.provider satisfies string | undefined
 
 new QueueError({
   code: "QUEUE_PROVIDER_OPERATION_FAILED",
@@ -37,4 +45,4 @@ new QueueError({
   details: { operation: "cancel", provider: "vercel" },
   message: "Provider failed.",
 })
-new QueueError("Provider failed.", { httpStatus: 503, retryable: true })
+new QueueError("Provider failed.", { httpStatus: 503, method: "POST", provider: "vercel", retryable: true })

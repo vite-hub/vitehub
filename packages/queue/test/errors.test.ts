@@ -13,41 +13,49 @@ describe("QueueError", () => {
       details: { counter: "expiry_invalid_payload" },
       httpStatus: 422,
       message: "Invalid image expiry payload.",
+      method: "POST",
+      provider: "vercel",
       retryable: false,
     })
 
     expect(error).toBeInstanceOf(ViteHubError)
     expect(error.cause).toBe(cause)
     expect(error.httpStatus).toBe(422)
+    expect(error.method).toBe("POST")
+    expect(error.provider).toBe("vercel")
     expect(error.toJSON()).toEqual({
       code: "EXPIRY_INVALID_PAYLOAD",
       details: { counter: "expiry_invalid_payload" },
       message: "Invalid image expiry payload.",
       retryable: false,
     })
-    expect(JSON.stringify(error)).not.toMatch(/httpStatus|private provider detail/)
+    expect(JSON.stringify(error)).not.toMatch(/httpStatus|method|private provider detail|provider/)
   })
 
-  it("supports message-first construction without serializing HTTP metadata", () => {
+  it("supports message-first construction without serializing compatibility metadata", () => {
     const cause = new Error("private provider detail")
     const error = new QueueError("Invalid image expiry payload.", {
       cause,
       code: "EXPIRY_INVALID_PAYLOAD",
       details: { counter: "expiry_invalid_payload" },
       httpStatus: 422,
+      method: "POST",
+      provider: "vercel",
       retryable: false,
     })
 
     expect(error).toBeInstanceOf(ViteHubError)
     expect(error.cause).toBe(cause)
     expect(error.httpStatus).toBe(422)
+    expect(error.method).toBe("POST")
+    expect(error.provider).toBe("vercel")
     expect(error.toJSON()).toEqual({
       code: "EXPIRY_INVALID_PAYLOAD",
       details: { counter: "expiry_invalid_payload" },
       message: "Invalid image expiry payload.",
       retryable: false,
     })
-    expect(JSON.stringify(error)).not.toMatch(/httpStatus|private provider detail/)
+    expect(JSON.stringify(error)).not.toMatch(/httpStatus|method|private provider detail|provider/)
   })
 
   it("publishes built-in provider failures through allowlisted details", () => {

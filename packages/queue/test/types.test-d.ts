@@ -26,6 +26,8 @@ it("types structured Queue errors", () => {
     details: { field: "email" },
     httpStatus: 422,
     message: "Invalid payload.",
+    method: "POST",
+    provider: "vercel",
     retryable: false,
   } satisfies QueueErrorOptions<"INVALID_PAYLOAD">
   const error = new QueueError<"INVALID_PAYLOAD">(options)
@@ -33,13 +35,19 @@ it("types structured Queue errors", () => {
     code: "INVALID_PAYLOAD",
     details: { field: "email" },
     httpStatus: 422,
+    method: "POST",
+    provider: "vercel",
     retryable: false,
   } satisfies QueueErrorMetadata
   const compatibleError = new QueueError("Invalid payload.", metadata)
 
   expectTypeOf(error.code).toEqualTypeOf<"INVALID_PAYLOAD">()
   expectTypeOf(error.httpStatus).toEqualTypeOf<number | undefined>()
+  expectTypeOf(error.method).toEqualTypeOf<string | undefined>()
+  expectTypeOf(error.provider).toEqualTypeOf<string | undefined>()
   expectTypeOf(compatibleError.httpStatus).toEqualTypeOf<number | undefined>()
+  expectTypeOf(compatibleError.method).toEqualTypeOf<string | undefined>()
+  expectTypeOf(compatibleError.provider).toEqualTypeOf<string | undefined>()
   expectTypeOf(error.retryable).toEqualTypeOf<boolean | undefined>()
   expectTypeOf<QueueErrorCode>().toEqualTypeOf<
     | "CLOUDFLARE_BINDING_INVALID"
@@ -67,5 +75,5 @@ it("types structured Queue errors", () => {
   })
   // @ts-expect-error QUEUE_DISABLED does not publish arbitrary details.
   new QueueError({ code: "QUEUE_DISABLED", details: { queue: "private" }, message: "Queue is disabled." })
-  new QueueError("Provider failed.", { httpStatus: 503, retryable: true })
+  new QueueError("Provider failed.", { httpStatus: 503, method: "POST", provider: "vercel", retryable: true })
 })

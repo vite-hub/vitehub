@@ -49,6 +49,8 @@ type QueueErrorDetailOptions<TCode extends string> = TCode extends QueueErrorCod
 export type QueueErrorMetadata = ViteHubErrorOptions & {
   readonly code?: string
   readonly httpStatus?: number
+  readonly method?: string
+  readonly provider?: string
 }
 
 export type QueueErrorOptions<TCode extends string = QueueErrorCode> = TCode extends string
@@ -56,11 +58,15 @@ export type QueueErrorOptions<TCode extends string = QueueErrorCode> = TCode ext
     readonly code: NoInfer<TCode>
     readonly httpStatus?: number
     readonly message: string
+    readonly method?: string
+    readonly provider?: string
   }
   : never
 
 export class QueueError<TCode extends string = QueueErrorCode> extends ViteHubError<TCode, QueueErrorDetails<TCode>> {
   readonly httpStatus?: number
+  readonly method?: string
+  readonly provider?: string
 
   constructor(options: QueueErrorOptions<NoInfer<TCode>>)
   constructor(message: string, metadata?: QueueErrorMetadata)
@@ -70,6 +76,8 @@ export class QueueError<TCode extends string = QueueErrorCode> extends ViteHubEr
     super((options.code || "QUEUE_ERROR") as TCode, message, options as ViteHubErrorOptions<QueueErrorDetails<TCode>>)
     this.name = "QueueError"
     this.httpStatus = options.httpStatus
+    this.method = options.method
+    this.provider = options.provider
   }
 }
 
