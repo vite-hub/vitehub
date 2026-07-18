@@ -40,13 +40,17 @@ interface CloudflareProviderOutputCatalog {
 const cloudflareProviderOutputKey = Symbol.for("vitehub.cloudflareProviderOutput")
 
 function cloneRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
+}
+
+function cloneProviderRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {}
   return Object.fromEntries(Object.entries(value).flatMap(([key, entry]) => typeof entry === "undefined" ? [] : [[key, cloneProviderValue(entry)]]))
 }
 
 function cloneProviderValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(entry => typeof entry === "undefined" ? null : cloneProviderValue(entry))
-  if (value && typeof value === "object") return cloneRecord(value)
+  if (value && typeof value === "object") return cloneProviderRecord(value)
   return value
 }
 
@@ -60,7 +64,7 @@ export function registerCloudflareProviderOutput(config: object, owner: string, 
 }
 
 function compatibleEntries<T extends Record<string, unknown>>(existing: unknown, incoming: T[] | undefined, identityKey: keyof T & string, conflictKeys: Array<keyof T & string>, owner: string): T[] {
-  const current = Array.isArray(existing) ? existing.map(cloneRecord) : []
+  const current = Array.isArray(existing) ? existing.map(cloneProviderRecord) : []
   return (incoming ?? []).filter((entry) => {
     const identity = entry[identityKey]
     const match = current.find((candidate) => candidate[identityKey] === identity)
@@ -76,7 +80,7 @@ function compatibleEntries<T extends Record<string, unknown>>(existing: unknown,
 }
 
 function mergeContribution(wrangler: Record<string, unknown>, owner: string, contribution: CloudflareProviderOutputContribution): Record<string, unknown> {
-  const queues = cloneRecord(wrangler.queues)
+  const queues = cloneProviderRecord(wrangler.queues)
   const consumers = compatibleEntries(queues.consumers, contribution.queues?.consumers, "queue", [], owner)
   const producers = compatibleEntries(queues.producers, contribution.queues?.producers, "binding", ["queue"], owner)
   const r2Buckets = compatibleEntries(wrangler.r2_buckets, contribution.r2Buckets, "binding", ["bucket_name"], owner)
@@ -113,7 +117,7 @@ function mergeContribution(wrangler: Record<string, unknown>, owner: string, con
 export function composeNitroCloudflareProviderOutput(config: object, value: unknown): Record<string, unknown> {
   const nitro = cloneRecord(value)
   const cloudflare = cloneRecord(nitro.cloudflare)
-  let wrangler = cloneRecord(cloudflare.wrangler)
+  let wrangler = cloneProviderRecord(cloudflare.wrangler)
   for (const [owner, contribution] of useCloudflareProviderOutput(config).contributionsByOwner) {
     wrangler = mergeContribution(wrangler, owner, contribution)
   }

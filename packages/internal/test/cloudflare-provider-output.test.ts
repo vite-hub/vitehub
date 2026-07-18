@@ -87,4 +87,25 @@ describe("Cloudflare provider output", () => {
     expect(output).toHaveProperty("cloudflare.wrangler.observability.enabled", false)
     expect(output).not.toHaveProperty("cloudflare.wrangler.compatibility_date")
   })
+
+  it("preserves non-plain Nitro config outside Wrangler composition", () => {
+    const config = {}
+    const external = /^node:/
+    const buildBefore = () => undefined
+    const hooks = { "build:before": buildBefore }
+    const rollupConfig = { external }
+    registerCloudflareProviderOutput(config, "queue", {
+      queues: { producers: [{ binding: "JOBS", queue: "jobs" }] },
+    })
+
+    const output = composeNitroCloudflareProviderOutput(config, {
+      cloudflare: { wrangler: { name: undefined } },
+      hooks,
+      rollupConfig,
+    })
+
+    expect(output.hooks).toBe(hooks)
+    expect(output.rollupConfig).toBe(rollupConfig)
+    expect(output).not.toHaveProperty("cloudflare.wrangler.name")
+  })
 })

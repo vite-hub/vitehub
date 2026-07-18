@@ -188,6 +188,27 @@ describe("hubQueue", () => {
     expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "index.js"))).toBe(true)
   })
 
+  it.each(["NITRO_PRESET", "SERVER_PRESET", "VITEHUB_HOSTING"])("keeps standalone output for plain Vite selected by %s", async (environmentVariable) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+    const previous = process.env[environmentVariable]
+    process.env[environmentVariable] = "cloudflare_module"
+
+    try {
+      const plugin = hubQueue()
+      const config = { build: { outDir: "dist" }, command: "build", root }
+      ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+      await (plugin.configResolved as (config: unknown) => Promise<void>)(config as never)
+      await (plugin.closeBundle as () => Promise<void>)()
+      expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "index.js"))).toBe(true)
+    }
+    finally {
+      if (typeof previous === "undefined") delete process.env[environmentVariable]
+      else process.env[environmentVariable] = previous
+    }
+  })
+
   it("rejects ambiguous and conflicting custom Cloudflare bindings", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
     roots.push(root)
