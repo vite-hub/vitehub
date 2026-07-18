@@ -71,6 +71,7 @@ async function resolveSafeSourceFilePath(path: string, key: string, ctx: SourceC
     target = await realpath(resolve(root, normalizeSafeSourcePath(path)))
   }
   catch (cause) {
+    if (cause instanceof SourceError) throw cause
     if (isFileNotFoundError(cause)) throw sourceItemNotFoundError("file", key)
     throw sourceProviderRequestError("filesystem", "resolve", { cause })
   }

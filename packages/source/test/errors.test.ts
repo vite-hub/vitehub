@@ -113,4 +113,17 @@ describe("@vite-hub/source public errors", () => {
     })
     expect(JSON.stringify([source, path])).not.toMatch(/secret-token|provider\.example|\/Users\/private|\.env/)
   })
+
+  it("omits overlong identifiers before constructing public errors", () => {
+    const error = new SourceError({
+      code: "SOURCE_ITEM_NOT_FOUND",
+      details: { key: "a".repeat(20_000), source: "docs" },
+    })
+
+    expect(error.toJSON()).toEqual({
+      code: "SOURCE_ITEM_NOT_FOUND",
+      details: { source: "docs" },
+      message: "[vitehub] docs could not find the requested item.",
+    })
+  })
 })

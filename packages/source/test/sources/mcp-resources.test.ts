@@ -114,6 +114,19 @@ describe("mcpResources", () => {
     expect(JSON.stringify(error)).not.toMatch(/secret-token|mcp\.example|private/)
   })
 
+  it("rejects malformed MCP resource descriptors as invalid provider responses", async () => {
+    const providerPage = { resources: [null] }
+    const client = createClient()
+    client.listResources = vi.fn().mockResolvedValue(providerPage as never)
+    const source = mcpResources({ server: client })
+
+    await expect(source.getKeys({ rootDir: "/tmp" })).rejects.toMatchObject({
+      cause: providerPage,
+      code: "SOURCE_PROVIDER_RESPONSE_INVALID",
+      details: { operation: "list-resources", provider: "mcp" },
+    })
+  })
+
   it("rejects malformed MCP read payloads as invalid provider responses", async () => {
     const providerResponse = { secret: "secret-token from https://mcp.example/private" }
     const client = createClient()
@@ -128,6 +141,19 @@ describe("mcpResources", () => {
       details: { operation: "read-resource", provider: "mcp" },
     })
     expect(JSON.stringify(error)).not.toMatch(/secret-token|mcp\.example|private/)
+  })
+
+  it("rejects malformed MCP content entries as invalid provider responses", async () => {
+    const providerResponse = { contents: [null] }
+    const client = createClient()
+    client.readResource = vi.fn().mockResolvedValue(providerResponse as never)
+    const source = mcpResources({ server: client })
+
+    await expect(source.getItem("nuxt-com/documentation-pages.json", { rootDir: "/tmp" })).rejects.toMatchObject({
+      cause: providerResponse,
+      code: "SOURCE_PROVIDER_RESPONSE_INVALID",
+      details: { operation: "read-resource", provider: "mcp" },
+    })
   })
 
   it("preserves raw MCP abort reasons", async () => {

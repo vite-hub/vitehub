@@ -79,6 +79,28 @@ function isMcpTransport(value: unknown): value is Transport {
     && typeof (value as { start?: unknown }).start === "function"
 }
 
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === "string"
+}
+
+function isMcpResourceDescriptor(value: unknown): value is McpResourceDescriptor {
+  if (!value || typeof value !== "object") return false
+  const resource = value as Record<string, unknown>
+  return typeof resource.uri === "string"
+    && isOptionalString(resource.name)
+    && isOptionalString(resource.title)
+    && isOptionalString(resource.description)
+    && isOptionalString(resource.mimeType)
+    && (resource.size === undefined || typeof resource.size === "number")
+}
+
+function isMcpResourceContent(value: unknown): value is McpResourceContent {
+  if (!value || typeof value !== "object") return false
+  const content = value as Record<string, unknown>
+  return typeof content.uri === "string"
+    && isOptionalString(content.mimeType)
+}
+
 async function createMcpTransport(config: McpResourcesTransportConfig): Promise<Transport> {
   if (isMcpTransport(config)) return config
   const { type = "http", url, ...options } = config
@@ -206,7 +228,7 @@ async function listAllResources(client: McpResourcesClient, request: McpResource
       signal,
       () => client.listResources(cursor ? { cursor } : undefined, request),
     )
-    if (!page || typeof page !== "object" || !Array.isArray(page.resources)) {
+    if (!page || typeof page !== "object" || !Array.isArray(page.resources) || !page.resources.every(isMcpResourceDescriptor)) {
       throw sourceProviderResponseInvalidError("mcp", "list-resources", { cause: page })
     }
     if (page.nextCursor !== undefined && typeof page.nextCursor !== "string") {
@@ -230,7 +252,7 @@ async function readResourceContents(
     signal,
     () => client.readResource({ uri: resource.uri }, request),
   )
-  if (!response || typeof response !== "object" || !Array.isArray(response.contents)) {
+  if (!response || typeof response !== "object" || !Array.isArray(response.contents) || !response.contents.every(isMcpResourceContent)) {
     throw sourceProviderResponseInvalidError("mcp", "read-resource", { cause: response })
   }
   return response.contents

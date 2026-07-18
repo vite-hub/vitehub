@@ -166,7 +166,7 @@ function sourceValueType(value: unknown): SourceValueType {
 }
 
 function normalizePublicSourceIdentifier(value: unknown): string | undefined {
-  if (typeof value !== "string" || !value || value.trim() !== value) return
+  if (typeof value !== "string" || !value || value.length > 4096 || value.trim() !== value) return
   const normalized = value.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
   if (normalized !== value) return
   if (/^[a-z][a-z\d+.-]*:\/\//i.test(value) || /^[a-z]:\//i.test(value)) return

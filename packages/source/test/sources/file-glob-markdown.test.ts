@@ -53,6 +53,17 @@ describe("@vite-hub/source local file sources", () => {
     })
   })
 
+  it("preserves invalid backing paths as Source path errors", async () => {
+    const source = file({ path: "../secret", workspacePath: "safe.txt" })
+
+    await expect(source.getItem("safe.txt", { rootDir: await createRoot() })).rejects.toMatchObject({
+      code: "SOURCE_PATH_INVALID",
+    })
+    await expect(source.getMeta?.("safe.txt", { rootDir: await createRoot() })).rejects.toMatchObject({
+      code: "SOURCE_PATH_INVALID",
+    })
+  })
+
   it("loads file, markdown, and glob providers", async () => {
     const root = await createRoot()
     await mkdir(join(root, "docs"), { recursive: true })
