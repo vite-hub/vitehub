@@ -103,6 +103,42 @@ describe("Agent structured output", () => {
     await expect(runAgentInline(agent, runtime(), {})).rejects.toBe(cause)
   })
 
+  it("normalizes unreadable model results", async () => {
+    const cause = new Error("private model getter")
+    const result = new Proxy({}, { has: () => { throw cause } })
+    const agent = defineAgent({
+      driver: { run: () => result },
+      output: { schema: summarySchema() },
+      runtime: false,
+    })
+
+    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, error => error as AgentOutputValidationError)
+    expect(error).toMatchObject({ cause, code: "AGENT_OUTPUT_INVALID_JSON" })
+    expect(JSON.stringify(error)).not.toContain("private model getter")
+  })
+
+  it("normalizes unreadable schema issues after validation returns", async () => {
+    const cause = new Error("private issue getter")
+    const issue = Object.defineProperty({}, "path", { get: () => { throw cause } })
+    const agent = defineAgent({
+      driver: { run: () => "{}" },
+      output: {
+        schema: {
+          "~standard": {
+            validate: () => ({ issues: [issue as never] }),
+            vendor: "vitehub-test",
+            version: 1,
+          },
+        },
+      },
+      runtime: false,
+    })
+
+    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, error => error as AgentOutputValidationError)
+    expect(error).toMatchObject({ cause, code: "AGENT_OUTPUT_SCHEMA_INVALID" })
+    expect(JSON.stringify(error)).not.toContain("private issue getter")
+  })
+
   it("validates materialized objects whose schema includes a text field", async () => {
     const schema: StandardSchemaV1<unknown, { text: string }> = {
       "~standard": {

@@ -74,6 +74,30 @@ describe("createTranscription", () => {
     await expect(client.submit({ source: { url: "https://example.com/audio.mp3" } })).rejects.toBe(cause)
   })
 
+  it("normalizes unreadable resolved driver submissions", async () => {
+    const cause = new Error("secret submission getter")
+    const submission = Object.defineProperty({}, "id", { get: () => { throw cause } })
+    const client = createTranscription({ driver: fixtureDriver({ submit: vi.fn(async () => submission as never) }) })
+
+    const error = await client.submit({ source: { url: "https://example.com/audio.mp3" } }).then(() => undefined, error => error as TranscriptionError)
+    expect(error).toMatchObject({ cause, code: "TRANSCRIPTION_INVALID_PAYLOAD" })
+    expect(JSON.stringify(error)).not.toContain("secret submission getter")
+  })
+
+  it.each(["id", "metadata", "status", "transcript"] as const)("normalizes unreadable completion %s getters", async (field) => {
+    const cause = new Error(`secret ${field} getter`)
+    const transcript = field === "transcript"
+      ? Object.defineProperty({}, "text", { get: () => { throw cause } })
+      : { text: "ok" }
+    const completion = { id: "operation-1", metadata: {}, status: "completed", transcript }
+    if (field !== "transcript") Object.defineProperty(completion, field, { get: () => { throw cause } })
+    const client = createTranscription({ driver: fixtureDriver({ receive: vi.fn(async () => completion as never) }) })
+
+    const error = await client.receive({}).then(() => undefined, error => error as TranscriptionError)
+    expect(error).toMatchObject({ cause, code: "TRANSCRIPTION_INVALID_PAYLOAD" })
+    expect(JSON.stringify(error)).not.toContain(`secret ${field} getter`)
+  })
+
   it("rejects invalid driver results", async () => {
     const invalidSubmission = createTranscription({ driver: fixtureDriver({ submit: vi.fn(async () => ({ id: "" })) }) })
     const invalidCompletion = createTranscription({ driver: fixtureDriver({ receive: vi.fn(async () => ({ id: "operation-1", status: "queued" } as never)) }) })

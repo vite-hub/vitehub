@@ -178,40 +178,55 @@ function assertId(id: unknown, provider: string, phase: string): asserts id is s
   }
 }
 
+function invalidPayload(provider: string, cause?: unknown): TranscriptionError {
+  return new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", {
+    ...(cause === undefined ? {} : { cause }),
+    provider,
+  })
+}
+
+function inspectDriverResult<T>(provider: string, inspect: () => T): T {
+  try {
+    return inspect()
+  }
+  catch (cause) {
+    if (cause instanceof TranscriptionError) throw cause
+    throw invalidPayload(provider, cause)
+  }
+}
+
 function assertTranscript(transcript: unknown, provider: string): asserts transcript is TranscriptionTranscript {
   if (!transcript || typeof transcript !== "object" || typeof (transcript as { text?: unknown }).text !== "string") {
-    throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider })
+    throw invalidPayload(provider)
   }
   const words = (transcript as TranscriptionTranscript).words
   if (words !== undefined && (!Array.isArray(words) || words.some(word => !word || typeof word !== "object" || typeof word.text !== "string" || typeof word.type !== "string"))) {
-    throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider })
+    throw invalidPayload(provider)
   }
 }
 
 function normalizeCompletion(completion: TranscriptionDriverCompletion, provider: string): TranscriptionCompletion {
-  if (!completion || typeof completion !== "object") {
-    throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider })
-  }
-  assertId(completion.id, provider, "completion")
-  assertMetadata(completion.metadata, "Transcription completion metadata", "TRANSCRIPTION_INVALID_PAYLOAD")
-  if (completion.status === "failed") {
-    if (typeof completion.error !== "string" || !completion.error.trim()) {
-      throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider })
-    }
-    return {
-      ...completion,
-      error: new TranscriptionError("TRANSCRIPTION_PROVIDER_FAILED", {
-        cause: new Error(completion.error),
+  return inspectDriverResult(provider, () => {
+    if (!completion || typeof completion !== "object") throw invalidPayload(provider)
+    assertId(completion.id, provider, "completion")
+    assertMetadata(completion.metadata, "Transcription completion metadata", "TRANSCRIPTION_INVALID_PAYLOAD")
+    if (completion.status === "failed") {
+      if (typeof completion.error !== "string" || !completion.error.trim()) throw invalidPayload(provider)
+      return {
+        ...completion,
+        error: new TranscriptionError("TRANSCRIPTION_PROVIDER_FAILED", {
+          cause: new Error(completion.error),
+          provider,
+        }),
         provider,
-      }),
-      provider,
+      }
     }
-  }
-  if (completion.status === "completed") {
-    assertTranscript(completion.transcript, provider)
-    return { ...completion, provider }
-  }
-  throw new TranscriptionError("TRANSCRIPTION_INVALID_PAYLOAD", { provider })
+    if (completion.status === "completed") {
+      assertTranscript(completion.transcript, provider)
+      return { ...completion, provider }
+    }
+    throw invalidPayload(provider)
+  })
 }
 
 export function createTranscription(options: CreateTranscriptionOptions): TranscriptionClient {
@@ -222,8 +237,12 @@ export function createTranscription(options: CreateTranscriptionOptions): Transc
       assertMetadata(input?.metadata, "Transcription metadata", "TRANSCRIPTION_INVALID_REQUEST")
       const normalized = { ...input, source: normalizeSource(input?.source) }
       const submission = await driver.submit(normalized)
-      assertId(submission?.id, driver.name, "submission")
-      return { id: submission.id, provider: driver.name, status: "submitted" }
+      const id = inspectDriverResult(driver.name, () => {
+        if (!submission || typeof submission !== "object") throw invalidPayload(driver.name)
+        assertId(submission.id, driver.name, "submission")
+        return submission.id
+      })
+      return { id, provider: driver.name, status: "submitted" }
     },
     async receive(payload): Promise<TranscriptionCompletion> {
       return normalizeCompletion(await driver.receive(payload), driver.name)

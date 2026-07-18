@@ -29,10 +29,16 @@ function stripJsonFence(value: string): string {
 }
 
 function jsonValueFromResult(result: unknown): unknown {
-  const directText = result && typeof result === "object" && "text" in result
-    ? (result as { text?: unknown }).text
-    : undefined
-  const text = typeof directText === "string" && directText ? directText : toAgentRunResult(result).text
+  let text: string | undefined
+  try {
+    const directText = result && typeof result === "object" && Reflect.has(result, "text")
+      ? Reflect.get(result, "text")
+      : undefined
+    text = typeof directText === "string" && directText ? directText : toAgentRunResult(result).text
+  }
+  catch (cause) {
+    throw new AgentOutputValidationError("AGENT_OUTPUT_INVALID_JSON", { cause })
+  }
   if (text === undefined) return result
 
   try {
@@ -58,31 +64,51 @@ function formatIssues(issues: readonly StandardSchemaV1.Issue[]): string {
   }).join("; ")
 }
 
+function inspectValidation<T>(
+  validation: StandardSchemaV1.Result<T>,
+  allowIssues = false,
+): { value: T } | undefined {
+  try {
+    const issues = validation.issues
+    if (issues !== undefined) {
+      if (!Array.isArray(issues)) throw new TypeError("[vitehub] Standard Schema returned invalid issues.")
+      if (issues.length > 0) {
+        if (allowIssues) return
+        throw new AgentOutputValidationError("AGENT_OUTPUT_SCHEMA_INVALID", { cause: new Error(formatIssues(issues)) })
+      }
+    }
+    if (!("value" in validation)) throw new TypeError("[vitehub] Standard Schema returned no value.")
+    return { value: validation.value }
+  }
+  catch (cause) {
+    if (cause instanceof AgentOutputValidationError) throw cause
+    throw new AgentOutputValidationError("AGENT_OUTPUT_SCHEMA_INVALID", { cause })
+  }
+}
+
+function isMaterializedObject(result: unknown): boolean {
+  if (result === null || typeof result !== "object") return false
+  try {
+    const prototype = Object.getPrototypeOf(result)
+    return prototype === Object.prototype || prototype === null
+  }
+  catch (cause) {
+    throw new AgentOutputValidationError("AGENT_OUTPUT_INVALID_JSON", { cause })
+  }
+}
+
 export async function validateAgentOutput<TOutput>(
   output: AgentOutputDefinition<TOutput>,
   result: unknown,
   options: { allowMaterializedObject?: boolean } = {},
 ): Promise<TOutput> {
-  if (options.allowMaterializedObject && result !== null && typeof result === "object") {
-    const prototype = Object.getPrototypeOf(result)
-    if (prototype === Object.prototype || prototype === null) {
-      const directValidation = await output.schema["~standard"].validate(result)
-      if (!directValidation.issues?.length && "value" in directValidation) return directValidation.value
-    }
+  if (options.allowMaterializedObject && isMaterializedObject(result)) {
+    const directValidation = inspectValidation(await output.schema["~standard"].validate(result), true)
+    if (directValidation) return directValidation.value
   }
   const value = jsonValueFromResult(result)
-  const validation = await output.schema["~standard"].validate(value)
-  if (validation.issues?.length) {
-    throw new AgentOutputValidationError(
-      "AGENT_OUTPUT_SCHEMA_INVALID",
-      { cause: new Error(formatIssues(validation.issues)) },
-    )
-  }
-  if (!("value" in validation)) {
-    throw new AgentOutputValidationError(
-      "AGENT_OUTPUT_SCHEMA_INVALID",
-    )
-  }
+  const validation = inspectValidation(await output.schema["~standard"].validate(value))
+  if (!validation) throw new AgentOutputValidationError("AGENT_OUTPUT_SCHEMA_INVALID")
   return validation.value
 }
 
