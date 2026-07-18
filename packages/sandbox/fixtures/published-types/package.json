@@ -1,0 +1,8 @@
+{
+  "name": "sandbox-published-types-consumer",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@vite-hub/sandbox": "0.0.1"
+  }
+}

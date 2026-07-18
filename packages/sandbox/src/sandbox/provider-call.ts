@@ -33,6 +33,53 @@ function findAbortSignal(values: readonly unknown[]): AbortSignal | undefined {
   }
 }
 
+type ProviderDiagnostics = {
+  status?: number
+  timeoutMs?: number
+}
+
+function readProperty(value: object, property: string): unknown {
+  try {
+    return Reflect.get(value, property)
+  }
+  catch {
+    return undefined
+  }
+}
+
+function readProviderDiagnostics(error: unknown): ProviderDiagnostics {
+  let status: number | undefined
+  let timeoutMs: number | undefined
+  const seen = new WeakSet<object>()
+
+  function visit(value: unknown) {
+    if (!value || typeof value !== 'object' || seen.has(value))
+      return
+    seen.add(value)
+
+    for (const property of ['status', 'statusCode'] as const) {
+      const candidate = readProperty(value, property)
+      if (status === undefined && typeof candidate === 'number' && Number.isInteger(candidate) && candidate >= 100 && candidate <= 599)
+        status = candidate
+    }
+    for (const property of ['timeoutMs', 'timeout'] as const) {
+      const candidate = readProperty(value, property)
+      if (timeoutMs === undefined && typeof candidate === 'number' && Number.isFinite(candidate) && candidate > 0)
+        timeoutMs = candidate
+    }
+
+    visit(readProperty(value, 'details'))
+    visit(readProperty(value, 'response'))
+    visit(readProperty(value, 'cause'))
+  }
+
+  visit(error)
+  return {
+    ...(status === undefined ? {} : { status }),
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+  }
+}
+
 export function isSandboxAbort(error: unknown, signal?: AbortSignal): boolean {
   return !!(signal?.aborted && error === signal.reason)
     || (!!error && typeof error === 'object' && 'name' in error && error.name === 'AbortError')
@@ -45,7 +92,11 @@ export function normalizeSandboxProviderError(error: unknown, options: ProviderC
   return new SandboxError({
     cause: error,
     code: options.code ?? 'SANDBOX_TRANSPORT_ERROR',
-    details: { operation: options.operation, provider: options.provider },
+    details: {
+      operation: options.operation,
+      provider: options.provider,
+      ...readProviderDiagnostics(error),
+    },
     message: error instanceof Error ? error.message : String(error),
   })
 }

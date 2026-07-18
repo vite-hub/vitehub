@@ -63,11 +63,11 @@ describe("Vercel lifecycle errors", () => {
   })
 
   it.each([
-    ["create", async (provider: typeof import("../src/sandbox/providers/vercel.ts")) => provider.createVercelSandboxClient({ provider: "vercel" })],
-    ["list", async (provider: typeof import("../src/sandbox/providers/vercel.ts")) => provider.VercelSandboxStatic.list()],
-    ["get", async (provider: typeof import("../src/sandbox/providers/vercel.ts")) => provider.VercelSandboxStatic.get("sandbox-id")],
-  ] as const)("normalizes %s SDK rejections", async (operation, invoke) => {
-    const cause = new Error(`Vercel ${operation} failed with token=secret`)
+    ["create", { statusCode: 429, timeout: 1_000 }, { status: 429, timeoutMs: 1_000 }, async (provider: typeof import("../src/sandbox/providers/vercel.ts")) => provider.createVercelSandboxClient({ provider: "vercel" })],
+    ["list", { response: { status: 503 }, timeoutMs: 2_000 }, { status: 503, timeoutMs: 2_000 }, async (provider: typeof import("../src/sandbox/providers/vercel.ts")) => provider.VercelSandboxStatic.list()],
+    ["get", { cause: { response: { status: 404 }, timeout: 3_000 } }, { status: 404, timeoutMs: 3_000 }, async (provider: typeof import("../src/sandbox/providers/vercel.ts")) => provider.VercelSandboxStatic.get("sandbox-id")],
+  ] as const)("normalizes %s SDK rejections", async (operation, diagnostics, expectedDetails, invoke) => {
+    const cause = Object.assign(new Error(`Vercel ${operation} failed with token=secret`), diagnostics)
     vi.doMock("@vercel/sandbox", () => ({
       Sandbox: {
         create: vi.fn(async () => { throw cause }),
@@ -84,10 +84,11 @@ describe("Vercel lifecycle errors", () => {
     expect(error).toMatchObject({
       cause,
       code: "SANDBOX_RUNTIME_ERROR",
-      details: { operation, provider: "vercel" },
+      details: { operation, provider: "vercel", ...expectedDetails },
       message: "Sandbox execution failed.",
     })
     expect(JSON.stringify(error)).not.toContain(cause.message)
+    expect(JSON.stringify(error)).not.toContain("cause")
   })
 
   it("does not normalize local Vercel instance shape errors", async () => {

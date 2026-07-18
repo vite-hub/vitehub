@@ -8,6 +8,7 @@ import { CloudflareProcessHandle } from "../src/sandbox/adapters/cloudflare/proc
 import { VercelSandboxAdapter } from "../src/sandbox/adapters/vercel.ts"
 import { collectDetachedCommandOutput } from "../src/sandbox/adapters/vercel/process.ts"
 import { NotSupportedError, readSandboxErrorInternals, SandboxError } from "../src/sandbox/errors.ts"
+import { createCloudflareSandboxClient } from "../src/sandbox/providers/cloudflare.ts"
 import type { CloudflareSandboxStub } from "../src/sandbox/types/common.ts"
 import type { VercelSandboxInstance } from "../src/sandbox/types/vercel.ts"
 
@@ -171,6 +172,83 @@ describe("SandboxError public contract", () => {
       code: "SANDBOX_TRANSPORT_ERROR",
       details: { operation, provider },
       message: "Sandbox provider request failed.",
+    })
+    expect(JSON.stringify(error)).not.toContain(secret)
+  })
+
+  it("preserves safe diagnostics through recursively wrapped native calls", async () => {
+    const secret = "nested-native-token=vh_secret"
+    const cause = Object.assign(new Error(secret), {
+      cause: { response: { status: 429 }, timeout: 2_500 },
+    })
+    const process = {
+      id: "process-id",
+      marker: "receiver-ok",
+      async kill() {},
+      async logs() {
+        return { stderr: "", stdout: this.marker }
+      },
+      async wait() {
+        return { exitCode: 0 }
+      },
+    }
+    const session = {
+      id: "session-id",
+      marker: "receiver-ok",
+      async destroy() {},
+      async exec(command: string) {
+        if (command === "fail")
+          throw cause
+        return { exitCode: 0, stderr: "", stdout: `${this.marker}:${command}` }
+      },
+      async startProcess() {
+        if (this.marker !== "receiver-ok")
+          throw new Error("invalid session receiver")
+        return process
+      },
+    }
+    const adapter = cloudflareAdapter({
+      async createSession() {
+        return session
+      },
+    })
+
+    const nativeSession = await adapter.cloudflare.createSession()
+    await expect(nativeSession.exec("pwd")).resolves.toMatchObject({ stdout: "receiver-ok:pwd" })
+    await expect((await nativeSession.startProcess("node")).logs()).resolves.toEqual({
+      stderr: "",
+      stdout: "receiver-ok",
+    })
+
+    const error = await captureSandboxError(nativeSession.exec("fail"))
+    expect(error).toMatchObject({
+      cause,
+      code: "SANDBOX_TRANSPORT_ERROR",
+      details: { operation: "exec", provider: "cloudflare", status: 429, timeoutMs: 2_500 },
+      message: "Sandbox provider request failed.",
+    })
+    expect(JSON.stringify(error)).not.toContain(secret)
+    expect(JSON.stringify(error)).not.toContain("cause")
+  })
+
+  it("normalizes direct Cloudflare creation rejections", async () => {
+    const secret = "cloudflare-create-token=vh_secret"
+    const cause = Object.assign(new Error(secret), {
+      response: { status: 503 },
+      timeoutMs: 1_500,
+    })
+
+    const error = await captureSandboxError(createCloudflareSandboxClient({
+      getSandbox: () => { throw cause },
+      namespace: {} as never,
+      provider: "cloudflare",
+    }))
+
+    expect(error).toMatchObject({
+      cause,
+      code: "SANDBOX_RUNTIME_ERROR",
+      details: { operation: "create", provider: "cloudflare", status: 503, timeoutMs: 1_500 },
+      message: "Sandbox execution failed.",
     })
     expect(JSON.stringify(error)).not.toContain(secret)
   })
