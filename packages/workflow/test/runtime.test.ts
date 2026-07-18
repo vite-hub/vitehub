@@ -727,6 +727,104 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("narrows OpenWorkflow import failures at the public boundary", async () => {
+    const cause = new Error("provider-secret:import")
+    setOpenWorkflowImporter(async (specifier) => {
+      if (specifier === "openworkflow") throw cause
+      if (specifier === "openworkflow/sqlite") {
+        return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+      }
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expectProviderFailure(runWorkflow("welcome", {}), cause, {
+      operation: "import",
+      provider: "openworkflow",
+    })
+  })
+
+  it("narrows OpenWorkflow connection failures at the public boundary", async () => {
+    const cause = new Error("provider-secret:connect")
+    openWorkflowMock.sqliteConnect.mockImplementationOnce(() => { throw cause })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expectProviderFailure(runWorkflow("welcome", {}), cause, {
+      operation: "connect",
+      provider: "openworkflow",
+    })
+  })
+
+  it("narrows OpenWorkflow run failures at the public boundary", async () => {
+    const cause = new Error("provider-secret:run")
+    class RejectingOpenWorkflow {
+      defineWorkflow() {
+        return { run: async () => { throw cause } }
+      }
+    }
+    setOpenWorkflowImporter(async (specifier) => {
+      if (specifier === "openworkflow") return { OpenWorkflow: RejectingOpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+      }
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expectProviderFailure(runWorkflow("welcome", {}), cause, {
+      operation: "run",
+      provider: "openworkflow",
+    })
+  })
+
+  it("narrows OpenWorkflow get failures at the public boundary", async () => {
+    const cause = new Error("provider-secret:get")
+    setOpenWorkflowImporter(async (specifier) => {
+      if (specifier === "openworkflow") return { OpenWorkflow: openWorkflowMock.OpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        return {
+          BackendSqlite: {
+            connect: () => ({
+              getWorkflowRun: async () => { throw cause },
+              stop: vi.fn(),
+            }),
+          },
+        } as never
+      }
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expectProviderFailure(getWorkflowRun("welcome", "private-run"), cause, {
+      operation: "get",
+      provider: "openworkflow",
+    })
+  })
+
+  it("preserves OpenWorkflow configuration errors", async () => {
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: "https://provider.example/workflow.db" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    const error = await runWorkflow("welcome", {}).catch(error => error)
+
+    expect(error).not.toBeInstanceOf(WorkflowError)
+    expect(error).toEqual(new Error("OpenWorkflow SQLite storage requires a local SQLite file path, received \"https://provider.example/workflow.db\"."))
+  })
+
   it("creates an OpenWorkflow worker from the runtime registry", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
