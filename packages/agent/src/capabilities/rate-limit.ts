@@ -33,13 +33,19 @@ export type RateLimitLimiterResolver = (
   context: AgentCapabilityRuntimeContext,
 ) => MaybePromise<RateLimitHandle | RateLimiter>
 
-export interface RateLimitDecision extends CoreRateLimitDecision {
+interface RateLimitDecisionContext {
   capabilityId: string
   identity: string
   identitySource: string
   key: string
   scope: string
 }
+
+type WithRateLimitDecisionContext<TDecision> = TDecision extends CoreRateLimitDecision
+  ? TDecision & RateLimitDecisionContext
+  : never
+
+export type RateLimitDecision = WithRateLimitDecisionContext<CoreRateLimitDecision>
 
 export interface RateLimitEvent {
   context: AgentCapabilityRuntimeContext

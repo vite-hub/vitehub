@@ -286,7 +286,7 @@ describe("rateLimit capability", () => {
         window: "1m" as const,
         windowMs: 60_000,
       },
-      consume: vi.fn(async () => ({ allowed: false, limit: 1, windowMs: 60_000 })),
+      consume: vi.fn(async () => ({ allowed: false, limit: 1, reason: "limited", windowMs: 60_000 } as const)),
     }
     const agent = defineAgent({
       capabilities: [rateLimit({ limiter: providerLimiter })],
