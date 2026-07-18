@@ -50,6 +50,31 @@ function resolveVercelRegion(explicitRegion: string | undefined) {
   return readHeader(requestHeaders, "ce-vqsregion") || parseRegionFromVercelId(readHeader(requestHeaders, "x-vercel-id"))
 }
 
+function invalidVercelSendResponse(cause: unknown): never {
+  throw new QueueError<"QUEUE_PROVIDER_RESPONSE_INVALID">({
+    cause,
+    code: "QUEUE_PROVIDER_RESPONSE_INVALID",
+    details: { operation: "send", provider: "vercel" },
+    message: "[vitehub] Vercel queue provider returned an invalid send response.",
+  })
+}
+
+function parseVercelMessageId(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) invalidVercelSendResponse(value)
+
+  let messageId: unknown
+  try {
+    messageId = Reflect.get(value, "messageId")
+  }
+  catch (cause) {
+    invalidVercelSendResponse(cause)
+  }
+  if (typeof messageId !== "string" || !messageId || messageId.length > 128 || messageId.trim() !== messageId) {
+    invalidVercelSendResponse(value)
+  }
+  return messageId
+}
+
 async function loadVercelQueueClient(region: string | undefined): Promise<VercelQueueSDK> {
   let module: Record<string, unknown>
   try {
@@ -130,15 +155,16 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
         })
       }
 
+      const messageId = await runQueueProviderOperation("vercel", "send", async () =>
+        parseVercelMessageId(await client.send(topic, normalized.payload, {
+          delaySeconds: normalized.options.delaySeconds,
+          idempotencyKey: normalized.options.idempotencyKey || normalized.id,
+          region: normalized.options.region ?? provider.region,
+          retentionSeconds: normalized.options.retentionSeconds,
+        })))
       return {
         status: "queued",
-        messageId: (await runQueueProviderOperation("vercel", "send", () =>
-          client.send(topic, normalized.payload, {
-            delaySeconds: normalized.options.delaySeconds,
-            idempotencyKey: normalized.options.idempotencyKey || normalized.id,
-            region: normalized.options.region ?? provider.region,
-            retentionSeconds: normalized.options.retentionSeconds,
-          }))).messageId ?? undefined,
+        messageId,
       }
     },
     callback: client.handleCallback.bind(client),

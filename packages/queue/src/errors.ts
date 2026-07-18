@@ -13,6 +13,7 @@ export type QueueErrorCode =
   | "QUEUE_DEFINITION_NOT_FOUND"
   | "QUEUE_DISABLED"
   | "QUEUE_PROVIDER_OPERATION_FAILED"
+  | "QUEUE_PROVIDER_RESPONSE_INVALID"
   | "VERCEL_PROVIDER_EXPECTED"
   | "VERCEL_QUEUE_REGION_REQUIRED"
   | "VERCEL_QUEUE_SDK_INVALID"
@@ -28,6 +29,7 @@ type QueueErrorDetailMap = {
   QUEUE_DEFINITION_NOT_FOUND: { readonly queue?: string }
   QUEUE_DISABLED: never
   QUEUE_PROVIDER_OPERATION_FAILED: { readonly operation: Exclude<QueueProviderOperation, "load-sdk">, readonly provider: QueueProvider }
+  QUEUE_PROVIDER_RESPONSE_INVALID: { readonly operation: "send", readonly provider: "vercel" }
   VERCEL_PROVIDER_EXPECTED: { readonly provider: QueueProvider }
   VERCEL_QUEUE_REGION_REQUIRED: { readonly provider: "vercel" }
   VERCEL_QUEUE_SDK_INVALID: { readonly provider: "vercel" }

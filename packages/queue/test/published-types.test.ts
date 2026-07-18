@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { copyFile, cp, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -18,20 +18,49 @@ it("publishes the structured Queue error contract", async () => {
 
   try {
     await cp(fixtureRoot, root, { recursive: true })
-    for (const name of ["queue", "runtime"]) {
-      const source = join(workspaceRoot, "packages", name)
-      const installed = join(root, "node_modules", "@vite-hub", name)
-      await mkdir(installed, { recursive: true })
-      await copyFile(join(source, "package.json"), join(installed, "package.json"))
-      await cp(join(source, "dist"), join(installed, "dist"), { recursive: true })
-    }
+    const packDir = join(root, "packs")
+    await mkdir(packDir)
+    const specs = await packWorkspacePackages(packDir, ["@vite-hub/runtime", "@vite-hub/queue"])
+    await writeFile(join(root, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8")
+    await run("vp", ["exec", "pnpm", "install", "--prefer-offline", "--ignore-scripts", "--strict-peer-dependencies"], root)
 
-    await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root])
+    await run(process.execPath, [tsc, "--noEmit", "-p", root], root)
   }
   finally {
     await rm(root, { force: true, recursive: true })
   }
-})
+}, 15_000)
+
+async function run(command: string, args: string[], cwd: string) {
+  try {
+    return await execFileAsync(command, args, { cwd })
+  }
+  catch (error) {
+    const output = error as Error & { stderr?: string, stdout?: string }
+    throw new Error([output.message, output.stdout, output.stderr].filter(Boolean).join("\n"), { cause: error })
+  }
+}
+
+async function packWorkspacePackages(packDir: string, packageNames: string[]) {
+  const specs: Record<string, string> = {}
+  for (const packageName of packageNames) {
+    const packagePath = join(workspaceRoot, "packages", packageName.slice("@vite-hub/".length))
+    const manifest = JSON.parse(await readFile(join(packagePath, "package.json"), "utf8")) as { version: string }
+    await run("vp", ["exec", "pnpm", "--filter", packageName, "pack", "--pack-destination", packDir], workspaceRoot)
+    specs[packageName] = `file:${join(packDir, `${packageName.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`)}`
+  }
+  return specs
+}
+
+function workspaceConfig(specs: Record<string, string>) {
+  return [
+    "packages:",
+    "  - .",
+    "overrides:",
+    ...Object.entries(specs).map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`),
+    "",
+  ].join("\n")
+}
 
 it("keeps Effect internals out of published Queue artifacts", async () => {
   const dist = resolve(packageRoot, "dist")

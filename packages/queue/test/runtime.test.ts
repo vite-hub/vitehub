@@ -403,6 +403,31 @@ describe("vercel provider", () => {
     expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private/)
   })
 
+  it.each([
+    [null, null],
+    [{ providerSecret: "missing-message-id" }, { providerSecret: "missing-message-id" }],
+    [{ messageId: "" }, { messageId: "" }],
+  ])("maps malformed Vercel send responses without exposing provider payloads", async (response, cause) => {
+    const client = await createVercelQueueClient({
+      client: {
+        handleCallback: vi.fn(() => async () => new Response("queued")),
+        send: vi.fn().mockResolvedValue(response),
+      },
+      provider: "vercel",
+      topic: "topic--77656c636f6d65",
+    })
+
+    const error = await client.send({ email: "ava@example.com" }).catch(error => error)
+
+    expect(error).toMatchObject({
+      cause,
+      code: "QUEUE_PROVIDER_RESPONSE_INVALID",
+      details: { operation: "send", provider: "vercel" },
+      message: "[vitehub] Vercel queue provider returned an invalid send response.",
+    })
+    expect(JSON.stringify(error)).not.toMatch(/providerSecret|missing-message-id|cause/)
+  })
+
   it("redacts Vercel SDK load failures while retaining the internal cause", async () => {
     const cause = new Error("Cannot load secret-token from https://queue.example/private")
     Object.defineProperty(globalThis, "__vitehubVercelQueue", {
