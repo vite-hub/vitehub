@@ -64,6 +64,35 @@ describe("ScheduleError", () => {
     expect(JSON.stringify(error)).not.toContain(secret)
   })
 
+  it("keeps its trusted public shape immutable after construction", () => {
+    const error = new ScheduleError("SCHEDULE_INVALID_CRON", {
+      details: { field: "cron", valueType: "string" },
+      requestId: "request-1",
+    })
+    const secret = "https://user:token@example.com/private"
+
+    expect(Reflect.set(error, "code", "PROVIDER_SECRET")).toBe(false)
+    expect(Reflect.set(error, "message", secret)).toBe(false)
+    expect(Reflect.set(error, "requestId", secret)).toBe(false)
+    expect(Reflect.set(error, "retryable", true)).toBe(false)
+    expect(Reflect.set(error.details!, "field", secret)).toBe(false)
+    expect(JSON.stringify(error)).not.toContain(secret)
+  })
+
+  it("keeps the built Schedule error shape immutable", async () => {
+    const { ScheduleError: BuiltScheduleError } = await import("../dist/index.js")
+    const error = new BuiltScheduleError("SCHEDULE_INVALID_CRON", {
+      details: { field: "cron", valueType: "string" },
+      requestId: "request-1",
+    } as never)
+    const secret = "https://user:token@example.com/private"
+
+    expect(Reflect.set(error, "code", "PROVIDER_SECRET")).toBe(false)
+    expect(Reflect.set(error, "message", secret)).toBe(false)
+    expect(Reflect.set(error.details!, "field", secret)).toBe(false)
+    expect(JSON.stringify(error)).not.toContain(secret)
+  })
+
   it("redacts invalid cron values from messages, details, and JSON", () => {
     const secret = "private-cron-value"
 

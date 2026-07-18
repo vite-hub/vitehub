@@ -164,5 +164,16 @@ export class ScheduleError<TCode extends ScheduleErrorCode = ScheduleErrorCode> 
     super(normalizedCode as TCode, scheduleErrorMessages[normalizedCode], normalizedOptions)
     this.name = "ScheduleError"
     this.httpStatus = scheduleErrorHttpStatuses[normalizedCode]
+    sealScheduleError(this)
+  }
+}
+
+function sealScheduleError(error: ScheduleError): void {
+  if (error.details) Object.freeze(error.details)
+  for (const key of ["code", "details", "httpStatus", "message", "name", "requestId", "retryable"] as const) {
+    const descriptor = Object.getOwnPropertyDescriptor(error, key)
+    if (descriptor && "writable" in descriptor) {
+      Object.defineProperty(error, key, { ...descriptor, configurable: false, writable: false })
+    }
   }
 }
