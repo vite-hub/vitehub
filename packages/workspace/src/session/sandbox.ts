@@ -1,9 +1,12 @@
 import { posix } from "node:path"
+import { Effect } from "effect"
 
 import { WorkspaceError } from "../core/errors.ts"
 import { contentToBytes, decodeFile, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { runWorkspaceEffect, tryWorkspacePromise } from "../internal/effect-runtime.ts"
 import { loadWorkspaceSandboxModule, loadWorkspaceSandboxRuntimeStateModule } from "../runtime/dependency-loaders.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../storage/utils.ts"
+import { openSandboxWorkspaceScope } from "./sandbox-scope.ts"
 import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDiff, filterSessionEntries, isMissingWorkspacePathError, scopedSearchQuery } from "./scope.ts"
 
 import type {
@@ -100,17 +103,19 @@ async function listSandboxEntries(sandbox: SandboxClient, path = "", recursive =
 
 async function snapshotSandbox(sandbox: SandboxClient, name?: string) {
   const entries = await listSandboxEntries(sandbox, "", true)
-  const files = await Promise.all(entries.map(async (entry) => {
-    if (entry.type !== "file") return entry
-    const content = isGitSymlinkEntry(entry)
-      ? await readSandboxSymlinkTarget(sandbox, toSandboxPath(entry.path))
-      : await sandbox.readFile(toSandboxPath(entry.path), { encoding: "binary" })
-    return {
-      ...entry,
-      digest: await sha256(content),
-      size: contentToBytes(content).byteLength,
-    }
-  }))
+  const files = await runWorkspaceEffect(Effect.forEach(entries, entry => {
+    if (entry.type !== "file") return Effect.succeed(entry)
+    return tryWorkspacePromise("Workspace.Sandbox.snapshot.read", async () => {
+      const content = isGitSymlinkEntry(entry)
+        ? await readSandboxSymlinkTarget(sandbox, toSandboxPath(entry.path))
+        : await sandbox.readFile(toSandboxPath(entry.path), { encoding: "binary" })
+      return {
+        ...entry,
+        digest: await sha256(content),
+        size: contentToBytes(content).byteLength,
+      }
+    })
+  }, { concurrency: 16 }))
   return await createSnapshotFromEntries(files, name)
 }
 
@@ -217,14 +222,17 @@ export async function createSandboxWorkspaceSession(
     throw new WorkspaceError("[vitehub] Workspace runtime `sandbox` requires app-level `sandbox` config.")
   }
 
-  const sandbox = await sandboxPackage.createSandboxWithConfig(sandboxConfig)
   const sessionPaths = normalizeSessionPaths(options)
-  let baseline = await materializeWorkspace(workspace, sandbox, options)
+  const sandboxScope = await openSandboxWorkspaceScope(
+    () => sandboxPackage.createSandboxWithConfig(sandboxConfig),
+    sandbox => materializeWorkspace(workspace, sandbox, options),
+  )
+  const sandbox = sandboxScope.resource
+  let baseline = sandboxScope.setup
   const mediaTypes = new Map<string, string>()
-  let closed = false
 
   function assertOpen() {
-    if (closed)
+    if (sandboxScope.isClosed())
       throw new WorkspaceError("[vitehub] Workspace sandbox session is already closed.")
   }
 
@@ -319,10 +327,7 @@ export async function createSandboxWorkspaceSession(
       }
     },
     async close() {
-      if (closed) return
-      closed = true
-      if (sandbox.provider === "vercel")
-        await sandbox.stop().catch(() => {})
+      await sandboxScope.close()
     },
   }
 }

@@ -111,7 +111,7 @@ describe("workspace public API", () => {
     const builtServer = await readFile(new URL("../dist/server.d.ts", import.meta.url), "utf8")
     const builtSandboxStore = await readFile(new URL("../dist/providers/vercel/blob-store.d.ts", import.meta.url), "utf8")
     const distDir = new URL("../dist/", import.meta.url)
-    const declarations = (await Promise.all((await readdir(distDir))
+    const declarations = (await Promise.all((await readdir(distDir, { recursive: true }))
       .filter(file => file.endsWith(".d.ts"))
       .map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
 
@@ -130,6 +130,7 @@ describe("workspace public API", () => {
     expect(declarations).not.toContain("@vercel/blob")
     expect(builtSandboxStore).not.toContain("files-sdk")
     expect(declarations).not.toContain("@vite-hub/sandbox")
+    expect(declarations).not.toMatch(/(?:from\s*|import\s*\(|import\s+)["']effect["']/)
   })
 
   it("keeps hosted runtime setup off the public Workspace surface", async () => {
