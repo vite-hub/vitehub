@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises"
+import { readFile, readdir } from "node:fs/promises"
 import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
@@ -33,6 +33,24 @@ describe("sandbox public api", () => {
       expect(result.error).toMatchObject({ code: "SANDBOX_NOT_FOUND", message: "Sandbox definition was not found." })
       expect(JSON.stringify(result)).not.toContain(secret)
     }
+  })
+
+  it("publishes the ViteHub-owned error contract without Effect or Better Result", async () => {
+    const dist = join(import.meta.dirname, "../dist")
+    const declarationFiles = (await readdir(dist)).filter(file => file.endsWith(".d.ts"))
+    const declarations = (await Promise.all(declarationFiles.map(file => readFile(join(dist, file), "utf8")))).join("\n")
+    const [bundle, packageJson] = await Promise.all([
+      readFile(join(dist, "index.js"), "utf8"),
+      readFile(join(import.meta.dirname, "../package.json"), "utf8"),
+    ])
+
+    expect(declarations).toContain("class SandboxError extends ViteHubError")
+    expect(declarations).toContain("type SandboxErrorJSON")
+    expect(declarations).not.toMatch(/from ["']effect(?:\/[^"']*)?["']/)
+    expect(bundle).not.toContain("better-result")
+    expect(bundle).not.toContain("FiberFailure")
+    expect(packageJson).not.toContain('"better-result"')
+    expect(packageJson).not.toContain('"effect"')
   })
 
   it("emits extensioned provider loader imports for published ESM", async () => {

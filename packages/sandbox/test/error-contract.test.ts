@@ -5,6 +5,19 @@ import { CloudflareSandboxAdapter } from "../src/sandbox/adapters/cloudflare.ts"
 import { readSandboxErrorInternals, SandboxError } from "../src/sandbox/errors.ts"
 import type { CloudflareSandboxStub } from "../src/sandbox/types/common.ts"
 
+async function captureSandboxError(promise: Promise<unknown>): Promise<SandboxError> {
+  try {
+    await promise
+  }
+  catch (error) {
+    if (!(error instanceof Error))
+      throw error
+    return error as SandboxError
+  }
+
+  throw new Error("Expected a SandboxError rejection")
+}
+
 describe("SandboxError public contract", () => {
   it("serializes only fixed messages and allowlisted details", () => {
     const secret = "token=vh_secret_123"
@@ -90,9 +103,49 @@ describe("SandboxError public contract", () => {
       writeFile: vi.fn(),
     } as unknown as CloudflareSandboxStub)
 
-    const error = await adapter.mkdir(secret).catch(error => error as SandboxError)
+    const error = await captureSandboxError(adapter.mkdir(secret))
     expect(error).toMatchObject({ code: "SANDBOX_RUNTIME_ERROR", message: "Sandbox execution failed." })
     expect(readSandboxErrorInternals(error).message).toContain(secret)
     expect(JSON.stringify(error)).not.toContain(secret)
+  })
+
+  it("keeps Cloudflare SDK-load failures private", async () => {
+    const secret = "cloudflare-sdk-token=vh_secret_987"
+    vi.resetModules()
+    vi.doMock("@cloudflare/sandbox", () => {
+      throw new Error("cloudflare-sdk-token=vh_secret_987")
+    })
+
+    try {
+      const { createCloudflareSandboxClient } = await import("../src/sandbox/providers/cloudflare.ts")
+      const error = await captureSandboxError(createCloudflareSandboxClient({ namespace: {} as never, provider: "cloudflare" }))
+      expect(error).toMatchObject({ code: "SANDBOX_RUNTIME_ERROR", message: "Sandbox execution failed.", provider: "cloudflare" })
+      expect(error.cause).toMatchObject({ cause: { message: secret } })
+      expect(JSON.stringify(error)).not.toContain(secret)
+    }
+    finally {
+      vi.doUnmock("@cloudflare/sandbox")
+      vi.resetModules()
+    }
+  })
+
+  it("keeps Vercel SDK-load failures private", async () => {
+    const secret = "vercel-sdk-token=vh_secret_654"
+    vi.resetModules()
+    vi.doMock("@vercel/sandbox", () => {
+      throw new Error("vercel-sdk-token=vh_secret_654")
+    })
+
+    try {
+      const { createVercelSandboxClient } = await import("../src/sandbox/providers/vercel.ts")
+      const error = await captureSandboxError(createVercelSandboxClient({ provider: "vercel" }))
+      expect(error).toMatchObject({ code: "SANDBOX_RUNTIME_ERROR", message: "Sandbox execution failed.", provider: "vercel" })
+      expect(error.cause).toMatchObject({ cause: { message: secret } })
+      expect(JSON.stringify(error)).not.toContain(secret)
+    }
+    finally {
+      vi.doUnmock("@vercel/sandbox")
+      vi.resetModules()
+    }
   })
 })
