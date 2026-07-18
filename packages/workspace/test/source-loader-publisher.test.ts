@@ -1407,8 +1407,10 @@ describe("sources, loaders, and publishers", () => {
       auth: "github-token",
     })
 
-    await expect(githubSource.getKeys({ rootDir: "", workspace: "github-error" }))
-      .rejects.toThrow("could not access the repository or ref \"main\"")
+    await expect(githubSource.getKeys({ rootDir: "", workspace: "github-error" })).rejects.toMatchObject({
+      code: "SOURCE_PROVIDER_REQUEST_FAILED",
+      details: { provider: "github", status: 404 },
+    })
   })
 
   it("loads glob/file/custom sources and writes publish artifacts", async () => {

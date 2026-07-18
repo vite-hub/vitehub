@@ -31,6 +31,22 @@ const keys = await docs.keys()
 const first = await docs.read(keys[0]!)
 ```
 
+## Errors
+
+Built-in loaders throw `SourceError` with a stable `code` and JSON-safe `details`. `toJSON()` excludes the original `cause`, stack, credentials, request URLs, absolute paths, and provider response bodies; the protected server runtime can still inspect `error.cause` for diagnostics.
+
+```ts
+import { SourceError } from "@vite-hub/source"
+
+throw new SourceError("[vitehub] custom source request failed.", {
+  code: "SOURCE_PROVIDER_REQUEST_FAILED",
+  details: { operation: "read", provider: "custom" },
+  cause,
+})
+```
+
+`SourceNotFoundError` and `SourcePathError` preserve their specialized class identity for registry and path failures. Configuration mistakes such as a missing `file()` path remain `TypeError` because they are programmer errors rather than Source runtime failures.
+
 ## Used by
 
 [`@vite-hub/workspace`](../workspace/README.md) materializes Source output into workspace files. Use this package directly when you only need typed source loading and not a workspace file tree.
