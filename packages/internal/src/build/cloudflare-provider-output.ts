@@ -24,7 +24,7 @@ interface CloudflareRateLimit {
   [key: string]: unknown
 }
 
-export interface CloudflareProviderOutputContribution {
+interface CloudflareProviderOutputContribution {
   queues?: {
     consumers?: CloudflareQueueConsumer[]
     producers?: CloudflareQueueProducer[]
