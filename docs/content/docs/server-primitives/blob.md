@@ -77,7 +77,7 @@ export default defineConfig({
 | `blob: { stores: Record<string, BlobStoreConfig> }` | Defines named Blob Stores. `stores.default` is required. |
 | `blob: { serve: false }` | Disables Blob route generation. This is the default. |
 | `blob: { serve: true }` | Generates an opt-in Nitro route at `/api/_vitehub/blob/**` for serving the Default Blob Store. |
-| `blob: { serve: { route?, store?, publicBaseUrl? } }` | Generates an opt-in Nitro route. `route` defaults to `/api/_vitehub/blob`, `store` defaults to `default`, and `publicBaseUrl` changes generated public URLs. |
+| `blob: { serve: { route?, store?, publicBaseUrl?, headers? } }` | Generates an opt-in Nitro route. `route` defaults to `/api/_vitehub/blob`, `store` defaults to `default`, `publicBaseUrl` changes generated public URLs, and `headers` adds static response headers. |
 
 ## Provider options
 
@@ -330,10 +330,18 @@ export default defineConfig({
   blob: {
     driver: 's3',
     bucket: 'app-assets',
-    serve: { route: '/assets' },
+    serve: {
+      route: '/assets',
+      headers: {
+        'Cache-Control': 'public, max-age=300',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    },
   },
 })
 ```
+
+Use `serve.headers` for static cache and security policy. Blob metadata remains authoritative for content headers such as `Content-Type`, `Content-Length`, and `ETag`.
 
 The generated Nitro route maps `${route}/**` to the selected Blob Store and delegates streaming to `blob.store(storeName).serve(event, pathname)`. The default route is a safe framework default. It is not a recommendation that every app expose public assets under `/api`.
 
