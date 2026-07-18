@@ -255,20 +255,36 @@ describe("@vite-hub/shell just-bash runtime", () => {
 
   it("stops a process whose provider resolves after session disposal", async () => {
     let resolveProcess: ((process: ShellProcess) => void) | undefined
-    const stop = vi.fn(async () => stoppedProcessObservation("late"))
+    let resolveStop: (() => void) | undefined
+    const stop = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        resolveStop = resolve
+      })
+      return stoppedProcessObservation("late")
+    })
     const provider = createBackgroundProvider(() => new Promise((resolve) => {
       resolveProcess = resolve
     }))
     const session = createShellRuntime({ provider }).createSession()
     const starting = session.startProcess("late")
 
-    await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
+    const disposing = session.dispose()
     resolveProcess?.({
       command: "late",
       id: "late",
       stop,
     })
 
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce())
+    let disposed = false
+    void disposing.then(() => {
+      disposed = true
+    })
+    await Promise.resolve()
+    expect(disposed).toBe(false)
+    resolveStop?.()
+
+    await expect(disposing).resolves.toMatchObject({ event: "session_disposed" })
     await expect(starting).rejects.toThrow("Shell session is disposed")
     expect(stop).toHaveBeenCalledOnce()
     expect(await session.listProcesses()).toHaveLength(0)

@@ -47,6 +47,7 @@ class RuntimeShellSession implements ShellSession {
   #disposed = false
   #disposeTask: Promise<ShellObservation> | undefined
   #processes = new Set<ShellProcess>()
+  #starts = new Set<Promise<void>>()
   #shellCalls = 0
 
   constructor(
@@ -99,11 +100,29 @@ class RuntimeShellSession implements ShellSession {
     if (typeof this.policy.maxProcesses === "number" && this.#processes.size >= this.policy.maxProcesses) {
       throw new Error(`[vitehub] Shell session process budget exhausted after ${this.policy.maxProcesses} processes.`)
     }
-    const process = await this.provider.startProcess(command, {
-      ...options,
-      env: { ...this.env, ...options.env },
-      timeout: options.timeout ?? this.policy.timeout,
+    let resolveOwnership!: () => void
+    let rejectOwnership!: (reason: unknown) => void
+    const ownership = new Promise<void>((resolve, reject) => {
+      resolveOwnership = resolve
+      rejectOwnership = reject
     })
+    this.#starts.add(ownership)
+    void ownership.then(
+      () => this.#starts.delete(ownership),
+      () => this.#starts.delete(ownership),
+    )
+    let process: ShellProcess
+    try {
+      process = await this.provider.startProcess(command, {
+        ...options,
+        env: { ...this.env, ...options.env },
+        timeout: options.timeout ?? this.policy.timeout,
+      })
+    }
+    catch (error) {
+      resolveOwnership()
+      throw error
+    }
     let stopTask: Promise<ShellObservation> | undefined
     let trackedProcess: ShellProcess
     const stop = () => stopTask ??= Promise.resolve().then(() => process.stop()).finally(() => {
@@ -115,14 +134,17 @@ class RuntimeShellSession implements ShellSession {
         await stop()
       }
       catch (error) {
+        rejectOwnership(error)
         throw new AggregateError(
           [new Error(shellSessionDisposedMessage), error],
           "[vitehub] Shell session was disposed while starting a background process, and stopping it failed.",
         )
       }
+      resolveOwnership()
       throw new Error(shellSessionDisposedMessage)
     }
     this.#processes.add(trackedProcess)
+    resolveOwnership()
     return trackedProcess
   }
 
@@ -133,10 +155,13 @@ class RuntimeShellSession implements ShellSession {
   dispose() {
     this.#disposed = true
     return this.#disposeTask ??= (async () => {
+      const starts = await Promise.allSettled(this.#starts)
+      this.#starts.clear()
       const processes = [...this.#processes.values()]
       this.#processes.clear()
       const results = await Promise.allSettled(processes.map(process => process.stop()))
-      const failures = results.flatMap(result => result.status === "rejected" ? [result.reason] : [])
+      const failures = [...starts, ...results]
+        .flatMap(result => result.status === "rejected" ? [result.reason] : [])
       if (failures.length > 0) throw new AggregateError(failures, shellSessionStopFailureMessage)
       return {
         event: "session_disposed" as const,
