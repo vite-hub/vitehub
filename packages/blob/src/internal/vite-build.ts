@@ -1,8 +1,8 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { resolve } from "pathe"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
-import { getProviderRuntimeModule, registerProviderRuntimeModules, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, getProviderRuntimeModule, registerProviderRuntimeModules, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
@@ -13,6 +13,7 @@ import type { BlobModuleOptions, ResolvedBlobModuleOptions, ResolvedCloudflareR2
 import type { CloudflareProviderDeploymentOutput, ComposedProviderOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
 export const blobPackageName = "@vite-hub/blob"
+const cloudflareBlobWorkerMarker = "vitehub-blob-worker"
 const productName = "blob"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
@@ -44,6 +45,7 @@ interface GenerateProviderOutputsOptions {
   artifacts?: GeneratedBlobArtifacts
   blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined
   clientOutDir: string
+  cloudflareOwnedByNitro?: boolean
   providerOutput?: ComposedProviderOutput
   rootDir: string
   serverFunctionName?: string
@@ -102,7 +104,7 @@ function isCloudflareR2StoreWithBucket(store: ResolvedBlobModuleOptions["store"]
   return store.driver === "cloudflare-r2" && Boolean(store.bucketName)
 }
 
-function createCloudflareR2Bindings(config: false | ResolvedBlobModuleOptions | undefined): Array<{ binding: string, bucket_name: string }> | undefined {
+export function createCloudflareR2Bindings(config: false | ResolvedBlobModuleOptions | undefined): Array<{ binding: string, bucket_name: string }> | undefined {
   if (!config) {
     return undefined
   }
@@ -315,6 +317,7 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
         "@vite-hub/blob": artifacts.runtimeModuleFiles.cloudflare,
         ...(databaseRuntime ? { "@vite-hub/database/drizzle": databaseRuntime } : {}),
       },
+      banner: `// ${cloudflareBlobWorkerMarker}`,
       conditions: ["workerd", "worker", "browser", "default"],
       external: [
         "@aws-sdk/client-s3",
@@ -330,6 +333,47 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
     },
     wranglerConfigKeys: ["r2_buckets"],
     wranglerConfig,
+  }
+}
+
+function isLegacyCloudflareBlobWorker(worker: string, wrangler: unknown): boolean {
+  if (!wrangler || typeof wrangler !== "object" || Array.isArray(wrangler)) return false
+  const config = wrangler as Record<string, unknown>
+  const compatibilityFlags = Array.isArray(config.compatibility_flags) ? config.compatibility_flags : []
+  const observability = config.observability && typeof config.observability === "object" && !Array.isArray(config.observability)
+    ? config.observability as Record<string, unknown>
+    : {}
+  return worker.includes("function createBlobCloudflareWorker(")
+    && worker.includes("setBlobRuntimeConfig(")
+    && config.main === "index.js"
+    && compatibilityFlags.includes("nodejs_compat")
+    && observability.enabled === true
+}
+
+async function createNitroCloudflareCleanup(rootDir: string) {
+  const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+  let ownsWorker = false
+  try {
+    const worker = await readFile(resolve(outputRoot, "index.js"), "utf8")
+    ownsWorker = worker.includes(cloudflareBlobWorkerMarker)
+    if (!ownsWorker) {
+      try {
+        ownsWorker = isLegacyCloudflareBlobWorker(worker, JSON.parse(await readFile(resolve(outputRoot, "wrangler.json"), "utf8")))
+      }
+      catch (error) {
+        if (!(error instanceof SyntaxError) && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      }
+    }
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  return {
+    fileNames: ownsWorker ? ["index.js"] : [],
+    outputRoot,
+    wranglerConfigOwnership: {
+      keys: ownsWorker ? ["compatibility_date", "compatibility_flags", "main", "observability", "r2_buckets"] : [],
+    },
   }
 }
 
@@ -421,10 +465,18 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const artifacts = options.artifacts ?? await prepareProviderOutputs(options)
   registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.blob)
   const localOnly = !shouldCreateProviderOutput(options.blob)
+  const createCloudflare = !localOnly && !options.cloudflareOwnedByNitro
+  if (options.cloudflareOwnedByNitro && !localOnly) {
+    await writeProviderDeploymentOutputs({
+      clientOutDir: options.clientOutDir,
+      cleanup: { cloudflare: () => createNitroCloudflareCleanup(options.rootDir) },
+      rootDir: options.rootDir,
+    })
+  }
   await writeProviderDeploymentOutputs({
     afterWrite: localOnly ? undefined : () => copyVercelBlobRuntimePackages(options),
     clientOutDir: options.clientOutDir,
-    cloudflare: localOnly ? undefined : createCloudflareOutput(options.blob, artifacts, options.providerOutput),
+    cloudflare: createCloudflare ? createCloudflareOutput(options.blob, artifacts, options.providerOutput) : undefined,
     rootDir: options.rootDir,
     vercel: localOnly ? undefined : createVercelOutput(artifacts, options.providerOutput, options.serverFunctionName),
   })
