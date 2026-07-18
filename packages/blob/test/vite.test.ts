@@ -161,6 +161,8 @@ describe("hubBlob", () => {
     expect(handler).toContain("getRouterParam(event, '_', { decode: false })")
     expect(handler).toContain("setResponseHeaders(event, responseHeaders)")
     expect(handler).toContain("blob.store(storeName).serve(event, pathname)")
+    expect(handler).toContain("for (const name of Object.keys(responseHeaders)) removeResponseHeader(event, name)")
+    expect(handler).toContain("throw error")
     expect(handler.indexOf("setResponseHeaders(event, responseHeaders)")).toBeLessThan(
       handler.indexOf("blob.store(storeName).serve(event, pathname)"),
     )

@@ -94,7 +94,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   const headers = serve.headers && Object.keys(serve.headers).length > 0 ? serve.headers : undefined
   return [
     `import { blob } from '${importBase}'`,
-    `import { createError, defineEventHandler, getRouterParam${headers ? ", setResponseHeaders" : ""} } from 'h3'`,
+    `import { createError, defineEventHandler, getRouterParam${headers ? ", removeResponseHeader, setResponseHeaders" : ""} } from 'h3'`,
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
     ...(headers ? [`const responseHeaders = ${JSON.stringify(headers)}`] : []),
@@ -103,7 +103,17 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     "  const pathname = getRouterParam(event, '_', { decode: false }) || ''",
     "  if (!pathname) throw createError({ statusCode: 404, statusMessage: 'Blob not found' })",
     ...(headers ? ["  setResponseHeaders(event, responseHeaders)"] : []),
-    "  return await blob.store(storeName).serve(event, pathname)",
+    ...(headers
+      ? [
+          "  try {",
+          "    return await blob.store(storeName).serve(event, pathname)",
+          "  }",
+          "  catch (error) {",
+          "    for (const name of Object.keys(responseHeaders)) removeResponseHeader(event, name)",
+          "    throw error",
+          "  }",
+        ]
+      : ["  return await blob.store(storeName).serve(event, pathname)"]),
     "})",
     "",
   ].join("\n")
