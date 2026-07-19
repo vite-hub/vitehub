@@ -31,6 +31,7 @@ concurrency:
 jobs:
   deploy:
     name: cloudflare
+    environment: Production
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -46,7 +47,7 @@ jobs:
         run: vp dlx "wrangler@4.112.0" deploy --dry-run --config .output/server/wrangler.json
 
       - name: Deploy Worker
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
