@@ -21,7 +21,8 @@ import { describe, expect, it } from "vitest"
 
 const repoRoot = resolve(import.meta.dirname, "..")
 const effectVersion = "4.0.0-beta.99"
-const allowedEffectOwners = new Set(["agent", "schedule", "workspace"])
+const expectedEffectOwners = ["agent", "schedule"]
+const allowedEffectOwners = new Set(expectedEffectOwners)
 
 type PackageEffectOwnership = {
   declaresEffect: boolean
@@ -117,9 +118,10 @@ describe("Effect ownership", () => {
 
     const packages = await packageEffectOwnership()
     expect(effectOwnershipViolations(packages)).toEqual([])
-    const owners = packages.filter(pkg => pkg.importsEffect).map(pkg => join(repoRoot, "packages", pkg.name))
-    expect(owners.length).toBeGreaterThan(0)
-    for (const packageDir of owners) {
+    const owners = packages.filter(pkg => pkg.importsEffect).map(pkg => pkg.name).sort()
+    expect(owners).toEqual(expectedEffectOwners)
+    for (const owner of owners) {
+      const packageDir = join(repoRoot, "packages", owner)
       const manifestPath = join(packageDir, "package.json")
       const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as { dependencies?: Record<string, string> }
       expect(manifest.dependencies?.effect, manifestPath).toBe("catalog:effect")
@@ -128,8 +130,12 @@ describe("Effect ownership", () => {
       const resolved = JSON.parse(await readFile(effectPackage, "utf8")) as { version: string }
       expect(resolved.version, packageDir).toBe(effectVersion)
 
-      const declarations = (await readFiles(join(packageDir, "dist"), path => path.endsWith(".d.ts"))).join("\n")
-      expect(declarations, packageDir).not.toMatch(/(?:from\s*|import\s*(?:\(\s*)?)["']effect(?:\/[^"']*)?["']/)
+      const declarations = await readFiles(join(packageDir, "dist"), path => path.endsWith(".d.ts"))
+      expect(declarations.some(sourceImportsEffect), packageDir).toBe(false)
+      expect(
+        declarations.some(source => /\bFiberFailure\b/.test(source)),
+        packageDir,
+      ).toBe(false)
 
       const bundles = (await readFiles(join(packageDir, "dist"), path => /\.[cm]?js$/.test(path))).join("\n")
       expect(bundles, packageDir).not.toMatch(/effect@3\.|3\.17\.7/)
@@ -160,6 +166,7 @@ describe("Effect ownership", () => {
     'import "effect/Schema"',
     'const effect = import("effect")',
     'const effect = require("effect")',
+    'import Effect = require("effect")',
   ])("detects Effect ownership syntax in %s", (source) => {
     expect(sourceImportsEffect(source)).toBe(true)
   })

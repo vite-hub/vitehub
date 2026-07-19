@@ -2,7 +2,16 @@ import { readFile, readdir } from "node:fs/promises"
 
 import { expect, it } from "vitest"
 
-const effectImportPattern = /(?:from\s*|import\()\s*["']effect(?:\/[^"']+)?["']/
+const moduleSpecifierPattern = /(?:\bfrom\s*|(?:\bimport|\brequire)\s*\(?\s*)["']([^"']+)["']/g
+
+function moduleSpecifiers(source: string): string[] {
+  return [...source.matchAll(moduleSpecifierPattern)].map(match => match[1]!)
+}
+
+function containsForbiddenPublicReference(source: string): boolean {
+  return /\bFiberFailure\b/.test(source)
+    || moduleSpecifiers(source).some(specifier => /^effect(?:\/|$)/.test(specifier))
+}
 
 async function readBundleGraph(entry: URL): Promise<string> {
   const sources: string[] = []
@@ -17,9 +26,8 @@ async function readBundleGraph(entry: URL): Promise<string> {
     })
     if (source === undefined) return
     sources.push(source)
-    for (const match of source.matchAll(/(?:from\s*|import\()\s*["']([^"']+)["']/g)) {
-      const specifier = match[1]
-      if (specifier?.startsWith(".")) await visit(new URL(specifier, file))
+    for (const specifier of moduleSpecifiers(source)) {
+      if (specifier.startsWith(".")) await visit(new URL(specifier, file))
     }
   }
 
@@ -35,12 +43,24 @@ it("keeps Effect out of published Agent declarations", async () => {
       .map(path => readFile(new URL(path, dist), "utf8")),
   )
 
-  expect(declarations.join("\n")).not.toMatch(effectImportPattern)
+  expect(declarations.some(containsForbiddenPublicReference)).toBe(false)
 })
 
 it("keeps Effect out of provider and browser bundle graphs", async () => {
   for (const entry of ["cloudflare.js", "cloudflare/state.js", "messages.js", "output.js"]) {
     const bundle = await readBundleGraph(new URL(`../dist/${entry}`, import.meta.url))
-    expect(bundle, `${entry} must remain Effect-free`).not.toMatch(effectImportPattern)
+    expect(containsForbiddenPublicReference(bundle), `${entry} must remain Effect and FiberFailure-free`).toBe(false)
   }
+})
+
+it.each([
+  'import { Effect } from "effect"',
+  'export type { Effect } from "effect/Effect"',
+  'import "effect/Schema"',
+  'const effect = import("effect")',
+  'const effect = require("effect")',
+  'import Effect = require("effect")',
+  "export type PublicFailure = FiberFailure",
+])("detects a forbidden public reference in %s", source => {
+  expect(containsForbiddenPublicReference(source)).toBe(true)
 })
