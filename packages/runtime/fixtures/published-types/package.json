@@ -1,0 +1,8 @@
+{
+  "name": "runtime-published-types-consumer",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@vite-hub/runtime": "file:./vite-hub-runtime-0.0.1.tgz"
+  }
+}

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   ApprovalRequiredError,
   CapabilityDeniedError,
+  CapabilityNotFoundError,
   createExecutionContext,
   createTraceEventLog,
   deriveTraceRuns,
@@ -17,6 +18,7 @@ import {
   type ApprovalRequest,
   type LeaseStore,
   type RunLifecycleHooks,
+  ViteHubError,
 } from "../src/index.ts"
 
 describe("@vite-hub/runtime", () => {
@@ -66,7 +68,7 @@ describe("@vite-hub/runtime", () => {
     const request: ApprovalRequest = {
       capability: "refund",
       id: "approval-1",
-      input: { amount: 100 },
+      input: { amount: 100, token: "secret" },
       reason: "High-value refund",
       state: "awaiting-approval",
     }
@@ -76,8 +78,152 @@ describe("@vite-hub/runtime", () => {
       state: "approved",
     }
 
-    expect(new ApprovalRequiredError(request).request).toEqual(request)
+    const error = new ApprovalRequiredError(request)
+
+    expect(error.request).toEqual(request)
+    expect(error).toMatchObject({
+      code: "APPROVAL_REQUIRED",
+      details: { capability: "refund", requestId: "approval-1" },
+      requestId: "approval-1",
+      retryable: false,
+    })
+    expect(error.toJSON()).toEqual({
+      code: "APPROVAL_REQUIRED",
+      details: { capability: "refund", requestId: "approval-1" },
+      message: '[vitehub:runtime] Approval is required for "refund".',
+      requestId: "approval-1",
+      retryable: false,
+    })
+    expect(JSON.stringify(error)).not.toContain("secret")
     expect(decision).toMatchObject({ approved: true, state: "approved" })
+  })
+
+  it("serializes only the public ViteHub error contract", () => {
+    const cause = new Error("provider token: secret")
+    const details = {
+      attempts: [1, 2],
+      metadata: { region: "iad1" },
+      provider: "fixture",
+    }
+    const error = Object.assign(new ViteHubError("PROVIDER_FAILED", "The provider request failed.", {
+      cause,
+      details,
+      requestId: "request-1",
+      retryable: true,
+    }), {
+      providerResponse: { authorization: "secret" },
+    })
+
+    details.provider = "mutated-secret"
+    details.metadata.region = "mutated-secret"
+    details.attempts.push(3)
+    Object.defineProperties(error, {
+      code: { value: "MUTATED_SECRET" },
+      details: { value: { provider: "mutated-secret" } },
+      message: { value: "Bearer mutated-secret" },
+      requestId: { value: "mutated-secret" },
+      retryable: { value: false },
+    })
+    expect(Reflect.set(error, "toJSON", () => ({ message: "mutated-secret" }))).toBe(false)
+
+    expect(JSON.parse(JSON.stringify(error))).toEqual({
+      code: "PROVIDER_FAILED",
+      details: {
+        attempts: [1, 2],
+        metadata: { region: "iad1" },
+        provider: "fixture",
+      },
+      message: "The provider request failed.",
+      requestId: "request-1",
+      retryable: true,
+    })
+    expect(Object.isFrozen(error.toJSON())).toBe(true)
+    expect(Object.isFrozen(error.toJSON().details)).toBe(true)
+    expect(Object.isFrozen(error.toJSON().details!.attempts)).toBe(true)
+    expect(Object.keys(error)).not.toContain("toJSON")
+    expect(JSON.stringify(error)).not.toContain("mutated-secret")
+    expect(JSON.stringify(error)).not.toContain("provider token: secret")
+    expect(error.cause).toBe(cause)
+  })
+
+  it("rejects hostile public details without invoking accessors or echoing values", () => {
+    const getter = vi.fn(() => "Bearer private-accessor")
+    const accessor = Object.defineProperty({}, "token", { enumerable: true, get: getter })
+    const cyclic: Record<string, unknown> = {}
+    cyclic.self = cyclic
+    const hostile = new Proxy({}, {
+      ownKeys() {
+        throw new Error("Bearer private-proxy")
+      },
+    })
+
+    for (const details of [accessor, cyclic, { count: 1n }, { count: Number.POSITIVE_INFINITY }, hostile, new Date()]) {
+      expect(() => new ViteHubError("PROVIDER_FAILED", "The provider request failed.", { details } as never))
+        .toThrow("[vitehub] ViteHubError requires a valid public error contract.")
+    }
+
+    expect(getter).not.toHaveBeenCalled()
+  })
+
+  it("preserves structural toJSON borrowers with a first-call snapshot", () => {
+    const structural = {
+      code: "STRUCTURAL_FAILURE",
+      details: { provider: "fixture" },
+      message: "The structural operation failed.",
+      retryable: false,
+      toJSON: ViteHubError.prototype.toJSON,
+    }
+
+    expect(structural.toJSON()).toEqual({
+      code: "STRUCTURAL_FAILURE",
+      details: { provider: "fixture" },
+      message: "The structural operation failed.",
+      retryable: false,
+    })
+    structural.message = "Bearer mutated-secret"
+    structural.details.provider = "mutated-secret"
+    expect(JSON.stringify(structural)).not.toContain("mutated-secret")
+  })
+
+  it("binds a subclass serializer without leaving it shadowable", () => {
+    class SpecializedError extends ViteHubError<"SPECIALIZED_FAILURE"> {
+      override toJSON() {
+        return { ...super.toJSON(), specialized: true as const }
+      }
+    }
+
+    const error = new SpecializedError("SPECIALIZED_FAILURE", "The specialized operation failed.")
+
+    expect(error.toJSON()).toEqual({
+      code: "SPECIALIZED_FAILURE",
+      message: "The specialized operation failed.",
+      specialized: true,
+    })
+    expect(Reflect.set(error, "toJSON", () => ({ message: "mutated-secret" }))).toBe(false)
+  })
+
+  it("gives runtime capability failures stable codes and allowlisted details", () => {
+    expect(new CapabilityNotFoundError("kv")).toMatchObject({
+      code: "CAPABILITY_NOT_FOUND",
+      details: { capability: "kv" },
+      retryable: false,
+    })
+    expect(new CapabilityDeniedError("email", { safeReason: "Policy rejected this operation." })).toMatchObject({
+      code: "CAPABILITY_DENIED",
+      details: { capability: "email", reason: "Policy rejected this operation." },
+      retryable: false,
+    })
+
+    const cause = new Error("policy secret: allow-internal-only")
+    const denied = new CapabilityDeniedError("email", { cause })
+    expect(denied.cause).toBe(cause)
+    expect(JSON.parse(JSON.stringify(denied))).toEqual({
+      code: "CAPABILITY_DENIED",
+      details: { capability: "email" },
+      message: '[vitehub:runtime] Capability "email" was denied.',
+      retryable: false,
+    })
+    expect(JSON.stringify(denied)).not.toContain("allow-internal-only")
   })
 
   it("resolves policy decisions", async () => {

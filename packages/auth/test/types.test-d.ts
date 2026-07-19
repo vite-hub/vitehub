@@ -5,6 +5,10 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import {
   authenticated,
+  AuthSessionError,
+  AuthenticationRequiredError,
+  type AuthSessionErrorOptions,
+  type AuthenticationRequiredErrorOptions,
   type AuthenticatedOptions,
   type AuthenticatedSessionData,
   type AuthenticatedUser,
@@ -134,6 +138,22 @@ describe("types", () => {
     expectTypeOf(invoker).toMatchTypeOf<AgentInvokerOptions>()
     expectTypeOf(typedInvoker).toMatchTypeOf<AgentInvokerOptions>()
     expectTypeOf({ kind: "authUser" }).toMatchTypeOf<AuthenticatedOptions>()
+
+    const authError = new AuthenticationRequiredError({
+      cause: new Error("protected diagnostic"),
+      message: "Sign in required.",
+    } satisfies AuthenticationRequiredErrorOptions)
+    expectTypeOf(authError.code).toEqualTypeOf<"AUTHENTICATION_REQUIRED">()
+    expectTypeOf(authError.statusCode).toEqualTypeOf<401>()
+
+    const sessionError = new AuthSessionError({
+      cause: new Error("protected provider diagnostic"),
+    } satisfies AuthSessionErrorOptions)
+    expectTypeOf(sessionError.code).toEqualTypeOf<"AUTH_SESSION_FAILED">()
+    expectTypeOf(sessionError.statusCode).toEqualTypeOf<503>()
+
+    // @ts-expect-error AuthenticationRequiredError does not serialize arbitrary details.
+    new AuthenticationRequiredError({ details: { surface: "agent-invoker" } })
   })
 
   it("exposes resolved database placement metadata", () => {

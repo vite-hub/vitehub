@@ -16,6 +16,15 @@ export {
 } from "./runtime/state.ts"
 
 export type {
+  ScheduleErrorCode,
+  ScheduleErrorDetails,
+  ScheduleErrorField,
+  ScheduleErrorOptions,
+  ScheduleErrorValueType,
+  ScheduleValidationErrorCode,
+} from "./errors.ts"
+
+export type {
   KVScheduleStoreOptions,
   ScheduleKVStorage,
 } from "./runtime/store.ts"

@@ -33,6 +33,10 @@ export default defineAgent({
 
 `authenticated()` is opt-in at the Agent or Entry Surface boundary. Merely defining Auth does not make every Agent Invocation require Auth.
 
+When a required Auth Session is missing, the bridge throws `AuthenticationRequiredError` with code `AUTHENTICATION_REQUIRED` and `statusCode: 401`, so Agent and HTTP entry surfaces can recognize the same failure without parsing its message.
+
+When the default Better Auth session lookup fails or returns a malformed non-null response, the bridge throws `AuthSessionError` with code `AUTH_SESSION_FAILED` and `statusCode: 503`; application-owned `source` exceptions remain unchanged.
+
 ## What Agent Invoker carries
 
 | Field | Meaning |

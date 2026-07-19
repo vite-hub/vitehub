@@ -1,3 +1,13 @@
+import { ViteHubError } from "./errors.ts"
+
+export {
+  ViteHubError,
+  type ViteHubErrorDetail,
+  type ViteHubErrorDetails,
+  type ViteHubErrorOptions,
+  type ViteHubErrorShape,
+} from "./errors.ts"
+
 export type MaybePromise<T> = T | Promise<T>
 
 export type RuntimeWaitUntil = (task: Promise<unknown>) => void
@@ -443,25 +453,42 @@ export interface LeaseStore {
   acquire(key: string, options?: { owner?: string, ttl?: number }): MaybePromise<Lease>
 }
 
-export class CapabilityNotFoundError extends Error {
+export class CapabilityNotFoundError extends ViteHubError<"CAPABILITY_NOT_FOUND", { capability: string }> {
   constructor(name: string) {
-    super(`[vitehub:runtime] Capability "${name}" was not found.`)
+    super("CAPABILITY_NOT_FOUND", `[vitehub:runtime] Capability "${name}" was not found.`, {
+      details: { capability: name },
+      retryable: false,
+    })
     this.name = "CapabilityNotFoundError"
   }
 }
 
-export class CapabilityDeniedError extends Error {
-  constructor(name: string, reason?: string) {
-    super(`[vitehub:runtime] Capability "${name}" was denied${reason ? `: ${reason}` : "."}`)
+export interface CapabilityDeniedErrorOptions extends ErrorOptions {
+  safeReason?: string
+}
+
+export class CapabilityDeniedError extends ViteHubError<"CAPABILITY_DENIED", { capability: string, reason?: string }> {
+  constructor(name: string, options: CapabilityDeniedErrorOptions = {}) {
+    const reason = options.safeReason
+    super("CAPABILITY_DENIED", `[vitehub:runtime] Capability "${name}" was denied${reason ? `: ${reason}` : "."}`, {
+      cause: options.cause,
+      details: { capability: name, ...(reason === undefined ? {} : { reason }) },
+      retryable: false,
+    })
     this.name = "CapabilityDeniedError"
   }
 }
 
-export class ApprovalRequiredError<TInput = unknown> extends Error {
+export class ApprovalRequiredError<TInput = unknown> extends ViteHubError<"APPROVAL_REQUIRED", { capability: string, requestId: string }> {
   request: ApprovalRequest<TInput>
 
   constructor(request: ApprovalRequest<TInput>) {
-    super(`[vitehub:runtime] Approval is required for "${request.capability || request.id}".`)
+    const capability = request.capability || request.id
+    super("APPROVAL_REQUIRED", `[vitehub:runtime] Approval is required for "${capability}".`, {
+      details: { capability, requestId: request.id },
+      requestId: request.id,
+      retryable: false,
+    })
     this.name = "ApprovalRequiredError"
     this.request = request
   }

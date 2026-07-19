@@ -112,6 +112,19 @@ describe("Process Schedule Wake Driver", () => {
     await expect(schedules.get("follow-up")).resolves.toMatchObject({ id: "follow-up" })
   })
 
+  it("starts a due wake before reconciliation can be closed", async () => {
+    const wake = vi.fn<RuntimeScheduleWakeDriverContext["wake"]>(async () => {})
+    const driver = await createDriver({
+      reportError: vi.fn(),
+      wake,
+    }, { now: () => new Date("2026-07-11T09:00:20.000Z") })
+
+    await driver.reconcile([record("daily")])
+    await driver.close?.()
+
+    expect(wake).toHaveBeenCalledOnce()
+  })
+
   it("wakes each enabled due schedule once per process minute", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T09:00:20.000Z"))

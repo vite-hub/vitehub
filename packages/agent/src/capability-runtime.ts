@@ -15,6 +15,7 @@ import {
 } from "./invoker.ts"
 import { runObservedAgentHook } from "./hooks.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
+import { openAgentCapabilityScope } from "./internal/capability-scope.ts"
 import type {
   AgentCapabilitiesInput,
   AgentCapabilitiesResolverContext,
@@ -870,9 +871,8 @@ export async function resolveAgentCapabilities<
   let currentWorkspaceDefinition = invocationOptions.workspaceDefinition
   let messages = getRunMessages(currentInput)
   let tools: AgentToolSet | undefined
-  const closeCallbacks: Array<() => MaybePromise<void>> = []
   const driverContributions: AgentDriverContribution[] = []
-  let hasCloseWork = false
+  let capabilityScope: Awaited<ReturnType<typeof openAgentCapabilityScope>> | undefined
   const toolTransforms: AgentToolTransform[] = []
   const initialDeliveryEffectIntents = invocationContext.get<AgentChannelDeliveryEffectIntent[]>(channelDeliveryEffectsContextKey) || []
   const initialFinishDeliveryEffectProviders = invocationContext.get<AgentChannelDeliveryFinishEffect[]>(channelDeliveryFinishEffectsContextKey) || []
@@ -912,18 +912,8 @@ export async function resolveAgentCapabilities<
     })
   }
 
-  async function closeRegisteredCallbacks() {
-    const errors: unknown[] = []
-    for (const callback of [...closeCallbacks].reverse()) {
-      try {
-        await callback()
-      }
-      catch (error) {
-        errors.push(error)
-      }
-    }
-    if (errors.length === 1) throw errors[0]
-    if (errors.length > 1) throw new AggregateError(errors, "[vitehub] Multiple capability close callbacks failed.")
+  async function closeCapabilities() {
+    await capabilityScope?.close()
   }
 
   let invocationStarted = false
@@ -1148,8 +1138,8 @@ export async function resolveAgentCapabilities<
       }
 
       if (capability.close || options?.hooks?.["capability:close"] || options?.hooks?.["capability:close:after"]) {
-        hasCloseWork = true
-        closeCallbacks.push(async () => {
+        capabilityScope ??= await openAgentCapabilityScope()
+        await capabilityScope.add(async () => {
           await callHooks("capability:close", capabilityContext, options?.hooks)
           await capability.close?.(capabilityContext)
           await callHooks("capability:close:after", capabilityContext, options?.hooks)
@@ -1162,10 +1152,10 @@ export async function resolveAgentCapabilities<
         await callHooks(`capability:${phase}:after`, capabilityContext, options?.hooks)
         if (result instanceof Response) {
           return {
-            close: closeRegisteredCallbacks,
+            close: closeCapabilities,
             driverContributions,
             globalSkills,
-            hasCloseCallbacks: hasCloseWork,
+            hasCloseCallbacks: Boolean(capabilityScope),
             input: currentInput,
             messages,
             response: result,
@@ -1218,20 +1208,15 @@ export async function resolveAgentCapabilities<
     }
   }
   catch (error) {
-    try {
-      await closeRegisteredCallbacks()
-    }
-    catch (closeError) {
-      throw new AggregateError([error, closeError], "[vitehub] Capability setup failed and cleanup also failed.")
-    }
+    if (capabilityScope) return await capabilityScope.failSetup(error)
     throw error
   }
 
   return {
-    close: closeRegisteredCallbacks,
+    close: closeCapabilities,
     driverContributions,
     globalSkills,
-    hasCloseCallbacks: hasCloseWork,
+    hasCloseCallbacks: Boolean(capabilityScope),
     input: currentInput,
     messages,
     registries,
