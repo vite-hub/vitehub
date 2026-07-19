@@ -325,15 +325,16 @@ export const makeProcessWakeRuntime = Effect.fn("ScheduleProcessDriver.make")(fu
               dispatched,
               queued,
               schedules,
-              started: true,
             }),
           ] as const
         })
 
         if (!snapshot.closing) {
           yield* Effect.flatMap(scanUnlocked(), enqueue)
-          if (startScanner)
+          if (startScanner) {
             yield* FiberSet.run(scannerFibers, scanLoop, { startImmediately: true })
+            yield* Ref.update(state, current => cloneState(current, { started: true }))
+          }
         }
       }),
     )

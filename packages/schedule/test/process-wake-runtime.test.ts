@@ -62,6 +62,45 @@ it("drives process wake scanning with TestClock", async () => {
   ])
 })
 
+it("starts polling after an initial scan failure is retried", async () => {
+  const wakes: RuntimeScheduleWake[] = []
+  let calls = 0
+  let now = new Date(0)
+  await Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const testClock = yield* TestClock.make()
+        const runtime = yield* makeProcessWakeRuntime({
+          concurrency: 1,
+          context: {
+            reportError: vi.fn(),
+            async wake(input) {
+              wakes.push(input)
+            },
+          },
+          intervalMs: 60_000,
+          now() {
+            calls += 1
+            if (calls === 2) throw new Error("transient clock failure")
+            return now
+          },
+        }).pipe(Effect.provideService(Clock.Clock, testClock))
+
+        const failure = yield* Effect.flip(runtime.reconcile([record()]))
+        expect(failure.cause).toEqual(new Error("transient clock failure"))
+
+        yield* runtime.reconcile([record()])
+        now = new Date(60_000)
+        yield* testClock.adjust(60_000)
+        yield* Effect.yieldNow
+        yield* runtime.close
+      }),
+    ),
+  )
+
+  expect(wakes.some(wake => wake.scheduledAt.getTime() === 60_000)).toBe(true)
+})
+
 it("preserves defect identity without exposing Effect FiberFailure", async () => {
   const defect = new Error("process wake defect")
   const failure = await unwrapProcessWakeExit(Effect.runPromiseExit(Effect.die(defect))).then(
