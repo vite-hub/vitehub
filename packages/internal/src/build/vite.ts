@@ -43,11 +43,17 @@ export function isServerEnvironment(name: string, config: { consumer?: string })
 interface NitroVercelConfig {
   environments?: Record<string, { build?: { outDir?: string } }>
   nitro?: { preset?: string }
-  plugins?: readonly { name: string }[]
+  plugins?: unknown
 }
 
-export function hasNitroVitePlugin(config: { plugins?: readonly { name: string }[] }): boolean {
-  return config.plugins?.some(plugin => plugin.name === "nitro:main") === true
+function includesNitroVitePlugin(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(includesNitroVitePlugin)
+  if (!value || typeof value !== "object") return false
+  return "name" in value && value.name === "nitro:main"
+}
+
+export function hasNitroVitePlugin(config: { plugins?: unknown }): boolean {
+  return includesNitroVitePlugin(config.plugins)
 }
 
 export function resolveNitroVercelFunctionName(

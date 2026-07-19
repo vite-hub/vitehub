@@ -133,7 +133,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       generatedAliases = prepared.aliases
       generatedFiles = prepared.files
       definitions = prepared.definitions
-      if (prepared.cloudflare && hasNitroVitePlugin(config.plugins)) {
+      if (prepared.cloudflare && hasNitroVitePlugin(config)) {
         const configWithNitro = config as typeof config & { nitro?: Parameters<typeof configureCloudflareSandboxNitro>[0] }
         configWithNitro.nitro = await configureCloudflareSandboxNitro(
           configWithNitro.nitro,
