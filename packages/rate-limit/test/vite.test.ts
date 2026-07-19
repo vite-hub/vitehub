@@ -233,6 +233,7 @@ describe("hubRateLimit", () => {
     expect(installer).toContain('const config = {"provider":"memory"}')
     expect(installer).not.toContain("Registry")
     expect(installer).not.toContain("enterRateLimitRuntimeEvent")
+    expect(middleware).toContain("from 'nitro/h3'")
     expect(middleware).toContain("getRequestIP(event)")
     expect(middleware).toContain("enterRateLimitRuntimeEvent(event, requestKey || config.requestKeyFallback)")
     expect(middleware).not.toContain("requestKeyFallback\":\"local")
