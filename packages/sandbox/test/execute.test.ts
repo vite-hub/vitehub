@@ -251,6 +251,35 @@ describe("executeSandboxDefinition", () => {
     }
   })
 
+  it("preserves Cloudflare session creation failures for runtime retry", async () => {
+    const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
+    const creationError = new Error("network connection lost")
+    Object.assign(sandbox, {
+      native: { createSession: vi.fn() },
+      cloudflare: {
+        createSession: vi.fn(async () => { throw creationError }),
+      } as unknown as typeof sandbox.cloudflare,
+    })
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: {
+          "definition.mjs": "export default { run() { return { ok: true } } }",
+        },
+      },
+    )).rejects.toMatchObject({
+      message: "network connection lost",
+      cause: creationError,
+      code: "SANDBOX_TRANSPORT_ERROR",
+      details: { operation: "createSession" },
+      provider: "cloudflare",
+    } satisfies Partial<SandboxError>)
+  })
+
   it("rethrows unrecoverable exec errors instead of masking them as output parse failures", async () => {
     const execError = new Error("vercel transport unavailable")
     const { sandbox } = createFakeSandbox({ execError })

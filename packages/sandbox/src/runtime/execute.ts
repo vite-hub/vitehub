@@ -1,4 +1,4 @@
-import { resolveExecRequestTimeout, withCloudflareDeadline } from '../sandbox/adapters/cloudflare/transport'
+import { createCloudflareTransportError, resolveExecRequestTimeout, withCloudflareDeadline } from '../sandbox/adapters/cloudflare/transport'
 import { SandboxError } from '../sandbox/errors'
 import { shellQuote } from '../sandbox/utils'
 import { createEntrySource } from './entry-script'
@@ -76,7 +76,9 @@ async function executeLauncher(
       void sessionPromise.then(async lateSession => {
         await cloudflareSandbox.cloudflare.deleteSession(lateSession.id).catch(() => {})
       }).catch(() => {})
-      throw error
+      throw error instanceof SandboxError
+        ? error
+        : createCloudflareTransportError('createSession', error)
     }
     const deleteSession = async () => await cloudflareSandbox.cloudflare.deleteSession(session.id).catch(() => {})
     const abortSession = () => void deleteSession()
