@@ -217,7 +217,12 @@ describe("Vite provider outputs", () => {
       rootDir,
     })
     const workerFile = join(cloudflareOutputRoot, "index.js")
-    const legacyWorker = (await readFile(workerFile, "utf8")).replace("// vitehub-queue-worker\n", "")
+    const legacyWorker = [
+      "createQueueCloudflareWorker({",
+      "getCloudflareQueueDefinitionName(batch.queue)",
+      'label: "queue"',
+      "",
+    ].join("\n")
     expect(legacyWorker).not.toContain("vitehub-queue-worker")
     await writeFile(workerFile, legacyWorker, "utf8")
     const wranglerFile = join(cloudflareOutputRoot, "wrangler.json")
