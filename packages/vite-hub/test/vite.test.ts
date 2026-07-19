@@ -296,6 +296,7 @@ describe("vitehub", () => {
     const resolveId = plugin.resolveId
     if (typeof resolveId !== "function") throw new TypeError("Expected the framework dependency resolver.")
     expect(await resolveId.call({} as never, "vite-hub/sandbox", "/app/server.ts", {} as never)).toBe(providerSandboxFacade)
+    expect(await resolveId.call({} as never, "@vite-hub/sandbox", "/app/server.ts", {} as never)).toBe(providerSandboxFacade)
     expect(await resolveId.call({} as never, frameworkSandboxFacade, "/app/server.ts", {} as never)).toBe(providerSandboxFacade)
     expect(await resolveId.call({} as never, "@vite-hub/kv/runtime/upstash-driver", "/app/server.ts", {} as never)).toBeUndefined()
   })
