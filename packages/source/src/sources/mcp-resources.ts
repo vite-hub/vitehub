@@ -1,3 +1,6 @@
+import { createEffectBoundary } from "@vite-hub/internal/effect"
+import { Effect } from "effect"
+
 import { SourceError } from "../core/errors.ts"
 import { matchesAny, normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
 
@@ -52,6 +55,11 @@ interface ResourceEntry<TKey extends string = string> {
   resource: McpResourceDescriptor
 }
 
+const mcpEffectBoundary = createEffectBoundary({
+  aggregateMessage: "[vitehub] MCP Resource Source operation failed for multiple reasons.",
+  interruptionMessage: "[vitehub] MCP Resource Source operation was interrupted.",
+})
+
 function isMcpResourcesClient(value: unknown): value is McpResourcesClient {
   return typeof value === "object"
     && value !== null
@@ -84,38 +92,60 @@ async function createMcpTransport(config: McpResourcesTransportConfig): Promise<
   return new StreamableHTTPClientTransport(new URL(url), options)
 }
 
-async function createMcpClient(config: McpResourcesClientConfig): Promise<McpResourcesClient> {
+async function createMcpClient(config: McpResourcesClientConfig) {
   const [{ Client }, transport] = await Promise.all([
     import("@modelcontextprotocol/sdk/client/index.js"),
     createMcpTransport(config.transport),
   ])
-  const client = new Client({
-    name: "vitehub-source",
-    version: "0.0.1",
-  })
-  await client.connect(transport)
-  return client
+  return {
+    client: new Client({ name: "vitehub-source", version: "0.0.1" }),
+    transport,
+  }
 }
 
-async function resolveMcpClient(server: McpResourcesServer, ctx: SourceContext) {
+async function resolveMcpServer(server: McpResourcesServer, ctx: SourceContext) {
   const resolved = typeof server === "function" ? await server(ctx) : server
-  if (isMcpResourcesClient(resolved)) {
-    return { client: resolved, ownsClient: false }
-  }
-  if (isMcpResourcesClientConfig(resolved)) {
-    return { client: await createMcpClient(resolved), ownsClient: true }
-  }
+  if (isMcpResourcesClient(resolved) || isMcpResourcesClientConfig(resolved)) return resolved
   throw new TypeError("[vitehub] mcpResources({ server }) must resolve to an MCP client or MCP client config.")
 }
 
-async function withMcpClient<T>(server: McpResourcesServer, ctx: SourceContext, callback: (client: McpResourcesClient) => Promise<T>) {
-  const { client, ownsClient } = await resolveMcpClient(server, ctx)
-  try {
-    return await callback(client)
+function withRequestSignal(request: McpResourcesRequestOptions | undefined, signal: AbortSignal) {
+  return {
+    ...request,
+    signal: request?.signal && request.signal !== signal
+      ? AbortSignal.any([request.signal, signal])
+      : signal,
   }
-  finally {
-    if (ownsClient) await client.close?.()
-  }
+}
+
+async function withMcpClient<T>(
+  server: McpResourcesServer,
+  ctx: SourceContext,
+  request: McpResourcesRequestOptions | undefined,
+  callback: (client: McpResourcesClient, request: McpResourcesRequestOptions) => Promise<T>,
+) {
+  const effect = Effect.flatMap(
+    mcpEffectBoundary.tryPromise(() => resolveMcpServer(server, ctx)),
+    (resolved) => {
+      if (isMcpResourcesClient(resolved)) {
+        return mcpEffectBoundary.tryPromise(
+          signal => callback(resolved, withRequestSignal(request, signal)),
+        )
+      }
+      return Effect.acquireUseRelease(
+        mcpEffectBoundary.tryPromise(() => createMcpClient(resolved)),
+        ({ client, transport }) => mcpEffectBoundary.tryPromise(
+          signal => client.connect(transport, { signal }),
+        ).pipe(
+          Effect.andThen(mcpEffectBoundary.tryPromise(
+            signal => callback(client, withRequestSignal(request, signal)),
+          )),
+        ),
+        ({ client }) => mcpEffectBoundary.tryPromise(() => client.close?.()),
+      )
+    },
+  )
+  return await mcpEffectBoundary.run(effect, { signal: ctx.abortSignal })
 }
 
 function extensionForMimeType(mimeType: string | undefined) {
@@ -277,16 +307,17 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
   }
 
   async function getEntries(ctx: SourceContext) {
-    return await withMcpClient(options.server, ctx, async (client) => {
-      return await createEntries(await listAllResources(client, options.request), options, client)
+    return await withMcpClient(options.server, ctx, options.request, async (client, request) => {
+      return await createEntries(await listAllResources(client, request), { ...options, request }, client)
     })
   }
 
   async function getItems(ctx: SourceContext) {
-    return await withMcpClient(options.server, ctx, async (client) => {
-      const entries = await createEntries(await listAllResources(client, options.request), options, client)
+    return await withMcpClient(options.server, ctx, options.request, async (client, request) => {
+      const scopedOptions = { ...options, request }
+      const entries = await createEntries(await listAllResources(client, request), scopedOptions, client)
       return await Promise.all(entries.map(async ({ contents, key, resource }) => {
-        const result = contents ?? await readResourceContents(client, resource, options.request)
+        const result = contents ?? await readResourceContents(client, resource, request)
         return createResourceItem(key, resource, result)
       }))
     })
@@ -323,12 +354,12 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
       }
     },
     async getItem(key, ctx) {
-      return await withMcpClient(options.server, ctx, async (client) => {
-        const entry = (await createEntries(await listAllResources(client, options.request), options, client)).find(entry => entry.key === key)
+      return await withMcpClient(options.server, ctx, options.request, async (client, request) => {
+        const entry = (await createEntries(await listAllResources(client, request), { ...options, request }, client)).find(entry => entry.key === key)
         if (!entry) {
           throw new SourceError(`[vitehub] mcpResources could not find ${JSON.stringify(key)}.`)
         }
-        const result = entry.contents ?? await readResourceContents(client, entry.resource, options.request)
+        const result = entry.contents ?? await readResourceContents(client, entry.resource, request)
         return createResourceItem(key, entry.resource, result)
       })
     },
