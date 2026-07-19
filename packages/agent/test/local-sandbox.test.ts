@@ -346,7 +346,9 @@ describe("local harness sandbox", () => {
       ])
       expect(outcome).toBe(reason)
       expect(localProcesses(session).size).toBe(0)
-      expect(() => process.kill(-child!.pid!, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }))
+      await vi.waitFor(() => {
+        expect(() => process.kill(-child!.pid!, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }))
+      })
     }
     finally {
       forceKillGroup(child?.pid)
@@ -373,7 +375,9 @@ describe("local harness sandbox", () => {
 
       await expect(child.wait()).rejects.toBe(reason)
       expect(localProcesses(session).size).toBe(0)
-      expect(() => process.kill(-child!.pid!, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }))
+      await vi.waitFor(() => {
+        expect(() => process.kill(-child!.pid!, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }))
+      })
     }
     finally {
       forceKillGroup(child?.pid)
