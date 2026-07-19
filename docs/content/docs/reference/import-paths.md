@@ -107,7 +107,6 @@ for libraries, focused integrations, and advanced composition.
 | Import path | Use |
 | --- | --- |
 | `vite-hub` | Canonical application import for `vitehub()`. |
-| `@vite-hub/vite` | Supported root-only compatibility import for `vitehub()`. It has no feature subpaths. |
 | `@vite-hub/agent/vite` | Register the Agent Vite Integration. |
 | `@vite-hub/auth/vite` | Register the Auth Vite Integration. |
 | `@vite-hub/blob/vite` | Register the Blob Vite Integration. |

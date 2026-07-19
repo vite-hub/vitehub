@@ -7,8 +7,6 @@ import type { Alias, ConfigEnv, Plugin, ResolvedConfig } from 'vite'
 import type { DiscoveredSandboxDefinition } from './discovery'
 import type { AgentSandboxConfig } from './module-types'
 
-export { createViteHubDefinitionAutoImportsPlugin } from './internal/shared/vitehub-auto-imports'
-
 export type SandboxPublicOptions = AgentSandboxConfig | false
 export type SandboxVitePlugin = Plugin
 

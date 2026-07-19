@@ -72,10 +72,6 @@ New applications should start with `vite-hub`. Direct owner packages are the
 escape hatch when package-level control is the goal.
 ::
 
-`@vite-hub/vite` remains supported as a root-only compatibility import for
-`vitehub()`. It does not expose feature subpaths. See [Migrate to
-`vite-hub`](/docs/getting-started/migration) for the before-and-after imports.
-
 ## Add generated types
 
 Some packages write types under `.vitehub/types`. Include that directory when
