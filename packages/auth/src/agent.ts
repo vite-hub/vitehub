@@ -1,4 +1,11 @@
 import { getAuthForRequest } from "./server.ts"
+import {
+  AuthenticationProviderError,
+  invalidAuthenticationErrorOptions,
+  readAuthenticationErrorOption,
+  throwAuthenticationProviderError,
+} from "./errors.ts"
+import { getAuthenticationSession } from "./session.ts"
 
 import { ViteHubError } from "@vite-hub/runtime"
 
@@ -9,6 +16,17 @@ import type {
   AgentRuntimeConfig,
   MaybePromise,
 } from "@vite-hub/agent"
+import type {
+  AuthenticationProviderErrorOptions,
+  AuthenticationProviderOperation,
+} from "./errors.ts"
+import type { AuthenticationSessionSnapshot } from "./session.ts"
+
+export { AuthenticationProviderError }
+export type {
+  AuthenticationProviderErrorOptions,
+  AuthenticationProviderOperation,
+}
 
 export interface AuthenticatedUser {
   email?: string | null
@@ -94,52 +112,26 @@ export class AuthenticationRequiredError extends ViteHubError<"AUTHENTICATION_RE
   constructor(options?: AuthenticationRequiredErrorOptions)
   constructor(message?: string)
   constructor(messageOrOptions: AuthenticationRequiredErrorOptions | string = {}) {
-    const options = typeof messageOrOptions === "string" ? {} : messageOrOptions
-    const message = typeof messageOrOptions === "string"
+    if (typeof messageOrOptions === "string") {
+      if (messageOrOptions.length === 0 || messageOrOptions.length > 16_384) invalidAuthenticationErrorOptions()
+    }
+    const cause = typeof messageOrOptions === "string"
+      ? undefined
+      : readAuthenticationErrorOption(messageOrOptions, "cause")
+    const optionMessage = typeof messageOrOptions === "string"
       ? messageOrOptions
-      : messageOrOptions.message ?? "[vitehub] Authentication required."
+      : readAuthenticationErrorOption(messageOrOptions, "message")
+    if (optionMessage !== undefined && (typeof optionMessage !== "string" || optionMessage.length === 0 || optionMessage.length > 16_384)) {
+      invalidAuthenticationErrorOptions()
+    }
+    const message = optionMessage ?? "[vitehub] Authentication required."
 
-    super("AUTHENTICATION_REQUIRED", message, {
-      cause: options.cause,
-    })
+    super("AUTHENTICATION_REQUIRED", message, cause === undefined ? {} : { cause })
     this.name = "AuthenticationRequiredError"
     Object.defineProperty(this, "statusCode", {
       enumerable: true,
       value: 401,
     })
-  }
-}
-
-export type AuthSessionErrorOptions = ErrorOptions
-
-export class AuthSessionError extends ViteHubError<"AUTH_SESSION_FAILED"> {
-  declare readonly statusCode: 503
-
-  constructor(options: AuthSessionErrorOptions = {}) {
-    super("AUTH_SESSION_FAILED", "[vitehub] Authentication session resolution failed.", {
-      cause: options.cause,
-    })
-    this.name = "AuthSessionError"
-    Object.defineProperty(this, "statusCode", {
-      enumerable: true,
-      value: 503,
-    })
-  }
-}
-
-interface BetterAuthGetSessionInput {
-  headers: Headers
-  query?: {
-    disableCookieCache?: boolean
-    disableRefresh?: boolean
-  }
-}
-
-type BetterAuthGetSession = (input: BetterAuthGetSessionInput) => MaybePromise<unknown>
-
-interface BetterAuthSessionApi {
-  api?: {
-    getSession?: BetterAuthGetSession
   }
 }
 
@@ -153,95 +145,60 @@ export function authenticated<
 ): AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> {
   return {
     async resolve(context) {
-      const source = (options.source ?? defaultAuthenticatedSource) as AuthenticatedSource<
-        TRuntimeConfig,
-        CALL_OPTIONS,
-        TUser,
-        TSession
-      >
-      const auth = await source(context)
+      let auth: AuthenticatedSession<TUser, TSession> | null | undefined
+      let providerFields: AuthenticationSessionSnapshot | undefined
+      if (options.source) {
+        auth = await options.source(context)
+      }
+      else {
+        const resolved = await defaultAuthenticatedSource(context)
+        auth = resolved?.auth as AuthenticatedSession<TUser, TSession> | null | undefined
+        providerFields = resolved ?? undefined
+      }
 
       if (!auth) {
         if (options.required === false) return undefined
         throw new AuthenticationRequiredError(options.message)
       }
 
-      const authenticatedContext = createAuthenticatedContext<TRuntimeConfig, CALL_OPTIONS, TUser, TSession>(context, auth)
+      const authenticatedContext = {
+        ...context,
+        auth,
+        session: (providerFields?.session ?? auth.session) as TSession,
+        user: (providerFields?.user ?? auth.user) as TUser,
+      } as AuthenticatedContext<TRuntimeConfig, CALL_OPTIONS, TUser, TSession>
       if (options.map) {
         const invoker = await options.map(authenticatedContext)
         if (!invoker) throw new TypeError("[vitehub] authenticated({ map }) must return an Agent Invoker.")
         return invoker
       }
 
-      return createDefaultInvoker(options, authenticatedContext)
+      return createDefaultInvoker(options, authenticatedContext, providerFields)
     },
   }
 }
 
 async function defaultAuthenticatedSource(
   context: AgentInvokerResolveContext,
-): Promise<AuthenticatedSession | null | undefined> {
+): Promise<AuthenticationSessionSnapshot | null | undefined> {
   if (!context.request) return undefined
 
-  try {
-    const auth = getAuthForRequest(context.request) as BetterAuthSessionApi
-    const getSession = auth.api?.getSession
-    if (!getSession) {
-      throw new AuthSessionError({
-        cause: new TypeError("Better Auth did not expose api.getSession()."),
-      })
-    }
-
-    const session = await getSession.call(auth.api, {
-      headers: context.request.headers,
-      query: {
-        disableCookieCache: true,
-        disableRefresh: true,
-      },
-    })
-    if (session == null) return session
-
-    const normalized = normalizeAuthenticatedSession(session)
-    if (!normalized) {
-      throw new AuthSessionError({
-        cause: new TypeError("Better Auth returned an invalid session response."),
-      })
-    }
-    return normalized
-  }
-  catch (error) {
-    if (error instanceof AuthSessionError || error instanceof AuthenticationRequiredError || isAuthAbortError(error)) {
-      throw error
-    }
-    throw new AuthSessionError({ cause: error })
-  }
+  const auth = getAuthForRequest(context.request)
+  return await getAuthenticationSession(auth, {
+    headers: context.request.headers,
+    query: {
+      disableCookieCache: true,
+      disableRefresh: true,
+    },
+  })
 }
 
-function isAuthAbortError(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false
-
+function readProviderField<T>(read: () => T): T {
   try {
-    return "name" in error && error.name === "AbortError"
+    return read()
   }
-  catch {
-    return false
-  }
-}
-
-function createAuthenticatedContext<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
-  TUser extends AuthenticatedUser,
-  TSession extends AuthenticatedSessionData,
->(
-  context: AgentInvokerResolveContext<TRuntimeConfig, CALL_OPTIONS>,
-  auth: AuthenticatedSession<TUser, TSession>,
-): AuthenticatedContext<TRuntimeConfig, CALL_OPTIONS, TUser, TSession> {
-  return {
-    ...context,
-    auth,
-    session: auth.session,
-    user: auth.user,
+  catch (cause) {
+    throwAuthenticationProviderError(cause, "get-session")
   }
 }
 
@@ -253,13 +210,18 @@ async function createDefaultInvoker<
 >(
   options: AuthenticatedOptions<TRuntimeConfig, CALL_OPTIONS, TUser, TSession>,
   context: AuthenticatedContext<TRuntimeConfig, CALL_OPTIONS, TUser, TSession>,
+  providerFields?: AuthenticationSessionSnapshot,
 ): Promise<AgentInvoker> {
-  const userId = await resolveAuthenticatedValue(options.id, context) ?? readString(context.user.id)
+  const userId = await resolveAuthenticatedValue(options.id, context) ?? providerFields?.userId ?? readString(context.user.id)
   if (!userId) throw new AuthenticationRequiredError("[vitehub] Authenticated user is missing an id.")
 
   const kind = await resolveAuthenticatedValue(options.kind, context) ?? "authUser"
-  const label = await resolveAuthenticatedValue(options.label, context) ?? defaultLabel(context.user)
-  const sessionId = readString(context.session.id)
+  const label = await resolveAuthenticatedValue(options.label, context)
+    ?? (providerFields && readProviderField(() => defaultLabel(providerFields.user)))
+    ?? defaultLabel(context.user)
+  const sessionId = providerFields
+    ? readProviderField(() => readString(providerFields.session.id))
+    : readString(context.session.id)
   const meta = normalizeMeta(await resolveAuthenticatedValue(options.meta, context))
 
   return {
@@ -268,7 +230,7 @@ async function createDefaultInvoker<
     label,
     meta: {
       ...meta,
-      authUserId: readString(context.user.id) ?? userId,
+      authUserId: providerFields?.userId ?? readString(context.user.id) ?? userId,
       ...(sessionId ? { authSessionId: sessionId } : {}),
     },
   }
@@ -288,22 +250,6 @@ function resolveAuthenticatedValue<
     return (value as (context: AuthenticatedContext<TRuntimeConfig, CALL_OPTIONS, TUser, TSession>) => MaybePromise<TValue>)(context)
   }
   return value
-}
-
-function normalizeAuthenticatedSession(value: unknown): AuthenticatedSession | null | undefined {
-  if (!isRecord(value)) return undefined
-  if (!isRecord(value.user) || !isRecord(value.session)) return undefined
-
-  const userId = readString(value.user.id)
-  if (!userId) return undefined
-
-  return {
-    session: value.session as AuthenticatedSessionData,
-    user: {
-      ...value.user,
-      id: userId,
-    } as AuthenticatedUser,
-  }
 }
 
 function defaultLabel(user: AuthenticatedUser): string {

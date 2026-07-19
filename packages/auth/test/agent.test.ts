@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { authenticated, AuthSessionError, AuthenticationRequiredError } from "../src/agent.ts"
+import { authenticated, AuthenticationProviderError, AuthenticationRequiredError } from "../src/agent.ts"
 
 import type { AgentInvokerOptions, AgentInvokerResolveContext } from "@vite-hub/agent"
 
@@ -181,22 +181,110 @@ describe("authenticated", () => {
     })
   })
 
-  it("maps default Better Auth failures without exposing provider diagnostics", async () => {
+  it.each([
+    new Error("secret session failure"),
+    new TypeError("fetch failed"),
+  ])("normalizes Better Auth session failures, including %s", async (cause) => {
     const request = new Request("https://example.com/api/agent")
-    const providerError = new Error("Bearer secret-token")
-    serverMocks.getSession.mockRejectedValue(providerError)
+    serverMocks.getSession.mockRejectedValueOnce(cause)
 
-    const rejection = resolve(authenticated(), createContext({ request })).catch(error => error as AuthSessionError)
-    const error = await rejection
+    const error = await resolve(authenticated(), createContext({ request })).catch(error => error)
 
-    expect(error).toBeInstanceOf(AuthSessionError)
+    expect(error).toBeInstanceOf(AuthenticationProviderError)
     expect(error).toMatchObject({
-      cause: providerError,
-      code: "AUTH_SESSION_FAILED",
-      message: "[vitehub] Authentication session resolution failed.",
-      statusCode: 503,
+      code: "AUTH_PROVIDER_OPERATION_FAILED",
+      details: { operation: "get-session", provider: "better-auth" },
+      message: "[vitehub] Authentication provider operation failed.",
+      name: "AuthenticationProviderError",
     })
-    expect(JSON.stringify(error)).not.toContain("secret-token")
+    expect(error.cause).toBe(cause)
+    expect(JSON.parse(JSON.stringify(error))).toEqual({
+      code: "AUTH_PROVIDER_OPERATION_FAILED",
+      details: { operation: "get-session", provider: "better-auth" },
+      message: "[vitehub] Authentication provider operation failed.",
+    })
+    expect(JSON.stringify(error)).not.toContain("secret")
+  })
+
+  it("normalizes default label getter failures from Better Auth", async () => {
+    const request = new Request("https://example.com/api/agent")
+    const cause = new Error("protected email getter failure")
+    serverMocks.getSession.mockResolvedValueOnce({
+      session: {},
+      user: {
+        get email() {
+          throw cause
+        },
+        id: "user_1",
+      },
+    })
+
+    const error = await resolve(authenticated(), createContext({ request })).catch(error => error)
+
+    expect(error).toBeInstanceOf(AuthenticationProviderError)
+    expect(error).toMatchObject({
+      details: { operation: "get-session", provider: "better-auth" },
+    })
+    expect(error.cause).toBe(cause)
+  })
+
+  it("does not read default label fields when a mapper provides the invoker", async () => {
+    const request = new Request("https://example.com/api/agent")
+    serverMocks.getSession.mockResolvedValueOnce({
+      session: {},
+      user: {
+        get email() {
+          throw new Error("unused email getter")
+        },
+        id: "user_1",
+      },
+    })
+
+    await expect(resolve(authenticated({
+      map: () => ({ id: "mapped", kind: "custom" }),
+    }), createContext({ request }))).resolves.toEqual({ id: "mapped", kind: "custom" })
+  })
+
+  it("snapshots the provider response wrapper before leaving the boundary", async () => {
+    const request = new Request("https://example.com/api/agent")
+    const session = { id: "session_1" }
+    const user = { email: "auth@example.com", id: "user_1" }
+    let userReads = 0
+    serverMocks.getSession.mockResolvedValueOnce({
+      session,
+      get user() {
+        userReads++
+        if (userReads > 1) throw new Error("outer user getter reread")
+        return user
+      },
+    })
+
+    await expect(resolve(authenticated(), createContext({ request }))).resolves.toMatchObject({
+      id: "user_1",
+      label: "auth@example.com",
+    })
+    expect(userReads).toBe(1)
+  })
+
+  it("keeps default identity snapshots local when a provider reuses one response", async () => {
+    const request = new Request("https://example.com/api/agent")
+    let userReads = 0
+    const authSession = {
+      session: {},
+      get user() {
+        userReads++
+        return { email: `user-${userReads}@example.com`, id: `user_${userReads}` }
+      },
+    }
+    serverMocks.getSession.mockResolvedValue(authSession)
+
+    const [first, second] = await Promise.all([
+      resolve(authenticated(), createContext({ request })),
+      resolve(authenticated(), createContext({ request })),
+    ])
+
+    expect(first).toMatchObject({ id: "user_1", label: "user-1@example.com" })
+    expect(second).toMatchObject({ id: "user_2", label: "user-2@example.com" })
   })
 
   it("distinguishes invalid Better Auth responses from missing sessions", async () => {
@@ -205,16 +293,31 @@ describe("authenticated", () => {
     await expect(resolve(authenticated({ required: false }), createContext({ request }))).resolves.toBeUndefined()
 
     serverMocks.getSession.mockResolvedValueOnce({ session: {}, user: {} })
-    await expect(resolve(authenticated(), createContext({ request }))).rejects.toMatchObject({
-      code: "AUTH_SESSION_FAILED",
-      name: "AuthSessionError",
-    })
+    await expect(resolve(authenticated(), createContext({ request }))).rejects.toEqual(
+      new TypeError("Better Auth returned an invalid session response."),
+    )
 
     serverMocks.getAuthForRequest.mockReturnValueOnce({ api: {} })
-    await expect(resolve(authenticated(), createContext({ request }))).rejects.toMatchObject({
-      code: "AUTH_SESSION_FAILED",
-      name: "AuthSessionError",
-    })
+    await expect(resolve(authenticated(), createContext({ request }))).rejects.toEqual(
+      new TypeError("Better Auth did not expose api.getSession()."),
+    )
+  })
+
+  it("preserves the exact Better Auth session objects for custom mapping", async () => {
+    const request = new Request("https://example.com/api/agent")
+    const session = { id: "session_identity" }
+    const user = { id: "user_identity", organization: { id: "org_identity" } }
+    const authSession = { session, user }
+    serverMocks.getSession.mockResolvedValue(authSession)
+
+    await resolve(authenticated({
+      map: (context) => {
+        expect(context.auth).toBe(authSession)
+        expect(context.session).toBe(session)
+        expect(context.user).toBe(user)
+        return { id: user.organization.id, kind: "organization" }
+      },
+    }), createContext({ request }))
   })
 
   it("preserves exact abort and custom extension failures", async () => {
@@ -222,6 +325,10 @@ describe("authenticated", () => {
     const abort = new DOMException("cancelled", "AbortError")
     serverMocks.getSession.mockRejectedValue(abort)
     await expect(resolve(authenticated(), createContext({ request }))).rejects.toBe(abort)
+
+    const providerError = new AuthenticationProviderError({ operation: "get-session" })
+    serverMocks.getSession.mockRejectedValue(providerError)
+    await expect(resolve(authenticated(), createContext({ request }))).rejects.toBe(providerError)
 
     const sourceError = new Error("custom source failed")
     await expect(resolve(authenticated({ source: () => { throw sourceError } }))).rejects.toBe(sourceError)
