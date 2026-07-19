@@ -795,7 +795,8 @@ async function githubEnv(event?: unknown): Promise<Record<string, unknown>> {
       }
     : {}
   try {
-    const module = await import(/* @vite-ignore */ serverEnvModuleId) as { useServerEnv?: (event?: unknown) => unknown }
+    // hubEnv() rewrites the tagged import so Vite can resolve its generated module.
+    const module = await import(/* @vite-ignore */ /* @vitehub-env */ serverEnvModuleId) as { useServerEnv?: (event?: unknown) => unknown }
     const env = module.useServerEnv?.(event)
     const github = isRecord(env) && isRecord(env.github)
       ? Object.fromEntries(Object.entries(env.github).filter(([, value]) => value !== undefined))

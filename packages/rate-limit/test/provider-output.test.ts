@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -69,6 +69,117 @@ describe("Rate Limit Provider Output", () => {
       }],
       schemaVersion: 1,
     })
+  })
+
+  it("removes previously standalone bindings without touching Nitro-owned entries", async () => {
+    const { declarations, root } = await projectWithDeclaration()
+    const outputRoot = createDefaultCloudflareOutputRoot(root)
+    const configFile = join(outputRoot, "wrangler.json")
+    await writeRateLimitProviderOutput({
+      clientOutDir: "dist",
+      declarations,
+      namespace: "acme-image-service",
+      provider: "cloudflare",
+      rootDir: root,
+    })
+    const existingConfig = {
+      ratelimits: [
+        { name: "NITRO", namespace_id: "7", simple: { limit: 2, period: 10 } },
+        { name: getCloudflareRateLimitBindingName("upload"), namespace_id: "8", simple: { limit: 10, period: 60 } },
+      ],
+      vars: { APP: "vitehub" },
+    }
+    await writeFile(configFile, `${JSON.stringify(existingConfig, null, 2)}\n`)
+
+    await writeRateLimitProviderOutput({
+      clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
+      declarations,
+      namespace: "acme-image-service",
+      provider: "cloudflare",
+      rootDir: root,
+    })
+
+    await expect(readFile(configFile, "utf8").then(JSON.parse)).resolves.toEqual({
+      ratelimits: [existingConfig.ratelimits[0]],
+      vars: { APP: "vitehub" },
+    })
+    await expect(access(join(root, ".vitehub", "rate-limit", "cloudflare-output.json"))).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(join(root, ".vitehub", "rate-limit", "manifest.json"), "utf8")).resolves.toContain('"provider": "cloudflare"')
+  })
+
+  it("cleans renamed standalone bindings during Nitro takeover", async () => {
+    const { declarations, root } = await projectWithDeclaration()
+    const configFile = join(createDefaultCloudflareOutputRoot(root), "wrangler.json")
+    await writeRateLimitProviderOutput({ clientOutDir: "dist", declarations, namespace: "acme-image-service", provider: "cloudflare", rootDir: root })
+    const stateFile = join(root, ".vitehub", "rate-limit", "cloudflare-output.json")
+    const legacyState = JSON.parse(await readFile(stateFile, "utf8")) as { bindings: string[] }
+    await writeFile(stateFile, `${JSON.stringify({ bindings: legacyState.bindings }, null, 2)}\n`)
+    const standalone = JSON.parse(await readFile(configFile, "utf8"))
+    await writeFile(configFile, `${JSON.stringify({ ...standalone, vars: { APP: "vitehub" } }, null, 2)}\n`)
+    const renamed = [{ ...declarations[0]!, name: "renamed" }]
+
+    await writeRateLimitProviderOutput({
+      clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
+      declarations: renamed,
+      namespace: "acme-image-service",
+      provider: "cloudflare",
+      rootDir: root,
+    })
+
+    await expect(readFile(configFile, "utf8").then(JSON.parse)).resolves.toEqual({ vars: { APP: "vitehub" } })
+  })
+
+  it("cleans unchanged standalone bindings during Nitro takeover", async () => {
+    const { declarations, root } = await projectWithDeclaration()
+    const configFile = join(createDefaultCloudflareOutputRoot(root), "wrangler.json")
+    await writeRateLimitProviderOutput({ clientOutDir: "dist", declarations, namespace: "acme-image-service", provider: "cloudflare", rootDir: root })
+
+    await writeRateLimitProviderOutput({
+      clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
+      declarations,
+      namespace: "acme-image-service",
+      provider: "cloudflare",
+      rootDir: root,
+    })
+
+    await expect(access(configFile)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("cleans only marker-owned standalone bindings when Nitro transitions to memory", async () => {
+    const { declarations, root } = await projectWithDeclaration()
+    const outputRoot = createDefaultCloudflareOutputRoot(root)
+    const configFile = join(outputRoot, "wrangler.json")
+    await writeRateLimitProviderOutput({
+      clientOutDir: "dist",
+      declarations,
+      namespace: "acme-image-service",
+      provider: "cloudflare",
+      rootDir: root,
+    })
+    await writeFile(configFile, `${JSON.stringify({
+      ratelimits: [
+        { name: "MANUAL", namespace_id: "7", simple: { limit: 2, period: 10 } },
+        ...createCloudflareRateLimitBindings(declarations, "acme-image-service"),
+      ],
+      vars: { APP: "vitehub" },
+    }, null, 2)}\n`)
+
+    await writeRateLimitProviderOutput({
+      clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
+      declarations,
+      provider: "memory",
+      rootDir: root,
+    })
+
+    await expect(readFile(configFile, "utf8").then(JSON.parse)).resolves.toEqual({
+      ratelimits: [{ name: "MANUAL", namespace_id: "7", simple: { limit: 2, period: 10 } }],
+      vars: { APP: "vitehub" },
+    })
+    await expect(access(join(root, ".vitehub", "rate-limit", "cloudflare-output.json"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("rejects unsupported Cloudflare guarantees", async () => {

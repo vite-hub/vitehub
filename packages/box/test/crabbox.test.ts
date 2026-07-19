@@ -763,17 +763,6 @@ async function temporaryRoot() {
   return root
 }
 
-async function rewriteTarEntryPath(path: string, name: string) {
-  const archive = await readFile(path);
-  archive.fill(0, 0, 100);
-  archive.write(name, 0, "utf8");
-  archive.fill(0x20, 148, 156);
-  let checksum = 0;
-  for (let index = 0; index < 512; index++) checksum += archive[index];
-  archive.write(`${checksum.toString(8).padStart(6, "0")}\0 `, 148, 8, "ascii");
-  await writeFile(path, archive);
-}
-
 async function fakeCrabbox(bin: string) {
   const command = join(bin, "crabbox")
   await writeFile(command,

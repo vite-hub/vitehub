@@ -50,7 +50,6 @@ import {
   applyCapabilityToolTransforms,
   applyOutputRenderers,
   createAgentInvocationExtensions,
-  defineCapability,
   normalizeCapabilities,
   resolveAgentCapabilities,
   resolveAgentCapabilityDefinitions,
@@ -96,78 +95,47 @@ import {
 import type {
   AgentAdapter,
   AgentAdapterFactory,
-  AgentAdapterMetadataContext,
   AgentAdapterRunContext,
-  AgentAdapterResult,
-  AgentCapabilitiesList,
   AgentCapabilitiesInput,
   AgentCapabilitiesResolver,
-  AgentCapabilitiesResolverContext,
   AgentChannelDefinition,
   AgentChannelInputs,
-  AgentChannelTriggerContext,
   AgentChannels,
-  AgentCapabilityHooks,
-  AgentCapabilityContext,
   AgentCapabilityDefinition,
-  AgentCapabilityInput,
   AgentCapabilityMode,
   AgentCapabilityTypeContract,
   AgentChannelDeliveryEffectHandler,
   AgentChannelDeliveryEffectIntent,
-  AgentChannelDeliveryEffectPayload,
   AgentChannelDeliveryFinishEffect,
-  AgentChannelDeliveryFinishEffectCallback,
   AgentChannelDeliveryFinishEffectResult,
   AgentChannelDeliveryFinishEffectContext,
-  AgentChannelDeliveryReactionInput,
-  AgentChannelDeliveryReactionPayload,
-  AgentChannelDeliveryReplyInput,
-  AgentChannelDeliveryReplyPayload,
-  AgentChannelDeliveryStatusInput,
-  AgentChannelDeliveryStatusPayload,
-  AgentChannelDeliveryStatusState,
-  AgentDeliveryArtifact,
-  AgentDeliveryArtifactPlacement,
   AgentDefinition,
   AgentDriverContribution,
   AgentDriverKind,
   AgentFinishEvent,
   AgentFinishHookEvent,
   AgentFinishExtensions,
-  AgentChatOptions,
-  AgentHostIdentity,
   AgentInput,
-  AgentInputHook,
   AgentInvocationContextStore,
   AgentInvocationContextValues,
   AgentHookObserverHooks,
   AgentInvoker,
   AgentInvokerOptions,
   AgentInvokerProfile,
-  AgentMessageChannelSettings,
-  AgentMessageConcurrency,
-  AgentMessageLockScope,
   AgentOutputDefinition,
   AgentModelResolver,
   AgentRegistry,
   AgentRegistryModule,
   AgentRunContext,
-  AgentRunHandler,
   AgentRunInput,
-  AgentRunInputContextValues,
   AgentRunMetadata,
   AgentRunResult,
-  AgentRuntimeBinding,
   AgentRuntimeConfig,
   AgentRuntimeContext,
   AgentSettings,
-  AgentUsageCost,
   AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
-  AgentToolDefinition,
   MaybePromise,
-  PublishedAgentDeliveryArtifact,
   ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
 } from "./types.ts"
@@ -176,7 +144,6 @@ import type { AgentTraceContext } from "./trace.ts"
 import type { ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
 import type {
   WorkspaceAgentDefinition,
-  WorkspaceAgentDefaults,
   WorkspaceAgentOptions,
 } from "./workspace-agent.ts"
 import type {
@@ -435,7 +402,6 @@ const baseAgentModel = Symbol.for("vitehub.baseAgentModel")
 const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
 const baseAgentBoxRequirements = Symbol.for("vitehub.baseAgentBoxRequirements")
 const baseAgentCapabilitiesResolver = Symbol.for("vitehub.baseAgentCapabilitiesResolver")
-type NormalizedCapability = AgentCapabilityDefinition & { mode?: AgentCapabilityMode }
 type WorkspaceSourceNames<TWorkspace> =
   TWorkspace extends { sources: infer TSources }
     ? Extract<keyof NonNullable<TSources>, string>
@@ -799,7 +765,7 @@ function channelDeliveryEffectHandlers<TRuntimeConfig extends AgentRuntimeConfig
   return typeof handlers === "function" ? [handlers] : [...handlers]
 }
 
-function activeAgentChannel<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+function activeAgentChannel<TRuntimeConfig extends AgentRuntimeConfig>(
   channels: AgentChannels<TRuntimeConfig> | undefined,
   context: AgentInvocationContextStore,
   run?: AgentRunMetadata,

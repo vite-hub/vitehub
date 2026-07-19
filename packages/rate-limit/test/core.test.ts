@@ -32,6 +32,7 @@ describe("Rate Limit core", () => {
     const handle = defineRateLimit("uploads", { limit: 10, window: "1m" })
     expect(handle).toEqual({
       consume: expect.any(Function),
+      enforce: expect.any(Function),
       id: "uploads",
       kind: "rate-limit-handle",
       policy: {
@@ -185,12 +186,23 @@ describe("Rate Limit core", () => {
   })
 
   it("applies explicit failure policy", async () => {
-    const consume = vi.fn(() => { throw new Error("offline") })
+    const cause = new Error("offline")
+    const consume = vi.fn(() => ({ cause, unavailable: true } as const))
     const driver = { capabilities: strictCapabilities, consume, name: "offline" }
     const allow = createRateLimiter({ driver, failure: "allow", limit: 1, window: "1m" })
     const deny = createRateLimiter({ driver, failure: "deny", limit: 1, window: "1m" })
 
-    await expect(allow.consume({ key: "user" })).resolves.toMatchObject({ allowed: true, reason: "unavailable" })
-    await expect(deny.consume({ key: "user" })).rejects.toThrow("offline")
+    await expect(allow.consume({ key: "user" })).resolves.toMatchObject({ allowed: true, cause, reason: "unavailable" })
+    await expect(deny.consume({ key: "user" })).resolves.toMatchObject({ allowed: false, cause, reason: "unavailable" })
+  })
+
+  it("does not classify arbitrary driver defects as unavailability", async () => {
+    const defect = new Error("driver defect")
+    const driver = { capabilities: strictCapabilities, consume: () => { throw defect }, name: "defect" }
+    const allow = createRateLimiter({ driver, failure: "allow", limit: 1, window: "1m" })
+    const deny = createRateLimiter({ driver, failure: "deny", limit: 1, window: "1m" })
+
+    await expect(allow.consume({ key: "user" })).rejects.toBe(defect)
+    await expect(deny.consume({ key: "user" })).rejects.toBe(defect)
   })
 })

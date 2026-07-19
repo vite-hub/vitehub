@@ -1,4 +1,4 @@
-import type { MCPClientConfig, MCPTransport } from "@ai-sdk/mcp"
+import type { MCPClientConfig } from "@ai-sdk/mcp"
 import type { McpClientConfig } from "./mcp/types.ts"
 
 export type RemoteMcpServerTransport = "http" | "sse"
