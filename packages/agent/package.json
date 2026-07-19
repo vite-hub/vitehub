@@ -147,8 +147,8 @@
     "@vitejs/devtools-kit": "catalog:vite",
     "chat": "catalog:chat",
     "comark": "catalog:ui",
-    "effect": "catalog:effect",
-    "esbuild": "catalog:esbuild-v27"
+    "esbuild": "catalog:esbuild-v27",
+    "effect": "catalog:effect"
   },
   "devDependencies": {
     "@ai-sdk/harness": "catalog:ai",
