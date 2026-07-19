@@ -73,7 +73,15 @@ describe("package manifest contracts", () => {
       expect(manifest.name).toBe(packageInfo(packageName).packageName)
       expect(manifest.description, `${packageName} should describe its package`).toEqual(expect.any(String))
       expect(manifest.license).toBe("Apache-2.0")
-      expect(manifest.sideEffects).toEqual(packageName === "vite-hub" ? ["./dist/bin.js"] : false)
+      expect(manifest.sideEffects).toEqual(packageName === "vite-hub"
+        ? [
+            "./dist/bin.js",
+            "./dist/_internal/agent/server/workflow-disabled.js",
+            "./dist/_internal/agent/workflow-disabled.js",
+            "./dist/_internal/blob/disabled.js",
+            "./dist/_internal/workflow/disabled.js",
+          ]
+        : false)
       expect(manifest.type).toBe("module")
       expect(manifest.types).toBe("./dist/index.d.ts")
       expect(manifest.files).toEqual(expect.arrayContaining(["dist", "package.json"]))
