@@ -232,7 +232,11 @@ export async function prepareSandboxRuntime(options: {
   writeArtifacts?: boolean
 }) {
   const rootDir = options.resolvedConfig?.root || resolve(process.cwd(), typeof options.userConfig.root === 'string' ? options.userConfig.root : '.')
-  const definitions = discoverSandboxDefinitions({ rootDir })
+  const configOptions = options.userConfig.sandbox as SandboxPublicOptions | undefined
+  const disabled = typeof configOptions === 'undefined'
+    ? options.integrationOptions === false
+    : configOptions === false
+  const definitions = disabled ? [] : discoverSandboxDefinitions({ rootDir })
   const resolvedNitro = (options.resolvedConfig as { nitro?: unknown } | undefined)?.nitro
   const context = await resolveSandboxViteContext(options.integrationOptions, {
     ...options.userConfig,

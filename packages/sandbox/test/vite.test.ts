@@ -143,6 +143,21 @@ describe("hubSandbox", () => {
     expect(code).toContain('"provider": "vercel"')
   })
 
+  it("does not discover conflicting Definitions when Sandbox is disabled", async () => {
+    const rootDir = await createViteRoot()
+    await mkdir(join(rootDir, "server/sandboxes/tools"), { recursive: true })
+    await writeFile(join(rootDir, "server/sandboxes/tools/release-notes.ts"), [
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
+      `export default defineSandbox(async () => ({ ok: true }))`,
+      ``,
+    ].join("\n"))
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox(false)
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+
+    await expect(configHook({ root: rootDir }, { command: "build", mode: "production" })).resolves.toBeDefined()
+  })
+
   it("exposes hosting inference and normalized runtime config through sandbox state", async () => {
     const rootDir = await createViteRoot()
     const { hubSandbox } = await import("../src/vite.ts")
