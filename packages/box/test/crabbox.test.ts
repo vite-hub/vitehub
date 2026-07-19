@@ -565,7 +565,7 @@ describe("crabbox", () => {
       await expect(session.run({ command: `test -L ${cacheRoot}/dangling-cache.txt && cat ${cacheRoot}/missing-cache.txt` })).resolves.toMatchObject({ exitCode: 0, stdout: "created" })
       await session.run({ command: `mkdir ${cacheRoot}/directory.txt` })
       await expect(session.writeTextFile({ content: "not a directory", path: "directory.txt" })).rejects.toThrow("prepare directory.txt")
-      await expect(session.writeTextFile({ content: "not a directory", path: "missing-directory/" })).rejects.toThrow("prepare missing-directory/")
+      await expect(session.writeTextFile({ content: "not a directory", path: "missing-directory/" })).rejects.toThrow("write missing-directory/")
       await expect(readdir(join(cacheRoot, "directory.txt"))).resolves.toEqual([])
       await expect(session.run({
         command: "printf changed > changed.txt && printf 'newly-ignored.txt\\n' >> .gitignore && rm deleted.txt",
