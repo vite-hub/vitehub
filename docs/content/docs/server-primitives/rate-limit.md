@@ -1,11 +1,11 @@
 ---
 title: Rate Limit
-description: Consume request budgets through source-local handles and atomic drivers.
+description: Require request budgets through an event-first H3 guard and atomic drivers.
 navigation.order: 3.5
 icon: i-lucide-gauge
 ---
 
-Rate Limit owns atomic budget consumption before expensive server work starts. The active host integration supplies the request identity by default; an explicit user or tenant key can override it. The selected Rate Limit Driver decides whether one unit is allowed.
+Rate Limit owns atomic budget consumption before expensive server work starts. The H3 request event supplies the request identity and provider context; an explicit user or tenant key can override its client address. The selected Rate Limit Driver decides whether one unit is allowed.
 
 Rate Limit is separate from KV. A generic KV `get()` followed by `set()` races under concurrency, so ViteHub accepts only drivers that implement atomic `consume()` for their backend.
 
@@ -22,39 +22,37 @@ export default defineConfig({
 })
 ```
 
-Declare and consume the Rate Limit in ordinary server code. The declaration does not need a default export, dedicated directory, or file suffix.
+Require the Rate Limit directly in ordinary server code. The guard does not need a dedicated directory, file suffix, or module-scope declaration.
 
 ```ts [server/api/image-upload.post.ts]
-import { defineRateLimit } from 'vite-hub/rate-limit'
+import { requireRateLimit } from 'vite-hub/rate-limit'
 
-const uploads = defineRateLimit('image-upload', {
-  failure: 'deny',
-  limit: 10,
-  window: '1m',
-})
-
-export default defineEventHandler(async () => {
-  await uploads.enforce()
+export default defineEventHandler(async (event) => {
+  await requireRateLimit(event, 'image-upload', {
+    limit: 10,
+    window: '1m',
+  })
   return { ok: true }
 })
 ```
 
-Inside an H3 request, `.enforce()` uses the client address installed by the integration and throws a standard H3 `HTTPError` when the request is limited. Pass an explicit key such as `.enforce(authenticatedUser.id)` when authenticated user, account, tenant, or API-client identity is the correct budget boundary.
+`requireRateLimit()` uses the event's client address and throws a standard H3 `HTTPError` when the request is limited. Pass `key: authenticatedUser.id` when a user, account, tenant, or API client is the correct budget boundary.
 
-## Define a managed Rate Limit
+## Require a managed Rate Limit
 
-`defineRateLimit(id, policy)` returns the runtime handle. The integration finds top-level declarations through the compiler AST and uses their stable IDs and policies for Provider Output.
+`requireRateLimit(event, id, options)` resolves when the request is allowed. The integration finds calls inside handlers through the compiler AST and uses their stable IDs and provider policies for Provider Output.
 
 ```ts
-const uploads = defineRateLimit('image-upload', {
+await requireRateLimit(event, 'image-upload', {
   enforcement: 'best-effort',
   failure: 'deny',
+  key: authenticatedUser.id,
   limit: 10,
   window: '1m',
 })
 ```
 
-The call must be assigned directly to a top-level `const`. The ID, `limit`, `window`, `enforcement`, and `failure` must use static literals because provider infrastructure is generated before runtime. Duplicate IDs fail with both source locations.
+The ID, `limit`, `window`, `enforcement`, and `failure` must use static literals because provider infrastructure is generated before runtime. `event` and `key` remain runtime inputs, so an authenticated identity can be dynamic. Repeated IDs with identical normalized policies share one budget; conflicting policies fail the build with both source locations.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -62,18 +60,19 @@ The call must be assigned directly to a top-level `const`. The ID, `limit`, `win
 | `window` | duration string | required | Fixed window such as `10s`, `1m`, `1h`, or `1d`. |
 | `enforcement` | `"best-effort" \| "strict"` | `"best-effort"` | Minimum enforcement guarantee the selected driver must provide. |
 | `failure` | `"deny" \| "allow"` | `"deny"` | Whether an unavailable driver returns a denied or allowed unavailable decision. |
+| `key` | `string` | request client address | Runtime identity for a user, tenant, account, or API client. |
 
 ## Public imports
 
 | Import | Use |
 | --- | --- |
-| `defineRateLimit` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Declare a managed handle and enforce it with `.enforce(key?)` or inspect it with `.consume(key?)`. |
+| `requireRateLimit` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Enforce a discovered managed Rate Limit inside an H3 handler. |
 | `createRateLimiter` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Build a direct limiter around a custom driver. |
 | `memoryRateLimitDriver` from `@vite-hub/rate-limit/drivers/memory` | Enforce fixed windows in one process. |
 | `cloudflareRateLimitDriver` from `@vite-hub/rate-limit/drivers/cloudflare` | Consume a Cloudflare Rate Limiting binding directly. |
 | `hubRateLimit` from `@vite-hub/rate-limit/vite` | Register source collection, runtime setup, and Provider Output without the framework preset. |
 
-`@vite-hub/rate-limit/runtime` is reserved for framework integration. Applications consume the handle returned by `defineRateLimit()`.
+`@vite-hub/rate-limit/runtime` is reserved for framework integration. Applications call `requireRateLimit()` or build a direct limiter.
 
 ## Understand the decision
 
@@ -93,11 +92,11 @@ interface RateLimitDecision {
 }
 ```
 
-Use `.consume()` when the application needs this decision for a custom response, explicit logging, or another transport. Provider unavailability follows the declared failure policy and carries its original `cause`; configuration and provider-contract defects still throw normal `TypeError` or `Error` instances. Rate Limit does not add a second coded error family: `.consume()` owns the portable `RateLimitDecision`, while `.enforce()` maps rejection to the host transport's H3 `HTTPError`. Add a `retry-after` header only when `retryAfter` is present, and do not calculate billing or authorization from optional best-effort metadata.
+Use `createRateLimiter()` when the application needs this decision for a custom response, explicit logging, or another transport. Provider unavailability follows the declared failure policy and carries its original `cause`; configuration and provider-contract defects still throw normal `TypeError` or `Error` instances. The managed guard maps rejection to H3 `HTTPError`: status `429` when limited and status `503` when fail-closed enforcement is unavailable. It adds `retry-after` only when the driver supplies `retryAfter`, so do not calculate billing or authorization from optional best-effort metadata.
 
 ## Inspect generated guarantees
 
-The integration writes `.vitehub/rate-limit/manifest.json` during configuration and Provider Output. Agents and tooling can inspect it; application code should keep using the handle.
+The integration writes `.vitehub/rate-limit/manifest.json` during configuration and Provider Output. Agents and tooling can inspect it; application code should keep using the guard.
 
 The manifest records `rejectedAttempts` and the other provider guarantees so tooling does not have to infer them from the driver name.
 
@@ -165,7 +164,7 @@ Inspect generated `wrangler.json` entries and exercise the deployed Worker. A re
 
 - Memory enforcement is local and single-process. It is not a production default for horizontally scaled or request-scoped hosts.
 - A production build with unknown hosting must select a provider explicitly or use a direct Rate Limiter.
-- Request identity defaults to the active host integration; explicit user or tenant identities remain application policy.
+- Request identity defaults to the H3 event's client address; explicit user or tenant identities remain application policy.
 - Managed policies must be static so ViteHub can provision provider infrastructure.
 - The package exposes atomic consumption, not a non-consuming check that providers cannot implement consistently.
 

@@ -1,6 +1,6 @@
 {
   "label": "Rate Limit",
-  "description": "A source-local Rate Limit handle with native Cloudflare enforcement.",
+  "description": "An event-first Rate Limit guard with native Cloudflare enforcement.",
   "frameworks": {
     "vite": {
       "modes": {

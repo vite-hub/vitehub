@@ -4,7 +4,7 @@ import { vitehub } from "vite-hub"
 import { defineAgent } from "vite-hub/agent"
 import { email } from "vite-hub/agent/capabilities"
 import { env } from "vite-hub/env"
-import { defineRateLimit } from "vite-hub/rate-limit"
+import { requireRateLimit } from "vite-hub/rate-limit"
 import { defineWorkflow } from "vite-hub/workflow"
 import { defineWorkspace } from "vite-hub/workspace"
 
@@ -14,6 +14,6 @@ vitehub({ rateLimit: { provider: "cloudflare" } })
 expectTypeOf(defineAgent).toBeFunction()
 expectTypeOf(email).toBeFunction()
 expectTypeOf(env).toBeFunction()
-expectTypeOf(defineRateLimit).toBeFunction()
+expectTypeOf(requireRateLimit).toBeFunction()
 expectTypeOf(defineWorkspace).toBeFunction()
 expectTypeOf(defineWorkflow).toBeFunction()

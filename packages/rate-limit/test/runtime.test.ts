@@ -1,80 +1,105 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { mockEvent } from "h3"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineRateLimit } from "../src/index.ts"
+import { requireRateLimit } from "../src/index.ts"
 import { getCloudflareRateLimitBindingName } from "../src/drivers/cloudflare.ts"
-import { runWithRateLimitRuntimeEvent, setRateLimitRuntimeConfig } from "../src/runtime.ts"
+import { setRateLimitRuntimeConfig } from "../src/runtime.ts"
+
+import type { H3Event } from "h3"
 
 afterEach(() => {
   setRateLimitRuntimeConfig({ provider: "memory" })
 })
 
-describe("defined Rate Limits", () => {
-  it("returns a reusable runtime handle", async () => {
-    const uploads = defineRateLimit("uploads", { limit: 1, window: "1m" })
+function requestEvent(clientAddress?: string, headers?: Headers | Record<string, string>): H3Event {
+  const event = mockEvent("https://example.com/upload", { headers })
+  if (clientAddress) Object.assign(event.req, { ip: clientAddress })
+  return event
+}
 
-    await expect(uploads.consume("user")).resolves.toMatchObject({ allowed: true })
-    await expect(uploads.consume("user")).resolves.toMatchObject({ allowed: false })
+function cloudflareEvent(name: string, binding: unknown, headers?: Headers | Record<string, string>): H3Event {
+  return Object.assign(requestEvent("192.0.2.1", headers), {
+    env: { [getCloudflareRateLimitBindingName(name)]: binding },
+  })
+}
+
+describe("managed Rate Limit guard", () => {
+  it("validates the managed guard contract", async () => {
+    const event = requestEvent("192.0.2.10")
+
+    await expect(requireRateLimit(event, "", { limit: 1, window: "1m" })).rejects.toThrow("non-empty stable ID")
+    await expect(requireRateLimit(event, "uploads", { limit: 0, window: "1m" })).rejects.toThrow("positive integer")
+    await expect(requireRateLimit(event, "uploads", { limit: 1, window: "soon" as never })).rejects.toThrow("must use a duration")
+    await expect(requireRateLimit(event, "uploads", { limit: 1, window: "1m", extra: true } as never)).rejects.toThrow("does not support")
+    await expect(requireRateLimit(event, "uploads", { key: "", limit: 1, window: "1m" })).rejects.toThrow("non-empty string")
   })
 
-  it("uses the integration request key when one is available", async () => {
-    const uploads = defineRateLimit("request-uploads", { limit: 1, window: "1m" })
+  it("allows requests and then throws an H3 429 response", async () => {
+    const event = requestEvent("192.0.2.1")
 
-    await runWithRateLimitRuntimeEvent({}, async () => {
-      await expect(uploads.consume()).resolves.toMatchObject({ allowed: true })
-      await expect(uploads.consume()).resolves.toMatchObject({ allowed: false })
-    }, "request")
-  })
-
-  it("keeps explicit identity authoritative", async () => {
-    const uploads = defineRateLimit("identity-uploads", { limit: 1, window: "1m" })
-
-    await runWithRateLimitRuntimeEvent({}, async () => {
-      await expect(uploads.consume("user")).resolves.toMatchObject({ allowed: true })
-      await expect(uploads.consume()).resolves.toMatchObject({ allowed: true })
-    }, "request")
-  })
-
-  it("requires an explicit key outside a request", async () => {
-    const uploads = defineRateLimit("background-uploads", { limit: 1, window: "1m" })
-
-    await expect(uploads.consume()).rejects.toThrow("could not determine a request key")
-  })
-
-  it("enforces limited decisions with an H3 429 response", async () => {
-    const uploads = defineRateLimit("enforced-uploads", { limit: 1, window: "1m" })
-
-    await uploads.enforce("user")
-    await expect(uploads.enforce("user")).rejects.toMatchObject({
+    await expect(requireRateLimit(event, "uploads", { limit: 2, window: "1m" })).resolves.toBeUndefined()
+    await expect(requireRateLimit(event, "uploads", { limit: 2, window: "1m" })).resolves.toBeUndefined()
+    await expect(requireRateLimit(event, "uploads", { limit: 2, window: "1m" })).rejects.toMatchObject({
       status: 429,
       statusText: "Too Many Requests",
     })
 
     try {
-      await uploads.enforce("user")
+      await requireRateLimit(event, "uploads", { limit: 2, window: "1m" })
     }
     catch (error) {
       expect(Number((error as { headers?: Headers }).headers?.get("Retry-After"))).toBeGreaterThan(0)
     }
   })
 
-  it("enforces denied provider unavailability with H3 503 and its cause", async () => {
+  it("keeps an explicit key authoritative over request identity", async () => {
+    const event = requestEvent("192.0.2.2")
+
+    await requireRateLimit(event, "identity-uploads", { key: "user", limit: 1, window: "1m" })
+    await expect(requireRateLimit(event, "identity-uploads", { limit: 1, window: "1m" })).resolves.toBeUndefined()
+    await expect(requireRateLimit(event, "identity-uploads", { key: "user", limit: 1, window: "1m" })).rejects.toMatchObject({ status: 429 })
+  })
+
+  it("requires a key when the request has no client address", async () => {
+    await expect(requireRateLimit(requestEvent(), "background-uploads", { limit: 1, window: "1m" }))
+      .rejects.toThrow("could not determine a request key")
+  })
+
+  it("isolates budgets by stable ID", async () => {
+    const event = requestEvent("192.0.2.3")
+
+    await requireRateLimit(event, "uploads", { limit: 1, window: "1m" })
+    await expect(requireRateLimit(event, "uploads", { limit: 1, window: "1m" })).rejects.toMatchObject({ status: 429 })
+    await expect(requireRateLimit(event, "searches", { limit: 1, window: "1m" })).resolves.toBeUndefined()
+  })
+
+  it("refreshes the memory limiter when a policy changes during development", async () => {
+    const event = requestEvent("192.0.2.4")
+
+    await requireRateLimit(event, "uploads", { limit: 1, window: "1m" })
+    await expect(requireRateLimit(event, "uploads", { limit: 1, window: "1m" })).rejects.toMatchObject({ status: 429 })
+    await expect(requireRateLimit(event, "uploads", { limit: 2, window: "1m" })).resolves.toBeUndefined()
+  })
+
+  it("passes the request event binding and Cloudflare identity directly", async () => {
+    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    const limit = vi.fn(async () => ({ success: true }))
+    const event = cloudflareEvent("cloudflare-uploads", { limit }, { "cf-connecting-ip": "198.51.100.9" })
+
+    await requireRateLimit(event, "cloudflare-uploads", { limit: 1, window: "1m" })
+
+    expect(limit).toHaveBeenCalledWith({ key: "198.51.100.9" })
+  })
+
+  it("throws 503 with the provider cause when fail-closed enforcement is unavailable", async () => {
     setRateLimitRuntimeConfig({ provider: "cloudflare" })
     const cause = new Error("provider unavailable")
-    const uploads = defineRateLimit("unavailable-uploads", { failure: "deny", limit: 1, window: "1m" })
-    const event = {
-      context: {
-        cloudflare: {
-          env: {
-            [getCloudflareRateLimitBindingName("unavailable-uploads")]: {
-              limit: async () => { throw cause },
-            },
-          },
-        },
-      },
-    }
+    const event = cloudflareEvent("unavailable-uploads", {
+      limit: async () => { throw cause },
+    })
 
     try {
-      await runWithRateLimitRuntimeEvent(event, () => uploads.enforce(), "user")
+      await requireRateLimit(event, "unavailable-uploads", { failure: "deny", key: "user", limit: 1, window: "1m" })
       expect.unreachable("Expected rate limiting to be unavailable")
     }
     catch (error) {
@@ -86,23 +111,14 @@ describe("defined Rate Limits", () => {
     }
   })
 
-  it("does not invent retry metadata for providers that omit it", async () => {
+  it("does not invent retry metadata for Cloudflare", async () => {
     setRateLimitRuntimeConfig({ provider: "cloudflare" })
-    const uploads = defineRateLimit("metadata-free-uploads", { limit: 1, window: "1m" })
-    const event = {
-      context: {
-        cloudflare: {
-          env: {
-            [getCloudflareRateLimitBindingName("metadata-free-uploads")]: {
-              limit: async () => ({ success: false }),
-            },
-          },
-        },
-      },
-    }
+    const event = cloudflareEvent("metadata-free-uploads", {
+      limit: async () => ({ success: false }),
+    })
 
     try {
-      await runWithRateLimitRuntimeEvent(event, () => uploads.enforce(), "user")
+      await requireRateLimit(event, "metadata-free-uploads", { key: "user", limit: 1, window: "1m" })
       expect.unreachable("Expected the request to be limited")
     }
     catch (error) {
@@ -113,48 +129,25 @@ describe("defined Rate Limits", () => {
 
   it("allows provider unavailability when the policy fails open", async () => {
     setRateLimitRuntimeConfig({ provider: "cloudflare" })
-    const uploads = defineRateLimit("fail-open-uploads", { failure: "allow", limit: 1, window: "1m" })
-    const event = {
-      context: {
-        cloudflare: {
-          env: {
-            [getCloudflareRateLimitBindingName("fail-open-uploads")]: {
-              limit: async () => { throw new Error("provider unavailable") },
-            },
-          },
-        },
-      },
-    }
+    const event = cloudflareEvent("fail-open-uploads", {
+      limit: async () => { throw new Error("provider unavailable") },
+    })
 
-    await expect(runWithRateLimitRuntimeEvent(event, () => uploads.enforce(), "user")).resolves.toBeUndefined()
+    await expect(requireRateLimit(event, "fail-open-uploads", {
+      failure: "allow",
+      key: "user",
+      limit: 1,
+      window: "1m",
+    })).resolves.toBeUndefined()
   })
 
-  it("does not translate configuration defects into H3 responses", async () => {
+  it("does not translate a missing binding into an H3 response", async () => {
     setRateLimitRuntimeConfig({ provider: "cloudflare" })
-    const uploads = defineRateLimit("missing-binding-uploads", { failure: "deny", limit: 1, window: "1m" })
 
-    await expect(runWithRateLimitRuntimeEvent(
-      { context: { cloudflare: { env: {} } } },
-      () => uploads.enforce(),
-      "user",
-    )).rejects.toThrow("was not found")
-  })
-
-  it("isolates handles by stable ID", async () => {
-    const uploads = defineRateLimit("uploads", { limit: 1, window: "1m" })
-    const searches = defineRateLimit("searches", { limit: 1, window: "1m" })
-
-    await uploads.consume("user")
-    await expect(uploads.consume("user")).resolves.toMatchObject({ allowed: false })
-    await expect(searches.consume("user")).resolves.toMatchObject({ allowed: true })
-  })
-
-  it("refreshes the runtime limiter when a policy changes during development", async () => {
-    const first = defineRateLimit("uploads", { limit: 1, window: "1m" })
-    await first.consume("user")
-    await expect(first.consume("user")).resolves.toMatchObject({ allowed: false })
-
-    const updated = defineRateLimit("uploads", { limit: 2, window: "1m" })
-    await expect(updated.consume("user")).resolves.toMatchObject({ allowed: true, limit: 2 })
+    await expect(requireRateLimit(Object.assign(requestEvent("192.0.2.5"), { env: {} }), "missing-binding", {
+      key: "user",
+      limit: 1,
+      window: "1m",
+    })).rejects.toThrow("was not found on the request event")
   })
 })

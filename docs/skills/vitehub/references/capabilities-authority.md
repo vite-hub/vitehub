@@ -20,7 +20,7 @@ Use official factories before writing a custom Capability. Use `defineCapability
 
 Keep secrets server-side and unseal them only at the documented execution boundary. A Workspace Source does not grant an operation; a Capability should not silently mount unrelated data.
 
-For `rateLimit()`, pass a source-local `RateLimitHandle` or direct `RateLimiter` with `limiter`. Keep Agent Invoker, Run, or trusted-IP identity in the Capability; keep atomic consumption and provider guarantees in `@vite-hub/rate-limit`. Do not recreate the removed inline `limit`, `window`, `store`, or generic KV model.
+For `rateLimit()`, pass a direct `RateLimiter` with `limiter`. Keep Agent Invoker, Run, or trusted-IP identity in the Capability; keep atomic consumption and provider guarantees in `@vite-hub/rate-limit`. Do not recreate the removed inline `limit`, `window`, `store`, or generic KV model.
 
 ## Proof
 

@@ -68,7 +68,7 @@ pnpm --filter @vite-hub/sandbox test
 
 | Symptom | Likely cause | Verify |
 | --- | --- | --- |
-| Duplicate Rate Limit ID | Multiple `defineRateLimit()` calls use the same stable ID. | Follow both reported source locations and rename one declaration. |
+| Conflicting Rate Limit policy | Multiple `requireRateLimit()` calls use the same stable ID with different static policies. | Follow both reported source locations and make the policies identical or rename one ID. |
 | Driver provides best-effort enforcement | A policy requires `strict`, but the selected provider cannot guarantee it. | Keep strict enforcement and choose another driver, or change the policy only when best-effort protection is acceptable. |
 | Driver does not support the window | The provider accepts fewer fixed-window periods than the portable policy type. | Use a supported period or select a driver that advertises the required window. |
 | Production hosting requires an explicit provider | The build target is unknown or has no native inferred Rate Limit provider. | Set `provider: 'cloudflare'` with a project-unique `namespace` for Cloudflare, set `provider: 'memory'` only for a deliberate single-process deployment, or construct a custom Rate Limiter. |

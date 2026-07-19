@@ -10,7 +10,7 @@ const unitMilliseconds = {
   s: 1_000,
 } as const
 
-export function parseRateLimitWindow(value: RateLimitWindow): number {
+function parseRateLimitWindow(value: RateLimitWindow): number {
   const match = /^(\d+(?:\.\d+)?)(ms|s|m|h|d)$/.exec(value)
   if (!match) {
     throw new TypeError("[vitehub] Rate Limit window must use a duration such as \"10s\", \"1m\", \"1h\", or \"1d\".")

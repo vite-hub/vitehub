@@ -46,7 +46,7 @@ Import application APIs from explicit feature subpaths.
 ```ts [server/agents/support.ts]
 import { defineAgent } from "vite-hub/agent"
 import { access } from "vite-hub/agent/capabilities"
-import { defineRateLimit } from "vite-hub/rate-limit"
+import { requireRateLimit } from "vite-hub/rate-limit"
 import { defineWorkspace } from "vite-hub/workspace"
 ```
 
