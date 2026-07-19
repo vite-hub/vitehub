@@ -72,7 +72,6 @@ catalogs:
     vite-plus: ^0.1.24
     vitest: ^4.1.4
     vue-tsc: ^3.3.7
-    wrangler: ^4.112.0
   ui:
     "@comark/vue": ^0.5.1
     comark: 0.5.1

@@ -43,7 +43,7 @@ jobs:
       - name: Verify Worker bundle
         if: github.event_name == 'pull_request'
         working-directory: docs
-        run: vp exec wrangler deploy --dry-run --config wrangler.jsonc
+        run: vp dlx "wrangler@4.112.0" deploy --dry-run --config .output/server/wrangler.json
 
       - name: Deploy Worker
         if: github.event_name != 'pull_request'
@@ -52,4 +52,5 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: docs
-          command: deploy --config wrangler.jsonc
+          wranglerVersion: "4.112.0"
+          command: deploy --config .output/server/wrangler.json

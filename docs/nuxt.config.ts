@@ -131,7 +131,27 @@ export default defineNuxtConfig({
   nitro: {
     preset: "cloudflare_module",
     cloudflare: {
+      deployConfig: true,
       nodeCompat: true,
+      wrangler: {
+        name: "vitehub-docs",
+        compatibility_date: "2026-07-19",
+        d1_databases: [
+          {
+            binding: "DB",
+          },
+        ],
+        routes: [
+          {
+            pattern: "vitehub.dev",
+            custom_domain: true,
+          },
+        ],
+        observability: {
+          enabled: true,
+          head_sampling_rate: 0.1,
+        },
+      },
     },
     prerender: {
       failOnError: true,
