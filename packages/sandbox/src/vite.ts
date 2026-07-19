@@ -84,6 +84,9 @@ function invalidateGeneratedSandboxModules(files: string[], moduleGraph: { getMo
 
 export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   const internalOptions = options as SandboxPublicOptions & SandboxViteInternalOptions | undefined
+  const integrationOptions = options && typeof options === 'object'
+    ? Object.fromEntries(Object.entries(options).filter(([key]) => key !== 'providerImportAliases' && key !== 'providerImportSpecifier')) as SandboxPublicOptions
+    : options
   const mergeNoExternal = createNoExternalMerger('@vite-hub/sandbox')
   let generatedAliases: AliasMap = {}
   let generatedFiles: string[] = []
@@ -109,7 +112,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
 
   async function prepareCurrentSandboxRuntime(writeArtifacts = true) {
     const prepared = await prepareSandboxRuntime({
-      integrationOptions: options,
+      integrationOptions,
       userConfig: rawConfig,
       env: rawEnv,
       resolvedConfig,

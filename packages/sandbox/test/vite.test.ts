@@ -114,6 +114,8 @@ describe("hubSandbox", () => {
     expect(facade).toContain("setSandboxRuntimeConfig")
     expect(facade).toContain("setSandboxRuntimeRegistry(sandboxRegistry)")
     expect(facade).toContain("export * from")
+    expect(facade).not.toContain("providerImportAliases")
+    expect(facade).not.toContain("@vite-hub/kv/runtime/upstash-driver")
     expect(registry).toContain('"tools/release-notes"')
     expect(providerLoader).toContain("createVercelSandboxClient")
     expect(providerLoader).not.toContain("import('./providers/vercel.js')")
@@ -297,6 +299,19 @@ describe("hubSandbox", () => {
     expect(userConfig.nitro).toEqual({ preset: "cloudflare-module" })
     await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
       .rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("keeps unsupported hosting inert without Sandbox definitions", async () => {
+    const rootDir = await createViteRoot()
+    await rm(join(rootDir, "src/tools/release-notes.sandbox.ts"))
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox()
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+
+    await expect(configHook({
+      root: rootDir,
+      nitro: { preset: "netlify" },
+    }, { command: "build", mode: "production" })).resolves.toBeDefined()
   })
 
   it("infers Cloudflare from the Nitro preset environment", async () => {
