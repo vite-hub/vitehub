@@ -139,12 +139,12 @@ function readAliasEntries(alias: unknown): Alias[] {
 function resolveStringAliases(alias: unknown): AliasMap {
   const aliases: AliasMap = {}
   for (const entry of readAliasEntries(alias)) {
-    if (
-      typeof entry.find === 'string'
-      && !builtinModuleSet.has(entry.find.replace(/\/$/, ''))
-      && typeof entry.replacement === 'string'
-    )
-      aliases[entry.find] = entry.replacement
+    if (typeof entry.find !== 'string' || typeof entry.replacement !== 'string')
+      continue
+    const find = entry.find.replace(/\/$/, '')
+    if (!find || builtinModuleSet.has(find))
+      continue
+    aliases[find] = entry.replacement.replace(/\/$/, '')
   }
   return aliases
 }
