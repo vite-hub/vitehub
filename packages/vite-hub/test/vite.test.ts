@@ -297,6 +297,7 @@ describe("vitehub", () => {
     if (typeof resolveId !== "function") throw new TypeError("Expected the framework dependency resolver.")
     expect(await resolveId.call({} as never, "vite-hub/sandbox", "/app/server.ts", {} as never)).toBe(providerSandboxFacade)
     expect(await resolveId.call({} as never, frameworkSandboxFacade, "/app/server.ts", {} as never)).toBe(providerSandboxFacade)
+    expect(await resolveId.call({} as never, "@vite-hub/kv/runtime/upstash-driver", "/app/server.ts", {} as never)).toBeUndefined()
   })
 
   it.each(generatedOwnerPackageCases)("classifies generated import %s as %s", async (name, access) => {

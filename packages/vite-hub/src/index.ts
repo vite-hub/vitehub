@@ -140,8 +140,11 @@ function frameworkDependencyResolver(
       )
     },
     resolveId(id, importer) {
-      const providerImportAlias = providerImportAliases[id]
-        ?? Object.entries(providerImportAliases).find(([specifier]) => frameworkProviderImportAliases[specifier] === id)?.[1]
+      const providerFacadeAliases = Object.entries(providerImportAliases)
+        .filter(([specifier]) => frameworkProviderImportAliases[specifier])
+      const providerFacadeTargets = new Set(providerFacadeAliases.map(([, target]) => target))
+      const providerImportAlias = providerFacadeAliases.find(([specifier]) => frameworkProviderImportAliases[specifier] === id)?.[1]
+        ?? (providerFacadeTargets.has(providerImportAliases[id]) ? providerImportAliases[id] : undefined)
       if (providerImportAlias) return providerImportAlias
       if (!isGeneratedImporter(importer)) return
       const isFrameworkPackageImport = id === frameworkPackageName || id.startsWith(`${frameworkPackageName}/`)
