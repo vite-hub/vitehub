@@ -6,6 +6,7 @@ describe("normalizeQueueOptions", () => {
   it("defaults the provider from hosting", () => {
     expect(normalizeQueueOptions(undefined, { hosting: "cloudflare" })).toEqual({ provider: "cloudflare" })
     expect(normalizeQueueOptions(undefined, { hosting: "" })).toEqual({ provider: "vercel" })
+    expect(normalizeQueueOptions({ namePrefix: "preview-" }, { hosting: "cloudflare" })).toEqual({ namePrefix: "preview-", provider: "cloudflare" })
   })
 
   it("keeps explicit provider settings", () => {

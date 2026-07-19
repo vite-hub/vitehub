@@ -120,7 +120,7 @@ export type QueueModuleProviderOptions =
 
 export type QueueModuleOptions =
   | false
-  | (QueueSharedOptions & { provider?: undefined })
+  | (QueueSharedOptions & { namePrefix?: string; provider?: undefined })
   | QueueModuleProviderOptions
 
 export type ResolvedQueueOptions = QueueModuleProviderOptions

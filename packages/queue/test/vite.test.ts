@@ -76,7 +76,7 @@ describe("hubQueue", () => {
     roots.push(root)
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
 
-    const plugin = hubQueue({ namePrefix: "preview-" } as never)
+    const plugin = hubQueue({ namePrefix: "preview-" })
     const userConfig = { nitro: { preset: "cloudflare_module" }, root }
     ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(userConfig)
     expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.queues", {
@@ -98,7 +98,7 @@ describe("hubQueue", () => {
     roots.push(root)
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
 
-    const plugin = hubQueue({ namePrefix: "preview-" } as never)
+    const plugin = hubQueue({ namePrefix: "preview-" })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({
       build: { outDir: "dist" },
       command: "serve",
