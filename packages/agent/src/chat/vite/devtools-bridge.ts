@@ -28,6 +28,7 @@ import { discoverAgentDefinitions } from "../../discovery.ts"
 import { workspaceAgentOwnsWorkspaceDefinition, workspaceAgentWithSourceRoot } from "../../workspace-agent.ts"
 import { loadAiSdk } from "../../internal/ai-sdk-runtime.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../../internal/colocated-agent-skills.ts"
+import { toHttpErrorResponse } from "../../http-error.ts"
 import { readColocatedAgentSkills } from "../../vite/colocated-agent-skills.ts"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
@@ -926,9 +927,7 @@ async function writeResponse(res: ServerResponse, response: Response): Promise<v
 
 function errorResponse(error: unknown): Response {
   if (error instanceof Response) return error
-  return Response.json({ code: "INTERNAL", error: "Agent request failed." }, {
-    status: 500,
-  })
+  return toHttpErrorResponse(error, 500)!
 }
 
 export function registerChatDevtoolsBridge(server: ViteDevServer): void {

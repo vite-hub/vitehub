@@ -32,7 +32,9 @@ Use the error family to choose the next proof path before changing implementatio
 | Rate Limit policy or driver error | Rate Limit Package | A policy is invalid, the selected driver cannot satisfy its guarantees, a Definition is unknown, or a provider binding is unavailable. |
 | `RateLimitRejectedError` | Agent Package | Rate Limit Capability rejected an Agent Invocation. |
 | `LlmGateRejectedError` | Agent Package | LLM Gate Capability rejected before the main Agent Invocation. |
-| `Agent Invocation Stream timed out after <ms>.` | Agent Package | The dev-loop stream aborted a long or stalled Agent Invocation after its timeout. |
+| `Agent Invocation Stream failed.` | Agent Package | The public dev-loop stream failed; inspect protected server diagnostics for the internal cause. |
+
+Agent HTTP failures use `{ code, error, details?, requestId? }`. Invocation Stream `error` events keep their existing `type` and `error` fields and may add `code`, `details`, and `requestId`. ViteHub exposes only allowlisted capability identifiers and retry metadata at these public boundaries; unowned failures use `INTERNAL` and omit internal messages, causes, stacks, and headers.
 
 ## Diagnostics sources
 

@@ -16,6 +16,7 @@ import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocation,
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { workspaceAgentOwnsWorkspaceDefinition, workspaceAgentWithSourceRoot, workspaceModeFromOptions, workspaceNameFromOptions } from "../workspace-agent.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
+import { toHttpErrorResponse } from "../http-error.ts"
 import { readColocatedAgentSkills } from "./colocated-agent-skills.ts"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
@@ -814,9 +815,7 @@ function isAbortError(error: unknown): error is Error {
 
 function errorResponse(error: unknown): Response {
   if (error instanceof Response) return error
-  return Response.json({ code: "INTERNAL", error: "Agent request failed." }, {
-    status: 500,
-  })
+  return toHttpErrorResponse(error, 500)!
 }
 
 export async function registerAgentInvocationStreamEndpoint(server: ViteDevServer): Promise<void> {
