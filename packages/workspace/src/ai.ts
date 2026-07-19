@@ -240,6 +240,7 @@ function createWorkspaceSessionShellProvider(starter: WorkspaceSessionStarter): 
     },
     async exec(command: string, execOptions: ShellRuntimeExecOptions = {}) {
       const session = await starter.startSession({ paths: execOptions.workspacePaths })
+      let observation: ShellObservation
       try {
         const result = await session.exec("sh", ["-lc", command], {
           cwd: execOptions.cwd || workspaceMountPoint,
@@ -249,7 +250,7 @@ function createWorkspaceSessionShellProvider(starter: WorkspaceSessionStarter): 
         execOptions.onStdout?.(result.stdout)
         execOptions.onStderr?.(result.stderr)
         const timedOut = result.exitCode === 124 && /timed out/i.test(result.stderr)
-        return {
+        observation = {
           command,
           cwd: execOptions.cwd,
           event: timedOut ? "command_timed_out" : "command_finished",
@@ -259,9 +260,17 @@ function createWorkspaceSessionShellProvider(starter: WorkspaceSessionStarter): 
           timedOut,
         } satisfies ShellObservation
       }
-      finally {
-        await session.close()
+      catch (error) {
+        try {
+          await session.close()
+        }
+        catch (closeError) {
+          throw new AggregateError([error, closeError], "[vitehub] Workspace shell execution failed and session cleanup also failed.")
+        }
+        throw error
       }
+      await session.close()
+      return observation
     },
   }
 }

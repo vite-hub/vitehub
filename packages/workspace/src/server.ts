@@ -315,8 +315,9 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
     label: "Starting workspace session",
   }, async () => await startSession(input.paths ? { paths: input.paths } : undefined))
   const execOptions = { abortSignal: input.abortSignal, timeout: input.timeout }
+  let result
   try {
-    const result = input.args
+    result = input.args
       ? await session.exec(command, input.args, execOptions)
       : await session.exec("sh", ["-lc", command], execOptions)
     const diff = result.exitCode === 0 ? await session.diff() : undefined
@@ -324,9 +325,16 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
       const commit = definition ? resolveWorkspaceAutoCommit(definition, diff) : undefined
       if (!definition || !hasWorkspaceCommitRules(definition) || commit) await session.commit({ message: commit?.message || "workspace dev command" })
     }
-    return result
   }
-  finally {
-    await session.close()
+  catch (error) {
+    try {
+      await session.close()
+    }
+    catch (closeError) {
+      throw new AggregateError([error, closeError], "[vitehub] Workspace Dev command failed and session cleanup also failed.")
+    }
+    throw error
   }
+  await session.close()
+  return result
 }

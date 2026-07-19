@@ -1352,12 +1352,18 @@ importers:
       '@vite-hub/markdown-template':
         specifier: workspace:*
         version: link:../markdown-template
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       '@vite-hub/source':
         specifier: workspace:*
         version: link:../source
       defu:
         specifier: catalog:unjs
         version: 6.1.7
+      effect:
+        specifier: catalog:effect
+        version: 4.0.0-beta.99
       exsolve:
         specifier: catalog:unjs
         version: 1.1.0
