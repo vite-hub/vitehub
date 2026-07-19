@@ -76,7 +76,8 @@ The Vite config key is `database`.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `database: false` | `false` | enabled | Disables database discovery and generated runtime surfaces. |
+| Omitted or `database: false` | `false` | disabled | Disables Database in the `vitehub()` preset. |
+| `database: true` | `true` | disabled | Enables Database with inferred defaults in the `vitehub()` preset. |
 | `database.cli.generate` | `false` | enabled | Disables package-owned schema generation CLI contribution. |
 | `database.cli.migrate` | `false` | enabled | Disables package-owned migration CLI contribution. |
 | `database.connection` | `DatabaseConnectionConfig` | local SQLite | Supplies a hosted libSQL connection for Database Definitions that do not declare one. Definition connection values override matching integration values. |

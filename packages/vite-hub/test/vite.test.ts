@@ -6,6 +6,7 @@ const integrationMocks = vi.hoisted(() => ({
   hubAgent: vi.fn(() => ({ name: "@vite-hub/agent/vite" })),
   hubAuth: vi.fn(() => ({ name: "@vite-hub/auth/vite" })),
   hubBlob: vi.fn(() => ({ name: "@vite-hub/blob/vite" })),
+  hubDb: vi.fn(() => ({ name: "@vite-hub/database/vite" })),
   hubEmail: vi.fn(() => ({ name: "@vite-hub/email/vite" })),
   hubEnv: vi.fn(() => ({ name: "@vite-hub/env/vite" })),
   hubKv: vi.fn(() => ({ name: "@vite-hub/kv/vite" })),
@@ -25,7 +26,7 @@ const integrationMocks = vi.hoisted(() => ({
 vi.mock("@vite-hub/agent/vite", () => ({ hubAgent: integrationMocks.hubAgent }))
 vi.mock("@vite-hub/auth/vite", () => ({ hubAuth: integrationMocks.hubAuth }))
 vi.mock("@vite-hub/blob/vite", () => ({ hubBlob: integrationMocks.hubBlob }))
-vi.mock("@vite-hub/database/vite", () => ({ hubDb: () => ({ name: "@vite-hub/database/vite" }) }))
+vi.mock("@vite-hub/database/vite", () => ({ hubDb: integrationMocks.hubDb }))
 vi.mock("@vite-hub/devtools", () => ({ hubDevtools: () => ({ name: "@vite-hub/devtools" }) }))
 vi.mock("@vite-hub/email/vite", () => ({ hubEmail: integrationMocks.hubEmail }))
 vi.mock("@vite-hub/env/vite", () => ({ hubEnv: integrationMocks.hubEnv }))
@@ -75,15 +76,12 @@ describe("vitehub", () => {
       "@vite-hub/markdown-template/vite",
       "@vite-hub/env/vite",
       "@vite-hub/agent/vite",
-      "@vite-hub/database/vite",
-      "@vite-hub/blob/vite",
       "@vite-hub/kv/optional-peers",
-      "@vite-hub/workflow/vite",
       "@vite-hub/workspace/vite",
       "@vite-hub/devtools",
     ])
 
-    expect(pluginNames(vitehub({ auth: true, email: true, kv: true, rateLimit: true, sandbox: true, schedule: true }))).toEqual([
+    expect(pluginNames(vitehub({ auth: true, blob: true, database: true, email: true, kv: true, rateLimit: true, sandbox: true, schedule: true, workflow: true }))).toEqual([
       "vite-hub/dependencies",
       "@vite-hub/markdown-template/vite",
       "@vite-hub/env/vite",
@@ -101,7 +99,7 @@ describe("vitehub", () => {
       "@vite-hub/devtools",
     ])
 
-    vitehub({ schedule: true })
+    vitehub({ blob: true, database: true, schedule: true, workflow: true })
 
     expect(integrationMocks.hubMarkdownTemplate).toHaveBeenLastCalledWith({
       runtimeImport: "vite-hub/_internal/markdown-template",
@@ -112,6 +110,9 @@ describe("vitehub", () => {
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith({
       cloudflareStateImport: "vite-hub/_internal/agent/cloudflare/state",
       importBase: "vite-hub/_internal/agent",
+      integrations: {
+        workflow: true,
+      },
       providerImportAliases: {
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
       },
@@ -137,6 +138,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/blob",
     })
+    expect(integrationMocks.hubDb).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith({
@@ -171,6 +173,18 @@ describe("vitehub", () => {
     expect(integrationMocks.hubWorkspace).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/workspace",
     })
+
+    vitehub({
+      blob: { serve: false },
+      database: { cli: { generate: false } },
+      workflow: { provider: "vercel" },
+    })
+    expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith({
+      importBase: "vite-hub/_internal/blob",
+      serve: false,
+    })
+    expect(integrationMocks.hubDb).toHaveBeenLastCalledWith({ cli: { generate: false } })
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "vercel" }))
 
     integrationMocks.hubQueue.mockClear()
     expect(pluginNames(vitehub({ queue: true }))).toContain("@vite-hub/queue/vite")
@@ -217,6 +231,7 @@ describe("vitehub", () => {
   })
 
   it("keeps Sandbox loaders out of the default provider graph", () => {
+    integrationMocks.hubWorkflow.mockClear()
     vitehub()
 
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -224,11 +239,11 @@ describe("vitehub", () => {
         shellWorkspace: "vite-hub/shell/workspace",
       },
     }))
-    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
-      workspaceDependencyRuntimeImports: {
-        shellWorkspace: "vite-hub/shell/workspace",
-      },
+    expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
+      integrations: { workflow: false },
+      workflowImportBase: false,
     }))
+    expect(integrationMocks.hubWorkflow).not.toHaveBeenCalled()
   })
 
   it("resolves only package-owned imports from generated modules", async () => {
@@ -310,7 +325,7 @@ describe("vitehub", () => {
       "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
     })
 
-    const upstashPlugins = vitehub({ kv: true })
+    const upstashPlugins = vitehub({ kv: true, workflow: true })
     const upstashCall = integrationMocks.hubAgent.mock.calls.at(-1) as unknown as [{ providerImportAliases: Record<string, string> }]
     const upstashAliases = upstashCall[0].providerImportAliases
     const dependency = upstashPlugins.find(candidate => (candidate as Plugin).name === "vite-hub/dependencies") as Plugin

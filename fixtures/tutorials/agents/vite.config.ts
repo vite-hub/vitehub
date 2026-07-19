@@ -15,11 +15,8 @@ export default defineConfig({
     ssr: true,
   },
   plugins: [vitehub({
-    blob: false,
-    database: false,
     devtools: false,
     env: false,
-    workflow: false,
     workspace: false,
   })],
   ssr: {

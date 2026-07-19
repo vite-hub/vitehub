@@ -97,7 +97,7 @@ interface InternalAgentModuleOptions extends AgentModuleOptions {
   providerImportAliases?: Record<string, string>
   runtimeCapabilityImports?: Record<string, string>
   scheduleRuntimeImport?: string
-  workflowImportBase?: string
+  workflowImportBase?: false | string
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
 }
@@ -109,7 +109,7 @@ interface AgentGeneratedImportOptions {
   schedule?: boolean
   scheduleRegistryImport?: string
   scheduleRuntimeImport?: string
-  workflowImportBase?: string
+  workflowImportBase?: false | string
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
 }
@@ -227,8 +227,9 @@ function getCloudflareStateImport(options: AgentModuleOptions | false | undefine
   return getInternalAgentOptions(options)?.cloudflareStateImport ?? fallback?.cloudflareStateImport ?? "@vite-hub/agent/cloudflare/state"
 }
 
-function getWorkflowImportBase(options: AgentModuleOptions | false | undefined, fallback?: InternalAgentModuleOptions): string | undefined {
-  return getInternalAgentOptions(options)?.workflowImportBase ?? fallback?.workflowImportBase
+function getWorkflowImportBase(options: AgentModuleOptions | false | undefined, fallback?: InternalAgentModuleOptions): false | string | undefined {
+  const configured = getInternalAgentOptions(options)?.workflowImportBase
+  return configured === false ? false : configured ?? fallback?.workflowImportBase
 }
 
 function getWorkspaceDependencyRuntimeImports(
@@ -375,6 +376,18 @@ function subpath(base: string, path: string): string {
 }
 
 function generatedAgentWorkflowRuntime(options: AgentGeneratedImportOptions, agentImportBase: string) {
+  if (options.workflowImportBase === false) {
+    return {
+      imports: [`import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`],
+      setup: [
+        "vitehubSetAgentWorkflowRuntimeLoaders({",
+        "  state: async () => ({ getWorkflowRuntimeConfig: () => undefined }),",
+        "  workflow: async () => { throw new Error('[vitehub] Workflow is disabled. Enable it with vitehub({ workflow: true }).') },",
+        "})",
+        "",
+      ],
+    }
+  }
   if (!options.workflowImportBase) return { imports: [] as string[], setup: [] as string[] }
   return {
     imports: [`import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`],

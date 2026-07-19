@@ -304,6 +304,25 @@ describe("agent Vite plugin", () => {
       expect(filteredRegistry).toContain('workflow: () => import("vite-hub/_internal/workflow")')
       expect(filteredRegistry).toContain('import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from "vite-hub/_internal/workspace/runtime"')
       expect(filteredRegistry).toContain('sandbox: () => import("@vite-hub/sandbox")')
+
+      const workflowDisabledPlugin = hubAgent({
+        importBase: "vite-hub/_internal/agent",
+        workflowImportBase: false,
+      } as never)
+      const workflowDisabledConfigResolved = workflowDisabledPlugin.configResolved as unknown as typeof configResolved
+      const workflowDisabledTransform = workflowDisabledPlugin.transform as typeof transform
+      await workflowDisabledConfigResolved({
+        command: "serve",
+        createResolver: () => async () => undefined,
+        plugins: [],
+        root,
+      })
+      const workflowDisabledRegistry = await workflowDisabledTransform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")
+      expect(workflowDisabledRegistry).toContain("getWorkflowRuntimeConfig: () => undefined")
+      expect(workflowDisabledRegistry).toContain("Workflow is disabled. Enable it with vitehub({ workflow: true }).")
+      expect(workflowDisabledRegistry).not.toContain("as never")
+      expect(workflowDisabledRegistry).not.toContain("vite-hub/_internal/workflow")
+      expect(workflowDisabledRegistry).not.toContain("@vite-hub/workflow")
     }
     finally {
       await rm(root, { force: true, recursive: true })
