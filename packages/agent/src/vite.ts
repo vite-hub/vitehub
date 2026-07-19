@@ -32,6 +32,10 @@ interface AgentCliContributingPlugin {
   }
 }
 
+interface ResolvedConfigWithOptionalWorkflow extends ResolvedConfig {
+  workflow?: false | unknown
+}
+
 export type AgentVitePlugin = Plugin & AgentCliContributingPlugin & {
   devtools?: ReturnType<typeof chatDevTools>["devtools"]
 }
@@ -1597,7 +1601,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         frameworkOptions?.workflowIntegrationAutoEnable
         && agent !== false
         && getInternalAgentOptions(agent)?.integrations?.workflow !== false
-        && config.workflow !== false
+        && (config as ResolvedConfigWithOptionalWorkflow).workflow !== false
         && config.plugins.some(plugin => plugin.name === "@vite-hub/workflow/vite")
       ) {
         agent = {
