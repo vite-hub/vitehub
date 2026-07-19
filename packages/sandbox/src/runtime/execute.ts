@@ -58,7 +58,8 @@ async function executeLauncher(
   const cloudflareSandbox = sandbox.provider === 'cloudflare'
     ? sandbox as CloudflareSandboxClient
     : undefined
-  if (cloudflareSandbox && typeof cloudflareSandbox.native.createSession === 'function') {
+  const nativeCloudflareSession = cloudflareSandbox?.native as { createSession?: unknown } | undefined
+  if (cloudflareSandbox && typeof nativeCloudflareSession?.createSession === 'function') {
     const session = await cloudflareSandbox.cloudflare.createSession({
       env: options.env,
       timeout: options.timeout,
