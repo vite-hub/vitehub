@@ -364,7 +364,14 @@ async function createSignInResponse(
     method: "POST",
   })
   const auth = createAuthenticationProvider(resolveBetterAuthOptionsForRequest(definition, signInRequest, undefined, event))
-  const response = await auth.handler(signInRequest)
+  let handler: ViteHubAuth["handler"]
+  try {
+    handler = auth.handler
+  }
+  catch (cause) {
+    throwAuthenticationProviderError(cause, "get-auth-for-request")
+  }
+  const response = await handler(signInRequest)
 
   if (!response.ok) return response
 

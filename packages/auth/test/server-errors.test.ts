@@ -101,6 +101,33 @@ describe("server authentication provider boundaries", () => {
     })
   })
 
+  it("normalizes a generated sign-in handler getter failure", async () => {
+    const cause = new TypeError("sign-in handler getter failed")
+    const signInDefinition = defineAuth({
+      access: { signIn: { provider: "github" } },
+      appName: "ViteHub",
+    })
+    providerMocks.getSession.mockResolvedValueOnce(null)
+    providerMocks.betterAuth.mockImplementationOnce(() => ({
+      api: { getSession: providerMocks.getSession },
+      handler: providerMocks.handler,
+    })).mockImplementationOnce(() => Object.defineProperty({}, "handler", {
+      get() {
+        throw cause
+      },
+    }))
+
+    const error = await requireAuth(new Request("https://example.com/private", {
+      headers: { accept: "text/html" },
+    }), signInDefinition).catch(error => error)
+
+    expect(error).toBeInstanceOf(AuthenticationProviderError)
+    expect(error).toMatchObject({
+      cause,
+      details: { operation: "get-auth-for-request", provider: "better-auth" },
+    })
+  })
+
   it.each([
     ["auth.api", (cause: Error) => Object.defineProperty({}, "api", {
       get() {
