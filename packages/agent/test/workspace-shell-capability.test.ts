@@ -171,7 +171,13 @@ describe("workspaceShell capability", () => {
     session.close.mockRejectedValueOnce(closeError)
     const { tools } = await capabilityTools(workspaceShell({ commands: ["agent-browser"] }), session)
 
-    const failure = await tools.workspace_exec!.execute?.({ command: "agent-browser" }).catch(error => error)
+    let failure: unknown
+    try {
+      await tools.workspace_exec!.execute?.({ command: "agent-browser" })
+    }
+    catch (error) {
+      failure = error
+    }
 
     expect(failure).toBeInstanceOf(AggregateError)
     expect((failure as AggregateError).errors).toEqual([executionError, closeError])
