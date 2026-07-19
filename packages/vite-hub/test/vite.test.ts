@@ -283,6 +283,24 @@ describe("vitehub", () => {
     )).toMatch(/\/vite-hub\/dist\/_internal\/blob\/runtime\/state\.js$/)
   })
 
+  it("resolves provider facades after framework aliasing", async () => {
+    const plugin = dependencyPlugin({ sandbox: true })
+    const config = plugin.config as unknown as (config: object) => { resolve: { alias: Record<string, string> } }
+    const frameworkSandboxFacade = config({}).resolve.alias["vite-hub/sandbox"]
+    const sandboxCall = integrationMocks.hubSandbox.mock.calls.at(-1) as unknown as [{ providerImportAliases: Record<string, string> }]
+    const providerSandboxFacade = "/app/.vitehub/sandbox/provider.mjs"
+
+    sandboxCall[0].providerImportAliases["@vite-hub/sandbox"] = providerSandboxFacade
+    sandboxCall[0].providerImportAliases["vite-hub/sandbox"] = providerSandboxFacade
+
+    const resolveId = plugin.resolveId
+    if (typeof resolveId !== "function") throw new TypeError("Expected the framework dependency resolver.")
+    expect(await resolveId.call({} as never, "vite-hub/sandbox", "/app/server.ts", {} as never)).toBe(providerSandboxFacade)
+    expect(await resolveId.call({} as never, "@vite-hub/sandbox", "/app/server.ts", {} as never)).toBe(providerSandboxFacade)
+    expect(await resolveId.call({} as never, frameworkSandboxFacade, "/app/server.ts", {} as never)).toBe(providerSandboxFacade)
+    expect(await resolveId.call({} as never, "@vite-hub/kv/runtime/upstash-driver", "/app/server.ts", {} as never)).toBeUndefined()
+  })
+
   it.each(generatedOwnerPackageCases)("classifies generated import %s as %s", async (name, access) => {
     const resolved = await dependencyResolver().call({} as never, name, "\0#vitehub/templates", {} as never)
     if (access === "deny") expect(resolved).toBeUndefined()
