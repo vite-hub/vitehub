@@ -93,6 +93,7 @@
     "./rate-limit": "./dist/rate-limit.js",
     "./runtime": "./dist/runtime.js",
     "./sandbox": "./dist/sandbox.js",
+    "./sandbox/cloudflare": "./dist/sandbox/cloudflare.js",
     "./schedule": "./dist/schedule.js",
     "./schedule/runtime": "./dist/schedule/runtime.js",
     "./schedule/runtime/driver": "./dist/schedule/runtime/driver.js",

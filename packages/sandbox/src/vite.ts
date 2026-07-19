@@ -207,7 +207,9 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
         return
 
       const previousFiles = [...generatedFiles, ...Object.values(generatedAliases)]
-      await refreshSandboxRuntime()
+      const prepared = await refreshSandboxRuntime()
+      if (resolvedConfig)
+        await composeCloudflareSandbox(resolvedConfig, prepared)
       invalidateGeneratedSandboxModules([...previousFiles, ...generatedFiles, ...Object.values(generatedAliases)], context.server.moduleGraph)
     },
     configEnvironment(name, config) {

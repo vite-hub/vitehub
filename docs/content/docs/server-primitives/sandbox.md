@@ -56,6 +56,7 @@ export default defineEventHandler(async () => {
 | --- | --- |
 | `defineSandbox` from `@vite-hub/sandbox` | Declare a Sandbox Definition. |
 | `runSandbox` from `@vite-hub/sandbox` | Execute a named Sandbox Definition. |
+| `defineDockerfileFragment` from `@vite-hub/sandbox/cloudflare` | Add Cloudflare-only build layers to the generated Sandbox image. |
 | `hubSandbox` from `@vite-hub/sandbox/vite` | Register Sandbox discovery, generated types, and provider runtime wiring. |
 | `@vite-hub/sandbox/runtime/providers/cloudflare` | Cloudflare runtime provider loader entry. |
 | `@vite-hub/sandbox/runtime/providers/vercel` | Vercel runtime provider loader entry. |
@@ -63,6 +64,22 @@ export default defineEventHandler(async () => {
 | `@vite-hub/sandbox/sandbox/providers/vercel` | Vercel direct Sandbox client provider. |
 
 Sandbox Definition, Provider, Execution Options, and Run Result types are exported from `@vite-hub/sandbox`.
+
+When a Cloudflare build discovers exactly one Sandbox Definition, it can colocate static image layers beside that definition. Use `defineDockerfileFragment` as a top-level tagged template; ViteHub supplies the installed Cloudflare Sandbox base image and keeps this build-only statement out of the runtime bundle.
+
+```ts [src/tools/image.sandbox.ts]
+import { defineSandbox } from '@vite-hub/sandbox'
+import { defineDockerfileFragment } from '@vite-hub/sandbox/cloudflare'
+
+defineDockerfileFragment`
+RUN apt-get update \
+  && apt-get install -y imagemagick
+`
+
+export default defineSandbox(async () => null)
+```
+
+This surface belongs to Cloudflare's current app-level Sandbox image. Multiple definitions, interpolation, `FROM`, other hosts, and an application-owned container image are rejected instead of implying per-definition or provider-neutral image support.
 
 ## Configure the Vite Integration
 

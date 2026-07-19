@@ -40,6 +40,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./cloudflare": {
+      "types": "./dist/cloudflare-public.d.ts",
+      "import": "./dist/cloudflare-public.js"
+    },
     "./runtime/empty-registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
       "import": "./dist/runtime/empty-registry.js"

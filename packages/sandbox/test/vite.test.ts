@@ -36,6 +36,21 @@ async function createViteRoot() {
   return rootDir
 }
 
+async function writeCloudflareFragmentDefinition(rootDir: string) {
+  await writeFile(join(rootDir, "src/tools/release-notes.sandbox.ts"), [
+    `import { defineDockerfileFragment } from "vite-hub/sandbox/cloudflare"`,
+    `import { defineSandbox } from "@vite-hub/sandbox"`,
+    ``,
+    `defineDockerfileFragment\``,
+    `RUN apt-get update \\`,
+    `  && apt-get install -y imagemagick`,
+    `\``,
+    ``,
+    `export default defineSandbox(async () => ({ ok: true }))`,
+    ``,
+  ].join("\n"))
+}
+
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
@@ -343,6 +358,162 @@ describe("hubSandbox", () => {
       .toContain(`export { Sandbox, ContainerProxy } from "./sandbox-cloudflare-exports.mjs"`)
     expect(rollupPlugin.renderChunk("export default {}", { exports: ["default"], isEntry: true, fileName: "entries/server.js" }).code)
       .toContain(`export { Sandbox, ContainerProxy } from "../sandbox-cloudflare-exports.mjs"`)
+  })
+
+  it("appends a colocated Cloudflare Dockerfile fragment without bundling build metadata", async () => {
+    const rootDir = await createViteRoot()
+    await writeCloudflareFragmentDefinition(rootDir)
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: { preset: "cloudflare-module" },
+    }
+
+    await configHook(userConfig, { command: "build", mode: "production" })
+    await configResolved({ ...userConfig, resolve: { alias: [] } })
+
+    const dockerfile = await readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8")
+    expect(dockerfile).toMatch(/^FROM docker\.io\/cloudflare\/sandbox:\d/)
+    expect(dockerfile).toContain("RUN apt-get update \\\n  && apt-get install -y imagemagick")
+
+    const definition = await readFile(
+      join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs"),
+      "utf8",
+    )
+    expect(definition).not.toContain("defineDockerfileFragment")
+    expect(definition).not.toContain("imagemagick")
+  })
+
+  it("rejects a colocated Cloudflare fragment with multiple Sandbox Definitions", async () => {
+    const rootDir = await createViteRoot()
+    await writeCloudflareFragmentDefinition(rootDir)
+    await writeFile(join(rootDir, "src/tools/second.sandbox.ts"), [
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
+      `export default defineSandbox(async () => null)`,
+    ].join("\n"))
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+
+    await expect(configHook({ root: rootDir }, { command: "build", mode: "production" }))
+      .rejects.toThrow("requires exactly one discovered Sandbox Definition")
+  })
+
+  it("rejects a colocated Cloudflare fragment for non-Cloudflare providers", async () => {
+    const rootDir = await createViteRoot()
+    await writeCloudflareFragmentDefinition(rootDir)
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+
+    await expect(configHook({ root: rootDir }, { command: "build", mode: "production" }))
+      .rejects.toThrow("requires Cloudflare hosting and the Cloudflare Sandbox provider")
+  })
+
+  it("rejects a colocated Cloudflare fragment on non-Cloudflare hosting", async () => {
+    const rootDir = await createViteRoot()
+    await writeCloudflareFragmentDefinition(rootDir)
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+
+    await expect(configHook({ root: rootDir, preset: "vercel" }, { command: "build", mode: "production" }))
+      .rejects.toThrow("requires Cloudflare hosting and the Cloudflare Sandbox provider")
+  })
+
+  it("rejects a colocated Cloudflare fragment when hosting is unknown", async () => {
+    const rootDir = await createViteRoot()
+    await writeCloudflareFragmentDefinition(rootDir)
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+
+    await expect(configHook({ root: rootDir, preset: "node-server" }, { command: "build", mode: "production" }))
+      .rejects.toThrow("requires Cloudflare hosting and the Cloudflare Sandbox provider")
+  })
+
+  it("accepts a colocated Cloudflare fragment when Nitro resolves Cloudflare hosting late", async () => {
+    const rootDir = await createViteRoot()
+    await writeCloudflareFragmentDefinition(rootDir)
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox()
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: {},
+    }
+
+    await configHook(userConfig, { command: "build", mode: "production" })
+    const resolvedConfig = { ...userConfig, nitro: { preset: "cloudflare-module" }, resolve: { alias: [] } }
+    await configResolved(resolvedConfig)
+
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
+      .resolves.toContain("&& apt-get install -y imagemagick")
+  })
+
+  it("refreshes the generated Cloudflare Dockerfile when its colocated fragment changes", async () => {
+    const rootDir = await createViteRoot()
+    await writeCloudflareFragmentDefinition(rootDir)
+    const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => void } }
+    }) => Promise<void>
+    const config = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: { preset: "cloudflare-module" },
+      resolve: { alias: [] },
+    }
+
+    await configHook(config, { command: "serve", mode: "development" })
+    await configResolved(config)
+    await writeFile(definition, (await readFile(definition, "utf8")).replace("imagemagick", "ffmpeg"))
+    await handleHotUpdate({
+      file: definition,
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => {} } },
+    })
+
+    const dockerfile = await readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8")
+    expect(dockerfile).toContain("ffmpeg")
+    expect(dockerfile).not.toContain("imagemagick")
+  })
+
+  it("rejects a colocated fragment without changing an application-owned image", async () => {
+    const rootDir = await createViteRoot()
+    await writeCloudflareFragmentDefinition(rootDir)
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const container = {
+      class_name: "Sandbox",
+      image: "./application.Dockerfile",
+      max_instances: 3,
+    }
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: {
+        preset: "cloudflare-module",
+        cloudflare: { wrangler: { containers: [container] } },
+      },
+    }
+
+    await expect(configHook(userConfig, { command: "build", mode: "production" }))
+      .rejects.toThrow("cannot be combined with an application-owned Sandbox container image")
+    expect(userConfig.nitro.cloudflare.wrangler.containers).toEqual([container])
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("preserves an application-owned Cloudflare Sandbox container", async () => {
