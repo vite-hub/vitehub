@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 
@@ -91,6 +91,32 @@ describe("hubQueue", () => {
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     expect(nitroPlugin).toContain('"preview-queue--77656c636f6d65": "welcome"')
     expect(nitroPlugin).toContain("createQueueCloudflareWorker({ definitions: queueDefinitions")
+  })
+
+  it("provisions inferred Cloudflare queues with the configured prefix", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-provision-prefix-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+
+    const plugin = hubQueue({ namePrefix: "preview-" } as never)
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      build: { outDir: "dist" },
+      command: "serve",
+      nitro: { preset: "cloudflare_module" },
+      plugins: [],
+      queue: { namePrefix: "preview-" },
+      resolve: { alias: [] },
+      root,
+    } as never)
+    const cli = await plugin.vitehub!.cli!()
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ success: true, result: [] }))) as unknown as typeof globalThis.fetch
+    const actions = await cli.provision![0]!.plan({
+      env: { CLOUDFLARE_ACCOUNT_ID: "account", CLOUDFLARE_API_TOKEN: "token" },
+      fetch,
+      logger: { log: () => {}, warn: () => {} },
+    })
+
+    expect(actions[0]!.name).toBe("preview-queue--77656c636f6d65")
   })
 
   it("accepts Cloudflare physical queue names at the provider limit", async () => {

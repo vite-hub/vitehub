@@ -122,7 +122,10 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
           namespaces: [],
           provision: [createQueueProvisionStep(
             () => resolved?.root ?? process.cwd(),
-            () => queue && queue.provider === "cloudflare" ? queue.namePrefix : undefined,
+            () => {
+              const resolvedQueue = normalizeQueueOptions(queue, { hosting })
+              return resolvedQueue?.provider === "cloudflare" ? resolvedQueue.namePrefix : undefined
+            },
           )],
         }
       },
