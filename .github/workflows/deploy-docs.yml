@@ -29,9 +29,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  verify:
+    if: github.event_name == 'pull_request'
     name: cloudflare
-    environment: Production
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -42,12 +42,26 @@ jobs:
         run: vp run --filter vitehub-docs build
 
       - name: Verify Worker bundle
-        if: github.event_name == 'pull_request'
         working-directory: docs
         run: vp dlx "wrangler@4.112.0" deploy --dry-run --config .output/server/wrangler.json
 
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    name: deploy cloudflare
+    environment: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+
+      - name: Test docs
+        run: vp run --filter vitehub-docs test
+
+      - name: Build docs
+        run: vp run --filter vitehub-docs build
+
       - name: Deploy Worker
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

@@ -139,6 +139,7 @@ export default defineNuxtConfig({
         d1_databases: [
           {
             binding: "DB",
+            database_name: "vitehub-docs",
           },
         ],
         routes: [
