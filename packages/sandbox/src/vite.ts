@@ -1,6 +1,8 @@
-import { createNoExternalMerger, isServerEnvironment } from '@vite-hub/internal/build/vite'
+import { createNoExternalMerger, hasNitroVitePlugin, isServerEnvironment } from '@vite-hub/internal/build/vite'
+import { getHostingProvider } from '@vite-hub/internal/hosting'
 import { normalize, relative } from 'pathe'
 
+import { configureCloudflareSandboxNitro } from './cloudflare'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
 import { prepareSandboxRuntime } from './internal/runtime-preparation'
 import type { Alias, ConfigEnv, Plugin, ResolvedConfig } from 'vite'
@@ -90,6 +92,20 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   let rawConfig: Record<string, unknown> = {}
   let rawEnv: ConfigEnv = { command: 'serve', mode: 'development' }
   let resolvedConfig: ResolvedConfig | undefined
+  let earlyNitroTarget: Record<string, unknown> | undefined
+  let earlyNitroSnapshot: Record<string, unknown> | undefined
+  let composedCloudflareEarly = false
+
+  function cloneConfigValue<T>(value: T): T {
+    if (Array.isArray(value))
+      return value.map(cloneConfigValue) as T
+    if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+      return Object.fromEntries(
+        Object.entries(value).map(([key, entry]) => [key, cloneConfigValue(entry)]),
+      ) as T
+    }
+    return value
+  }
 
   async function prepareCurrentSandboxRuntime(writeArtifacts = true) {
     const prepared = await prepareSandboxRuntime({
@@ -122,6 +138,20 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     return prepared
   }
 
+  async function composeCloudflareSandbox(
+    config: { nitro?: unknown, plugins?: unknown, root?: string },
+    prepared: Awaited<ReturnType<typeof prepareCurrentSandboxRuntime>>,
+  ) {
+    if (!prepared.cloudflare || !hasNitroVitePlugin(config) || getHostingProvider(prepared.hosting) !== 'cloudflare')
+      return false
+    config.nitro = await configureCloudflareSandboxNitro(
+      config.nitro as Parameters<typeof configureCloudflareSandboxNitro>[0],
+      typeof config.root === 'string' ? config.root : process.cwd(),
+      prepared.cloudflare,
+    )
+    return true
+  }
+
   return {
     name: '@vite-hub/sandbox/vite',
     enforce: 'pre',
@@ -132,6 +162,12 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       generatedAliases = prepared.aliases
       generatedFiles = prepared.files
       definitions = prepared.definitions
+      const nitro = (config as { nitro?: unknown }).nitro
+      if (nitro && typeof nitro === 'object') {
+        earlyNitroTarget = nitro as Record<string, unknown>
+        earlyNitroSnapshot = cloneConfigValue(earlyNitroTarget)
+      }
+      composedCloudflareEarly = await composeCloudflareSandbox(config, prepared)
       return {
         resolve: {
           alias: toSandboxAliasEntries({
@@ -155,7 +191,16 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     },
     async configResolved(config) {
       resolvedConfig = config
-      await refreshSandboxRuntime()
+      const prepared = await refreshSandboxRuntime()
+      const composed = await composeCloudflareSandbox(config, prepared)
+      if (!composed && composedCloudflareEarly && earlyNitroTarget && earlyNitroSnapshot) {
+        for (const key of ['cloudflare', 'rollupConfig']) {
+          if (key in earlyNitroSnapshot)
+            earlyNitroTarget[key] = earlyNitroSnapshot[key]
+          else
+            delete earlyNitroTarget[key]
+        }
+      }
     },
     async handleHotUpdate(context) {
       if (!isSandboxDefinitionUpdate(context.file, definitions, generatedFiles, resolvedConfig?.root))

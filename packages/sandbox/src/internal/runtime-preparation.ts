@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { builtinModules } from 'node:module'
 
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
 import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
@@ -16,6 +17,10 @@ import type { Alias, ConfigEnv, ResolvedConfig } from 'vite'
 
 const SANDBOX_PACKAGE_ID = '@vite-hub/sandbox'
 const SANDBOX_REGISTRY_ID = '#vitehub-sandbox-registry'
+const builtinModuleSet = new Set([
+  ...builtinModules,
+  ...builtinModules.map(name => `node:${name}`),
+])
 
 type AliasMap = Record<string, string>
 type SandboxPublicOptions = AgentSandboxConfig | false
@@ -78,7 +83,13 @@ async function resolveSandboxViteContext(
   const options = normalizeSandboxOptions(
     typeof configOptions === 'undefined' ? integrationOptions ?? {} : configOptions,
   )
-  const hosting = detectHosting({ options: userConfig as { preset?: string | null } }) || undefined
+  const nitro = isPlainObject(userConfig.nitro) ? userConfig.nitro : {}
+  const preset = typeof userConfig.preset === 'string'
+    ? userConfig.preset
+    : typeof nitro.preset === 'string'
+      ? nitro.preset
+      : process.env.NITRO_PRESET || process.env.SERVER_PRESET
+  const hosting = detectHosting({ options: { preset } }) || undefined
   const config = options === false ? false : resolveSandboxFeatureConfig(options, hosting)
   const rootDir = resolve(process.cwd(), typeof userConfig.root === 'string' ? userConfig.root : '.')
 
@@ -130,8 +141,14 @@ function readAliasEntries(alias: unknown): Alias[] {
 function resolveStringAliases(alias: unknown): AliasMap {
   const aliases: AliasMap = {}
   for (const entry of readAliasEntries(alias)) {
-    if (typeof entry.find === 'string' && typeof entry.replacement === 'string')
-      aliases[entry.find] = entry.replacement
+    if (typeof entry.find !== 'string' || typeof entry.replacement !== 'string')
+      continue
+    const find = entry.find.replace(/\/$/, '')
+    if (builtinModuleSet.has(entry.find) || builtinModuleSet.has(find))
+      continue
+    if (!find)
+      continue
+    aliases[find] = entry.replacement
   }
   return aliases
 }
@@ -210,13 +227,19 @@ export async function prepareSandboxRuntime(options: {
   writeArtifacts?: boolean
 }) {
   const rootDir = options.resolvedConfig?.root || resolve(process.cwd(), typeof options.userConfig.root === 'string' ? options.userConfig.root : '.')
-  const context = await resolveSandboxViteContext(options.integrationOptions, { ...options.userConfig, root: rootDir }, options.env)
+  const resolvedNitro = (options.resolvedConfig as { nitro?: unknown } | undefined)?.nitro
+  const context = await resolveSandboxViteContext(options.integrationOptions, {
+    ...options.userConfig,
+    ...(isPlainObject(resolvedNitro) ? { nitro: resolvedNitro } : {}),
+    root: rootDir,
+  }, options.env)
   const stateModule = createSandboxStateModuleContents(context)
   if (!context.config) {
     return {
       aliases: {} as AliasMap,
       definitions: [],
       files: [],
+      hosting: context.hosting,
       stateModule,
     }
   }
@@ -240,8 +263,10 @@ export async function prepareSandboxRuntime(options: {
   if (options.writeArtifacts === false) {
     return {
       aliases,
+      cloudflare: plan.cloudflare,
       definitions,
       files: [],
+      hosting: context.hosting,
       stateModule,
     }
   }
@@ -257,8 +282,10 @@ export async function prepareSandboxRuntime(options: {
   )
   return {
     aliases,
+    cloudflare: plan.cloudflare,
     definitions,
     files: [facadeFile, ...Array.from(emitted.values(), artifact => artifact.dst)],
+    hosting: context.hosting,
     stateModule,
   }
 }

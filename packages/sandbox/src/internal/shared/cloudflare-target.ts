@@ -16,6 +16,7 @@ export interface WranglerR2Bucket {
 export interface WranglerContainer {
   class_name: string
   image?: string
+  image_build_context?: string
   instance_type?: string
   max_instances?: number
   name?: string
@@ -63,6 +64,8 @@ export interface WranglerHyperdriveBinding {
 }
 
 export interface MutableWranglerConfig {
+  compatibility_flags?: string[]
+  exports?: unknown
   kv_namespaces?: WranglerKVNamespace[]
   r2_buckets?: WranglerR2Bucket[]
   containers?: WranglerContainer[]
@@ -85,6 +88,13 @@ export interface MutableCloudflareTarget {
 
 export interface MutableRollupTarget {
   rollupConfig?: {
+    external?: unknown
     plugins?: unknown
+  }
+}
+
+export interface MutableNitroCloudflareTarget extends MutableCloudflareTarget, MutableRollupTarget {
+  output?: {
+    serverDir?: string
   }
 }

@@ -187,6 +187,438 @@ describe("hubSandbox", () => {
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs"), "utf8")).resolves.toContain("from alias")
   })
 
+  it("keeps Node built-ins out of definition bundle aliases", async () => {
+    const rootDir = await createViteRoot()
+    await mkdir(join(rootDir, "src/lib"), { recursive: true })
+    await writeFile(join(rootDir, "src/lib/version.ts"), `export const version = "from slash alias"\n`)
+    await writeFile(join(rootDir, "src/lib/process.ts"), `export const processAlias = "from process slash alias"\n`)
+    await writeFile(join(rootDir, "src/tools/release-notes.sandbox.ts"), [
+      `import { execFileSync } from "node:child_process"`,
+      `import { version } from "@/lib/version"`,
+      `import { processAlias } from "process/"`,
+      ``,
+      `export default defineSandbox(async () => ({ processAlias, version, node: execFileSync(process.execPath, ["--version"]).toString() }))`,
+      ``,
+    ].join("\n"))
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: AliasOptions } }) => unknown | Promise<unknown>
+
+    await configHook({ root: rootDir }, { command: "build", mode: "production" })
+    await configResolved({
+      root: rootDir,
+      resolve: {
+        alias: [
+          { find: "process/", replacement: join(rootDir, "src/lib/process.ts") },
+          { find: "node:child_process", replacement: "/virtual/child-process" },
+          { find: "#root/", replacement: "/" },
+          { find: "@/", replacement: `${join(rootDir, "src")}/` },
+        ],
+      },
+    })
+
+    const definition = await readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs"), "utf8")
+    expect(definition).toContain("node:child_process")
+    expect(definition).not.toContain("/virtual/child-process")
+    expect(definition).toContain("from slash alias")
+    expect(definition).not.toContain("from process slash alias")
+  })
+
+  it("infers Cloudflare from a late-resolved Nitro preset", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox()
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
+    const userConfig = { root: rootDir }
+
+    await configHook(userConfig, { command: "build", mode: "production" })
+    const resolvedConfig = {
+      ...userConfig,
+      nitro: { preset: "cloudflare-module" },
+      plugins: [{ name: "nitro:main" }],
+      resolve: { alias: [] },
+    }
+    await configResolved(resolvedConfig)
+
+    expect((resolvedConfig.nitro as any).cloudflare.wrangler.containers).toMatchObject([{ class_name: "Sandbox" }])
+  })
+
+  it("infers Cloudflare from the Nitro preset environment", async () => {
+    const rootDir = await createViteRoot()
+    const previousPreset = process.env.NITRO_PRESET
+    process.env.NITRO_PRESET = "cloudflare-module"
+    try {
+      const { hubSandbox } = await import("../src/vite.ts")
+      const plugin = hubSandbox()
+      const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+      const userConfig = { root: rootDir, plugins: [{ name: "nitro:main" }], nitro: {} as Record<string, any> }
+
+      await configHook(userConfig, { command: "build", mode: "production" })
+
+      expect(userConfig.nitro.cloudflare.wrangler.containers).toMatchObject([{ class_name: "Sandbox" }])
+    }
+    finally {
+      if (typeof previousPreset === "undefined") delete process.env.NITRO_PRESET
+      else process.env.NITRO_PRESET = previousPreset
+    }
+  })
+
+  it("composes Cloudflare Sandbox into Nitro output", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({
+      provider: "cloudflare",
+      name: "image-optimizer",
+    })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
+    const existingPlugin = { name: "application-plugin" }
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: {
+        preset: "cloudflare-module",
+        cloudflare: {
+          wrangler: {
+            compatibility_flags: ["custom"],
+            migrations: [{ tag: "existing", new_sqlite_classes: ["Existing"] }],
+            routes: ["example.com/*"],
+          },
+        },
+        output: {
+          serverDir: ".nitro/server/output",
+        },
+        rollupConfig: { external: "application-runtime", plugins: existingPlugin },
+      },
+    }
+
+    await configHook(userConfig, { command: "build", mode: "production" })
+    expect((userConfig.nitro.cloudflare.wrangler as any).containers[0].image).toBe("../../../.vitehub/sandbox/Dockerfile")
+    userConfig.nitro.output.serverDir = ".nitro/server/final/output"
+    await configResolved({ ...userConfig, resolve: { alias: [] } })
+
+    expect(userConfig.nitro.cloudflare.wrangler).toMatchObject({
+      compatibility_flags: ["custom", "nodejs_compat"],
+      containers: [{
+        class_name: "Sandbox",
+        image: "../../../../.vitehub/sandbox/Dockerfile",
+        image_build_context: "../../../..",
+        instance_type: "lite",
+        max_instances: 12,
+        name: "image-optimizer",
+      }],
+      durable_objects: {
+        bindings: [{ name: "SANDBOX", class_name: "Sandbox" }],
+      },
+      migrations: [
+        { tag: "existing", new_sqlite_classes: ["Existing"] },
+        { tag: "v1", new_sqlite_classes: ["Sandbox"] },
+      ],
+      routes: ["example.com/*"],
+    })
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
+      .resolves.toMatch(/^FROM docker\.io\/cloudflare\/sandbox:\d/)
+
+    const configuredNitro = userConfig.nitro as typeof userConfig.nitro & {
+      rollupConfig: {
+        external: unknown
+        plugins: Array<{
+          load: (id: string) => string
+          name: string
+          renderChunk: (code: string, chunk: { exports: string[], fileName: string, isEntry: boolean }) => { code: string }
+        }>
+      }
+    }
+    expect(configuredNitro.rollupConfig.plugins[0]).toBe(existingPlugin)
+    expect(configuredNitro.rollupConfig.external).toEqual(["application-runtime", "cloudflare:workers"])
+    const rollupPlugin = configuredNitro.rollupConfig.plugins[1]
+    expect(rollupPlugin.name).toBe("vitehub-sandbox-cloudflare-exports:Sandbox")
+    expect(rollupPlugin.load("\0virtual:vitehub-sandbox-cloudflare-exports"))
+      .toContain("export class Sandbox extends CloudflareSandbox")
+    expect(rollupPlugin.load("\0virtual:vitehub-sandbox-cloudflare-exports"))
+      .toContain("export { ContainerProxy } from '@cloudflare/sandbox'")
+    expect(rollupPlugin.renderChunk("export default {}", { exports: ["default"], isEntry: true, fileName: "server.js" }).code)
+      .toContain(`export { Sandbox, ContainerProxy } from "./sandbox-cloudflare-exports.mjs"`)
+    expect(rollupPlugin.renderChunk("export default {}", { exports: ["default"], isEntry: true, fileName: "entries/server.js" }).code)
+      .toContain(`export { Sandbox, ContainerProxy } from "../sandbox-cloudflare-exports.mjs"`)
+  })
+
+  it("preserves an application-owned Cloudflare Sandbox container", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare", name: "generated-name" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
+    const container = {
+      class_name: "Sandbox",
+      image: "./custom.Dockerfile",
+      instance_type: "standard-1",
+      max_instances: 2,
+      name: "application-owned",
+    }
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: {
+        preset: "cloudflare-module",
+        cloudflare: { wrangler: { containers: [container] } },
+      },
+    }
+
+    await configHook(userConfig, { command: "build", mode: "production" })
+    await configResolved({ ...userConfig, resolve: { alias: [] } })
+
+    expect(userConfig.nitro.cloudflare.wrangler.containers[0]).toBe(container)
+    expect(userConfig.nitro.cloudflare.wrangler.containers).toEqual([{
+      class_name: "Sandbox",
+      image: "./custom.Dockerfile",
+      instance_type: "standard-1",
+      max_instances: 2,
+      name: "application-owned",
+    }])
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" })
+    const [rollupPlugin] = (userConfig.nitro as typeof userConfig.nitro & {
+      rollupConfig: { plugins: Array<{ renderChunk: (code: string, chunk: { exports: string[], fileName: string, isEntry: boolean }) => unknown }> }
+    }).rollupConfig.plugins
+    expect(rollupPlugin.renderChunk("export class Sandbox {}", { exports: ["Sandbox"], isEntry: true, fileName: "index.mjs" }))
+      .toMatchObject({ code: expect.stringContaining(`export { ContainerProxy } from "./sandbox-cloudflare-exports.mjs"`) })
+    expect(rollupPlugin.renderChunk("class Worker {}; export { Worker as Sandbox }", { exports: ["Sandbox"], isEntry: true, fileName: "index.mjs" }))
+      .toMatchObject({ code: expect.stringContaining(`export { ContainerProxy } from "./sandbox-cloudflare-exports.mjs"`) })
+    expect(rollupPlugin.renderChunk("class Sandbox {}; export { Sandbox as Worker }", { exports: ["Worker"], isEntry: true, fileName: "index.mjs" }))
+      .toMatchObject({ code: expect.stringContaining(`export { Sandbox, ContainerProxy } from "./sandbox-cloudflare-exports.mjs"`) })
+    expect(rollupPlugin.renderChunk("export class Sandbox {}; export { ContainerProxy }", { exports: ["Sandbox", "ContainerProxy"], isEntry: true, fileName: "index.mjs" })).toBeNull()
+    expect(rollupPlugin.renderChunk("export * from './sandbox.mjs'", { exports: ["Other"], isEntry: true, fileName: "index.mjs" }))
+      .toMatchObject({ code: expect.stringContaining(`export { Sandbox, ContainerProxy }`) })
+    expect(rollupPlugin.renderChunk("export * from './sandbox.mjs'", { exports: ["Sandbox", "ContainerProxy"], isEntry: true, fileName: "index.mjs" })).toBeNull()
+    expect(rollupPlugin.renderChunk("export default {}", { exports: ["default"], isEntry: false, fileName: "chunk.mjs" })).toBeNull()
+  })
+
+  it("rejects ContainerProxy as the Cloudflare Sandbox class name", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare", className: "ContainerProxy" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const userConfig = { root: rootDir, plugins: [{ name: "nitro:main" }], nitro: { preset: "cloudflare-module" } }
+
+    await expect(configHook(userConfig, { command: "build", mode: "production" }))
+      .rejects.toThrow('className "ContainerProxy" is reserved')
+  })
+
+  it("rejects conflicting Cloudflare container build contexts", async () => {
+    const { finalizeCloudflareWranglerConfig } = await import("../src/internal/shared/cloudflare-wrangler.ts")
+    const target = {
+      cloudflare: {
+        wrangler: {
+          containers: [
+            { class_name: "Sandbox", image: "./Dockerfile", image_build_context: "../app" },
+            { class_name: "Sandbox", image: "./Dockerfile", image_build_context: "../sandbox" },
+          ],
+        },
+      },
+    }
+
+    expect(() => finalizeCloudflareWranglerConfig(target))
+      .toThrow('Conflicting Cloudflare container "Sandbox"')
+  })
+
+  it("completes only the required image fields on a partial Cloudflare Sandbox container", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare", name: "generated-name" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
+    const container = {
+      class_name: "Sandbox",
+      instance_type: "standard-1",
+      max_instances: 2,
+      name: "application-owned",
+    }
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: {
+        preset: "cloudflare-module",
+        cloudflare: { wrangler: { containers: [container] } },
+        output: { serverDir: ".output/server" },
+      },
+    }
+
+    await configHook(userConfig, { command: "build", mode: "production" })
+    await configResolved({ ...userConfig, resolve: { alias: [] } })
+
+    expect(userConfig.nitro.cloudflare.wrangler.containers[0]).toBe(container)
+    expect(userConfig.nitro.cloudflare.wrangler.containers).toEqual([{
+      class_name: "Sandbox",
+      image: "../../.vitehub/sandbox/Dockerfile",
+      image_build_context: "../..",
+      instance_type: "standard-1",
+      max_instances: 2,
+      name: "application-owned",
+    }])
+  })
+
+  it("completes partial containers configured without Nitro", async () => {
+    const { configureCloudflareSandbox } = await import("../src/cloudflare.ts")
+    const container = { class_name: "Sandbox", instance_type: "standard-1" }
+    const target = { cloudflare: { wrangler: { containers: [container] } } }
+
+    configureCloudflareSandbox(target)
+
+    expect(container).toEqual({
+      class_name: "Sandbox",
+      image: "./Dockerfile",
+      instance_type: "standard-1",
+      max_instances: 12,
+    })
+  })
+
+  it("rejects an existing Cloudflare migration tag without changing it", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const migrations = [{ tag: "v1", new_sqlite_classes: ["Existing"] }]
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: {
+        preset: "cloudflare-module",
+        cloudflare: { wrangler: { migrations } },
+      },
+    }
+
+    await expect(configHook(userConfig, { command: "build", mode: "production" }))
+      .rejects.toThrow('Cloudflare migration tag "v1" is already in use')
+    expect(userConfig.nitro.cloudflare.wrangler).toEqual({
+      migrations: [{ tag: "v1", new_sqlite_classes: ["Existing"] }],
+    })
+  })
+
+  it("rejects Wrangler exports before adding legacy migrations", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const wrangler = { exports: { Existing: "Existing" } }
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: { preset: "cloudflare-module", cloudflare: { wrangler } },
+    }
+
+    await expect(configHook(userConfig, { command: "build", mode: "production" }))
+      .rejects.toThrow("cannot compose legacy migrations")
+    expect(userConfig.nitro.cloudflare.wrangler).toBe(wrangler)
+  })
+
+  it("rejects a colliding Cloudflare Durable Object binding before mutation", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const wrangler = {
+      durable_objects: { bindings: [{ name: "SANDBOX", class_name: "Existing" }] },
+    }
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: { preset: "cloudflare-module", cloudflare: { wrangler } },
+    }
+
+    await expect(configHook(userConfig, { command: "build", mode: "production" }))
+      .rejects.toThrow('Cloudflare Durable Object binding "SANDBOX" is already in use')
+    expect(userConfig.nitro.cloudflare.wrangler).toBe(wrangler)
+    expect(wrangler).toEqual({
+      durable_objects: { bindings: [{ name: "SANDBOX", class_name: "Existing" }] },
+    })
+  })
+
+  it("does not compose Cloudflare output for a non-Cloudflare Nitro host", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: { preset: "vercel" },
+    }
+
+    await configHook(userConfig, { command: "build", mode: "production" })
+
+    expect(userConfig.nitro).toEqual({ preset: "vercel" })
+  })
+
+  it("keeps a late-resolved non-Cloudflare Nitro preset authoritative", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: {},
+    }
+
+    await configHook(userConfig, { command: "build", mode: "production" })
+    expect(userConfig.nitro).toEqual({})
+
+    const resolvedConfig = { ...userConfig, nitro: { preset: "vercel" }, resolve: { alias: [] } }
+    await configResolved(resolvedConfig)
+
+    expect(resolvedConfig.nitro).toEqual({ preset: "vercel" })
+  })
+
+  it("removes early environment-selected Cloudflare output when Nitro resolves away", async () => {
+    const rootDir = await createViteRoot()
+    const previousPreset = process.env.NITRO_PRESET
+    process.env.NITRO_PRESET = "cloudflare-module"
+    try {
+      const { hubSandbox } = await import("../src/vite.ts")
+      const plugin = hubSandbox({ provider: "cloudflare" })
+      const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+      const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
+      const nitro: Record<string, any> = {}
+      const userConfig = { root: rootDir, plugins: [{ name: "nitro:main" }], nitro }
+
+      await configHook(userConfig, { command: "build", mode: "production" })
+      expect(nitro.cloudflare.wrangler.containers).toHaveLength(1)
+
+      const resolvedConfig = { ...userConfig, nitro: { preset: "vercel" }, resolve: { alias: [] } }
+      await configResolved(resolvedConfig)
+
+      expect(nitro).toEqual({})
+      expect(resolvedConfig.nitro).toEqual({ preset: "vercel" })
+    }
+    finally {
+      if (typeof previousPreset === "undefined") delete process.env.NITRO_PRESET
+      else process.env.NITRO_PRESET = previousPreset
+    }
+  })
+
+  it("does not reuse an application Dockerfile for the generated Sandbox image", async () => {
+    const rootDir = await createViteRoot()
+    await writeFile(join(rootDir, "Dockerfile"), "FROM node:24\n")
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: { preset: "cloudflare-module" },
+    }
+
+    await configHook(userConfig, { command: "build", mode: "production" })
+
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
+      .resolves.toMatch(/^FROM docker\.io\/cloudflare\/sandbox:/)
+    await expect(readFile(join(rootDir, "Dockerfile"), "utf8")).resolves.toBe("FROM node:24\n")
+  })
+
   it("defers generated definition bundling until Vite aliases are resolved", async () => {
     const rootDir = await createViteRoot()
     await mkdir(join(rootDir, "src/lib"), { recursive: true })
