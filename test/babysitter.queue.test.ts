@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  completionKey,
   type PullRequest,
   pullRequestFingerprint,
   resolveRepositories,
@@ -74,12 +73,12 @@ test('keeps completion state qualified by repository', async () => {
     ['vite-hub/vitehub', 'vite-hub/brief'],
     6,
     async () => [completed],
-    async key => key === completionKey('vite-hub/vitehub', 1) ? pullRequestFingerprint('vite-hub/vitehub', completed) : null,
+    async key => key === 'babysitter/vite-hub/vitehub/pull-requests/1' ? pullRequestFingerprint('vite-hub/vitehub', completed) : null,
   )
 
-  assert.equal(completionKey('vite-hub/brief', 1), 'babysitter/vite-hub/brief/pull-requests/1')
   assert.notEqual(pullRequestFingerprint('vite-hub/vitehub', completed), pullRequestFingerprint('vite-hub/brief', completed))
   assert.deepEqual(jobs.map(job => job.repository), ['vite-hub/brief'])
+  assert.equal(jobs[0]?.completionKey, 'babysitter/vite-hub/brief/pull-requests/1')
 })
 
 test('keeps healthy repositories when one listing fails', async (t) => {

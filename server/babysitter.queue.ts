@@ -60,17 +60,13 @@ export async function selectPullRequestJobs(
 
   const jobs = await Promise.all(candidates.map(async ({ pullRequest, repository }) => {
     const fingerprint = pullRequestFingerprint(repository, pullRequest)
-    const key = completionKey(repository, pullRequest.number)
+    const key = `babysitter/${repository}/pull-requests/${pullRequest.number}`
     return await readCompletion(key) === fingerprint
       ? undefined
       : { completionKey: key, fingerprint, pullRequest, repository }
   }))
 
   return jobs.filter((job): job is PullRequestJob => job !== undefined).slice(0, maxOwners)
-}
-
-export function completionKey(repository: string, pullRequestNumber: number) {
-  return `babysitter/${repository}/pull-requests/${pullRequestNumber}`
 }
 
 export function pullRequestFingerprint(repository: string, pullRequest: PullRequest) {
