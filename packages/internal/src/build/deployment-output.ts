@@ -10,6 +10,7 @@ import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-confi
 import type { ProviderOutputConfigOwnership } from "./provider-output-config.ts"
 
 export { createDefaultCloudflareOutputRoot } from "./cloudflare.ts"
+export { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput } from "./cloudflare-provider-output.ts"
 export { shouldSkipViteProviderBuild } from "./vite.ts"
 
 type BundleOptions = NonNullable<Parameters<typeof bundleEsmEntry>[2]>

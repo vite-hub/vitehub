@@ -44,8 +44,8 @@ function resolveVercelRegion(explicitRegion: string | undefined) {
     return process.env.VERCEL_REGION
   }
 
-  const event = getQueueRuntimeEvent() as { req?: { headers?: Headers | Record<string, unknown> }, request?: Request } | undefined
-  const requestHeaders = event?.request instanceof Request ? event.request.headers : event?.req?.headers
+  const event = getQueueRuntimeEvent() as { node?: { req?: { headers?: Headers | Record<string, unknown> } }, req?: { headers?: Headers | Record<string, unknown> }, request?: Request } | undefined
+  const requestHeaders = event?.request instanceof Request ? event.request.headers : event?.req?.headers ?? event?.node?.req?.headers
 
   return readHeader(requestHeaders, "ce-vqsregion") || parseRegionFromVercelId(readHeader(requestHeaders, "x-vercel-id"))
 }
