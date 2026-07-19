@@ -58,6 +58,15 @@ Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. `serv
 Objects from the served store receive an absolute URL when `serve.publicBaseUrl` is configured, or a route-relative URL otherwise.
 Use `serve.headers` for static cache and security headers. Blob metadata remains authoritative for content headers such as `Content-Type`, `Content-Length`, and `ETag`.
 
+Use `detectContentType()` when an application needs to classify leading bytes before storage. It returns a detected MIME type for common images and PDFs, or `undefined` when the signature is unknown. Storage `contentType` remains caller-provided metadata, and recognizing a signature does not prove that a complete file is valid or safe.
+
+```ts
+import { detectContentType } from "@vite-hub/blob/content-type"
+
+const detected = detectContentType(new Uint8Array(await file.arrayBuffer()))
+if (detected !== file.type) throw new Error("File content does not match its declared type")
+```
+
 ```ts
 // vite.config.ts
 export default defineConfig({
