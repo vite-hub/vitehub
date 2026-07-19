@@ -17,60 +17,46 @@ import {
   type ChatDevtoolsMetadataStatus,
   type ChatDevtoolsStateResult,
   chatDevtoolsBridgeRoute,
-  chatDevtoolsClearRpc,
-  chatDevtoolsGetStateRpc,
-  chatDevtoolsMaterializeSourceRpc,
-  chatDevtoolsSendRpc,
 } from "../devtools.ts"
+import {
+  chatDevtoolsMetadataErrorMessage,
+  chatDevtoolsMetadataSelection,
+  chatDevtoolsMetadataSelectionKey,
+  chatDevtoolsMetadataWithAgentName,
+  chatDevtoolsSessionTitle,
+  consumeChatDevtoolsUIMessageStream,
+  createChatDevtoolsMetadataInput,
+  createChatDevtoolsPromptHistory,
+  createChatDevtoolsUserUIMessage,
+  materializedChatDevtoolsSourceKeys,
+  normalizeChatDevtoolsAction,
+  normalizeChatDevtoolsInvokerSelection,
+  refreshChatDevtoolsMetadata,
+  validChatDevtoolsInvokerProfileId,
+} from "../devtools-runtime.ts"
 import { createChatDevtoolsStreamResponse } from "../devtools-stream.ts"
 import { createAgentRuntimeContext } from "../../runtime/context.ts"
 import { discoverAgentDefinitions } from "../../discovery.ts"
 import { workspaceAgentOwnsWorkspaceDefinition, workspaceAgentWithSourceRoot } from "../../workspace-agent.ts"
-import { loadAiSdk } from "../../internal/ai-sdk-runtime.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../../internal/colocated-agent-skills.ts"
 import { readColocatedAgentSkills } from "../../vite/colocated-agent-skills.ts"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
-import type { UIMessage } from "ai"
 import type { ViteDevServer } from "vite"
+import type { ChatDevtoolsBridgeBody, ChatDevtoolsInvokerSelection, ChatDevtoolsSession as ChatDevtoolsSessionState } from "../devtools-runtime.ts"
 import type { AgentChatMessageTriggerInput } from "../../chat-trigger.ts"
 import type {
   AgentInput,
   AgentHostIdentity,
-  AgentRunInput,
   AgentRunMetadata,
   AgentRuntimeConfig,
   AgentRuntimeContext,
   DiscoveredAgentDefinition,
 } from "../../index.ts"
 
-type ReadUIMessageStream = typeof import("ai").readUIMessageStream
-type ChatDevtoolsAction = "clear" | "get-state" | "materialize-source" | "send"
-const chatDevtoolsInvoker = {
-  id: "devtools",
-  kind: "devtools" as const,
-  label: "DevTools User",
-}
 const chatDevtoolsUser: Record<string, unknown> = {
   id: "devtools",
   name: "DevTools User",
-}
-type ChatDevtoolsBridgeBody = {
-  action?: string
-  chat?: string
-  invokerFallback?: boolean
-  invokerProfileId?: string
-  meta?: Record<string, unknown>
-  path?: string
-  source?: string
-  stream?: boolean
-  text?: string
-}
-
-interface ChatDevtoolsInvokerSelection {
-  invokerFallback?: boolean
-  invokerProfileId?: string
-  meta?: Record<string, unknown>
 }
 
 interface ViteAgentDevtoolsRuntimeConfig extends AgentRuntimeConfig {
@@ -83,13 +69,8 @@ interface ViteAgentDevtoolsRuntimeContext extends AgentRuntimeContext<ViteAgentD
   runtimeConfig: ViteAgentDevtoolsRuntimeConfig
 }
 
-interface ChatDevtoolsSession {
-  invokerFallback?: boolean
-  invokerProfileId?: string
+interface ChatDevtoolsSession extends ChatDevtoolsSessionState {
   name: string
-  thinkingFallback?: string | null
-  title?: string
-  uiMessages: UIMessage[]
 }
 
 interface ChatDevtoolsAgentEntry {
@@ -111,19 +92,8 @@ interface ChatDevtoolsBridgeState {
   selected?: string
 }
 
-function normalizeChatDevtoolsAction(action: string): ChatDevtoolsAction | undefined {
-  if (action === "get-state" || action === chatDevtoolsGetStateRpc) return "get-state"
-  if (action === "send" || action === chatDevtoolsSendRpc) return "send"
-  if (action === "clear" || action === chatDevtoolsClearRpc) return "clear"
-  if (action === "materialize-source" || action === chatDevtoolsMaterializeSourceRpc) return "materialize-source"
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
-}
-
-function optionalRecord(value: unknown): Record<string, unknown> | undefined {
-  return isRecord(value) ? { ...value } : undefined
 }
 
 function resolveAgentModule(module: unknown): AgentInput<ViteAgentDevtoolsRuntimeContext> | undefined {
@@ -225,77 +195,19 @@ function createDevtoolsMetadataRunMetadata(name: string): AgentRunMetadata<"devt
   }
 }
 
-function createDevtoolsMetadataInput(
-  selection: ChatDevtoolsInvokerSelection = {},
-  run: AgentRunMetadata,
-): AgentRunInput {
-  const meta = optionalRecord(selection.meta)
-  const message = { metadata: {}, text: "" }
-  return {
-    context: {
-      invoker: {
-        ...chatDevtoolsInvoker,
-        ...(meta ? { meta } : {}),
-      },
-      ...(!selection.invokerFallback && selection.invokerProfileId ? { invokerProfileId: selection.invokerProfileId } : {}),
-      channel: {
-        message,
-        ...(meta ? { meta } : {}),
-        run,
-        user: chatDevtoolsUser,
-      },
-      chat: {
-        message,
-        ...(meta ? { meta } : {}),
-        user: chatDevtoolsUser,
-      },
-    },
-    messages: [],
-  }
-}
-
-function agentHasInvokerProfile(agent: AgentInput<ViteAgentDevtoolsRuntimeContext>, invokerProfileId: string | undefined): boolean {
-  return Boolean(invokerProfileId && Array.isArray(agent.invoker?.profiles) && agent.invoker.profiles.some(profile => profile.id === invokerProfileId))
-}
-
 function metadataSelectionForAgent(
   agent: AgentInput<ViteAgentDevtoolsRuntimeContext>,
   selection: ChatDevtoolsInvokerSelection = {},
 ): ChatDevtoolsInvokerSelection {
-  const meta = optionalRecord(selection.meta)
-  if (selection.invokerFallback) {
-    return {
-      invokerFallback: true,
-      ...(meta ? { meta } : {}),
-    }
-  }
-  const invokerSelection = agentHasInvokerProfile(agent, selection.invokerProfileId)
-    ? { invokerProfileId: selection.invokerProfileId }
-    : {}
-  return {
-    ...invokerSelection,
-    ...(meta ? { meta } : {}),
-  }
-}
-
-function metadataSelectionKey(selection: ChatDevtoolsInvokerSelection = {}): string {
-  const invoker = selection.invokerFallback ? "fallback" : selection.invokerProfileId ? `profile:${selection.invokerProfileId}` : "default"
-  return `${invoker}:${JSON.stringify(selection.meta || {})}`
+  return chatDevtoolsMetadataSelection(createAgentDevtoolsMetadata(agent as never), selection)
 }
 
 function canResolveWorkspaceMetadata(agent: AgentInput<ViteAgentDevtoolsRuntimeContext>): boolean {
   return Boolean((agent as { __vitehubWorkspaceAgent?: unknown }).__vitehubWorkspaceAgent)
 }
 
-function metadataWithAgentName(metadata: ChatDevtoolsMetadata, name: string): ChatDevtoolsMetadata {
-  return {
-    ...metadata,
-    name: metadata.name || name,
-  }
-}
-
 function createStaticDevtoolsMetadata(name: string, agent: AgentInput<ViteAgentDevtoolsRuntimeContext>): ChatDevtoolsMetadata {
-  return metadataWithAgentName(createAgentDevtoolsMetadata(agent as never), name)
+  return chatDevtoolsMetadataWithAgentName(createAgentDevtoolsMetadata(agent as never), name)
 }
 
 function metadataStaticKey(metadata: ChatDevtoolsMetadata): string {
@@ -326,68 +238,29 @@ function createChatDevtoolsAgentEntry(
   }
 }
 
-function metadataErrorMessage(_cause: unknown): string {
-  return "Chat DevTools metadata inspection failed."
-}
-
-function materializedSourceKeys(metadata: ChatDevtoolsMetadata | undefined): string[] {
-  const sources = new Set<string>()
-  const pending = [...(metadata?.files || [])]
-  while (pending.length) {
-    const file = pending.shift()!
-    if (file.source && (file.status === "ready" || file.materialized || file.materializedAt)) {
-      sources.add(file.source)
-    }
-    pending.push(...(file.children || []))
-  }
-  return [...sources]
-}
-
 async function startMetadataResolution(
   entry: ChatDevtoolsAgentEntry,
   selection: ChatDevtoolsInvokerSelection = {},
   options: { force?: boolean } = {},
 ): Promise<void> {
-  if (!canResolveWorkspaceMetadata(entry.agent)) {
-    entry.metadataError = undefined
-    entry.metadataSelectionKey = "static"
-    entry.metadataStatus = "ready"
-    entry.metadataTask = undefined
-    return
-  }
-
-  const metadataSelection = metadataSelectionForAgent(entry.agent, selection)
-  const selectionKey = metadataSelectionKey(metadataSelection)
-  if (!options.force && entry.metadataSelectionKey === selectionKey) {
-    return
-  }
-
-  entry.metadata = createStaticDevtoolsMetadata(entry.name, entry.agent)
-  entry.metadataStaticKey = metadataStaticKey(entry.metadata)
-  entry.metadataError = undefined
-  entry.metadataSelectionKey = selectionKey
-  entry.metadataStatus = "loading"
-
-  const run = createDevtoolsMetadataRunMetadata(entry.name)
-  const task = resolveAgentDevtoolsMetadata(entry.agent as never, {
-    input: createDevtoolsMetadataInput(metadataSelection, run),
-    runtime: { agentIdentity: entry.identity, run },
-  } as never)
-    .then((metadata) => {
-      if (entry.metadataTask !== task || entry.metadataSelectionKey !== selectionKey) return
-      entry.metadata = metadataWithAgentName(metadata, entry.name)
-      entry.metadataError = undefined
-      entry.metadataStatus = "ready"
-      entry.metadataTask = undefined
-    })
-    .catch((cause) => {
-      if (entry.metadataTask !== task || entry.metadataSelectionKey !== selectionKey) return
-      entry.metadataError = metadataErrorMessage(cause)
-      entry.metadataStatus = "error"
-      entry.metadataTask = undefined
-    })
-  entry.metadataTask = task
-  if (options.force) await task
+  await refreshChatDevtoolsMetadata({
+    canResolve: canResolveWorkspaceMetadata(entry.agent),
+    force: options.force,
+    name: entry.name,
+    onStaticMetadata(metadata) {
+      entry.metadataStaticKey = metadataStaticKey(metadata)
+    },
+    async resolve(metadataSelection) {
+      const run = createDevtoolsMetadataRunMetadata(entry.name)
+      return await resolveAgentDevtoolsMetadata(entry.agent as never, {
+        input: createChatDevtoolsMetadataInput(metadataSelection, run, chatDevtoolsUser),
+        runtime: { agentIdentity: entry.identity, run },
+      } as never)
+    },
+    selection,
+    state: entry,
+    staticMetadata: createStaticDevtoolsMetadata(entry.name, entry.agent),
+  })
 }
 
 async function discoverChatAgents(server: ViteDevServer, state: ChatDevtoolsBridgeState): Promise<void> {
@@ -431,35 +304,6 @@ function getSession(state: ChatDevtoolsBridgeState, name: string): ChatDevtoolsS
   return session
 }
 
-function titleFromUIMessage(message: UIMessage): string | undefined {
-  for (const part of message.parts || []) {
-    const data = (part as { data?: unknown }).data
-    if (
-      (part as { type?: unknown }).type === "data-title"
-      && data
-      && typeof data === "object"
-      && (data as { type?: unknown }).type === "title"
-      && typeof (data as { title?: unknown }).title === "string"
-    ) {
-      const title = (data as { title: string }).title.trim()
-      if (title) return title
-    }
-  }
-}
-
-function titleFromUIMessages(messages: UIMessage[]): string | undefined {
-  for (const message of [...messages].reverse()) {
-    const title = titleFromUIMessage(message)
-    if (title) return title
-  }
-}
-
-function sessionTitle(session: ChatDevtoolsSession): string | undefined {
-  const title = session.title || titleFromUIMessages(session.uiMessages)
-  if (title) session.title = title
-  return title
-}
-
 function getSelectedName(state: ChatDevtoolsBridgeState, selected?: string): string {
   const names = [...state.entries.keys()]
   const next = selected && state.entries.has(selected)
@@ -471,30 +315,9 @@ function getSelectedName(state: ChatDevtoolsBridgeState, selected?: string): str
   return next
 }
 
-function validMetadataInvokerProfileId(metadata: ChatDevtoolsMetadata | undefined, value: string | undefined): string | undefined {
-  return value && metadata?.invokerProfiles?.some(profile => profile.id === value)
-    ? value
-    : undefined
-}
-
 function assertKnownInvokerProfile(metadata: ChatDevtoolsMetadata | undefined, invokerProfileId: string | undefined): void {
-  if (invokerProfileId && !validMetadataInvokerProfileId(metadata, invokerProfileId)) {
+  if (invokerProfileId && !validChatDevtoolsInvokerProfileId(metadata, invokerProfileId)) {
     throw new Response(`Unknown invoker profile: ${invokerProfileId}`, { status: 400 })
-  }
-}
-
-function normalizeInvokerSelection(input: { invokerFallback?: boolean, invokerProfileId?: string, meta?: unknown } | undefined): ChatDevtoolsInvokerSelection {
-  const meta = optionalRecord(input?.meta)
-  if (input?.invokerFallback === true) {
-    return {
-      invokerFallback: true,
-      ...(meta ? { meta } : {}),
-    }
-  }
-  const invokerProfileId = input?.invokerProfileId?.trim()
-  return {
-    ...(invokerProfileId ? { invokerProfileId } : {}),
-    ...(meta ? { meta } : {}),
   }
 }
 
@@ -507,7 +330,7 @@ async function serializeState(
 
   const chats: ChatDevtoolsConversation[] = [...state.entries.keys()].map((name) => {
     const session = getSession(state, name)
-    const title = sessionTitle(session)
+    const title = chatDevtoolsSessionTitle(session)
     return {
       messages: [],
       ...(session.invokerFallback ? { invokerFallback: true } : {}),
@@ -522,8 +345,8 @@ async function serializeState(
   const selectedSession = nextSelected ? getSession(state, nextSelected) : undefined
   const entry = nextSelected ? state.entries.get(nextSelected) : undefined
   const metadata = entry?.metadata
-  const title = selectedSession ? sessionTitle(selectedSession) || metadata?.name : metadata?.name
-  const invokerProfileId = selectedSession?.invokerProfileId || (!requestedSelection.invokerFallback ? validMetadataInvokerProfileId(metadata, requestedSelection.invokerProfileId) : undefined)
+  const title = selectedSession ? chatDevtoolsSessionTitle(selectedSession) || metadata?.name : metadata?.name
+  const invokerProfileId = selectedSession?.invokerProfileId || (!requestedSelection.invokerFallback ? validChatDevtoolsInvokerProfileId(metadata, requestedSelection.invokerProfileId) : undefined)
   const invokerFallback = selectedSession?.invokerFallback || (!invokerProfileId && requestedSelection.invokerFallback === true)
 
   return {
@@ -562,76 +385,7 @@ function createRunMetadata(session: ChatDevtoolsSession, userMessageId: string):
   }
 }
 
-function createUserUIMessage(text: string): UIMessage {
-  return {
-    id: randomId("devtools-user"),
-    metadata: {},
-    parts: [{ text, type: "text" }],
-    role: "user",
-  }
-}
-
-function uiMessageMetadata(message: UIMessage): Record<string, unknown> | undefined {
-  return isRecord(message.metadata) ? message.metadata : undefined
-}
-
-function hasCompletedMetadata(message: UIMessage): boolean {
-  const completedAt = uiMessageMetadata(message)?.completedAt
-  return typeof completedAt === "string" && completedAt.trim().length > 0
-}
-
-function isToolUIMessagePart(part: unknown): part is Record<string, unknown> {
-  if (!isRecord(part)) return false
-  return part.type === "dynamic-tool"
-    || (typeof part.type === "string" && part.type.startsWith("tool-"))
-}
-
-function uiToolPartName(part: Record<string, unknown>): string | undefined {
-  if (part.type === "dynamic-tool") {
-    return typeof part.toolName === "string" && part.toolName ? part.toolName : undefined
-  }
-  if (typeof part.type === "string" && part.type.startsWith("tool-")) {
-    const name = part.type.slice("tool-".length)
-    return name || undefined
-  }
-}
-
-function uiToolPartId(part: Record<string, unknown>, name: string, index: number): string {
-  if (typeof part.toolCallId === "string" && part.toolCallId) return part.toolCallId
-  if (typeof part.id === "string" && part.id) return part.id
-  return `${name}-${index}`
-}
-
-function toolPartHasOutput(part: Record<string, unknown>): boolean {
-  return part.state === "output-available"
-    || part.state === "output-denied"
-    || Object.prototype.hasOwnProperty.call(part, "output")
-    || typeof part.errorText === "string"
-}
-
-function completedMaterializeSourceToolIds(message: UIMessage): string[] {
-  return (message.parts || []).flatMap((part, index) => {
-    if (!isToolUIMessagePart(part) || !toolPartHasOutput(part)) return []
-    const name = uiToolPartName(part)
-    return name === "materialize_sources" ? [uiToolPartId(part, name, index)] : []
-  })
-}
-
-function hasIncompleteToolParts(message: UIMessage): boolean {
-  return (message.parts || []).some(part => isToolUIMessagePart(part) && !toolPartHasOutput(part))
-}
-
-function isIncompleteAssistantHistoryMessage(message: UIMessage): boolean {
-  return message.role === "assistant" && !hasCompletedMetadata(message) && hasIncompleteToolParts(message)
-}
-
-function createChatDevtoolsVisibleHistory(messages: UIMessage[]): UIMessage[] {
-  return messages.filter(message => !isIncompleteAssistantHistoryMessage(message))
-}
-
-export function createChatDevtoolsPromptHistory(messages: UIMessage[]): UIMessage[] {
-  return createChatDevtoolsVisibleHistory(messages)
-}
+export { createChatDevtoolsPromptHistory } from "../devtools-runtime.ts"
 
 function readableStreamFromResult(value: unknown): ReadableStream<never> {
   if (value instanceof ReadableStream) return value as ReadableStream<never>
@@ -643,7 +397,7 @@ async function sendDevtoolsUIMessage(
   server: ViteDevServer,
   req: IncomingMessage,
   state: ChatDevtoolsBridgeState,
-  input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, stream?: boolean, text?: string },
+  input: ChatDevtoolsBridgeBody,
   onChange?: (next: ChatDevtoolsStateResult) => void | Promise<void>,
 ): Promise<ChatDevtoolsStateResult> {
   if (!input.stream) {
@@ -668,7 +422,7 @@ async function sendDevtoolsUIMessage(
 
   const session = getSession(state, selected)
   state.selected = selected
-  const requestedSelection = normalizeInvokerSelection(input)
+  const requestedSelection = normalizeChatDevtoolsInvokerSelection(input)
   const requestedProfileId = requestedSelection.invokerProfileId
   assertKnownInvokerProfile(selectedEntry.metadata, requestedProfileId)
   if (
@@ -684,12 +438,11 @@ async function sendDevtoolsUIMessage(
       ? undefined
       : requestedProfileId || selectedEntry.metadata.invokerProfiles?.[0]?.id
   }
-  const userMessage = createUserUIMessage(text)
-  const visibleBaseMessages = [...createChatDevtoolsVisibleHistory(session.uiMessages), userMessage]
-  const promptMessages = [...createChatDevtoolsPromptHistory(session.uiMessages), userMessage]
+  const userMessage = createChatDevtoolsUserUIMessage(text, randomId("devtools-user"))
+  const baseMessages = [...createChatDevtoolsPromptHistory(session.uiMessages), userMessage]
   const run = createRunMetadata(session, userMessage.id)
   const startedAt = new Date().toISOString()
-  session.uiMessages = visibleBaseMessages
+  session.uiMessages = baseMessages
   session.thinkingFallback = null
   await onChange?.(await serializeState(state, selected))
 
@@ -697,7 +450,7 @@ async function sendDevtoolsUIMessage(
   const triggerInput: AgentChatMessageTriggerInput = {
     ...(session.invokerProfileId ? { invokerProfileId: session.invokerProfileId } : {}),
     ...(requestedSelection.meta ? { meta: requestedSelection.meta } : {}),
-    messages: promptMessages,
+    messages: baseMessages,
     run,
     timeout: 90_000,
     user: chatDevtoolsUser,
@@ -711,56 +464,29 @@ async function sendDevtoolsUIMessage(
       await onChange?.(await serializeState(state, selected))
     },
   }))
-  const { readUIMessageStream } = await loadAiSdk() as { readUIMessageStream: ReadUIMessageStream }
-  let latestAssistant: UIMessage | undefined
-  const refreshedMaterializationToolIds = new Set<string>()
-  async function refreshCompletedMaterializations(message: UIMessage): Promise<void> {
-    const completedIds = completedMaterializeSourceToolIds(message)
-      .filter(id => !refreshedMaterializationToolIds.has(id))
-    if (!completedIds.length) return
-
-    for (const id of completedIds) refreshedMaterializationToolIds.add(id)
-    await startMetadataResolution(selectedEntry, requestedSelection, { force: true })
-  }
-
-  for await (const assistantMessage of readUIMessageStream({ stream })) {
-    const now = new Date().toISOString()
-    latestAssistant = {
-      ...assistantMessage as UIMessage,
-      metadata: {
-        ...((assistantMessage as UIMessage).metadata as Record<string, unknown> | undefined),
-        createdAt: startedAt,
-        updatedAt: now,
-      },
-    }
-    session.title = titleFromUIMessage(latestAssistant) || session.title
-    session.uiMessages = [...visibleBaseMessages, latestAssistant]
-    await refreshCompletedMaterializations(latestAssistant)
-    await onChange?.(await serializeState(state, selected))
-  }
-  if (latestAssistant) {
-    latestAssistant = {
-      ...latestAssistant,
-      metadata: {
-        ...(latestAssistant.metadata as Record<string, unknown> | undefined),
-        completedAt: new Date().toISOString(),
-      },
-    }
-    session.title = titleFromUIMessage(latestAssistant) || session.title
-    session.uiMessages = [...visibleBaseMessages, latestAssistant]
-    await onChange?.(await serializeState(state, selected))
-  }
+  await consumeChatDevtoolsUIMessageStream({
+    baseMessages,
+    async onChange() {
+      await onChange?.(await serializeState(state, selected))
+    },
+    async onCompletedMaterializations() {
+      await startMetadataResolution(selectedEntry, requestedSelection, { force: true })
+    },
+    session,
+    startedAt,
+    stream,
+  })
   await startMetadataResolution(selectedEntry, requestedSelection, { force: true })
   return await serializeState(state, selected)
 }
 
-async function clearDevtoolsMessages(state: ChatDevtoolsBridgeState, input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown> }): Promise<ChatDevtoolsStateResult> {
+async function clearDevtoolsMessages(state: ChatDevtoolsBridgeState, input: ChatDevtoolsBridgeBody): Promise<ChatDevtoolsStateResult> {
   const selected = getSelectedName(state, input.chat)
   if (!selected) return await serializeState(state)
   const entry = state.entries.get(selected)
   if (!entry) return await serializeState(state)
   const session = getSession(state, selected)
-  const requestedSelection = normalizeInvokerSelection(input)
+  const requestedSelection = normalizeChatDevtoolsInvokerSelection(input)
   assertKnownInvokerProfile(entry.metadata, requestedSelection.invokerProfileId)
   state.selected = selected
   session.thinkingFallback = null
@@ -773,7 +499,7 @@ async function clearDevtoolsMessages(state: ChatDevtoolsBridgeState, input: { ch
 
 async function materializeDevtoolsSource(
   state: ChatDevtoolsBridgeState,
-  input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, path?: string, source?: string },
+  input: ChatDevtoolsBridgeBody,
 ): Promise<ChatDevtoolsStateResult> {
   const selected = getSelectedName(state, input.chat)
   if (!selected) return await serializeState(state)
@@ -783,7 +509,7 @@ async function materializeDevtoolsSource(
     throw new Response("Missing workspace source or path.", { status: 400 })
   }
 
-  const requestedSelection = normalizeInvokerSelection(input)
+  const requestedSelection = normalizeChatDevtoolsInvokerSelection(input)
   assertKnownInvokerProfile(entry.metadata, requestedSelection.invokerProfileId)
   const metadataSelection = metadataSelectionForAgent(entry.agent, requestedSelection)
   state.selected = selected
@@ -793,19 +519,19 @@ async function materializeDevtoolsSource(
   try {
     const run = createDevtoolsMetadataRunMetadata(entry.name)
     const metadata = await materializeAgentDevtoolsSourceMetadata(entry.agent as never, {
-      input: createDevtoolsMetadataInput(metadataSelection, run),
+      input: createChatDevtoolsMetadataInput(metadataSelection, run, chatDevtoolsUser),
       ...(input.path ? { path: input.path } : {}),
       ...(input.source ? { source: input.source } : {}),
       runtime: { agentIdentity: entry.identity, run },
-      sources: materializedSourceKeys(entry.metadata),
+      sources: materializedChatDevtoolsSourceKeys(entry.metadata),
     } as never)
-    entry.metadata = metadataWithAgentName(metadata, entry.name)
-    entry.metadataSelectionKey = metadataSelectionKey(metadataSelection)
+    entry.metadata = chatDevtoolsMetadataWithAgentName(metadata, entry.name)
+    entry.metadataSelectionKey = chatDevtoolsMetadataSelectionKey(metadataSelection)
     entry.metadataStatus = "ready"
     entry.metadataTask = undefined
   }
-  catch (cause) {
-    entry.metadataError = metadataErrorMessage(cause)
+  catch {
+    entry.metadataError = chatDevtoolsMetadataErrorMessage()
     entry.metadataStatus = "error"
   }
 
@@ -839,7 +565,7 @@ async function handleChatDevtoolsRequest(
     return new Response("Missing chat devtools action.", { status: 400 })
   }
 
-  const invokerSelection = normalizeInvokerSelection(body)
+  const invokerSelection = normalizeChatDevtoolsInvokerSelection(body)
   await discoverChatAgents(server, state)
   if (body.chat && state.entries.has(body.chat)) {
     state.selected = body.chat
