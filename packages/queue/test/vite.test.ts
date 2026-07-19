@@ -93,7 +93,7 @@ describe("hubQueue", () => {
     expect(nitroPlugin).toContain("createQueueCloudflareWorker({ definitions: queueDefinitions")
   })
 
-  it("provisions inferred Cloudflare queues with the configured prefix", async () => {
+  it("provisions inferred Cloudflare queues with the configured prefix in plain Vite builds", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-provision-prefix-"))
     roots.push(root)
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
@@ -102,7 +102,6 @@ describe("hubQueue", () => {
     await (plugin.configResolved as (config: unknown) => Promise<void>)({
       build: { outDir: "dist" },
       command: "serve",
-      nitro: { preset: "cloudflare_module" },
       plugins: [],
       queue: { namePrefix: "preview-" },
       resolve: { alias: [] },
