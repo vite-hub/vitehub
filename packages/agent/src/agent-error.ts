@@ -96,6 +96,7 @@ export function agentErrorMessage(error: unknown, fallback?: string): string {
 
 export type AgentPublicErrorCode =
   | "APPROVAL_REQUIRED"
+  | "AUTHENTICATION_REQUIRED"
   | "CAPABILITY_DENIED"
   | "CAPABILITY_NOT_FOUND"
   | "INTERNAL"
@@ -141,6 +142,10 @@ function publicError(
 
 export function toAgentPublicError(error: unknown, context: AgentPublicErrorContext): AgentPublicError {
   try {
+    if (readAgentErrorProperty(error, "code") === "AUTHENTICATION_REQUIRED"
+      && readAgentErrorProperty(error, "statusCode") === 401) {
+      return publicError("AUTHENTICATION_REQUIRED", "Authentication required.")
+    }
     if (error instanceof RateLimitRejectedError) {
       const retryAfter = readAgentErrorProperty(error, "retryAfter")
       const details = publicDetails(error, typeof retryAfter === "number" && Number.isFinite(retryAfter) && retryAfter >= 0

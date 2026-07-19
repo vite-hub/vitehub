@@ -44,8 +44,17 @@ export function throwAuthenticationProviderError(
   cause: unknown,
   operation: AuthenticationProviderOperation,
 ): never {
-  if (cause instanceof ViteHubError || isAuthenticationAbortError(cause)) throw cause
+  if (isViteHubError(cause) || isAuthenticationAbortError(cause)) throw cause
   throw new AuthenticationProviderError({ cause, operation })
+}
+
+function isViteHubError(error: unknown): error is ViteHubError {
+  try {
+    return error instanceof ViteHubError
+  }
+  catch {
+    return false
+  }
 }
 
 function isAuthenticationAbortError(error: unknown): boolean {

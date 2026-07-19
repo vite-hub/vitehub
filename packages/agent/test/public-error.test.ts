@@ -25,6 +25,13 @@ describe("Agent public error seams", () => {
     })
   })
 
+  it("preserves the stable authentication failure contract", () => {
+    expect(toAgentPublicError({ code: "AUTHENTICATION_REQUIRED", statusCode: 401 }, "http")).toEqual({
+      code: "AUTHENTICATION_REQUIRED",
+      error: "Authentication required.",
+    })
+  })
+
   it("redacts unowned HTTP failures and hostile metadata", async () => {
     const hostile = new Proxy({}, {
       get() {

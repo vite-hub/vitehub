@@ -7,13 +7,13 @@ export interface CloudflareWorkerExecutionContext {
 }
 
 let activeEnv: CloudflareWorkerEnv | undefined
-const activeEnvStorage = new AsyncLocalStorage<CloudflareWorkerEnv | undefined>()
+const activeEnvStorage = new AsyncLocalStorage<{ env: CloudflareWorkerEnv | undefined }>()
 
 export function setActiveCloudflareEnv(env: CloudflareWorkerEnv | undefined): void {
   activeEnv = env
   ;(globalThis as { __env__?: CloudflareWorkerEnv }).__env__ = env
   try {
-    activeEnvStorage.enterWith(env)
+    activeEnvStorage.enterWith({ env })
   }
   catch {
     // Cloudflare Workers validates Node builtins but does not implement enterWith().
@@ -27,11 +27,12 @@ export function clearActiveCloudflareEnv(): void {
 }
 
 export function runWithActiveCloudflareEnv<T>(env: CloudflareWorkerEnv | undefined, callback: () => T): T {
-  return activeEnvStorage.run(env, callback)
+  return activeEnvStorage.run({ env }, callback)
 }
 
 export function getActiveCloudflareEnv(): CloudflareWorkerEnv | undefined {
-  return activeEnvStorage.getStore() ?? activeEnv ?? (globalThis as { __env__?: CloudflareWorkerEnv }).__env__
+  const scoped = activeEnvStorage.getStore()
+  return scoped ? scoped.env : activeEnv ?? (globalThis as { __env__?: CloudflareWorkerEnv }).__env__
 }
 
 export function getActiveCloudflareBinding<T>(name: string): T | undefined {

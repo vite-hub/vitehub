@@ -19,6 +19,14 @@ describe("Cloudflare environment context", () => {
     expect(getActiveCloudflareEnv()).toBe(fallback)
   })
 
+  it("masks the fallback environment in an explicit empty request context", () => {
+    const fallback = { name: "fallback" }
+    setActiveCloudflareEnv(fallback)
+
+    expect(runWithActiveCloudflareEnv(undefined, getActiveCloudflareEnv)).toBeUndefined()
+    expect(getActiveCloudflareEnv()).toBe(fallback)
+  })
+
   it("restores the fallback environment after asynchronous request context", async () => {
     const fallback = { name: "fallback" }
     const request = { name: "request" }

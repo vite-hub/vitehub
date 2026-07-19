@@ -206,6 +206,22 @@ describe("authenticated", () => {
     expect(JSON.stringify(error)).not.toContain("secret")
   })
 
+  it("normalizes provider failures with hostile prototypes", async () => {
+    const request = new Request("https://example.com/api/agent")
+    const cause = new Proxy({}, {
+      getPrototypeOf() {
+        throw new Error("private prototype trap")
+      },
+    })
+    serverMocks.getSession.mockRejectedValueOnce(cause)
+
+    const error = await resolve(authenticated(), createContext({ request })).catch(error => error)
+
+    expect(error).toBeInstanceOf(AuthenticationProviderError)
+    expect(error).toMatchObject({ code: "AUTH_PROVIDER_OPERATION_FAILED" })
+    expect(error.cause).toBe(cause)
+  })
+
   it("normalizes default label getter failures from Better Auth", async () => {
     const request = new Request("https://example.com/api/agent")
     const cause = new Error("protected email getter failure")
