@@ -146,7 +146,6 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       generatedAliases = prepared.aliases
       generatedFiles = prepared.files
       definitions = prepared.definitions
-      await composeCloudflareSandbox(config, prepared)
       return {
         resolve: {
           alias: toSandboxAliasEntries({

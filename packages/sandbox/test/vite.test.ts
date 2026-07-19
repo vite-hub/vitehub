@@ -250,9 +250,11 @@ describe("hubSandbox", () => {
       name: "image-optimizer",
     })
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
+    const existingPlugin = { name: "application-plugin" }
     const userConfig = {
       root: rootDir,
-      plugins: [[{ name: "nitro:main" }]],
+      plugins: [{ name: "nitro:main" }],
       nitro: {
         cloudflare: {
           wrangler: {
@@ -264,17 +266,20 @@ describe("hubSandbox", () => {
         output: {
           serverDir: ".output/server",
         },
+        rollupConfig: { plugins: existingPlugin },
       },
     }
 
     await configHook(userConfig, { command: "build", mode: "production" })
+    userConfig.nitro.output.serverDir = ".nitro/server/output"
+    await configResolved({ ...userConfig, resolve: { alias: [] } })
 
     expect(userConfig.nitro.cloudflare.wrangler).toMatchObject({
       compatibility_flags: ["custom", "nodejs_compat"],
       containers: [{
         class_name: "Sandbox",
-        image: "../../.vitehub/sandbox/Dockerfile",
-        image_build_context: "../..",
+        image: "../../../.vitehub/sandbox/Dockerfile",
+        image_build_context: "../../..",
         instance_type: "lite",
         max_instances: 12,
         name: "image-optimizer",
@@ -300,7 +305,8 @@ describe("hubSandbox", () => {
         }>
       }
     }
-    const [rollupPlugin] = configuredNitro.rollupConfig.plugins
+    expect(configuredNitro.rollupConfig.plugins[0]).toBe(existingPlugin)
+    const rollupPlugin = configuredNitro.rollupConfig.plugins[1]
     expect(rollupPlugin.name).toBe("vitehub-sandbox-cloudflare-exports:Sandbox")
     expect(rollupPlugin.load("\0virtual:vitehub-sandbox-cloudflare-exports"))
       .toContain("export class Sandbox extends CloudflareSandbox")
@@ -313,6 +319,7 @@ describe("hubSandbox", () => {
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox({ provider: "cloudflare", name: "generated-name" })
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
     const container = {
       class_name: "Sandbox",
       image: "./custom.Dockerfile",
@@ -329,6 +336,7 @@ describe("hubSandbox", () => {
     }
 
     await configHook(userConfig, { command: "build", mode: "production" })
+    await configResolved({ ...userConfig, resolve: { alias: [] } })
 
     expect(userConfig.nitro.cloudflare.wrangler.containers[0]).toBe(container)
     expect(userConfig.nitro.cloudflare.wrangler.containers).toEqual([{
@@ -340,6 +348,7 @@ describe("hubSandbox", () => {
     }])
     await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
       .rejects.toMatchObject({ code: "ENOENT" })
+    expect(userConfig.nitro).not.toHaveProperty("rollupConfig")
   })
 
   it("completes only the required image fields on a partial Cloudflare Sandbox container", async () => {
@@ -347,6 +356,7 @@ describe("hubSandbox", () => {
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox({ provider: "cloudflare", name: "generated-name" })
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
     const container = {
       class_name: "Sandbox",
       instance_type: "standard-1",
@@ -363,6 +373,7 @@ describe("hubSandbox", () => {
     }
 
     await configHook(userConfig, { command: "build", mode: "production" })
+    await configResolved({ ...userConfig, resolve: { alias: [] } })
 
     expect(userConfig.nitro.cloudflare.wrangler.containers[0]).toBe(container)
     expect(userConfig.nitro.cloudflare.wrangler.containers).toEqual([{
@@ -380,6 +391,7 @@ describe("hubSandbox", () => {
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox({ provider: "cloudflare" })
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
     const migrations = [{ tag: "v1", new_sqlite_classes: ["Existing"] }]
     const userConfig = {
       root: rootDir,
@@ -389,7 +401,8 @@ describe("hubSandbox", () => {
       },
     }
 
-    await expect(configHook(userConfig, { command: "build", mode: "production" }))
+    await configHook(userConfig, { command: "build", mode: "production" })
+    await expect(configResolved({ ...userConfig, resolve: { alias: [] } }))
       .rejects.toThrow('Cloudflare migration tag "v1" is already in use')
     expect(userConfig.nitro.cloudflare.wrangler).toEqual({
       migrations: [{ tag: "v1", new_sqlite_classes: ["Existing"] }],
@@ -401,6 +414,7 @@ describe("hubSandbox", () => {
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox({ provider: "cloudflare" })
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
     const wrangler = { exports: { Existing: "Existing" } }
     const userConfig = {
       root: rootDir,
@@ -408,9 +422,34 @@ describe("hubSandbox", () => {
       nitro: { cloudflare: { wrangler } },
     }
 
-    await expect(configHook(userConfig, { command: "build", mode: "production" }))
+    await configHook(userConfig, { command: "build", mode: "production" })
+    await expect(configResolved({ ...userConfig, resolve: { alias: [] } }))
       .rejects.toThrow("cannot compose legacy migrations")
     expect(userConfig.nitro.cloudflare.wrangler).toBe(wrangler)
+  })
+
+  it("rejects a colliding Cloudflare Durable Object binding before mutation", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
+    const wrangler = {
+      durable_objects: { bindings: [{ name: "SANDBOX", class_name: "Existing" }] },
+    }
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: { cloudflare: { wrangler } },
+    }
+
+    await configHook(userConfig, { command: "build", mode: "production" })
+    await expect(configResolved({ ...userConfig, resolve: { alias: [] } }))
+      .rejects.toThrow('Cloudflare Durable Object binding "SANDBOX" is already in use')
+    expect(userConfig.nitro.cloudflare.wrangler).toBe(wrangler)
+    expect(wrangler).toEqual({
+      durable_objects: { bindings: [{ name: "SANDBOX", class_name: "Existing" }] },
+    })
   })
 
   it("defers generated definition bundling until Vite aliases are resolved", async () => {

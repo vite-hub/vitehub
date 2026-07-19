@@ -61,6 +61,10 @@ export function configureCloudflareSandbox(target: MutableCloudflareTarget, opti
   if (!classIsMigrated && existingMigrations?.some(entry => entry.tag === migrationTag)) {
     throw new Error(`[vitehub] Cloudflare migration tag ${JSON.stringify(migrationTag)} is already in use. Configure a unique sandbox migrationTag.`)
   }
+  const existingBindings = target.cloudflare?.wrangler?.durable_objects?.bindings
+  if (existingBindings?.some(entry => entry.name === binding && entry.class_name !== className)) {
+    throw new Error(`[vitehub] Cloudflare Durable Object binding ${JSON.stringify(binding)} is already in use. Configure a unique sandbox binding.`)
+  }
 
   target.cloudflare ||= {}
   target.cloudflare.wrangler ||= {}
@@ -141,7 +145,9 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
 export function installCloudflareSandboxEntrypoint(target: MutableRollupTarget, options: CloudflareSandboxEntrypointOptions = {}) {
   const { className } = resolveCloudflareSandboxEntrypointOptions(options)
   target.rollupConfig ||= {}
-  const plugins = Array.isArray(target.rollupConfig.plugins) ? target.rollupConfig.plugins : []
+  const plugins = Array.isArray(target.rollupConfig.plugins)
+    ? target.rollupConfig.plugins
+    : target.rollupConfig.plugins ? [target.rollupConfig.plugins] : []
   target.rollupConfig.plugins = plugins
   if (plugins.some((plugin: unknown) => typeof plugin === 'object' && plugin !== null && 'name' in plugin && (plugin as { name?: string }).name === `vitehub-sandbox-cloudflare-exports:${className}`))
     return
@@ -192,6 +198,7 @@ export async function configureCloudflareSandboxNitro(
   if (!wrangler.compatibility_flags.includes('nodejs_compat'))
     wrangler.compatibility_flags.push('nodejs_compat')
 
-  installCloudflareSandboxEntrypoint(target, resolvedOptions)
+  if (!existingContainer)
+    installCloudflareSandboxEntrypoint(target, resolvedOptions)
   return target
 }
