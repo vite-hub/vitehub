@@ -71,12 +71,12 @@ describe("hubQueue", () => {
     expect(registry).toContain("welcome.queue.ts")
   })
 
-  it("keeps prefixed Cloudflare queue bindings and runtime definitions aligned", async () => {
+  it("keeps inferred Cloudflare queue prefixes aligned across bindings and runtime definitions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-prefix-"))
     roots.push(root)
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
 
-    const plugin = hubQueue({ namePrefix: "preview-", provider: "cloudflare" })
+    const plugin = hubQueue({ namePrefix: "preview-" } as never)
     const userConfig = { nitro: { preset: "cloudflare_module" }, root }
     ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(userConfig)
     expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.queues", {
@@ -86,7 +86,7 @@ describe("hubQueue", () => {
 
     await (plugin.configResolved as (config: unknown) => Promise<void>)({
       ...userConfig,
-      queue: { namePrefix: "preview-", provider: "cloudflare" },
+      queue: { namePrefix: "preview-" },
     } as never)
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     expect(nitroPlugin).toContain('"preview-queue--77656c636f6d65": "welcome"')
