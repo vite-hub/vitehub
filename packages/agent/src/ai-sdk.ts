@@ -60,7 +60,6 @@ export interface AiSdkAdapterOptions<
 > {
   execution?: AiSdkModelExecutionOptions<TRuntimeConfig, TCallOptions, TTools>
   instructions?: AgentAdapterInstructions<TRuntimeConfig, Name>
-  modelExecution?: AiSdkModelExecutionOptions<TRuntimeConfig, TCallOptions, TTools>
   model: ToolLoopAgentSettings<TCallOptions, TTools>["model"] | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<ToolLoopAgentSettings<TCallOptions, TTools>["model"]>)
   tools?: AgentToolResolverWithWorkspace<TRuntimeConfig, Name>
 }
@@ -777,7 +776,7 @@ function modelExecutionInstrumentation(
   options: AiSdkAdapterOptions,
   context: AgentAdapterRunContext,
 ): AgentModelExecutionInstrumentation[] {
-  const instrumentation = options.execution?.instrumentation ?? options.modelExecution?.instrumentation
+  const instrumentation = options.execution?.instrumentation
   return [
     ...(instrumentation ? [instrumentation as AgentModelExecutionInstrumentation] : []),
     ...(context.modelExecutionInstrumentation || []),
@@ -818,7 +817,7 @@ async function createAgent(
   fallbackCapture?: ReturnType<typeof createWorkspaceFallbackEvidenceCapture>,
 ) {
   const { ToolLoopAgent, isStepCount, jsonSchema } = await loadAiSdk()
-  const execution = options.execution ?? options.modelExecution
+  const execution = options.execution
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   const metadataContext = {
     ...agentInvocationCallbackContextValues(context.context),
@@ -854,7 +853,6 @@ async function createAgent(
   const {
     instructions: _instructions,
     execution: _execution,
-    modelExecution: _modelExecution,
     model: _model,
     tools: _tools,
   } = options
@@ -892,7 +890,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
   return {
     async generate(context) {
       const callInput = getCallInput(context) as Record<string, unknown>
-      const execution = options.execution ?? options.modelExecution
+      const execution = options.execution
       const fallback = getFallbackOptions(execution?.workspaceFallback)
       const fallbackCapture = fallback.enabled
         ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)
@@ -938,7 +936,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     ...(staticTools ? { tools: staticTools } : {}),
     async stream(context) {
       const usageCapture = createUsageCapture()
-      const execution = options.execution ?? options.modelExecution
+      const execution = options.execution
       const fallback = getFallbackOptions(execution?.workspaceFallback)
       const fallbackCapture = fallback.enabled
         ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)

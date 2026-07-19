@@ -6,6 +6,10 @@ export interface IdentifierCall {
   start: number
 }
 
+export interface DefaultExportCall extends IdentifierCall {
+  argument: string
+}
+
 function isQuote(char: string | undefined) {
   return char === "\"" || char === "'" || char === "`"
 }
@@ -30,6 +34,7 @@ function skipQuoted(source: string, index: number) {
 function skipTemplateLiteral(source: string, index: number): number {
   index += 1
   let expressionDepth = 0
+  let previousSignificant = ""
   while (index < source.length) {
     const char = source[index]
     const next = source[index + 1]
@@ -41,6 +46,7 @@ function skipTemplateLiteral(source: string, index: number): number {
       if (char === "`") return index + 1
       if (char === "$" && next === "{") {
         expressionDepth = 1
+        previousSignificant = "{"
         index += 2
         continue
       }
@@ -49,10 +55,12 @@ function skipTemplateLiteral(source: string, index: number): number {
     }
     if (char === "\"" || char === "'") {
       index = skipQuoted(source, index)
+      previousSignificant = "literal"
       continue
     }
     if (char === "`") {
       index = skipTemplateLiteral(source, index)
+      previousSignificant = "literal"
       continue
     }
     if (char === "/" && next === "/") {
@@ -63,8 +71,14 @@ function skipTemplateLiteral(source: string, index: number): number {
       index = skipBlockComment(source, index)
       continue
     }
+    if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, index))) {
+      index = skipRegexLiteral(source, index)
+      previousSignificant = "/"
+      continue
+    }
     if (char === "{") expressionDepth += 1
     if (char === "}") expressionDepth -= 1
+    previousSignificant = trackSignificant(previousSignificant, char)
     index += 1
   }
   return index
@@ -86,6 +100,7 @@ function isIdentifierChar(char: string | undefined) {
 
 function isRegexLiteralStart(previousSignificant: string) {
   const token = previousSignificant.trimEnd()
+  if (/^\.[\w$]+$/.test(token)) return false
   return !token || /[({[=,:!&|?;>+\-*%^~]/.test(token) || /\b(?:await|case|delete|do|else|in|instanceof|return|throw|typeof|void|yield)$/.test(token)
 }
 
@@ -173,7 +188,9 @@ function skipRegexLiteral(source: string, index: number) {
 
 function trackSignificant(previousSignificant: string, char: string | undefined) {
   if (/[a-z$]/i.test(char ?? "")) {
-    return /[\w$]$/.test(previousSignificant) ? previousSignificant + char : char ?? ""
+    return /[\w$]$/.test(previousSignificant) || previousSignificant === "."
+      ? previousSignificant + char
+      : char ?? ""
   }
   if (/\s/.test(char ?? "")) {
     return /[\w$]$/.test(previousSignificant) ? `${previousSignificant} ` : previousSignificant
@@ -217,6 +234,46 @@ function skipWhitespaceAndComments(source: string, index: number) {
   return index
 }
 
+export function stripBoundaryComments(source: string): string {
+  return source
+    .replace(/^(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, "")
+    .replace(/(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+$/, "")
+}
+
+export function maskSourceLiterals(source: string): string {
+  const output = source.split("")
+  let previousSignificant = ""
+  const mask = (start: number, end: number) => {
+    for (let index = start; index < end; index++) {
+      if (output[index] !== "\n" && output[index] !== "\r") output[index] = " "
+    }
+  }
+
+  for (let index = 0; index < source.length;) {
+    const char = source[index]
+    const next = source[index + 1]
+    let end: number | undefined
+    if (isQuote(char)) {
+      end = skipQuoted(source, index)
+      previousSignificant = "literal"
+    }
+    else if (char === "/" && next === "/") end = skipLineComment(source, index)
+    else if (char === "/" && next === "*") end = skipBlockComment(source, index)
+    else if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, index))) {
+      end = skipRegexLiteral(source, index)
+      previousSignificant = "/"
+    }
+    if (end !== undefined) {
+      mask(index, end)
+      index = end
+      continue
+    }
+    previousSignificant = trackSignificant(previousSignificant, char)
+    index += 1
+  }
+  return output.join("")
+}
+
 function isMethodDeclarationName(source: string, index: number, closeParen: number) {
   const previous = previousNonWhitespace(source, index)
   return source[skipWhitespaceAndComments(source, closeParen + 1)] === "{"
@@ -238,6 +295,7 @@ export function findMatching(source: string, index: number, open: string, close:
     const next = source[current + 1]
     if (isQuote(char)) {
       current = skipQuoted(source, current) - 1
+      previousSignificant = "literal"
       continue
     }
     if (char === "/" && next === "/") {
@@ -278,6 +336,7 @@ export function splitTopLevel(source: string, separator = ",") {
     const next = source[index + 1]
     if (isQuote(char)) {
       index = skipQuoted(source, index) - 1
+      previousSignificant = "literal"
       continue
     }
     if (char === "/" && next === "/") {
@@ -330,6 +389,7 @@ export function findIdentifierCalls(source: string, name: string): IdentifierCal
     const next = source[index + 1]
     if (isQuote(char)) {
       index = skipQuoted(source, index) - 1
+      previousSignificant = "literal"
       continue
     }
     if (char === "/" && next === "/") {
@@ -390,4 +450,35 @@ export function findIdentifierCalls(source: string, name: string): IdentifierCal
     index = closeParen
   }
   return calls
+}
+
+export function findDefaultExportCall(source: string, names: string[]): DefaultExportCall | undefined {
+  const masked = maskSourceLiterals(source)
+  const calls = names
+    .flatMap(name => findIdentifierCalls(source, name))
+    .sort((left, right) => left.start - right.start)
+
+  for (const call of calls) {
+    const callArgument = stripBoundaryComments(call.arguments[0] || "")
+    if (!callArgument.startsWith("{")) continue
+    const objectEnd = findMatching(callArgument, 0, "{", "}")
+    if (objectEnd === undefined) continue
+    const suffix = stripBoundaryComments(callArgument.slice(objectEnd + 1))
+    if (suffix && !/^(?:as|satisfies)\b/.test(suffix)) continue
+    const argument = callArgument.slice(0, objectEnd + 1)
+    if (/\bexport\s+default\s*(?:\(\s*)*$/.test(masked.slice(0, call.start))) {
+      return { ...call, argument }
+    }
+  }
+}
+
+export function readObjectProperty(objectSource: string, propertyName: string): string | undefined {
+  const normalized = stripBoundaryComments(objectSource)
+  if (!normalized.startsWith("{") || !normalized.endsWith("}")) return
+  for (const property of splitTopLevel(normalized.slice(1, -1))) {
+    const parts = splitTopLevel(property, ":")
+    if (parts.length < 2) continue
+    const key = stripBoundaryComments(parts.shift()!).replace(/^["'`](.*)["'`]$/s, "$1")
+    if (key === propertyName) return stripBoundaryComments(parts.join(":"))
+  }
 }

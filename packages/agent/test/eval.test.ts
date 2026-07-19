@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { adapterDefinition } from "./adapter-definition.ts"
 
 const evaliteCalls = vi.hoisted(() => [] as Array<{ name: string, opts: any, variants?: Array<{ input: unknown, name: string }> }>)
 
@@ -70,7 +71,7 @@ describe("agent eval", () => {
     const { defineEval } = await import("../src/eval.ts")
 
     expect(() => defineEval({
-      agent: { generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
+      agent: adapterDefinition({ generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" }),
       scenarios: [],
     })).toThrow("[vitehub] defineEval({ scenarios }) requires at least one scenario.")
   })
@@ -79,7 +80,7 @@ describe("agent eval", () => {
     const { defineEval, textContains } = await import("../src/eval.ts")
 
     defineEval({
-      agent: { generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
+      agent: adapterDefinition({ generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" }),
       name: "support",
       scenarios: [{
         input: { prompt: "hello" },
@@ -182,7 +183,7 @@ describe("agent eval", () => {
     const { defineEval } = await import("../src/eval.ts")
 
     defineEval({
-      agent: { generate: vi.fn(), stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
+      agent: adapterDefinition({ generate: vi.fn(), stream: vi.fn(), tools: {}, version: "agent-v1" }),
       name: "support",
       scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
       variants: [{ name: "strict", instructions: "Be strict." }],
@@ -197,7 +198,7 @@ describe("agent eval", () => {
     const { defineEval } = await import("../src/eval.ts")
 
     defineEval({
-      agent: { generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
+      agent: adapterDefinition({ generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" }),
       name: "support",
       async test(t) {
         await t.send("hello")
@@ -297,7 +298,7 @@ describe("agent eval", () => {
     const { defineEval } = await import("../src/eval.ts")
 
     defineEval({
-      agent: { generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
+      agent: adapterDefinition({ generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" }),
       name: "support",
       test(t) {
         t.completed()
@@ -316,7 +317,7 @@ describe("agent eval", () => {
       .mockResolvedValueOnce({ text: "second reply" })
 
     defineEval({
-      agent: { generate, stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
+      agent: adapterDefinition({ generate, stream: vi.fn(), tools: {}, version: "agent-v1" }),
       name: "support",
       async test(t) {
         await t.send("hello")
@@ -333,9 +334,9 @@ describe("agent eval", () => {
     })
     expect(generate.mock.calls[1]?.[0]).toMatchObject({
       messages: [
-        { content: "hello", role: "user" },
-        { content: "first reply", role: "assistant" },
-        { content: "again", role: "user" },
+        { parts: [{ text: "hello", type: "text" }], role: "user" },
+        { parts: [{ text: "first reply", type: "text" }], role: "assistant" },
+        { parts: [{ text: "again", type: "text" }], role: "user" },
       ],
     })
   })
@@ -357,7 +358,7 @@ describe("agent eval", () => {
     }
 
     defineEval({
-      agent: agent as never,
+      agent: adapterDefinition(agent),
       name: "support",
       scorers: [globalScorer],
       scenarios: [{
@@ -387,7 +388,7 @@ describe("agent eval", () => {
     const { defineEval } = await import("../src/eval.ts")
 
     defineEval({
-      agent: { generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
+      agent: adapterDefinition({ generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" }),
       name: "support",
       scenarios: [{
         input: { prompt: "hello" },
@@ -514,7 +515,7 @@ describe("agent eval", () => {
     const { defineEval } = await import("../src/eval.ts")
 
     defineEval({
-      agent: { generate: vi.fn(), stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
+      agent: adapterDefinition({ generate: vi.fn(), stream: vi.fn(), tools: {}, version: "agent-v1" }),
       name: "support",
       scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
       variants: [{ instructions: "Variant instructions.", name: "variant" }],
@@ -529,7 +530,7 @@ describe("agent eval", () => {
     const { defineEval } = await import("../src/eval.ts")
 
     defineEval({
-      agent: { generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
+      agent: adapterDefinition({ generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" }),
       name: "support",
       scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
       variants: [{ instructions: undefined, name: "baseline" }],

@@ -62,9 +62,7 @@ interface InstructionProtectedTokens {
 
 const defaultImportDepth = 4
 const contextPathPattern = /context(?:\.[A-Za-z_$][\w$-]*)+/
-const tripleBindingPattern = /\{\{\{\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}\}/g
 const instructionTripleBindingPattern = /\{\{\{\s*([A-Za-z_$][\w$-]*(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}\}/g
-const scalarBindingPattern = /\{\{(?!\{)\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}/g
 
 export async function resolveInstructionImports(content: string, options: ResolveInstructionImportsOptions): Promise<string> {
   const runtime = createInstructionMarkdownRuntime()
@@ -108,13 +106,6 @@ function validateInstructionMarkdownBindings(content: string): void {
       throw new Error(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" must use a context.* path. Import Workspace Markdown with @${path}.`)
     }
   }
-}
-
-export function composeStaticInstructionDocument(content: string, options: ComposeInstructionDocumentOptions = {}): string {
-  const context = options.context || {}
-  const normalized = normalizeStaticConditionShorthand(content)
-  validateConditionalDirectives(normalized)
-  return stripStaticInstructionCoverageDirectives(renderStaticContextBindings(renderStaticConditionals(normalized, context), context)).trim().replace(/\n{3,}/g, "\n\n")
 }
 
 export function createInstructionCoverage(): InstructionCoverage {
@@ -580,22 +571,6 @@ function instructionDirectiveTokensInCode(
   return found
 }
 
-function normalizeStaticConditionShorthand(content: string): string {
-  let fenced: string | undefined
-  return content.split(/\r?\n/).map((line) => {
-    const fence = line.match(/^\s*(```|~~~)/)?.[1]
-    if (fence) {
-      fenced = fenced ? undefined : fence
-      return line
-    }
-    if (fenced) return line
-    return line.replace(/^(\s*::(?:if|else-if))\{([\s\S]+)\}(\s*)$/, (match, start: string, expression: string, end: string) =>
-      /^(?:if|condition)\s*=/.test(expression.trim())
-        ? match
-        : `${start}{condition=${JSON.stringify(expression.trim())}}${end}`)
-  }).join("\n")
-}
-
 function isInstructionCoverageTag(tag: string): tag is "capability" | "skill" | "source" {
   return tag === "capability" || tag === "skill" || tag === "source"
 }
@@ -619,23 +594,6 @@ function recordInstructionCoverage(
   if (tag === "capability") coverage.capabilities.add(value)
   if (tag === "skill") coverage.skills.add(value)
   if (tag === "source") coverage.sources.add(value)
-}
-
-function stripStaticInstructionCoverageDirectives(content: string): string {
-  let depth = 0
-  const lines: string[] = []
-  for (const line of content.split(/\r?\n/)) {
-    if (/^\s*::(?:capability|skill|source)\{/.test(line)) {
-      depth += 1
-      continue
-    }
-    if (depth > 0 && /^\s*::\s*$/.test(line)) {
-      depth -= 1
-      continue
-    }
-    lines.push(line)
-  }
-  return lines.join("\n")
 }
 
 function conditionalBranches(node: ComarkElement): { after: ComarkNode[], branches: Array<{ expression?: string, nodes: ComarkNode[] }> } {
@@ -720,76 +678,6 @@ function validateConditionalDirectives(content: string): void {
   }
 }
 
-function renderStaticConditionals(content: string, context: Record<string, unknown>): string {
-  const lines = content.split(/\r?\n/)
-  const rendered: string[] = []
-  for (let index = 0; index < lines.length;) {
-    const line = lines[index]!
-    const directive = directiveLine(line)
-    if (directive?.kind === "if") {
-      const result = renderStaticIfChain(lines, index, directive.expression, context)
-      rendered.push(result.content)
-      index = result.next
-      continue
-    }
-    if (directive?.kind === "else" || directive?.kind === "else-if") {
-      throw new Error(`[vitehub] Instruction ${directive.kind} block must follow an if block.`)
-    }
-    rendered.push(line)
-    index += 1
-  }
-  return rendered.join("\n")
-}
-
-function renderStaticIfChain(
-  lines: string[],
-  start: number,
-  expression: string | undefined,
-  context: Record<string, unknown>,
-): { content: string, next: number } {
-  const branches: Array<{ expression?: string, lines: string[] }> = [{ expression, lines: [] }]
-  let depth = 0
-  let sawElse = false
-
-  for (let index = start + 1; index < lines.length; index += 1) {
-    const line = lines[index]!
-    const directive = directiveLine(line)
-
-    if (directive?.kind === "if") {
-      depth += 1
-      branches.at(-1)!.lines.push(line)
-      continue
-    }
-    if (isDirectiveClose(line)) {
-      if (depth > 0) {
-        depth -= 1
-        branches.at(-1)!.lines.push(line)
-        continue
-      }
-      const selected = branches.find(branch =>
-        branch.expression === undefined || evaluateCondition(branch.expression, context))
-      return {
-        content: selected ? renderStaticConditionals(selected.lines.join("\n"), context) : "",
-        next: index + 1,
-      }
-    }
-    if (depth === 0 && directive?.kind === "else-if") {
-      if (sawElse) throw new Error("[vitehub] Instruction else-if block cannot follow else.")
-      branches.push({ expression: directive.expression, lines: [] })
-      continue
-    }
-    if (depth === 0 && directive?.kind === "else") {
-      if (sawElse) throw new Error("[vitehub] Instruction if chain cannot contain more than one else block.")
-      sawElse = true
-      branches.push({ lines: [] })
-      continue
-    }
-    branches.at(-1)!.lines.push(line)
-  }
-
-  throw new Error("[vitehub] Instruction if block is missing a closing :: line.")
-}
-
 function directiveLine(line: string): { expression?: string, kind: "else" | "else-if" | "if", raw?: string } | undefined {
   const match = line.match(/^\s*::(if|else-if|else)(?:\{(.+)\})?\s*$/)
   if (!match) return
@@ -801,10 +689,6 @@ function directiveLine(line: string): { expression?: string, kind: "else" | "els
   const expression = conditionExpression(match[2])
   if (!expression) throw new Error(`[vitehub] Instruction ${kind} block requires a condition.`)
   return { expression, kind, raw: match[2] }
-}
-
-function isDirectiveClose(line: string): boolean {
-  return /^\s*::\s*$/.test(line)
 }
 
 function conditionExpression(raw: string | undefined): string | undefined {
@@ -954,22 +838,4 @@ function nestedPathValue(value: unknown, segments: string[]): unknown {
     current = (current as Record<string, unknown>)[segment]
   }
   return current
-}
-
-function renderStaticContextBindings(content: string, context: Record<string, unknown>): string {
-  return content
-    .replace(tripleBindingPattern, (_match, path: string) => {
-      const value = namespacePathValue(context, path)
-      if (value === null || value === undefined) return ""
-      if (typeof value !== "string") {
-        throw new TypeError(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" must resolve to a string.`)
-      }
-      return value
-    })
-    .replace(scalarBindingPattern, (_match, path: string) => {
-      const value = namespacePathValue(context, path)
-      if (value === null || value === undefined) return ""
-      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value)
-      throw new TypeError(`[vitehub] Instruction binding "{{ ${path} }}" must resolve to a scalar value.`)
-    })
 }

@@ -8,7 +8,6 @@ import type { WorkspaceSource } from "../core/types.ts"
 export function markdown(options: FileSourceOptions): WorkspaceSource {
   const key = normalizeSafeWorkspacePath(options.workspacePath || options.path || "")
   const source = createMarkdownSource(options)
-  delete (source as typeof source & { instructions?: unknown }).instructions
   return {
     ...source,
     cache: options.cache,

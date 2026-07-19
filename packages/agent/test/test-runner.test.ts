@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { adapterDefinition } from "./adapter-definition.ts"
 
 const readFile = vi.fn()
 const list = vi.fn()
@@ -76,7 +77,7 @@ describe("agent test runner", () => {
     expect(create).toHaveBeenCalledTimes(1)
   })
 
-  it("normalizes run output from direct agents", async () => {
+  it("normalizes run output from resolved adapters", async () => {
     const { runAgentForTest } = await import("../src/test.ts")
     const agent = {
       generate: vi.fn(async () => ({ finishReason: "stop", text: "done", usage: { outputTokens: 2 } })),
@@ -85,7 +86,7 @@ describe("agent test runner", () => {
       version: "agent-v1",
     }
 
-    await expect(runAgentForTest(agent as never, {
+    await expect(runAgentForTest(adapterDefinition(agent), {
       runtimeConfig: {},
     }, {
       prompt: "hello",
@@ -138,7 +139,7 @@ describe("agent test runner", () => {
       version: "agent-v1",
     }
 
-    const result = await runAgentForTest(agent as never, {
+    const result = await runAgentForTest(adapterDefinition(agent), {
       runtimeConfig: {},
     }, {
       prompt: "hello",
@@ -171,7 +172,7 @@ describe("agent test runner", () => {
       version: "agent-v1",
     }
 
-    const result = await createAgentTestRunner(agent as never, {
+    const result = await createAgentTestRunner(adapterDefinition(agent), {
       runtimeConfig: {},
     }).run({ prompt: "Use the shell" })
 
@@ -451,7 +452,7 @@ describe("agent test runner", () => {
     })
     const { createAgentTestRunner } = await import("../src/test.ts")
 
-    const runner = createAgentTestRunner(agent as never, {
+    const runner = createAgentTestRunner(adapterDefinition(agent), {
       runtimeConfig: {},
     })
 
@@ -478,7 +479,7 @@ describe("agent test runner", () => {
     })
     const { createAgentTestRunner } = await import("../src/test.ts")
 
-    const runner = createAgentTestRunner(agent as never, {
+    const runner = createAgentTestRunner(adapterDefinition(agent), {
       runtimeConfig: {},
       workspace: "docs",
     })

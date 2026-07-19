@@ -4355,7 +4355,14 @@ describe("defineAgent workspace option", () => {
       },
     }), { workspace: "support" })
 
-    expect(createAgentDevtoolsMetadata(agent).instructions).toEqual(["Answer from the workspace."])
+    expect(createAgentDevtoolsMetadata(agent).instructions).toEqual([[
+      "::if{context.enabled}",
+      "Hidden.",
+      "::else",
+      "Answer from the workspace.",
+      "::",
+      "{{ context.missing }}",
+    ].join("\n")])
   })
 
   it("includes skill sources in DevTools file metadata", async () => {

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  findDefaultExportCall,
   findIdentifierCalls,
+  readObjectProperty,
   splitTopLevel,
 } from "../src/source-scanner.ts"
 
@@ -172,5 +174,90 @@ describe("source scanner", () => {
       "() => `x ${`y)`}`",
       "{ id: \"daily\" }",
     ])
+  })
+
+  it("keeps regex literals inside template expressions non-structural", () => {
+    const call = findDefaultExportCall([
+      `export default defineThing({`,
+      "  handler: () => `${/}``/.test(\"}\")}` ,",
+      `  value: "real",`,
+      `})`,
+    ].join("\n"), ["defineThing"])
+
+    expect(call).toMatchObject({
+      name: "defineThing",
+    })
+    expect(readObjectProperty(call!.argument, "value")).toBe(`"real"`)
+  })
+
+  it("finds default-exported definition calls", () => {
+    const call = findDefaultExportCall([
+      `const ignored = defineThing({ value: "ignored" })`,
+      `export default (defineThing<{ value: string }>({`,
+      `  value: "real",`,
+      `}))`,
+    ].join("\n"), ["defineThing"])
+
+    expect(call).toMatchObject({
+      argument: `{\n  value: "real",\n}`,
+      name: "defineThing",
+    })
+  })
+
+  it("preserves source offsets after astral Unicode characters", () => {
+    const call = findDefaultExportCall([
+      `// 😀`,
+      `export default defineThing({ value: "real" })`,
+    ].join("\n"), ["defineThing"])
+
+    expect(call).toMatchObject({
+      argument: `{ value: "real" }`,
+      name: "defineThing",
+    })
+  })
+
+  it("finds default exports after regex literals followed by division", () => {
+    const call = findDefaultExportCall([
+      `const value = /x/ / parts`,
+      `export default defineThing({ value: "real" })`,
+    ].join("\n"), ["defineThing"])
+
+    expect(call?.argument).toBe(`{ value: "real" }`)
+  })
+
+  it("finds default exports after division from keyword-named members", () => {
+    const call = findDefaultExportCall([
+      `const value = metrics.return / total`,
+      `export default defineThing({ value: "real" })`,
+    ].join("\n"), ["defineThing"])
+
+    expect(call?.argument).toBe(`{ value: "real" }`)
+  })
+
+  it("finds default exports with division after literals", () => {
+    const call = findDefaultExportCall([
+      `export default defineThing({`,
+      `  handler: () => "ok" / total,`,
+      `  value: "real",`,
+      `})`,
+    ].join("\n"), ["defineThing"])
+
+    expect(readObjectProperty(call!.argument, "value")).toBe(`"real"`)
+  })
+
+  it("finds default-exported object literals with TypeScript assertions", () => {
+    for (const suffix of ["as const", "satisfies ThingOptions"]) {
+      const call = findDefaultExportCall(
+        `export default defineThing({ value: "real" } ${suffix})`,
+        ["defineThing"],
+      )
+
+      expect(call?.argument).toBe(`{ value: "real" }`)
+    }
+  })
+
+  it("reads top-level object properties without matching nested values", () => {
+    expect(readObjectProperty(`{ nested: { cron: "wrong" }, cron: "0 8 * * *" }`, "cron"))
+      .toBe(`"0 8 * * *"`)
   })
 })
