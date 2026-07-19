@@ -164,25 +164,23 @@ export async function listIssues() {
 
 ## Structured errors
 
-Env resolution failures use `EnvError` with stable codes and JSON-safe context. Built-in codes distinguish invalid declarations, missing required values, invalid runtime values, and failed Git or package metadata sources; application code can use its own stable code for an application-owned Env Source.
+Env resolution failures use `EnvError` with closed, stable codes and JSON-safe context. The codes distinguish invalid declarations, missing required values, invalid runtime values, and failed built-in sources. Custom source resolvers keep application-owned errors unchanged instead of wrapping them in `EnvError`.
 
 ```ts
 import { EnvError } from '@vite-hub/env'
 
 try {
-  await resolveVaultEnv()
+  await resolveEnv()
 }
-catch (cause) {
-  throw new EnvError({
-    cause,
-    code: 'ENV_SOURCE_FAILED',
-    details: { source: 'vault:runtime' },
-    message: 'Runtime Env source failed.',
-  })
+catch (error) {
+  if (error instanceof EnvError && error.code === 'ENV_SOURCE_FAILED') {
+    console.error('Env source failed', error.details?.source)
+  }
+  throw error
 }
 ```
 
-Keep `details` free of secret values. `ENV_SOURCE_FAILED` exposes only the public source label as `details.source`; the underlying failure remains in `cause`. `error.toJSON()` includes `code`, `message`, and `details`; it omits `cause`, which remains available only on the in-memory error. Invalid calls to declaration helpers remain `TypeError`, while `parseSchema()` continues to throw ordinary schema errors.
+Each code owns a fixed public message and bounded details. Source details use identifiers such as `git:branch`, `package.json`, `env`, or `custom`; raw variable names, package paths, labels, and provider diagnostics remain behind `cause`. `error.toJSON()` includes `code`, `message`, and `details`; it omits `cause`, which remains available only on the in-memory error. Invalid calls to declaration helpers remain `TypeError`, while `parseSchema()` continues to throw ordinary schema errors.
 
 ## Provider output
 

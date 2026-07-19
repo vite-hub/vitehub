@@ -56,7 +56,7 @@ Errors built on `ViteHubError` snapshot their public `code`, `message`, `details
 
 Start with the owning package and the failing proof path. For packages that generate Provider Output, inspect that output before changing runtime code. Authenticated Agent bridges distinguish a missing session with `AuthenticationRequiredError` from a default provider lookup failure with `AuthSessionError`; use `cause` only in protected server-side diagnostics. Email emits no Provider Output; inspect `EmailError.code` and `driver` the same way.
 
-For Env, inspect `EnvError.code` first. `ENV_DECLARATION_INVALID` includes `details.path`, `ENV_REQUIRED_MISSING` includes the public source label and sometimes the declaration path, `ENV_RUNTIME_VALUE_INVALID` includes the public source label, and `ENV_SOURCE_FAILED` identifies a failed built-in Git or package metadata source through `details.source`. The serialized shape omits `cause`; never place secret values in `details`.
+For Env, inspect `EnvError.code` first. Its code set and public messages are fixed. `ENV_DECLARATION_INVALID` can include `details.path`, `ENV_REQUIRED_MISSING` can include a bounded source identifier and declaration path, and `ENV_RUNTIME_VALUE_INVALID` and `ENV_SOURCE_FAILED` can include a bounded source identifier such as `env`, `git:branch`, `package.json`, or `custom`. Raw labels and diagnostics remain in `cause`, which the serialized shape omits. Custom source resolvers keep application-owned errors unchanged.
 
 ```bash [Terminal]
 pnpm vitehub provision run --provider cloudflare --dry-run
