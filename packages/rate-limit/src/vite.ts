@@ -98,13 +98,13 @@ function renderRequestMiddleware(runtimeConfig: RateLimitRuntimeConfig, importBa
   return [
     "import { defineMiddleware } from 'nitro'",
     "import { getRequestIP } from 'nitro/h3'",
-    `import { enterRateLimitRuntimeEvent } from ${JSON.stringify(`${importBase}/runtime`)}`,
+    `import { runWithRateLimitRuntimeEvent } from ${JSON.stringify(`${importBase}/runtime`)}`,
     "",
     `const config = ${JSON.stringify(runtimeConfig)}`,
-    "export default defineMiddleware((event) => {",
+    "export default defineMiddleware((event, next) => {",
     "  Object.assign(event, { env: event.env ?? event.context?.cloudflare?.env ?? event.context?._platform?.cloudflare?.env ?? event.req?.runtime?.cloudflare?.env ?? event.node?.req?.runtime?.cloudflare?.env })",
     `  const requestKey = ${trustCloudflareHeader ? "event.req.headers.get('cf-connecting-ip') || " : ""}getRequestIP(event)`,
-    "  enterRateLimitRuntimeEvent(event, requestKey || config.requestKeyFallback)",
+    "  return runWithRateLimitRuntimeEvent(event, next, requestKey || config.requestKeyFallback)",
     "})",
     "",
   ].join("\n")
