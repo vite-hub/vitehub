@@ -29,7 +29,10 @@ export function createCloudflareExecutionSandboxId(name: string, sandboxId?: str
   if (sandboxId)
     return sandboxId
 
-  return `vitehub-${encodeURIComponent(name)}-${hashCloudflareSandboxName(name)}-definition`
+  const prefix = 'vitehub-'
+  const suffix = `-${hashCloudflareSandboxName(name)}-definition`
+  const slug = encodeURIComponent(name).slice(0, 256 - prefix.length - suffix.length)
+  return `${prefix}${slug}${suffix}`
 }
 
 export function resolveRuntimeProvider(provider?: SandboxDefinitionProviderOptions, event?: SandboxEvent) {

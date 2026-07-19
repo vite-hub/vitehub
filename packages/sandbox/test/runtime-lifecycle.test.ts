@@ -55,6 +55,7 @@ describe("Sandbox runtime lifecycle", () => {
       .not.toBe(createCloudflareExecutionSandboxId("tools_release-notes"))
     expect(createCloudflareExecutionSandboxId("Example").toLowerCase())
       .not.toBe(createCloudflareExecutionSandboxId("example").toLowerCase())
+    expect(createCloudflareExecutionSandboxId(`tools/${"例/".repeat(100)}`)).toHaveLength(256)
   })
 
   it("uses the Definition name as the default Cloudflare identity and keeps successful runs idle", async () => {
