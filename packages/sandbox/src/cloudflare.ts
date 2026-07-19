@@ -173,7 +173,7 @@ export async function configureCloudflareSandboxNitro(
   configureCloudflareSandbox(target, resolvedOptions)
   const container = target.cloudflare!.wrangler!.containers!
     .find(entry => entry.class_name === resolvedOptions.className)!
-  if (!existingContainer) {
+  if (typeof existingContainer?.image !== 'string') {
     const appDockerfile = resolve(rootDir, 'Dockerfile')
     const dockerfile = existsSync(appDockerfile)
       ? appDockerfile

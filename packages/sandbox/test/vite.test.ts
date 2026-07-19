@@ -316,6 +316,39 @@ describe("hubSandbox", () => {
       .rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it("completes only the required image fields on a partial Cloudflare Sandbox container", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare", name: "generated-name" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const container = {
+      class_name: "Sandbox",
+      instance_type: "standard-1",
+      max_instances: 2,
+      name: "application-owned",
+    }
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: {
+        cloudflare: { wrangler: { containers: [container] } },
+        output: { serverDir: ".output/server" },
+      },
+    }
+
+    await configHook(userConfig, { command: "build", mode: "production" })
+
+    expect(userConfig.nitro.cloudflare.wrangler.containers[0]).toBe(container)
+    expect(userConfig.nitro.cloudflare.wrangler.containers).toEqual([{
+      class_name: "Sandbox",
+      image: "../../.vitehub/sandbox/Dockerfile",
+      image_build_context: "../..",
+      instance_type: "standard-1",
+      max_instances: 2,
+      name: "application-owned",
+    }])
+  })
+
   it("rejects an existing Cloudflare migration tag without changing it", async () => {
     const rootDir = await createViteRoot()
     const { hubSandbox } = await import("../src/vite.ts")
