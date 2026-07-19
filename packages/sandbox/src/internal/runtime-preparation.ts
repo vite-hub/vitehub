@@ -144,7 +144,7 @@ function resolveStringAliases(alias: unknown): AliasMap {
     const find = entry.find.replace(/\/$/, '')
     if (!find || builtinModuleSet.has(find))
       continue
-    aliases[find] = entry.replacement.replace(/\/$/, '')
+    aliases[find] = entry.replacement
   }
   return aliases
 }
@@ -223,7 +223,12 @@ export async function prepareSandboxRuntime(options: {
   writeArtifacts?: boolean
 }) {
   const rootDir = options.resolvedConfig?.root || resolve(process.cwd(), typeof options.userConfig.root === 'string' ? options.userConfig.root : '.')
-  const context = await resolveSandboxViteContext(options.integrationOptions, { ...options.userConfig, root: rootDir }, options.env)
+  const resolvedNitro = (options.resolvedConfig as { nitro?: unknown } | undefined)?.nitro
+  const context = await resolveSandboxViteContext(options.integrationOptions, {
+    ...options.userConfig,
+    ...(isPlainObject(resolvedNitro) ? { nitro: resolvedNitro } : {}),
+    root: rootDir,
+  }, options.env)
   const stateModule = createSandboxStateModuleContents(context)
   if (!context.config) {
     return {

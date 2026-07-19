@@ -210,6 +210,7 @@ describe("hubSandbox", () => {
         alias: [
           { find: "process/", replacement: "/virtual/process" },
           { find: "node:child_process", replacement: "/virtual/child-process" },
+          { find: "#root/", replacement: "/" },
           { find: "@/", replacement: `${join(rootDir, "src")}/` },
         ],
       },
@@ -227,11 +228,12 @@ describe("hubSandbox", () => {
     const plugin = hubSandbox()
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
-    const userConfig = { root: rootDir, nitro: { preset: "cloudflare-module" } }
+    const userConfig = { root: rootDir }
 
     await configHook(userConfig, { command: "build", mode: "production" })
     const resolvedConfig = {
       ...userConfig,
+      nitro: { preset: "cloudflare-module" },
       plugins: [{ name: "nitro:main" }],
       resolve: { alias: [] },
     }
