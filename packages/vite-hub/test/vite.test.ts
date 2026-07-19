@@ -69,7 +69,29 @@ function dependencyPlugin(options: Parameters<typeof vitehub>[0] = {}): Plugin {
   return plugin
 }
 
+function dependencyAliases(options: Parameters<typeof vitehub>[0] = {}): Record<string, string> {
+  const hook = dependencyPlugin(options).config
+  if (typeof hook !== "function") throw new TypeError("Expected a dependency config hook.")
+  const result = hook.call({} as never, {}, { command: "build", mode: "production" }) as { resolve?: { alias?: Record<string, string> } }
+  return result.resolve?.alias ?? {}
+}
+
 describe("vitehub", () => {
+  it("disables omitted integrations at the public runtime facades", () => {
+    expect(dependencyAliases()).toMatchObject({
+      "vite-hub/agent": expect.stringMatching(/_internal\/agent\/workflow-disabled\.js$/),
+      "vite-hub/agent/server": expect.stringMatching(/_internal\/agent\/server\/workflow-disabled\.js$/),
+      "vite-hub/blob": expect.stringMatching(/_internal\/blob\/disabled\.js$/),
+      "vite-hub/workflow": expect.stringMatching(/_internal\/workflow\/disabled\.js$/),
+    })
+
+    const enabledAliases = dependencyAliases({ blob: true, workflow: true })
+    expect(enabledAliases["vite-hub/blob"]).toMatch(/dist\/blob\.js$/)
+    expect(enabledAliases["vite-hub/workflow"]).toMatch(/dist\/workflow\.js$/)
+    expect(enabledAliases["vite-hub/agent"]).toMatch(/dist\/agent\.js$/)
+    expect(enabledAliases["vite-hub/agent/server"]).toMatch(/dist\/agent\/server\.js$/)
+  })
+
   it("keeps coherent defaults and opt-in integrations", () => {
     expect(pluginNames(vitehub())).toEqual([
       "vite-hub/dependencies",

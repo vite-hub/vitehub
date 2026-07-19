@@ -159,7 +159,14 @@ describe("framework package contract", () => {
       .filter(({ source }) => !exportedForwarders.has(source))
       .map(({ subpath }) => subpath)
       .sort(),
-    ).toEqual([".", "./_internal/kv/runtime/disabled-upstash"])
+    ).toEqual([
+      ".",
+      "./_internal/agent/server/workflow-disabled",
+      "./_internal/agent/workflow-disabled",
+      "./_internal/blob/disabled",
+      "./_internal/kv/runtime/disabled-upstash",
+      "./_internal/workflow/disabled",
+    ])
 
     for (const { subpath, targets } of manifestForwarders) {
       const ownerSpecifier = ownerSpecifierForDistributionSubpath(subpath)
