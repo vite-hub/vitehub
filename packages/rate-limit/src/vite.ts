@@ -96,8 +96,7 @@ function renderRuntimeInstaller(
 
 function renderRequestMiddleware(runtimeConfig: RateLimitRuntimeConfig, importBase: string, trustCloudflareHeader: boolean): string {
   return [
-    "import { getRequestIP } from 'h3'",
-    "import { defineMiddleware } from 'nitro'",
+    "import { defineMiddleware, getRequestIP } from 'nitro'",
     `import { enterRateLimitRuntimeEvent } from ${JSON.stringify(`${importBase}/runtime`)}`,
     "",
     `const config = ${JSON.stringify(runtimeConfig)}`,

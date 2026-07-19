@@ -298,4 +298,40 @@ describe("rateLimit capability", () => {
     expect(response?.status).toBe(429)
     expect(response?.headers.has("retry-after")).toBe(false)
   })
+
+  it("preserves provider unavailability as a service error", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const cause = new Error("provider offline")
+    const providerLimiter = {
+      capabilities: {
+        enforcement: "best-effort" as const,
+        metadata: {
+          remaining: { availability: "never" as const },
+          resetAt: { availability: "never" as const },
+          retryAfter: { availability: "never" as const },
+          used: { availability: "never" as const },
+        },
+        rejectedAttempts: "unknown" as const,
+        scope: "global" as const,
+      },
+      policy: {
+        enforcement: "best-effort" as const,
+        failure: "deny" as const,
+        limit: 1,
+        window: "1m" as const,
+        windowMs: 60_000,
+      },
+      consume: vi.fn(async () => ({ allowed: false, cause, limit: 1, reason: "unavailable", windowMs: 60_000 } as const)),
+    }
+    const agent = defineAgent({
+      capabilities: [rateLimit({ limiter: providerLimiter })],
+      driver: { run: () => "ok" },
+    })
+
+    const error = await runAgent(agent, runtime(), {}).catch(error => error)
+    expect(error).toMatchObject({ cause, statusCode: 503 })
+    const response = toHttpErrorResponse(error)
+    expect(response?.status).toBe(503)
+    await expect(response?.json()).resolves.toEqual({ error: "Rate limiting is unavailable." })
+  })
 })

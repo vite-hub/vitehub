@@ -72,7 +72,8 @@ export class RateLimitRejectedError extends Error {
   retryAfter?: number
 
   constructor(capabilityId: string, decision: RateLimitDecision, message?: string) {
-    super(message || "Rate limit exceeded. Try again later.")
+    const unavailable = decision.reason === "unavailable"
+    super(message || (unavailable ? "Rate limiting is unavailable." : "Rate limit exceeded. Try again later."), unavailable ? { cause: decision.cause } : undefined)
     this.capabilityId = capabilityId
     this.decision = decision
     this.headers = {}
@@ -84,7 +85,7 @@ export class RateLimitRejectedError extends Error {
     }
     Object.defineProperty(this, "statusCode", {
       enumerable: true,
-      value: 429,
+      value: unavailable ? 503 : 429,
     })
   }
 }
