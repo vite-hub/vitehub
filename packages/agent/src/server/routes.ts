@@ -19,11 +19,27 @@ import { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } fr
 import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { createChatDevtoolsStreamResponse } from "../chat/devtools-stream.ts"
-import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
+import {
+  chatDevtoolsMetadataErrorMessage,
+  chatDevtoolsMetadataSelection,
+  chatDevtoolsMetadataSelectionKey,
+  chatDevtoolsMetadataWithAgentName,
+  chatDevtoolsSessionTitle,
+  consumeChatDevtoolsUIMessageStream,
+  createChatDevtoolsMetadataInput,
+  createChatDevtoolsPromptHistory,
+  createChatDevtoolsUserUIMessage,
+  materializedChatDevtoolsSourceKeys,
+  normalizeChatDevtoolsAction,
+  normalizeChatDevtoolsInvokerSelection,
+  refreshChatDevtoolsMetadata,
+  validChatDevtoolsInvokerProfileId,
+} from "../chat/devtools-runtime.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
 
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { UIMessageLike } from "../chat-message-input.ts"
+import type { ChatDevtoolsBridgeBody, ChatDevtoolsInvokerSelection, ChatDevtoolsSession } from "../chat/devtools-runtime.ts"
 import type {
   AgentChatStateResolver,
   AgentCapabilityDefinition,
@@ -58,12 +74,6 @@ import type {
 } from "@vite-hub/devtools/chat-shared"
 import type { Adapter, AdapterPostableMessage, Attachment, ChatConfig, Lock, Message as ChatSdkMessage, MessageContext, QueueEntry, StateAdapter, Thread, WebhookOptions } from "chat"
 import type { UIMessage } from "ai"
-import {
-  chatDevtoolsClearRpc,
-  chatDevtoolsGetStateRpc,
-  chatDevtoolsMaterializeSourceRpc,
-  chatDevtoolsSendRpc,
-} from "@vite-hub/devtools/chat-shared"
 
 interface ViteAgentRouteRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
@@ -1814,9 +1824,6 @@ async function createChatWebhookHandler(
   return handler
 }
 
-type AgentChatDevtoolsAction = "clear" | "get-state" | "materialize-source" | "send"
-type ReadUIMessageStream = typeof import("ai").readUIMessageStream
-
 export type AgentChannelChatRouteBody = {
   id?: string
   invoker?: unknown
@@ -1832,39 +1839,13 @@ export type AgentChannelChatRouteBody = {
   user?: unknown
 }
 
-type AgentChatDevtoolsBridgeBody = {
-  action?: string
-  chat?: string
-  invokerFallback?: boolean
-  invokerProfileId?: string
-  meta?: unknown
-  path?: string
-  source?: string
-  stream?: boolean
-  text?: string
-}
-
-interface AgentChatDevtoolsInvokerSelection {
-  invokerFallback?: boolean
-  invokerProfileId?: string
-  meta?: Record<string, unknown>
-}
-
-interface AgentChatDevtoolsSession {
-  invokerFallback?: boolean
-  invokerProfileId?: string
-  thinkingFallback?: string | null
-  title?: string
-  uiMessages: UIMessage[]
-}
-
 interface AgentChannelDevtoolsRouteState {
   metadata: ChatDevtoolsMetadata
   metadataError?: string
   metadataSelectionKey?: string
   metadataStatus: ChatDevtoolsMetadataStatus
   metadataTask?: Promise<void>
-  session: AgentChatDevtoolsSession
+  session: ChatDevtoolsSession
 }
 
 export interface AgentChannelDevtoolsRouteHandlerOptions extends AgentRouteRuntimeOptions {
@@ -1874,17 +1855,6 @@ export interface AgentChannelDevtoolsRouteHandlerOptions extends AgentRouteRunti
 
 export type AgentChannelDevtoolsRouteRequestOptions = AgentRouteRuntimeOptions
 
-function normalizeChatDevtoolsAction(action: string): AgentChatDevtoolsAction | undefined {
-  if (action === "get-state" || action === chatDevtoolsGetStateRpc) return "get-state"
-  if (action === "send" || action === chatDevtoolsSendRpc) return "send"
-  if (action === "clear" || action === chatDevtoolsClearRpc) return "clear"
-  if (action === "materialize-source" || action === chatDevtoolsMaterializeSourceRpc) return "materialize-source"
-}
-
-function optionalRecord(value: unknown): Record<string, unknown> | undefined {
-  return isRecord(value) && !Array.isArray(value) ? { ...value } : undefined
-}
-
 function agentChannelDevtoolsName(agent: AgentInput<ViteAgentRouteRuntimeContext>, options: AgentChannelDevtoolsRouteHandlerOptions): string {
   const candidate = options.name || (isRecord(agent) && typeof agent.name === "string" ? agent.name : undefined) || options.agentIdentity?.name
   return candidate?.trim() || "agent"
@@ -1892,13 +1862,6 @@ function agentChannelDevtoolsName(agent: AgentInput<ViteAgentRouteRuntimeContext
 
 function canResolveAgentDevtoolsMetadata(agent: AgentInput<ViteAgentRouteRuntimeContext>): boolean {
   return Boolean((agent as { __vitehubWorkspaceAgent?: unknown }).__vitehubWorkspaceAgent)
-}
-
-function metadataWithAgentName(metadata: ChatDevtoolsMetadata, name: string): ChatDevtoolsMetadata {
-  return {
-    ...metadata,
-    name: metadata.name || name,
-  }
 }
 
 function createStaticAgentDevtoolsMetadata(agent: AgentInput<ViteAgentRouteRuntimeContext>, name?: string): ChatDevtoolsMetadata {
@@ -1910,7 +1873,7 @@ function createStaticAgentDevtoolsMetadata(agent: AgentInput<ViteAgentRouteRunti
     ...(typeof version === "string" ? { version } : {}),
     tools: [],
   } satisfies ChatDevtoolsMetadata
-  return name ? metadataWithAgentName(metadata, name) : metadata
+  return name ? chatDevtoolsMetadataWithAgentName(metadata, name) : metadata
 }
 
 function chatDevtoolsMetadataStatus(agent: AgentInput<ViteAgentRouteRuntimeContext>): ChatDevtoolsMetadataStatus {
@@ -1926,90 +1889,17 @@ function chatDevtoolsUser(meta: Record<string, unknown> | undefined): Record<str
   }
 }
 
-function createDevtoolsMetadataInput(
-  selection: AgentChatDevtoolsInvokerSelection = {},
-  run: AgentRunMetadata,
-): AgentRunInput {
-  const meta = optionalRecord(selection.meta)
-  const message = { metadata: {}, text: "" }
-  const user = chatDevtoolsUser(meta)
-  return {
-    context: {
-      invoker: {
-        id: "devtools",
-        kind: "devtools",
-        label: "DevTools User",
-        ...(meta ? { meta } : {}),
-      },
-      ...(!selection.invokerFallback && selection.invokerProfileId ? { invokerProfileId: selection.invokerProfileId } : {}),
-      channel: {
-        message,
-        ...(meta ? { meta } : {}),
-        run,
-        user,
-      },
-      chat: {
-        message,
-        ...(meta ? { meta } : {}),
-        user,
-      },
-    },
-    messages: [],
-  }
-}
-
-function validMetadataInvokerProfileId(metadata: ChatDevtoolsMetadata | undefined, value: string | undefined): string | undefined {
-  return value && metadata?.invokerProfiles?.some(profile => profile.id === value)
-    ? value
-    : undefined
-}
-
 function assertKnownInvokerProfile(metadata: ChatDevtoolsMetadata | undefined, invokerProfileId: string | undefined): Response | undefined {
-  if (invokerProfileId && !validMetadataInvokerProfileId(metadata, invokerProfileId)) {
+  if (invokerProfileId && !validChatDevtoolsInvokerProfileId(metadata, invokerProfileId)) {
     return createJsonErrorResponse(400, `Unknown invoker profile: ${invokerProfileId}`)
-  }
-}
-
-function normalizeInvokerSelection(input: { invokerFallback?: boolean, invokerProfileId?: string, meta?: unknown } | undefined): AgentChatDevtoolsInvokerSelection {
-  const meta = optionalRecord(input?.meta)
-  if (input?.invokerFallback === true) {
-    return {
-      invokerFallback: true,
-      ...(meta ? { meta } : {}),
-    }
-  }
-  const invokerProfileId = input?.invokerProfileId?.trim()
-  return {
-    ...(invokerProfileId ? { invokerProfileId } : {}),
-    ...(meta ? { meta } : {}),
   }
 }
 
 function metadataSelectionForAgent(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
-  selection: AgentChatDevtoolsInvokerSelection = {},
-): AgentChatDevtoolsInvokerSelection {
-  const meta = optionalRecord(selection.meta)
-  if (selection.invokerFallback) {
-    return {
-      invokerFallback: true,
-      ...(meta ? { meta } : {}),
-    }
-  }
-  const invokerProfileId = validMetadataInvokerProfileId(createStaticAgentDevtoolsMetadata(agent), selection.invokerProfileId)
-  return {
-    ...(invokerProfileId ? { invokerProfileId } : {}),
-    ...(meta ? { meta } : {}),
-  }
-}
-
-function metadataSelectionKey(selection: AgentChatDevtoolsInvokerSelection = {}): string {
-  const invoker = selection.invokerFallback ? "fallback" : selection.invokerProfileId ? `profile:${selection.invokerProfileId}` : "default"
-  return `${invoker}:${JSON.stringify(selection.meta || {})}`
-}
-
-function metadataErrorMessage(_cause: unknown): string {
-  return "Chat DevTools metadata inspection failed."
+  selection: ChatDevtoolsInvokerSelection = {},
+): ChatDevtoolsInvokerSelection {
+  return chatDevtoolsMetadataSelection(createStaticAgentDevtoolsMetadata(agent), selection)
 }
 
 async function startAgentDevtoolsMetadataResolution(
@@ -2017,86 +1907,35 @@ async function startAgentDevtoolsMetadataResolution(
   state: AgentChannelDevtoolsRouteState,
   options: AgentChannelDevtoolsRouteHandlerOptions,
   runtime: ViteAgentRouteRuntimeContext,
-  selection: AgentChatDevtoolsInvokerSelection = {},
+  selection: ChatDevtoolsInvokerSelection = {},
   resolution: { force?: boolean } = {},
 ): Promise<void> {
-  if (!canResolveAgentDevtoolsMetadata(agent)) {
-    state.metadataError = undefined
-    state.metadataSelectionKey = "static"
-    state.metadataStatus = "ready"
-    state.metadataTask = undefined
-    return
-  }
-
-  const metadataSelection = metadataSelectionForAgent(agent, selection)
-  const selectionKey = metadataSelectionKey(metadataSelection)
-  if (!resolution.force && state.metadataSelectionKey === selectionKey) return
-
   const name = agentChannelDevtoolsName(agent, options)
-  state.metadata = createStaticAgentDevtoolsMetadata(agent, name)
-  state.metadataError = undefined
-  state.metadataSelectionKey = selectionKey
-  state.metadataStatus = "loading"
-
-  const { resolveAgentDevtoolsMetadata } = await import("../workspace-agent.ts")
-  const run = createDevtoolsMetadataRunMetadata(name)
-  const task = resolveAgentDevtoolsMetadata(agent as never, {
-    input: createDevtoolsMetadataInput(metadataSelection, run),
-    runtime: { ...runtime, run },
-  } as never)
-    .then((metadata) => {
-      if (state.metadataTask !== task || state.metadataSelectionKey !== selectionKey) return
-      state.metadata = metadataWithAgentName(metadata, name)
-      state.metadataError = undefined
-      state.metadataStatus = "ready"
-      state.metadataTask = undefined
-    })
-    .catch((cause) => {
-      if (state.metadataTask !== task || state.metadataSelectionKey !== selectionKey) return
-      state.metadataError = metadataErrorMessage(cause)
-      state.metadataStatus = "error"
-      state.metadataTask = undefined
-    })
-  state.metadataTask = task
-  if (resolution.force) await task
-}
-
-function titleFromUIMessage(message: UIMessage): string | undefined {
-  for (const part of message.parts || []) {
-    const data = (part as { data?: unknown }).data
-    if (
-      (part as { type?: unknown }).type === "data-title"
-      && data
-      && typeof data === "object"
-      && (data as { type?: unknown }).type === "title"
-      && typeof (data as { title?: unknown }).title === "string"
-    ) {
-      const title = (data as { title: string }).title.trim()
-      if (title) return title
-    }
-  }
-}
-
-function titleFromUIMessages(messages: UIMessage[]): string | undefined {
-  for (const message of [...messages].reverse()) {
-    const title = titleFromUIMessage(message)
-    if (title) return title
-  }
-}
-
-function sessionTitle(session: AgentChatDevtoolsSession): string | undefined {
-  const title = session.title || titleFromUIMessages(session.uiMessages)
-  if (title) session.title = title
-  return title
+  await refreshChatDevtoolsMetadata({
+    canResolve: canResolveAgentDevtoolsMetadata(agent),
+    force: resolution.force,
+    name,
+    async resolve(metadataSelection) {
+      const { resolveAgentDevtoolsMetadata } = await import("../workspace-agent.ts")
+      const run = createDevtoolsMetadataRunMetadata(name)
+      return await resolveAgentDevtoolsMetadata(agent as never, {
+        input: createChatDevtoolsMetadataInput(metadataSelection, run, chatDevtoolsUser(metadataSelection.meta)),
+        runtime: { ...runtime, run },
+      } as never)
+    },
+    selection,
+    state,
+    staticMetadata: createStaticAgentDevtoolsMetadata(agent, name),
+  })
 }
 
 function serializeAgentChatDevtoolsState(
   name: string,
   state: AgentChannelDevtoolsRouteState,
-  requestedSelection: AgentChatDevtoolsInvokerSelection = {},
+  requestedSelection: ChatDevtoolsInvokerSelection = {},
 ): ChatDevtoolsStateResult {
-  const title = sessionTitle(state.session) || state.metadata.name
-  const invokerProfileId = state.session.invokerProfileId || (!requestedSelection.invokerFallback ? validMetadataInvokerProfileId(state.metadata, requestedSelection.invokerProfileId) : undefined)
+  const title = chatDevtoolsSessionTitle(state.session) || state.metadata.name
+  const invokerProfileId = state.session.invokerProfileId || (!requestedSelection.invokerFallback ? validChatDevtoolsInvokerProfileId(state.metadata, requestedSelection.invokerProfileId) : undefined)
   const invokerFallback = state.session.invokerFallback || (!invokerProfileId && requestedSelection.invokerFallback === true)
   const chats: ChatDevtoolsConversation[] = [{
     messages: [],
@@ -2143,15 +1982,6 @@ function createDevtoolsMetadataRunMetadata(name: string): AgentRunMetadata<"devt
     origin: "devtools",
     runId: `devtools:${name}:metadata`,
     threadId: `devtools:${name}:thread`,
-  }
-}
-
-function createUserUIMessage(text: string): UIMessage {
-  return {
-    id: `devtools-user-${randomToken()}`,
-    metadata: {},
-    parts: [{ text, type: "text" }],
-    role: "user",
   }
 }
 
@@ -2314,104 +2144,10 @@ function mergeAgentChannelChatRouteInput(
   }
 }
 
-function uiMessageMetadata(message: UIMessage): Record<string, unknown> | undefined {
-  return optionalRecord(message.metadata)
-}
-
-function hasCompletedMetadata(message: UIMessage): boolean {
-  const completedAt = uiMessageMetadata(message)?.completedAt
-  return typeof completedAt === "string" && completedAt.trim().length > 0
-}
-
-function isToolUIMessagePart(part: unknown): part is Record<string, unknown> {
-  const record = optionalRecord(part)
-  if (!record) return false
-  return record.type === "dynamic-tool"
-    || (typeof record.type === "string" && record.type.startsWith("tool-"))
-}
-
-function uiToolPartName(part: Record<string, unknown>): string | undefined {
-  if (part.type === "dynamic-tool") {
-    return typeof part.toolName === "string" && part.toolName ? part.toolName : undefined
-  }
-  if (typeof part.type === "string" && part.type.startsWith("tool-")) {
-    const name = part.type.slice("tool-".length)
-    return name || undefined
-  }
-}
-
-function uiToolPartId(part: Record<string, unknown>, name: string, index: number): string {
-  if (typeof part.toolCallId === "string" && part.toolCallId) return part.toolCallId
-  if (typeof part.id === "string" && part.id) return part.id
-  return `${name}-${index}`
-}
-
-function toolPartHasOutput(part: Record<string, unknown>): boolean {
-  return part.state === "output-available"
-    || part.state === "output-denied"
-    || Object.prototype.hasOwnProperty.call(part, "output")
-    || typeof part.errorText === "string"
-}
-
-function completedMaterializeSourceToolIds(message: UIMessage): string[] {
-  return (message.parts || []).flatMap((part, index) => {
-    if (!isToolUIMessagePart(part) || !toolPartHasOutput(part)) return []
-    const name = uiToolPartName(part)
-    return name === "materialize_sources" ? [uiToolPartId(part, name, index)] : []
-  })
-}
-
-function hasIncompleteToolParts(message: UIMessage): boolean {
-  return (message.parts || []).some(part => isToolUIMessagePart(part) && !toolPartHasOutput(part))
-}
-
-function isIncompleteAssistantHistoryMessage(message: UIMessage): boolean {
-  return message.role === "assistant" && !hasCompletedMetadata(message) && hasIncompleteToolParts(message)
-}
-
-function createChatDevtoolsPromptHistory(messages: UIMessage[]): UIMessage[] {
-  return messages.filter(message => !isIncompleteAssistantHistoryMessage(message))
-}
-
-function textFromUIMessage(message: UIMessage): string {
-  return (message.parts || [])
-    .filter((part): part is { text: string, type: "text" } => (
-      (part as { type?: unknown }).type === "text"
-      && typeof (part as { text?: unknown }).text === "string"
-    ))
-    .map(part => part.text)
-    .join("")
-}
-
-function ensureVisibleAssistantMessage(message: UIMessage, text: string | undefined): UIMessage {
-  if (textFromUIMessage(message).trim() || !text) return message
-
-  return {
-    ...message,
-    parts: [
-      ...(message.parts || []),
-      { text, type: "text" },
-    ],
-  }
-}
-
-function materializedSourceKeys(metadata: ChatDevtoolsMetadata | undefined): string[] {
-  const sources = new Set<string>()
-  const pending = [...(metadata?.files || [])]
-  while (pending.length) {
-    const file = pending.shift()!
-    if (file.source && (file.status === "ready" || file.materialized || file.materializedAt)) {
-      sources.add(file.source)
-    }
-    pending.push(...(file.children || []))
-  }
-  return [...sources]
-}
-
-function parseChatDevtoolsBridgeBody(rawBody: string): AgentChatDevtoolsBridgeBody | undefined {
+function parseChatDevtoolsBridgeBody(rawBody: string): ChatDevtoolsBridgeBody | undefined {
   if (!rawBody.trim()) return undefined
   try {
-    return JSON.parse(rawBody) as AgentChatDevtoolsBridgeBody
+    return JSON.parse(rawBody) as ChatDevtoolsBridgeBody
   }
   catch {
     throw createRouteBodyError("Malformed chat devtools payload.")
@@ -2437,13 +2173,13 @@ async function materializeDevtoolsSource(
   state: AgentChannelDevtoolsRouteState,
   options: AgentChannelDevtoolsRouteHandlerOptions,
   runtime: ViteAgentRouteRuntimeContext,
-  input: AgentChatDevtoolsBridgeBody,
+  input: ChatDevtoolsBridgeBody,
 ): Promise<Response | ChatDevtoolsStateResult> {
   if (!input.source && !input.path) {
     return createBadRequest("Missing workspace source or path.")
   }
 
-  const requestedSelection = normalizeInvokerSelection(input)
+  const requestedSelection = normalizeChatDevtoolsInvokerSelection(input)
   const invalidProfile = assertKnownInvokerProfile(state.metadata, requestedSelection.invokerProfileId)
   if (invalidProfile) return invalidProfile
 
@@ -2456,19 +2192,19 @@ async function materializeDevtoolsSource(
     const name = agentChannelDevtoolsName(agent, options)
     const run = createDevtoolsMetadataRunMetadata(name)
     const metadata = await materializeAgentDevtoolsSourceMetadata(agent as never, {
-      input: createDevtoolsMetadataInput(metadataSelection, run),
+      input: createChatDevtoolsMetadataInput(metadataSelection, run, chatDevtoolsUser(metadataSelection.meta)),
       ...(input.path ? { path: input.path } : {}),
       ...(input.source ? { source: input.source } : {}),
       runtime: { ...runtime, run },
-      sources: materializedSourceKeys(state.metadata),
+      sources: materializedChatDevtoolsSourceKeys(state.metadata),
     } as never)
-    state.metadata = metadataWithAgentName(metadata, name)
-    state.metadataSelectionKey = metadataSelectionKey(metadataSelection)
+    state.metadata = chatDevtoolsMetadataWithAgentName(metadata, name)
+    state.metadataSelectionKey = chatDevtoolsMetadataSelectionKey(metadataSelection)
     state.metadataStatus = "ready"
     state.metadataTask = undefined
   }
-  catch (cause) {
-    state.metadataError = metadataErrorMessage(cause)
+  catch {
+    state.metadataError = chatDevtoolsMetadataErrorMessage()
     state.metadataStatus = "error"
   }
 
@@ -2481,7 +2217,7 @@ async function sendDevtoolsUIMessage(
   state: AgentChannelDevtoolsRouteState,
   options: AgentChannelDevtoolsRouteHandlerOptions,
   requestOptions: AgentChannelDevtoolsRouteRequestOptions,
-  input: AgentChatDevtoolsBridgeBody,
+  input: ChatDevtoolsBridgeBody,
   onChange?: (next: ChatDevtoolsStateResult) => void | Promise<void>,
 ): Promise<Response | ChatDevtoolsStateResult> {
   if (!input.stream) {
@@ -2493,7 +2229,7 @@ async function sendDevtoolsUIMessage(
     return createBadRequest("Missing chat message text.")
   }
 
-  const requestedSelection = normalizeInvokerSelection(input)
+  const requestedSelection = normalizeChatDevtoolsInvokerSelection(input)
   const requestedProfileId = requestedSelection.invokerProfileId
   const invalidProfile = assertKnownInvokerProfile(state.metadata, requestedProfileId)
   if (invalidProfile) return invalidProfile
@@ -2512,7 +2248,7 @@ async function sendDevtoolsUIMessage(
   }
 
   const name = agentChannelDevtoolsName(agent, options)
-  const userMessage = createUserUIMessage(text)
+  const userMessage = createChatDevtoolsUserUIMessage(text, `devtools-user-${randomToken()}`)
   const baseMessages = [...createChatDevtoolsPromptHistory(state.session.uiMessages), userMessage]
   const run = createDevtoolsRunMetadata(name, userMessage.id)
   const startedAt = new Date().toISOString()
@@ -2546,46 +2282,19 @@ async function sendDevtoolsUIMessage(
       await onChange?.(serializeAgentChatDevtoolsState(name, state, requestedSelection))
     },
   })))
-  const { readUIMessageStream } = await loadAiSdk() as { readUIMessageStream: ReadUIMessageStream }
-  let latestAssistant: UIMessage | undefined
-  const refreshedMaterializationToolIds = new Set<string>()
-  async function refreshCompletedMaterializations(message: UIMessage): Promise<void> {
-    const completedIds = completedMaterializeSourceToolIds(message)
-      .filter(id => !refreshedMaterializationToolIds.has(id))
-    if (!completedIds.length) return
-
-    for (const id of completedIds) refreshedMaterializationToolIds.add(id)
-    await startAgentDevtoolsMetadataResolution(agent, state, options, runtimeContext, requestedSelection, { force: true })
-  }
-
-  for await (const assistantMessage of readUIMessageStream({ stream: stream as never })) {
-    const now = new Date().toISOString()
-    latestAssistant = {
-      ...assistantMessage as UIMessage,
-      metadata: {
-        ...((assistantMessage as UIMessage).metadata as Record<string, unknown> | undefined),
-        createdAt: startedAt,
-        updatedAt: now,
-      },
-    }
-    state.session.title = titleFromUIMessage(latestAssistant) || state.session.title
-    state.session.uiMessages = [...baseMessages, latestAssistant]
-    await refreshCompletedMaterializations(latestAssistant)
-    await onChange?.(serializeAgentChatDevtoolsState(name, state, requestedSelection))
-  }
-  if (latestAssistant) {
-    latestAssistant = {
-      ...latestAssistant,
-      metadata: {
-        ...(latestAssistant.metadata as Record<string, unknown> | undefined),
-        completedAt: new Date().toISOString(),
-      },
-    }
-    latestAssistant = ensureVisibleAssistantMessage(latestAssistant, options.emptyAssistantText)
-    state.session.title = titleFromUIMessage(latestAssistant) || state.session.title
-    state.session.uiMessages = [...baseMessages, latestAssistant]
-    await onChange?.(serializeAgentChatDevtoolsState(name, state, requestedSelection))
-  }
+  await consumeChatDevtoolsUIMessageStream({
+    baseMessages,
+    emptyAssistantText: options.emptyAssistantText,
+    async onChange() {
+      await onChange?.(serializeAgentChatDevtoolsState(name, state, requestedSelection))
+    },
+    async onCompletedMaterializations() {
+      await startAgentDevtoolsMetadataResolution(agent, state, options, runtimeContext, requestedSelection, { force: true })
+    },
+    session: state.session,
+    startedAt,
+    stream,
+  })
 
   await startAgentDevtoolsMetadataResolution(agent, state, options, runtimeContext, requestedSelection, { force: true })
   return serializeAgentChatDevtoolsState(name, state, requestedSelection)
@@ -2620,7 +2329,7 @@ async function handleAgentChannelDevtoolsRouteRequest(
       requestOptions.capabilities ?? options.capabilities,
       requestOptions.agentIdentity ?? options.agentIdentity,
     )
-    const invokerSelection = normalizeInvokerSelection(body)
+    const invokerSelection = normalizeChatDevtoolsInvokerSelection(body)
     await runWithRuntimeCloudflareEnv(runtime, async () => await startAgentDevtoolsMetadataResolution(agent, state, options, runtime, invokerSelection))
 
     const action = normalizeChatDevtoolsAction(body.action)
@@ -2643,7 +2352,7 @@ async function handleAgentChannelDevtoolsRouteRequest(
       }))
     }
     if (action === "clear") {
-      const requestedSelection = normalizeInvokerSelection(body)
+      const requestedSelection = normalizeChatDevtoolsInvokerSelection(body)
       const invalidProfile = assertKnownInvokerProfile(state.metadata, requestedSelection.invokerProfileId)
       if (invalidProfile) return withChatDevtoolsCors(invalidProfile)
       state.session.thinkingFallback = null
