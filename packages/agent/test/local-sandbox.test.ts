@@ -277,6 +277,64 @@ describe("local harness sandbox", () => {
     }
   })
 
+  it("stops commands and preserves the caller's abort reason", async () => {
+    const provider = createLocalHarnessSandbox({ env: { PATH: process.env.PATH } })
+    const session = await provider.createSession()
+    const abort = new AbortController()
+    const reason = new Error("client disconnected")
+
+    try {
+      const child = await session.spawn({
+        abortSignal: abort.signal,
+        command: "node -e \"setInterval(() => {}, 1000)\"",
+      })
+
+      abort.abort(reason)
+
+      await expect(child.wait()).rejects.toBe(reason)
+      expect((session as unknown as { processes: Set<unknown> }).processes.size).toBe(0)
+      expect(() => process.kill(child.pid!, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }))
+      await expect(child.kill()).resolves.toBeUndefined()
+    }
+    finally {
+      await session.destroy?.()
+    }
+  })
+
+  it("does not spawn a command for an already-aborted signal", async () => {
+    const provider = createLocalHarnessSandbox({ env: { PATH: process.env.PATH } })
+    const session = await provider.createSession()
+    const abort = new AbortController()
+    const reason = new Error("already cancelled")
+    abort.abort(reason)
+
+    try {
+      await expect(session.spawn({
+        abortSignal: abort.signal,
+        command: "node -e \"setInterval(() => {}, 1000)\"",
+      })).rejects.toBe(reason)
+      expect((session as unknown as { processes: Set<unknown> }).processes.size).toBe(0)
+    }
+    finally {
+      await session.destroy?.()
+    }
+  })
+
+  it("settles after a command exits by signal", async () => {
+    const provider = createLocalHarnessSandbox({ env: { PATH: process.env.PATH } })
+    const session = await provider.createSession()
+
+    try {
+      const child = await session.spawn({ command: "kill -TERM $$" })
+
+      await expect(child.wait()).resolves.toEqual({ exitCode: 1 })
+      expect((session as unknown as { processes: Set<unknown> }).processes.size).toBe(0)
+    }
+    finally {
+      await session.destroy?.()
+    }
+  })
+
   it("supports parallel bridge listeners across local providers", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-local-sandbox-"))
     const firstSession = await createLocalHarnessSandbox({ rootDir: root }).createSession()

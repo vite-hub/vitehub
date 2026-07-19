@@ -1,10 +1,14 @@
 import { spawn as spawnChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process"
+import { once } from "node:events"
 import { realpathSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { Readable } from "node:stream"
 import { createHash, randomUUID } from "node:crypto"
+import { Effect } from "effect"
+
+import { runAgentEffect, tryAgentPromise } from "../internal/effect-runtime.ts"
 
 import type { HarnessV1NetworkSandboxSession, HarnessV1SandboxProvider } from "@ai-sdk/harness"
 
@@ -143,6 +147,7 @@ function spawnProcess(session: LocalHarnessSandboxSession, options: {
   env?: Record<string, string>
   workingDirectory?: string
 }) {
+  options.abortSignal?.throwIfAborted()
   const cwd = resolvePath(session, options.workingDirectory)
   const physicalCwd = session.physicalWorkingDirectory ? realpathSync(cwd) : cwd
   const child = spawnChildProcess(options.command, {
@@ -152,25 +157,19 @@ function spawnProcess(session: LocalHarnessSandboxSession, options: {
   })
   session.processes.add(child)
 
-  let abortReason: unknown
-  const abort = () => {
-    abortReason = options.abortSignal?.reason || new Error("Sandbox command aborted.")
-    child.kill()
-  }
-  options.abortSignal?.addEventListener("abort", abort, { once: true })
-
-  const wait = new Promise<{ exitCode: number }>((resolve, reject) => {
-    child.once("error", reject)
-    child.once("close", (code) => {
-      session.processes.delete(child)
-      options.abortSignal?.removeEventListener("abort", abort)
-      if (abortReason) {
-        reject(abortReason)
-        return
+  const wait = runAgentEffect(Effect.acquireUseRelease(
+    Effect.succeed(child),
+    process => tryAgentPromise("Agent.Harness.Process.wait", signal => once(process, "close", { signal })
+      .then(([code]) => ({ exitCode: typeof code === "number" ? code : 1 }))),
+    process => tryAgentPromise("Agent.Harness.Process.close", async () => {
+      if (process.exitCode === null && process.signalCode === null) {
+        const closed = once(process, "close").catch(() => undefined)
+        process.kill()
+        await closed
       }
-      resolve({ exitCode: code ?? 1 })
-    })
-  })
+      session.processes.delete(process)
+    }),
+  ), options.abortSignal ? { signal: options.abortSignal } : undefined)
 
   return {
     pid: child.pid,
