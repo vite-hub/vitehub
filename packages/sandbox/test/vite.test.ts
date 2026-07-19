@@ -436,6 +436,27 @@ describe("hubSandbox", () => {
       .rejects.toThrow("requires Cloudflare hosting and the Cloudflare Sandbox provider")
   })
 
+  it("accepts a colocated Cloudflare fragment when Nitro resolves Cloudflare hosting late", async () => {
+    const rootDir = await createViteRoot()
+    await writeCloudflareFragmentDefinition(rootDir)
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: {},
+    }
+
+    await configHook(userConfig, { command: "build", mode: "production" })
+    const resolvedConfig = { ...userConfig, nitro: { preset: "cloudflare-module" }, resolve: { alias: [] } }
+    await configResolved(resolvedConfig)
+
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
+      .resolves.toContain("RUN apt-get install -y imagemagick")
+  })
+
   it("rejects a colocated fragment without changing an application-owned image", async () => {
     const rootDir = await createViteRoot()
     await writeCloudflareFragmentDefinition(rootDir)
