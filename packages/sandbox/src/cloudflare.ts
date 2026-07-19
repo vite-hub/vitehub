@@ -102,7 +102,7 @@ export function configureCloudflareSandbox(target: MutableCloudflareTarget, opti
   else {
     const container = containers.find(entry => entry.class_name === className)!
     container.image ??= image
-    if (typeof container.max_instances !== 'number' || container.max_instances < defaultCloudflareSandboxMaxInstances)
+    if (typeof container.max_instances !== 'number')
       container.max_instances = defaultCloudflareSandboxMaxInstances
     if (name)
       container.name ??= name
