@@ -457,6 +457,38 @@ describe("hubSandbox", () => {
       .resolves.toContain("&& apt-get install -y imagemagick")
   })
 
+  it("refreshes the generated Cloudflare Dockerfile when its colocated fragment changes", async () => {
+    const rootDir = await createViteRoot()
+    await writeCloudflareFragmentDefinition(rootDir)
+    const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => void } }
+    }) => Promise<void>
+    const config = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: { preset: "cloudflare-module" },
+      resolve: { alias: [] },
+    }
+
+    await configHook(config, { command: "serve", mode: "development" })
+    await configResolved(config)
+    await writeFile(definition, (await readFile(definition, "utf8")).replace("imagemagick", "ffmpeg"))
+    await handleHotUpdate({
+      file: definition,
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => {} } },
+    })
+
+    const dockerfile = await readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8")
+    expect(dockerfile).toContain("ffmpeg")
+    expect(dockerfile).not.toContain("imagemagick")
+  })
+
   it("rejects a colocated fragment without changing an application-owned image", async () => {
     const rootDir = await createViteRoot()
     await writeCloudflareFragmentDefinition(rootDir)
