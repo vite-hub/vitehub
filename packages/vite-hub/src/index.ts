@@ -126,6 +126,7 @@ function frameworkDependencyResolver(
   options: ViteHubPresetOptions,
   providerImportAliases: Record<string, string>,
 ): Plugin {
+  let blobEnabled = Boolean(options.blob)
   function hasPlugin(plugin: unknown, name: string): boolean {
     if (Array.isArray(plugin)) return plugin.some(candidate => hasPlugin(candidate, name))
     return Boolean(plugin && typeof plugin === "object" && "name" in plugin && plugin.name === name)
@@ -134,8 +135,8 @@ function frameworkDependencyResolver(
     name: "vite-hub/dependencies",
     enforce: "pre",
     config(config) {
-      const blobEnabled = Boolean(options.blob) || hasPlugin(config.plugins, "@vite-hub/blob/vite")
-      const workflowEnabled = Boolean(options.workflow) || hasPlugin(config.plugins, "@vite-hub/workflow/vite")
+      blobEnabled = Boolean(options.blob) || hasPlugin(config.plugins, "@vite-hub/blob/vite")
+      const workflowEnabled = config.workflow !== false && (Boolean(options.workflow) || hasPlugin(config.plugins, "@vite-hub/workflow/vite"))
       return {
         resolve: {
           alias: {
@@ -160,6 +161,7 @@ function frameworkDependencyResolver(
       )
     },
     resolveId(id, importer) {
+      if (!blobEnabled && id === "@vite-hub/blob") return disabledBlobFacade
       if (!isGeneratedImporter(importer)) return
       const isFrameworkPackageImport = id === frameworkPackageName || id.startsWith(`${frameworkPackageName}/`)
       const isOwnerPackageImport = generatedOwnerPackageNames.some(name => id === name || id.startsWith(`${name}/`))
