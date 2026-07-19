@@ -1082,8 +1082,10 @@ function withChatStateScope(state: StateAdapter, channelPrefix: string, agentPre
 }
 
 function chatStateOwnsScope(state: AgentChatStateResolver<ViteAgentRouteRuntimeConfig> | undefined): boolean {
-  return typeof state === "function"
-    || isRecord(state) && typeof state.resolve === "function"
+  if (typeof state === "function") {
+    return (state as typeof state & { ownsScope?: boolean }).ownsScope !== false
+  }
+  return isRecord(state) && typeof state.resolve === "function"
 }
 
 async function resolveChatState(

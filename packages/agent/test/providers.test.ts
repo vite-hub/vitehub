@@ -1236,6 +1236,28 @@ describe("agent Vite plugin", () => {
     }
   })
 
+  it("rejects file state for an explicit ephemeral runtime without hosting metadata", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-explicit-ephemeral-state-"))
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      const plugin = hubAgent({
+        providers: { state: { provider: "sqlite", url: "file:.data/state.sqlite" } },
+        runtime: "vercel",
+      })
+      if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
+
+      await expect(plugin.configResolved.call({} as never, {
+        command: "build",
+        root,
+      } as never)).rejects.toThrow("Agent state cannot use a file: URL on vercel")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("writes generated Nitro webhook handlers with sqlite state providers", async () => {
     const { hubAgent } = await import("../src/vite.ts")
 
@@ -1267,6 +1289,7 @@ describe("agent Vite plugin", () => {
         expect(webhookRoute).not.toContain("build-token-with-hyphen-env")
         expect(webhookRoute).toContain("let viteHubChatState")
         expect(webhookRoute).toContain("viteHubChatState = createLibsqlAgentState({")
+        expect(webhookRoute).toContain("chatStateFromLibsql.ownsScope = false")
         expect(webhookRoute).toContain("process.env[\"TURSO-AUTH-TOKEN\"]")
         expect(webhookRoute).not.toContain("process.env.TURSO-AUTH-TOKEN")
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN")

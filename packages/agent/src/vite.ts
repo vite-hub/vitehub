@@ -480,7 +480,8 @@ function resolveLibsqlAgentState(
   const target = isRecord(config) ? config : {}
   const localDevelopment = target.command === "serve" && options.runtime !== "cloudflare-agents" && options.runtime !== "deno"
   const resolvedUrl = url || (auto && localDevelopment ? defaultLocalAgentStateUrl : undefined)
-  const ephemeralHosting = localDevelopment ? undefined : resolveAgentHosting(config)
+  const explicitEphemeralHosting = options.runtime === "cloudflare-agents" ? "cloudflare" : options.runtime === "vercel" ? "vercel" : undefined
+  const ephemeralHosting = localDevelopment ? undefined : explicitEphemeralHosting || resolveAgentHosting(config)
   if (ephemeralHosting && resolvedUrl?.startsWith("file:")) {
     throw new TypeError(`[vitehub] Agent state cannot use a file: URL on ${ephemeralHosting} because its filesystem is ephemeral. Configure a durable libSQL URL.`)
   }
@@ -752,6 +753,7 @@ function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions)
     "  }",
     "  return viteHubChatState",
     "}",
+    "chatStateFromLibsql.ownsScope = false",
   ]
 }
 
