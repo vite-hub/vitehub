@@ -33,10 +33,11 @@ const harnessSessionDestroy = vi.hoisted(() => vi.fn(async () => {
 }))
 const harnessSessionRun = vi.hoisted(() => vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: "" })))
 const harnessStreamInputs = vi.hoisted(() => [] as Record<string, unknown>[])
+const harnessStreamNext = vi.hoisted(() => vi.fn(() => new Promise<IteratorResult<unknown>>(() => {})))
 const harnessStreamResult = vi.hoisted(() => vi.fn<() => unknown>(() => ({
   fullStream: {
     [Symbol.asyncIterator]: () => ({
-      next: () => new Promise<IteratorResult<unknown>>(() => {}),
+      next: harnessStreamNext,
       return: async () => {
         order.push("harness-stream-return")
         return { done: true, value: undefined }
@@ -246,11 +247,12 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     harnessSessionDestroy.mockClear()
     harnessSessionRun.mockClear()
     harnessStreamInputs.length = 0
+    harnessStreamNext.mockClear()
     harnessStreamResult.mockReset()
     harnessStreamResult.mockReturnValue({
       fullStream: {
         [Symbol.asyncIterator]: () => ({
-          next: () => new Promise<IteratorResult<unknown>>(() => {}),
+          next: harnessStreamNext,
           return: async () => {
             order.push("harness-stream-return")
             return { done: true, value: undefined }
@@ -717,15 +719,37 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
     await configurePluginServer(plugin, server)
 
-    const response = await invokeMiddleware(handlers[0]!, {
-      agent: "review",
-      payload: { prompt: "review" },
-      timeout: 100,
-      trigger: "github.webhook",
-    }, agentInvocationStreamRoute, {
-      "content-type": "application/json",
-      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
-    })
+    vi.useFakeTimers()
+    let response: Awaited<ReturnType<typeof invokeMiddleware>>
+    try {
+      let markHarnessStreamReached!: () => void
+      const harnessStreamReached = new Promise<void>((resolve) => {
+        markHarnessStreamReached = resolve
+      })
+      harnessStreamNext.mockImplementationOnce(() => {
+        markHarnessStreamReached()
+        return new Promise<IteratorResult<unknown>>(() => {})
+      })
+      const responsePromise = invokeMiddleware(handlers[0]!, {
+        agent: "review",
+        payload: { prompt: "review" },
+        timeout: 100,
+        trigger: "github.webhook",
+      }, agentInvocationStreamRoute, {
+        "content-type": "application/json",
+        [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+      })
+      await harnessStreamReached
+      expect(harnessStreamNext).toHaveBeenCalledOnce()
+      await vi.advanceTimersByTimeAsync(100)
+      response = await responsePromise
+    }
+    finally {
+      const timerCount = vi.getTimerCount()
+      vi.clearAllTimers()
+      vi.useRealTimers()
+      expect(timerCount).toBe(0)
+    }
     const events = response.body
       .trim()
       .split("\n")
