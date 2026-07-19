@@ -258,6 +258,29 @@ describe("trusted host workspace runtime", () => {
     await session.close()
   })
 
+  it("does not spawn commands aborted while registering cleanup", async () => {
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "trusted-host",
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+    let checks = 0
+    const signal = {
+      get aborted() {
+        checks += 1
+        return checks > 1
+      },
+    } as AbortSignal
+
+    const session = await workspace.startSession()
+    const result = await session.exec("vitehub-command-that-does-not-exist", [], { abortSignal: signal })
+
+    expect(result).toMatchObject({ exitCode: 130, stderr: "Command aborted" })
+    await session.close()
+  })
+
   it("removes AbortSignal listeners when commands finish", async () => {
     const workspace = createWorkspace({
       ...defineWorkspace({

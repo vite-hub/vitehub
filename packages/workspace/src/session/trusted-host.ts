@@ -250,7 +250,7 @@ async function execLocal(
       abort()
       await result
     })
-    if (closeRequested)
+    if (closeRequested || options.abortSignal?.aborted)
       return { args, command, exitCode: 130, stderr: "Command aborted", stdout: "" }
 
     const child = spawn(command, args, {
