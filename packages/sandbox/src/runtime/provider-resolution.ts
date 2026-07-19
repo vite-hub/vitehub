@@ -22,7 +22,7 @@ export function createCloudflareExecutionSandboxId(name: string, sandboxId?: str
   if (sandboxId)
     return sandboxId
 
-  return encodeURIComponent(name)
+  return `vitehub-${encodeURIComponent(name)}-definition`
 }
 
 export function resolveRuntimeProvider(provider?: SandboxDefinitionProviderOptions, event?: SandboxEvent) {

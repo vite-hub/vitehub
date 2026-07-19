@@ -1,4 +1,5 @@
 import { SandboxError } from '../sandbox/errors'
+import { shellQuote } from '../sandbox/utils'
 import { createEntrySource } from './entry-script'
 import {
   createExecutionFiles,
@@ -48,6 +49,34 @@ function resolveLauncher(_provider: SandboxClient['provider'], runtime?: Sandbox
   }
 }
 
+async function executeLauncher(
+  sandbox: SandboxClient,
+  command: string,
+  args: string[],
+  options: { env?: Record<string, string>, timeout?: number },
+) {
+  if (sandbox.provider === 'cloudflare' && typeof sandbox.native.createSession === 'function') {
+    const session = await sandbox.cloudflare.createSession({
+      env: options.env,
+      timeout: options.timeout,
+    })
+    try {
+      const result = await session.exec([command, ...args].map(shellQuote).join(' '), options)
+      return {
+        ok: result.exitCode === 0,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        code: result.exitCode,
+      }
+    }
+    finally {
+      await session.destroy().catch(() => {})
+    }
+  }
+
+  return await sandbox.exec(command, args, options)
+}
+
 async function executeSandboxDefinitionOnce<TPayload, TResult>(
   sandbox: SandboxClient,
   definitionName: string,
@@ -77,7 +106,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
     let execution: Awaited<ReturnType<SandboxClient['exec']>> | undefined
 
     try {
-      execution = await sandbox.exec(launcher.command, execArgs, {
+      execution = await executeLauncher(sandbox, launcher.command, execArgs, {
         env: definitionOptions?.env,
         timeout: definitionOptions?.timeout,
       })

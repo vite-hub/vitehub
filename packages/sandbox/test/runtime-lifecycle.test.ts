@@ -48,7 +48,9 @@ beforeEach(() => {
 
 describe("Sandbox runtime lifecycle", () => {
   it("keeps distinct Definition names distinct in default Cloudflare identities", () => {
-    expect(createCloudflareExecutionSandboxId("tools/release-notes")).toBe("tools%2Frelease-notes")
+    expect(createCloudflareExecutionSandboxId("tools/release-notes")).toBe("vitehub-tools%2Frelease-notes-definition")
+    expect(createCloudflareExecutionSandboxId("api")).toBe("vitehub-api-definition")
+    expect(createCloudflareExecutionSandboxId("-preview-")).toBe("vitehub--preview--definition")
     expect(createCloudflareExecutionSandboxId("tools/release-notes"))
       .not.toBe(createCloudflareExecutionSandboxId("tools_release-notes"))
     expect(createCloudflareExecutionSandboxId("Example"))
@@ -67,7 +69,7 @@ describe("Sandbox runtime lifecycle", () => {
     expect(result.isOk()).toBe(true)
     expect(runtimeMocks.createSandboxClient).toHaveBeenCalledWith(expect.objectContaining({
       provider: "cloudflare",
-      sandboxId: "example",
+      sandboxId: "vitehub-example-definition",
     }))
     expect(sandbox.stop).not.toHaveBeenCalled()
   })
