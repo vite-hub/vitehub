@@ -440,7 +440,7 @@ describe("hubSandbox", () => {
     const rootDir = await createViteRoot()
     await writeCloudflareFragmentDefinition(rootDir)
     const { hubSandbox } = await import("../src/vite.ts")
-    const plugin = hubSandbox({ provider: "cloudflare" })
+    const plugin = hubSandbox()
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
     const userConfig = {

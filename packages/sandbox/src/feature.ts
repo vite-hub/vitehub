@@ -226,12 +226,13 @@ export async function createSandboxFeaturePlan(
   const defaultProviderName = defaultProvider?.provider
   const hostingProvider = getHostingProvider(hosting)
   const fragmentDefinitions = definitionMetadata.filter(definition => typeof definition.cloudflareDockerfileFragment === 'string')
+  const deferFragmentHostingValidation = deferUnresolvedHostingValidation && typeof hosting === 'undefined'
   if (fragmentDefinitions.length && definitions.length !== 1) {
     throw new Error('[vitehub] A colocated Cloudflare Dockerfile fragment currently requires exactly one discovered Sandbox Definition because Cloudflare provider output owns one app-level Sandbox image. Configure an application-owned Dockerfile until ViteHub can route definitions to distinct images.')
   }
   if (fragmentDefinitions.length
-    && (defaultProviderName !== 'cloudflare'
-      || (hostingProvider !== 'cloudflare' && (!deferUnresolvedHostingValidation || typeof hosting === 'string')))) {
+    && !deferFragmentHostingValidation
+    && (defaultProviderName !== 'cloudflare' || hostingProvider !== 'cloudflare')) {
     throw new Error('[vitehub] A colocated Cloudflare Dockerfile fragment requires Cloudflare hosting and the Cloudflare Sandbox provider. Other hosts use different image build and routing models.')
   }
   const sandboxArtifacts: GeneratedArtifact[] = sandboxDefinitions.map(definition => ({
