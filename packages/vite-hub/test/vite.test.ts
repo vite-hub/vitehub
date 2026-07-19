@@ -125,7 +125,7 @@ describe("vitehub", () => {
       scheduleRuntimeImport: "vite-hub/_internal/schedule/runtime",
       workflowImportBase: "vite-hub/_internal/workflow",
       workspaceDependencyRuntimeImports: {
-        sandbox: "@vite-hub/sandbox",
+        sandbox: "vite-hub/sandbox",
         sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
         shellWorkspace: "vite-hub/shell/workspace",
       },
@@ -133,7 +133,7 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubAgent).toHaveBeenCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
-        sandbox: "@vite-hub/sandbox",
+      sandbox: "vite-hub/sandbox",
         sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
         shellWorkspace: "vite-hub/shell/workspace",
       },
@@ -161,7 +161,7 @@ describe("vitehub", () => {
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
       },
       workspaceDependencyRuntimeImports: {
-        sandbox: "@vite-hub/sandbox",
+        sandbox: "vite-hub/sandbox",
         sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
         shellWorkspace: "vite-hub/shell/workspace",
       },
@@ -169,7 +169,7 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
-        sandbox: "@vite-hub/sandbox",
+      sandbox: "vite-hub/sandbox",
         sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
         shellWorkspace: "vite-hub/shell/workspace",
       },
@@ -227,14 +227,14 @@ describe("vitehub", () => {
 
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
-        sandbox: "@vite-hub/sandbox",
+        sandbox: "vite-hub/sandbox",
         sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
         shellWorkspace: "vite-hub/shell/workspace",
       },
     }))
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
-        sandbox: "@vite-hub/sandbox",
+        sandbox: "vite-hub/sandbox",
         sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
         shellWorkspace: "vite-hub/shell/workspace",
       },

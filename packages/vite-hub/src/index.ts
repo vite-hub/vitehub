@@ -79,7 +79,7 @@ function frameworkWorkspaceDependencyRuntimeImports(sandbox: boolean) {
   return {
     ...(sandbox
       ? {
-          sandbox: "@vite-hub/sandbox",
+          sandbox: "vite-hub/sandbox",
           sandboxRuntimeState: `${generatedImportBase}/sandbox/runtime/state`,
         }
       : {}),

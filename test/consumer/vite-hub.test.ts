@@ -409,7 +409,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/execute")
       expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/state")
       expect(workflowRegistry).toContain("setWorkspaceDependencyRuntimeLoaders")
-      expect(workflowRegistry).not.toContain("vite-hub/_internal/sandbox/runtime/state")
+      expect(workflowRegistry).toContain("vite-hub/_internal/sandbox/runtime/state")
+      expect(workflowRegistry).toContain("vite-hub/sandbox")
       expect(workflowRegistry).toContain("vite-hub/shell/workspace")
       expect(workspacePlugin).toContain("vite-hub/_internal/workspace/runtime")
 

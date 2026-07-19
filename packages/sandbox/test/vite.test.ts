@@ -94,7 +94,7 @@ describe("hubSandbox", () => {
 
     expect(readAlias(alias, "@vite-hub/sandbox")).toBeUndefined()
     expect(sandboxAlias).toContain(".vitehub/sandbox/runtime/sandbox.mjs")
-    expect(providerImportAliases["@vite-hub/sandbox"]).toBe(sandboxAlias)
+    expect(providerImportAliases["@vite-hub/sandbox"]).toBeUndefined()
     expect(providerImportAliases["vite-hub/sandbox"]).toBe(sandboxAlias)
 
     await configHook({ root: rootDir, sandbox: false }, { command: "serve", mode: "development" })

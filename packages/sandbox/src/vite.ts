@@ -129,12 +129,11 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     definitions = prepared.definitions
     if (internalOptions?.providerImportAliases && internalOptions.providerImportSpecifier) {
       const facade = generatedAliases[SANDBOX_PACKAGE_ID]
+      delete internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID]
       if (facade) {
-        internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID] = facade
         internalOptions.providerImportAliases[internalOptions.providerImportSpecifier] = facade
       }
       else {
-        delete internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID]
         delete internalOptions.providerImportAliases[internalOptions.providerImportSpecifier]
       }
     }
