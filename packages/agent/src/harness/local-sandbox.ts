@@ -244,6 +244,11 @@ async function createSession(options: LocalHarnessSandboxProviderOptions, sessio
     },
     async stop() {
       await Promise.all(Array.from(this.processes, child => new Promise<void>((resolve) => {
+        if (child.exitCode !== null || child.signalCode !== null) {
+          this.processes.delete(child)
+          resolve()
+          return
+        }
         child.once("close", () => resolve())
         child.kill()
       })))

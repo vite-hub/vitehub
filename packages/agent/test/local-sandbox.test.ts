@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import type { ChildProcessWithoutNullStreams } from "node:child_process"
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises"
 import { createServer, type Server } from "node:net"
 import { tmpdir } from "node:os"
@@ -328,6 +329,26 @@ describe("local harness sandbox", () => {
       const child = await session.spawn({ command: "kill -TERM $$" })
 
       await expect(child.wait()).resolves.toEqual({ exitCode: 1 })
+      expect((session as unknown as { processes: Set<unknown> }).processes.size).toBe(0)
+    }
+    finally {
+      await session.destroy?.()
+    }
+  })
+
+  it("does not wait for a second close when stop runs from the child close event", async () => {
+    const provider = createLocalHarnessSandbox({ env: { PATH: process.env.PATH } })
+    const session = await provider.createSession()
+
+    try {
+      const child = await session.spawn({ command: "node -e \"\"" })
+      const [rawChild] = (session as unknown as { processes: Set<ChildProcessWithoutNullStreams> }).processes
+      const stopped = new Promise<void>((resolve, reject) => {
+        rawChild!.once("close", () => session.stop().then(resolve, reject))
+      })
+
+      await expect(child.wait()).resolves.toEqual({ exitCode: 0 })
+      await expect(stopped).resolves.toBeUndefined()
       expect((session as unknown as { processes: Set<unknown> }).processes.size).toBe(0)
     }
     finally {
