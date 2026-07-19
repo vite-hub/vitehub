@@ -3,56 +3,25 @@ import { Effect, Exit, Ref, Scope } from "effect"
 import type { MaybePromise } from "../types.ts"
 
 import {
+  acquireAgentResource,
   AgentEffectFailure,
   agentEffectCauseValues,
+  closeAgentResources,
   runAgentEffect,
   tryAgentPromise,
 } from "./effect-runtime.ts"
-
-const closeCapability = Effect.fn("Capability.close")(function* (
-  close: () => MaybePromise<void>,
-  failures: Ref.Ref<readonly unknown[]>,
-) {
-  const exit = yield* Effect.exit(tryAgentPromise("Capability.close", () => close()))
-  if (Exit.isFailure(exit)) {
-    const causes = agentEffectCauseValues(exit.cause)
-    yield* Ref.update(failures, current => [...current, ...causes])
-  }
-})
 
 const addCapability = Effect.fn("Capability.Scope.add")(function* (
   scope: Scope.Closeable,
   failures: Ref.Ref<readonly unknown[]>,
   close: () => MaybePromise<void>,
 ) {
-  yield* Scope.provide(
-    Effect.acquireRelease(
-      Effect.succeed(close),
-      registered => closeCapability(registered, failures),
-    ),
+  yield* acquireAgentResource(
     scope,
+    failures,
+    Effect.succeed(close),
+    registered => tryAgentPromise("Capability.close", () => registered()),
   )
-})
-
-const closeCapabilityScope = Effect.fn("Capability.Scope.close")(function* (
-  scope: Scope.Closeable,
-  failures: Ref.Ref<readonly unknown[]>,
-) {
-  yield* Scope.close(scope, Exit.void)
-  const causes = yield* Ref.get(failures)
-  if (causes.length === 1) {
-    return yield* Effect.fail(
-      new AgentEffectFailure({ cause: causes[0], operation: "Capability.Scope.close" }),
-    )
-  }
-  if (causes.length > 1) {
-    return yield* Effect.fail(
-      new AgentEffectFailure({
-        cause: new AggregateError(causes, "[vitehub] Multiple capability close callbacks failed."),
-        operation: "Capability.Scope.close",
-      }),
-    )
-  }
 })
 
 const failCapabilitySetup = Effect.fn("Capability.Scope.failSetup")(function* (
@@ -60,7 +29,10 @@ const failCapabilitySetup = Effect.fn("Capability.Scope.failSetup")(function* (
   failures: Ref.Ref<readonly unknown[]>,
   setupError: unknown,
 ) {
-  const closeExit = yield* Effect.exit(closeCapabilityScope(scope, failures))
+  const closeExit = yield* Effect.exit(closeAgentResources(scope, failures, {
+    aggregateMessage: "[vitehub] Multiple capability close callbacks failed.",
+    operation: "Capability.Scope.close",
+  }))
   if (Exit.isFailure(closeExit)) {
     const closeCauses = agentEffectCauseValues(closeExit.cause)
     const closeError = closeCauses.length === 1
@@ -98,7 +70,10 @@ export class AgentCapabilityScope {
   }
 
   close(): Promise<void> {
-    return runAgentEffect(closeCapabilityScope(this.scope, this.failures))
+    return runAgentEffect(closeAgentResources(this.scope, this.failures, {
+      aggregateMessage: "[vitehub] Multiple capability close callbacks failed.",
+      operation: "Capability.Scope.close",
+    }))
   }
 
   failSetup(error: unknown): Promise<never> {

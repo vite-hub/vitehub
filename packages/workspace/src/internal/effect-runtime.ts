@@ -6,6 +6,8 @@ const boundary = createEffectBoundary({
 })
 
 export { EffectBoundaryFailure as WorkspaceEffectFailure }
+export const acquireWorkspaceResource = boundary.acquireWithCapturedRelease
+export const closeWorkspaceResources = boundary.closeScopeWithCapturedReleases
 export const runWorkspaceEffect = boundary.run
 export const tryWorkspacePromise = boundary.tryPromise
 export const workspaceEffectCauseValues = boundary.causeValues

@@ -1,4 +1,4 @@
-import { Cause, Data, Effect, Exit } from "effect"
+import { Cause, Data, Effect, Exit, Ref, Scope } from "effect"
 
 export class EffectBoundaryFailure extends Data.TaggedError("EffectBoundaryFailure")<{
   readonly cause: unknown
@@ -8,6 +8,12 @@ export class EffectBoundaryFailure extends Data.TaggedError("EffectBoundaryFailu
 interface EffectBoundaryOptions {
   readonly aggregateMessage: string
   readonly interruptionMessage: string
+}
+
+interface CloseScopeOptions {
+  readonly aggregateMessage?: string
+  readonly exit?: Exit.Exit<unknown, unknown>
+  readonly operation: string
 }
 
 export function createEffectBoundary(options: EffectBoundaryOptions) {
@@ -52,5 +58,39 @@ export function createEffectBoundary(options: EffectBoundaryOptions) {
     throw new AggregateError(causes, options.aggregateMessage)
   }
 
-  return { causeValues, run, tryPromise }
+  function acquireWithCapturedRelease<A, E, R, E2, R2>(
+    scope: Scope.Closeable,
+    failures: Ref.Ref<readonly unknown[]>,
+    acquire: Effect.Effect<A, E, R>,
+    release: (resource: A, exit: Exit.Exit<unknown, unknown>) => Effect.Effect<unknown, E2, R2>,
+  ): Effect.Effect<A, E, R | R2> {
+    return Scope.provide(
+      Effect.acquireRelease(
+        acquire,
+        (resource, exit) => Effect.matchCauseEffect(release(resource, exit), {
+          onFailure: cause => Ref.update(failures, current => [...current, ...causeValues(cause)]),
+          onSuccess: () => Effect.void,
+        }),
+      ),
+      scope,
+    )
+  }
+
+  function closeScopeWithCapturedReleases(
+    scope: Scope.Closeable,
+    failures: Ref.Ref<readonly unknown[]>,
+    closeOptions: CloseScopeOptions,
+  ): Effect.Effect<void, EffectBoundaryFailure> {
+    return Effect.gen(function* () {
+      yield* Scope.close(scope, closeOptions.exit ?? Exit.void)
+      const causes = yield* Ref.get(failures)
+      if (causes.length === 0) return
+      const cause = causes.length === 1
+        ? causes[0]
+        : new AggregateError(causes, closeOptions.aggregateMessage ?? options.aggregateMessage)
+      return yield* Effect.fail(new EffectBoundaryFailure({ cause, operation: closeOptions.operation }))
+    })
+  }
+
+  return { acquireWithCapturedRelease, causeValues, closeScopeWithCapturedReleases, run, tryPromise }
 }
