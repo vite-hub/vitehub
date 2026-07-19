@@ -126,24 +126,28 @@ function frameworkDependencyResolver(
   options: ViteHubPresetOptions,
   providerImportAliases: Record<string, string>,
 ): Plugin {
-  const aliases = {
-    ...frameworkProviderImportAliases,
-    ...(!options.blob ? { "vite-hub/blob": disabledBlobFacade } : {}),
-    ...(!options.workflow
-      ? {
-          "vite-hub/agent": disabledWorkflowAgentFacade,
-          "vite-hub/agent/server": disabledWorkflowAgentServerFacade,
-          "vite-hub/workflow": disabledWorkflowFacade,
-        }
-      : {}),
+  function hasPlugin(plugins: PluginOption[] | undefined, name: string): boolean {
+    return plugins?.flat(Infinity).some(plugin => plugin && typeof plugin === "object" && "name" in plugin && plugin.name === name) ?? false
   }
   return {
     name: "vite-hub/dependencies",
     enforce: "pre",
-    config() {
+    config(config) {
+      const blobEnabled = Boolean(options.blob) || hasPlugin(config.plugins, "@vite-hub/blob/vite")
+      const workflowEnabled = Boolean(options.workflow) || hasPlugin(config.plugins, "@vite-hub/workflow/vite")
       return {
         resolve: {
-          alias: aliases,
+          alias: {
+            ...frameworkProviderImportAliases,
+            ...(!blobEnabled ? { "vite-hub/blob": disabledBlobFacade } : {}),
+            ...(!workflowEnabled
+              ? {
+                  "vite-hub/agent": disabledWorkflowAgentFacade,
+                  "vite-hub/agent/server": disabledWorkflowAgentServerFacade,
+                  "vite-hub/workflow": disabledWorkflowFacade,
+                }
+              : {}),
+          },
         },
       }
     },
