@@ -93,13 +93,16 @@ describe("hubQueue", () => {
     expect(nitroPlugin).toContain("createQueueCloudflareWorker({ definitions: queueDefinitions")
   })
 
-  it("rejects Cloudflare physical queue names at the provider limit", async () => {
+  it("accepts Cloudflare physical queue names at the provider limit", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-prefix-limit-"))
     roots.push(root)
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
 
-    const config = hubQueue({ namePrefix: "x".repeat(42), provider: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => void
-    expect(() => config({ nitro: { preset: "cloudflare_module" }, root })).toThrow("must be shorter than 63 characters")
+    const validConfig = hubQueue({ namePrefix: "x".repeat(42), provider: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => void
+    expect(() => validConfig({ nitro: { preset: "cloudflare_module" }, root })).not.toThrow()
+
+    const invalidConfig = hubQueue({ namePrefix: "x".repeat(43), provider: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => void
+    expect(() => invalidConfig({ nitro: { preset: "cloudflare_module" }, root })).toThrow("must be at most 63 characters")
   })
 
   it("infers providers for generated Nitro runtime imports", async () => {

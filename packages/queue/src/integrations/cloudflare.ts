@@ -6,8 +6,8 @@ const encodedCloudflareQueueNamePattern = /^queue--([0-9a-f]{2})+$/i
 
 export function getCloudflareQueueName(name: string, namePrefix = ""): string {
   const queueName = `${namePrefix}${cloudflareQueueNamePrefix}${encodeQueueNameHex(name)}`
-  if (queueName.length >= 63) {
-    throw new TypeError(`Cloudflare queue name ${JSON.stringify(queueName)} must be shorter than 63 characters.`)
+  if (queueName.length > 63) {
+    throw new TypeError(`Cloudflare queue name ${JSON.stringify(queueName)} must be at most 63 characters.`)
   }
   return queueName
 }

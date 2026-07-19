@@ -234,7 +234,9 @@ export async function writeQueueNitroIntegration(rootDir: string, queue: QueueMo
   const pluginFile = resolve(rootDir, generatedQueueNitroPlugin)
   const middlewareFile = resolve(rootDir, generatedQueueNitroMiddleware)
   const queueConfig = resolveOutputQueueConfig(typeof queue === "undefined" ? {} : queue, hosting)
-  const queueDefinitions = createCloudflareQueueDefinitionNames(definitions, queue && queue.provider === "cloudflare" ? queue.namePrefix : undefined)
+  const queueDefinitions = cloudflareQueues && queueConfig !== false && queueConfig.provider === "cloudflare"
+    ? createCloudflareQueueDefinitionNames(definitions, queue && queue.provider === "cloudflare" ? queue.namePrefix : undefined)
+    : {}
   await Promise.all([
     mkdir(dirname(pluginFile), { recursive: true }),
     mkdir(generatedDir, { recursive: true }),
