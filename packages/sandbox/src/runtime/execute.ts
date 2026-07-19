@@ -17,7 +17,7 @@ import {
   tryParseSandboxOutput,
 } from './output-recovery'
 
-import type { SandboxClient } from '../sandbox/types'
+import type { CloudflareSandboxClient, SandboxClient } from '../sandbox/types'
 import type { SandboxDefinitionOptions, SandboxDefinitionRuntime } from '../module-types'
 
 const defaultNodeLauncher = 'import(process.argv[1])'
@@ -55,8 +55,11 @@ async function executeLauncher(
   args: string[],
   options: { env?: Record<string, string>, timeout?: number },
 ) {
-  if (sandbox.provider === 'cloudflare' && typeof sandbox.native.createSession === 'function') {
-    const session = await sandbox.cloudflare.createSession({
+  const cloudflareSandbox = sandbox.provider === 'cloudflare'
+    ? sandbox as CloudflareSandboxClient
+    : undefined
+  if (cloudflareSandbox && typeof cloudflareSandbox.native.createSession === 'function') {
+    const session = await cloudflareSandbox.cloudflare.createSession({
       env: options.env,
       timeout: options.timeout,
     })
