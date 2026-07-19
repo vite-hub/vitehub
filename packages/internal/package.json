@@ -10,6 +10,7 @@
   "exports": {
     "./cli": "./dist/cli.js",
     "./env": "./dist/env.js",
+    "./effect": "./dist/effect.js",
     "./arrays": "./dist/arrays.js",
     "./definition-catalog": "./dist/definition-catalog.js",
     "./definition-discovery": "./dist/definition-discovery.js",
@@ -50,6 +51,7 @@
   "dependencies": {
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/runtime": "workspace:*",
+    "effect": "catalog:effect",
     "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
     "pathe": "catalog:unjs"

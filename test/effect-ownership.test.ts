@@ -21,13 +21,14 @@ import { describe, expect, it } from "vitest"
 
 const repoRoot = resolve(import.meta.dirname, "..")
 const effectVersion = "4.0.0-beta.99"
-const expectedEffectOwners = ["agent", "schedule", "workspace"]
+const expectedEffectOwners = ["agent", "internal", "schedule", "workspace"]
 const allowedEffectOwners = new Set(expectedEffectOwners)
 
 type PackageEffectOwnership = {
   declaresEffect: boolean
   importsEffect: boolean
   name: string
+  private: boolean
 }
 
 async function readFiles(dir: string, predicate: (path: string) => boolean): Promise<string[]> {
@@ -79,6 +80,7 @@ async function packageEffectOwnership(): Promise<PackageEffectOwnership[]> {
       declaresEffect,
       importsEffect: sources.some(sourceImportsEffect),
       name: entry.name,
+      private: manifest.private === true,
     })
   }
   return packages
@@ -118,9 +120,10 @@ describe("Effect ownership", () => {
 
     const packages = await packageEffectOwnership()
     expect(effectOwnershipViolations(packages)).toEqual([])
-    const owners = packages.filter(pkg => pkg.importsEffect).map(pkg => pkg.name).sort()
-    expect(owners).toEqual(expectedEffectOwners)
-    for (const owner of owners) {
+    const owners = packages.filter(pkg => pkg.importsEffect).sort((a, b) => a.name.localeCompare(b.name))
+    expect(owners.map(owner => owner.name)).toEqual(expectedEffectOwners)
+    for (const pkg of owners) {
+      const owner = pkg.name
       const packageDir = join(repoRoot, "packages", owner)
       const manifestPath = join(packageDir, "package.json")
       const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as { dependencies?: Record<string, string> }
@@ -131,11 +134,13 @@ describe("Effect ownership", () => {
       expect(resolved.version, packageDir).toBe(effectVersion)
 
       const declarations = await readFiles(join(packageDir, "dist"), path => path.endsWith(".d.ts"))
-      expect(declarations.some(sourceImportsEffect), packageDir).toBe(false)
-      expect(
-        declarations.some(source => /\bFiberFailure\b/.test(source)),
-        packageDir,
-      ).toBe(false)
+      if (!pkg.private) {
+        expect(declarations.some(sourceImportsEffect), packageDir).toBe(false)
+        expect(
+          declarations.some(source => /\bFiberFailure\b/.test(source)),
+          packageDir,
+        ).toBe(false)
+      }
 
       const bundles = (await readFiles(join(packageDir, "dist"), path => /\.[cm]?js$/.test(path))).join("\n")
       expect(bundles, packageDir).not.toMatch(/effect@3\.|3\.17\.7/)
@@ -144,15 +149,15 @@ describe("Effect ownership", () => {
 
   it.each([
     {
-      fixture: [{ declaresEffect: true, importsEffect: true, name: "queue" }],
+      fixture: [{ declaresEffect: true, importsEffect: true, name: "queue", private: false }],
       violation: "queue: unauthorized Effect importer",
     },
     {
-      fixture: [{ declaresEffect: true, importsEffect: false, name: "schedule" }],
+      fixture: [{ declaresEffect: true, importsEffect: false, name: "schedule", private: false }],
       violation: "schedule: Effect importer and dependency ownership differ",
     },
     {
-      fixture: [{ declaresEffect: false, importsEffect: true, name: "workspace" }],
+      fixture: [{ declaresEffect: false, importsEffect: true, name: "workspace", private: false }],
       violation: "workspace: Effect importer and dependency ownership differ",
     },
   ])("rejects invalid Effect ownership: $violation", ({ fixture, violation }) => {
