@@ -274,7 +274,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "  }",
           "}",
           "",
-          "export const blob = createGeneratedBlobStorage()",
+          "export const blob = createLazyGeneratedBlobStorage(\"default\")",
           "setBlobRuntimeStorage(blob)",
           "for (const name of Object.keys(blobConfig.stores || { default: blobConfig.store })) {",
           "  if (name !== \"default\") setNamedBlobRuntimeStorage(name, createLazyGeneratedBlobStorage(name))",

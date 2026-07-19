@@ -128,6 +128,7 @@ describe("hubBlob", () => {
       expect(driverImports(runtimeSource)[0]).toContain("/drivers/fs")
       expect(runtimeSource).not.toContain("/drivers/netlify-blobs")
       expect(runtimeSource).toContain("/drivers/vercel")
+      expect(runtimeSource).toContain("export const blob = createLazyGeneratedBlobStorage(\"default\")")
       expect(runtimeSource).toContain("setNamedBlobRuntimeStorage(name, createLazyGeneratedBlobStorage(name))")
 
       const entryFile = join(root, "entry.mjs")
@@ -160,6 +161,44 @@ describe("hubBlob", () => {
       expect(externalImports.every(path => path.startsWith("node:"))).toBe(true)
       const { stdout } = await execFileAsync(process.execPath, [artifactFile], { cwd: artifactRoot })
       expect(JSON.parse(stdout)).toEqual({ archiveValue: "named-store", defaultValue: "default-store" })
+    }
+    finally {
+      await Promise.all([
+        rm(root, { force: true, recursive: true }),
+        rm(artifactRoot, { force: true, recursive: true }),
+      ])
+    }
+  })
+
+  it("does not initialize an unused env-backed default store during startup", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-lazy-default-"))
+    const artifactRoot = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-lazy-artifact-"))
+    try {
+      const plugin = hubBlob({ driver: "vercel-blob" })
+      await (plugin.configResolved as (config: unknown) => void | Promise<void>)({ build: { outDir: "dist" }, root } as never)
+
+      const entryFile = join(root, "entry.mjs")
+      const artifactFile = join(artifactRoot, "server.mjs")
+      await writeFile(entryFile, [
+        "import './.vitehub/nitro/blob/runtime.mjs'",
+        "console.log('started')",
+        "",
+      ].join("\n"), "utf8")
+      await bundle({
+        bundle: true,
+        entryPoints: [entryFile],
+        format: "esm",
+        logLevel: "silent",
+        outfile: artifactFile,
+        platform: "node",
+        target: "node24",
+      })
+
+      const { stdout } = await execFileAsync(process.execPath, [artifactFile], {
+        cwd: artifactRoot,
+        env: { ...process.env, BLOB_READ_WRITE_TOKEN: undefined },
+      })
+      expect(stdout.trim()).toBe("started")
     }
     finally {
       await Promise.all([
