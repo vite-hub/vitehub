@@ -27,8 +27,6 @@ export function clearActiveCloudflareEnv(): void {
 }
 
 export function runWithActiveCloudflareEnv<T>(env: CloudflareWorkerEnv | undefined, callback: () => T): T {
-  activeEnv = env
-  ;(globalThis as { __env__?: CloudflareWorkerEnv }).__env__ = env
   return activeEnvStorage.run(env, callback)
 }
 

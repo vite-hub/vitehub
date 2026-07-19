@@ -1,0 +1,33 @@
+import { afterEach, describe, expect, it } from "vitest"
+
+import {
+  clearActiveCloudflareEnv,
+  getActiveCloudflareEnv,
+  runWithActiveCloudflareEnv,
+  setActiveCloudflareEnv,
+} from "../src/runtime/cloudflare-env.ts"
+
+afterEach(() => clearActiveCloudflareEnv())
+
+describe("Cloudflare environment context", () => {
+  it("restores the fallback environment after synchronous request context", () => {
+    const fallback = { name: "fallback" }
+    const request = { name: "request" }
+    setActiveCloudflareEnv(fallback)
+
+    expect(runWithActiveCloudflareEnv(request, getActiveCloudflareEnv)).toBe(request)
+    expect(getActiveCloudflareEnv()).toBe(fallback)
+  })
+
+  it("restores the fallback environment after asynchronous request context", async () => {
+    const fallback = { name: "fallback" }
+    const request = { name: "request" }
+    setActiveCloudflareEnv(fallback)
+
+    await expect(runWithActiveCloudflareEnv(request, async () => {
+      await Promise.resolve()
+      return getActiveCloudflareEnv()
+    })).resolves.toBe(request)
+    expect(getActiveCloudflareEnv()).toBe(fallback)
+  })
+})
