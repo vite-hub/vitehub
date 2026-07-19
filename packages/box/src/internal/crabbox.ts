@@ -732,9 +732,11 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       const remotePath = resolveSessionPath(state.root, path)
       const directory = posix.dirname(remotePath)
       const prepared = await this.run({ abortSignal: stateSignal,
-        command: `mkdir -p -- ${shellQuote(directory)} && test ! -d ${shellQuote(remotePath)} && if test -L ${shellQuote(remotePath)}; then readlink -f -- ${shellQuote(remotePath)} | base64; fi` })
+        command: `mkdir -p -- ${shellQuote(directory)} && test ! -d ${shellQuote(remotePath)} && if test -L ${shellQuote(remotePath)}; then readlink -fz -- ${shellQuote(remotePath)} | base64; fi` })
       if (prepared.exitCode !== 0) throw crabboxError(`prepare ${path}`, prepared)
-      const destination = prepared.stdout ? Buffer.from(prepared.stdout.replace(/\s+/g, ""), "base64").toString() : remotePath
+      const resolvedDestination = Buffer.from(prepared.stdout.replace(/\s+/g, ""), "base64")
+      if (resolvedDestination.length && resolvedDestination.at(-1) !== 0) throw new Error("[vitehub] Crabbox returned an invalid file destination.")
+      const destination = resolvedDestination.length ? resolvedDestination.subarray(0, -1).toString() : remotePath
       if (!posix.isAbsolute(destination)) throw new Error(`[vitehub] Crabbox returned an invalid file destination: ${destination}`)
       await withTemporaryFile(async (localPath) => {
         await writeFile(localPath, content)
