@@ -39,8 +39,6 @@ jobs:
       - uses: ./.github/actions/setup
 
       - name: Build docs
-        env:
-          CLOUDFLARE_D1_DATABASE_ID: 00000000-0000-0000-0000-000000000000
         run: vp run --filter vitehub-docs build
 
       - name: Verify Worker bundle
