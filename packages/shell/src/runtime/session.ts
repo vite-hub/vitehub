@@ -69,18 +69,9 @@ class RuntimeShellSession implements ShellSession {
   ) {
     this.boundary = provider.boundary
     this.policy = policy
-    const starts = this.#starts
     this.#owner = runShellEffect(Effect.gen(function* () {
       const scope = yield* Scope.make("sequential")
       const failures = yield* Ref.make<readonly unknown[]>([])
-      yield* acquireShellResource(
-        scope,
-        failures,
-        Effect.void,
-        () => tryShellPromise("Shell.Session.waitForStarts", async () => {
-          await Promise.all(starts)
-        }),
-      )
       return { failures, scope }
     }))
   }
@@ -151,14 +142,18 @@ class RuntimeShellSession implements ShellSession {
       this.#processes.delete(trackedProcess)
     })
     trackedProcess = { ...process, stop }
-    const owner = await this.#owner
-    await runShellEffect(acquireShellResource(
-      owner.scope,
-      owner.failures,
-      Effect.succeed(trackedProcess),
-      resource => tryShellPromise("Shell.Process.stop", () => resource.stop()),
-    ))
-    finishStart()
+    try {
+      const owner = await this.#owner
+      await runShellEffect(acquireShellResource(
+        owner.scope,
+        owner.failures,
+        Effect.succeed(trackedProcess),
+        resource => tryShellPromise("Shell.Process.stop", () => resource.stop()),
+      ))
+    }
+    finally {
+      finishStart()
+    }
     if (this.#disposed) {
       try {
         await stop()
@@ -182,6 +177,7 @@ class RuntimeShellSession implements ShellSession {
   dispose() {
     this.#disposed = true
     return this.#disposeTask ??= (async () => {
+      await Promise.all(this.#starts)
       const owner = await this.#owner
       await runShellEffect(closeShellScope(owner.scope, owner.failures, {
         aggregateMessage: "[vitehub] Shell session failed to stop multiple background processes.",
