@@ -829,10 +829,12 @@ async function generateAgentDeploymentCatalog(
   handlerPath: string,
   options: {
     agentImportBase: string
+    channelHandlers?: boolean
     workspaceImportBase: string
     workspaceRuntimeImport?: string
   },
 ): Promise<GeneratedAgentDeploymentCatalog> {
+  const channelHandlers = options.channelHandlers !== false
   const entries = await Promise.all(definitions.map(async (definition, index) => {
     const moduleName = `agent${index}`
     const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
@@ -860,7 +862,7 @@ async function generateAgentDeploymentCatalog(
   return {
     imports: [
       `import { workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(options.agentImportBase)}`,
-      `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler, hasChannelChatRoute } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`,
+      ...(channelHandlers ? [`import { createChannelChatRouteHandler, createChannelWebhookRouteHandler, hasChannelChatRoute } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`] : []),
       ...(options.workspaceRuntimeImport ? [`import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(options.workspaceRuntimeImport)}`] : []),
       ...hostedWorkspaceRuntime.imports,
       ...entries.map(entry => entry.import),
@@ -870,11 +872,15 @@ async function generateAgentDeploymentCatalog(
       "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
       "}",
       "",
-      "function resolveChatRouteOptions(module) {",
-      "  const chatRoute = module && typeof module === 'object' ? module.chatRoute : undefined",
-      "  return chatRoute && typeof chatRoute === 'object' ? chatRoute : undefined",
-      "}",
-      "",
+      ...(channelHandlers
+        ? [
+            "function resolveChatRouteOptions(module) {",
+            "  const chatRoute = module && typeof module === 'object' ? module.chatRoute : undefined",
+            "  return chatRoute && typeof chatRoute === 'object' ? chatRoute : undefined",
+            "}",
+            "",
+          ]
+        : []),
       ...generatedWorkspaceSourceRootHelper("withWorkspaceSourceRoot", "workspaceDefinitionFromOptions"),
       "",
       "function workspaceRegistryEntry(name, module, sourceRootDir, colocatedInstructions, colocatedSkills) {",
@@ -889,9 +895,13 @@ async function generateAgentDeploymentCatalog(
         : []),
       `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
       `const agentIdentities = {${agentIdentityEntries ? `\n  ${agentIdentityEntries}\n` : ""}}`,
-      `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
-      "const chatHandlers = Object.fromEntries(Object.entries(agents).filter(([, agent]) => hasChannelChatRoute(agent)).map(([name, agent]) => [name, createChannelChatRouteHandler(agent, resolveChatRouteOptions(agentModules[name]))]))",
-      "const webhookHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createChannelWebhookRouteHandler(agent)]))",
+      ...(channelHandlers
+        ? [
+            `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
+            "const chatHandlers = Object.fromEntries(Object.entries(agents).filter(([, agent]) => hasChannelChatRoute(agent)).map(([name, agent]) => [name, createChannelChatRouteHandler(agent, resolveChatRouteOptions(agentModules[name]))]))",
+            "const webhookHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createChannelWebhookRouteHandler(agent)]))",
+          ]
+        : []),
       "const agentNames = Object.keys(agents)",
     ],
   }
@@ -1077,36 +1087,26 @@ async function generateAgentDiscordGatewayRouteHandler(
   const workflowRuntime = generatedAgentWorkflowRuntime(options, agentImportBase)
   const workspaceDependencyRuntime = generatedAgentWorkspaceDependencyRuntime(options, workspaceImportBase)
   const runtimeRouteOption = options.runtime === "vite" ? ", runtime: 'vite'" : ""
-  const imports = definitions
-    .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
-    .join("\n")
-  const agentEntries = (await Promise.all(definitions
-    .map(async (definition, index) => {
-      const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
-      const agentExpression = `withWorkspaceSourceRoot(resolveAgentModule(agent${index}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))}, ${JSON.stringify(readColocatedAgentSkills(definition.handler))})`
-      return `${JSON.stringify(definition.name)}: ${agentExpression}`
-    })))
-    .join(",\n  ")
-  const agentNames = definitions.map(definition => definition.name)
-  const agentIdentityEntries = generatedAgentIdentityEntries(definitions)
+  const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
+    agentImportBase,
+    channelHandlers: false,
+    workspaceImportBase,
+    workspaceRuntimeImport: definitions.some(definition => definition.workspace)
+      ? subpath(workspaceImportBase, "runtime")
+      : undefined,
+  })
 
   return [
-    `import { workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
+    ...deploymentCatalog.imports,
     `import { createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server"))}`,
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
     "import { createError, defineEventHandler, getRequestHeader, getRequestHeaders, getRequestURL, getRouterParam } from 'h3'",
-    imports,
     "",
     ...workflowRuntime.setup,
     ...workspaceDependencyRuntime.setup,
-    "function resolveAgentModule(module) {",
-    "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
-    "}",
-    "",
-    ...generatedWorkspaceSourceRootHelper("withWorkspaceSourceRoot", "workspaceDefinitionFromOptions"),
-    "",
+    ...deploymentCatalog.setup,
     ...generatedRuntimeHelpers(),
     "",
     "function bearerToken(value) {",
@@ -1127,9 +1127,6 @@ async function generateAgentDiscordGatewayRouteHandler(
     ...routeCapabilities.setup,
     `const webhookRoute = ${JSON.stringify(generatedWebhookRoute(options.webhookRoute))}`,
     `const defaultDurationMs = ${JSON.stringify(9 * 60 * 1000)}`,
-    `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
-    `const agentIdentities = {${agentIdentityEntries ? `\n  ${agentIdentityEntries}\n` : ""}}`,
-    `const agentNames = ${JSON.stringify(agentNames)}`,
     "const handlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createDiscordGatewayRouteHandler(agent)]))",
     "",
     "export default defineEventHandler(async (event) => {",

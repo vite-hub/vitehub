@@ -16,7 +16,6 @@ import {
 import {
   createInstructionCoverage,
   composeInstructionDocument,
-  composeStaticInstructionDocument,
   resolveInstructionImports,
 } from "./instruction-composition.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
@@ -963,8 +962,8 @@ function workspaceMetadataInstructions<
     return []
   })
   if (defaultInstructions) instructions.unshift(defaultInstructions)
-  const composed = composeStaticInstructionDocument(instructions.join("\n\n"))
-  return composed ? [composed] : []
+  const content = instructions.join("\n\n").trim()
+  return content ? [content] : []
 }
 
 function readLocalWorkspaceInstructions<

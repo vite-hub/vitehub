@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  findDefaultExportCall,
   findIdentifierCalls,
+  readObjectProperty,
   splitTopLevel,
 } from "../src/source-scanner.ts"
 
@@ -172,5 +174,24 @@ describe("source scanner", () => {
       "() => `x ${`y)`}`",
       "{ id: \"daily\" }",
     ])
+  })
+
+  it("finds default-exported definition calls", () => {
+    const call = findDefaultExportCall([
+      `const ignored = defineThing({ value: "ignored" })`,
+      `export default (defineThing<{ value: string }>({`,
+      `  value: "real",`,
+      `}))`,
+    ].join("\n"), ["defineThing"])
+
+    expect(call).toMatchObject({
+      argument: `{\n  value: "real",\n}`,
+      name: "defineThing",
+    })
+  })
+
+  it("reads top-level object properties without matching nested values", () => {
+    expect(readObjectProperty(`{ nested: { cron: "wrong" }, cron: "0 8 * * *" }`, "cron"))
+      .toBe(`"0 8 * * *"`)
   })
 })

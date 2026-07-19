@@ -14,6 +14,7 @@ import {
   resolveDefinitionScanRoots,
   sortDefinitions,
 } from "@vite-hub/internal/definition-catalog"
+import { maskSourceLiterals } from "@vite-hub/internal/source-scanner"
 
 import type { DiscoveredWorkflowDefinition } from "./types.ts"
 
@@ -50,58 +51,6 @@ function readDirEntries(root: string) {
 
 function isSourceFile(file: string) {
   return sourceFilePattern.test(file) && !declarationFilePattern.test(file)
-}
-
-function maskSourceLiterals(source: string): string {
-  let masked = ""
-  for (let index = 0; index < source.length;) {
-    const quote = source[index]
-    if (quote === "/" && source[index + 1] === "/") {
-      const end = source.indexOf("\n", index)
-      const length = (end < 0 ? source.length : end) - index
-      masked += " ".repeat(length)
-      index += length
-    }
-    else if (quote === "/" && source[index + 1] === "*") {
-      const end = source.indexOf("*/", index + 2)
-      const length = (end < 0 ? source.length : end + 2) - index
-      masked += source.slice(index, index + length).replace(/[^\n]/g, " ")
-      index += length
-    }
-    else if (quote === "/" && /[([{,:;=!?&|+*%^~<>-]/.test(masked.trimEnd().at(-1) || "")) {
-      let end = index + 1
-      let inCharacterClass = false
-      while (end < source.length) {
-        if (source[end] === "\\") end += 2
-        else if (source[end] === "[") {
-          inCharacterClass = true
-          end++
-        }
-        else if (source[end] === "]") {
-          inCharacterClass = false
-          end++
-        }
-        else if (source[end++] === "/" && !inCharacterClass) break
-      }
-      while (/[A-Za-z]/.test(source[end] || "")) end++
-      masked += source.slice(index, end).replace(/[^\n]/g, " ")
-      index = end
-    }
-    else if (quote === "\"" || quote === "'" || quote === "`") {
-      let end = index + 1
-      while (end < source.length) {
-        if (source[end] === "\\") end += 2
-        else if (source[end++] === quote) break
-      }
-      masked += source.slice(index, end).replace(/[^\n]/g, " ")
-      index = end
-    }
-    else {
-      masked += quote
-      index++
-    }
-  }
-  return masked
 }
 
 function findDefineAgentObjectStart(masked: string, start: number): number | undefined {

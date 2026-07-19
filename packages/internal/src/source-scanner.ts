@@ -6,6 +6,10 @@ export interface IdentifierCall {
   start: number
 }
 
+export interface DefaultExportCall extends IdentifierCall {
+  argument: string
+}
+
 function isQuote(char: string | undefined) {
   return char === "\"" || char === "'" || char === "`"
 }
@@ -217,6 +221,40 @@ function skipWhitespaceAndComments(source: string, index: number) {
   return index
 }
 
+export function stripBoundaryComments(source: string): string {
+  return source
+    .replace(/^(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, "")
+    .replace(/(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+$/, "")
+}
+
+export function maskSourceLiterals(source: string): string {
+  const output = [...source]
+  let previousSignificant = ""
+  const mask = (start: number, end: number) => {
+    for (let index = start; index < end; index++) {
+      if (output[index] !== "\n" && output[index] !== "\r") output[index] = " "
+    }
+  }
+
+  for (let index = 0; index < source.length;) {
+    const char = source[index]
+    const next = source[index + 1]
+    let end: number | undefined
+    if (isQuote(char)) end = skipQuoted(source, index)
+    else if (char === "/" && next === "/") end = skipLineComment(source, index)
+    else if (char === "/" && next === "*") end = skipBlockComment(source, index)
+    else if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, index))) end = skipRegexLiteral(source, index)
+    if (end !== undefined) {
+      mask(index, end)
+      index = end
+      continue
+    }
+    previousSignificant = trackSignificant(previousSignificant, char)
+    index += 1
+  }
+  return output.join("")
+}
+
 function isMethodDeclarationName(source: string, index: number, closeParen: number) {
   const previous = previousNonWhitespace(source, index)
   return source[skipWhitespaceAndComments(source, closeParen + 1)] === "{"
@@ -390,4 +428,30 @@ export function findIdentifierCalls(source: string, name: string): IdentifierCal
     index = closeParen
   }
   return calls
+}
+
+export function findDefaultExportCall(source: string, names: string[]): DefaultExportCall | undefined {
+  const masked = maskSourceLiterals(source)
+  const calls = names
+    .flatMap(name => findIdentifierCalls(source, name))
+    .sort((left, right) => left.start - right.start)
+
+  for (const call of calls) {
+    const argument = stripBoundaryComments(call.arguments[0] || "")
+    if (!argument.startsWith("{") || !argument.endsWith("}")) continue
+    if (/\bexport\s+default\s*(?:\(\s*)*$/.test(masked.slice(0, call.start))) {
+      return { ...call, argument }
+    }
+  }
+}
+
+export function readObjectProperty(objectSource: string, propertyName: string): string | undefined {
+  const normalized = stripBoundaryComments(objectSource)
+  if (!normalized.startsWith("{") || !normalized.endsWith("}")) return
+  for (const property of splitTopLevel(normalized.slice(1, -1))) {
+    const parts = splitTopLevel(property, ":")
+    if (parts.length < 2) continue
+    const key = stripBoundaryComments(parts.shift()!).replace(/^["'`](.*)["'`]$/s, "$1")
+    if (key === propertyName) return stripBoundaryComments(parts.join(":"))
+  }
 }

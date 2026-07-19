@@ -6879,7 +6879,7 @@ describe("server helpers", () => {
 })
 
 describe("agent registry helpers", () => {
-  it("resolves named agents from a registry", async () => {
+  it("loads named Agent Definitions from a registry", async () => {
     const { getAgentFromRegistry } = await import("../src/index.ts")
     const agent = {
       generate: vi.fn(),
@@ -6887,16 +6887,17 @@ describe("agent registry helpers", () => {
       tools: {},
       version: "agent-v1",
     }
+    const definition = { resolve: async () => agent } as never
 
-    await expect(getAgentFromRegistry("triager", {} as never, {
-      triager: async () => ({ default: agent as never }),
-    })).resolves.toBe(agent)
+    await expect(getAgentFromRegistry("triager", {
+      triager: async () => ({ default: definition }),
+    })).resolves.toBe(definition)
   })
 
   it("throws clearly for unknown named agents", async () => {
     const { getAgentFromRegistry } = await import("../src/index.ts")
 
-    await expect(getAgentFromRegistry("triage", {} as never, {
+    await expect(getAgentFromRegistry("triage", {
       reviewer: async () => ({} as never),
       triager: async () => ({} as never),
     })).rejects.toThrow("Unknown agent: triage. Did you mean \"triager\"? Discovered agents: reviewer, triager.")

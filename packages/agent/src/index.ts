@@ -10,7 +10,6 @@ import {
   createReplyDeliveryEffectIntent,
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
-import { getMessageText } from "./messages.ts"
 import { createTraceEventLog, resolveRuntimeContext } from "@vite-hub/runtime"
 import { agentResultKind, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
@@ -139,7 +138,7 @@ import type {
   ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
 } from "./types.ts"
-import type { Message, StreamEvent } from "./messages.ts"
+import type { StreamEvent } from "./messages.ts"
 import type { AgentTraceContext } from "./trace.ts"
 import type { ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
 import type {
@@ -586,40 +585,6 @@ function withAgentIdentityOwner<TRuntimeConfig extends AgentRuntimeConfig>(
 ): AgentRuntimeContext<TRuntimeConfig> {
   if (!context.agentIdentity || (context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]) return context
   return { ...context, [agentIdentityOwner]: agent as object } as AgentRuntimeContext<TRuntimeConfig>
-}
-
-function hasAgentMethods(value: unknown): value is AgentAdapter {
-  return typeof value === "object"
-    && value !== null
-    && "generate" in value
-    && typeof (value as { generate?: unknown }).generate === "function"
-}
-
-function toLegacyCallInput(context: {
-  input: AgentRunInput
-  messages: Message[]
-  prompt?: string
-}) {
-  return {
-    abortSignal: context.input.abortSignal,
-    ...(context.messages.length ? { messages: context.messages.map(message => ({ content: getMessageText(message), role: message.role })) } : {}),
-    ...(context.prompt ? { prompt: context.prompt } : {}),
-    timeout: context.input.timeout,
-  }
-}
-
-function normalizeDirectAgent<CALL_OPTIONS>(agent: AgentAdapter<CALL_OPTIONS> & { tools?: unknown }): AgentAdapter<CALL_OPTIONS> {
-  if (agent.name) return agent
-  return {
-    async generate(context) {
-      return await agent.generate(toLegacyCallInput(context) as never)
-    },
-    name: "custom",
-    async stream(context) {
-      return await agent.stream?.(toLegacyCallInput(context) as never)
-    },
-    ...(agent.tools ? { tools: agent.tools } : {}),
-  }
 }
 
 function hasAgentDefinition(value: unknown): value is AgentDefinition {
@@ -1193,10 +1158,6 @@ export async function resolveAgent<TContext extends AgentRuntimeContext>(
   agent: AgentInput<TContext>,
   context: TContext,
 ): Promise<AgentAdapter> {
-  if (hasAgentMethods(agent)) {
-    return normalizeDirectAgent(agent as never)
-  }
-
   if (hasAgentDefinition(agent)) {
     return await agent.resolve(context as never)
   }
@@ -1220,7 +1181,6 @@ async function resolveAgentForRun<
 
 export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>(
   name: string,
-  context: TContext,
   registry: AgentRegistry<TContext> = agentRegistry as AgentRegistry<TContext>,
 ): Promise<AgentInput<TContext>> {
   const loader = registry[name]

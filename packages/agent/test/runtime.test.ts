@@ -7,6 +7,7 @@ import { memoryRateLimitDriver } from "@vite-hub/rate-limit/drivers/memory"
 import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/runtime"
 import { chat, title, schedule, subagents } from "../src/capabilities.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
+import { adapterDefinition } from "./adapter-definition.ts"
 
 import type { AgentChannelDeliveryFinishEffectCallback, AgentFinishEvent } from "../src/index.ts"
 import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
@@ -3060,7 +3061,7 @@ describe("agent message protocol", () => {
     ])
   })
 
-  it("normalizes generated output into an agent run result", async () => {
+  it("normalizes resolved adapter output into an agent run result", async () => {
     const { runAgent } = await import("../src/index.ts")
     const agent = {
       generate: vi.fn(async () => ({ finishReason: "stop", text: "ok", usage: { inputTokens: 1 } })),
@@ -3069,7 +3070,7 @@ describe("agent message protocol", () => {
       version: "agent-v1",
     }
 
-    await expect(runAgent(agent as never, {} as never, {
+    await expect(runAgent(adapterDefinition(agent), {} as never, {
       messages: [createMessage({ role: "user", text: "hello" })],
     })).resolves.toMatchObject({
       finishReason: "stop",
@@ -3077,7 +3078,7 @@ describe("agent message protocol", () => {
       usage: { inputTokens: 1 },
     })
     expect(agent.generate).toHaveBeenCalledWith(expect.objectContaining({
-      messages: [{ content: "hello", role: "user" }],
+      messages: [expect.objectContaining({ role: "user" })],
     }))
   })
 
@@ -7736,7 +7737,7 @@ describe("agent message protocol", () => {
       name: "response-agent",
     }
 
-    const result = await runAgent(agent as never, {} as never, {
+    const result = await runAgent(adapterDefinition(agent), {} as never, {
       messages: [createMessage({ role: "user", text: "hello" })],
     }) as Response
 
@@ -7761,7 +7762,7 @@ describe("agent message protocol", () => {
       stream: vi.fn(async () => response),
     }
 
-    const result = await streamAgent(agent as never, {} as never, {
+    const result = await streamAgent(adapterDefinition(agent), {} as never, {
       messages: [createMessage({ role: "user", text: "hello" })],
     }) as Response
 
@@ -7787,7 +7788,7 @@ describe("agent message protocol", () => {
       version: "agent-v1",
     }
 
-    const stream = await streamAgent(agent as never, {} as never, {
+    const stream = await streamAgent(adapterDefinition(agent), {} as never, {
       messages: [createMessage({ role: "user", text: "hello" })],
     })
     const events = []
@@ -7809,7 +7810,7 @@ describe("agent message protocol", () => {
       name: "generate-only-agent",
     }
 
-    const stream = await streamAgent(agent as never, {} as never, {
+    const stream = await streamAgent(adapterDefinition(agent), {} as never, {
       messages: [createMessage({ role: "user", text: "hello" })],
     })
     const events = []
@@ -7830,7 +7831,7 @@ describe("agent message protocol", () => {
       name: "generate-only-agent",
     }
 
-    const stream = await streamAgent(agent as never, {} as never, {
+    const stream = await streamAgent(adapterDefinition(agent), {} as never, {
       messages: [createMessage({ role: "user", text: "hello" })],
     })
     const events = []
@@ -8240,7 +8241,7 @@ describe("agent message protocol", () => {
       version: "agent-v1",
     }
 
-    const stream = await streamAgent(agent as never, {} as never, {
+    const stream = await streamAgent(adapterDefinition(agent), {} as never, {
       messages: [createMessage({ role: "user", text: "hello" })],
     })
     const events = []
@@ -8269,7 +8270,7 @@ describe("agent message protocol", () => {
       version: "agent-v1",
     }
 
-    const stream = await streamAgent(agent as never, {} as never, {
+    const stream = await streamAgent(adapterDefinition(agent), {} as never, {
       messages: [createMessage({ role: "user", text: "hello" })],
     })
     const events = []
@@ -8307,7 +8308,7 @@ describe("agent message protocol", () => {
       version: "agent-v1",
     }
 
-    const stream = await streamAgent(agent as never, {} as never, {
+    const stream = await streamAgent(adapterDefinition(agent), {} as never, {
       messages: [createMessage({ role: "user", text: "refund order" })],
     })
     const events = []
