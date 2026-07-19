@@ -5,6 +5,8 @@ import { getCloudflareEnv, runWithActiveCloudflareEnv, setActiveCloudflareEnv } 
 import type { RateLimiter, RateLimitRuntimeConfig } from "../types.ts"
 
 let runtimeConfig: RateLimitRuntimeConfig = { provider: "memory" }
+let fallbackRuntimeEvent: unknown
+let fallbackRuntimeRequestKey: string | undefined
 const runtimeEventStorage = new AsyncLocalStorage<{ event: unknown, requestKey?: string }>()
 const limiterCache = new Map<string, Promise<RateLimiter>>()
 
@@ -22,6 +24,8 @@ export function getRateLimitLimiterCache(): Map<string, Promise<RateLimiter>> {
 }
 
 export function enterRateLimitRuntimeEvent(event: unknown, requestKey?: string): void {
+  fallbackRuntimeEvent = event
+  fallbackRuntimeRequestKey = requestKey
   try {
     runtimeEventStorage.enterWith({ event, requestKey })
   }
@@ -34,9 +38,11 @@ export function runWithRateLimitRuntimeEvent<T>(event: unknown, callback: () => 
 }
 
 export function getRateLimitRuntimeEvent(): unknown {
-  return runtimeEventStorage.getStore()?.event
+  const store = runtimeEventStorage.getStore()
+  return store ? store.event : fallbackRuntimeEvent
 }
 
 export function getRateLimitRuntimeRequestKey(): string | undefined {
-  return runtimeEventStorage.getStore()?.requestKey
+  const store = runtimeEventStorage.getStore()
+  return store ? store.requestKey : fallbackRuntimeRequestKey
 }

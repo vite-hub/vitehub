@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createRateLimiter } from "../src/index.ts"
 import { cloudflareRateLimitDriver, getCloudflareRateLimitBindingName } from "../src/drivers/cloudflare.ts"
-import { enterRateLimitRuntimeEvent, runWithRateLimitRuntimeEvent } from "../src/runtime.ts"
+import { enterRateLimitRuntimeEvent, getRateLimitRuntimeEvent, runWithRateLimitRuntimeEvent } from "../src/runtime.ts"
+import { getRateLimitRuntimeRequestKey } from "../src/runtime/state.ts"
 
 describe("Cloudflare Rate Limit driver", () => {
   it("sets the Cloudflare environment when enterWith is unavailable", () => {
@@ -15,8 +16,11 @@ describe("Cloudflare Rate Limit driver", () => {
     })
 
     try {
-      expect(() => enterRateLimitRuntimeEvent({ env })).not.toThrow()
+      const event = { env }
+      expect(() => enterRateLimitRuntimeEvent(event, "client-1")).not.toThrow()
       expect(getActiveCloudflareEnv()).toBe(env)
+      expect(getRateLimitRuntimeEvent()).toBe(event)
+      expect(getRateLimitRuntimeRequestKey()).toBe("client-1")
     }
     finally {
       enterWith.mockRestore()
