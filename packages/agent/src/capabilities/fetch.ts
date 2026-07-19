@@ -75,7 +75,7 @@ function createFetchTool(name: string, options: FetchCapabilityToolOptions): Age
     description: options.description || `Fetch ${name}.`,
     inputSchema: options.inputSchema,
     name,
-    async execute(input) {
+    async execute(input, context) {
       const parsedInput = options.inputSchema
         ? await parseStandardSchema(options.inputSchema, input, `${name} input`)
         : input
@@ -83,6 +83,7 @@ function createFetchTool(name: string, options: FetchCapabilityToolOptions): Age
       const result = await executeHttpRequest(request, {
         responseType: normalizeFetchResponseType(options.responseType),
         schema: options.schema,
+        signal: context?.abortSignal,
       })
       return options.transform
         ? await options.transform(result.data as never, parsedInput as never)

@@ -2,9 +2,16 @@ import { spawn } from "node:child_process"
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path"
+import { Effect, Ref, Scope } from "effect"
 
 import { WorkspaceError } from "../core/errors.ts"
 import { contentToBytes, decodeFile, matchesAny, normalizeSafeWorkspacePath, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
+import {
+  acquireWorkspaceResource,
+  closeWorkspaceResources,
+  runWorkspaceEffect,
+  tryWorkspacePromise,
+} from "../internal/effect-runtime.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../storage/utils.ts"
 import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDiff, filterSessionEntries, isMissingWorkspacePathError, scopedSearchQuery } from "./scope.ts"
 
@@ -228,9 +235,18 @@ async function commitLocalChanges(
   await workspace.snapshot({ name: "local-commit" })
 }
 
-async function execLocal(root: string, command: string, args: string[] = [], options: ExecOptions = {}): Promise<ExecResult> {
+async function execLocal(
+  root: string,
+  command: string,
+  args: string[] = [],
+  options: ExecOptions = {},
+  sessionSignal?: AbortSignal,
+): Promise<ExecResult> {
   const cwd = toLocalPath(root, normalizeSessionCwd(options.cwd), { allowGenerated: true })
-  if (options.abortSignal?.aborted) return { args, command, exitCode: 130, stderr: "Command aborted", stdout: "" }
+  const signal = options.abortSignal && sessionSignal
+    ? AbortSignal.any([options.abortSignal, sessionSignal])
+    : options.abortSignal || sessionSignal
+  if (signal?.aborted) return { args, command, exitCode: 130, stderr: "Command aborted", stdout: "" }
   return await new Promise((resolve) => {
     const child = spawn(command, args, {
       cwd,
@@ -261,10 +277,10 @@ async function execLocal(root: string, command: string, args: string[] = [], opt
     const clearTimers = () => {
       if (timer) clearTimeout(timer)
       if (killTimer) clearTimeout(killTimer)
-      options.abortSignal?.removeEventListener("abort", abort)
+      signal?.removeEventListener("abort", abort)
     }
-    options.abortSignal?.addEventListener("abort", abort, { once: true })
-    if (options.abortSignal?.aborted) abort()
+    signal?.addEventListener("abort", abort, { once: true })
+    if (signal?.aborted) abort()
     child.stdout?.setEncoding("utf8")
     child.stderr?.setEncoding("utf8")
     child.stdout?.on("data", chunk => stdout += chunk)
@@ -294,23 +310,88 @@ async function execLocal(root: string, command: string, args: string[] = [], opt
   })
 }
 
+interface TrustedHostSessionScope {
+  readonly root: string
+  close(): Promise<void>
+  isClosed(): boolean
+  run<A>(operation: (signal: AbortSignal) => Promise<A>): Promise<A>
+}
+
+function openTrustedHostSessionScope(prefix: string): Promise<TrustedHostSessionScope> {
+  return runWorkspaceEffect(Effect.gen(function* () {
+    const scope = yield* Scope.make("sequential")
+    const cleanupFailures = yield* Ref.make<readonly unknown[]>([])
+    const active = new Map<AbortController, Promise<void>>()
+    let closed = false
+    let closeTask: Promise<void> | undefined
+    const root = yield* acquireWorkspaceResource(
+      scope,
+      cleanupFailures,
+      tryWorkspacePromise(() => mkdtemp(join(tmpdir(), prefix))),
+      root => tryWorkspacePromise(
+        () => rm(root, { force: true, recursive: true }),
+      ),
+    )
+    yield* Scope.addFinalizer(scope, Effect.promise(async () => {
+      for (const controller of active.keys()) controller.abort()
+      await Promise.all(active.values())
+    }))
+
+    return {
+      root,
+      close() {
+        if (!closeTask) {
+          closed = true
+          closeTask = runWorkspaceEffect(closeWorkspaceResources(scope, cleanupFailures, {
+            aggregateMessage: "[vitehub] Workspace trusted-host cleanup failed for multiple reasons.",
+          }))
+        }
+        return closeTask
+      },
+      isClosed: () => closed,
+      run<A>(operation: (signal: AbortSignal) => Promise<A>) {
+        if (closed) {
+          return Promise.reject(new WorkspaceError("[vitehub] Workspace trusted-host session is already closed."))
+        }
+        const controller = new AbortController()
+        const task = Promise.resolve().then(() => operation(controller.signal))
+        const settled = task.then(() => {}, () => {})
+        active.set(controller, settled)
+        void settled.finally(() => active.delete(controller))
+        if (closed) controller.abort()
+        return task
+      },
+    }
+  }))
+}
+
 export async function createTrustedHostWorkspaceSession(
   definition: WorkspaceDefinition,
   workspace: Workspace,
   options?: WorkspaceSessionOptions,
 ): Promise<WorkspaceSession> {
   assertTrustedHostWorkspaceRuntimeAllowed(definition)
-  const root = await mkdtemp(join(tmpdir(), `vitehub-workspace-${workspace.name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "workspace"}-`))
+  const scope = await openTrustedHostSessionScope(
+    `vitehub-workspace-${workspace.name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "workspace"}-`,
+  )
+  const root = scope.root
   const sessionPaths = normalizeSessionPaths(options)
   let baseline = await materializeWorkspace(workspace, root, options).catch(async (error) => {
-    await rm(root, { force: true, recursive: true })
+    try {
+      await scope.close()
+    }
+    catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "[vitehub] Workspace trusted-host setup failed and cleanup also failed.",
+      )
+    }
     throw error
   })
   const mediaTypes = new Map<string, string>()
-  let closed = false
 
   function assertOpen() {
-    if (closed)
+    if (scope.isClosed())
       throw new WorkspaceError("[vitehub] Workspace trusted-host session is already closed.")
   }
 
@@ -396,12 +477,10 @@ export async function createTrustedHostWorkspaceSession(
     },
     async exec(command, args = [], options = {}) {
       assertOpen()
-      return await execLocal(root, command, args, options)
+      return await scope.run(signal => execLocal(root, command, args, options, signal))
     },
     async close() {
-      if (closed) return
-      closed = true
-      await rm(root, { force: true, recursive: true })
+      await scope.close()
     },
   }
 }

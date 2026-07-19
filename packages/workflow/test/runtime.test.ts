@@ -3,6 +3,7 @@ import { mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
+import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { WorkflowProviderStep } from "../src/types.ts"
@@ -11,6 +12,7 @@ import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare
 import { getOpenWorkflowRuntime, resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
 import { createOpenWorkflowWorker, startOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
+import { createWorkflowCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
 import { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, resumeWorkflowSignal, runWorkflow } from "../src/runtime/client.ts"
 import { createWorkflowSteps } from "../src/runtime/execute.ts"
 import { enterWorkflowRuntimeEvent, getInlineWorkflowDefinitions, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinition } from "../src/runtime/state.ts"
@@ -497,6 +499,60 @@ describe("workflow runtime", () => {
       { retries: { backoff: "exponential", delay: "10 seconds", limit: 3 } },
       expect.any(Function),
     )
+  })
+
+  it("isolates overlapping Cloudflare fetch environments", async () => {
+    let arrivals = 0
+    let release!: () => void
+    const bothStarted = new Promise<void>(resolve => {
+      release = resolve
+    })
+    const worker = createWorkflowCloudflareWorker({
+      app: async () => {
+        const before = getActiveCloudflareEnv()?.REQUEST_ID
+        arrivals += 1
+        if (arrivals === 2) release()
+        await bothStarted
+        return Response.json({ after: getActiveCloudflareEnv()?.REQUEST_ID, before })
+      },
+    })
+
+    const [first, second] = await Promise.all([
+      worker.fetch(new Request("https://example.com/first"), { REQUEST_ID: "first" }, { waitUntil: vi.fn() }),
+      worker.fetch(new Request("https://example.com/second"), { REQUEST_ID: "second" }, { waitUntil: vi.fn() }),
+    ])
+
+    await expect(first.json()).resolves.toEqual({ after: "first", before: "first" })
+    await expect(second.json()).resolves.toEqual({ after: "second", before: "second" })
+  })
+
+  it("isolates overlapping Cloudflare runner environments", async () => {
+    let arrivals = 0
+    let release!: () => void
+    const bothStarted = new Promise<void>(resolve => {
+      release = resolve
+    })
+    const registry = {
+      welcome: async () => ({
+        default: {
+          handler: async ({ payload }: { payload: unknown }) => {
+            const before = getActiveCloudflareEnv()?.REQUEST_ID
+            arrivals += 1
+            if (arrivals === 2) release()
+            await bothStarted
+            return { after: getActiveCloudflareEnv()?.REQUEST_ID, before, payload }
+          },
+        },
+      }),
+    }
+
+    const [first, second] = await Promise.all([
+      runCloudflareWorkflow({ config: { provider: "cloudflare" }, env: { REQUEST_ID: "first" }, event: { id: "first", payload: "first" }, name: "welcome", registry }),
+      runCloudflareWorkflow({ config: { provider: "cloudflare" }, env: { REQUEST_ID: "second" }, event: { id: "second", payload: "second" }, name: "welcome", registry }),
+    ])
+
+    expect(first).toEqual({ after: "first", before: "first", payload: "first" })
+    expect(second).toEqual({ after: "second", before: "second", payload: "second" })
   })
 
   it("does not wrap generated folder workflows in a root provider step", async () => {

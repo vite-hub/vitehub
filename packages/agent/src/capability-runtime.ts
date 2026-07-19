@@ -950,6 +950,7 @@ export async function resolveAgentCapabilities<
     const workspaceContribution = await applyCapabilityWorkspaceContributions(capabilities, {
       ...agentInvocationCallbackContextValues(invocationContext),
       ...runtimeContext,
+      abortSignal: currentInput.abortSignal,
       actor: invoker,
       context: invocationContext,
       driver: { kind: driverKind },
@@ -975,6 +976,7 @@ export async function resolveAgentCapabilities<
       const metadataContext = {
         ...agentInvocationCallbackContextValues(invocationContext),
         ...runtimeContext,
+        abortSignal: currentInput.abortSignal,
         actor: invoker,
         context: invocationContext,
         driver: { kind: driverKind },

@@ -364,7 +364,6 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   #getBinding(): ArtifactsBinding {
     const bindingName = this.options.binding || "WORKSPACE_ARTIFACTS"
     const binding = getActiveCloudflareBinding<ArtifactsBinding>(bindingName)
-      || (globalThis as { __env__?: Record<string, unknown> }).__env__?.[bindingName] as ArtifactsBinding | undefined
       || (globalThis as Record<string, unknown>)[bindingName] as ArtifactsBinding | undefined
     if (!binding) throw new WorkspaceError(`[vitehub] Cloudflare Artifacts binding "${bindingName}" not found.`)
     return binding

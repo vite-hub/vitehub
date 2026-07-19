@@ -56,7 +56,7 @@ export async function sync(event: unknown) {
 
 ## Structured errors
 
-Throw `EnvError` when application-owned Env resolution needs a stable failure that callers can inspect.
+`EnvError` is the stable failure family for ViteHub-owned Env resolution. Custom source resolvers keep application-owned errors unchanged, so callers can preserve their own error contract without translating it through ViteHub.
 
 ```ts
 import { EnvError } from "@vite-hub/env"
@@ -68,13 +68,12 @@ catch (cause) {
   throw new EnvError({
     cause,
     code: "ENV_SOURCE_FAILED",
-    details: { source: "vault:runtime" },
-    message: "Runtime Env source failed.",
+    details: { source: "custom" },
   })
 }
 ```
 
-`code` is required and may be one of ViteHub's typed `EnvErrorCode` values or an app-owned stable string. Built-in Git and package metadata failures use `ENV_SOURCE_FAILED` with the public source label in `details.source`. Keep `details` JSON-safe and free of secret values; `toJSON()` includes the code, message, and details, while the in-memory `cause` is omitted from serialization. Invalid `env()` calls remain `TypeError`, and `parseSchema()` keeps the schema library's ordinary error boundary.
+Each `EnvErrorCode` owns a fixed public message and a bounded details shape. Source details use stable identifiers such as `git:branch`, `package.json`, `env`, or `custom`; raw variable names, package paths, and provider diagnostics stay behind `cause`, which `toJSON()` omits. Cancellation and existing `EnvError` instances pass through unchanged. Invalid `env()` calls remain `TypeError`, and `parseSchema()` keeps the schema library's ordinary error boundary.
 
 ## Vite Integration
 

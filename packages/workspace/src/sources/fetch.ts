@@ -155,6 +155,7 @@ function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: Fe
         url: requestBaseUrl(options.url),
       }, {
         responseType,
+        signal: ctx.abortSignal,
       })
       const transformed = options.transform ? await options.transform(result.data as TResponse) : result.data
       return {
@@ -385,6 +386,7 @@ async function executeFetchSourceRequest(
     url: requestBaseUrl(options.url),
   }, {
     responseType,
+    signal: ctx.abortSignal,
   })
   const transformed = options.transform ? await options.transform(result.data) : result.data
 

@@ -258,7 +258,11 @@ describe("rateLimit capability", () => {
       expect(response?.status).toBe(429)
       expect(response?.headers.get("retry-after")).toBe("60")
       expect(response?.headers.get("x-retry-after")).toBe("60")
-      await expect(response?.json()).resolves.toEqual({ error: "Try again in 60s." })
+      await expect(response?.json()).resolves.toEqual({
+        code: "RATE_LIMIT_REJECTED",
+        details: { capability: "rate-limit", retryAfter: 60 },
+        error: "Rate limit exceeded. Try again later.",
+      })
     }
     finally {
       vi.useRealTimers()
@@ -332,6 +336,10 @@ describe("rateLimit capability", () => {
     expect(error).toMatchObject({ cause, statusCode: 503 })
     const response = toHttpErrorResponse(error)
     expect(response?.status).toBe(503)
-    await expect(response?.json()).resolves.toEqual({ error: "Rate limiting is unavailable." })
+    await expect(response?.json()).resolves.toEqual({
+      code: "RATE_LIMIT_UNAVAILABLE",
+      details: { capability: "rate-limit" },
+      error: "Rate limiting is unavailable.",
+    })
   })
 })

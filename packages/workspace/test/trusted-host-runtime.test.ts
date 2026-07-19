@@ -200,6 +200,45 @@ describe("trusted host workspace runtime", () => {
     await session.close()
   })
 
+  it("waits for active commands before releasing the session root", async () => {
+    const workspace = createWorkspace({
+      ...defineWorkspace({ runtime: "trusted-host", store: { provider: "memory" } }),
+      name: "docs",
+    })
+    const session = await workspace.startSession()
+    const commands = ["one", "two"].map(name => session.exec(process.execPath, [
+      "-e",
+      `const fs = require('node:fs'); process.on('SIGTERM', () => {}); fs.writeFileSync('ready-${name}', ''); setInterval(() => {}, 1000)`,
+    ]))
+
+    while (!await Promise.all(["one", "two"].map(name => session.readFile(`ready-${name}`).then(() => true, () => false))).then(states => states.every(Boolean)))
+      await new Promise(resolve => setTimeout(resolve, 5))
+    const closedAt = Date.now()
+    await Promise.all([session.close(), session.close(), session.close()])
+    const results = await Promise.all(commands)
+
+    expect(results.map(result => result.exitCode)).toEqual([130, 130])
+    expect(results.every(result => result.stderr.includes("Command aborted"))).toBe(true)
+    expect(Date.now() - closedAt).toBeGreaterThanOrEqual(80)
+    expect(Date.now() - closedAt).toBeLessThan(2000)
+  })
+
+  it("aborts commands accepted immediately before close", async () => {
+    const workspace = createWorkspace({
+      ...defineWorkspace({ runtime: "trusted-host", store: { provider: "memory" } }),
+      name: "docs",
+    })
+    const session = await workspace.startSession()
+
+    const command = session.exec(process.execPath, ["-e", "setInterval(() => {}, 1000)"])
+    await session.close()
+
+    await expect(command).resolves.toMatchObject({
+      exitCode: 130,
+      stderr: expect.stringContaining("Command aborted"),
+    })
+  })
+
   it("materializes generated source descriptors for shell inspection", async () => {
     const workspace = createWorkspace({
       ...defineWorkspace({

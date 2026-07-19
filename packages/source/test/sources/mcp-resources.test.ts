@@ -141,11 +141,48 @@ describe("mcpResources", () => {
     await expect(source.getItem("mock/resource.txt", { rootDir: "/tmp" })).resolves.toMatchObject({
       content: "hello",
     })
-    expect(connect).toHaveBeenCalledWith(transport)
+    expect(connect).toHaveBeenCalledWith(transport, { signal: expect.any(AbortSignal) })
     expect(close).toHaveBeenCalledTimes(1)
+
+    const connectError = new Error("connect failed")
+    connect.mockRejectedValueOnce(connectError)
+    await expect(source.getKeys({ rootDir: "/tmp" })).rejects.toBe(connectError)
+    expect(close).toHaveBeenCalledTimes(2)
     vi.doUnmock("@modelcontextprotocol/sdk/client/index.js")
     vi.doUnmock("@modelcontextprotocol/sdk/client/streamableHttp.js")
     vi.doUnmock("@modelcontextprotocol/sdk/client/sse.js")
     vi.resetModules()
+  })
+
+  it("passes Source cancellation to requests without closing caller-owned clients", async () => {
+    const controller = new AbortController()
+    const reason = new Error("source canceled")
+    const close = vi.fn()
+    let requestSignal: AbortSignal | undefined
+    let requestStarted!: () => void
+    const started = new Promise<void>(resolve => requestStarted = resolve)
+    const source = mcpResources({
+      server: {
+        close,
+        listResources(_options, request) {
+          requestSignal = request?.signal
+          requestStarted()
+          return new Promise((resolve, reject) => {
+            requestSignal?.addEventListener("abort", () => reject(requestSignal?.reason), { once: true })
+          })
+        },
+        async readResource() {
+          return { contents: [] }
+        },
+      },
+    })
+
+    const pending = source.getKeys({ abortSignal: controller.signal, rootDir: "/tmp" })
+    await started
+    controller.abort(reason)
+
+    await expect(pending).rejects.toBe(reason)
+    expect(requestSignal?.aborted).toBe(true)
+    expect(close).not.toHaveBeenCalled()
   })
 })

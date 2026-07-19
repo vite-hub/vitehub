@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import type { ChildProcessWithoutNullStreams } from "node:child_process"
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises"
 import { createServer, type Server } from "node:net"
 import { tmpdir } from "node:os"
@@ -21,6 +22,32 @@ function listen(port: number): Promise<Server> {
 function close(server: Server | undefined): Promise<void> {
   if (!server) return Promise.resolve()
   return new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+}
+
+function localProcesses(session: unknown) {
+  return (session as { processes: Set<{ child: ChildProcessWithoutNullStreams }> }).processes
+}
+
+const ignoresTermination = "node -e \"process.on('SIGTERM', () => {}); console.log('ready'); setInterval(() => {}, 1000)\""
+
+async function spawnReady(
+  session: Awaited<ReturnType<HarnessV1SandboxProvider["createSession"]>>,
+  abortSignal: AbortSignal,
+  command = ignoresTermination,
+) {
+  const child = await session.spawn({ abortSignal, command })
+  const reader = child.stdout.getReader()
+  await reader.read()
+  reader.releaseLock()
+  return child
+}
+
+function forceKillGroup(pid: number | undefined, kill = process.kill.bind(process)) {
+  if (!pid) return
+  try {
+    kill(-pid, "SIGKILL")
+  }
+  catch {}
 }
 
 function mockProcessLiveness(deadPids: readonly number[] = []) {
@@ -271,6 +298,230 @@ describe("local harness sandbox", () => {
       expect(session.ports).toEqual([0])
       expect(result).toMatchObject({ exitCode: 0, stdout: "hello" })
       await expect(session.getPortUrl({ port: 0, protocol: "ws" })).resolves.toBe("ws://127.0.0.1:0")
+    }
+    finally {
+      await session.destroy?.()
+    }
+  })
+
+  it("stops commands and preserves the caller's abort reason", async () => {
+    const provider = createLocalHarnessSandbox({ env: { PATH: process.env.PATH } })
+    const session = await provider.createSession()
+    const abort = new AbortController()
+    const reason = new Error("client disconnected")
+
+    try {
+      const child = await session.spawn({
+        abortSignal: abort.signal,
+        command: "node -e \"setInterval(() => {}, 1000)\"",
+      })
+
+      abort.abort(reason)
+
+      await expect(child.wait()).rejects.toBe(reason)
+      expect(localProcesses(session).size).toBe(0)
+      expect(() => process.kill(child.pid!, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }))
+      await expect(child.kill()).resolves.toBeUndefined()
+    }
+    finally {
+      await session.destroy?.()
+    }
+  })
+
+  it.skipIf(process.platform === "win32")("escalates when a command ignores termination", async () => {
+    const provider = createLocalHarnessSandbox({ env: { PATH: process.env.PATH } })
+    const session = await provider.createSession()
+    const abort = new AbortController()
+    const reason = new Error("client disconnected")
+    let child: Awaited<ReturnType<typeof session.spawn>> | undefined
+
+    try {
+      child = await spawnReady(session, abort.signal)
+
+      abort.abort(reason)
+
+      const outcome = await Promise.race([
+        Promise.resolve(child.wait()).catch((error: unknown) => error),
+        new Promise(resolve => setTimeout(() => resolve("timed out"), 2_000)),
+      ])
+      expect(outcome).toBe(reason)
+      expect(localProcesses(session).size).toBe(0)
+      expect(() => process.kill(-child!.pid!, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }))
+    }
+    finally {
+      forceKillGroup(child?.pid)
+      await session.destroy?.()
+    }
+  })
+
+  it.skipIf(process.platform === "win32")("cleans descendants after the shell leader exits", async () => {
+    const provider = createLocalHarnessSandbox({ env: { PATH: process.env.PATH } })
+    const session = await provider.createSession()
+    const abort = new AbortController()
+    const reason = new Error("client disconnected")
+    let child: Awaited<ReturnType<typeof session.spawn>> | undefined
+
+    try {
+      child = await spawnReady(session, abort.signal, "sh -c 'trap \"\" TERM; echo ready; sleep 30' &")
+      const [{ child: rawChild }] = localProcesses(session)
+      if (rawChild!.exitCode === null && rawChild!.signalCode === null) {
+        await new Promise<void>(resolve => rawChild!.once("exit", () => resolve()))
+      }
+
+      expect(rawChild!.exitCode).toBe(0)
+      abort.abort(reason)
+
+      await expect(child.wait()).rejects.toBe(reason)
+      expect(localProcesses(session).size).toBe(0)
+      expect(() => process.kill(-child!.pid!, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }))
+    }
+    finally {
+      forceKillGroup(child?.pid)
+      await session.destroy?.()
+    }
+  })
+
+  it.skipIf(process.platform === "win32")("retains ownership when forced termination does not close", async () => {
+    const provider = createLocalHarnessSandbox({ env: { PATH: process.env.PATH } })
+    const session = await provider.createSession()
+    const abort = new AbortController()
+    const reason = new Error("client disconnected")
+    const realKill = process.kill.bind(process)
+    let child: Awaited<ReturnType<typeof session.spawn>> | undefined
+    let kill: ReturnType<typeof vi.spyOn> | undefined
+    let rawChild: ChildProcessWithoutNullStreams | undefined
+
+    try {
+      child = await spawnReady(session, abort.signal)
+      rawChild = Array.from(localProcesses(session))[0]?.child
+      kill = vi.spyOn(process, "kill").mockImplementation((pid, signal) => pid === -(child!.pid!) || realKill(pid, signal))
+
+      abort.abort(reason)
+
+      const failure = await Promise.resolve(child.wait()).then(() => undefined, (error: unknown) => error)
+      expect(failure).toBeInstanceOf(AggregateError)
+      expect((failure as AggregateError).errors).toEqual(expect.arrayContaining([
+        reason,
+        expect.objectContaining({ message: "[vitehub] Local harness process tree did not close after forced termination." }),
+      ]))
+      expect(localProcesses(session).size).toBe(1)
+
+      kill.mockRestore()
+      kill = undefined
+      const closed = new Promise<void>(resolve => rawChild!.once("close", () => resolve()))
+      realKill(-child.pid!, "SIGKILL")
+      await closed
+      await session.destroy?.()
+      expect(localProcesses(session).size).toBe(0)
+    }
+    finally {
+      kill?.mockRestore()
+      if (child?.pid) {
+        const closed = rawChild && rawChild.exitCode === null && rawChild.signalCode === null
+          ? new Promise<void>(resolve => rawChild!.once("close", () => resolve()))
+          : Promise.resolve()
+        forceKillGroup(child.pid, realKill)
+        await closed
+      }
+      await Promise.resolve(session.destroy?.()).catch(() => undefined)
+    }
+  })
+
+  it.skipIf(process.platform === "win32")("coalesces concurrent process termination", async () => {
+    const provider = createLocalHarnessSandbox({ env: { PATH: process.env.PATH } })
+    const session = await provider.createSession()
+    const abort = new AbortController()
+    const reason = new Error("client disconnected")
+    let child: Awaited<ReturnType<typeof session.spawn>> | undefined
+    let kill: ReturnType<typeof vi.spyOn> | undefined
+
+    try {
+      child = await spawnReady(session, abort.signal)
+      const waiting = Promise.resolve(child.wait()).then(() => undefined, (error: unknown) => error)
+      kill = vi.spyOn(process, "kill")
+
+      const killed = child.kill()
+      const stopped = session.stop()
+      abort.abort(reason)
+
+      await Promise.all([killed, stopped])
+      await expect(waiting).resolves.toBe(reason)
+      const signals = (kill!.mock.calls as [number, NodeJS.Signals?][])
+        .filter(([pid]) => pid === -(child!.pid!))
+        .map(([, signal]) => signal)
+      expect(signals).toEqual(["SIGTERM", "SIGKILL"])
+      expect(localProcesses(session).size).toBe(0)
+    }
+    finally {
+      kill?.mockRestore()
+      forceKillGroup(child?.pid)
+      await session.destroy?.()
+    }
+  })
+
+  it("does not spawn a command for an already-aborted signal", async () => {
+    const provider = createLocalHarnessSandbox({ env: { PATH: process.env.PATH } })
+    const session = await provider.createSession()
+    const abort = new AbortController()
+    const reason = new Error("already cancelled")
+    abort.abort(reason)
+
+    try {
+      await expect(session.spawn({
+        abortSignal: abort.signal,
+        command: "node -e \"setInterval(() => {}, 1000)\"",
+      })).rejects.toBe(reason)
+      expect(localProcesses(session).size).toBe(0)
+    }
+    finally {
+      await session.destroy?.()
+    }
+  })
+
+  it("rejects child process spawn errors", async () => {
+    const session = await createLocalHarnessSandbox().createSession()
+
+    try {
+      await expect(session.run({
+        command: "node -e \"\"",
+        workingDirectory: "missing",
+      })).rejects.toMatchObject({ code: "ENOENT" })
+      expect(localProcesses(session).size).toBe(0)
+    }
+    finally {
+      await session.destroy?.()
+    }
+  })
+
+  it("settles after a command exits by signal", async () => {
+    const provider = createLocalHarnessSandbox({ env: { PATH: process.env.PATH } })
+    const session = await provider.createSession()
+
+    try {
+      const child = await session.spawn({ command: "kill -TERM $$" })
+
+      await expect(child.wait()).resolves.toEqual({ exitCode: 1 })
+      expect(localProcesses(session).size).toBe(0)
+    }
+    finally {
+      await session.destroy?.()
+    }
+  })
+
+  it("does not wait for a second close when stop runs from the child close event", async () => {
+    const provider = createLocalHarnessSandbox({ env: { PATH: process.env.PATH } })
+    const session = await provider.createSession()
+
+    try {
+      const child = await session.spawn({ command: "node -e \"\"" })
+      const [{ child: rawChild }] = localProcesses(session)
+      const stopped = new Promise<void>((resolve, reject) => {
+        rawChild!.once("close", () => session.stop().then(resolve, reject))
+      })
+
+      await expect(child.wait()).resolves.toEqual({ exitCode: 0 })
+      await expect(stopped).resolves.toBeUndefined()
+      expect(localProcesses(session).size).toBe(0)
     }
     finally {
       await session.destroy?.()

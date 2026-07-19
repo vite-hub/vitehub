@@ -1,5 +1,5 @@
 import type { CloudflareSandboxDefinitionProviderOptions, SandboxDefinitionOptions } from '../../module-types'
-import { getCloudflareEnv } from '../../internal/shared/provider-detection'
+import { getCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'
 import type { CloudflareSandboxOptions, CloudflareSandboxStub, DurableObjectNamespaceLike } from '../../sandbox/types'
 
 type SandboxOptions = {

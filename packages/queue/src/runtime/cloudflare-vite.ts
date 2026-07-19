@@ -4,7 +4,7 @@ import { normalizeQueueOptions } from "../config.ts"
 import { getCloudflareQueueDefinitionName } from "../integrations/cloudflare.ts"
 import { createCloudflareQueueBatchHandler } from "../providers/cloudflare.ts"
 
-import { createCloudflareRuntimeEvent, createQueueJob, setActiveCloudflareEnv, type CloudflareWorkerEnv, type CloudflareWorkerExecutionContext } from "./cloudflare-shared.ts"
+import { createCloudflareRuntimeEvent, createQueueJob, runWithActiveCloudflareEnv, type CloudflareWorkerEnv, type CloudflareWorkerExecutionContext } from "./cloudflare-shared.ts"
 import type { QueueApp } from "./_app.ts"
 import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "./state.ts"
 
@@ -38,33 +38,33 @@ export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOption
       label: "queue",
       async onRequest({ env, executionContext, handle }) {
         applyRuntimeState()
-        setActiveCloudflareEnv(env)
         const runtimeEvent = createCloudflareRuntimeEvent(env, executionContext)
-        return await runWithQueueRuntimeEvent(runtimeEvent, () => handle(runtimeEvent.context))
+        return await runWithActiveCloudflareEnv(env, () => runWithQueueRuntimeEvent(runtimeEvent, () => handle(runtimeEvent.context)))
       },
     }),
     async queue(batch, env, context) {
       applyRuntimeState()
-      setActiveCloudflareEnv(env)
       if (queueConfig === false || queueConfig?.provider !== "cloudflare") {
         return
       }
 
-      const definition = await loadQueueDefinition(getCloudflareQueueDefinitionName(batch.queue))
-      if (!definition) {
-        return
-      }
-
       const runtimeEvent = createCloudflareRuntimeEvent(env, context)
-      await createCloudflareQueueBatchHandler({
-        concurrency: definition.options?.concurrency,
-        onError: definition.options?.onError,
-        onMessage: async (message, currentBatch) => {
-          await runWithQueueRuntimeEvent(runtimeEvent, async () => {
-            await definition.handler(createQueueJob(message, currentBatch))
-          })
-        },
-      })(batch)
+      await runWithActiveCloudflareEnv(env, async () => {
+        const definition = await loadQueueDefinition(getCloudflareQueueDefinitionName(batch.queue))
+        if (!definition) {
+          return
+        }
+
+        await createCloudflareQueueBatchHandler({
+          concurrency: definition.options?.concurrency,
+          onError: definition.options?.onError,
+          onMessage: async (message, currentBatch) => {
+            await runWithQueueRuntimeEvent(runtimeEvent, async () => {
+              await definition.handler(createQueueJob(message, currentBatch))
+            })
+          },
+        })(batch)
+      })
     },
   }
 }

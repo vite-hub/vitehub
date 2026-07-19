@@ -1,3 +1,7 @@
+import { Data, Effect } from "effect"
+
+import { createEffectBoundary, EffectBoundaryFailure } from "./effect.ts"
+
 export type HttpRequestMethod = "GET" | "HEAD" | "POST"
 export type HttpResponseType = "json" | "text"
 export type InternalHttpResponseType = HttpResponseType | "arrayBuffer" | "blob"
@@ -38,6 +42,7 @@ export interface NormalizedHttpRequest extends Omit<HttpRequestDefinition, "meth
 export interface HttpRequestExecutionOptions<TOutput = unknown> {
   responseType?: InternalHttpResponseType
   schema?: StandardSchemaV1<TOutput>
+  signal?: AbortSignal
 }
 
 export interface HttpRequestResult<TOutput = unknown> {
@@ -59,15 +64,32 @@ export interface RedactedHttpRequestSummary {
 
 type FetchBody = Exclude<NonNullable<Parameters<typeof fetch>[1]>["body"], null | undefined>
 
+const httpEffectBoundary = createEffectBoundary({
+  aggregateMessage: "[vitehub] HTTP request failed.",
+  interruptionMessage: "[vitehub] HTTP request was interrupted.",
+})
+
+class HttpStatusError extends Error {
+  constructor(readonly status: number) {
+    super(`[vitehub] HTTP request failed with status ${status}.`)
+  }
+}
+
+class HttpAttemptFailure extends Data.TaggedError("HttpAttemptFailure")<{
+  readonly cause: unknown
+  readonly retryable: boolean
+}> {}
+
 export async function executeHttpRequest<TOutput = unknown>(
   definition: HttpRequestDefinition,
   options: HttpRequestExecutionOptions<TOutput> = {},
 ): Promise<HttpRequestResult<TOutput>> {
   const normalized = normalizeHttpRequest(definition)
   const responseType = options.responseType || "json"
-  const response = await fetchWithRetry(normalized)
-  const decoded = await decodeResponse(response, responseType)
-  const data = options.schema ? await parseStandardSchema(options.schema, decoded, "HTTP response") : decoded
+  const { data, response } = await httpEffectBoundary.run(
+    fetchWithRetry(normalized, responseType, options.schema),
+    { signal: options.signal },
+  )
   return {
     data: data as TOutput,
     mediaType: response.headers.get("content-type") || undefined,
@@ -76,42 +98,87 @@ export async function executeHttpRequest<TOutput = unknown>(
   }
 }
 
-async function fetchWithRetry(definition: NormalizedHttpRequest): Promise<Response> {
+function fetchWithRetry<TOutput>(
+  definition: NormalizedHttpRequest,
+  responseType: InternalHttpResponseType,
+  schema: StandardSchemaV1<TOutput> | undefined,
+): Effect.Effect<{ data: unknown, response: Response }, EffectBoundaryFailure> {
   const attempts = definition.method === "GET" || definition.method === "HEAD" ? 2 : 1
-  let lastError: unknown
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      return await fetchOnce(definition)
-    }
-    catch (error) {
-      lastError = error
-      if (attempt === attempts) break
-    }
-  }
-  throw lastError
+  const attempt = fetchOnce(definition, responseType, schema)
+  const timed = definition.timeout
+    ? Effect.timeoutOrElse(attempt, {
+        duration: definition.timeout,
+        orElse: () => Effect.fail(new HttpAttemptFailure({
+          cause: new DOMException("This operation was aborted", "AbortError"),
+          retryable: true,
+        })),
+      })
+    : attempt
+  return Effect.retry(timed, {
+    times: attempts - 1,
+    while: error => error.retryable,
+  }).pipe(
+    Effect.mapError(error => new EffectBoundaryFailure({ cause: error.cause })),
+  )
 }
 
-async function fetchOnce(definition: NormalizedHttpRequest): Promise<Response> {
-  const headers = new Headers(definition.headers)
-  applyCookies(headers, definition.cookies)
-  const body = serializeRequestBody(definition.body, headers)
-  const controller = definition.timeout ? new AbortController() : undefined
-  const timeout = controller ? setTimeout(() => controller.abort(), definition.timeout) : undefined
-  try {
-    const response = await fetch(urlWithQuery(definition).toString(), {
-      body,
-      headers,
-      method: definition.method,
-      signal: controller?.signal,
-    })
-    if (!response.ok) {
-      throw new Error(`[vitehub] HTTP request failed with status ${response.status}.`)
-    }
-    return response
-  }
-  finally {
-    if (timeout) clearTimeout(timeout)
-  }
+function fetchOnce<TOutput>(
+  definition: NormalizedHttpRequest,
+  responseType: InternalHttpResponseType,
+  schema: StandardSchemaV1<TOutput> | undefined,
+): Effect.Effect<{ data: unknown, response: Response }, HttpAttemptFailure> {
+  return Effect.acquireUseRelease(
+    Effect.sync(() => new AbortController()),
+    controller => Effect.tryPromise({
+      catch: cause => new HttpAttemptFailure({ cause, retryable: true }),
+      try: () => {
+        const headers = new Headers(definition.headers)
+        applyCookies(headers, definition.cookies)
+        return fetch(urlWithQuery(definition).toString(), {
+          body: serializeRequestBody(definition.body, headers),
+          headers,
+          method: definition.method,
+          signal: controller.signal,
+        })
+      },
+    }).pipe(
+      Effect.flatMap((response) => {
+        if (response.ok) return decodeHttpResponse(response, responseType, schema)
+        const cause = new HttpStatusError(response.status)
+        return cancelResponseBody(response).pipe(
+          Effect.andThen(Effect.fail(new HttpAttemptFailure({
+            cause,
+            retryable: cause.status === 408 || cause.status === 429 || cause.status >= 500,
+          }))),
+        )
+      }),
+    ),
+    controller => Effect.sync(() => controller.abort()),
+  )
+}
+
+function cancelResponseBody(response: Response): Effect.Effect<void> {
+  const body = response.body
+  return body
+    ? Effect.promise(() => body.cancel().catch(() => {}))
+    : Effect.void
+}
+
+function decodeHttpResponse<TOutput>(
+  response: Response,
+  responseType: InternalHttpResponseType,
+  schema: StandardSchemaV1<TOutput> | undefined,
+): Effect.Effect<{ data: unknown, response: Response }, HttpAttemptFailure> {
+  return Effect.tryPromise({
+    catch: cause => new HttpAttemptFailure({ cause, retryable: false }),
+    try: async () => {
+      const decoded = await decodeResponse(response, responseType)
+      const data = schema ? await parseStandardSchema(schema, decoded, "HTTP response") : decoded
+      return { data, response }
+    },
+  }).pipe(
+    Effect.onInterrupt(() => cancelResponseBody(response)),
+  )
 }
 
 function applyCookies(headers: Headers, cookies: Record<string, string> | undefined): void {

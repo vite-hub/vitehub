@@ -4,6 +4,7 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
+      alwaysBundle: [/^@vite-hub\/internal/],
       neverBundle: [
         "vite",
         "#vitehub-sandbox-provider-loader",
@@ -13,7 +14,6 @@ export default defineConfig({
         "virtual:vitehub-sandbox-provider-loader",
       ],
       onlyBundle: false,
-      skipNodeModulesBundle: true,
     },
     entry: [
       "src/index.ts",

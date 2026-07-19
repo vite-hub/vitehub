@@ -112,6 +112,11 @@ describe("hubBlob", () => {
     expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.r2_buckets", [
       { binding: "ASSETS", bucket_name: "assets" },
     ])
+    expect(userConfig).toHaveProperty("nitro.handlers", [{
+      handler: ".vitehub/nitro/blob/middleware.ts",
+      middleware: true,
+      route: "/**",
+    }])
 
     const resolved = {
       blob: {
@@ -170,9 +175,13 @@ describe("hubBlob", () => {
       expect(nitroPlugin).toContain('"bucketName":"assets"')
       expect(nitroPlugin).toContain("import { env as vitehubEnv } from 'cloudflare:workers'")
       expect(nitroPlugin).toContain("setActiveCloudflareEnv(vitehubEnv)")
-      expect(nitroPlugin).toContain("hooks.hook('request'")
-      expect(nitroPlugin).toContain("event.context?._platform?.cloudflare?.env")
-      expect(nitroPlugin).toContain("event.node?.req?.runtime?.cloudflare?.env ?? vitehubEnv")
+      expect(nitroPlugin).not.toContain("hooks.hook('request'")
+      const middleware = await readFile(join(root, ".vitehub", "nitro", "blob", "middleware.ts"), "utf8")
+      expect(middleware).toContain("defineMiddleware((event) =>")
+      expect(middleware).toContain("setActiveCloudflareEnv(env)")
+      expect(middleware).toContain("event.context?._platform?.cloudflare?.env")
+      expect(middleware).toContain("event.node?.req?.runtime?.cloudflare?.env ?? vitehubEnv")
+      expect(middleware).not.toContain("next")
     }
     finally {
       if (typeof previousBucket === "undefined") delete process.env.BLOB_BUCKET_NAME
@@ -191,17 +200,20 @@ describe("hubBlob", () => {
     const value = { nitro: { preset: "cloudflare_module" }, plugins: [{ name: "nitro:main" }] }
 
     config(value, { command: "build" })
-    await configResolved({
+    const resolved = {
       build: { outDir: "dist/client" },
       nitro: { cloudflare: { wrangler: { routes: ["inactive.example/*"] } }, preset: "vercel" },
       plugins: [{ name: "nitro:main" }],
       root,
-    } as never)
+    }
+    await configResolved(resolved as never)
     await closeBundle()
 
     expect(existsSync(join(root, "dist", toSafeAppName(root), "index.js"))).toBe(true)
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
     expect(nitroPlugin).not.toContain("cloudflare:workers")
+    const resolvedHandlers = ((resolved as { nitro: { handlers?: { handler: string }[] } }).nitro.handlers) ?? []
+    expect(resolvedHandlers).not.toContainEqual(expect.objectContaining({ handler: ".vitehub/nitro/blob/middleware.ts" }))
   })
 
   it("does not yield Cloudflare output to a non-Cloudflare Nitro host", async () => {
@@ -354,9 +366,11 @@ describe("hubBlob", () => {
     } as never)
 
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
+    const middleware = await readFile(join(root, ".vitehub", "nitro", "blob", "middleware.ts"), "utf8")
     const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
     expect(nitroPlugin).toContain("from 'vite-hub/_internal/blob/runtime/state'")
+    expect(middleware).toContain("from 'vite-hub/_internal/blob/runtime/state'")
     expect(handler).toContain("from 'vite-hub/_internal/blob'")
-    expect(`${nitroPlugin}\n${handler}`).not.toContain("@vite-hub/blob")
+    expect(`${nitroPlugin}\n${middleware}\n${handler}`).not.toContain("@vite-hub/blob")
   })
 })

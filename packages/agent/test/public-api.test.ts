@@ -44,6 +44,8 @@ it("keeps Effect out of published Agent declarations", async () => {
   )
 
   expect(declarations.some(containsForbiddenPublicReference)).toBe(false)
+  expect(declarations.join("\n")).toMatch(/interface AgentInvocationStreamErrorEvent/)
+  expect(declarations.join("\n")).toMatch(/details\?: AgentPublicErrorDetails/)
 })
 
 it("keeps Effect out of provider and browser bundle graphs", async () => {

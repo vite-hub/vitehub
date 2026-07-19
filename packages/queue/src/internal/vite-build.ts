@@ -24,6 +24,7 @@ const productName = "queue"
 
 const generatedRegistryFileName = "registry.mjs"
 export const generatedQueueNitroPlugin = ".vitehub/nitro/queue/plugin.ts"
+export const generatedQueueNitroMiddleware = ".vitehub/nitro/queue/middleware.ts"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
 
@@ -179,26 +180,39 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
   const vercel = hasDefinitions && queueConfig !== false && queueConfig.provider === "vercel"
   return [
     "import { definePlugin } from 'nitro'",
-    ...(vercel ? ["import { waitUntil as vitehubWaitUntil } from '@vercel/functions'", "import * as __vitehubVercelQueue from '@vercel/queue'"] : []),
+    ...(vercel ? ["import * as __vitehubVercelQueue from '@vercel/queue'"] : []),
     ...(cloudflareRuntime ? ["import { env as vitehubEnv, waitUntil as vitehubWaitUntil } from 'cloudflare:workers'"] : []),
     ...(cloudflare ? ["import { createQueueCloudflareWorker } from '@vite-hub/queue/runtime/cloudflare-vite'"] : []),
-    "import { enterQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeEventDefaults, setQueueRuntimeRegistry } from '@vite-hub/queue/runtime/state'",
+    "import { setQueueRuntimeConfig, setQueueRuntimeEventDefaults, setQueueRuntimeRegistry } from '@vite-hub/queue/runtime/state'",
     `import queueRegistry from ${JSON.stringify(createImportPath(pluginFile, registryFile))}`,
     "",
     ...(vercel ? ["globalThis.__vitehubVercelQueue = __vitehubVercelQueue", ""] : []),
     `const queueConfig = ${JSON.stringify(queueConfig, null, 2)}`,
     ...(cloudflare ? ["const queueWorker = createQueueCloudflareWorker({ queue: queueConfig, registry: queueRegistry })"] : []),
     "",
-    "export default definePlugin((nitro) => {",
+    `export default definePlugin((${cloudflare ? "nitro" : ""}) => {`,
     "  setQueueRuntimeConfig(queueConfig)",
     "  setQueueRuntimeRegistry(queueRegistry)",
     ...(cloudflareRuntime ? ["  setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })"] : []),
-    ...(vercel
-      ? ["  nitro.hooks.hook('request', (event) => enterQueueRuntimeEvent(Object.assign(event, { waitUntil: vitehubWaitUntil })))"]
-      : cloudflareRuntime
-        ? ["  nitro.hooks.hook('request', (event) => enterQueueRuntimeEvent(Object.assign(event, { env: event.env ?? event.context?.cloudflare?.env ?? event.context?._platform?.cloudflare?.env ?? event.req?.runtime?.cloudflare?.env ?? event.node?.req?.runtime?.cloudflare?.env ?? vitehubEnv, waitUntil: vitehubWaitUntil })))"]
-        : ["  nitro.hooks.hook('request', (event) => enterQueueRuntimeEvent(event))"]),
     ...(cloudflare ? ["  nitro.hooks.hook('cloudflare:queue', ({ batch, context, env }) => queueWorker.queue(batch, env, context))"] : []),
+    "})",
+    "",
+  ].join("\n")
+}
+
+function renderNitroMiddleware(queueConfig: NormalizedQueueOptions, hasDefinitions: boolean) {
+  const cloudflare = queueConfig !== false && queueConfig.provider === "cloudflare"
+  const vercel = hasDefinitions && queueConfig !== false && queueConfig.provider === "vercel"
+  return [
+    "import { defineMiddleware } from 'nitro'",
+    ...(vercel ? ["import { waitUntil as vitehubWaitUntil } from '@vercel/functions'"] : []),
+    ...(cloudflare ? ["import { env as vitehubEnv, waitUntil as vitehubWaitUntil } from 'cloudflare:workers'"] : []),
+    "import { enterQueueRuntimeEvent } from '@vite-hub/queue/runtime/state'",
+    "",
+    "export default defineMiddleware((event) => {",
+    ...(vercel ? ["  Object.assign(event, { waitUntil: vitehubWaitUntil })"] : []),
+    ...(cloudflare ? ["  Object.assign(event, { env: event.env ?? event.context?.cloudflare?.env ?? event.context?._platform?.cloudflare?.env ?? event.req?.runtime?.cloudflare?.env ?? event.node?.req?.runtime?.cloudflare?.env ?? vitehubEnv, waitUntil: vitehubWaitUntil })"] : []),
+    "  enterQueueRuntimeEvent(event)",
     "})",
     "",
   ].join("\n")
@@ -208,6 +222,7 @@ export async function writeQueueNitroIntegration(rootDir: string, queue: QueueMo
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const pluginFile = resolve(rootDir, generatedQueueNitroPlugin)
+  const middlewareFile = resolve(rootDir, generatedQueueNitroMiddleware)
   const queueConfig = resolveOutputQueueConfig(typeof queue === "undefined" ? {} : queue, hosting)
   await Promise.all([
     mkdir(dirname(pluginFile), { recursive: true }),
@@ -216,6 +231,7 @@ export async function writeQueueNitroIntegration(rootDir: string, queue: QueueMo
   await Promise.all([
     writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8"),
     writeFile(pluginFile, renderNitroPlugin(pluginFile, registryFile, queueConfig, definitions.length > 0, cloudflareQueues), "utf8"),
+    writeFile(middlewareFile, renderNitroMiddleware(queueConfig, definitions.length > 0), "utf8"),
   ])
 }
 

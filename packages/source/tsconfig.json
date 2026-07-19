@@ -2,7 +2,15 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "forceConsistentCasingInFileNames": true,
-    "rootDir": ".."
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "paths": {
+      "@vite-hub/internal/*": [
+        "packages/internal/src/*.ts"
+      ]
+    },
+    "rootDir": "..",
+    "baseUrl": "../.."
   },
   "include": [
     "src/**/*.ts",

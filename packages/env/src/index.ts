@@ -5,7 +5,7 @@ export { parseSchema } from "./schema.ts"
 export { SecretEnv } from "./secret.ts"
 export { resolveServerEnv } from "./server.ts"
 export type { StandardSchemaV1 } from "./schema.ts"
-export type { EnvErrorCode, EnvErrorOptions } from "./core/errors.ts"
+export type { EnvErrorCode, EnvErrorDetails, EnvErrorOptions, EnvSourceIdentifier } from "./core/errors.ts"
 export type {
   EnvConfigOptions,
   EnvDiagnosticEntry,

@@ -5,9 +5,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import {
   authenticated,
-  AuthSessionError,
   AuthenticationRequiredError,
-  type AuthSessionErrorOptions,
   type AuthenticationRequiredErrorOptions,
   type AuthenticatedOptions,
   type AuthenticatedSessionData,
@@ -26,7 +24,14 @@ import {
   type AuthRuntimeOptions,
   type ResolvedAuthDatabaseConfiguration,
 } from "../src/index.ts"
-import { auth, createAuthForRequest, handleAuthRequest, requireAuth } from "../src/server.ts"
+import {
+  auth,
+  createAuthForRequest,
+  handleAuthRequest,
+  AuthenticationProviderError,
+  type AuthenticationProviderErrorOptions,
+  requireAuth,
+} from "../src/server.ts"
 import { hubAuth } from "../src/vite.ts"
 
 import type { AgentInvokerOptions, AgentRuntimeConfig } from "@vite-hub/agent"
@@ -146,13 +151,15 @@ describe("types", () => {
     expectTypeOf(authError.code).toEqualTypeOf<"AUTHENTICATION_REQUIRED">()
     expectTypeOf(authError.statusCode).toEqualTypeOf<401>()
 
-    const sessionError = new AuthSessionError({
+    const providerError = new AuthenticationProviderError({
       cause: new Error("protected provider diagnostic"),
-    } satisfies AuthSessionErrorOptions)
-    expectTypeOf(sessionError.code).toEqualTypeOf<"AUTH_SESSION_FAILED">()
-    expectTypeOf(sessionError.statusCode).toEqualTypeOf<503>()
+      operation: "get-session",
+    } satisfies AuthenticationProviderErrorOptions)
+    expectTypeOf(providerError.code).toEqualTypeOf<"AUTH_PROVIDER_OPERATION_FAILED">()
+    expectTypeOf(providerError.details!.operation).toEqualTypeOf<"get-auth-for-request" | "get-session">()
+    expectTypeOf(providerError.details!.provider).toEqualTypeOf<"better-auth">()
 
-    // @ts-expect-error AuthenticationRequiredError does not serialize arbitrary details.
+    // @ts-expect-error AuthenticationRequiredError has no public details channel.
     new AuthenticationRequiredError({ details: { surface: "agent-invoker" } })
   })
 

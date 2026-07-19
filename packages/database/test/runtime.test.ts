@@ -7,7 +7,9 @@ import { promisify } from "node:util"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { eq, sql } from "drizzle-orm"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
-import { setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+
+import { createDbCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
 
 const defaultSchema = {
   notes: sqliteTable("notes", {
@@ -146,6 +148,33 @@ afterEach(async () => {
     await rm(tempDir, { force: true, recursive: true })
     tempDir = ""
   }
+})
+
+describe("cloudflare worker runtime", () => {
+  it("isolates overlapping request environments", async () => {
+    let arrivals = 0
+    let release!: () => void
+    const bothStarted = new Promise<void>(resolve => {
+      release = resolve
+    })
+    const worker = createDbCloudflareWorker({
+      app: async () => {
+        const before = getActiveCloudflareEnv()?.REQUEST_ID
+        arrivals += 1
+        if (arrivals === 2) release()
+        await bothStarted
+        return Response.json({ after: getActiveCloudflareEnv()?.REQUEST_ID, before })
+      },
+    })
+
+    const [first, second] = await Promise.all([
+      worker.fetch(new Request("https://example.com/first"), { REQUEST_ID: "first" }, { waitUntil: vi.fn() }),
+      worker.fetch(new Request("https://example.com/second"), { REQUEST_ID: "second" }, { waitUntil: vi.fn() }),
+    ])
+
+    await expect(first.json()).resolves.toEqual({ after: "first", before: "first" })
+    await expect(second.json()).resolves.toEqual({ after: "second", before: "second" })
+  })
 })
 
 describe("drizzle runtime", () => {

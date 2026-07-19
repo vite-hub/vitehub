@@ -1,4 +1,4 @@
-import { setActiveCloudflareEnv, type CloudflareWorkerEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { runWithActiveCloudflareEnv, type CloudflareWorkerEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { runWorkflowHandler } from "./execute.ts"
 import { loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"
@@ -23,18 +23,19 @@ export interface RunCloudflareWorkflowOptions {
 export async function runCloudflareWorkflow({ config, env, event, name, registry, step }: RunCloudflareWorkflowOptions): Promise<unknown> {
   setWorkflowRuntimeConfig(config)
   setWorkflowRuntimeRegistry(registry)
-  setActiveCloudflareEnv(env)
 
-  const definition = await loadWorkflowDefinition(name)
-  if (!definition) {
-    throw new Error(`Missing workflow definition: ${name}`)
-  }
+  return await runWithActiveCloudflareEnv(env, async () => {
+    const definition = await loadWorkflowDefinition(name)
+    if (!definition) {
+      throw new Error(`Missing workflow definition: ${name}`)
+    }
 
-  return await runWithWorkflowRuntimeEvent({ env, step }, () => runWorkflowHandler({
-    id: event?.instanceId || event?.id,
-    name,
-    payload: event?.payload,
-    provider: "cloudflare",
-    step,
-  }, definition))
+    return await runWithWorkflowRuntimeEvent({ env, step }, () => runWorkflowHandler({
+      id: event?.instanceId || event?.id,
+      name,
+      payload: event?.payload,
+      provider: "cloudflare",
+      step,
+    }, definition))
+  })
 }

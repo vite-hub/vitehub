@@ -6,6 +6,8 @@ const boundary = createEffectBoundary({
 })
 
 export { EffectBoundaryFailure as AgentEffectFailure }
+export const acquireAgentResource = boundary.acquireWithCapturedRelease
 export const agentEffectCauseValues = boundary.causeValues
+export const closeAgentResources = boundary.closeScopeWithCapturedReleases
 export const runAgentEffect = boundary.run
 export const tryAgentPromise = boundary.tryPromise

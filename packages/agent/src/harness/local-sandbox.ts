@@ -1,10 +1,15 @@
 import { spawn as spawnChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process"
+import { once } from "node:events"
 import { realpathSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { Readable } from "node:stream"
+import { setTimeout as delay } from "node:timers/promises"
 import { createHash, randomUUID } from "node:crypto"
+import { Cause, Effect, Exit } from "effect"
+
+import { runAgentEffect, tryAgentPromise } from "../internal/effect-runtime.ts"
 
 import type { HarnessV1NetworkSandboxSession, HarnessV1SandboxProvider } from "@ai-sdk/harness"
 
@@ -28,7 +33,7 @@ interface LocalHarnessSandboxSession extends HarnessV1NetworkSandboxSession {
   readonly cleanup: boolean
   readonly env: Record<string, string>
   readonly physicalWorkingDirectory: boolean
-  readonly processes: Set<ChildProcessWithoutNullStreams>
+  readonly processes: Set<LocalProcessOwner>
   readonly rootDir: string
 }
 
@@ -110,6 +115,96 @@ function resolvePath(session: LocalHarnessSandboxSession, path = "") {
   return candidate
 }
 
+class LocalProcessOwner {
+  readonly closed: Promise<void>
+  #didClose = false
+  #termination?: Promise<void>
+
+  constructor(readonly child: ChildProcessWithoutNullStreams) {
+    this.closed = new Promise((resolve, reject) => {
+      child.once("error", (error) => {
+        this.#didClose = true
+        reject(error)
+      })
+      child.once("close", () => {
+        this.#didClose = true
+        resolve()
+      })
+    })
+  }
+
+  async #signal(signal: NodeJS.Signals) {
+    const pid = this.child.pid
+    if (!pid) throw new Error("[vitehub] Local harness process has no process id.")
+    if (process.platform === "win32") {
+      try {
+        const killer = spawnChildProcess("taskkill.exe", ["/pid", String(pid), "/t", ...(signal === "SIGKILL" ? ["/f"] : [])], {
+          stdio: "ignore",
+          windowsHide: true,
+        })
+        const [code] = await once(killer, "close")
+        if (code !== 0) throw new Error(`[vitehub] Windows process tree termination failed with exit code ${code}.`)
+      }
+      catch (error) {
+        if (!this.#didClose) throw error
+      }
+      return
+    }
+    try {
+      process.kill(-pid, signal)
+    }
+    catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error
+    }
+  }
+
+  async #wait(timeout: number) {
+    if (this.#didClose) return true
+    return await Promise.race([
+      this.closed.then(() => true),
+      delay(timeout, false, { ref: false }),
+    ])
+  }
+
+  async #terminate() {
+    const terminated = this.#wait(250)
+    await this.#signal("SIGTERM")
+    if (await terminated) return
+    const killed = this.#wait(1_000)
+    await this.#signal("SIGKILL")
+    if (!await killed) throw new Error("[vitehub] Local harness process tree did not close after forced termination.")
+  }
+
+  terminate() {
+    if (this.#didClose) return Promise.resolve()
+    return this.#termination ??= this.#terminate().finally(() => {
+      this.#termination = undefined
+    })
+  }
+}
+
+function waitForProcess(session: LocalHarnessSandboxSession, owner: LocalProcessOwner, abortSignal?: AbortSignal) {
+  return runAgentEffect(Effect.acquireUseRelease(
+    Effect.succeed(owner),
+    process => tryAgentPromise(async () => {
+      await process.closed
+      return { exitCode: typeof process.child.exitCode === "number" ? process.child.exitCode : 1 }
+    }),
+    (process, useExit) => Effect.matchCauseEffect(
+      tryAgentPromise(async () => {
+        await process.terminate()
+        session.processes.delete(process)
+      }),
+      {
+        onFailure: cleanupCause => Effect.failCause(
+          Exit.isFailure(useExit) ? Cause.combine(useExit.cause, cleanupCause) : cleanupCause,
+        ),
+        onSuccess: () => Effect.void,
+      },
+    ),
+  ), abortSignal ? { signal: abortSignal } : undefined)
+}
+
 function readableStreamFromBytes(bytes: Uint8Array) {
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -143,34 +238,18 @@ function spawnProcess(session: LocalHarnessSandboxSession, options: {
   env?: Record<string, string>
   workingDirectory?: string
 }) {
+  options.abortSignal?.throwIfAborted()
   const cwd = resolvePath(session, options.workingDirectory)
   const physicalCwd = session.physicalWorkingDirectory ? realpathSync(cwd) : cwd
   const child = spawnChildProcess(options.command, {
     cwd: physicalCwd,
+    detached: process.platform !== "win32",
     env: { ...session.env, ...options.env, INIT_CWD: physicalCwd, OLDPWD: physicalCwd, PWD: physicalCwd },
     shell: true,
   })
-  session.processes.add(child)
-
-  let abortReason: unknown
-  const abort = () => {
-    abortReason = options.abortSignal?.reason || new Error("Sandbox command aborted.")
-    child.kill()
-  }
-  options.abortSignal?.addEventListener("abort", abort, { once: true })
-
-  const wait = new Promise<{ exitCode: number }>((resolve, reject) => {
-    child.once("error", reject)
-    child.once("close", (code) => {
-      session.processes.delete(child)
-      options.abortSignal?.removeEventListener("abort", abort)
-      if (abortReason) {
-        reject(abortReason)
-        return
-      }
-      resolve({ exitCode: code ?? 1 })
-    })
-  })
+  const owner = new LocalProcessOwner(child)
+  session.processes.add(owner)
+  const wait = waitForProcess(session, owner, options.abortSignal)
 
   return {
     pid: child.pid,
@@ -178,7 +257,7 @@ function spawnProcess(session: LocalHarnessSandboxSession, options: {
     stderr: Readable.toWeb(child.stderr) as ReadableStream<Uint8Array>,
     wait: () => wait,
     kill: async () => {
-      child.kill()
+      await owner.terminate()
       await wait.catch(() => undefined)
     },
   }
@@ -202,7 +281,7 @@ async function createSession(options: LocalHarnessSandboxProviderOptions, sessio
     id: sessionId || randomUUID(),
     ports: options.ports || [0],
     physicalWorkingDirectory: Boolean(options.workspaceDir),
-    processes: new Set<ChildProcessWithoutNullStreams>(),
+    processes: new Set<LocalProcessOwner>(),
     rootDir,
     async destroy() {
       await this.stop()
@@ -244,10 +323,10 @@ async function createSession(options: LocalHarnessSandboxProviderOptions, sessio
       return spawnProcess(this, spawnOptions)
     },
     async stop() {
-      await Promise.all(Array.from(this.processes, child => new Promise<void>((resolve) => {
-        child.once("close", () => resolve())
-        child.kill()
-      })))
+      await Promise.all(Array.from(this.processes, async (owner) => {
+        await owner.terminate()
+        this.processes.delete(owner)
+      }))
     },
     async writeBinaryFile({ content, path }: { content: Uint8Array, path: string }) {
       const resolved = resolvePath(this, path)

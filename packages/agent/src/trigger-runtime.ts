@@ -3,6 +3,7 @@ import {
   channelDeliveryFinishEffectsContextKey,
   normalizeCapabilities,
 } from "./capability-runtime.ts"
+import { AgentHttpError } from "./http-error.ts"
 
 import type {
   AgentCallbackContext,
@@ -279,8 +280,8 @@ async function constantTimeEqual(left: string, right: string): Promise<boolean> 
   return diff === 0
 }
 
-function webhookVerificationError(message: string): Error & { statusCode: number } {
-  return Object.assign(new Error(message), { statusCode: 401 })
+function webhookVerificationError(message: string): AgentHttpError {
+  return new AgentHttpError(401, message)
 }
 
 export interface AgentWebhookVerificationOptions {

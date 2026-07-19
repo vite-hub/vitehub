@@ -1,4 +1,4 @@
-import { getCloudflareEnv } from '../internal/shared/provider-detection'
+import { getCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'
 import { SandboxError } from '../sandbox/errors'
 import { detectSandbox } from '../sandbox/providers/shared'
 import { loadSandboxProviderRuntime } from './provider-loader-resolver'

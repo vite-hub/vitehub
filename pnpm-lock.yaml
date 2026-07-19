@@ -1138,6 +1138,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: catalog:ai
         version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
+      effect:
+        specifier: catalog:effect
+        version: 4.0.0-beta.99
       mrmime:
         specifier: catalog:workspace
         version: 2.0.1
@@ -1160,6 +1163,9 @@ importers:
       '@types/picomatch':
         specifier: catalog:tooling
         version: 4.0.3
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
       publint:
         specifier: catalog:tooling
         version: 0.3.21

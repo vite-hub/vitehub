@@ -1,6 +1,8 @@
 import { Effect, Exit, Ref, Scope } from "effect"
 
 import {
+  acquireWorkspaceResource,
+  closeWorkspaceResources,
   WorkspaceEffectFailure,
   runWorkspaceEffect,
   tryWorkspacePromise,
@@ -19,41 +21,6 @@ function failureValue(exit: Exit.Failure<unknown, unknown>): unknown {
     : new AggregateError(causes, "[vitehub] Workspace sandbox operation failed for multiple reasons.")
 }
 
-const releaseSandbox = Effect.fn("Workspace.Sandbox.release")(function* (
-  sandbox: SandboxResource,
-  failures: Ref.Ref<readonly unknown[]>,
-) {
-  if (sandbox.provider !== "vercel") return
-  const exit = yield* Effect.exit(
-    tryWorkspacePromise("Workspace.Sandbox.release", () => sandbox.stop()),
-  )
-  if (Exit.isFailure(exit)) {
-    const causes = workspaceEffectCauseValues(exit.cause)
-    yield* Ref.update(failures, current => [...current, ...causes])
-  }
-})
-
-const closeSandboxScope = Effect.fn("Workspace.Sandbox.Scope.close")(function* (
-  scope: Scope.Closeable,
-  failures: Ref.Ref<readonly unknown[]>,
-  exit: Exit.Exit<unknown, unknown>,
-) {
-  yield* Scope.close(scope, exit)
-  const causes = yield* Ref.get(failures)
-  if (causes.length === 1) {
-    return yield* Effect.fail(new WorkspaceEffectFailure({
-      cause: causes[0],
-      operation: "Workspace.Sandbox.Scope.close",
-    }))
-  }
-  if (causes.length > 1) {
-    return yield* Effect.fail(new WorkspaceEffectFailure({
-      cause: new AggregateError(causes, "[vitehub] Workspace sandbox cleanup failed for multiple reasons."),
-      operation: "Workspace.Sandbox.Scope.close",
-    }))
-  }
-})
-
 export class SandboxWorkspaceScope<Resource extends SandboxResource, Setup> {
   private closed = false
 
@@ -70,7 +37,9 @@ export class SandboxWorkspaceScope<Resource extends SandboxResource, Setup> {
 
   close(): Promise<void> {
     this.closed = true
-    return runWorkspaceEffect(closeSandboxScope(this.scope, this.failures, Exit.void))
+    return runWorkspaceEffect(closeWorkspaceResources(this.scope, this.failures, {
+      aggregateMessage: "[vitehub] Workspace sandbox cleanup failed for multiple reasons.",
+    }))
   }
 }
 
@@ -81,34 +50,36 @@ export function openSandboxWorkspaceScope<Resource extends SandboxResource, Setu
   return runWorkspaceEffect(Effect.gen(function* () {
     const scope = yield* Scope.make("sequential")
     const failures = yield* Ref.make<readonly unknown[]>([])
-    const resource = yield* Scope.provide(
-      Effect.acquireRelease(
-        tryWorkspacePromise("Workspace.Sandbox.acquire", acquire),
-        sandbox => releaseSandbox(sandbox, failures),
-      ),
+    const resource = yield* acquireWorkspaceResource(
       scope,
+      failures,
+      tryWorkspacePromise(acquire),
+      sandbox => sandbox.provider === "vercel"
+        ? tryWorkspacePromise(() => sandbox.stop())
+        : Effect.void,
     )
 
     const setupExit = yield* Effect.exit(
-      tryWorkspacePromise("Workspace.Sandbox.setup", () => setup(resource)),
+      tryWorkspacePromise(() => setup(resource)),
     )
     if (Exit.isSuccess(setupExit))
       return new SandboxWorkspaceScope(resource, setupExit.value, scope, failures)
 
     const setupError = failureValue(setupExit)
-    const closeExit = yield* Effect.exit(closeSandboxScope(scope, failures, setupExit))
+    const closeExit = yield* Effect.exit(closeWorkspaceResources(scope, failures, {
+      aggregateMessage: "[vitehub] Workspace sandbox cleanup failed for multiple reasons.",
+      exit: setupExit,
+    }))
     if (Exit.isFailure(closeExit)) {
       return yield* Effect.fail(new WorkspaceEffectFailure({
         cause: new AggregateError(
           [setupError, failureValue(closeExit)],
           "[vitehub] Workspace sandbox setup failed and cleanup also failed.",
         ),
-        operation: "Workspace.Sandbox.setup",
       }))
     }
     return yield* Effect.fail(new WorkspaceEffectFailure({
       cause: setupError,
-      operation: "Workspace.Sandbox.setup",
     }))
   }))
 }

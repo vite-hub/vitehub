@@ -16,7 +16,6 @@ const s3PeerInstall = "files-sdk @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @
 
 function getCloudflareBinding(options: ResolvedCloudflareR2BlobStoreConfig) {
   const binding = getActiveCloudflareBinding(options.binding)
-    || (globalThis as any).__env__?.[options.binding]
     || (globalThis as any)[options.binding]
 
   if (!binding) {

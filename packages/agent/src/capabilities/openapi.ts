@@ -172,6 +172,16 @@ export function openapi<
   assertOpenAPIOptions(options)
   let operations: Promise<{ baseUrl: URL, tools: OpenAPIOperationTool[] }> | undefined
   const dynamicOperations = typeof options.spec === "function" || typeof options.server === "function"
+  const loadOperations = (context: AgentCapabilityContext<TRuntimeConfig, Name>) => {
+    if (dynamicOperations) return loadOpenAPIOperations(options, context)
+    if (operations) return operations
+    const pending = loadOpenAPIOperations(options, context)
+    operations = pending
+    pending.catch(() => {
+      if (operations === pending) operations = undefined
+    })
+    return pending
+  }
 
   return defineCapability({
     id: "openapi",
@@ -185,17 +195,13 @@ export function openapi<
       ? async (context) => {
           const cli = await resolveContextValue(options.cli, context)
           if (!cli) return undefined
-          const resolved = dynamicOperations
-            ? await loadOpenAPIOperations(options, context)
-            : await (operations ||= loadOpenAPIOperations(options, context))
+          const resolved = await loadOperations(context)
           return createOpenAPICli(cli, resolved.tools, resolved.baseUrl, options, context)
         }
       : undefined,
     async tools(context) {
       if (options.cli) return undefined
-      const resolved = dynamicOperations
-        ? await loadOpenAPIOperations(options, context)
-        : await (operations ||= loadOpenAPIOperations(options, context))
+      const resolved = await loadOperations(context)
       return Object.fromEntries(resolved.tools.map(operation => [
         operation.operationId,
         createOpenAPITool(operation, resolved.baseUrl, options, context),
@@ -248,7 +254,7 @@ async function loadOpenAPIDocument<
     headers: options.specHeaders,
     timeout: options.timeout,
     url: specUrl,
-  })
+  }, { signal: context.abortSignal })
   if (!result.data || typeof result.data !== "object") {
     throw new Error("[vitehub] openapi() spec must be a JSON OpenAPI document.")
   }
@@ -341,8 +347,8 @@ function createOpenAPITool<
 ): AgentToolDefinition {
   return defineInternalTool({
     description: [options.description, operation.description].filter(Boolean).join(" "),
-    async execute(input) {
-      return executeOpenAPIOperation(operation, baseUrl, options, context, input)
+    async execute(input, execution) {
+      return executeOpenAPIOperation(operation, baseUrl, options, context, input, execution?.abortSignal)
     },
     inputSchema: operationInputSchema(operation, openAPIRequestProvidedInput(options)),
     metadata: {
@@ -424,6 +430,7 @@ async function executeOpenAPIOperation<
   options: OpenAPICapabilityOptions<TRuntimeConfig, Name>,
   context: AgentCapabilityContext<TRuntimeConfig, Name>,
   input: unknown,
+  abortSignal?: AbortSignal,
 ): Promise<unknown> {
   const rawInput = applyOpenAPIProvidedInput(normalizeRawToolInput(operation, input), openAPIRequestProvidedInput(options))
   const rawUrl = operationTemplateUrl(baseUrl, operation.path)
@@ -452,6 +459,7 @@ async function executeOpenAPIOperation<
     url,
   }, {
     responseType: options.responseType || "json",
+    signal: abortSignal ?? context.abortSignal,
   })
   return transformOpenAPIResponse(options, context, operation, requestInput, draft, url, result)
 }

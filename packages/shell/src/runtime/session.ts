@@ -38,11 +38,15 @@ function createPolicyObservation(command: string, cwd: string | undefined, messa
   }
 }
 
+const shellSessionDisposedMessage = "[vitehub] Shell session is disposed."
+
 class RuntimeShellSession implements ShellSession {
   readonly boundary
   readonly policy: ShellSessionPolicy
   #disposed = false
-  #processes = new Map<string, ShellProcess>()
+  #disposeTask: Promise<ShellObservation> | undefined
+  #processes = new Set<ShellProcess>()
+  #starts = new Set<Promise<void>>()
   #shellCalls = 0
 
   constructor(
@@ -60,7 +64,7 @@ class RuntimeShellSession implements ShellSession {
 
   async exec(command: string, options: ShellRuntimeExecOptions = {}) {
     if (this.#disposed) {
-      return createPolicyObservation(command, options.cwd, "[vitehub] Shell session is disposed.")
+      return createPolicyObservation(command, options.cwd, shellSessionDisposedMessage)
     }
     if (typeof this.policy.maxShellCalls === "number" && this.#shellCalls >= this.policy.maxShellCalls) {
       return createPolicyObservation(
@@ -88,45 +92,102 @@ class RuntimeShellSession implements ShellSession {
   }
 
   async startProcess(command: string, options: ShellRuntimeExecOptions = {}) {
-    if (this.#disposed) throw new Error("[vitehub] Shell session is disposed.")
+    if (this.#disposed) throw new Error(shellSessionDisposedMessage)
     if (!this.provider.startProcess || !this.boundary.processes.background) {
       throw new Error("[vitehub] Shell provider does not support long-running processes.")
     }
     if (typeof this.policy.maxProcesses === "number" && this.#processes.size >= this.policy.maxProcesses) {
       throw new Error(`[vitehub] Shell session process budget exhausted after ${this.policy.maxProcesses} processes.`)
     }
-    const process = await this.provider.startProcess(command, {
-      ...options,
-      env: { ...this.env, ...options.env },
-      timeout: options.timeout ?? this.policy.timeout,
+    let finishStart!: () => void
+    const start = new Promise<void>((resolve) => {
+      finishStart = resolve
     })
-    const trackedProcess: ShellProcess = {
-      ...process,
-      stop: async () => {
-        try {
-          return await process.stop()
-        }
-        finally {
-          this.#processes.delete(process.id)
-        }
-      },
+    this.#starts.add(start)
+    void start.finally(() => this.#starts.delete(start))
+    let process: ShellProcess
+    try {
+      process = await this.provider.startProcess(command, {
+        ...options,
+        env: { ...this.env, ...options.env },
+        timeout: options.timeout ?? this.policy.timeout,
+      })
     }
-    this.#processes.set(process.id, trackedProcess)
+    catch (error) {
+      finishStart()
+      throw error
+    }
+
+    let stopTask: Promise<ShellObservation> | undefined
+    let trackedProcess: ShellProcess
+    const stop = () => {
+      if (stopTask) return stopTask
+      stopTask = Promise.resolve().then(() => process.stop()).then(
+        result => {
+          this.#processes.delete(trackedProcess)
+          return result
+        },
+        error => {
+          stopTask = undefined
+          throw error
+        },
+      )
+      return stopTask
+    }
+    trackedProcess = { ...process, stop }
+    this.#processes.add(trackedProcess)
+    finishStart()
+    if (this.#disposed) {
+      try {
+        await stop()
+      }
+      catch (error) {
+        throw new AggregateError(
+          [new Error(shellSessionDisposedMessage), error],
+          "[vitehub] Shell session was disposed while starting a background process, and stopping it failed.",
+        )
+      }
+      throw new Error(shellSessionDisposedMessage)
+    }
     return trackedProcess
   }
 
   async listProcesses() {
-    return [...this.#processes.values()]
+    return [...this.#processes]
   }
 
-  async dispose() {
+  dispose() {
     this.#disposed = true
-    return {
-      event: "session_disposed",
-      exitCode: null,
-      stderr: "",
-      stdout: "",
-    } satisfies ShellObservation
+    if (this.#disposeTask) return this.#disposeTask
+    this.#disposeTask = (async () => {
+      await Promise.all(this.#starts)
+      const failures: unknown[] = []
+      for (const process of [...this.#processes].reverse()) {
+        try {
+          await process.stop()
+        }
+        catch (error) {
+          failures.push(error)
+        }
+      }
+      if (failures.length === 1) throw failures[0]
+      if (failures.length > 1) {
+        throw new AggregateError(
+          failures,
+          "[vitehub] Shell session failed to stop multiple background processes.",
+        )
+      }
+      return {
+        event: "session_disposed" as const,
+        exitCode: null,
+        stderr: "",
+        stdout: "",
+      }
+    })().catch((error) => {
+      this.#disposeTask = undefined
+      throw error
+    })
+    return this.#disposeTask
   }
 }
 

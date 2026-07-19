@@ -1,5 +1,5 @@
 import { resolveAppFetch } from "@vite-hub/internal/runtime/app"
-import { createCloudflareRuntimeEvent, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { createCloudflareRuntimeEvent, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { H3, toWebHandler } from "h3"
 
 type AppHandler = (request: Request, context?: Record<string, unknown>) => Response | Promise<Response>
@@ -25,9 +25,10 @@ export function createDbCloudflareWorker(options: DBCloudflareWorkerOptions = {}
 
   return {
     async fetch(request, env, context) {
-      setActiveCloudflareEnv(env)
       const runtimeEvent = createCloudflareRuntimeEvent(env, context)
-      return await Promise.resolve(appHandler ? appHandler(request, runtimeEvent.context) : defaultHandler(request, runtimeEvent.context))
+      return await runWithActiveCloudflareEnv(env, () => Promise.resolve(
+        appHandler ? appHandler(request, runtimeEvent.context) : defaultHandler(request, runtimeEvent.context),
+      ))
     },
   }
 }

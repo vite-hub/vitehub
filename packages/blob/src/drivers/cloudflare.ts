@@ -30,7 +30,6 @@ interface R2BucketLike {
 
 function getOptionalBucket(options: ResolvedCloudflareR2BlobStoreConfig): R2BucketLike | undefined {
   return getActiveCloudflareBinding<R2BucketLike>(options.binding)
-    || (globalThis as any).__env__?.[options.binding]
     || (globalThis as any)[options.binding]
 }
 

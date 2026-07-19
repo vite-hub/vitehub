@@ -3,7 +3,7 @@ import { createCloudflareHostedWorker } from "@vite-hub/internal/runtime/cloudfl
 import { normalizeWorkflowOptions } from "../config.ts"
 
 import type { WorkflowApp } from "./_app.ts"
-import { createCloudflareRuntimeEvent, setActiveCloudflareEnv, type CloudflareWorkerEnv, type CloudflareWorkerExecutionContext } from "./cloudflare-shared.ts"
+import { createCloudflareRuntimeEvent, runWithActiveCloudflareEnv, type CloudflareWorkerEnv, type CloudflareWorkerExecutionContext } from "./cloudflare-shared.ts"
 import { runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry } from "../types.ts"
@@ -28,9 +28,8 @@ export function createWorkflowCloudflareWorker(options: WorkflowCloudflareWorker
     async onRequest({ env, executionContext, handle }) {
       setWorkflowRuntimeConfig(workflowConfig)
       setWorkflowRuntimeRegistry(options.registry)
-      setActiveCloudflareEnv(env)
       const runtimeEvent = createCloudflareRuntimeEvent(env, executionContext)
-      return await runWithWorkflowRuntimeEvent(runtimeEvent, () => handle(runtimeEvent.context))
+      return await runWithActiveCloudflareEnv(env, () => runWithWorkflowRuntimeEvent(runtimeEvent, () => handle(runtimeEvent.context)))
     },
   })
 }

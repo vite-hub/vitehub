@@ -20,7 +20,7 @@ describe("Effect boundary", () => {
   it("returns failures and defects by identity without FiberFailure", async () => {
     const failure = new Error("failure")
     const defect = new Error("defect")
-    await expect(boundary.run(boundary.tryPromise("test", () => Promise.reject(failure))).catch(error => error))
+    await expect(boundary.run(boundary.tryPromise(() => Promise.reject(failure))).catch(error => error))
       .resolves.toBe(failure)
     await expect(boundary.run(Effect.die(defect)).catch(error => error)).resolves.toBe(defect)
   })

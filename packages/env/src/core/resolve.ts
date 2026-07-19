@@ -5,7 +5,7 @@ import { promisify } from "node:util"
 
 import { parseSchema } from "../schema.ts"
 import { defaultStringSchema, isDefaultStringEnvVariable } from "./declarations.ts"
-import { envSourceFailed, invalidEnvDeclaration, missingRequiredEnv } from "./errors.ts"
+import { EnvError, envSourceFailed, invalidEnvDeclaration, isAbortError, missingRequiredEnv } from "./errors.ts"
 
 import type {
   EnvBuildConfigOptions,
@@ -134,7 +134,7 @@ export async function resolveEnvEntries(
     if (typeof valueForSchema === "undefined") {
       if (declaration.required) {
         const path = `${input.section}.${key}`
-        throw missingRequiredEnv(source.label, `Missing ${path} from ${source.label}.`, path)
+        throw missingRequiredEnv(source.kind === "custom" ? "custom" : source.label, `Missing ${path} from ${source.label}.`, path)
       }
       entries.push({
         key,
@@ -201,7 +201,7 @@ async function resolveBuildConfigValue(
     const valueForSchema = defaulted ? declaration.default : resolvedSource.value
     if (typeof valueForSchema === "undefined") {
       if (declaration.required) {
-        throw missingRequiredEnv(source.label, `Missing ${path} from ${source.label}.`, path)
+        throw missingRequiredEnv(source.kind === "custom" ? "custom" : source.label, `Missing ${path} from ${source.label}.`, path)
       }
       return {
         diagnostics: [{
@@ -354,6 +354,7 @@ async function resolveBuiltInSource<T>(source: string, resolveSource: () => T | 
     return await resolveSource()
   }
   catch (cause) {
+    if (isAbortError(cause) || cause instanceof EnvError) throw cause
     throw envSourceFailed(source, cause)
   }
 }

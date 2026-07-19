@@ -1,13 +1,17 @@
-import { Cause, Data, Effect, Exit } from "effect"
+import { Cause, Data, Effect, Exit, Ref, Scope } from "effect"
 
 export class EffectBoundaryFailure extends Data.TaggedError("EffectBoundaryFailure")<{
   readonly cause: unknown
-  readonly operation: string
 }> {}
 
 interface EffectBoundaryOptions {
   readonly aggregateMessage: string
   readonly interruptionMessage: string
+}
+
+interface CloseScopeOptions {
+  readonly aggregateMessage?: string
+  readonly exit?: Exit.Exit<unknown, unknown>
 }
 
 export function createEffectBoundary(options: EffectBoundaryOptions) {
@@ -29,11 +33,10 @@ export function createEffectBoundary(options: EffectBoundaryOptions) {
   }
 
   function tryPromise<A>(
-    operation: string,
     evaluate: (signal: AbortSignal) => PromiseLike<A> | A,
   ): Effect.Effect<A, EffectBoundaryFailure> {
     return Effect.tryPromise({
-      catch: cause => new EffectBoundaryFailure({ cause, operation }),
+      catch: cause => new EffectBoundaryFailure({ cause }),
       try: signal => Promise.resolve(evaluate(signal)),
     })
   }
@@ -52,5 +55,37 @@ export function createEffectBoundary(options: EffectBoundaryOptions) {
     throw new AggregateError(causes, options.aggregateMessage)
   }
 
-  return { causeValues, run, tryPromise }
+  function acquireWithCapturedRelease<A, E, R, E2, R2>(
+    scope: Scope.Closeable,
+    failures: Ref.Ref<readonly unknown[]>,
+    acquire: Effect.Effect<A, E, R>,
+    release: (resource: A, exit: Exit.Exit<unknown, unknown>) => Effect.Effect<unknown, E2, R2>,
+  ): Effect.Effect<A, E, R | R2> {
+    return Scope.provide(
+      Effect.acquireRelease(
+        acquire,
+        (resource, exit) => Effect.matchCauseEffect(release(resource, exit), {
+          onFailure: cause => Ref.update(failures, current => [...current, ...causeValues(cause)]),
+          onSuccess: () => Effect.void,
+        }),
+      ),
+      scope,
+    )
+  }
+
+  const closeScopeWithCapturedReleases = Effect.fn("ViteHub.EffectBoundary.closeScope")(function* (
+    scope: Scope.Closeable,
+    failures: Ref.Ref<readonly unknown[]>,
+    closeOptions: CloseScopeOptions,
+  ) {
+    yield* Scope.close(scope, closeOptions.exit ?? Exit.void)
+    const causes = yield* Ref.get(failures)
+    if (causes.length === 0) return
+    const cause = causes.length === 1
+      ? causes[0]
+      : new AggregateError(causes, closeOptions.aggregateMessage ?? options.aggregateMessage)
+    return yield* Effect.fail(new EffectBoundaryFailure({ cause }))
+  })
+
+  return { acquireWithCapturedRelease, causeValues, closeScopeWithCapturedReleases, run, tryPromise }
 }

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 describe("provider detection", () => {
   afterEach(() => {
@@ -33,6 +34,32 @@ describe("provider detection", () => {
         },
       },
     })).toBe("cloudflare")
+  })
+
+  it("infers the runtime provider from the scoped Cloudflare environment", async () => {
+    const { resolveRuntimeProvider } = await import("../src/runtime/runtime.ts")
+    vi.stubGlobal("process", undefined)
+
+    expect(runWithActiveCloudflareEnv({ SANDBOX: {} }, () => resolveRuntimeProvider())).toBe("cloudflare")
+  })
+
+  it("resolves the Cloudflare binding from the scoped environment", async () => {
+    vi.doMock("@cloudflare/sandbox", () => ({ getSandbox: vi.fn() }))
+    const namespace = {}
+
+    try {
+      const { resolveSandboxProvider } = await import("../src/runtime/providers/cloudflare.ts")
+      const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () =>
+        resolveSandboxProvider({
+          local: {},
+          provider: { provider: "cloudflare" },
+        }))
+
+      expect(provider.namespace).toBe(namespace)
+    }
+    finally {
+      vi.doUnmock("@cloudflare/sandbox")
+    }
   })
 
   it("does not mark platform sandboxes available when their SDK cannot resolve", async () => {

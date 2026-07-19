@@ -68,6 +68,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "catalog:ai",
+    "effect": "catalog:effect",
     "mrmime": "catalog:workspace",
     "ocache": "catalog:unjs",
     "pathe": "catalog:unjs",
@@ -77,6 +78,7 @@
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@types/picomatch": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",

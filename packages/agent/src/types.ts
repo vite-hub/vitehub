@@ -674,6 +674,7 @@ export interface AgentCapabilityContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
+  abortSignal?: AbortSignal
   mode?: AgentCapabilityMode
   runtimeContext?: ResolvedAgentRuntimeContext
   workspaceDefinition?: WorkspaceDefinition
@@ -1393,9 +1394,13 @@ export interface AgentToolPolicyContext {
 export type AgentToolStandardSchema<T = unknown> = StandardSchemaV1<unknown, T> & StandardJSONSchemaV1<unknown, T>
 export type AgentToolSchema<T = unknown> = AgentToolStandardSchema<T> | (JSONSchema7 & { "~standard"?: never })
 
+export interface AgentToolExecutionContext {
+  abortSignal?: AbortSignal
+}
+
 export interface AgentToolDefinition<TInput = unknown, TOutput = unknown> {
   description?: string
-  execute?: (input: TInput) => MaybePromise<TOutput>
+  execute?: (input: TInput, context?: AgentToolExecutionContext) => MaybePromise<TOutput>
   inputSchema?: AgentToolSchema<TInput>
   metadata?: Record<string, unknown>
   name: string

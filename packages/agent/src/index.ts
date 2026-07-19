@@ -930,7 +930,7 @@ export {
   createAgentInvocationStreamResponse,
   readAgentInvocationStream,
 } from "./invocation-stream.ts"
-export type { AgentInvocationStreamEvent } from "./invocation-stream.ts"
+export type { AgentInvocationStreamErrorEvent, AgentInvocationStreamEvent } from "./invocation-stream.ts"
 
 export type {
   AgentRunEvent,

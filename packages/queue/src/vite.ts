@@ -3,7 +3,7 @@ import { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput,
 import { createNoExternalMerger, hasNitroVitePlugin, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 
-import { createCloudflareQueueBindings, generateProviderOutputs, generatedQueueNitroPlugin, queuePackageName, writeQueueNitroIntegration } from "./internal/vite-build.ts"
+import { createCloudflareQueueBindings, generateProviderOutputs, generatedQueueNitroMiddleware, generatedQueueNitroPlugin, queuePackageName, writeQueueNitroIntegration } from "./internal/vite-build.ts"
 import { discoverQueueDefinitions } from "./discovery.ts"
 import { createQueueProvisionStep } from "./provision.ts"
 
@@ -56,14 +56,18 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
   const providerMismatch = queue !== false && queue?.provider && nitroHosting && queue.provider !== nitroHosting
   const runtimeEnabled = queue !== false && !providerMismatch
   const plugins = Array.isArray(nitro.plugins) ? nitro.plugins.filter(plugin => runtimeEnabled || plugin !== generatedQueueNitroPlugin) : []
+  const handlers = Array.isArray(nitro.handlers)
+    ? nitro.handlers.filter(handler => handler?.handler !== generatedQueueNitroMiddleware)
+    : []
   if (!runtimeEnabled) {
     registerCloudflareProviderOutput(config, "queue", {})
-    return composeNitroCloudflareProviderOutput(config, { ...nitro, plugins })
+    return composeNitroCloudflareProviderOutput(config, { ...nitro, handlers, plugins })
   }
   if (!plugins.includes(generatedQueueNitroPlugin)) plugins.unshift(generatedQueueNitroPlugin)
+  handlers.unshift({ handler: generatedQueueNitroMiddleware, middleware: true, route: "/**" })
   if (resolveQueueHosting(queue, nitro) !== "cloudflare") {
     registerCloudflareProviderOutput(config, "queue", {})
-    return composeNitroCloudflareProviderOutput(config, { ...nitro, plugins })
+    return composeNitroCloudflareProviderOutput(config, { ...nitro, handlers, plugins })
   }
   const cloudflare = cloneNitroConfig(nitro.cloudflare)
   const wrangler = cloneNitroConfig(cloudflare.wrangler)
@@ -76,6 +80,7 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
     ...nitro,
     ...(cloudflareQueues ? { rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") } } : {}),
     cloudflare: { ...cloudflare, wrangler: { ...wrangler, compatibility_flags: compatibilityFlags } },
+    handlers,
     plugins,
   }
   if (!generated) {
