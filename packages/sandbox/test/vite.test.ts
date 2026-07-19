@@ -1021,13 +1021,18 @@ describe("hubSandbox", () => {
     }, {})).rejects.toThrow("generate the same artifact path")
   })
 
-  it("keeps explicit Cloudflare targets inert without definitions", async () => {
+  it("emits explicit Cloudflare targets without definitions", async () => {
     const { createSandboxFeaturePlan } = await import("../src/feature.ts")
     const plan = await createSandboxFeaturePlan({ provider: "cloudflare", name: "custom-sandbox" }, [], {
       aliasPath: "/tmp/vitehub-sandbox/index.js",
     }, {})
 
-    expect(plan.cloudflare).toBeUndefined()
+    expect(plan.cloudflare).toEqual({
+      binding: "SANDBOX",
+      className: "Sandbox",
+      migrationTag: "v1",
+      name: "custom-sandbox",
+    })
   })
 
   it("refreshes generated artifacts during sandbox definition hot updates", async () => {
