@@ -55,10 +55,12 @@ function skipTemplateLiteral(source: string, index: number): number {
     }
     if (char === "\"" || char === "'") {
       index = skipQuoted(source, index)
+      previousSignificant = "literal"
       continue
     }
     if (char === "`") {
       index = skipTemplateLiteral(source, index)
+      previousSignificant = "literal"
       continue
     }
     if (char === "/" && next === "/") {
@@ -251,7 +253,10 @@ export function maskSourceLiterals(source: string): string {
     const char = source[index]
     const next = source[index + 1]
     let end: number | undefined
-    if (isQuote(char)) end = skipQuoted(source, index)
+    if (isQuote(char)) {
+      end = skipQuoted(source, index)
+      previousSignificant = "literal"
+    }
     else if (char === "/" && next === "/") end = skipLineComment(source, index)
     else if (char === "/" && next === "*") end = skipBlockComment(source, index)
     else if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, index))) {
@@ -290,6 +295,7 @@ export function findMatching(source: string, index: number, open: string, close:
     const next = source[current + 1]
     if (isQuote(char)) {
       current = skipQuoted(source, current) - 1
+      previousSignificant = "literal"
       continue
     }
     if (char === "/" && next === "/") {
@@ -330,6 +336,7 @@ export function splitTopLevel(source: string, separator = ",") {
     const next = source[index + 1]
     if (isQuote(char)) {
       index = skipQuoted(source, index) - 1
+      previousSignificant = "literal"
       continue
     }
     if (char === "/" && next === "/") {
@@ -382,6 +389,7 @@ export function findIdentifierCalls(source: string, name: string): IdentifierCal
     const next = source[index + 1]
     if (isQuote(char)) {
       index = skipQuoted(source, index) - 1
+      previousSignificant = "literal"
       continue
     }
     if (char === "/" && next === "/") {
