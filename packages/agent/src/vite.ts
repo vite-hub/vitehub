@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
@@ -479,7 +480,10 @@ function resolveLibsqlAgentState(
   const authTokenEnvName = resolveEnvNameForValue(authToken)
   const target = isRecord(config) ? config : {}
   const localDevelopment = target.command === "serve" && options.runtime !== "cloudflare-agents" && options.runtime !== "deno"
-  const resolvedUrl = url || (auto && localDevelopment ? defaultLocalAgentStateUrl : undefined)
+  const localDefaultUrl = typeof target.root === "string"
+    ? pathToFileURL(resolve(target.root, defaultLocalAgentStateUrl.slice("file:".length))).href
+    : defaultLocalAgentStateUrl
+  const resolvedUrl = url || (auto && localDevelopment ? localDefaultUrl : undefined)
   const explicitEphemeralHosting = options.runtime === "cloudflare-agents" ? "cloudflare" : options.runtime === "vercel" ? "vercel" : undefined
   const ephemeralHosting = localDevelopment ? undefined : explicitEphemeralHosting || resolveAgentHosting(config)
   if (ephemeralHosting && resolvedUrl?.startsWith("file:")) {
@@ -753,7 +757,8 @@ function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions)
     "  }",
     "  return viteHubChatState",
     "}",
-    "chatStateFromLibsql.ownsScope = false",
+    "const viteHubChatStateResolver = () => chatStateFromLibsql()",
+    "viteHubChatStateResolver.ownsScope = false",
   ]
 }
 
@@ -913,7 +918,7 @@ async function generateAgentWebhookRouteHandler(
   const webhookStateOption = options.cloudflareState
     ? "state: chatStateFromCloudflare(cloudflare), "
     : options.libsqlState
-      ? "state: () => chatStateFromLibsql(), "
+      ? "state: viteHubChatStateResolver, "
       : ""
 
   return [
@@ -978,7 +983,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
     workspaceRuntimeImport: subpath(agentImportBase, "server/workspace"),
   })
   const webhookSelector = routeUsesParam(options.webhookRoute, "webhook") ? "netlifyParam(context, 'webhook')" : "''"
-  const webhookStateOption = options.libsqlState ? "state: () => chatStateFromLibsql(), " : ""
+  const webhookStateOption = options.libsqlState ? "state: viteHubChatStateResolver, " : ""
 
   return [
     ...deploymentCatalog.imports,

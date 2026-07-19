@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto"
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { Message } from "chat"
 import { describe, expect, it, vi } from "vitest"
@@ -453,7 +454,7 @@ describe("agent Vite plugin", () => {
       expect(wrapper).toContain("const viteHubChatStateOptions = {\"tablePrefix\":\"agent_state_\",\"url\":\"libsql://state.example.test\"}")
       expect(wrapper).not.toContain("build-token")
       expect(wrapper).toContain("function chatStateFromLibsql()")
-      expect(wrapper).toContain("handler(request, webhook, { agentIdentity: agentIdentities[agent], state: () => chatStateFromLibsql(), waitUntil })")
+      expect(wrapper).toContain("handler(request, webhook, { agentIdentity: agentIdentities[agent], state: viteHubChatStateResolver, waitUntil })")
       expect(wrapper).not.toContain("runtime: 'vite'")
       expect(wrapper).not.toContain("@vite-hub/schedule/runtime")
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith({
@@ -530,7 +531,7 @@ describe("agent Vite plugin", () => {
       })
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
-      expect(wrapper).toContain("handler(request, webhook, { agentIdentity: agentIdentities[agent], runtime: 'vite', state: () => chatStateFromLibsql(), waitUntil })")
+      expect(wrapper).toContain("handler(request, webhook, { agentIdentity: agentIdentities[agent], runtime: 'vite', state: viteHubChatStateResolver, waitUntil })")
       expect(wrapper).toContain("handler(request, { agentIdentity: agentIdentities[agent], runtime: 'vite', waitUntil })")
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith(expect.objectContaining({
         netlify: expect.objectContaining({
@@ -1182,7 +1183,7 @@ describe("agent Vite plugin", () => {
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
       expect(webhookRoute).toContain("import { createLibsqlAgentState } from \"@vite-hub/agent/state/sqlite\"")
-      expect(webhookRoute).toContain("const viteHubChatStateOptions = {\"url\":\"file:.data/vitehub-agent-state.sqlite\"}")
+      expect(webhookRoute).toContain(`const viteHubChatStateOptions = {"url":${JSON.stringify(pathToFileURL(join(root, ".data/vitehub-agent-state.sqlite")).href)}}`)
       expect(webhookRoute).toContain("const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined")
       expect(webhookRoute).not.toContain("Agent state requires a durable VITEHUB_AGENT_STATE_URL")
     }
@@ -1209,7 +1210,7 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("const viteHubChatStateOptions = {}")
       expect(webhookRoute).toContain("Agent state requires a durable VITEHUB_AGENT_STATE_URL for this deployment")
       expect(webhookRoute).toContain("Agent state cannot use a file: URL on vercel because its filesystem is ephemeral")
-      expect(webhookRoute).toContain("state: () => chatStateFromLibsql()")
+      expect(webhookRoute).toContain("state: viteHubChatStateResolver")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -1289,13 +1290,13 @@ describe("agent Vite plugin", () => {
         expect(webhookRoute).not.toContain("build-token-with-hyphen-env")
         expect(webhookRoute).toContain("let viteHubChatState")
         expect(webhookRoute).toContain("viteHubChatState = createLibsqlAgentState({")
-        expect(webhookRoute).toContain("chatStateFromLibsql.ownsScope = false")
+        expect(webhookRoute).toContain("viteHubChatStateResolver.ownsScope = false")
         expect(webhookRoute).toContain("process.env[\"TURSO-AUTH-TOKEN\"]")
         expect(webhookRoute).not.toContain("process.env.TURSO-AUTH-TOKEN")
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN")
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_URL")
         expect(webhookRoute).toContain("function chatStateFromLibsql()")
-        expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: () => chatStateFromLibsql(), waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, waitUntil: waitUntilFromEvent(event) })")
+        expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, waitUntil: waitUntilFromEvent(event) })")
       }
       finally {
         await rm(root, { force: true, recursive: true })
@@ -1317,7 +1318,7 @@ describe("agent Vite plugin", () => {
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
       expect(webhookRoute).not.toContain("runtime: 'vite'")
-      expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: () => chatStateFromLibsql(), waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, waitUntil: waitUntilFromEvent(event) })")
+      expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, waitUntil: waitUntilFromEvent(event) })")
     }
     finally {
       await rm(root, { force: true, recursive: true })
