@@ -1,14 +1,13 @@
 import {
   createCloudflareRuntimeEvent,
   runWithActiveCloudflareEnv,
-  setActiveCloudflareEnv,
   type CloudflareWorkerEnv,
   type CloudflareWorkerExecutionContext,
 } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import type { CloudflareQueueMessageBatch } from "../types.ts"
 
-export { createCloudflareRuntimeEvent, runWithActiveCloudflareEnv, setActiveCloudflareEnv }
+export { createCloudflareRuntimeEvent, runWithActiveCloudflareEnv }
 export type { CloudflareWorkerEnv, CloudflareWorkerExecutionContext }
 
 export function createQueueJob(message: CloudflareQueueMessageBatch["messages"][number], batch: CloudflareQueueMessageBatch): {
