@@ -207,6 +207,12 @@ describe("cloudflare queue runtime", () => {
     }, {}, { waitUntil: vi.fn() })
 
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ payload: { id: 1 } }))
+    await expect(worker.queue({
+      ackAll: vi.fn(),
+      messages: [],
+      queue: "queue--77656c636f6d65",
+      retryAll: vi.fn(),
+    }, {}, { waitUntil: vi.fn() })).rejects.toThrow("is not mapped to a Queue Definition")
   })
 
   it("rejects unknown physical and logical Cloudflare queue mappings", async () => {

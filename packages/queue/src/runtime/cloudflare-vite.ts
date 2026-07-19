@@ -52,7 +52,11 @@ export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOption
 
       const runtimeEvent = createCloudflareRuntimeEvent(env, context)
       await runWithActiveCloudflareEnv(env, async () => {
-        const definitionName = definitions ? definitions[batch.queue] : getCloudflareQueueDefinitionName(batch.queue, queueConfig.namePrefix)
+        const definitionName = definitions
+          ? definitions[batch.queue]
+          : queueConfig.namePrefix && !batch.queue.startsWith(queueConfig.namePrefix)
+            ? undefined
+            : getCloudflareQueueDefinitionName(batch.queue, queueConfig.namePrefix)
         if (!definitionName) {
           throw new Error(`[vitehub] Cloudflare queue ${JSON.stringify(batch.queue)} is not mapped to a Queue Definition.`)
         }
