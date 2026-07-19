@@ -74,6 +74,7 @@ describe("vitehub", () => {
       "vite-hub/dependencies",
       "@vite-hub/markdown-template/vite",
       "@vite-hub/env/vite",
+      "@vite-hub/sandbox/vite",
       "@vite-hub/agent/vite",
       "@vite-hub/database/vite",
       "@vite-hub/blob/vite",
@@ -100,6 +101,7 @@ describe("vitehub", () => {
       "@vite-hub/workspace/vite",
       "@vite-hub/devtools",
     ])
+    expect(pluginNames(vitehub({ sandbox: false }))).not.toContain("@vite-hub/sandbox/vite")
 
     vitehub({ schedule: true })
 

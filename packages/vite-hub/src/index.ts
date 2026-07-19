@@ -193,9 +193,9 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
       importBase: "vite-hub/auth",
     } as unknown as AuthModuleOptions))
   }
-  if (options.sandbox) {
+  if (options.sandbox !== false) {
     plugins.push(hubSandbox({
-      ...(options.sandbox === true ? {} : options.sandbox),
+      ...(options.sandbox === true || options.sandbox === undefined ? {} : options.sandbox),
       providerImportAliases,
       providerImportSpecifier: "vite-hub/sandbox",
     } as unknown as SandboxPublicOptions))

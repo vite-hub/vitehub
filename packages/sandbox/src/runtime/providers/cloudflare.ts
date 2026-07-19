@@ -39,7 +39,7 @@ export async function resolveSandboxProvider(options: SandboxOptions, context: {
     namespace,
     sandboxId: options.provider.sandboxId,
     cloudflare: {
-      sleepAfter: options.provider.sleepAfter,
+      sleepAfter: options.provider.sleepAfter ?? '5m',
       keepAlive: options.provider.keepAlive,
       normalizeId: options.provider.normalizeId,
     },

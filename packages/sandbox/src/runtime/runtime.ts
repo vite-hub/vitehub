@@ -97,7 +97,7 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
 
     return {
       name: context.name,
-      async run(payload, options = {}) {
+      async run<TPayload = unknown, TResult = unknown>(payload?: TPayload, options: SandboxExecutionOptions = {}): Promise<TResult> {
         const cloudflareSandboxId = provider.provider === 'cloudflare'
           ? createCloudflareExecutionSandboxId(context.name, options.sandboxId || provider.sandboxId)
           : undefined
@@ -107,6 +107,7 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
 
         for (let attempt = 0; attempt < attempts; attempt++) {
           let sandbox: SandboxClient | undefined
+          let succeeded = false
 
           try {
             const createdSandbox = await runtimeProvider.createSandboxClient(
@@ -118,7 +119,7 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
                 : provider as SandboxProviderOptions,
             )
             sandbox = createdSandbox
-            return await executeSandboxDefinition(
+            const result = await executeSandboxDefinition<TPayload, TResult>(
               createdSandbox,
               context.name,
               context.definition.options,
@@ -126,6 +127,8 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
               payload,
               options.context,
             )
+            succeeded = true
+            return result
           }
           catch (error) {
             const sandboxError = toSandboxError(error)
@@ -139,7 +142,8 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
             await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt])
           }
           finally {
-            await sandbox?.stop().catch(() => {})
+            if (provider.provider !== 'cloudflare' || !succeeded)
+              await sandbox?.stop().catch(() => {})
           }
         }
 
