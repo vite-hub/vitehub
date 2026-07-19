@@ -18,7 +18,7 @@ Provider Selection belongs in Integration Options when it changes generated outp
 `vitehub()`. Direct `hubX()` integration functions remain available from their
 independent `@vite-hub/*/vite` owner-package paths.
 
-Blob, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, and Workflow are opt-in with `true` for inferred defaults or with their integration options. Auth follows the same opt-in shape but currently has no plugin option bag.
+Blob, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, and Workflow are opt-in with `true` for inferred defaults or with their integration options. Put preset opt-ins inside `vitehub(options)`; top-level Vite config keys configure a separately composed owner-package `hubX()` integration. Auth follows the same opt-in shape but currently has no plugin option bag.
 
 ## Vite Integration options
 
