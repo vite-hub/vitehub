@@ -76,8 +76,11 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
 
 describe("executeSandboxDefinition", () => {
   it("bounds Cloudflare setup with the definition timeout", async () => {
-    const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
-    sandbox.mkdir = async () => await new Promise(() => {})
+    const { sandbox, execCalls } = createFakeSandbox({ provider: "cloudflare" })
+    let finishSetup: (() => void) | undefined
+    sandbox.mkdir = async () => await new Promise<void>((resolve) => {
+      finishSetup = resolve
+    })
 
     await expect(executeSandboxDefinition(
       sandbox,
@@ -93,6 +96,10 @@ describe("executeSandboxDefinition", () => {
       code: "TIMEOUT",
       provider: "cloudflare",
     } satisfies Partial<SandboxError>)
+
+    finishSetup?.()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(execCalls.some(call => call.cmd === "node")).toBe(false)
   })
 
   it("imports the generated entry once with the default Node launcher", async () => {

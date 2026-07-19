@@ -93,20 +93,28 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
   source: SandboxDefinitionSource,
   payload?: TPayload,
   context?: Record<string, unknown>,
+  signal?: AbortSignal,
 ) {
   const bundle = normalizeSandboxDefinitionBundle(source)
 
   const files = createExecutionFiles(definitionName)
   const definitionPath = resolveSandboxModulePath(files.baseDir, bundle.entry)
   const inputJson = toJson({ payload, context }, 'payload/context')
+  const throwIfAborted = () => {
+    if (signal?.aborted)
+      throw createTimeoutError(sandbox.provider, definitionOptions?.timeout || 0)
+  }
 
   await sandbox.mkdir(files.baseDir, { recursive: true })
   try {
+    throwIfAborted()
     await writeSandboxDefinitionBundle(sandbox, files.baseDir, bundle)
+    throwIfAborted()
     await Promise.all([
       sandbox.writeFile(files.entryPath, createEntrySource(definitionPath)),
       sandbox.writeFile(files.inputPath, inputJson),
     ])
+    throwIfAborted()
 
     const launcher = resolveLauncher(sandbox.provider, definitionOptions?.runtime)
     const execArgs = [...launcher.args, files.entryPath, files.inputPath, files.outputPath]
@@ -183,6 +191,7 @@ export async function executeSandboxDefinition<TPayload, TResult>(
   }
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined
+  const abortController = new AbortController()
 
   try {
     return await Promise.race([
@@ -193,9 +202,13 @@ export async function executeSandboxDefinition<TPayload, TResult>(
         source,
         payload,
         context,
+        abortController.signal,
       ),
       new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => reject(createTimeoutError(sandbox.provider, timeout)), timeout)
+        timeoutId = setTimeout(() => {
+          abortController.abort()
+          reject(createTimeoutError(sandbox.provider, timeout))
+        }, timeout)
       }),
     ]) as TResult
   }
