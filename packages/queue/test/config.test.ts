@@ -11,9 +11,11 @@ describe("normalizeQueueOptions", () => {
   it("keeps explicit provider settings", () => {
     expect(normalizeQueueOptions({
       binding: "QUEUE_WELCOME",
+      namePrefix: "preview-",
       provider: "cloudflare",
     }, { hosting: "vercel" })).toEqual({
       binding: "QUEUE_WELCOME",
+      namePrefix: "preview-",
       provider: "cloudflare",
     })
   })
