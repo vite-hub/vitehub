@@ -92,7 +92,6 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   let rawConfig: Record<string, unknown> = {}
   let rawEnv: ConfigEnv = { command: 'serve', mode: 'development' }
   let resolvedConfig: ResolvedConfig | undefined
-  let composedCloudflareSandbox = false
 
   async function prepareCurrentSandboxRuntime(writeArtifacts = true) {
     const prepared = await prepareSandboxRuntime({
@@ -149,7 +148,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       generatedAliases = prepared.aliases
       generatedFiles = prepared.files
       definitions = prepared.definitions
-      composedCloudflareSandbox = await composeCloudflareSandbox(config, prepared)
+      await composeCloudflareSandbox(config, prepared)
       return {
         resolve: {
           alias: toSandboxAliasEntries({
@@ -174,8 +173,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     async configResolved(config) {
       resolvedConfig = config
       const prepared = await refreshSandboxRuntime()
-      if (!composedCloudflareSandbox)
-        composedCloudflareSandbox = await composeCloudflareSandbox(config, prepared)
+      await composeCloudflareSandbox(config, prepared)
     },
     async handleHotUpdate(context) {
       if (!isSandboxDefinitionUpdate(context.file, definitions, generatedFiles, resolvedConfig?.root))

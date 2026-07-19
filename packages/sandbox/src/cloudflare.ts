@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
-import { join, relative, resolve } from 'pathe'
+import { dirname, join, relative, resolve } from 'pathe'
 import type { Plugin } from 'rollup'
 import type {
   MutableCloudflareTarget,
@@ -42,6 +42,8 @@ export type CloudflareSandboxEntrypointOptions = {
 }
 
 function resolveCloudflareSandboxEntrypointOptions(options: CloudflareSandboxEntrypointOptions = {}) {
+  if (options.className === 'ContainerProxy')
+    throw new Error('[vitehub] Cloudflare Sandbox className "ContainerProxy" is reserved by @cloudflare/sandbox. Configure a different className.')
   return {
     binding: options.binding || defaultCloudflareSandboxBinding,
     className: options.className || defaultCloudflareSandboxClassName,
@@ -147,6 +149,8 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
     renderChunk(code, chunk) {
       if (!chunk.isEntry)
         return null
+      if (/\bexport\s*\*\s*from\b/.test(code))
+        return null
       const exportLists = [...code.matchAll(/\bexport\s*\{([^}]*)\}/g)]
       const hasNamedExport = (name: string) => {
         const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -159,9 +163,11 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
       const missingExports = [className, 'ContainerProxy'].filter(name => !hasNamedExport(name))
       if (!missingExports.length)
         return null
+      const exportsPath = relative(dirname(chunk.fileName), 'sandbox-cloudflare-exports.mjs').replace(/\\/g, '/')
+      const importPath = exportsPath.startsWith('.') ? exportsPath : `./${exportsPath}`
 
       return {
-        code: `${code}\nexport { ${missingExports.join(', ')} } from './sandbox-cloudflare-exports.mjs'\n`,
+        code: `${code}\nexport { ${missingExports.join(', ')} } from ${JSON.stringify(importPath)}\n`,
         map: null,
       }
     },
@@ -204,11 +210,12 @@ export async function configureCloudflareSandboxNitro(
   const resolvedOptions = resolveCloudflareSandboxEntrypointOptions(options)
   const existingContainer = target.cloudflare?.wrangler?.containers
     ?.find(entry => entry.class_name === resolvedOptions.className)
+  const existingImage = existingContainer?.image?.replace(/\\/g, '/')
 
   configureCloudflareSandbox(target, resolvedOptions)
   const container = target.cloudflare!.wrangler!.containers!
     .find(entry => entry.class_name === resolvedOptions.className)!
-  if (typeof existingContainer?.image !== 'string') {
+  if (typeof existingImage !== 'string' || existingImage.endsWith('/.vitehub/sandbox/Dockerfile')) {
     const dockerfile = await writeCloudflareSandboxDockerfile(resolve(rootDir, '.vitehub/sandbox'))
     container.image = relativeWranglerPath(serverDir, dockerfile)
     container.image_build_context = relativeWranglerPath(serverDir, rootDir)
