@@ -18,13 +18,21 @@ type SandboxEvent = {
 
 const allowedDefinitionKeys = new Set(['timeout', 'env', 'runtime'])
 
+function hashCloudflareSandboxName(name: string) {
+  let hash = 2166136261
+  for (let index = 0; index < name.length; index++)
+    hash = Math.imul(hash ^ name.charCodeAt(index), 16777619)
+  return (hash >>> 0).toString(36)
+}
+
 export function createCloudflareExecutionSandboxId(name: string, sandboxId?: string) {
   if (sandboxId)
     return sandboxId
 
-  const hash = globalThis.crypto.randomUUID().replace(/-/g, '').slice(0, 24)
-
-  return `vitehub-${name.replace(/[^a-z0-9-]/gi, '-').toLowerCase()}-${hash}`
+  const prefix = 'vitehub-'
+  const suffix = `-${hashCloudflareSandboxName(name)}-definition`
+  const slug = encodeURIComponent(name).slice(0, 256 - prefix.length - suffix.length)
+  return `${prefix}${slug}${suffix}`
 }
 
 export function resolveRuntimeProvider(provider?: SandboxDefinitionProviderOptions, event?: SandboxEvent) {

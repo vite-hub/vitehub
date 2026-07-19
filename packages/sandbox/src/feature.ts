@@ -197,7 +197,9 @@ export async function createSandboxFeaturePlan(
   deferUnresolvedHostingValidation = false,
 ): Promise<FeatureRuntimePlan> {
   const configuredProviderName = getSandboxFeatureProvider(sandboxConfig)?.provider
-  const resolvedConfig = resolveSandboxFeatureConfig(sandboxConfig, hosting)
+  const resolvedConfig = definitions.length > 0
+    ? resolveSandboxFeatureConfig(sandboxConfig, hosting)
+    : { ...sandboxConfig }
   const manifest = createSandboxManifest(paths.aliasPath, createSandboxTypeTemplateContents(definitions))
   const {
     bundleAlias,

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
-import type { AliasOptions } from "vite"
+import { build, type AliasOptions } from "vite"
 
 const tempDirs: string[] = []
 
@@ -94,7 +94,7 @@ describe("hubSandbox", () => {
 
     expect(readAlias(alias, "@vite-hub/sandbox")).toBeUndefined()
     expect(sandboxAlias).toContain(".vitehub/sandbox/runtime/sandbox.mjs")
-    expect(providerImportAliases["@vite-hub/sandbox"]).toBe(sandboxAlias)
+    expect(providerImportAliases["@vite-hub/sandbox"]).toBeUndefined()
     expect(providerImportAliases["vite-hub/sandbox"]).toBe(sandboxAlias)
 
     await configHook({ root: rootDir, sandbox: false }, { command: "serve", mode: "development" })
@@ -114,6 +114,8 @@ describe("hubSandbox", () => {
     expect(facade).toContain("setSandboxRuntimeConfig")
     expect(facade).toContain("setSandboxRuntimeRegistry(sandboxRegistry)")
     expect(facade).toContain("export * from")
+    expect(facade).not.toContain("providerImportAliases")
+    expect(facade).not.toContain("@vite-hub/kv/runtime/upstash-driver")
     expect(registry).toContain('"tools/release-notes"')
     expect(providerLoader).toContain("createVercelSandboxClient")
     expect(providerLoader).not.toContain("import('./providers/vercel.js')")
@@ -139,6 +141,31 @@ describe("hubSandbox", () => {
     const code = await load(resolvedId as string)
 
     expect(code).toContain('"provider": "vercel"')
+  })
+
+  it("does not discover conflicting Definitions when Sandbox is disabled", async () => {
+    const rootDir = await createViteRoot()
+    await mkdir(join(rootDir, "server/sandboxes/tools"), { recursive: true })
+    await writeFile(join(rootDir, "server/sandboxes/tools/release-notes.ts"), [
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
+      `export default defineSandbox(async () => ({ ok: true }))`,
+      ``,
+    ].join("\n"))
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox(false)
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+
+    await expect(configHook({ root: rootDir }, { command: "build", mode: "production" })).resolves.toBeDefined()
+  })
+
+  it("keeps default Sandbox inert when the Vite root has no package manifest", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-sandbox-vite-"))
+    tempDirs.push(rootDir)
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox()
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+
+    await expect(configHook({ root: rootDir }, { command: "build", mode: "production" })).resolves.toBeDefined()
   })
 
   it("exposes hosting inference and normalized runtime config through sandbox state", async () => {
@@ -240,24 +267,80 @@ describe("hubSandbox", () => {
     expect(definition).not.toContain("from process slash alias")
   })
 
-  it("infers Cloudflare from a late-resolved Nitro preset", async () => {
+  it("builds a configuration-free Definition for a Cloudflare Nitro host", async () => {
     const rootDir = await createViteRoot()
+    await rm(join(rootDir, "src/tools/release-notes.sandbox.ts"))
+    await mkdir(join(rootDir, "server/sandboxes"), { recursive: true })
+    await writeFile(join(rootDir, "src/server.ts"), `export const ready = true\n`)
+    await writeFile(join(rootDir, "server/sandboxes/example.ts"), [
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
+      ``,
+      `export default defineSandbox(async () => ({ ok: true }))`,
+      ``,
+    ].join("\n"))
+    const { hubSandbox } = await import("../src/vite.ts")
+    let resolvedNitro: any
+
+    await build({
+      appType: "custom",
+      build: {
+        rollupOptions: { input: join(rootDir, "src/server.ts") },
+        write: false,
+      },
+      nitro: { preset: "cloudflare-module" },
+      plugins: [
+        hubSandbox(),
+        {
+          name: "nitro:main",
+          configResolved(config: { nitro?: unknown }) {
+            resolvedNitro = config.nitro
+          },
+        },
+      ],
+      root: rootDir,
+    } as never)
+
+    expect(resolvedNitro.cloudflare.wrangler.containers).toMatchObject([{ class_name: "Sandbox" }])
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-registry.mjs"), "utf8")).resolves.toContain('"example"')
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-provider-loader.mjs"), "utf8")).resolves.toContain("createCloudflareSandboxClient")
+  })
+
+  it("keeps Cloudflare output inert without Sandbox definitions", async () => {
+    const rootDir = await createViteRoot()
+    await rm(join(rootDir, "src/tools/release-notes.sandbox.ts"))
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox()
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
-    const userConfig = { root: rootDir }
-
-    await configHook(userConfig, { command: "build", mode: "production" })
-    const resolvedConfig = {
-      ...userConfig,
+    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
+    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const userConfig = {
+      root: rootDir,
       nitro: { preset: "cloudflare-module" },
       plugins: [{ name: "nitro:main" }],
-      resolve: { alias: [] },
     }
-    await configResolved(resolvedConfig)
 
-    expect((resolvedConfig.nitro as any).cloudflare.wrangler.containers).toMatchObject([{ class_name: "Sandbox" }])
+    await configHook(userConfig, { command: "build", mode: "production" })
+    await configResolved({ ...userConfig, resolve: { alias: [] } })
+
+    expect(userConfig.nitro).toEqual({ preset: "cloudflare-module" })
+    const stateId = await resolveId("#vitehub/sandbox")
+    expect(await load(stateId as string)).toContain('"sandbox": false')
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("keeps unsupported hosting inert without Sandbox definitions", async () => {
+    const rootDir = await createViteRoot()
+    await rm(join(rootDir, "src/tools/release-notes.sandbox.ts"))
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox()
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+
+    await expect(configHook({
+      root: rootDir,
+      nitro: { preset: "netlify" },
+    }, { command: "build", mode: "production" })).resolves.toBeDefined()
   })
 
   it("infers Cloudflare from the Nitro preset environment", async () => {
@@ -952,7 +1035,7 @@ describe("hubSandbox", () => {
     }, {})).rejects.toThrow("generate the same artifact path")
   })
 
-  it("passes explicit Cloudflare sandbox container names to Cloudflare targets", async () => {
+  it("emits explicit Cloudflare targets without definitions", async () => {
     const { createSandboxFeaturePlan } = await import("../src/feature.ts")
     const plan = await createSandboxFeaturePlan({ provider: "cloudflare", name: "custom-sandbox" }, [], {
       aliasPath: "/tmp/vitehub-sandbox/index.js",

@@ -84,6 +84,9 @@ function invalidateGeneratedSandboxModules(files: string[], moduleGraph: { getMo
 
 export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   const internalOptions = options as SandboxPublicOptions & SandboxViteInternalOptions | undefined
+  const integrationOptions = options && typeof options === 'object'
+    ? Object.fromEntries(Object.entries(options).filter(([key]) => key !== 'providerImportAliases' && key !== 'providerImportSpecifier')) as SandboxPublicOptions
+    : options
   const mergeNoExternal = createNoExternalMerger('@vite-hub/sandbox')
   let generatedAliases: AliasMap = {}
   let generatedFiles: string[] = []
@@ -109,7 +112,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
 
   async function prepareCurrentSandboxRuntime(writeArtifacts = true) {
     const prepared = await prepareSandboxRuntime({
-      integrationOptions: options,
+      integrationOptions,
       userConfig: rawConfig,
       env: rawEnv,
       resolvedConfig,
@@ -126,12 +129,11 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     definitions = prepared.definitions
     if (internalOptions?.providerImportAliases && internalOptions.providerImportSpecifier) {
       const facade = generatedAliases[SANDBOX_PACKAGE_ID]
+      delete internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID]
       if (facade) {
-        internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID] = facade
         internalOptions.providerImportAliases[internalOptions.providerImportSpecifier] = facade
       }
       else {
-        delete internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID]
         delete internalOptions.providerImportAliases[internalOptions.providerImportSpecifier]
       }
     }

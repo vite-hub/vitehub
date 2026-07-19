@@ -79,7 +79,7 @@ function frameworkWorkspaceDependencyRuntimeImports(sandbox: boolean) {
   return {
     ...(sandbox
       ? {
-          sandbox: "@vite-hub/sandbox",
+          sandbox: "vite-hub/sandbox",
           sandboxRuntimeState: `${generatedImportBase}/sandbox/runtime/state`,
         }
       : {}),
@@ -176,7 +176,7 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
   const plugins: unknown[] = []
   const providerImportAliases: Record<string, string> = {}
   configureProviderOptionalImportAliases(providerImportAliases, options)
-  const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(Boolean(options.sandbox))
+  const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(options.sandbox !== false)
 
   plugins.push(frameworkDependencyResolver(options, providerImportAliases))
   plugins.push(hubMarkdownTemplate({ runtimeImport: `${generatedImportBase}/markdown-template` }))
@@ -199,9 +199,9 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
       importBase: "vite-hub/auth",
     } as unknown as AuthModuleOptions))
   }
-  if (options.sandbox) {
+  if (options.sandbox !== false) {
     plugins.push(hubSandbox({
-      ...(options.sandbox === true ? {} : options.sandbox),
+      ...(options.sandbox === true || options.sandbox === undefined ? {} : options.sandbox),
       providerImportAliases,
       providerImportSpecifier: "vite-hub/sandbox",
     } as unknown as SandboxPublicOptions))

@@ -99,19 +99,23 @@ The Vite config key is `sandbox`.
 | `sandbox: false` | `false` | enabled | Disables Sandbox discovery and provider runtime output. |
 | `provider` | `SandboxProvider` | inferred from hosting | Selects `cloudflare` or `vercel`. Omit it only when hosting inference is enough. |
 | `name` | `string` | package default | Shared provider resource name hint. |
-| Cloudflare provider options | `CloudflareSandboxDefinitionProviderOptions` | provider defaults | `binding`, `className`, `migrationTag`, `sandboxId`, `sleepAfter`, `keepAlive`, and `normalizeId`. |
+| Cloudflare provider options | `CloudflareSandboxDefinitionProviderOptions` | `sandboxId`: safely prefixed, bounded, URL-encoded and hashed Definition name; `sleepAfter`: `5m` | `binding`, `className`, `migrationTag`, `sandboxId`, `sleepAfter`, `keepAlive`, and `normalizeId`. |
 | Vercel provider options | `VercelSandboxProviderOptions` | provider defaults | `runtime`, `timeout`, `cpu`, `ports`, `source`, `networkPolicy`, `token`, `teamId`, and `projectId`. |
 
 Provider inference supports Cloudflare and Vercel hosting. Netlify cannot infer a Sandbox Provider; set `sandbox.provider` explicitly when a build target needs sandbox output.
+
+Hosting inference is activated by discovered Sandbox Definitions. Definition-free consumers such as a Workspace using `runtime: 'sandbox'` must configure `sandbox.provider` explicitly so ViteHub knows to provision provider output.
 
 ## Providers
 
 | Provider | Configure with | Provider output | Nuance |
 | --- | --- | --- | --- |
-| Cloudflare | `sandbox: { provider: 'cloudflare' }` | Durable Object binding, migration, and runtime provider loader output. | Uses request environment bindings. `binding` defaults to `SANDBOX`; `sandboxId` can pin a reusable execution sandbox. |
+| Cloudflare | Inferred from hosting or `sandbox: { provider: 'cloudflare' }` | Durable Object binding, migration, and runtime provider loader output. | Uses request environment bindings. `binding` defaults to `SANDBOX`; a safely prefixed, bounded, URL-encoded and hashed Definition name defaults `sandboxId`; `sleepAfter` defaults to `5m`. |
 | Vercel | `sandbox: { provider: 'vercel' }` | Vercel Sandbox runtime provider output. | Requires `@vercel/sandbox` at runtime. Supported runtimes are currently `node22` and `node24`. |
 
 Cloudflare and Vercel expose different lifecycle, credential, network, and file behavior. Keep provider credentials in Server Env or provider configuration, not in Sandbox Payloads.
+
+Cloudflare runs remain available until their idle timeout so later runs of the same Definition can reuse them. Each invocation removes its isolated temporary files on success or failure. When `keepAlive: true` disables Cloudflare idle shutdown, ViteHub stops the sandbox after every run instead. Vercel runs are stopped immediately.
 
 ## Define sandbox work
 

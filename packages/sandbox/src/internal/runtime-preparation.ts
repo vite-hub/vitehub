@@ -78,6 +78,7 @@ async function resolveSandboxViteContext(
   integrationOptions: SandboxPublicOptions | undefined,
   userConfig: Record<string, unknown>,
   env: ConfigEnv,
+  hasDefinitions: boolean,
 ): Promise<SandboxViteContext> {
   const configOptions = userConfig.sandbox as SandboxPublicOptions | undefined
   const options = normalizeSandboxOptions(
@@ -90,14 +91,22 @@ async function resolveSandboxViteContext(
       ? nitro.preset
       : process.env.NITRO_PRESET || process.env.SERVER_PRESET
   const hosting = detectHosting({ options: { preset } }) || undefined
-  const config = options === false ? false : resolveSandboxFeatureConfig(options, hosting)
+  const config = options === false
+    ? false
+    : hasDefinitions
+      ? resolveSandboxFeatureConfig(options, hosting)
+      : { ...options }
+  const runtimeSandboxConfig = config !== false
+    && (hasDefinitions || getSandboxFeatureProvider(config)?.provider)
+    ? config
+    : false
   const rootDir = resolve(process.cwd(), typeof userConfig.root === 'string' ? userConfig.root : '.')
 
   return {
     rootDir,
     config,
-    deps: await readSandboxWorkspaceDeps(rootDir),
-    runtimeConfig: createSandboxRuntimeConfig(config, hosting),
+    deps: hasDefinitions ? await readSandboxWorkspaceDeps(rootDir) : {},
+    runtimeConfig: createSandboxRuntimeConfig(runtimeSandboxConfig, hosting),
     hosting,
     command: env.command,
     mode: env.mode,
@@ -227,12 +236,17 @@ export async function prepareSandboxRuntime(options: {
   writeArtifacts?: boolean
 }) {
   const rootDir = options.resolvedConfig?.root || resolve(process.cwd(), typeof options.userConfig.root === 'string' ? options.userConfig.root : '.')
+  const configOptions = options.userConfig.sandbox as SandboxPublicOptions | undefined
+  const disabled = typeof configOptions === 'undefined'
+    ? options.integrationOptions === false
+    : configOptions === false
+  const definitions = disabled ? [] : discoverSandboxDefinitions({ rootDir })
   const resolvedNitro = (options.resolvedConfig as { nitro?: unknown } | undefined)?.nitro
   const context = await resolveSandboxViteContext(options.integrationOptions, {
     ...options.userConfig,
     ...(isPlainObject(resolvedNitro) ? { nitro: resolvedNitro } : {}),
     root: rootDir,
-  }, options.env)
+  }, options.env, definitions.length > 0)
   const stateModule = createSandboxStateModuleContents(context)
   if (!context.config) {
     return {
@@ -245,7 +259,6 @@ export async function prepareSandboxRuntime(options: {
   }
 
   const facadeFile = resolve(ensureGeneratedDir(rootDir, 'sandbox'), 'runtime/sandbox.mjs')
-  const definitions = discoverSandboxDefinitions({ rootDir })
   const plan = await createSandboxFeaturePlan(
     context.config,
     definitions,
