@@ -478,6 +478,21 @@ describe("local harness sandbox", () => {
     }
   })
 
+  it("rejects child process spawn errors", async () => {
+    const session = await createLocalHarnessSandbox().createSession()
+
+    try {
+      await expect(session.run({
+        command: "node -e \"\"",
+        workingDirectory: "missing",
+      })).rejects.toMatchObject({ code: "ENOENT" })
+      expect(localProcesses(session).size).toBe(0)
+    }
+    finally {
+      await session.destroy?.()
+    }
+  })
+
   it("settles after a command exits by signal", async () => {
     const provider = createLocalHarnessSandbox({ env: { PATH: process.env.PATH } })
     const session = await provider.createSession()

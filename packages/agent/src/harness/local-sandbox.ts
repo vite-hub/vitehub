@@ -121,10 +121,16 @@ class LocalProcessOwner {
   #termination?: Promise<void>
 
   constructor(readonly child: ChildProcessWithoutNullStreams) {
-    this.closed = new Promise(resolve => child.once("close", () => {
-      this.#didClose = true
-      resolve()
-    }))
+    this.closed = new Promise((resolve, reject) => {
+      child.once("error", (error) => {
+        this.#didClose = true
+        reject(error)
+      })
+      child.once("close", () => {
+        this.#didClose = true
+        resolve()
+      })
+    })
   }
 
   async #signal(signal: NodeJS.Signals) {
