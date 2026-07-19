@@ -225,6 +225,15 @@ describe("source scanner", () => {
     expect(call?.argument).toBe(`{ value: "real" }`)
   })
 
+  it("finds default exports after division from keyword-named members", () => {
+    const call = findDefaultExportCall([
+      `const value = metrics.return / total`,
+      `export default defineThing({ value: "real" })`,
+    ].join("\n"), ["defineThing"])
+
+    expect(call?.argument).toBe(`{ value: "real" }`)
+  })
+
   it("finds default-exported object literals with TypeScript assertions", () => {
     for (const suffix of ["as const", "satisfies ThingOptions"]) {
       const call = findDefaultExportCall(

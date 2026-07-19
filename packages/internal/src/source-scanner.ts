@@ -185,7 +185,9 @@ function skipRegexLiteral(source: string, index: number) {
 
 function trackSignificant(previousSignificant: string, char: string | undefined) {
   if (/[a-z$]/i.test(char ?? "")) {
-    return /[\w$]$/.test(previousSignificant) ? previousSignificant + char : char ?? ""
+    return /[\w$]$/.test(previousSignificant) || previousSignificant === "."
+      ? previousSignificant + char
+      : char ?? ""
   }
   if (/\s/.test(char ?? "")) {
     return /[\w$]$/.test(previousSignificant) ? `${previousSignificant} ` : previousSignificant
