@@ -173,7 +173,7 @@ box: {
 
 Crabbox creates the private Home on the target and sends resolved material through its protected stdin channel. Its `stateRoot` is an absolute target-host path and remains outside Workspace synchronization. The runtime creates private children without changing permissions on an existing caller-owned root. An authoritative `cwd` is synchronized back; a disposable `checkout` remains target-local and is deleted with the Box session.
 
-Crabbox requires either `cwd` or `checkout` and targets Linux/POSIX Static SSH hosts. File reads and writes use Crabbox's resolved SSH copy transport, and port URLs use loopback-only Crabbox tunnels by default. Set `network: 'direct'` only when the target shares the ViteHub process loopback namespace.
+Crabbox requires either `cwd` or `checkout` and targets Linux/POSIX Static SSH hosts. File reads and writes use Crabbox's resolved SSH copy transport. Port URLs wait for and reuse one loopback-only Crabbox tunnel per port by default, and session teardown stops those tunnels. Set `network: 'direct'` only when the target shares the ViteHub process loopback namespace.
 
 Commands must remain owned by their Box session. Daemonizing or escaping the session's process supervision is outside the v1 concurrency guarantee.
 
