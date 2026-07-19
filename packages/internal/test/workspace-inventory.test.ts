@@ -26,7 +26,6 @@ describe("workspace inventory", () => {
       "schedule",
       "shell",
       "source",
-      "vite",
       "vite-hub",
       "workflow",
       "workspace",
