@@ -1,6 +1,12 @@
-import { isRuntimeScheduleDue } from "./due.ts"
+import { Clock, Context, Duration, Effect, Layer, ManagedRuntime, Scheduler } from "effect"
 
-import type { RuntimeScheduleRecord } from "../types.ts"
+import {
+  makeProcessWakeRuntime,
+  ProcessWakeBoundaryError,
+  unwrapProcessWakeExit,
+} from "../internal/process-wake-runtime.ts"
+
+import type { ProcessWakeRuntime } from "../internal/process-wake-runtime.ts"
 import type { RuntimeScheduleWakeDriverFactory } from "./driver.ts"
 
 export interface ProcessScheduleWakeDriverOptions {
@@ -11,16 +17,6 @@ export interface ProcessScheduleWakeDriverOptions {
 
 const DEFAULT_INTERVAL_MS = 60_000
 const DEFAULT_CONCURRENCY = 1
-
-function floorUTCMinute(date: Date): Date {
-  return new Date(Date.UTC(
-    date.getUTCFullYear(),
-    date.getUTCMonth(),
-    date.getUTCDate(),
-    date.getUTCHours(),
-    date.getUTCMinutes(),
-  ))
-}
 
 function validateOptions(options: ProcessScheduleWakeDriverOptions): { concurrency: number, intervalMs: number } {
   const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS
@@ -34,124 +30,69 @@ function validateOptions(options: ProcessScheduleWakeDriverOptions): { concurren
   return { concurrency, intervalMs }
 }
 
+class ProcessWakeRuntimeService extends Context.Service<ProcessWakeRuntimeService, ProcessWakeRuntime>()("@vite-hub/schedule/ProcessWakeRuntime") {}
+
+function createProcessClock(): Clock.Clock {
+  const currentTimeMillisUnsafe = () => Date.now()
+  const currentTimeNanosUnsafe = () => BigInt(currentTimeMillisUnsafe()) * 1_000_000n
+  return {
+    currentTimeMillis: Effect.sync(currentTimeMillisUnsafe),
+    currentTimeMillisUnsafe,
+    currentTimeNanos: Effect.sync(currentTimeNanosUnsafe),
+    currentTimeNanosUnsafe,
+    sleep(duration) {
+      return Effect.callback((resume) => {
+        const timer = setTimeout(() => resume(Effect.void), Duration.toMillis(duration))
+        timer.unref?.()
+        return Effect.sync(() => clearTimeout(timer))
+      })
+    },
+  }
+}
+
+function createProcessScheduler(): Scheduler.Scheduler {
+  return new Scheduler.MixedScheduler("async", (run) => {
+    let canceled = false
+    queueMicrotask(() => {
+      if (!canceled) run()
+    })
+    return () => { canceled = true }
+  })
+}
+
 export function createProcessScheduleWakeDriver(options: ProcessScheduleWakeDriverOptions = {}): RuntimeScheduleWakeDriverFactory {
   return (context) => {
     const { concurrency, intervalMs } = validateOptions(options)
-    const now = options.now ?? (() => new Date())
-    let schedules: RuntimeScheduleRecord[] = []
-    let timer: ReturnType<typeof setInterval> | undefined
-    let closing = false
+    const ProcessWakeRuntimeLive = Layer.effect(
+      ProcessWakeRuntimeService,
+      makeProcessWakeRuntime({ concurrency, context, intervalMs, now: options.now }),
+    ).pipe(
+      Layer.provide(Layer.mergeAll(
+        Layer.succeed(Clock.Clock, createProcessClock()),
+        Layer.succeed(Scheduler.Scheduler, createProcessScheduler()),
+      )),
+    )
+    const runtime = ManagedRuntime.make(ProcessWakeRuntimeLive)
+    let closePromise: Promise<void> | undefined
     let closed = false
-    let occurrenceMinute: number | undefined
-    const dispatched = new Set<string>()
-    const queue: Array<{ scheduleId: string, scheduledAt: Date }> = []
-    const activeOccurrences = new Set<string>()
-    const activeWakes = new Set<Promise<void>>()
 
-    function occurrenceKey(input: { scheduleId: string, scheduledAt: Date }): string {
-      return `${input.scheduleId}:${input.scheduledAt.getTime()}`
-    }
-
-    function reportError(error: unknown): void {
-      try {
-        context.reportError(error)
-      }
-      catch {}
-    }
-
-    function pump(): void {
-      while (!closed && activeWakes.size < concurrency) {
-        const input = queue.shift()
-        if (!input) return
-        const key = occurrenceKey(input)
-        activeOccurrences.add(key)
-        let wakeResult: Promise<void>
-        try {
-          wakeResult = Promise.resolve(context.wake(input))
-        }
-        catch (error) {
-          wakeResult = Promise.reject(error)
-        }
-        let wakePromise: Promise<void>
-        wakePromise = wakeResult
-          .catch(reportError)
-          .finally(() => {
-            activeOccurrences.delete(key)
-            activeWakes.delete(wakePromise)
-            pump()
-          })
-        activeWakes.add(wakePromise)
-      }
-    }
-
-    function scan(): void {
-      if (closed) return
-      const scheduledAt = floorUTCMinute(now())
-      const minute = scheduledAt.getTime()
-      if (occurrenceMinute !== minute) {
-        occurrenceMinute = minute
-        dispatched.clear()
-      }
-
-      for (const schedule of schedules) {
-        if (!schedule.enabled || dispatched.has(schedule.id)) continue
-        let due = false
-        try {
-          due = isRuntimeScheduleDue(schedule, scheduledAt)
-        }
-        catch (error) {
-          reportError(error)
-          continue
-        }
-        if (!due) continue
-        dispatched.add(schedule.id)
-        queue.push({ scheduleId: schedule.id, scheduledAt })
-      }
-      pump()
+    function run<A>(effect: Effect.Effect<A, ProcessWakeBoundaryError, ProcessWakeRuntimeService>): Promise<A> {
+      return unwrapProcessWakeExit(runtime.runPromiseExit(effect))
     }
 
     return {
-      async close() {
-        closing = true
-        queue.length = 0
-        if (timer) {
-          clearInterval(timer)
-          timer = undefined
-        }
-        await Promise.allSettled(activeWakes)
-        closed = true
+      close() {
+        if (closePromise) return closePromise
+        closePromise = run(Effect.flatMap(ProcessWakeRuntimeService, service => service.close))
+          .then(() => {
+            closed = true
+            return runtime.dispose()
+          })
+        return closePromise
       },
-      async reconcile(records) {
-        if (closed) {
-          throw new Error("Process Schedule Wake Driver is closed.")
-        }
-        const scheduledAt = floorUTCMinute(now())
-        for (const record of records) {
-          if (!record.enabled) continue
-          isRuntimeScheduleDue(record, scheduledAt)
-        }
-        const nextSchedules = records.map(record => ({ ...record }))
-        const schedulesById = new Map(nextSchedules.map(schedule => [schedule.id, schedule]))
-        for (let index = queue.length - 1; index >= 0; index -= 1) {
-          const input = queue[index]!
-          const schedule = schedulesById.get(input.scheduleId)
-          if (schedule?.enabled && isRuntimeScheduleDue(schedule, input.scheduledAt)) continue
-          queue.splice(index, 1)
-          if (
-            input.scheduledAt.getTime() === occurrenceMinute
-            && !queue.some(queued => queued.scheduleId === input.scheduleId && queued.scheduledAt.getTime() === occurrenceMinute)
-            && !activeOccurrences.has(occurrenceKey(input))
-          ) {
-            dispatched.delete(input.scheduleId)
-          }
-        }
-        schedules = nextSchedules
-        if (closing) return
-        if (!timer) {
-          timer = setInterval(scan, intervalMs)
-          timer.unref?.()
-        }
-        scan()
+      reconcile(records) {
+        if (closed) return Promise.reject(new Error("Process Schedule Wake Driver is closed."))
+        return run(Effect.flatMap(ProcessWakeRuntimeService, service => service.reconcile(records)))
       },
     }
   }
