@@ -106,7 +106,6 @@ async function executeLauncher(
   }
 
   return await sandbox.exec(command, args, {
-    cwd: options.cwd,
     env: options.env,
     timeout: options.timeout,
   })

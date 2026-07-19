@@ -6,7 +6,7 @@ import type { SandboxClient, SandboxExecResult } from "../src/sandbox/types.ts"
 
 function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, provider?: "cloudflare" | "vercel" } = {}) {
   const files = new Map<string, string>()
-  const execCalls: Array<{ cmd: string, args: string[] }> = []
+  const execCalls: Array<{ cmd: string, args: string[], options?: { cwd?: string } }> = []
 
   const sandbox = {
     id: "fake",
@@ -23,8 +23,8 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
       startProcess: false,
     },
     native: {},
-    async exec(cmd: string, args: string[] = []): Promise<SandboxExecResult> {
-      execCalls.push({ cmd, args })
+    async exec(cmd: string, args: string[] = [], execOptions?: { cwd?: string }): Promise<SandboxExecResult> {
+      execCalls.push({ cmd, args, options: execOptions })
       if (options.execError)
         throw options.execError
       if (options.execResult)
@@ -120,6 +120,7 @@ describe("executeSandboxDefinition", () => {
     expect(execCalls).toHaveLength(1)
     expect(execCalls[0]?.cmd).toBe("node")
     expect(execCalls[0]?.args.slice(0, 2)).toEqual(["-e", "import(process.argv[1])"])
+    expect(execCalls[0]?.options?.cwd).toBeUndefined()
   })
 
   it("recursively deletes successful Cloudflare invocation files before reuse", async () => {
