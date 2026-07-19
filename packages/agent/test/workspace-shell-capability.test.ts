@@ -162,4 +162,19 @@ describe("workspaceShell capability", () => {
     expect(session.commit).not.toHaveBeenCalled()
     expect(session.close).toHaveBeenCalledOnce()
   })
+
+  it("preserves execution and session cleanup failures", async () => {
+    const executionError = new Error("agent-browser failed")
+    const closeError = new Error("sandbox stop failed")
+    const session = workspaceSession()
+    session.exec.mockRejectedValueOnce(executionError)
+    session.close.mockRejectedValueOnce(closeError)
+    const { tools } = await capabilityTools(workspaceShell({ commands: ["agent-browser"] }), session)
+
+    const failure = await tools.workspace_exec!.execute?.({ command: "agent-browser" }).catch(error => error)
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors).toEqual([executionError, closeError])
+    expect(session.close).toHaveBeenCalledOnce()
+  })
 })
