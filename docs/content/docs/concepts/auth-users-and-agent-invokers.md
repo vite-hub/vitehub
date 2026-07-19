@@ -35,7 +35,7 @@ export default defineAgent({
 
 When a required Auth Session is missing, the bridge throws `AuthenticationRequiredError` with code `AUTHENTICATION_REQUIRED` and `statusCode: 401`, so Agent and HTTP entry surfaces can recognize the same failure without parsing its message.
 
-When the default Better Auth session lookup fails or returns a malformed non-null response, the bridge throws `AuthSessionError` with code `AUTH_SESSION_FAILED` and `statusCode: 503`; application-owned `source` exceptions remain unchanged.
+When the default Better Auth session lookup fails, the bridge throws `AuthenticationProviderError` with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. Existing Auth errors, structural `AbortError` objects, and application-owned `source` exceptions keep their identity. Malformed provider responses remain `TypeError` contract failures.
 
 ## What Agent Invoker carries
 
