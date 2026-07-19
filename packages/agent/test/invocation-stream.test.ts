@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
+import { LlmGateRejectedError } from "../src/capabilities/llm-gate.ts"
+import { RateLimitRejectedError } from "../src/capabilities/rate-limit.ts"
 import { createAgentInvocationStreamResponse, readAgentInvocationStream } from "../src/invocation-stream.ts"
 import { writeResponse } from "../src/vite/invocation-stream-endpoint.ts"
 
@@ -21,7 +23,7 @@ describe("Agent Invocation Stream", () => {
     ])
 
     expect(text.trim().split("\n").map(line => JSON.parse(line))).toEqual([
-      { error: "Agent Invocation Stream timed out after 10ms.", type: "error" },
+      { code: "INTERNAL", error: "Agent Invocation Stream failed.", type: "error" },
       { type: "done" },
     ])
     expect(aborted).toBe(true)
@@ -113,12 +115,12 @@ describe("Agent Invocation Stream", () => {
     }
 
     expect(events).toEqual([
-      { error: "Do not know how to serialize a BigInt", type: "error" },
+      { code: "INTERNAL", error: "Agent Invocation Stream event could not be serialized.", type: "error" },
       { type: "done" },
     ])
   })
 
-  it("formats non-Error thrown values as stream errors", async () => {
+  it("redacts non-Error thrown values as stream errors", async () => {
     const response = createAgentInvocationStreamResponse(async () => {
       throw { code: "delivery_preview_failed", status: 422 }
     })
@@ -129,8 +131,34 @@ describe("Agent Invocation Stream", () => {
     }
 
     expect(events).toEqual([
-      { error: `{"code":"delivery_preview_failed","status":422}`, type: "error" },
+      { code: "INTERNAL", error: "Agent Invocation Stream failed.", type: "error" },
       { type: "done" },
     ])
+  })
+
+  it("preserves allowlisted stream details without requiring capability metadata", async () => {
+    const failures = [
+      [new RateLimitRejectedError("", { retryAfter: 15 } as never, "private limiter response"), {
+        code: "RATE_LIMIT_REJECTED",
+        details: { retryAfter: 15 },
+        error: "Rate limit exceeded. Try again later.",
+      }],
+      [new LlmGateRejectedError("", {
+        allowed: false,
+        category: "unsafe",
+        reason: "private model reasoning",
+      }, "private classifier response"), {
+        code: "LLM_GATE_REJECTED",
+        details: { category: "unsafe" },
+        error: "Agent request was rejected.",
+      }],
+    ] as const
+
+    for (const [failure, expected] of failures) {
+      const response = createAgentInvocationStreamResponse(async () => { throw failure })
+      const events = []
+      for await (const event of readAgentInvocationStream(response.body!)) events.push(event)
+      expect(events).toEqual([{ ...expected, type: "error" }, { type: "done" }])
+    }
   })
 })

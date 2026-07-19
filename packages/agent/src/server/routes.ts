@@ -16,7 +16,7 @@ import { normalizeAgentInvokerProfiles, resolveAgentInvoker, withResolvedAgentIn
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
 import { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "../trigger-runtime.ts"
-import { toHttpErrorResponse } from "../http-error.ts"
+import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { createChatDevtoolsStreamResponse } from "../chat/devtools-stream.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
@@ -181,8 +181,8 @@ interface ChatTypingRefresh {
   stop(): void
 }
 
-function createRouteError(statusCode: number, message: string): Error & { status?: number, statusCode?: number } {
-  return Object.assign(new Error(message), { status: statusCode, statusCode })
+function createRouteError(statusCode: number, message: string): AgentHttpError {
+  return new AgentHttpError(statusCode, message)
 }
 
 function createRouteBodyError(message: string): Error & { status?: number, statusCode?: number } {
@@ -2008,8 +2008,8 @@ function metadataSelectionKey(selection: AgentChatDevtoolsInvokerSelection = {})
   return `${invoker}:${JSON.stringify(selection.meta || {})}`
 }
 
-function metadataErrorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : "Chat DevTools metadata inspection failed."
+function metadataErrorMessage(_cause: unknown): string {
+  return "Chat DevTools metadata inspection failed."
 }
 
 async function startAgentDevtoolsMetadataResolution(
@@ -2422,7 +2422,7 @@ function chatDevtoolsErrorResponse(error: unknown): Response {
   if (error instanceof Response) return error
   const response = toHttpErrorResponse(error)
   if (response) return response
-  return createJsonErrorResponse(500, error instanceof Error ? error.message : "Chat DevTools bridge failed.")
+  return toHttpErrorResponse(error, 500)!
 }
 
 function withChatDevtoolsCors(response: Response): Response {
@@ -2686,10 +2686,7 @@ async function toAgentChatFetchResponse(result: unknown): Promise<Response> {
 function agentChatFetchErrorResponse(error: unknown): Response {
   const response = toHttpErrorResponse(error)
   if (response) return response
-  if (error instanceof TypeError) {
-    return createJsonErrorResponse(400, error.message)
-  }
-  return createJsonErrorResponse(500, error instanceof Error ? error.message : "Agent chat request failed.")
+  return toHttpErrorResponse(error, error instanceof TypeError ? 400 : 500)!
 }
 
 export function createChannelChatRouteHandler(

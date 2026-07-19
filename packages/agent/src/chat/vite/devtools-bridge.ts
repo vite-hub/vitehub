@@ -326,8 +326,8 @@ function createChatDevtoolsAgentEntry(
   }
 }
 
-function metadataErrorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : "Chat DevTools metadata inspection failed."
+function metadataErrorMessage(_cause: unknown): string {
+  return "Chat DevTools metadata inspection failed."
 }
 
 function materializedSourceKeys(metadata: ChatDevtoolsMetadata | undefined): string[] {
@@ -917,7 +917,7 @@ async function writeResponse(res: ServerResponse, response: Response): Promise<v
 
 function errorResponse(error: unknown): Response {
   if (error instanceof Response) return error
-  return new Response(error instanceof Error ? error.message : "Chat DevTools bridge failed.", {
+  return new Response("Chat DevTools bridge failed.", {
     status: 500,
   })
 }

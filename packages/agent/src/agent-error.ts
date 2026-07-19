@@ -1,11 +1,21 @@
+import {
+  ApprovalRequiredError,
+  CapabilityDeniedError,
+  CapabilityNotFoundError,
+} from "@vite-hub/runtime"
+
+import { LlmGateRejectedError } from "./capabilities/llm-gate.ts"
+import { RateLimitRejectedError } from "./capabilities/rate-limit.ts"
+
 interface NormalizedAgentError {
   message: string
   name?: string
 }
 
-function errorProperty(error: object, key: "message" | "name"): unknown {
+export function readAgentErrorProperty(error: unknown, key: PropertyKey): unknown {
+  if (typeof error !== "object" || error === null) return
   try {
-    return (error as Record<string, unknown>)[key]
+    return Reflect.get(error, key)
   }
   catch {
     return undefined
@@ -58,8 +68,8 @@ export function formatAgentError(error: unknown, fallback = "Unknown error."): s
 export function agentErrorDetails(error: unknown, fallback = "Unknown error."): NormalizedAgentError {
   if (typeof error === "string") return { message: error || fallback }
   if (typeof error === "object" && error !== null) {
-    const message = errorProperty(error, "message")
-    const name = errorProperty(error, "name")
+    const message = readAgentErrorProperty(error, "message")
+    const name = readAgentErrorProperty(error, "name")
     if (typeof message === "string" && message) {
       return {
         message,
@@ -84,10 +94,85 @@ export function agentErrorMessage(error: unknown, fallback?: string): string {
   return agentErrorDetails(error, fallback).message
 }
 
-export function agentErrorPublicMessage(error: unknown, fallback = "Agent request failed."): string {
-  if (typeof error === "object" && error !== null) {
-    const message = errorProperty(error, "message")
-    if (typeof message === "string") return message || fallback
+export type AgentPublicErrorCode =
+  | "APPROVAL_REQUIRED"
+  | "CAPABILITY_DENIED"
+  | "CAPABILITY_NOT_FOUND"
+  | "INTERNAL"
+  | "LLM_GATE_REJECTED"
+  | "RATE_LIMIT_REJECTED"
+  | "RATE_LIMIT_UNAVAILABLE"
+
+export interface AgentPublicErrorDetails {
+  capability?: string
+  category?: string
+  retryAfter?: number
+}
+
+export interface AgentPublicError {
+  code: AgentPublicErrorCode
+  details?: AgentPublicErrorDetails
+  error: string
+  requestId?: string
+}
+
+export type AgentPublicErrorContext = "http" | "invocation" | "serialization"
+
+function identifier(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length === 0 || value.length > 128) return
+  return /^[A-Za-z0-9@][A-Za-z0-9@._:/-]*$/.test(value) ? value : undefined
+}
+
+function publicDetails(error: object, extra: AgentPublicErrorDetails = {}): AgentPublicErrorDetails | undefined {
+  const owned = readAgentErrorProperty(error, "details")
+  const capability = identifier(readAgentErrorProperty(error, "capabilityId"))
+    ?? identifier(readAgentErrorProperty(owned, "capability"))
+  const details = { ...(capability ? { capability } : {}), ...extra }
+  return Object.keys(details).length ? details : undefined
+}
+
+function publicError(
+  code: Exclude<AgentPublicErrorCode, "INTERNAL">,
+  error: string,
+  details?: AgentPublicErrorDetails,
+): AgentPublicError {
+  return { code, ...(details ? { details } : {}), error }
+}
+
+export function toAgentPublicError(error: unknown, context: AgentPublicErrorContext): AgentPublicError {
+  try {
+    if (error instanceof RateLimitRejectedError) {
+      const retryAfter = readAgentErrorProperty(error, "retryAfter")
+      const details = publicDetails(error, typeof retryAfter === "number" && Number.isFinite(retryAfter) && retryAfter >= 0
+        ? { retryAfter }
+        : {})
+      return readAgentErrorProperty(readAgentErrorProperty(error, "decision"), "reason") === "unavailable"
+        ? publicError("RATE_LIMIT_UNAVAILABLE", "Rate limiting is unavailable.", details)
+        : publicError("RATE_LIMIT_REJECTED", "Rate limit exceeded. Try again later.", details)
+    }
+    if (error instanceof LlmGateRejectedError) {
+      const category = identifier(readAgentErrorProperty(readAgentErrorProperty(error, "decision"), "category"))
+      return publicError("LLM_GATE_REJECTED", "Agent request was rejected.", publicDetails(error, category ? { category } : {}))
+    }
+    if (error instanceof CapabilityNotFoundError) {
+      return publicError("CAPABILITY_NOT_FOUND", "Capability was not found.", publicDetails(error))
+    }
+    if (error instanceof CapabilityDeniedError) {
+      return publicError("CAPABILITY_DENIED", "Capability access was denied.", publicDetails(error))
+    }
+    if (error instanceof ApprovalRequiredError) {
+      const requestId = identifier(readAgentErrorProperty(error, "requestId"))
+      return {
+        ...publicError("APPROVAL_REQUIRED", "Capability approval is required.", publicDetails(error)),
+        ...(requestId ? { requestId } : {}),
+      }
+    }
   }
-  return fallback
+  catch {}
+  const fallback = context === "http"
+    ? "Agent request failed."
+    : context === "invocation"
+      ? "Agent Invocation Stream failed."
+      : "Agent Invocation Stream event could not be serialized."
+  return { code: "INTERNAL", error: fallback }
 }

@@ -2027,7 +2027,7 @@ describe("server helpers", () => {
     }), { agentIdentity: { name: "mini" }, capabilities: { schedule: { schedules } } })
 
     expect(response.status).toBe(500)
-    await expect(response.text()).resolves.toContain("requires the run channelId to match a configured Agent Channel")
+    await expect(response.json()).resolves.toEqual({ code: "INTERNAL", error: "Agent request failed." })
     expect(schedules.create).not.toHaveBeenCalled()
   })
 
@@ -2054,9 +2054,7 @@ describe("server helpers", () => {
     }), { agentName: "mini" })
 
     expect(response.status).toBe(500)
-    await expect(response.json()).resolves.toMatchObject({
-      message: expect.stringContaining('Capability "schedule" requires the schedule primitive to be configured.'),
-    })
+    await expect(response.json()).resolves.toEqual({ code: "INTERNAL", error: "Agent request failed." })
   })
 
   it("leaves custom text/event-stream chat Response bodies unchanged", async () => {

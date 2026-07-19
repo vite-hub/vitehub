@@ -554,7 +554,7 @@ async function streamAgentWithWorkspaceProgress(
     if (!signal.aborted) {
       emit({
         data: {
-          error: error instanceof Error ? error.message : String(error),
+          error: "Workspace preparation failed.",
           workspace,
         },
         durationMs: Date.now() - startedAt,
@@ -814,7 +814,7 @@ function isAbortError(error: unknown): error is Error {
 
 function errorResponse(error: unknown): Response {
   if (error instanceof Response) return error
-  return new Response(error instanceof Error ? error.message : "Agent Invocation Stream endpoint failed.", {
+  return new Response("Agent Invocation Stream endpoint failed.", {
     status: 500,
   })
 }

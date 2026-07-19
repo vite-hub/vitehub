@@ -1,37 +1,52 @@
-import { LlmGateRejectedError } from "./capabilities/llm-gate.ts"
-import { agentErrorPublicMessage } from "./agent-error.ts"
+import {
+  readAgentErrorProperty,
+  toAgentPublicError,
+} from "./agent-error.ts"
 
-function readStatusCode(error: unknown): number | undefined {
-  if (error instanceof LlmGateRejectedError) return (error as unknown as { statusCode: number }).statusCode
-  if (typeof error !== "object" || error === null) return
-  const statusCode = (error as { statusCode?: unknown }).statusCode
-  return typeof statusCode === "number" && statusCode >= 400 && statusCode <= 599
-    ? statusCode
-    : undefined
+export class AgentHttpError extends Error {
+  readonly status: number
+  readonly statusCode: number
+
+  constructor(statusCode: number, message: string) {
+    super(message)
+    this.name = "AgentHttpError"
+    this.status = statusCode
+    this.statusCode = statusCode
+  }
 }
 
 export function getHttpErrorStatusCode(error: unknown): number | undefined {
-  return readStatusCode(error)
+  const statusCode = readAgentErrorProperty(error, "statusCode")
+  if (typeof statusCode === "number" && statusCode >= 400 && statusCode <= 599) return statusCode
+}
+
+function isAgentHttpError(error: unknown): error is AgentHttpError {
+  try {
+    return error instanceof AgentHttpError
+  }
+  catch {
+    return false
+  }
 }
 
 export function getHttpErrorMessage(error: unknown): string {
-  return agentErrorPublicMessage(error, "Agent request failed.")
+  if (isAgentHttpError(error)) {
+    const message = readAgentErrorProperty(error, "message")
+    if (typeof message === "string") return message
+  }
+  return toAgentPublicError(error, "http").error
 }
 
-function readHeaders(error: unknown): Headers | Record<string, string> | undefined {
-  if (typeof error !== "object" || error === null) return
-  const headers = (error as { headers?: unknown }).headers
-  if (headers instanceof Headers) return headers
-  if (!headers || typeof headers !== "object" || Array.isArray(headers)) return
-  const entries = Object.entries(headers).filter((entry): entry is [string, string] => typeof entry[1] === "string")
-  return entries.length ? Object.fromEntries(entries) : undefined
-}
-
-export function toHttpErrorResponse(error: unknown): Response | undefined {
-  const statusCode = getHttpErrorStatusCode(error)
+export function toHttpErrorResponse(error: unknown, fallbackStatus?: number): Response | undefined {
+  const statusCode = getHttpErrorStatusCode(error) ?? fallbackStatus
   if (!statusCode) return
-  return Response.json({ error: getHttpErrorMessage(error) }, {
-    headers: readHeaders(error),
+  if (isAgentHttpError(error)) return Response.json({ error: getHttpErrorMessage(error) }, { status: statusCode })
+  const body = toAgentPublicError(error, "http")
+  const retryAfter = body.details?.retryAfter
+  return Response.json(body, {
+    headers: retryAfter === undefined
+      ? undefined
+      : { "retry-after": String(retryAfter), "x-retry-after": String(retryAfter) },
     status: statusCode,
   })
 }
