@@ -216,6 +216,15 @@ describe("source scanner", () => {
     })
   })
 
+  it("finds default exports after regex literals followed by division", () => {
+    const call = findDefaultExportCall([
+      `const value = /x/ / parts`,
+      `export default defineThing({ value: "real" })`,
+    ].join("\n"), ["defineThing"])
+
+    expect(call?.argument).toBe(`{ value: "real" }`)
+  })
+
   it("finds default-exported object literals with TypeScript assertions", () => {
     for (const suffix of ["as const", "satisfies ThingOptions"]) {
       const call = findDefaultExportCall(

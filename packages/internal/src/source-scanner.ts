@@ -251,7 +251,10 @@ export function maskSourceLiterals(source: string): string {
     if (isQuote(char)) end = skipQuoted(source, index)
     else if (char === "/" && next === "/") end = skipLineComment(source, index)
     else if (char === "/" && next === "*") end = skipBlockComment(source, index)
-    else if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, index))) end = skipRegexLiteral(source, index)
+    else if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, index))) {
+      end = skipRegexLiteral(source, index)
+      previousSignificant = "/"
+    }
     if (end !== undefined) {
       mask(index, end)
       index = end
