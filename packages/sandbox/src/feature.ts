@@ -256,7 +256,7 @@ export async function createSandboxFeaturePlan(
     },
   }))
   const providerLoaderTarget = resolveSandboxProviderLoaderTarget(defaultProviderName, deps)
-  const cloudflareOptions = defaultProvider?.provider === 'cloudflare'
+  const cloudflareOptions = definitions.length > 0 && defaultProvider?.provider === 'cloudflare'
     ? {
         binding: typeof defaultProvider.binding === 'string' ? defaultProvider.binding : defaultCloudflareSandboxBinding,
         className: typeof defaultProvider.className === 'string' ? defaultProvider.className : defaultCloudflareSandboxClassName,

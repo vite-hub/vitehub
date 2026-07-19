@@ -22,9 +22,7 @@ export function createCloudflareExecutionSandboxId(name: string, sandboxId?: str
   if (sandboxId)
     return sandboxId
 
-  const hash = globalThis.crypto.randomUUID().replace(/-/g, '').slice(0, 24)
-
-  return `vitehub-${name.replace(/[^a-z0-9-]/gi, '-').toLowerCase()}-${hash}`
+  return name.replace(/[^a-z0-9-]/gi, '-').toLowerCase()
 }
 
 export function resolveRuntimeProvider(provider?: SandboxDefinitionProviderOptions, event?: SandboxEvent) {

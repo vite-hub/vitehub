@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
-import type { AliasOptions } from "vite"
+import { build, type AliasOptions } from "vite"
 
 const tempDirs: string[] = []
 
@@ -240,24 +240,63 @@ describe("hubSandbox", () => {
     expect(definition).not.toContain("from process slash alias")
   })
 
-  it("infers Cloudflare from a late-resolved Nitro preset", async () => {
+  it("builds a configuration-free Definition for a Cloudflare Nitro host", async () => {
     const rootDir = await createViteRoot()
+    await rm(join(rootDir, "src/tools/release-notes.sandbox.ts"))
+    await mkdir(join(rootDir, "server/sandboxes"), { recursive: true })
+    await writeFile(join(rootDir, "src/server.ts"), `export const ready = true\n`)
+    await writeFile(join(rootDir, "server/sandboxes/example.ts"), [
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
+      ``,
+      `export default defineSandbox(async () => ({ ok: true }))`,
+      ``,
+    ].join("\n"))
+    const { hubSandbox } = await import("../src/vite.ts")
+    let resolvedNitro: any
+
+    await build({
+      appType: "custom",
+      build: {
+        rollupOptions: { input: join(rootDir, "src/server.ts") },
+        write: false,
+      },
+      nitro: { preset: "cloudflare-module" },
+      plugins: [
+        hubSandbox(),
+        {
+          name: "nitro:main",
+          configResolved(config: { nitro?: unknown }) {
+            resolvedNitro = config.nitro
+          },
+        },
+      ],
+      root: rootDir,
+    } as never)
+
+    expect(resolvedNitro.cloudflare.wrangler.containers).toMatchObject([{ class_name: "Sandbox" }])
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-registry.mjs"), "utf8")).resolves.toContain('"example"')
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-provider-loader.mjs"), "utf8")).resolves.toContain("createCloudflareSandboxClient")
+  })
+
+  it("keeps Cloudflare output inert without Sandbox definitions", async () => {
+    const rootDir = await createViteRoot()
+    await rm(join(rootDir, "src/tools/release-notes.sandbox.ts"))
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox()
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
-    const userConfig = { root: rootDir }
-
-    await configHook(userConfig, { command: "build", mode: "production" })
-    const resolvedConfig = {
-      ...userConfig,
+    const userConfig = {
+      root: rootDir,
       nitro: { preset: "cloudflare-module" },
       plugins: [{ name: "nitro:main" }],
-      resolve: { alias: [] },
     }
-    await configResolved(resolvedConfig)
 
-    expect((resolvedConfig.nitro as any).cloudflare.wrangler.containers).toMatchObject([{ class_name: "Sandbox" }])
+    await configHook(userConfig, { command: "build", mode: "production" })
+    await configResolved({ ...userConfig, resolve: { alias: [] } })
+
+    expect(userConfig.nitro).toEqual({ preset: "cloudflare-module" })
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("infers Cloudflare from the Nitro preset environment", async () => {
@@ -952,18 +991,13 @@ describe("hubSandbox", () => {
     }, {})).rejects.toThrow("generate the same artifact path")
   })
 
-  it("passes explicit Cloudflare sandbox container names to Cloudflare targets", async () => {
+  it("keeps explicit Cloudflare targets inert without definitions", async () => {
     const { createSandboxFeaturePlan } = await import("../src/feature.ts")
     const plan = await createSandboxFeaturePlan({ provider: "cloudflare", name: "custom-sandbox" }, [], {
       aliasPath: "/tmp/vitehub-sandbox/index.js",
     }, {})
 
-    expect(plan.cloudflare).toEqual({
-      binding: "SANDBOX",
-      className: "Sandbox",
-      migrationTag: "v1",
-      name: "custom-sandbox",
-    })
+    expect(plan.cloudflare).toBeUndefined()
   })
 
   it("refreshes generated artifacts during sandbox definition hot updates", async () => {
