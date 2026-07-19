@@ -104,7 +104,7 @@ describe("crabbox", () => {
 
         const invocations = await readFile(log, "utf8")
         expect(invocations).toContain("--no-sync")
-        expect(invocations).not.toContain("|cp|")
+        expect(invocations.split("\n").filter(invocation => invocation.includes("|cp|"))).toHaveLength(1)
       },
     )
   }, 30_000)
@@ -552,7 +552,21 @@ describe("crabbox", () => {
       const cacheRoot = session.defaultWorkingDirectory
 
       await session.writeTextFile({ content: "cache", path: "cache.txt" })
+      await session.writeTextFile({ content: "CACHE", path: "cache.txt" })
+      await expect(session.readTextFile({ path: "cache.txt" })).resolves.toBe("CACHE")
+      await session.writeTextFile({ content: "cache", path: "cache.txt" })
       await expect(session.readTextFile({ path: "cache.txt" })).resolves.toBe("cache")
+      await session.run({ command: `ln -s cache.txt ${cacheRoot}/linked-cache.txt` })
+      await expect(session.readTextFile({ path: "linked-cache.txt" })).resolves.toBe("cache")
+      await session.writeTextFile({ content: "updated", path: "linked-cache.txt" })
+      await expect(session.run({ command: `test -L ${cacheRoot}/linked-cache.txt && cat ${cacheRoot}/cache.txt` })).resolves.toMatchObject({ exitCode: 0, stdout: "updated" })
+      await session.run({ command: `ln -s missing-cache.txt ${cacheRoot}/dangling-cache.txt` })
+      await session.writeTextFile({ content: "created", path: "dangling-cache.txt" })
+      await expect(session.run({ command: `test -L ${cacheRoot}/dangling-cache.txt && cat ${cacheRoot}/missing-cache.txt` })).resolves.toMatchObject({ exitCode: 0, stdout: "created" })
+      await session.run({ command: `mkdir ${cacheRoot}/directory.txt` })
+      await expect(session.writeTextFile({ content: "not a directory", path: "directory.txt" })).rejects.toThrow("prepare directory.txt")
+      await expect(session.writeTextFile({ content: "not a directory", path: "missing-directory/" })).rejects.toThrow("write missing-directory/")
+      await expect(readdir(join(cacheRoot, "directory.txt"))).resolves.toEqual([])
       await expect(session.run({
         command: "printf changed > changed.txt && printf 'newly-ignored.txt\\n' >> .gitignore && rm deleted.txt",
         workingDirectory: join(cacheRoot, "workspace"),
@@ -569,6 +583,10 @@ describe("crabbox", () => {
 
       const workspaceCwd = await realpath(workspace)
       const invocations = (await readFile(log, "utf8")).trim().split("\n")
+      const copies = invocations.filter(invocation => invocation.includes("|cp|"))
+      expect(copies).toHaveLength(10)
+      expect(copies.every(copy => copy.includes("--provider ssh --target linux --id static_test"))).toBe(true)
+      expect(copies.filter(copy => copy.includes(`SANDBOX:${cacheRoot}/.vitehub-write-`))).toHaveLength(7)
       expect(invocations).not.toContain(expect.stringContaining("|tunnel|"))
       expect(invocations.every(invocation => invocation.startsWith(`${workspaceCwd}|`))).toBe(true)
       expect(invocations.every(invocation => !invocation.includes("--static-work-root"))).toBe(true)
@@ -576,20 +594,36 @@ describe("crabbox", () => {
     })
   }, 30_000)
 
-  it("rejects unsupported Static SSH port forwarding", async () => {
+  it("tunnels Static SSH ports by default and reuses the forward", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")
     const bin = join(root, "bin")
+    const log = join(root, "crabbox.log")
+    const tunnelPid = join(root, "tunnel.pid")
     await Promise.all([mkdir(workspace), mkdir(bin)])
     await fakeCrabbox(bin)
 
-    await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+    await withEnvironment({
+      CRABBOX_TEST_LOG: log,
+      CRABBOX_TEST_TUNNEL_PID: tunnelPid,
+      PATH: `${bin}:${process.env.PATH || ""}`,
+    }, async () => {
       const box = await resolveBox({ runtime: crabbox({ profile: "babysitter" }), cwd: workspace }, {})
       const sandbox = box.sandbox as { createSession(): Promise<any> }
       const session = await sandbox.createSession()
 
-      await expect(session.getPortUrl({ port: 3000 })).rejects.toThrow("Crabbox Static SSH does not support port forwarding")
+      const httpUrl = await session.getPortUrl({ port: 3000 })
+      const wsUrl = await session.getPortUrl({ port: 3000, protocol: "ws" })
+      expect(httpUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
+      expect(wsUrl).toBe(httpUrl.replace("http:", "ws:"))
+      const pid = Number(await readFile(tunnelPid, "utf8"))
       await session.destroy()
+
+      expect(() => process.kill(pid, 0)).toThrow()
+      const tunnels = (await readFile(log, "utf8")).split("\n").filter(line => line.includes("|tunnel|"))
+      expect(tunnels).toEqual([
+        expect.stringContaining("|tunnel|--provider ssh --target linux --id static_test 3000"),
+      ])
     })
   }, 30_000)
 
@@ -834,6 +868,9 @@ case "$verb" in
     source="\${source#SANDBOX:}"
     destination="\${destination#SANDBOX:}"
     /bin/cp "$source" "$destination"
+    ;;
+  tunnel)
+    exec node -e 'const fs=require("node:fs");const net=require("node:net");if(process.env.CRABBOX_TEST_TUNNEL_PID)fs.writeFileSync(process.env.CRABBOX_TEST_TUNNEL_PID,String(process.pid));const server=net.createServer();server.listen(0,"127.0.0.1",()=>console.log("http://127.0.0.1:"+server.address().port))'
     ;;
   *) exit 21 ;;
 esac
