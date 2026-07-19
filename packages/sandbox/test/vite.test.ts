@@ -454,7 +454,7 @@ describe("hubSandbox", () => {
     await configResolved(resolvedConfig)
 
     await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
-      .resolves.toContain("RUN apt-get install -y imagemagick")
+      .resolves.toContain("&& apt-get install -y imagemagick")
   })
 
   it("rejects a colocated fragment without changing an application-owned image", async () => {
