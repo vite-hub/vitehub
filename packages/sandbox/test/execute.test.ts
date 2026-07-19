@@ -295,6 +295,47 @@ describe("executeSandboxDefinition", () => {
     }
   })
 
+  it("bounds Cloudflare session deletion with the control-plane deadline", async () => {
+    vi.useFakeTimers()
+    try {
+      const { sandbox, files } = createFakeSandbox({ provider: "cloudflare" })
+      Object.assign(sandbox, {
+        native: { createSession: vi.fn() },
+        cloudflare: {
+          createSession: vi.fn(async () => ({
+            id: "completed-session",
+            exec: vi.fn(async (command: string) => {
+              const outputPath = command.trim().split(/\s+/).at(-1)?.replace(/^'|'$/g, "")
+              if (outputPath)
+                files.set(outputPath, JSON.stringify({ ok: true, result: { ok: true } }))
+              return { exitCode: 0, stdout: "", stderr: "" }
+            }),
+          })),
+          deleteSession: vi.fn(async () => await new Promise(() => {})),
+        } as unknown as typeof sandbox.cloudflare,
+      })
+
+      const execution = executeSandboxDefinition(
+        sandbox,
+        "release-notes",
+        undefined,
+        {
+          entry: "definition.mjs",
+          modules: {
+            "definition.mjs": "export default { run() { return { ok: true } } }",
+          },
+        },
+      )
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(15_000)
+
+      await expect(execution).resolves.toEqual({ ok: true })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("recovers output after raw Cloudflare session transport failures", async () => {
     const { sandbox, files } = createFakeSandbox({ provider: "cloudflare" })
     Object.assign(sandbox, {

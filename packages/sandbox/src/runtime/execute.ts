@@ -1,4 +1,4 @@
-import { createCloudflareTransportError, resolveExecRequestTimeout, withCloudflareDeadline } from '../sandbox/adapters/cloudflare/transport'
+import { CLOUDFLARE_CONTROL_PLANE_TIMEOUT_MS, createCloudflareTransportError, resolveExecRequestTimeout, withCloudflareDeadline } from '../sandbox/adapters/cloudflare/transport'
 import { SandboxError } from '../sandbox/errors'
 import { shellQuote } from '../sandbox/utils'
 import { createEntrySource } from './entry-script'
@@ -80,7 +80,15 @@ async function executeLauncher(
         ? error
         : createCloudflareTransportError('createSession', error)
     }
-    const deleteSession = async () => await cloudflareSandbox.cloudflare.deleteSession(session.id).catch(() => {})
+    const deleteSession = async () => {
+      const remaining = options.deadline ? Math.max(1, options.deadline - Date.now()) : undefined
+      const timeout = Math.min(CLOUDFLARE_CONTROL_PLANE_TIMEOUT_MS, remaining ?? Number.POSITIVE_INFINITY)
+      await withCloudflareDeadline(
+        'deleteSession',
+        timeout,
+        async () => await cloudflareSandbox.cloudflare.deleteSession(session.id),
+      ).catch(() => {})
+    }
     const abortSession = () => void deleteSession()
     try {
       if (options.signal?.aborted) {
