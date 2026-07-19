@@ -44,16 +44,22 @@ describe("provider detection", () => {
   })
 
   it("resolves the Cloudflare binding from the scoped environment", async () => {
+    vi.doMock("@cloudflare/sandbox", () => ({ getSandbox: vi.fn() }))
     const namespace = {}
-    const { resolveSandboxProvider } = await import("../src/runtime/providers/cloudflare.ts")
 
-    const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () =>
-      resolveSandboxProvider({
-        local: {},
-        provider: { provider: "cloudflare" },
-      }))
+    try {
+      const { resolveSandboxProvider } = await import("../src/runtime/providers/cloudflare.ts")
+      const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () =>
+        resolveSandboxProvider({
+          local: {},
+          provider: { provider: "cloudflare" },
+        }))
 
-    expect(provider.namespace).toBe(namespace)
+      expect(provider.namespace).toBe(namespace)
+    }
+    finally {
+      vi.doUnmock("@cloudflare/sandbox")
+    }
   })
 
   it("does not mark platform sandboxes available when their SDK cannot resolve", async () => {
