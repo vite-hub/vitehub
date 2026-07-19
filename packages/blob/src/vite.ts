@@ -145,11 +145,11 @@ function renderNitroBlobMiddleware(importBase = blobPackageName): string {
   return [
     "import { env as vitehubEnv } from 'cloudflare:workers'",
     "import { defineMiddleware } from 'nitro'",
-    `import { runWithActiveCloudflareEnv } from '${importBase}/runtime/state'`,
+    `import { setActiveCloudflareEnv } from '${importBase}/runtime/state'`,
     "",
-    "export default defineMiddleware((event, next) => {",
+    "export default defineMiddleware((event) => {",
     "  const env = event.env ?? event.context?.cloudflare?.env ?? event.context?._platform?.cloudflare?.env ?? event.req?.runtime?.cloudflare?.env ?? event.node?.req?.runtime?.cloudflare?.env ?? vitehubEnv",
-    "  return runWithActiveCloudflareEnv(env, next)",
+    "  setActiveCloudflareEnv(env)",
     "})",
     "",
   ].join("\n")

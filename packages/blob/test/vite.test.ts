@@ -177,10 +177,11 @@ describe("hubBlob", () => {
       expect(nitroPlugin).toContain("setActiveCloudflareEnv(vitehubEnv)")
       expect(nitroPlugin).not.toContain("hooks.hook('request'")
       const middleware = await readFile(join(root, ".vitehub", "nitro", "blob", "middleware.ts"), "utf8")
-      expect(middleware).toContain("defineMiddleware((event, next) =>")
+      expect(middleware).toContain("defineMiddleware((event) =>")
+      expect(middleware).toContain("setActiveCloudflareEnv(env)")
       expect(middleware).toContain("event.context?._platform?.cloudflare?.env")
       expect(middleware).toContain("event.node?.req?.runtime?.cloudflare?.env ?? vitehubEnv")
-      expect(middleware).toContain("runWithActiveCloudflareEnv(env, next)")
+      expect(middleware).not.toContain("next")
     }
     finally {
       if (typeof previousBucket === "undefined") delete process.env.BLOB_BUCKET_NAME

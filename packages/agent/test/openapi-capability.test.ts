@@ -201,6 +201,33 @@ describe("openapi capability", () => {
     await expect(request).rejects.toBe(reason)
   })
 
+  it("retries a cached OpenAPI spec load after cancellation", async () => {
+    const reason = new Error("stop spec")
+    const controller = new AbortController()
+    const request = vi.spyOn(globalThis, "fetch")
+      .mockImplementationOnce((_url, init) => new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true })
+      }))
+      .mockResolvedValueOnce(jsonResponse(portalSpec()))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+    const capability = openapi({
+      operations: ["listCustomers"],
+      spec: "https://portal.example.com/openapi.json",
+    })
+
+    const first = resolveAgentCapabilities({
+      capabilities: [capability],
+    }, runtime(), { abortSignal: controller.signal, prompt: "list" })
+    controller.abort(reason)
+
+    await expect(first).rejects.toBe(reason)
+    await expect(resolveAgentCapabilities({
+      capabilities: [capability],
+    }, runtime(), { prompt: "list" })).resolves.toHaveProperty("tools.listCustomers")
+    expect(request).toHaveBeenCalledTimes(2)
+  })
+
   it("resolves dynamic specs per invocation", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse({ ok: true }))
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")

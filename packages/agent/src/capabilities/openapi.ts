@@ -172,6 +172,16 @@ export function openapi<
   assertOpenAPIOptions(options)
   let operations: Promise<{ baseUrl: URL, tools: OpenAPIOperationTool[] }> | undefined
   const dynamicOperations = typeof options.spec === "function" || typeof options.server === "function"
+  const loadOperations = (context: AgentCapabilityContext<TRuntimeConfig, Name>) => {
+    if (dynamicOperations) return loadOpenAPIOperations(options, context)
+    if (operations) return operations
+    const pending = loadOpenAPIOperations(options, context)
+    operations = pending
+    pending.catch(() => {
+      if (operations === pending) operations = undefined
+    })
+    return pending
+  }
 
   return defineCapability({
     id: "openapi",
@@ -185,17 +195,13 @@ export function openapi<
       ? async (context) => {
           const cli = await resolveContextValue(options.cli, context)
           if (!cli) return undefined
-          const resolved = dynamicOperations
-            ? await loadOpenAPIOperations(options, context)
-            : await (operations ||= loadOpenAPIOperations(options, context))
+          const resolved = await loadOperations(context)
           return createOpenAPICli(cli, resolved.tools, resolved.baseUrl, options, context)
         }
       : undefined,
     async tools(context) {
       if (options.cli) return undefined
-      const resolved = dynamicOperations
-        ? await loadOpenAPIOperations(options, context)
-        : await (operations ||= loadOpenAPIOperations(options, context))
+      const resolved = await loadOperations(context)
       return Object.fromEntries(resolved.tools.map(operation => [
         operation.operationId,
         createOpenAPITool(operation, resolved.baseUrl, options, context),
