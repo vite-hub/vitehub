@@ -43,6 +43,19 @@ describe("provider detection", () => {
     expect(runWithActiveCloudflareEnv({ SANDBOX: {} }, () => resolveRuntimeProvider())).toBe("cloudflare")
   })
 
+  it("resolves the Cloudflare binding from the scoped environment", async () => {
+    const namespace = {}
+    const { resolveSandboxProvider } = await import("../src/runtime/providers/cloudflare.ts")
+
+    const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () =>
+      resolveSandboxProvider({
+        local: {},
+        provider: { provider: "cloudflare" },
+      }))
+
+    expect(provider.namespace).toBe(namespace)
+  })
+
   it("does not mark platform sandboxes available when their SDK cannot resolve", async () => {
     vi.stubEnv("VERCEL", "1")
     vi.stubGlobal("require", {
