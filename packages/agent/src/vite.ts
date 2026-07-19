@@ -911,7 +911,7 @@ async function generateAgentWebhookRouteHandler(
   const webhookStateOption = options.cloudflareState
     ? "state: chatStateFromCloudflare(cloudflare), "
     : options.libsqlState
-      ? "state: chatStateFromLibsql(), "
+      ? "state: () => chatStateFromLibsql(), "
       : ""
 
   return [
@@ -976,7 +976,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
     workspaceRuntimeImport: subpath(agentImportBase, "server/workspace"),
   })
   const webhookSelector = routeUsesParam(options.webhookRoute, "webhook") ? "netlifyParam(context, 'webhook')" : "''"
-  const webhookStateOption = options.libsqlState ? "state: chatStateFromLibsql(), " : ""
+  const webhookStateOption = options.libsqlState ? "state: () => chatStateFromLibsql(), " : ""
 
   return [
     ...deploymentCatalog.imports,
