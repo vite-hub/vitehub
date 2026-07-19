@@ -73,21 +73,19 @@ export function createEffectBoundary(options: EffectBoundaryOptions) {
     )
   }
 
-  function closeScopeWithCapturedReleases(
+  const closeScopeWithCapturedReleases = Effect.fn("ViteHub.EffectBoundary.closeScope")(function* (
     scope: Scope.Closeable,
     failures: Ref.Ref<readonly unknown[]>,
     closeOptions: CloseScopeOptions,
-  ): Effect.Effect<void, EffectBoundaryFailure> {
-    return Effect.gen(function* () {
-      yield* Scope.close(scope, closeOptions.exit ?? Exit.void)
-      const causes = yield* Ref.get(failures)
-      if (causes.length === 0) return
-      const cause = causes.length === 1
-        ? causes[0]
-        : new AggregateError(causes, closeOptions.aggregateMessage ?? options.aggregateMessage)
-      return yield* Effect.fail(new EffectBoundaryFailure({ cause }))
-    })
-  }
+  ) {
+    yield* Scope.close(scope, closeOptions.exit ?? Exit.void)
+    const causes = yield* Ref.get(failures)
+    if (causes.length === 0) return
+    const cause = causes.length === 1
+      ? causes[0]
+      : new AggregateError(causes, closeOptions.aggregateMessage ?? options.aggregateMessage)
+    return yield* Effect.fail(new EffectBoundaryFailure({ cause }))
+  })
 
   return { acquireWithCapturedRelease, causeValues, closeScopeWithCapturedReleases, run, tryPromise }
 }

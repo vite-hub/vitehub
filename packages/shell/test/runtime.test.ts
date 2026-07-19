@@ -188,6 +188,42 @@ describe("@vite-hub/shell just-bash runtime", () => {
     expect(failure).toBeInstanceOf(AggregateError)
     expect(failure.errors).toEqual([secondError, firstError])
     expect(failure.name).not.toBe("FiberFailure")
+    expect(await session.listProcesses()).toHaveLength(2)
+  })
+
+  it("keeps failed process cleanup retryable while coalescing each attempt", async () => {
+    const firstError = new Error("first stop failed")
+    const secondError = new Error("second stop failed")
+    const stop = vi.fn()
+      .mockRejectedValueOnce(firstError)
+      .mockRejectedValueOnce(secondError)
+      .mockResolvedValue(stoppedProcessObservation("retryable"))
+    const provider = createBackgroundProvider(async (): Promise<ShellProcess> => ({
+      command: "retryable",
+      id: "retryable",
+      stop,
+    }))
+    const session = createShellRuntime({ provider }).createSession()
+    const process = await session.startProcess("retryable")
+
+    const firstStop = process.stop()
+    const concurrentStop = process.stop()
+    expect(firstStop).toBe(concurrentStop)
+    await expect(firstStop).rejects.toBe(firstError)
+    await expect(concurrentStop).rejects.toBe(firstError)
+    expect(stop).toHaveBeenCalledOnce()
+    expect(await session.listProcesses()).toEqual([process])
+
+    const firstDispose = session.dispose()
+    const concurrentDispose = session.dispose()
+    expect(firstDispose).toBe(concurrentDispose)
+    await expect(firstDispose).rejects.toBe(secondError)
+    await expect(concurrentDispose).rejects.toBe(secondError)
+    expect(stop).toHaveBeenCalledTimes(2)
+    expect(await session.listProcesses()).toEqual([process])
+
+    await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
+    expect(stop).toHaveBeenCalledTimes(3)
     expect(await session.listProcesses()).toHaveLength(0)
   })
 

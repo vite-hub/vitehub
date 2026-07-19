@@ -123,6 +123,71 @@ describe("cloudflare queue runtime", () => {
     expect(vercelQueueMock.send).not.toHaveBeenCalled()
   })
 
+  it("isolates overlapping Cloudflare fetch environments", async () => {
+    let arrivals = 0
+    let release!: () => void
+    const bothStarted = new Promise<void>(resolve => {
+      release = resolve
+    })
+    const worker = createQueueCloudflareWorker({
+      app: async () => {
+        const before = getActiveCloudflareEnv()?.REQUEST_ID
+        arrivals += 1
+        if (arrivals === 2) release()
+        await bothStarted
+        return Response.json({ after: getActiveCloudflareEnv()?.REQUEST_ID, before })
+      },
+    })
+
+    const [first, second] = await Promise.all([
+      worker.fetch(new Request("https://example.com/first"), { REQUEST_ID: "first" }, { waitUntil: vi.fn() }),
+      worker.fetch(new Request("https://example.com/second"), { REQUEST_ID: "second" }, { waitUntil: vi.fn() }),
+    ])
+
+    await expect(first.json()).resolves.toEqual({ after: "first", before: "first" })
+    await expect(second.json()).resolves.toEqual({ after: "second", before: "second" })
+  })
+
+  it("isolates overlapping Cloudflare consumer environments", async () => {
+    let arrivals = 0
+    let release!: () => void
+    const bothStarted = new Promise<void>(resolve => {
+      release = resolve
+    })
+    const observed = new Map<string, unknown[]>()
+    const worker = createQueueCloudflareWorker({
+      registry: {
+        welcome: async () => ({
+          default: {
+            handler: async ({ payload }) => {
+              const requestId = String(payload && typeof payload === "object" && "requestId" in payload ? payload.requestId : "")
+              const values = [getActiveCloudflareEnv()?.REQUEST_ID]
+              observed.set(requestId, values)
+              arrivals += 1
+              if (arrivals === 2) release()
+              await bothStarted
+              values.push(getActiveCloudflareEnv()?.REQUEST_ID)
+            },
+          },
+        }),
+      },
+    })
+    const createBatch = (requestId: string) => ({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: { requestId }, id: requestId, retry: vi.fn() }],
+      queue: "welcome",
+      retryAll: vi.fn(),
+    })
+
+    await Promise.all([
+      worker.queue(createBatch("first"), { REQUEST_ID: "first" }, { waitUntil: vi.fn() }),
+      worker.queue(createBatch("second"), { REQUEST_ID: "second" }, { waitUntil: vi.fn() }),
+    ])
+
+    expect(observed.get("first")).toEqual(["first", "first"])
+    expect(observed.get("second")).toEqual(["second", "second"])
+  })
+
   it("uses nested Cloudflare waitUntil for deferred dispatch", async () => {
     const send = vi.fn(async () => {})
     const waitUntil = vi.fn()

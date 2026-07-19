@@ -248,7 +248,7 @@ async function loadOpenAPIDocument<
     headers: options.specHeaders,
     timeout: options.timeout,
     url: specUrl,
-  })
+  }, { signal: context.abortSignal })
   if (!result.data || typeof result.data !== "object") {
     throw new Error("[vitehub] openapi() spec must be a JSON OpenAPI document.")
   }
@@ -341,8 +341,8 @@ function createOpenAPITool<
 ): AgentToolDefinition {
   return defineInternalTool({
     description: [options.description, operation.description].filter(Boolean).join(" "),
-    async execute(input) {
-      return executeOpenAPIOperation(operation, baseUrl, options, context, input)
+    async execute(input, execution) {
+      return executeOpenAPIOperation(operation, baseUrl, options, context, input, execution?.abortSignal)
     },
     inputSchema: operationInputSchema(operation, openAPIRequestProvidedInput(options)),
     metadata: {
@@ -424,6 +424,7 @@ async function executeOpenAPIOperation<
   options: OpenAPICapabilityOptions<TRuntimeConfig, Name>,
   context: AgentCapabilityContext<TRuntimeConfig, Name>,
   input: unknown,
+  abortSignal?: AbortSignal,
 ): Promise<unknown> {
   const rawInput = applyOpenAPIProvidedInput(normalizeRawToolInput(operation, input), openAPIRequestProvidedInput(options))
   const rawUrl = operationTemplateUrl(baseUrl, operation.path)
@@ -452,6 +453,7 @@ async function executeOpenAPIOperation<
     url,
   }, {
     responseType: options.responseType || "json",
+    signal: abortSignal ?? context.abortSignal,
   })
   return transformOpenAPIResponse(options, context, operation, requestInput, draft, url, result)
 }

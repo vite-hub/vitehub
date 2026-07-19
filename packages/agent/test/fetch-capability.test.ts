@@ -92,6 +92,23 @@ describe("fetch capability", () => {
     expect(request).toHaveBeenLastCalledWith("https://status.example.com/ping", expect.objectContaining({ method: "HEAD" }))
   })
 
+  it("forwards tool cancellation to the HTTP request", async () => {
+    const reason = new Error("stop tool")
+    const controller = new AbortController()
+    vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true })
+    }))
+    const { fetch } = await import("../src/capabilities.ts")
+    const tool = (fetch({
+      tools: { status: { url: "https://status.example.com" } },
+    }).tools as AgentToolSet).status
+
+    const request = tool.execute?.({}, { abortSignal: controller.signal })
+    controller.abort(reason)
+
+    await expect(request).rejects.toBe(reason)
+  })
+
   it("rejects unsupported fetch methods, response types, and missing urls", async () => {
     const { fetch } = await import("../src/capabilities.ts")
     const unsupported = fetch({

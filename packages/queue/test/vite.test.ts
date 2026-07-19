@@ -31,6 +31,7 @@ describe("hubQueue", () => {
     expect(userConfig).toMatchObject({
       nitro: {
         cloudflare: { wrangler: { compatibility_flags: ["custom", "nodejs_compat"], queues: { consumers: [{ queue: "queue--77656c636f6d65" }], producers: [{ binding: "QUEUE_77656C636F6D65", queue: "queue--77656c636f6d65" }] } } },
+        handlers: [{ handler: ".vitehub/nitro/queue/middleware.ts", middleware: true, route: "/**" }],
         plugins: [".vitehub/nitro/queue/plugin.ts", "server/plugin.ts"],
         rollupConfig: { external: [external, "cloudflare:workers"] },
       },
@@ -51,13 +52,18 @@ describe("hubQueue", () => {
     } as never)
 
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+    const nitroMiddleware = await readFile(join(root, ".vitehub", "nitro", "queue", "middleware.ts"), "utf8")
     const registry = await readFile(join(root, ".vitehub", "queue", "registry.mjs"), "utf8")
     expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig)")
     expect(nitroPlugin).toContain("setQueueRuntimeRegistry(queueRegistry)")
-    expect(nitroPlugin).toContain("event.context?.cloudflare?.env")
-    expect(nitroPlugin).toContain("event.req?.runtime?.cloudflare?.env")
-    expect(nitroPlugin).toContain("event.node?.req?.runtime?.cloudflare?.env")
-    expect(nitroPlugin).toContain("waitUntil: vitehubWaitUntil")
+    expect(nitroPlugin).not.toContain("enterQueueRuntimeEvent")
+    expect(nitroPlugin).not.toContain("hooks.hook('request'")
+    expect(nitroMiddleware).toContain("defineMiddleware((event, next) =>")
+    expect(nitroMiddleware).toContain("event.context?.cloudflare?.env")
+    expect(nitroMiddleware).toContain("event.req?.runtime?.cloudflare?.env")
+    expect(nitroMiddleware).toContain("event.node?.req?.runtime?.cloudflare?.env")
+    expect(nitroMiddleware).toContain("waitUntil: vitehubWaitUntil")
+    expect(nitroMiddleware).toContain("runWithQueueRuntimeEvent(event, next)")
     expect(nitroPlugin).toContain("setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })")
     expect(nitroPlugin).toContain("cloudflare:queue")
     expect(nitroPlugin).toContain("queueWorker.queue(batch, env, context)")
@@ -115,7 +121,10 @@ describe("hubQueue", () => {
     roots.push(root)
     const plugin = hubQueue({})
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ queue: {}, root, nitro: { preset: "vercel" } } as never)
-    expect(await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")).not.toContain("@vercel/queue")
+    const pluginFile = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+    const middlewareFile = await readFile(join(root, ".vitehub", "nitro", "queue", "middleware.ts"), "utf8")
+    expect(`${pluginFile}\n${middlewareFile}`).not.toContain("@vercel/queue")
+    expect(`${pluginFile}\n${middlewareFile}`).not.toContain("@vercel/functions")
   })
 
   it("refreshes the Nitro registry when Queue Definitions change", async () => {
@@ -148,9 +157,10 @@ describe("hubQueue", () => {
     await (plugin.closeBundle as () => Promise<void>)()
     expect(existsSync(join(createDefaultCloudflareOutputRoot(root), "index.js"))).toBe(false)
 
-    const disabled = { nitro: { preset: "cloudflare_module", plugins: [".vitehub/nitro/queue/plugin.ts", "server/plugin.ts"] }, queue: false, root }
+    const disabled = { nitro: { preset: "cloudflare_module", handlers: [{ handler: ".vitehub/nitro/queue/middleware.ts", middleware: true, route: "/**" }, { handler: "server/middleware.ts", middleware: true }], plugins: [".vitehub/nitro/queue/plugin.ts", "server/plugin.ts"] }, queue: false, root }
     ;(hubQueue(false).config as unknown as (config: Record<string, unknown>) => void)(disabled)
     expect(disabled.nitro.plugins).toEqual(["server/plugin.ts"])
+    expect(disabled.nitro.handlers).toEqual([{ handler: "server/middleware.ts", middleware: true }])
     expect(disabled.nitro).not.toHaveProperty("cloudflare")
   })
 

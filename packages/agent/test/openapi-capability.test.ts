@@ -180,6 +180,27 @@ describe("openapi capability", () => {
     expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/customers?region=eu")
   })
 
+  it("forwards tool cancellation to OpenAPI requests", async () => {
+    const reason = new Error("stop operation")
+    const controller = new AbortController()
+    vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true })
+    }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [openapi({ operations: ["listCustomers"], spec: portalSpec() })],
+    }, runtime(), { prompt: "list" })
+
+    const request = (resolved.tools as AgentToolSet).listCustomers.execute?.(
+      {},
+      { abortSignal: controller.signal },
+    )
+    controller.abort(reason)
+
+    await expect(request).rejects.toBe(reason)
+  })
+
   it("resolves dynamic specs per invocation", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse({ ok: true }))
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")

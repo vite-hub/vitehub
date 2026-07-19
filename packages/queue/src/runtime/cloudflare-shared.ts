@@ -1,5 +1,6 @@
 import {
   createCloudflareRuntimeEvent,
+  runWithActiveCloudflareEnv,
   setActiveCloudflareEnv,
   type CloudflareWorkerEnv,
   type CloudflareWorkerExecutionContext,
@@ -7,7 +8,7 @@ import {
 
 import type { CloudflareQueueMessageBatch } from "../types.ts"
 
-export { createCloudflareRuntimeEvent, setActiveCloudflareEnv }
+export { createCloudflareRuntimeEvent, runWithActiveCloudflareEnv, setActiveCloudflareEnv }
 export type { CloudflareWorkerEnv, CloudflareWorkerExecutionContext }
 
 export function createQueueJob(message: CloudflareQueueMessageBatch["messages"][number], batch: CloudflareQueueMessageBatch): {

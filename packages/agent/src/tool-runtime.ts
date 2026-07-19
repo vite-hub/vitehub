@@ -45,7 +45,7 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
 
   return {
     ...tool,
-    async execute(input) {
+    async execute(input, context) {
       const decision = typeof policy === "function"
         ? await policy({
             name: tool.name,
@@ -69,7 +69,7 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
         throw new Error(`[vitehub:agent] Tool "${tool.name}" failed with a retryable policy decision.`)
       }
 
-      return await execute(input)
+      return await execute(input, context)
     },
   }
 }

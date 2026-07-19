@@ -57,6 +57,22 @@ describe("HTTP request", () => {
     expect(fetch).toHaveBeenCalledOnce()
   })
 
+  it("retries only transient response statuses", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response("missing", { status: 404 }))
+      .mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
+      .mockResolvedValueOnce(new Response("ok"))
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(executeHttpRequest({ url: "https://example.com/missing" }, { responseType: "text" }))
+      .rejects.toMatchObject({ message: "[vitehub] HTTP request failed with status 404." })
+    expect(fetch).toHaveBeenCalledOnce()
+
+    await expect(executeHttpRequest({ url: "https://example.com/transient" }, { responseType: "text" }))
+      .resolves.toMatchObject({ data: "ok", status: 200 })
+    expect(fetch).toHaveBeenCalledTimes(3)
+  })
+
   it("interrupts an active request with the caller's exact abort reason", async () => {
     const reason = new Error("caller stopped")
     const controller = new AbortController()
@@ -73,6 +89,34 @@ describe("HTTP request", () => {
 
     await expect(request).rejects.toBe(reason)
     expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it("keeps cancellation active while consuming the response body", async () => {
+    const reason = new Error("stop response body")
+    const controller = new AbortController()
+    let bodyStarted!: () => void
+    const started = new Promise<void>(resolve => bodyStarted = resolve)
+    let fetchSignal: AbortSignal | undefined
+    const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      fetchSignal = init?.signal ?? undefined
+      return new Response(new ReadableStream({
+        start(stream) {
+          bodyStarted()
+          fetchSignal?.addEventListener("abort", () => stream.error(fetchSignal?.reason), { once: true })
+        },
+      }))
+    })
+    vi.stubGlobal("fetch", fetch)
+
+    const request = executeHttpRequest(
+      { url: "https://example.com/stream" },
+      { responseType: "text", signal: controller.signal },
+    )
+    await started
+    controller.abort(reason)
+
+    await expect(request).rejects.toBe(reason)
+    expect(fetchSignal?.aborted).toBe(true)
   })
 
   it("interrupts timed out fetches without retaining a timer", async () => {

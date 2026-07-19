@@ -1,11 +1,4 @@
 import { analyzeShellCommand } from "../command/analyze.ts"
-import { Effect, Ref, Scope } from "effect"
-import {
-  acquireShellResource,
-  closeShellScope,
-  runShellEffect,
-  tryShellPromise,
-} from "../internal/effect-runtime.ts"
 
 import type {
   CreateShellRuntimeOptions,
@@ -47,17 +40,11 @@ function createPolicyObservation(command: string, cwd: string | undefined, messa
 
 const shellSessionDisposedMessage = "[vitehub] Shell session is disposed."
 
-interface ShellSessionOwner {
-  readonly failures: Ref.Ref<readonly unknown[]>
-  readonly scope: Scope.Closeable
-}
-
 class RuntimeShellSession implements ShellSession {
   readonly boundary
   readonly policy: ShellSessionPolicy
   #disposed = false
   #disposeTask: Promise<ShellObservation> | undefined
-  #owner: Promise<ShellSessionOwner>
   #processes = new Set<ShellProcess>()
   #starts = new Set<Promise<void>>()
   #shellCalls = 0
@@ -69,11 +56,6 @@ class RuntimeShellSession implements ShellSession {
   ) {
     this.boundary = provider.boundary
     this.policy = policy
-    this.#owner = runShellEffect(Effect.gen(function* () {
-      const scope = yield* Scope.make("sequential")
-      const failures = yield* Ref.make<readonly unknown[]>([])
-      return { failures, scope }
-    }))
   }
 
   async analyze(command: string, options?: Parameters<ShellSession["analyze"]>[1]) {
@@ -138,22 +120,23 @@ class RuntimeShellSession implements ShellSession {
 
     let stopTask: Promise<ShellObservation> | undefined
     let trackedProcess: ShellProcess
-    const stop = () => stopTask ??= Promise.resolve().then(() => process.stop()).finally(() => {
-      this.#processes.delete(trackedProcess)
-    })
+    const stop = () => {
+      if (stopTask) return stopTask
+      stopTask = Promise.resolve().then(() => process.stop()).then(
+        result => {
+          this.#processes.delete(trackedProcess)
+          return result
+        },
+        error => {
+          stopTask = undefined
+          throw error
+        },
+      )
+      return stopTask
+    }
     trackedProcess = { ...process, stop }
-    try {
-      const owner = await this.#owner
-      await runShellEffect(acquireShellResource(
-        owner.scope,
-        owner.failures,
-        Effect.succeed(trackedProcess),
-        resource => tryShellPromise(() => resource.stop()),
-      ))
-    }
-    finally {
-      finishStart()
-    }
+    this.#processes.add(trackedProcess)
+    finishStart()
     if (this.#disposed) {
       try {
         await stop()
@@ -166,7 +149,6 @@ class RuntimeShellSession implements ShellSession {
       }
       throw new Error(shellSessionDisposedMessage)
     }
-    this.#processes.add(trackedProcess)
     return trackedProcess
   }
 
@@ -176,19 +158,36 @@ class RuntimeShellSession implements ShellSession {
 
   dispose() {
     this.#disposed = true
-    return this.#disposeTask ??= (async () => {
+    if (this.#disposeTask) return this.#disposeTask
+    this.#disposeTask = (async () => {
       await Promise.all(this.#starts)
-      const owner = await this.#owner
-      await runShellEffect(closeShellScope(owner.scope, owner.failures, {
-        aggregateMessage: "[vitehub] Shell session failed to stop multiple background processes.",
-      }))
+      const failures: unknown[] = []
+      for (const process of [...this.#processes].reverse()) {
+        try {
+          await process.stop()
+        }
+        catch (error) {
+          failures.push(error)
+        }
+      }
+      if (failures.length === 1) throw failures[0]
+      if (failures.length > 1) {
+        throw new AggregateError(
+          failures,
+          "[vitehub] Shell session failed to stop multiple background processes.",
+        )
+      }
       return {
         event: "session_disposed" as const,
         exitCode: null,
         stderr: "",
         stdout: "",
       }
-    })()
+    })().catch((error) => {
+      this.#disposeTask = undefined
+      throw error
+    })
+    return this.#disposeTask
   }
 }
 
