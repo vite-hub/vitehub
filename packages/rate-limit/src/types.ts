@@ -10,14 +10,7 @@ export type RateLimitWindow =
 export type RateLimitEnforcement = "best-effort" | "strict"
 export type RateLimitFailurePolicy = "allow" | "deny"
 export type RateLimitCounterScope = "global" | "location" | "process"
-export type RateLimitMetadataAvailability = "always" | "never" | "on-rejection"
-export type RateLimitMetadataQuality = "approximate" | "exact"
 export type RateLimitRejectedAttemptBehavior = "counted" | "not-counted" | "unknown"
-
-export interface RateLimitMetadataCapability {
-  readonly availability: RateLimitMetadataAvailability
-  readonly quality?: RateLimitMetadataQuality
-}
 
 export interface RateLimitPolicy {
   enforcement?: RateLimitEnforcement
@@ -97,12 +90,6 @@ export type RateLimitDecision = RateLimitAllowedDecision | RateLimitLimitedDecis
 
 export interface RateLimitDriverCapabilities {
   readonly enforcement: RateLimitEnforcement
-  readonly metadata: {
-    readonly remaining: RateLimitMetadataCapability
-    readonly resetAt: RateLimitMetadataCapability
-    readonly retryAfter: RateLimitMetadataCapability
-    readonly used: RateLimitMetadataCapability
-  }
   readonly rejectedAttempts: RateLimitRejectedAttemptBehavior
   readonly scope: RateLimitCounterScope
   readonly windows?: readonly number[]

@@ -21,12 +21,6 @@ export function cloudflareRateLimitDriver(options: CloudflareRateLimitDriverOpti
   return {
     capabilities: {
       enforcement: "best-effort",
-      metadata: {
-        remaining: { availability: "never" },
-        resetAt: { availability: "never" },
-        retryAfter: { availability: "never" },
-        used: { availability: "never" },
-      },
       rejectedAttempts: "unknown",
       scope: "location",
       windows: [10_000, 60_000],

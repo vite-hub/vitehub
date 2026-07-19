@@ -17,7 +17,7 @@ interface RateLimitManifestEntry {
 }
 
 interface RateLimitManifest {
-  schemaVersion: 1
+  schemaVersion: 2
   rateLimits: RateLimitManifestEntry[]
 }
 
@@ -34,7 +34,7 @@ function createRateLimitManifest(
 ): RateLimitManifest {
   const capabilities = resolveProviderCapabilities(provider)
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     rateLimits: [...declarations]
       .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
       .map(definition => ({ name: definition.name, provider, capabilities })),

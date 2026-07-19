@@ -410,19 +410,13 @@ describe("hubRateLimit", () => {
       rateLimits: [{
         capabilities: {
           enforcement: "strict",
-          metadata: {
-            remaining: { availability: "always", quality: "exact" },
-            resetAt: { availability: "always", quality: "exact" },
-            retryAfter: { availability: "on-rejection", quality: "exact" },
-            used: { availability: "always", quality: "exact" },
-          },
           rejectedAttempts: "not-counted",
           scope: "process",
         },
         name: "search",
         provider: "memory",
       }],
-      schemaVersion: 1,
+      schemaVersion: 2,
     })
   })
 })

@@ -253,12 +253,6 @@ describe("rateLimit capability", () => {
     const providerLimiter = {
       capabilities: {
         enforcement: "best-effort" as const,
-        metadata: {
-          remaining: { availability: "never" as const },
-          resetAt: { availability: "never" as const },
-          retryAfter: { availability: "never" as const },
-          used: { availability: "never" as const },
-        },
         rejectedAttempts: "unknown" as const,
         scope: "global" as const,
       },
@@ -288,12 +282,6 @@ describe("rateLimit capability", () => {
     const providerLimiter = {
       capabilities: {
         enforcement: "best-effort" as const,
-        metadata: {
-          remaining: { availability: "never" as const },
-          resetAt: { availability: "never" as const },
-          retryAfter: { availability: "never" as const },
-          used: { availability: "never" as const },
-        },
         rejectedAttempts: "unknown" as const,
         scope: "global" as const,
       },

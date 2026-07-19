@@ -18,9 +18,9 @@ describe("Cloudflare Rate Limit driver", () => {
     expect(limit).toHaveBeenCalledWith({ key: "user-1" })
     expect(limiter.capabilities).toMatchObject({
       enforcement: "best-effort",
-      metadata: { remaining: { availability: "never" } },
       rejectedAttempts: "unknown",
       scope: "location",
+      windows: [10_000, 60_000],
     })
   })
 

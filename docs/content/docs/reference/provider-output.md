@@ -36,7 +36,7 @@ find dist -maxdepth 4 -type f | sort
 
 ### Rate Limit output
 
-Rate Limit writes `.vitehub/rate-limit/manifest.json` during Vite config resolution and refreshes it during Provider Output. Its `schemaVersion: 1` document contains sorted `rateLimits` entries shaped as `{ name, provider, capabilities }`. Inspect it before deploy; do not import it from application code.
+Rate Limit writes `.vitehub/rate-limit/manifest.json` during Vite config resolution and refreshes it during Provider Output. Its `schemaVersion: 2` document contains sorted `rateLimits` entries shaped as `{ name, provider, capabilities }`. Inspect it before deploy; do not import it from application code.
 
 When Cloudflare is selected, each handler-local `requireRateLimit()` policy adds one `ratelimits` entry to generated `wrangler.json`. The entry contains a ViteHub-derived binding name, a stable namespace id, and the guard's static `limit` and 10-second or 60-second period.
 

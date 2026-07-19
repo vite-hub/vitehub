@@ -34,12 +34,6 @@ export function memoryRateLimitDriver(options: MemoryRateLimitDriverOptions = {}
   return {
     capabilities: {
       enforcement: "strict",
-      metadata: {
-        remaining: { availability: "always", quality: "exact" },
-        resetAt: { availability: "always", quality: "exact" },
-        retryAfter: { availability: "on-rejection", quality: "exact" },
-        used: { availability: "always", quality: "exact" },
-      },
       rejectedAttempts: "not-counted",
       scope: "process",
     },

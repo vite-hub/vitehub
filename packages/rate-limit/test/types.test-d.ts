@@ -15,7 +15,7 @@ it("types the portable Rate Limit contract", async () => {
   const limiter = createRateLimiter({ driver: memoryRateLimitDriver(), limit: 10, window: "1m" })
   expectTypeOf(limiter).toEqualTypeOf<RateLimiter>()
   expectTypeOf(await limiter.consume({ key: "user" })).toEqualTypeOf<RateLimitDecision>()
-  expectTypeOf(limiter.capabilities.scope).toEqualTypeOf<"global" | "location" | "process">()
+  expectTypeOf(limiter.capabilities.enforcement).toEqualTypeOf<"best-effort" | "strict">()
 
   // @ts-expect-error a managed Rate Limit requires a window.
   requireRateLimit(event, "uploads", { limit: 10 })
@@ -32,12 +32,6 @@ it("types custom and provider drivers", () => {
   const custom = {
     capabilities: {
       enforcement: "strict",
-      metadata: {
-        remaining: { availability: "always", quality: "exact" },
-        resetAt: { availability: "never" },
-        retryAfter: { availability: "never" },
-        used: { availability: "never" },
-      },
       rejectedAttempts: "not-counted",
       scope: "global",
     },

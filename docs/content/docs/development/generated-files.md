@@ -38,7 +38,7 @@ The exact set depends on the package integrations and Provider Selection.
 find .vitehub -maxdepth 4 -type f | sort
 ```
 
-Inspect resolved Rate Limit guarantees before deployment. The manifest uses `schemaVersion: 1` and contains sorted `rateLimits` entries with `name`, `provider`, and `capabilities`; it is generated state for agents and tooling, not an application import.
+Inspect resolved Rate Limit guarantees before deployment. The manifest uses `schemaVersion: 2` and contains sorted `rateLimits` entries with `name`, `provider`, and `capabilities`; it is generated state for agents and tooling, not an application import.
 
 ```bash [Terminal]
 cat .vitehub/rate-limit/manifest.json

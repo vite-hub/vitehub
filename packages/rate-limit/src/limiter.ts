@@ -1,22 +1,6 @@
 import { normalizeRateLimitPolicy } from "./policy.ts"
 
-import type { CreateRateLimiterOptions, RateLimitDecision, RateLimitDriverCapabilities, RateLimitDriverResult, RateLimiter, RateLimitMetadataCapability } from "./types.ts"
-
-function resolveMetadataCapability(value: RateLimitMetadataCapability | undefined, driverName: string, field: string): RateLimitMetadataCapability {
-  if (!value || (value.availability !== "always" && value.availability !== "never" && value.availability !== "on-rejection")) {
-    throw new TypeError(`[vitehub] Rate Limit driver "${driverName}" must declare ${field} metadata availability.`)
-  }
-  if (value.availability === "never") {
-    if (value.quality !== undefined) {
-      throw new TypeError(`[vitehub] Rate Limit driver "${driverName}" cannot declare ${field} metadata quality when it is unavailable.`)
-    }
-    return { availability: "never" }
-  }
-  if (value.quality !== "approximate" && value.quality !== "exact") {
-    throw new TypeError(`[vitehub] Rate Limit driver "${driverName}" must declare ${field} metadata quality.`)
-  }
-  return { availability: value.availability, quality: value.quality }
-}
+import type { CreateRateLimiterOptions, RateLimitDecision, RateLimitDriverCapabilities, RateLimitDriverResult, RateLimiter } from "./types.ts"
 
 function resolveDriverCapabilities(options: CreateRateLimiterOptions): RateLimitDriverCapabilities {
   const capabilities = options.driver.capabilities
@@ -32,21 +16,11 @@ function resolveDriverCapabilities(options: CreateRateLimiterOptions): RateLimit
   if (capabilities.rejectedAttempts !== "counted" && capabilities.rejectedAttempts !== "not-counted" && capabilities.rejectedAttempts !== "unknown") {
     throw new TypeError(`[vitehub] Rate Limit driver "${options.driver.name}" must declare rejected-attempt behavior.`)
   }
-  const metadata = capabilities.metadata
-  if (!metadata) {
-    throw new TypeError(`[vitehub] Rate Limit driver "${options.driver.name}" must declare metadata capabilities.`)
-  }
   if (capabilities.windows?.some(window => !Number.isInteger(window) || window <= 0)) {
     throw new TypeError(`[vitehub] Rate Limit driver "${options.driver.name}" windows must contain positive integer milliseconds.`)
   }
   return {
     enforcement: capabilities.enforcement,
-    metadata: {
-      remaining: resolveMetadataCapability(metadata.remaining, options.driver.name, "remaining"),
-      resetAt: resolveMetadataCapability(metadata.resetAt, options.driver.name, "resetAt"),
-      retryAfter: resolveMetadataCapability(metadata.retryAfter, options.driver.name, "retryAfter"),
-      used: resolveMetadataCapability(metadata.used, options.driver.name, "used"),
-    },
     rejectedAttempts: capabilities.rejectedAttempts,
     scope: capabilities.scope,
     ...(capabilities.windows ? { windows: [...capabilities.windows] } : {}),
@@ -61,42 +35,14 @@ function normalizeOptionalInteger(value: number | undefined, label: string): num
   return value
 }
 
-function assertMetadataResult(
-  result: RateLimitDriverResult,
-  capabilities: RateLimitDriverCapabilities,
-  driverName: string,
-  field: keyof RateLimitDriverCapabilities["metadata"],
-): void {
-  const capability = capabilities.metadata[field]
-  const returned = Object.prototype.hasOwnProperty.call(result, field)
-  const value = result[field]
-  const required = capability.availability === "always"
-    || (capability.availability === "on-rejection" && !result.allowed)
-  const forbidden = capability.availability === "never"
-    || (capability.availability === "on-rejection" && result.allowed)
-
-  if (required && value === undefined) {
-    throw new TypeError(`[vitehub] Rate Limit driver "${driverName}" declared ${field} metadata ${capability.availability}, but consume() omitted it.`)
-  }
-  if (forbidden && returned) {
-    throw new TypeError(`[vitehub] Rate Limit driver "${driverName}" declared ${field} metadata ${capability.availability}, but consume() returned it.`)
-  }
-}
-
 function normalizeDriverResult(
   result: RateLimitDriverResult,
   limit: number,
   windowMs: number,
-  capabilities: RateLimitDriverCapabilities,
-  driverName: string,
 ): RateLimitDecision {
   if (!result || typeof result !== "object" || typeof result.allowed !== "boolean") {
     throw new TypeError("[vitehub] Rate Limit driver consume() must return an object with an allowed boolean.")
   }
-  assertMetadataResult(result, capabilities, driverName, "remaining")
-  assertMetadataResult(result, capabilities, driverName, "resetAt")
-  assertMetadataResult(result, capabilities, driverName, "retryAfter")
-  assertMetadataResult(result, capabilities, driverName, "used")
   const resetAt = result.resetAt
   if (resetAt !== undefined && (!Number.isFinite(resetAt) || resetAt <= 0)) {
     throw new TypeError("[vitehub] Rate Limit driver result resetAt must be a positive timestamp.")
@@ -158,7 +104,7 @@ export function createRateLimiter(options: CreateRateLimiterOptions): RateLimite
           windowMs: policy.windowMs,
         }
       }
-      return normalizeDriverResult(result, policy.limit, policy.windowMs, capabilities, options.driver.name)
+      return normalizeDriverResult(result, policy.limit, policy.windowMs)
     },
     policy,
   }
