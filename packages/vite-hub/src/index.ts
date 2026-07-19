@@ -75,6 +75,10 @@ const frameworkPackageName = "vite-hub"
 const generatedImportBase = "vite-hub/_internal"
 const upstashDriverSpecifier = "@vite-hub/kv/runtime/upstash-driver"
 const disabledUpstashDriver = fileURLToPath(import.meta.resolve(`${generatedImportBase}/kv/runtime/disabled-upstash`))
+const disabledBlobFacade = fileURLToPath(import.meta.resolve(`${generatedImportBase}/blob/disabled`))
+const disabledWorkflowAgentFacade = fileURLToPath(import.meta.resolve(`${generatedImportBase}/agent/workflow-disabled`))
+const disabledWorkflowAgentServerFacade = fileURLToPath(import.meta.resolve(`${generatedImportBase}/agent/server/workflow-disabled`))
+const disabledWorkflowFacade = fileURLToPath(import.meta.resolve(`${generatedImportBase}/workflow/disabled`))
 function frameworkWorkspaceDependencyRuntimeImports(sandbox: boolean) {
   return {
     ...(sandbox
@@ -122,13 +126,24 @@ function frameworkDependencyResolver(
   options: ViteHubPresetOptions,
   providerImportAliases: Record<string, string>,
 ): Plugin {
+  const aliases = {
+    ...frameworkProviderImportAliases,
+    ...(!options.blob ? { "vite-hub/blob": disabledBlobFacade } : {}),
+    ...(!options.workflow
+      ? {
+          "vite-hub/agent": disabledWorkflowAgentFacade,
+          "vite-hub/agent/server": disabledWorkflowAgentServerFacade,
+          "vite-hub/workflow": disabledWorkflowFacade,
+        }
+      : {}),
+  }
   return {
     name: "vite-hub/dependencies",
     enforce: "pre",
     config() {
       return {
         resolve: {
-          alias: frameworkProviderImportAliases,
+          alias: aliases,
         },
       }
     },
