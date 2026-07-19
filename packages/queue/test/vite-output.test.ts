@@ -372,14 +372,14 @@ describe("Vite provider outputs", () => {
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel"))).toBe(false)
   })
 
-  it("uses one prefixed Cloudflare queue name in standalone bindings and dispatch", async () => {
+  it("uses an inferred Cloudflare prefix in standalone bindings and dispatch", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-prefix-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
 
     await generateProviderOutputs({
       clientOutDir: "dist",
-      queue: { namePrefix: "preview-", provider: "cloudflare" },
+      queue: { namePrefix: "preview-" } as never,
       rootDir,
     })
 
