@@ -176,6 +176,20 @@ describe("source scanner", () => {
     ])
   })
 
+  it("keeps regex literals inside template expressions non-structural", () => {
+    const call = findDefaultExportCall([
+      `export default defineThing({`,
+      "  handler: () => `${/}``/.test(\"}\")}` ,",
+      `  value: "real",`,
+      `})`,
+    ].join("\n"), ["defineThing"])
+
+    expect(call).toMatchObject({
+      name: "defineThing",
+    })
+    expect(readObjectProperty(call!.argument, "value")).toBe(`"real"`)
+  })
+
   it("finds default-exported definition calls", () => {
     const call = findDefaultExportCall([
       `const ignored = defineThing({ value: "ignored" })`,

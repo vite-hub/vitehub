@@ -34,6 +34,7 @@ function skipQuoted(source: string, index: number) {
 function skipTemplateLiteral(source: string, index: number): number {
   index += 1
   let expressionDepth = 0
+  let previousSignificant = ""
   while (index < source.length) {
     const char = source[index]
     const next = source[index + 1]
@@ -45,6 +46,7 @@ function skipTemplateLiteral(source: string, index: number): number {
       if (char === "`") return index + 1
       if (char === "$" && next === "{") {
         expressionDepth = 1
+        previousSignificant = "{"
         index += 2
         continue
       }
@@ -67,8 +69,14 @@ function skipTemplateLiteral(source: string, index: number): number {
       index = skipBlockComment(source, index)
       continue
     }
+    if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, index))) {
+      index = skipRegexLiteral(source, index)
+      previousSignificant = "/"
+      continue
+    }
     if (char === "{") expressionDepth += 1
     if (char === "}") expressionDepth -= 1
+    previousSignificant = trackSignificant(previousSignificant, char)
     index += 1
   }
   return index
