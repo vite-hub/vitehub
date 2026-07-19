@@ -98,23 +98,17 @@ Use `createRateLimiter()` when the application needs this decision for a custom 
 
 The integration writes `.vitehub/rate-limit/manifest.json` during configuration and Provider Output. Agents and tooling can inspect it; application code should keep using the guard.
 
-The manifest records `rejectedAttempts` and the other provider guarantees so tooling does not have to infer them from the driver name.
+The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and supported `windows` without duplicating optional response metadata contracts.
 
 ```json [.vitehub/rate-limit/manifest.json]
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "rateLimits": [
     {
       "name": "image-upload",
       "provider": "cloudflare",
       "capabilities": {
         "enforcement": "best-effort",
-        "metadata": {
-          "remaining": { "availability": "never" },
-          "resetAt": { "availability": "never" },
-          "retryAfter": { "availability": "never" },
-          "used": { "availability": "never" }
-        },
         "rejectedAttempts": "unknown",
         "scope": "location",
         "windows": [10000, 60000]
@@ -142,7 +136,7 @@ const limiter = createRateLimiter({
 const decision = await limiter.consume({ key: 'demo' })
 ```
 
-Every direct limiter exposes `policy` and `capabilities`. The memory driver is process-local and intended for development, tests, and known single-process hosts.
+Every direct limiter exposes its resolved `policy` and the provider capabilities that affect enforcement and deployment. The memory driver is process-local and intended for development, tests, and known single-process hosts.
 
 Custom drivers return `{ unavailable: true, cause }` only for expected operational outages that the declared failure policy should govern. Configuration, provider-contract, and implementation defects should throw normally.
 

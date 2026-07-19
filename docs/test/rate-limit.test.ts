@@ -38,10 +38,11 @@ describe("Rate Limit documentation", () => {
     expect(primitive).toContain("`rejectedAttempts`")
     expect(primitive).toContain("best-effort")
     expect(primitive).toContain(".vitehub/rate-limit/manifest.json")
-    expect(primitive).toContain('"schemaVersion": 1')
+    expect(primitive).toContain('"schemaVersion": 2')
     expect(primitive).toContain('"provider": "cloudflare"')
     expect(primitive).toContain('"capabilities": {')
-    expect(primitive).toContain('"availability": "never"')
+    expect(primitive).toContain('"scope": "location"')
+    expect(primitive).toContain('"windows": [10000, 60000]')
     expect(primitive).toContain("application code should keep using the guard")
     expect(primitive).not.toMatch(/from ['"]@vite-hub\/rate-limit\/(?:kv|capability)['"]/)
     expect(primitive).not.toContain("event?: unknown")
@@ -62,7 +63,7 @@ describe("Rate Limit documentation", () => {
 
     for (const page of [generated, providerOutput]) {
       expect(page).toContain(".vitehub/rate-limit/manifest.json")
-      expect(page).toContain("schemaVersion: 1")
+      expect(page).toContain("schemaVersion: 2")
       expect(page).toMatch(/sorted.*rateLimits|sorted.*Rate Limit IDs/is)
       expect(page).toMatch(/not an application import|do not import/is)
     }

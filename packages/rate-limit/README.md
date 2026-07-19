@@ -65,4 +65,4 @@ The memory driver is process-local and intended for development, tests, and sing
 
 Custom drivers return `{ unavailable: true, cause }` only for expected operational outages that the declared failure policy should govern. Invalid configuration, malformed provider responses, and implementation defects should throw normally.
 
-Every direct limiter exposes `capabilities` describing enforcement, counter scope, metadata quality, supported windows, and whether rejected attempts consume budget. The Vite integration writes the resolved managed guarantees to `.vitehub/rate-limit/manifest.json` for agents and tooling to inspect.
+Every direct limiter exposes its enforcement, counter scope, rejected-attempt behavior, and supported windows. The Vite integration writes those capabilities to `.vitehub/rate-limit/manifest.json` for agents and tooling to inspect.

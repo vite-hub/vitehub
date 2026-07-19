@@ -7,24 +7,8 @@ import type { RateLimitDriverCapabilities } from "../src/index.ts"
 
 const strictCapabilities = {
   enforcement: "strict",
-  metadata: {
-    remaining: { availability: "always", quality: "exact" },
-    resetAt: { availability: "always", quality: "exact" },
-    retryAfter: { availability: "on-rejection", quality: "exact" },
-    used: { availability: "always", quality: "exact" },
-  },
   rejectedAttempts: "not-counted",
   scope: "global",
-} satisfies RateLimitDriverCapabilities
-
-const noMetadataCapabilities = {
-  ...strictCapabilities,
-  metadata: {
-    remaining: { availability: "never" },
-    resetAt: { availability: "never" },
-    retryAfter: { availability: "never" },
-    used: { availability: "never" },
-  },
 } satisfies RateLimitDriverCapabilities
 
 describe("Rate Limit core", () => {
@@ -94,85 +78,19 @@ describe("Rate Limit core", () => {
     })).toThrow("does not support")
 
     expect(() => createRateLimiter({
-      driver: { capabilities: { enforcement: "strict" } as never, consume: () => ({ allowed: true }), name: "opaque" },
+      driver: { capabilities: {} as never, consume: () => ({ allowed: true }), name: "opaque" },
       limit: 1,
       window: "1m",
-    })).toThrow("counter scope")
+    })).toThrow("valid enforcement")
   })
 
   it("exposes resolved driver capabilities", () => {
     const limiter = createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window: "1m" })
     expect(limiter.capabilities).toEqual({
       enforcement: "strict",
-      metadata: {
-        remaining: { availability: "always", quality: "exact" },
-        resetAt: { availability: "always", quality: "exact" },
-        retryAfter: { availability: "on-rejection", quality: "exact" },
-        used: { availability: "always", quality: "exact" },
-      },
       rejectedAttempts: "not-counted",
       scope: "process",
     })
-  })
-
-  it("enforces declared metadata capabilities on every driver result", async () => {
-    const missingAlways = createRateLimiter({
-      driver: {
-        capabilities: {
-          ...noMetadataCapabilities,
-          metadata: {
-            ...noMetadataCapabilities.metadata,
-            remaining: { availability: "always", quality: "exact" },
-          },
-        },
-        consume: () => ({ allowed: true }),
-        name: "missing-always",
-      },
-      failure: "allow",
-      limit: 1,
-      window: "1m",
-    })
-    await expect(missingAlways.consume({ key: "user" })).rejects.toThrow("declared remaining metadata always")
-
-    const returnedNever = createRateLimiter({
-      driver: {
-        capabilities: noMetadataCapabilities,
-        consume: () => ({ allowed: true, remaining: 0 }),
-        name: "returned-never",
-      },
-      limit: 1,
-      window: "1m",
-    })
-    await expect(returnedNever.consume({ key: "user" })).rejects.toThrow("declared remaining metadata never")
-
-    const onRejectionCapabilities = {
-      ...noMetadataCapabilities,
-      metadata: {
-        ...noMetadataCapabilities.metadata,
-        retryAfter: { availability: "on-rejection", quality: "exact" },
-      },
-    } satisfies RateLimitDriverCapabilities
-    const returnedOnAllowed = createRateLimiter({
-      driver: {
-        capabilities: onRejectionCapabilities,
-        consume: () => ({ allowed: true, retryAfter: 1 }),
-        name: "returned-on-allowed",
-      },
-      limit: 1,
-      window: "1m",
-    })
-    await expect(returnedOnAllowed.consume({ key: "user" })).rejects.toThrow("declared retryAfter metadata on-rejection")
-
-    const omittedOnRejected = createRateLimiter({
-      driver: {
-        capabilities: onRejectionCapabilities,
-        consume: () => ({ allowed: false }),
-        name: "omitted-on-rejected",
-      },
-      limit: 1,
-      window: "1m",
-    })
-    await expect(omittedOnRejected.consume({ key: "user" })).rejects.toThrow("declared retryAfter metadata on-rejection")
   })
 
   it("applies explicit failure policy", async () => {

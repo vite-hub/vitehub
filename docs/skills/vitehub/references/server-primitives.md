@@ -30,7 +30,7 @@ Rate Limit is an atomic consume primitive, not generic KV sugar. Use a Rate Limi
 
 Automatic Rate Limit memory selection belongs to Vite development and serve commands. For a production build, require inferred Cloudflare hosting or select the production provider explicitly; never let an unknown host silently become per-instance memory.
 
-Before deploying Rate Limits, inspect `.vitehub/rate-limit/manifest.json` for the sorted stable IDs, resolved provider, and declared enforcement, scope, metadata, rejected-attempt, and window guarantees. Treat the manifest as generated inspection state, not an application import.
+Before deploying Rate Limits, inspect `.vitehub/rate-limit/manifest.json` for the sorted stable IDs, resolved provider, enforcement level, counter scope, rejected-attempt behavior, and supported windows. Treat the manifest as generated inspection state, not an application import.
 
 ## Proof
 
