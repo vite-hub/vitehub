@@ -98,8 +98,9 @@ ignoreDependencies = [
   # Vite+ aliases are installed through vite/vitest overrides.
   "@voidzero-dev/vite-plus-core",
   "@voidzero-dev/vite-plus-test",
-  # Nuxt modules and generated assets are loaded from configuration.
+  # Nuxt modules and generated runtime peers are loaded from configuration.
   "docus",
+  "agents",
   "@nuxt/ui",
   "@iconify-json/lucide",
   "@iconify-json/ph",
