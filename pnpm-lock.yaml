@@ -1110,6 +1110,9 @@ importers:
 
   packages/shell:
     dependencies:
+      effect:
+        specifier: catalog:effect
+        version: 4.0.0-beta.99
       just-bash:
         specifier: catalog:shell
         version: 3.1.0
@@ -1120,6 +1123,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.3
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
       publint:
         specifier: catalog:tooling
         version: 0.3.21

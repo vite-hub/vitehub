@@ -38,11 +38,13 @@
     "test": "vp run -t @vite-hub/shell#build && vp test"
   },
   "dependencies": {
+    "effect": "catalog:effect",
     "just-bash": "catalog:shell",
     "sh-syntax": "catalog:shell"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",
