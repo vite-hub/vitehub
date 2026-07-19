@@ -202,6 +202,17 @@ describe("source scanner", () => {
     })
   })
 
+  it("finds default-exported object literals with TypeScript assertions", () => {
+    for (const suffix of ["as const", "satisfies ThingOptions"]) {
+      const call = findDefaultExportCall(
+        `export default defineThing({ value: "real" } ${suffix})`,
+        ["defineThing"],
+      )
+
+      expect(call?.argument).toBe(`{ value: "real" }`)
+    }
+  })
+
   it("reads top-level object properties without matching nested values", () => {
     expect(readObjectProperty(`{ nested: { cron: "wrong" }, cron: "0 8 * * *" }`, "cron"))
       .toBe(`"0 8 * * *"`)
