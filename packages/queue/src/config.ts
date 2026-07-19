@@ -27,7 +27,10 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
 
   if (resolved === "cloudflare") {
     return defu(
-      typeof options.binding === "string" ? { binding: options.binding } : {},
+      {
+        ...(typeof options.binding === "string" ? { binding: options.binding } : {}),
+        ...(typeof options.namePrefix === "string" ? { namePrefix: options.namePrefix } : {}),
+      },
       shared,
       { provider: "cloudflare" as const },
     )

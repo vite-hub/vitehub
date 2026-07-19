@@ -669,7 +669,7 @@ describe("Vite provider outputs", () => {
 
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
     expect(runtimeContents).toContain("store: storeName => createGeneratedBlobStorage(storeName)")
-    expect(runtimeContents).toContain("export const blob = createGeneratedBlobStorage()")
+    expect(runtimeContents).toContain("export const blob = createLazyGeneratedBlobStorage(\"default\")")
   })
 
   it("generates Netlify Blobs driver reachability for selected stores", async () => {

@@ -217,7 +217,12 @@ describe("Vite provider outputs", () => {
       rootDir,
     })
     const workerFile = join(cloudflareOutputRoot, "index.js")
-    const legacyWorker = (await readFile(workerFile, "utf8")).replace("// vitehub-queue-worker\n", "")
+    const legacyWorker = [
+      "createQueueCloudflareWorker({",
+      "getCloudflareQueueDefinitionName(batch.queue)",
+      'label: "queue"',
+      "",
+    ].join("\n")
     expect(legacyWorker).not.toContain("vitehub-queue-worker")
     await writeFile(workerFile, legacyWorker, "utf8")
     const wranglerFile = join(cloudflareOutputRoot, "wrangler.json")
@@ -370,6 +375,28 @@ describe("Vite provider outputs", () => {
 
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"))).toBe(false)
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel"))).toBe(false)
+  })
+
+  it("uses an inferred Cloudflare prefix in standalone bindings and dispatch", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-prefix-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist",
+      queue: { namePrefix: "preview-" } as never,
+      rootDir,
+    })
+
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const wrangler = JSON.parse(await readFile(join(outputRoot, "wrangler.json"), "utf8"))
+    expect(wrangler.queues).toEqual({
+      consumers: [{ queue: "preview-queue--77656c636f6d65" }],
+      producers: [{ binding: "QUEUE_77656C636F6D65", queue: "preview-queue--77656c636f6d65" }],
+    })
+    const workerEntry = await readFile(join(rootDir, ".vitehub", "queue", "cloudflare-worker.mjs"), "utf8")
+    expect(workerEntry).toContain('"preview-queue--77656c636f6d65": "welcome"')
+    expect(workerEntry).toContain("definitions: queueDefinitions")
   })
 
   it("throws when queue names collide after Vercel sanitization", async () => {

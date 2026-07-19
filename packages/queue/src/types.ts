@@ -94,6 +94,7 @@ export interface CloudflareQueueProviderOptions extends QueueSharedOptions {
 
 interface CloudflareQueueModuleProviderOptions extends QueueSharedOptions {
   binding?: string
+  namePrefix?: string
   provider: "cloudflare"
 }
 
@@ -119,7 +120,7 @@ export type QueueModuleProviderOptions =
 
 export type QueueModuleOptions =
   | false
-  | (QueueSharedOptions & { provider?: undefined })
+  | (QueueSharedOptions & { namePrefix?: string; provider?: undefined })
   | QueueModuleProviderOptions
 
 export type ResolvedQueueOptions = QueueModuleProviderOptions

@@ -3,8 +3,9 @@ import { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput,
 import { createNoExternalMerger, hasNitroVitePlugin, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 
-import { createCloudflareQueueBindings, generateProviderOutputs, generatedQueueNitroMiddleware, generatedQueueNitroPlugin, queuePackageName, writeQueueNitroIntegration } from "./internal/vite-build.ts"
+import { normalizeQueueOptions } from "./config.ts"
 import { discoverQueueDefinitions } from "./discovery.ts"
+import { createCloudflareQueueBindings, generateProviderOutputs, generatedQueueNitroMiddleware, generatedQueueNitroPlugin, queuePackageName, writeQueueNitroIntegration } from "./internal/vite-build.ts"
 import { createQueueProvisionStep } from "./provision.ts"
 
 import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } from "./types.ts"
@@ -65,7 +66,8 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
   }
   if (!plugins.includes(generatedQueueNitroPlugin)) plugins.unshift(generatedQueueNitroPlugin)
   handlers.unshift({ handler: generatedQueueNitroMiddleware, middleware: true, route: "/**" })
-  if (resolveQueueHosting(queue, nitro) !== "cloudflare") {
+  const queueHosting = resolveQueueHosting(queue, nitro)
+  if (queueHosting !== "cloudflare") {
     registerCloudflareProviderOutput(config, "queue", {})
     return composeNitroCloudflareProviderOutput(config, { ...nitro, handlers, plugins })
   }
@@ -75,7 +77,8 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
   if (!compatibilityFlags.includes("nodejs_compat")) compatibilityFlags.push("nodejs_compat")
   const cloudflareQueues = supportsCloudflareQueues(nitro)
   const rollupConfig = cloneNitroConfig(nitro.rollupConfig)
-  const generated = createCloudflareQueueBindings(definitions)
+  const resolvedQueue = normalizeQueueOptions(queue, { hosting: queueHosting })
+  const generated = createCloudflareQueueBindings(definitions, resolvedQueue?.provider === "cloudflare" ? resolvedQueue.namePrefix : undefined)
   const baseNitro = {
     ...nitro,
     ...(cloudflareQueues ? { rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") } } : {}),
@@ -87,7 +90,7 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
     registerCloudflareProviderOutput(config, "queue", {})
     return composeNitroCloudflareProviderOutput(config, baseNitro)
   }
-  const binding = queue?.provider === "cloudflare" && typeof queue.binding === "string" ? queue.binding : undefined
+  const binding = resolvedQueue?.provider === "cloudflare" && typeof resolvedQueue.binding === "string" ? resolvedQueue.binding : undefined
   if (binding && generated.producers.length > 1) {
     throw new Error("A custom Cloudflare queue binding can only be used with one Queue Definition.")
   }
@@ -115,7 +118,16 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
     name: "@vite-hub/queue/vite",
     vitehub: {
       cli: async () => {
-        return { namespaces: [], provision: [createQueueProvisionStep(() => resolved?.root ?? process.cwd())] }
+        return {
+          namespaces: [],
+          provision: [createQueueProvisionStep(
+            () => resolved?.root ?? process.cwd(),
+            () => {
+              const resolvedQueue = normalizeQueueOptions(queue, { hosting: "cloudflare" })
+              return resolvedQueue?.provider === "cloudflare" ? resolvedQueue.namePrefix : undefined
+            },
+          )],
+        }
       },
     },
     config(config) {

@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 
@@ -71,6 +71,76 @@ describe("hubQueue", () => {
     expect(registry).toContain("welcome.queue.ts")
   })
 
+  it("keeps inferred Cloudflare queue prefixes aligned across bindings and runtime definitions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-prefix-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+
+    const plugin = hubQueue({ namePrefix: "preview-" })
+    const userConfig = { nitro: { preset: "cloudflare_module" }, root }
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(userConfig)
+    expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.queues", {
+      consumers: [{ queue: "preview-queue--77656c636f6d65" }],
+      producers: [{ binding: "QUEUE_77656C636F6D65", queue: "preview-queue--77656c636f6d65" }],
+    })
+
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      ...userConfig,
+      queue: { namePrefix: "preview-" },
+    } as never)
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain('"preview-queue--77656c636f6d65": "welcome"')
+    expect(nitroPlugin).toContain("createQueueCloudflareWorker({ definitions: queueDefinitions")
+  })
+
+  it("provisions inferred Cloudflare queues with the configured prefix in plain Vite builds", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-provision-prefix-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+
+    const plugin = hubQueue({ namePrefix: "preview-" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      build: { outDir: "dist" },
+      command: "serve",
+      plugins: [],
+      queue: { namePrefix: "preview-" },
+      resolve: { alias: [] },
+      root,
+    } as never)
+    const cli = await plugin.vitehub!.cli!()
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ success: true, result: [] }))) as unknown as typeof globalThis.fetch
+    const actions = await cli.provision![0]!.plan({
+      env: { CLOUDFLARE_ACCOUNT_ID: "account", CLOUDFLARE_API_TOKEN: "token" },
+      fetch,
+      logger: { log: () => {}, warn: () => {} },
+    })
+
+    expect(actions[0]!.name).toBe("preview-queue--77656c636f6d65")
+  })
+
+  it("accepts Cloudflare physical queue names at the provider limit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-prefix-limit-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+
+    const validConfig = hubQueue({ namePrefix: "x".repeat(42), provider: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => void
+    expect(() => validConfig({ nitro: { preset: "cloudflare_module" }, root })).not.toThrow()
+
+    const invalidConfig = hubQueue({ namePrefix: "x".repeat(43), provider: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => void
+    expect(() => invalidConfig({ nitro: { preset: "cloudflare_module" }, root })).toThrow("must be at most 63 characters")
+  })
+
+  it("rejects invalid Cloudflare queue prefixes during configuration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-prefix-invalid-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+
+    for (const namePrefix of ["-preview-", "preview_", "preview/"]) {
+      const config = hubQueue({ namePrefix, provider: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => void
+      expect(() => config({ nitro: { preset: "cloudflare_module" }, root })).toThrow("must contain only letters, numbers, and dashes")
+    }
+  })
+
   it("infers providers for generated Nitro runtime imports", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
     roots.push(root)
@@ -78,6 +148,18 @@ describe("hubQueue", () => {
     const plugin = hubQueue({})
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ queue: {}, root, nitro: { preset: "vercel" } } as never)
     expect(await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")).toContain("import * as __vitehubVercelQueue from '@vercel/queue'")
+  })
+
+  it("does not apply Cloudflare name limits to Vercel Nitro queues", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-vercel-name-"))
+    roots.push(root)
+    await writeFile(join(root, `${"q".repeat(30)}.queue.ts`), "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue({ provider: "vercel" })
+
+    await expect((plugin.configResolved as (config: unknown) => Promise<void>)({
+      queue: { provider: "vercel" },
+      root,
+    } as never)).resolves.toBeUndefined()
   })
 
   it("uses the Nitro host instead of a mismatched explicit provider", async () => {

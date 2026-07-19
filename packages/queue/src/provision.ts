@@ -9,7 +9,7 @@ interface CloudflareQueue {
   queue_name?: string
 }
 
-export function createQueueProvisionStep(resolveRootDir: () => string): ProvisionStep {
+export function createQueueProvisionStep(resolveRootDir: () => string, resolveNamePrefix: () => string | undefined = () => undefined): ProvisionStep {
   return {
     id: "queue:cloudflare-queues",
     provider: "cloudflare",
@@ -21,7 +21,8 @@ export function createQueueProvisionStep(resolveRootDir: () => string): Provisio
       }
 
       const request = createCloudflareProvisionClient(config, context.fetch)
-      const names = discoverQueueDefinitions({ rootDir: resolveRootDir() }).map(definition => getCloudflareQueueName(definition.name))
+      const namePrefix = resolveNamePrefix()
+      const names = discoverQueueDefinitions({ rootDir: resolveRootDir() }).map(definition => getCloudflareQueueName(definition.name, namePrefix))
       if (!names.length) return []
 
       const listed = await request<CloudflareQueue[]>("/queues")

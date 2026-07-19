@@ -14,6 +14,7 @@ export type CloudflareWorkerApp = QueueApp
 
 export interface QueueCloudflareWorkerOptions {
   app?: CloudflareWorkerApp
+  definitions?: Record<string, string>
   queue?: false | ResolvedQueueOptions
   registry?: QueueDefinitionRegistry
 }
@@ -26,6 +27,7 @@ export interface QueueCloudflareWorker {
 export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOptions = {}): QueueCloudflareWorker {
   const queueConfig = options.queue === false ? false : normalizeQueueOptions(options.queue, { hosting: "cloudflare" })!
   const registry = options.registry
+  const definitions = options.definitions
 
   const applyRuntimeState = () => {
     setQueueRuntimeConfig(queueConfig)
@@ -50,9 +52,17 @@ export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOption
 
       const runtimeEvent = createCloudflareRuntimeEvent(env, context)
       await runWithActiveCloudflareEnv(env, async () => {
-        const definition = await loadQueueDefinition(getCloudflareQueueDefinitionName(batch.queue))
+        const definitionName = definitions
+          ? definitions[batch.queue]
+          : queueConfig.namePrefix && !batch.queue.startsWith(queueConfig.namePrefix)
+            ? undefined
+            : getCloudflareQueueDefinitionName(batch.queue, queueConfig.namePrefix)
+        if (!definitionName) {
+          throw new Error(`[vitehub] Cloudflare queue ${JSON.stringify(batch.queue)} is not mapped to a Queue Definition.`)
+        }
+        const definition = await loadQueueDefinition(definitionName)
         if (!definition) {
-          return
+          throw new Error(`[vitehub] Cloudflare queue ${JSON.stringify(batch.queue)} maps to unknown Queue Definition ${JSON.stringify(definitionName)}.`)
         }
 
         await createCloudflareQueueBatchHandler({

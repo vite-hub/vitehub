@@ -5,7 +5,7 @@ import { createNoExternalMerger, hasNitroVitePlugin, isServerEnvironment, resolv
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
 
-import { createCloudflareR2Bindings, generateProviderOutputs, prepareProviderOutputs, blobPackageName } from "./internal/vite-build.ts"
+import { createCloudflareR2Bindings, generateProviderOutputs, prepareProviderOutputs, renderBlobRuntimeModule, blobPackageName } from "./internal/vite-build.ts"
 import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
   BLOB_VIRTUAL_CONFIG_ID,
@@ -21,6 +21,7 @@ import type { Plugin, ResolvedConfig } from "vite"
 
 const RESOLVED_BLOB_VIRTUAL_CONFIG_ID = `\0${BLOB_VIRTUAL_CONFIG_ID}`
 const generatedNitroBlobPlugin = ".vitehub/nitro/blob/plugin.ts"
+const generatedNitroBlobRuntime = ".vitehub/nitro/blob/runtime.mjs"
 const generatedNitroBlobMiddleware = ".vitehub/nitro/blob/middleware.ts"
 const generatedBlobServeRouteHandler = ".vitehub/blob/serve-route.ts"
 
@@ -129,6 +130,7 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
 function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName): string {
   return [
     cloudflare ? "import { env as vitehubEnv } from 'cloudflare:workers'" : undefined,
+    cloudflare ? undefined : "import './runtime.mjs'",
     `import { ${cloudflare ? "setActiveCloudflareEnv, " : ""}setBlobRuntimeConfig } from '${importBase}/runtime/state'`,
     "",
     `const blobConfig = ${JSON.stringify(blob)}`,
@@ -185,7 +187,9 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
 }
 
 async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName): Promise<void> {
+  const runtimeFile = resolve(root, generatedNitroBlobRuntime)
   await Promise.all([
+    writeFileIfChanged(runtimeFile, renderBlobRuntimeModule(runtimeFile, blob)),
     writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase)),
     writeFileIfChanged(resolve(root, generatedNitroBlobMiddleware), renderNitroBlobMiddleware(importBase)),
   ])

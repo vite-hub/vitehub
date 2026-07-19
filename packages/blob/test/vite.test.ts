@@ -1,12 +1,21 @@
+import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { promisify } from "node:util"
 
+import { build as bundle } from "esbuild"
 import { describe, expect, it } from "vitest"
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 
 import { BLOB_VIRTUAL_CONFIG_ID, hubBlob } from "../src/vite.ts"
+
+const execFileAsync = promisify(execFile)
+
+function driverImports(source: string) {
+  return source.match(/from\s+["'][^"']+\/drivers\/[^"']+["']/g) || []
+}
 
 describe("hubBlob", () => {
   it("resolves Blob config from the Vite layer", () => {
@@ -90,9 +99,207 @@ describe("hubBlob", () => {
     } as never)
 
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
+    const nitroRuntime = await readFile(join(root, ".vitehub", "nitro", "blob", "runtime.mjs"), "utf8")
     expect(nitroPlugin).toContain('"base":".runtime/blob"')
     expect(nitroPlugin).not.toContain("#vitehub/blob/config")
+    expect(nitroPlugin).toContain("import './runtime.mjs'")
     expect(nitroPlugin).toContain("setBlobRuntimeConfig(blobConfig)")
+    expect(driverImports(nitroRuntime)).toHaveLength(1)
+    expect(driverImports(nitroRuntime)[0]).toContain("/drivers/fs")
+  })
+
+  it("runs selected default and named Blob stores from a standalone Node artifact", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-node-"))
+    const artifactRoot = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-artifact-"))
+    try {
+      const plugin = hubBlob({
+        stores: {
+          archive: { base: ".data/archive", driver: "fs" },
+          default: { base: ".data/default", driver: "fs" },
+          remote: { driver: "vercel-blob" },
+        },
+      })
+      const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
+      await configResolved({ build: { outDir: "dist" }, root } as never)
+
+      const runtimeFile = join(root, ".vitehub", "nitro", "blob", "runtime.mjs")
+      const runtimeSource = await readFile(runtimeFile, "utf8")
+      expect(driverImports(runtimeSource)).toHaveLength(2)
+      expect(driverImports(runtimeSource)[0]).toContain("/drivers/fs")
+      expect(runtimeSource).not.toContain("/drivers/netlify-blobs")
+      expect(runtimeSource).toContain("/drivers/vercel")
+      expect(runtimeSource).toContain("export const blob = createLazyGeneratedBlobStorage(\"default\")")
+      expect(runtimeSource).toContain("setNamedBlobRuntimeStorage(name, createLazyGeneratedBlobStorage(name))")
+
+      const entryFile = join(root, "entry.mjs")
+      const artifactFile = join(artifactRoot, "server.mjs")
+      await writeFile(entryFile, [
+        "import './.vitehub/nitro/blob/runtime.mjs'",
+        `import { blob } from ${JSON.stringify(join(import.meta.dirname, "../dist/index.js"))}`,
+        "await blob.put('default.txt', 'default-store')",
+        "await blob.store('archive').put('archive.txt', 'named-store')",
+        "const defaultValue = await (await blob.get('default.txt'))?.text()",
+        "const archiveValue = await (await blob.store('archive').get('archive.txt'))?.text()",
+        "console.log(JSON.stringify({ archiveValue, defaultValue }))",
+        "",
+      ].join("\n"), "utf8")
+      const buildResult = await bundle({
+        bundle: true,
+        entryPoints: [entryFile],
+        format: "esm",
+        logLevel: "silent",
+        metafile: true,
+        outfile: artifactFile,
+        platform: "node",
+        target: "node24",
+      })
+
+      const externalImports = Object.values(buildResult.metafile.outputs)
+        .flatMap(output => output.imports)
+        .filter(imported => imported.external)
+        .map(imported => imported.path)
+      expect(externalImports.every(path => path.startsWith("node:"))).toBe(true)
+      const { stdout } = await execFileAsync(process.execPath, [artifactFile], { cwd: artifactRoot })
+      expect(JSON.parse(stdout)).toEqual({ archiveValue: "named-store", defaultValue: "default-store" })
+    }
+    finally {
+      await Promise.all([
+        rm(root, { force: true, recursive: true }),
+        rm(artifactRoot, { force: true, recursive: true }),
+      ])
+    }
+  })
+
+  it("does not initialize an unused env-backed default store during startup", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-lazy-default-"))
+    const artifactRoot = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-lazy-artifact-"))
+    try {
+      const plugin = hubBlob({ driver: "vercel-blob" })
+      await (plugin.configResolved as (config: unknown) => void | Promise<void>)({ build: { outDir: "dist" }, root } as never)
+
+      const entryFile = join(root, "entry.mjs")
+      const artifactFile = join(artifactRoot, "server.mjs")
+      await writeFile(entryFile, [
+        "import './.vitehub/nitro/blob/runtime.mjs'",
+        "console.log('started')",
+        "",
+      ].join("\n"), "utf8")
+      await bundle({
+        bundle: true,
+        entryPoints: [entryFile],
+        format: "esm",
+        logLevel: "silent",
+        outfile: artifactFile,
+        platform: "node",
+        target: "node24",
+      })
+
+      const { stdout } = await execFileAsync(process.execPath, [artifactFile], {
+        cwd: artifactRoot,
+        env: { ...process.env, BLOB_READ_WRITE_TOKEN: undefined },
+      })
+      expect(stdout.trim()).toBe("started")
+    }
+    finally {
+      await Promise.all([
+        rm(root, { force: true, recursive: true }),
+        rm(artifactRoot, { force: true, recursive: true }),
+      ])
+    }
+  })
+
+  it("generates only the selected Netlify Blob driver for Nitro", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-netlify-"))
+    const artifactRoot = await mkdtemp(join(tmpdir(), "vitehub-blob-netlify-artifact-"))
+    const previousHosting = process.env.VITEHUB_HOSTING
+    process.env.VITEHUB_HOSTING = "netlify"
+    try {
+      const plugin = hubBlob()
+      const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
+      await configResolved({ build: { outDir: "dist" }, root } as never)
+
+      const runtimeFile = join(root, ".vitehub", "nitro", "blob", "runtime.mjs")
+      const runtimeSource = await readFile(runtimeFile, "utf8")
+      expect(driverImports(runtimeSource)).toHaveLength(1)
+      expect(driverImports(runtimeSource)[0]).toContain("/drivers/netlify-blobs")
+      expect(runtimeSource).not.toContain("/drivers/fs")
+      expect(runtimeSource).not.toContain("/drivers/vercel")
+
+      const filesSdkStub = join(root, "files-sdk.mjs")
+      const netlifyAdapterStub = join(root, "netlify-blobs.mjs")
+      const entryFile = join(root, "entry.mjs")
+      const artifactFile = join(artifactRoot, "server.mjs")
+      await writeFile(filesSdkStub, [
+        "export class Files {",
+        "  constructor({ adapter }) {",
+        "    if (adapter?.kind !== 'netlify-blobs-adapter-stub') throw new Error('netlify-files-sdk-stub')",
+        "    this.adapter = adapter",
+        "  }",
+        "  async download(key) {",
+        "    const value = this.adapter.values.get(key)",
+        "    if (!value) throw new Error(`Missing ${key}`)",
+        "    return { arrayBuffer: async () => value.bytes.buffer, blob: async () => new Blob([value.bytes], { type: value.contentType }) }",
+        "  }",
+        "  async upload(key, body, options = {}) {",
+        "    const bytes = new Uint8Array(await new Response(body).arrayBuffer())",
+        "    this.adapter.values.set(key, { bytes, contentType: options.contentType })",
+        "    return { contentType: options.contentType, key, lastModified: new Date(0), size: bytes.byteLength }",
+        "  }",
+        "  async url(key) { return `https://blob.example/${key}` }",
+        "}",
+        "",
+      ].join("\n"), "utf8")
+      await writeFile(netlifyAdapterStub, [
+        "export function netlifyBlobs() {",
+        "  return { kind: 'netlify-blobs-adapter-stub', values: new Map() }",
+        "}",
+        "",
+      ].join("\n"), "utf8")
+      await writeFile(entryFile, [
+        "import './.vitehub/nitro/blob/runtime.mjs'",
+        `import { blob } from ${JSON.stringify(join(import.meta.dirname, "../dist/index.js"))}`,
+        "await blob.put('netlify.txt', 'netlify-store', { contentType: 'text/plain' })",
+        "console.log(await (await blob.get('netlify.txt'))?.text())",
+        "",
+      ].join("\n"), "utf8")
+      const buildResult = await bundle({
+        bundle: true,
+        entryPoints: [entryFile],
+        format: "esm",
+        logLevel: "silent",
+        metafile: true,
+        outfile: artifactFile,
+        platform: "node",
+        plugins: [{
+          name: "netlify-sdk-stubs",
+          setup(build) {
+            build.onResolve({ filter: /^files-sdk$/ }, () => ({ path: filesSdkStub }))
+            build.onResolve({ filter: /^files-sdk\/netlify-blobs$/ }, () => ({ path: netlifyAdapterStub }))
+          },
+        }],
+        target: "node24",
+      })
+      const artifactSource = await readFile(artifactFile, "utf8")
+      expect(artifactSource).toContain("netlify-files-sdk-stub")
+      expect(artifactSource).toContain("netlify-blobs-adapter-stub")
+      expect(artifactSource).not.toContain("files-sdk/vercel-blob")
+      expect(artifactSource).not.toContain("files-sdk/s3")
+      const externalImports = Object.values(buildResult.metafile.outputs)
+        .flatMap(output => output.imports)
+        .filter(imported => imported.external)
+        .map(imported => imported.path)
+      expect(externalImports.every(path => path.startsWith("node:"))).toBe(true)
+      const { stdout } = await execFileAsync(process.execPath, [artifactFile], { cwd: artifactRoot })
+      expect(stdout.trim()).toBe("netlify-store")
+    }
+    finally {
+      if (typeof previousHosting === "undefined") delete process.env.VITEHUB_HOSTING
+      else process.env.VITEHUB_HOSTING = previousHosting
+      await Promise.all([
+        rm(root, { force: true, recursive: true }),
+        rm(artifactRoot, { force: true, recursive: true }),
+      ])
+    }
   })
 
   it("contributes deduplicated R2 bindings when Nitro owns Cloudflare output", async () => {
