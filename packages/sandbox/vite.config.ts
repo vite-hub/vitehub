@@ -13,7 +13,6 @@ export default defineConfig({
         "virtual:vitehub-sandbox-provider-loader",
       ],
       onlyBundle: false,
-      skipNodeModulesBundle: true,
     },
     entry: [
       "src/index.ts",
