@@ -577,7 +577,7 @@ describe("crabbox", () => {
       const copies = invocations.filter(invocation => invocation.includes("|cp|"))
       expect(copies).toHaveLength(4)
       expect(copies.every(copy => copy.includes("--provider ssh --target linux --id static_test"))).toBe(true)
-      expect(copies).toContain(expect.stringContaining(`SANDBOX:${cacheRoot}/cache.txt`))
+      expect(copies.some(copy => copy.includes(`SANDBOX:${cacheRoot}/cache.txt`))).toBe(true)
       expect(invocations).not.toContain(expect.stringContaining("|tunnel|"))
       expect(invocations.every(invocation => invocation.startsWith(`${workspaceCwd}|`))).toBe(true)
       expect(invocations.every(invocation => !invocation.includes("--static-work-root"))).toBe(true)
