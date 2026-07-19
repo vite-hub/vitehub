@@ -113,7 +113,7 @@ Provider inference supports Cloudflare and Vercel hosting. Netlify cannot infer 
 
 Cloudflare and Vercel expose different lifecycle, credential, network, and file behavior. Keep provider credentials in Server Env or provider configuration, not in Sandbox Payloads.
 
-Successful Cloudflare runs remain available until their idle timeout so later runs of the same Definition can reuse them. Failed Cloudflare runs and Vercel runs are stopped immediately.
+Cloudflare runs remain available until their idle timeout so later runs of the same Definition can reuse them. Each invocation removes its isolated temporary files on success or failure. Vercel runs are stopped immediately.
 
 ## Define sandbox work
 

@@ -158,6 +158,16 @@ describe("hubSandbox", () => {
     await expect(configHook({ root: rootDir }, { command: "build", mode: "production" })).resolves.toBeDefined()
   })
 
+  it("keeps default Sandbox inert when the Vite root has no package manifest", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-sandbox-vite-"))
+    tempDirs.push(rootDir)
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox()
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+
+    await expect(configHook({ root: rootDir }, { command: "build", mode: "production" })).resolves.toBeDefined()
+  })
+
   it("exposes hosting inference and normalized runtime config through sandbox state", async () => {
     const rootDir = await createViteRoot()
     const { hubSandbox } = await import("../src/vite.ts")

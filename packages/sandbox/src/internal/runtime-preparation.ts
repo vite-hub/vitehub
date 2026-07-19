@@ -101,7 +101,7 @@ async function resolveSandboxViteContext(
   return {
     rootDir,
     config,
-    deps: await readSandboxWorkspaceDeps(rootDir),
+    deps: hasDefinitions ? await readSandboxWorkspaceDeps(rootDir) : {},
     runtimeConfig: createSandboxRuntimeConfig(config, hosting),
     hosting,
     command: env.command,
