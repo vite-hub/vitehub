@@ -178,13 +178,13 @@ function renderProviderEntry(
   return lines.filter(Boolean).join("\n")
 }
 
-function renderBlobRuntimeModule(file: string, blobConfig: false | ResolvedBlobModuleOptions) {
+export function renderBlobRuntimeModule(file: string, blobConfig: false | ResolvedBlobModuleOptions) {
   const stores = blobConfig ? Object.values(blobConfig.stores || { default: blobConfig.store }) : []
   const selectedDriverModules = [...new Set(stores.map(store => driverModules[store.driver]))]
   const driverImports = Object.fromEntries(selectedDriverModules.map((driverModule, index) => [driverModule, `createDriver${index}`]))
   const imports = [
     `import { ensureBlob } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("ensure")))}`,
-    `import { setBlobRuntimeConfig, setBlobRuntimeStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
+    `import { setBlobRuntimeConfig, setBlobRuntimeStorage, setNamedBlobRuntimeStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
   ]
   if (selectedDriverModules.length > 0) {
     imports.push(`import { createBlobStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("storage")))}`)
@@ -263,6 +263,9 @@ function renderBlobRuntimeModule(file: string, blobConfig: false | ResolvedBlobM
           "",
           "export const blob = createGeneratedBlobStorage()",
           "setBlobRuntimeStorage(blob)",
+          "for (const name of Object.keys(blobConfig.stores || { default: blobConfig.store })) {",
+          "  setNamedBlobRuntimeStorage(name, createGeneratedBlobStorage(name))",
+          "}",
         ]
       : [
           "export const blob = undefined",
