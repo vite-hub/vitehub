@@ -145,8 +145,7 @@ function resolveStringAliases(alias: unknown): AliasMap {
       continue
     if (builtinModuleSet.has(entry.find))
       continue
-    const normalized = entry.find.replace(/\/$/, '')
-    const find = entry.find.endsWith('/') && builtinModuleSet.has(normalized) ? entry.find : normalized
+    const find = entry.find.replace(/\/$/, '')
     if (!find)
       continue
     aliases[find] = entry.replacement
