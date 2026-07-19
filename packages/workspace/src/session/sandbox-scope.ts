@@ -39,7 +39,6 @@ export class SandboxWorkspaceScope<Resource extends SandboxResource, Setup> {
     this.closed = true
     return runWorkspaceEffect(closeWorkspaceResources(this.scope, this.failures, {
       aggregateMessage: "[vitehub] Workspace sandbox cleanup failed for multiple reasons.",
-      operation: "Workspace.Sandbox.Scope.close",
     }))
   }
 }
@@ -54,14 +53,14 @@ export function openSandboxWorkspaceScope<Resource extends SandboxResource, Setu
     const resource = yield* acquireWorkspaceResource(
       scope,
       failures,
-      tryWorkspacePromise("Workspace.Sandbox.acquire", acquire),
+      tryWorkspacePromise(acquire),
       sandbox => sandbox.provider === "vercel"
-        ? tryWorkspacePromise("Workspace.Sandbox.release", () => sandbox.stop())
+        ? tryWorkspacePromise(() => sandbox.stop())
         : Effect.void,
     )
 
     const setupExit = yield* Effect.exit(
-      tryWorkspacePromise("Workspace.Sandbox.setup", () => setup(resource)),
+      tryWorkspacePromise(() => setup(resource)),
     )
     if (Exit.isSuccess(setupExit))
       return new SandboxWorkspaceScope(resource, setupExit.value, scope, failures)
@@ -70,7 +69,6 @@ export function openSandboxWorkspaceScope<Resource extends SandboxResource, Setu
     const closeExit = yield* Effect.exit(closeWorkspaceResources(scope, failures, {
       aggregateMessage: "[vitehub] Workspace sandbox cleanup failed for multiple reasons.",
       exit: setupExit,
-      operation: "Workspace.Sandbox.Scope.close",
     }))
     if (Exit.isFailure(closeExit)) {
       return yield* Effect.fail(new WorkspaceEffectFailure({
@@ -78,12 +76,10 @@ export function openSandboxWorkspaceScope<Resource extends SandboxResource, Setu
           [setupError, failureValue(closeExit)],
           "[vitehub] Workspace sandbox setup failed and cleanup also failed.",
         ),
-        operation: "Workspace.Sandbox.setup",
       }))
     }
     return yield* Effect.fail(new WorkspaceEffectFailure({
       cause: setupError,
-      operation: "Workspace.Sandbox.setup",
     }))
   }))
 }

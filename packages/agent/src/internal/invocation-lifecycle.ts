@@ -28,12 +28,10 @@ const failInvocation = Effect.fn("Agent.InvocationLifecycle.fail")(function* <Ou
       : new AggregateError(causes, "[vitehub] Agent finish lifecycle failed for multiple reasons.")
     return yield* Effect.fail(new AgentEffectFailure({
       cause: new AggregateError([error, finishError], message),
-      operation: "Agent.InvocationLifecycle.fail",
     }))
   }
   return yield* Effect.fail(new AgentEffectFailure({
     cause: error,
-    operation: "Agent.InvocationLifecycle.fail",
   }))
 })
 
@@ -43,7 +41,7 @@ const makeInvocationLifecycle = Effect.fn("Agent.InvocationLifecycle.open")(func
   const deferred = yield* Deferred.make<Outcome>()
   const complete = yield* Effect.cached(
     Deferred.await(deferred).pipe(
-      Effect.flatMap(value => tryAgentPromise("Agent.InvocationLifecycle.finish", () => finish(value))),
+      Effect.flatMap(value => tryAgentPromise(() => finish(value))),
     ),
   )
   return {

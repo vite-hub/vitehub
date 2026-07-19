@@ -159,9 +159,9 @@ function spawnProcess(session: LocalHarnessSandboxSession, options: {
 
   const wait = runAgentEffect(Effect.acquireUseRelease(
     Effect.succeed(child),
-    process => tryAgentPromise("Agent.Harness.Process.wait", signal => once(process, "close", { signal })
+    process => tryAgentPromise(signal => once(process, "close", { signal })
       .then(([code]) => ({ exitCode: typeof code === "number" ? code : 1 }))),
-    process => tryAgentPromise("Agent.Harness.Process.close", async () => {
+    process => tryAgentPromise(async () => {
       if (process.exitCode === null && process.signalCode === null) {
         const closed = once(process, "close").catch(() => undefined)
         process.kill()

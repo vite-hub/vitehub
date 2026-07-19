@@ -148,7 +148,7 @@ class RuntimeShellSession implements ShellSession {
         owner.scope,
         owner.failures,
         Effect.succeed(trackedProcess),
-        resource => tryShellPromise("Shell.Process.stop", () => resource.stop()),
+        resource => tryShellPromise(() => resource.stop()),
       ))
     }
     finally {
@@ -181,7 +181,6 @@ class RuntimeShellSession implements ShellSession {
       const owner = await this.#owner
       await runShellEffect(closeShellScope(owner.scope, owner.failures, {
         aggregateMessage: "[vitehub] Shell session failed to stop multiple background processes.",
-        operation: "Shell.Session.dispose",
       }))
       return {
         event: "session_disposed" as const,

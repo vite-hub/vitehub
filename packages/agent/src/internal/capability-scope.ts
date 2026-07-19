@@ -20,7 +20,7 @@ const addCapability = Effect.fn("Capability.Scope.add")(function* (
     scope,
     failures,
     Effect.succeed(close),
-    registered => tryAgentPromise("Capability.close", () => registered()),
+    registered => tryAgentPromise(() => registered()),
   )
 })
 
@@ -31,7 +31,6 @@ const failCapabilitySetup = Effect.fn("Capability.Scope.failSetup")(function* (
 ) {
   const closeExit = yield* Effect.exit(closeAgentResources(scope, failures, {
     aggregateMessage: "[vitehub] Multiple capability close callbacks failed.",
-    operation: "Capability.Scope.close",
   }))
   if (Exit.isFailure(closeExit)) {
     const closeCauses = agentEffectCauseValues(closeExit.cause)
@@ -44,12 +43,11 @@ const failCapabilitySetup = Effect.fn("Capability.Scope.failSetup")(function* (
           [setupError, closeError],
           "[vitehub] Capability setup failed and cleanup also failed.",
         ),
-        operation: "Capability.Scope.failSetup",
       }),
     )
   }
   return yield* Effect.fail(
-    new AgentEffectFailure({ cause: setupError, operation: "Capability.Scope.failSetup" }),
+    new AgentEffectFailure({ cause: setupError }),
   )
 })
 
@@ -72,7 +70,6 @@ export class AgentCapabilityScope {
   close(): Promise<void> {
     return runAgentEffect(closeAgentResources(this.scope, this.failures, {
       aggregateMessage: "[vitehub] Multiple capability close callbacks failed.",
-      operation: "Capability.Scope.close",
     }))
   }
 

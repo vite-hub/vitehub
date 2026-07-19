@@ -105,7 +105,7 @@ async function snapshotSandbox(sandbox: SandboxClient, name?: string) {
   const entries = await listSandboxEntries(sandbox, "", true)
   const files = await runWorkspaceEffect(Effect.forEach(entries, entry => {
     if (entry.type !== "file") return Effect.succeed(entry)
-    return tryWorkspacePromise("Workspace.Sandbox.snapshot.read", async () => {
+    return tryWorkspacePromise(async () => {
       const content = isGitSymlinkEntry(entry)
         ? await readSandboxSymlinkTarget(sandbox, toSandboxPath(entry.path))
         : await sandbox.readFile(toSandboxPath(entry.path), { encoding: "binary" })

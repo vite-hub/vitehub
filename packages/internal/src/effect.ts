@@ -2,7 +2,6 @@ import { Cause, Data, Effect, Exit, Ref, Scope } from "effect"
 
 export class EffectBoundaryFailure extends Data.TaggedError("EffectBoundaryFailure")<{
   readonly cause: unknown
-  readonly operation: string
 }> {}
 
 interface EffectBoundaryOptions {
@@ -13,7 +12,6 @@ interface EffectBoundaryOptions {
 interface CloseScopeOptions {
   readonly aggregateMessage?: string
   readonly exit?: Exit.Exit<unknown, unknown>
-  readonly operation: string
 }
 
 export function createEffectBoundary(options: EffectBoundaryOptions) {
@@ -35,11 +33,10 @@ export function createEffectBoundary(options: EffectBoundaryOptions) {
   }
 
   function tryPromise<A>(
-    operation: string,
     evaluate: (signal: AbortSignal) => PromiseLike<A> | A,
   ): Effect.Effect<A, EffectBoundaryFailure> {
     return Effect.tryPromise({
-      catch: cause => new EffectBoundaryFailure({ cause, operation }),
+      catch: cause => new EffectBoundaryFailure({ cause }),
       try: signal => Promise.resolve(evaluate(signal)),
     })
   }
@@ -88,7 +85,7 @@ export function createEffectBoundary(options: EffectBoundaryOptions) {
       const cause = causes.length === 1
         ? causes[0]
         : new AggregateError(causes, closeOptions.aggregateMessage ?? options.aggregateMessage)
-      return yield* Effect.fail(new EffectBoundaryFailure({ cause, operation: closeOptions.operation }))
+      return yield* Effect.fail(new EffectBoundaryFailure({ cause }))
     })
   }
 

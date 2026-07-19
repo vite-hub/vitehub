@@ -92,7 +92,7 @@ function fetchWithRetry(definition: NormalizedHttpRequest): Effect.Effect<Respon
 }
 
 function fetchOnce(definition: NormalizedHttpRequest): Effect.Effect<Response, EffectBoundaryFailure> {
-  const request = httpEffectBoundary.tryPromise("fetch HTTP response", async (signal) => {
+  const request = httpEffectBoundary.tryPromise(async (signal) => {
     const headers = new Headers(definition.headers)
     applyCookies(headers, definition.cookies)
     const response = await fetch(urlWithQuery(definition).toString(), {
@@ -109,7 +109,6 @@ function fetchOnce(definition: NormalizedHttpRequest): Effect.Effect<Response, E
     duration: definition.timeout,
     orElse: () => Effect.fail(new EffectBoundaryFailure({
       cause: new DOMException("This operation was aborted", "AbortError"),
-      operation: "time out HTTP request",
     })),
   })
 }

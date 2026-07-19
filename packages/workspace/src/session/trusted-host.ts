@@ -327,9 +327,8 @@ function openTrustedHostSessionScope(prefix: string): Promise<TrustedHostSession
     const root = yield* acquireWorkspaceResource(
       scope,
       cleanupFailures,
-      tryWorkspacePromise("Workspace.TrustedHost.acquire", () => mkdtemp(join(tmpdir(), prefix))),
+      tryWorkspacePromise(() => mkdtemp(join(tmpdir(), prefix))),
       root => tryWorkspacePromise(
-        "Workspace.TrustedHost.release",
         () => rm(root, { force: true, recursive: true }),
       ),
     )
@@ -345,7 +344,6 @@ function openTrustedHostSessionScope(prefix: string): Promise<TrustedHostSession
           closed = true
           closeTask = runWorkspaceEffect(closeWorkspaceResources(scope, cleanupFailures, {
             aggregateMessage: "[vitehub] Workspace trusted-host cleanup failed for multiple reasons.",
-            operation: "Workspace.TrustedHost.Scope.close",
           }))
         }
         return closeTask
