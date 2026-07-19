@@ -44,6 +44,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/rate-limit` | Source-local managed Rate Limit handles and direct Rate Limiters. |
 | `vite-hub/runtime` | Runtime Host Context, policy, approval, trace, and capability APIs. |
 | `vite-hub/sandbox` | Sandbox Definitions and Sandbox Run helpers. |
+| `vite-hub/sandbox/cloudflare` | Cloudflare-only build layers for the generated Sandbox image. |
 | `vite-hub/schedule` and `vite-hub/schedule/runtime` | Static and runtime Schedule APIs. |
 | `vite-hub/schedule/runtime/driver` and `vite-hub/schedule/runtime/process` | Host wake registration and process-backed runtime Schedule controls. |
 | `vite-hub/shell` | Shell runtime and command analysis APIs. |
@@ -96,6 +97,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/rate-limit/drivers/memory` | Rate Limit Package | Local, test, and single-process fixed-window enforcement. |
 | `@vite-hub/rate-limit/drivers/cloudflare` | Rate Limit Package | Direct access to a Cloudflare Rate Limiting binding. |
 | `@vite-hub/sandbox` | Sandbox Package | Sandbox Definition and Sandbox Run helpers. |
+| `@vite-hub/sandbox/cloudflare` | Sandbox Package | Cloudflare-only build layers for the generated Sandbox image. |
 | `@vite-hub/schedule/runtime` | Schedule Package | Runtime schedule helpers. |
 | `@vite-hub/schedule/runtime/driver` | Schedule Package | Host integration boundary for reconciling stored Runtime Schedules with native wake registrations. |
 | `#vitehub/schedule/registry` | Schedule Package | Generated static schedule registry for host bridges. |

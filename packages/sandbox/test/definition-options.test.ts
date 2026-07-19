@@ -1,10 +1,14 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { extractSandboxDefinitionOptions } from "../src/definition-options.ts"
+import {
+  extractCloudflareDockerfileFragment,
+  extractSandboxDefinitionOptions,
+  stripCloudflareDockerfileFragment,
+} from "../src/definition-options.ts"
 
 const tempDirs: string[] = []
 
@@ -98,5 +102,78 @@ describe("extractSandboxDefinitionOptions", () => {
       runtime: { command: "node", args: ["worker.mjs"] },
       timeout: 30000,
     })
+  })
+})
+
+describe("Cloudflare Dockerfile fragment extraction", () => {
+  it("preserves raw template text and strips build-only source", async () => {
+    const file = await writeDefinition([
+      `import { defineDockerfileFragment } from "vite-hub/sandbox/cloudflare"`,
+      `import { defineSandbox } from "vite-hub/sandbox"`,
+      ``,
+      `defineDockerfileFragment\``,
+      `RUN apt-get update \\`,
+      `  && apt-get install -y imagemagick`,
+      `\``,
+      ``,
+      `export default defineSandbox(async () => null)`,
+      ``,
+    ].join("\n"))
+
+    const fragment = await extractCloudflareDockerfileFragment(file)
+    expect(fragment).toBe("\nRUN apt-get update \\\n  && apt-get install -y imagemagick\n")
+
+    const source = await readFile(file, "utf8")
+    const stripped = stripCloudflareDockerfileFragment(source, file)
+    expect(stripped).not.toContain("defineDockerfileFragment")
+    expect(stripped).not.toContain("imagemagick")
+    expect(stripped).toContain("export default defineSandbox")
+  })
+
+  it("rejects interpolated fragments", async () => {
+    const file = await writeDefinition([
+      `import { defineDockerfileFragment } from "vite-hub/sandbox/cloudflare"`,
+      `const packageName = "imagemagick"`,
+      'defineDockerfileFragment`RUN apt-get install ${packageName}`',
+    ].join("\n"))
+
+    await expect(extractCloudflareDockerfileFragment(file)).rejects.toThrow("without interpolations")
+  })
+
+  it("rejects the former exported fragment shape", async () => {
+    const file = await writeDefinition([
+      `import { defineDockerfileFragment } from "vite-hub/sandbox/cloudflare"`,
+      `export const cloudflareDockerfileFragment = defineDockerfileFragment\`RUN true\``,
+    ].join("\n"))
+
+    await expect(extractCloudflareDockerfileFragment(file)).rejects.toThrow("top-level")
+  })
+
+  it("rejects interpolated fragments assigned to a variable", async () => {
+    const file = await writeDefinition([
+      `import { defineDockerfileFragment } from "vite-hub/sandbox/cloudflare"`,
+      `const packageName = "imagemagick"`,
+      'const fragment = defineDockerfileFragment`RUN apt-get install ${packageName}`',
+    ].join("\n"))
+
+    await expect(extractCloudflareDockerfileFragment(file)).rejects.toThrow("top-level")
+  })
+
+  it("rejects FROM instructions", async () => {
+    const file = await writeDefinition([
+      `import { defineDockerfileFragment } from "vite-hub/sandbox/cloudflare"`,
+      `defineDockerfileFragment\`FROM alpine\``,
+    ].join("\n"))
+
+    await expect(extractCloudflareDockerfileFragment(file)).rejects.toThrow("cannot contain FROM")
+  })
+
+  it("ignores a local helper with the same name", async () => {
+    const file = await writeDefinition([
+      `const defineDockerfileFragment = String.raw`,
+      `defineDockerfileFragment\`RUN true\``,
+    ].join("\n"))
+
+    await expect(extractCloudflareDockerfileFragment(file)).resolves.toBeUndefined()
   })
 })

@@ -16,6 +16,7 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
+      "src/cloudflare-public.ts",
       "src/index.ts",
       "src/vite.ts",
       "src/runtime/empty-registry.ts",
@@ -30,11 +31,12 @@ export default defineConfig({
       customExports(exports) {
         return Object.fromEntries(
           Object.entries(exports).map(([key, value]) => {
+            const exportKey = key === "./cloudflare-public" ? "./cloudflare" : key;
             if (typeof value !== "string" || !value.endsWith(".js")) {
-              return [key, value];
+              return [exportKey, value];
             }
             return [
-              key,
+              exportKey,
               {
                 types: value.replace(/\.js$/, ".d.ts"),
                 import: value,

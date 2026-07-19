@@ -12,7 +12,11 @@ import {
   defaultCloudflareSandboxClassName,
   defaultCloudflareSandboxMigrationTag,
 } from './cloudflare'
-import { extractSandboxDefinitionOptions } from './definition-options'
+import {
+  extractCloudflareDockerfileFragment,
+  extractSandboxDefinitionOptions,
+  stripCloudflareDockerfileFragment,
+} from './definition-options'
 import { getSandboxFeatureProvider } from './module-types'
 import type { AgentSandboxConfig, SandboxDefinitionOptions } from './module-types'
 import { createSandboxTypeTemplateContents } from './type-template'
@@ -82,6 +86,7 @@ export function createSandboxManifest(aliasPath: string, typeTemplate: string): 
 }
 
 type SandboxDefinitionMetadata = {
+  cloudflareDockerfileFragment?: string
   name: string
   options?: SandboxDefinitionOptions
 }
@@ -107,6 +112,7 @@ function normalizeSandboxDefinitionOptions(name: string, options: SandboxDefinit
 async function loadSandboxDefinitionMetadata(definitions: ScannedDefinition[]) {
   return await Promise.all(definitions.map(async (definition) => {
     return {
+      cloudflareDockerfileFragment: await extractCloudflareDockerfileFragment(definition.handler),
       name: definition.name,
       options: normalizeSandboxDefinitionOptions(definition.name, await extractSandboxDefinitionOptions(definition.handler)),
     } satisfies SandboxDefinitionMetadata
@@ -215,11 +221,25 @@ export async function createSandboxFeaturePlan(
   })
   const definitionMetadata = await loadSandboxDefinitionMetadata(definitions)
   const metadataByName = new Map(definitionMetadata.map(definition => [definition.name, definition] as const))
+  const defaultProvider = getSandboxFeatureProvider(resolvedConfig)
+  const defaultProviderName = defaultProvider?.provider
+  const hostingProvider = getHostingProvider(hosting)
+  const fragmentDefinitions = definitionMetadata.filter(definition => typeof definition.cloudflareDockerfileFragment === 'string')
+  if (fragmentDefinitions.length && definitions.length !== 1) {
+    throw new Error('[vitehub] A colocated Cloudflare Dockerfile fragment currently requires exactly one discovered Sandbox Definition because Cloudflare provider output owns one app-level Sandbox image. Configure an application-owned Dockerfile until ViteHub can route definitions to distinct images.')
+  }
+  if (fragmentDefinitions.length
+    && (defaultProviderName !== 'cloudflare' || hostingProvider !== 'cloudflare')) {
+    throw new Error('[vitehub] A colocated Cloudflare Dockerfile fragment requires Cloudflare hosting and the Cloudflare Sandbox provider. Other hosts use different image build and routing models.')
+  }
   const sandboxArtifacts: GeneratedArtifact[] = sandboxDefinitions.map(definition => ({
     key: definition.definitionArtifactKey,
     filename: definition.definitionFilename,
     async getContents() {
-      const source = await definitionCompiler.readSource(definition._meta.sourcePath)
+      const source = stripCloudflareDockerfileFragment(
+        await definitionCompiler.readSource(definition._meta.sourcePath),
+        definition._meta.sourcePath,
+      )
       const bundle = await bundleSandboxDefinition(source, definition._meta.sourcePath, {
         alias: bundleAlias,
       })
@@ -230,8 +250,6 @@ export async function createSandboxFeaturePlan(
       })}\n`
     },
   }))
-  const defaultProvider = getSandboxFeatureProvider(resolvedConfig)
-  const defaultProviderName = defaultProvider?.provider
   const providerLoaderTarget = resolveSandboxProviderLoaderTarget(defaultProviderName, deps)
   const cloudflareOptions = defaultProvider?.provider === 'cloudflare'
     ? {
@@ -239,6 +257,7 @@ export async function createSandboxFeaturePlan(
         className: typeof defaultProvider.className === 'string' ? defaultProvider.className : defaultCloudflareSandboxClassName,
         migrationTag: typeof defaultProvider.migrationTag === 'string' ? defaultProvider.migrationTag : defaultCloudflareSandboxMigrationTag,
         name: typeof defaultProvider.name === 'string' ? defaultProvider.name : undefined,
+        dockerfileFragment: fragmentDefinitions[0]?.cloudflareDockerfileFragment,
       }
     : undefined
 

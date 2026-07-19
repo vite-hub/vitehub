@@ -3,6 +3,7 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
+import { defineDockerfileFragment } from "../src/cloudflare-public.ts"
 import { defineSandbox, runSandbox } from "../src/index.ts"
 
 describe("sandbox public api", () => {
@@ -15,11 +16,20 @@ describe("sandbox public api", () => {
     })
 
     expect("createSandbox" in sandboxPackage).toBe(false)
+    expect("defineDockerfileFragment" in sandboxPackage).toBe(false)
     expect(definition.options).toEqual({
       env: { FOO: "bar" },
       runtime: { command: "node", args: ["--trace-warnings"] },
       timeout: 1_000,
     })
+  })
+
+  it("keeps Cloudflare Dockerfile fragments static", () => {
+    expect(defineDockerfileFragment`RUN true`).toBeUndefined()
+    expect(() => (defineDockerfileFragment as (...args: any[]) => void)(
+      { raw: ["RUN echo ", ""] },
+      "dynamic",
+    )).toThrow("without interpolations")
   })
 
   it("returns a result wrapper instead of throwing", async () => {
