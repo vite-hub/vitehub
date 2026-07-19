@@ -552,6 +552,9 @@ describe("crabbox", () => {
       const cacheRoot = session.defaultWorkingDirectory
 
       await session.writeTextFile({ content: "cache", path: "cache.txt" })
+      await session.writeTextFile({ content: "CACHE", path: "cache.txt" })
+      await expect(session.readTextFile({ path: "cache.txt" })).resolves.toBe("CACHE")
+      await session.writeTextFile({ content: "cache", path: "cache.txt" })
       await expect(session.readTextFile({ path: "cache.txt" })).resolves.toBe("cache")
       await session.run({ command: `ln -s cache.txt ${cacheRoot}/linked-cache.txt` })
       await expect(session.readTextFile({ path: "linked-cache.txt" })).resolves.toBe("cache")
@@ -562,6 +565,7 @@ describe("crabbox", () => {
       await expect(session.run({ command: `test -L ${cacheRoot}/dangling-cache.txt && cat ${cacheRoot}/missing-cache.txt` })).resolves.toMatchObject({ exitCode: 0, stdout: "created" })
       await session.run({ command: `mkdir ${cacheRoot}/directory.txt` })
       await expect(session.writeTextFile({ content: "not a directory", path: "directory.txt" })).rejects.toThrow("prepare directory.txt")
+      await expect(session.writeTextFile({ content: "not a directory", path: "missing-directory/" })).rejects.toThrow("prepare missing-directory/")
       await expect(readdir(join(cacheRoot, "directory.txt"))).resolves.toEqual([])
       await expect(session.run({
         command: "printf changed > changed.txt && printf 'newly-ignored.txt\\n' >> .gitignore && rm deleted.txt",
@@ -580,11 +584,9 @@ describe("crabbox", () => {
       const workspaceCwd = await realpath(workspace)
       const invocations = (await readFile(log, "utf8")).trim().split("\n")
       const copies = invocations.filter(invocation => invocation.includes("|cp|"))
-      expect(copies).toHaveLength(6)
+      expect(copies).toHaveLength(9)
       expect(copies.every(copy => copy.includes("--provider ssh --target linux --id static_test"))).toBe(true)
-      expect(copies.some(copy => copy.includes(`SANDBOX:${cacheRoot}/cache.txt`))).toBe(true)
-      expect(copies.some(copy => copy.includes(`SANDBOX:${cacheRoot}/missing-cache.txt`))).toBe(true)
-      expect(copies.every(copy => !copy.includes(`SANDBOX:${cacheRoot}/linked-cache.txt`) && !copy.includes(`SANDBOX:${cacheRoot}/dangling-cache.txt`))).toBe(true)
+      expect(copies.filter(copy => copy.includes(`SANDBOX:${cacheRoot}/.vitehub-write-`))).toHaveLength(6)
       expect(invocations).not.toContain(expect.stringContaining("|tunnel|"))
       expect(invocations.every(invocation => invocation.startsWith(`${workspaceCwd}|`))).toBe(true)
       expect(invocations.every(invocation => !invocation.includes("--static-work-root"))).toBe(true)
