@@ -92,6 +92,20 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   let rawConfig: Record<string, unknown> = {}
   let rawEnv: ConfigEnv = { command: 'serve', mode: 'development' }
   let resolvedConfig: ResolvedConfig | undefined
+  let earlyNitroTarget: Record<string, unknown> | undefined
+  let earlyNitroSnapshot: Record<string, unknown> | undefined
+  let composedCloudflareEarly = false
+
+  function cloneConfigValue<T>(value: T): T {
+    if (Array.isArray(value))
+      return value.map(cloneConfigValue) as T
+    if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+      return Object.fromEntries(
+        Object.entries(value).map(([key, entry]) => [key, cloneConfigValue(entry)]),
+      ) as T
+    }
+    return value
+  }
 
   async function prepareCurrentSandboxRuntime(writeArtifacts = true) {
     const prepared = await prepareSandboxRuntime({
@@ -148,7 +162,11 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       generatedAliases = prepared.aliases
       generatedFiles = prepared.files
       definitions = prepared.definitions
-      await composeCloudflareSandbox(config, prepared)
+      if (config.nitro && typeof config.nitro === 'object') {
+        earlyNitroTarget = config.nitro as Record<string, unknown>
+        earlyNitroSnapshot = cloneConfigValue(earlyNitroTarget)
+      }
+      composedCloudflareEarly = await composeCloudflareSandbox(config, prepared)
       return {
         resolve: {
           alias: toSandboxAliasEntries({
@@ -173,7 +191,15 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     async configResolved(config) {
       resolvedConfig = config
       const prepared = await refreshSandboxRuntime()
-      await composeCloudflareSandbox(config, prepared)
+      const composed = await composeCloudflareSandbox(config, prepared)
+      if (!composed && composedCloudflareEarly && earlyNitroTarget && earlyNitroSnapshot) {
+        for (const key of ['cloudflare', 'rollupConfig']) {
+          if (key in earlyNitroSnapshot)
+            earlyNitroTarget[key] = earlyNitroSnapshot[key]
+          else
+            delete earlyNitroTarget[key]
+        }
+      }
     },
     async handleHotUpdate(context) {
       if (!isSandboxDefinitionUpdate(context.file, definitions, generatedFiles, resolvedConfig?.root))

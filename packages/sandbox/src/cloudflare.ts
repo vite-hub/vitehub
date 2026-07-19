@@ -99,6 +99,14 @@ export function configureCloudflareSandbox(target: MutableCloudflareTarget, opti
       ...(name ? { name } : {}),
     })
   }
+  else {
+    const container = containers.find(entry => entry.class_name === className)!
+    container.image ??= image
+    if (typeof container.max_instances !== 'number' || container.max_instances < defaultCloudflareSandboxMaxInstances)
+      container.max_instances = defaultCloudflareSandboxMaxInstances
+    if (name)
+      container.name ??= name
+  }
 
   const bindings = target.cloudflare.wrangler.durable_objects.bindings as WranglerDurableObjectBinding[]
   if (!bindings.some(entry => entry.name === binding && entry.class_name === className)) {
@@ -149,18 +157,8 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
     renderChunk(code, chunk) {
       if (!chunk.isEntry)
         return null
-      if (/\bexport\s*\*\s*from\b/.test(code))
-        return null
-      const exportLists = [...code.matchAll(/\bexport\s*\{([^}]*)\}/g)]
-      const hasNamedExport = (name: string) => {
-        const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        return new RegExp(`\\bexport\\s+class\\s+${escapedName}\\b`).test(code)
-          || exportLists.some(([, specifiers]) => specifiers!.split(',').some((specifier) => {
-            const names = specifier.trim().split(/\s+as\s+/)
-            return names.at(-1) === name
-          }))
-      }
-      const missingExports = [className, 'ContainerProxy'].filter(name => !hasNamedExport(name))
+      const exportedNames = new Set(chunk.exports)
+      const missingExports = [className, 'ContainerProxy'].filter(name => !exportedNames.has(name))
       if (!missingExports.length)
         return null
       const exportsPath = relative(dirname(chunk.fileName), 'sandbox-cloudflare-exports.mjs').replace(/\\/g, '/')

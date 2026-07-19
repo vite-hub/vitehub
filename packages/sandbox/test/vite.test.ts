@@ -222,7 +222,7 @@ describe("hubSandbox", () => {
     expect(definition).toContain("node:child_process")
     expect(definition).not.toContain("/virtual/child-process")
     expect(definition).toContain("from slash alias")
-    expect(definition).toContain("from process slash alias")
+    expect(definition).not.toContain("from process slash alias")
   })
 
   it("infers Cloudflare from a late-resolved Nitro preset", async () => {
@@ -327,7 +327,7 @@ describe("hubSandbox", () => {
         plugins: Array<{
           load: (id: string) => string
           name: string
-          renderChunk: (code: string, chunk: { fileName: string, isEntry: boolean }) => { code: string }
+          renderChunk: (code: string, chunk: { exports: string[], fileName: string, isEntry: boolean }) => { code: string }
         }>
       }
     }
@@ -339,9 +339,9 @@ describe("hubSandbox", () => {
       .toContain("export class Sandbox extends CloudflareSandbox")
     expect(rollupPlugin.load("\0virtual:vitehub-sandbox-cloudflare-exports"))
       .toContain("export { ContainerProxy } from '@cloudflare/sandbox'")
-    expect(rollupPlugin.renderChunk("export default {}", { isEntry: true, fileName: "server.js" }).code)
+    expect(rollupPlugin.renderChunk("export default {}", { exports: ["default"], isEntry: true, fileName: "server.js" }).code)
       .toContain(`export { Sandbox, ContainerProxy } from "./sandbox-cloudflare-exports.mjs"`)
-    expect(rollupPlugin.renderChunk("export default {}", { isEntry: true, fileName: "entries/server.js" }).code)
+    expect(rollupPlugin.renderChunk("export default {}", { exports: ["default"], isEntry: true, fileName: "entries/server.js" }).code)
       .toContain(`export { Sandbox, ContainerProxy } from "../sandbox-cloudflare-exports.mjs"`)
   })
 
@@ -381,17 +381,19 @@ describe("hubSandbox", () => {
     await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
       .rejects.toMatchObject({ code: "ENOENT" })
     const [rollupPlugin] = (userConfig.nitro as typeof userConfig.nitro & {
-      rollupConfig: { plugins: Array<{ renderChunk: (code: string, chunk: { fileName: string, isEntry: boolean }) => unknown }> }
+      rollupConfig: { plugins: Array<{ renderChunk: (code: string, chunk: { exports: string[], fileName: string, isEntry: boolean }) => unknown }> }
     }).rollupConfig.plugins
-    expect(rollupPlugin.renderChunk("export class Sandbox {}", { isEntry: true, fileName: "index.mjs" }))
+    expect(rollupPlugin.renderChunk("export class Sandbox {}", { exports: ["Sandbox"], isEntry: true, fileName: "index.mjs" }))
       .toMatchObject({ code: expect.stringContaining(`export { ContainerProxy } from "./sandbox-cloudflare-exports.mjs"`) })
-    expect(rollupPlugin.renderChunk("class Worker {}; export { Worker as Sandbox }", { isEntry: true, fileName: "index.mjs" }))
+    expect(rollupPlugin.renderChunk("class Worker {}; export { Worker as Sandbox }", { exports: ["Sandbox"], isEntry: true, fileName: "index.mjs" }))
       .toMatchObject({ code: expect.stringContaining(`export { ContainerProxy } from "./sandbox-cloudflare-exports.mjs"`) })
-    expect(rollupPlugin.renderChunk("class Sandbox {}; export { Sandbox as Worker }", { isEntry: true, fileName: "index.mjs" }))
+    expect(rollupPlugin.renderChunk("class Sandbox {}; export { Sandbox as Worker }", { exports: ["Worker"], isEntry: true, fileName: "index.mjs" }))
       .toMatchObject({ code: expect.stringContaining(`export { Sandbox, ContainerProxy } from "./sandbox-cloudflare-exports.mjs"`) })
-    expect(rollupPlugin.renderChunk("export class Sandbox {}; export { ContainerProxy }", { isEntry: true, fileName: "index.mjs" })).toBeNull()
-    expect(rollupPlugin.renderChunk("export * from './sandbox.mjs'", { isEntry: true, fileName: "index.mjs" })).toBeNull()
-    expect(rollupPlugin.renderChunk("export default {}", { isEntry: false, fileName: "chunk.mjs" })).toBeNull()
+    expect(rollupPlugin.renderChunk("export class Sandbox {}; export { ContainerProxy }", { exports: ["Sandbox", "ContainerProxy"], isEntry: true, fileName: "index.mjs" })).toBeNull()
+    expect(rollupPlugin.renderChunk("export * from './sandbox.mjs'", { exports: ["Other"], isEntry: true, fileName: "index.mjs" }))
+      .toMatchObject({ code: expect.stringContaining(`export { Sandbox, ContainerProxy }`) })
+    expect(rollupPlugin.renderChunk("export * from './sandbox.mjs'", { exports: ["Sandbox", "ContainerProxy"], isEntry: true, fileName: "index.mjs" })).toBeNull()
+    expect(rollupPlugin.renderChunk("export default {}", { exports: ["default"], isEntry: false, fileName: "chunk.mjs" })).toBeNull()
   })
 
   it("rejects ContainerProxy as the Cloudflare Sandbox class name", async () => {
@@ -456,6 +458,21 @@ describe("hubSandbox", () => {
       max_instances: 2,
       name: "application-owned",
     }])
+  })
+
+  it("completes partial containers configured without Nitro", async () => {
+    const { configureCloudflareSandbox } = await import("../src/cloudflare.ts")
+    const container = { class_name: "Sandbox", instance_type: "standard-1" }
+    const target = { cloudflare: { wrangler: { containers: [container] } } }
+
+    configureCloudflareSandbox(target)
+
+    expect(container).toEqual({
+      class_name: "Sandbox",
+      image: "./Dockerfile",
+      instance_type: "standard-1",
+      max_instances: 12,
+    })
   })
 
   it("rejects an existing Cloudflare migration tag without changing it", async () => {
@@ -554,6 +571,33 @@ describe("hubSandbox", () => {
     await configResolved(resolvedConfig)
 
     expect(resolvedConfig.nitro).toEqual({ preset: "vercel" })
+  })
+
+  it("removes early environment-selected Cloudflare output when Nitro resolves away", async () => {
+    const rootDir = await createViteRoot()
+    const previousPreset = process.env.NITRO_PRESET
+    process.env.NITRO_PRESET = "cloudflare-module"
+    try {
+      const { hubSandbox } = await import("../src/vite.ts")
+      const plugin = hubSandbox({ provider: "cloudflare" })
+      const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+      const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
+      const nitro: Record<string, any> = {}
+      const userConfig = { root: rootDir, plugins: [{ name: "nitro:main" }], nitro }
+
+      await configHook(userConfig, { command: "build", mode: "production" })
+      expect(nitro.cloudflare.wrangler.containers).toHaveLength(1)
+
+      const resolvedConfig = { ...userConfig, nitro: { preset: "vercel" }, resolve: { alias: [] } }
+      await configResolved(resolvedConfig)
+
+      expect(nitro).toEqual({})
+      expect(resolvedConfig.nitro).toEqual({ preset: "vercel" })
+    }
+    finally {
+      if (typeof previousPreset === "undefined") delete process.env.NITRO_PRESET
+      else process.env.NITRO_PRESET = previousPreset
+    }
   })
 
   it("does not reuse an application Dockerfile for the generated Sandbox image", async () => {

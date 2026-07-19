@@ -143,9 +143,9 @@ function resolveStringAliases(alias: unknown): AliasMap {
   for (const entry of readAliasEntries(alias)) {
     if (typeof entry.find !== 'string' || typeof entry.replacement !== 'string')
       continue
-    if (builtinModuleSet.has(entry.find))
-      continue
     const find = entry.find.replace(/\/$/, '')
+    if (builtinModuleSet.has(entry.find) || builtinModuleSet.has(find))
+      continue
     if (!find)
       continue
     aliases[find] = entry.replacement
