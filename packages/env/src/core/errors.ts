@@ -39,57 +39,33 @@ export interface EnvErrorOptions<TCode extends EnvErrorCode = EnvErrorCode>
 
 const envSourceIdentifierSet = new Set<EnvSourceIdentifier>(envSourceIdentifiers)
 
-function invalidEnvErrorOptions(): never {
+function invalidOptions(): never {
   throw new TypeError("[vitehub] EnvError requires valid error options.")
 }
 
-function readOwnDataProperty(value: object, key: PropertyKey): unknown {
+function own(value: unknown, key: PropertyKey): unknown {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) invalidOptions()
   try {
     const descriptor = Object.getOwnPropertyDescriptor(value, key)
     if (descriptor === undefined) return undefined
-    if (!("value" in descriptor)) invalidEnvErrorOptions()
+    if (!("value" in descriptor)) invalidOptions()
     return descriptor.value
   }
   catch {
-    invalidEnvErrorOptions()
-  }
-}
-
-function isArray(value: unknown): value is unknown[] {
-  try {
-    return Array.isArray(value)
-  }
-  catch {
-    invalidEnvErrorOptions()
-  }
-}
-
-interface NormalizedEnvError<TCode extends EnvErrorCode> {
-  cause?: unknown
-  code: TCode
-  details?: EnvErrorDetails<TCode>
-}
-
-function normalizeEnvError<TCode extends EnvErrorCode>(value: unknown): NormalizedEnvError<TCode> {
-  if (typeof value !== "object" || value === null || isArray(value)) invalidEnvErrorOptions()
-  const code = readOwnDataProperty(value, "code")
-  if (typeof code !== "string" || !Object.hasOwn(envErrorMessages, code)) invalidEnvErrorOptions()
-  const cause = readOwnDataProperty(value, "cause")
-  const details = normalizeDetails(code as TCode, readOwnDataProperty(value, "details"))
-  return {
-    ...(cause === undefined ? {} : { cause }),
-    code: code as TCode,
-    ...(details === undefined ? {} : { details }),
+    invalidOptions()
   }
 }
 
 export class EnvError<TCode extends EnvErrorCode = EnvErrorCode>
   extends ViteHubError<TCode, EnvErrorDetails<TCode>> {
   constructor(options: EnvErrorOptions<TCode>) {
-    const normalized = normalizeEnvError<TCode>(options)
-    super(normalized.code, envErrorMessages[normalized.code], {
-      ...(normalized.cause === undefined ? {} : { cause: normalized.cause }),
-      ...(normalized.details === undefined ? {} : { details: normalized.details }),
+    const code = own(options, "code")
+    if (typeof code !== "string" || !Object.hasOwn(envErrorMessages, code)) invalidOptions()
+    const cause = own(options, "cause")
+    const details = normalizeDetails(code as TCode, own(options, "details"))
+    super(code as TCode, envErrorMessages[code as TCode], {
+      ...(cause === undefined ? {} : { cause }),
+      ...(details === undefined ? {} : { details }),
     })
     this.name = "EnvError"
   }
@@ -145,7 +121,6 @@ function publicSourceIdentifier(source: string): EnvSourceIdentifier {
   if (envSourceIdentifierSet.has(source as EnvSourceIdentifier)) return source as EnvSourceIdentifier
   if (source.startsWith("env:")) return "env"
   if (source.startsWith("package.json:")) return "package.json"
-  if (source.startsWith("custom:")) return "custom"
   return "custom"
 }
 
@@ -153,14 +128,15 @@ function normalizeDetails<TCode extends EnvErrorCode>(
   code: TCode,
   details: unknown,
 ): EnvErrorDetails<TCode> | undefined {
-  if (!details || typeof details !== "object" || isArray(details)) return undefined
+  if (details === undefined) return undefined
+  if (typeof details !== "object" || details === null || Array.isArray(details)) invalidOptions()
   const normalized: { path?: string, source?: EnvSourceIdentifier } = {}
   if (code === "ENV_DECLARATION_INVALID" || code === "ENV_REQUIRED_MISSING") {
-    const path = safePath(readOwnDataProperty(details, "path"))
+    const path = safePath(own(details, "path"))
     if (path) normalized.path = path
   }
   if (code !== "ENV_DECLARATION_INVALID") {
-    const source = readOwnDataProperty(details, "source")
+    const source = own(details, "source")
     if (envSourceIdentifierSet.has(source as EnvSourceIdentifier)) normalized.source = source as EnvSourceIdentifier
   }
   return Object.keys(normalized).length ? normalized as EnvErrorDetails<TCode> : undefined
