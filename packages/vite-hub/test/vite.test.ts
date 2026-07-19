@@ -349,7 +349,11 @@ describe("vitehub", () => {
     const plugin = dependencyPlugin()
     const config = plugin.config as unknown as (config: object) => unknown
     config({})
-    const resolveId = plugin.resolveId as Exclude<Plugin["resolveId"], undefined>
+    const resolveId = plugin.resolveId as unknown as (
+      id: string,
+      importer: string | undefined,
+      options: { ssr?: boolean },
+    ) => unknown | Promise<unknown>
 
     expect(await resolveId.call({} as never, "@vite-hub/blob", undefined, {} as never))
       .toMatch(/_internal\/blob\/disabled\.js$/)
