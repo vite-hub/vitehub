@@ -224,6 +224,10 @@ function createCrabboxSandbox(options: CrabboxSandboxOptions): HarnessV1SandboxP
             tunnels: new Map(),
         }, createOptions.sessionId)
         try {
+          await session.writeBinaryFile({ abortSignal: createOptions.abortSignal, content: new Uint8Array(), path: ".vitehub-copy-probe" })
+          const probeCleanup = await session.run({ abortSignal: createOptions.abortSignal,
+            command: `rm -- ${shellQuote(posix.join(root, ".vitehub-copy-probe"))}` })
+          if (probeCleanup.exitCode !== 0) throw crabboxError("remove Crabbox copy probe", probeCleanup)
           await validateRequirements(session, options.requirements, createOptions.abortSignal)
           await createOptions.onFirstCreate?.(session, { abortSignal: createOptions.abortSignal })
           return session
@@ -662,19 +666,30 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       const stateSignal = stateAbortSignal(state, abortSignal);
       const remotePath = resolveSessionPath(state.root, path)
       const probe = await this.run({ abortSignal: stateSignal,
-        command: `test -f ${shellQuote(remotePath)}` })
+        command: `if ! test -f ${shellQuote(remotePath)}; then exit 1; elif test -L ${shellQuote(remotePath)}; then exit 2; fi` })
       if (probe.exitCode === 1) return null
-      if (probe.exitCode !== 0) throw crabboxError(`read ${path}`, probe)
-      return await withTemporaryFile(async (localPath) => {
-        await copyWithCrabbox(
-          state.options,
-          state.leaseId,
-          `SANDBOX:${remotePath}`,
-          localPath,
-          stateSignal,
-        )
-        return new Uint8Array(await readFile(localPath))
-      })
+      if (probe.exitCode !== 0 && probe.exitCode !== 2) throw crabboxError(`read ${path}`, probe)
+      const stagedPath = probe.exitCode === 2 ? posix.join(state.root, `.vitehub-read-${randomUUID()}`) : undefined
+      try {
+        if (stagedPath) {
+          const staged = await this.run({ abortSignal: stateSignal,
+            command: `cp -L -- ${shellQuote(remotePath)} ${shellQuote(stagedPath)}` })
+          if (staged.exitCode !== 0) throw crabboxError(`read ${path}`, staged)
+        }
+        return await withTemporaryFile(async (localPath) => {
+          await copyWithCrabbox(
+            state.options,
+            state.leaseId,
+            `SANDBOX:${stagedPath || remotePath}`,
+            localPath,
+            stateSignal,
+          )
+          return new Uint8Array(await readFile(localPath))
+        })
+      }
+      finally {
+        if (stagedPath) await runCrabbox(state.options, state.leaseId, { command: `rm -f -- ${shellQuote(stagedPath)}` }).catch(() => undefined)
+      }
     },
     async readFile(options: { abortSignal?: AbortSignal, path: string }) {
       const bytes = await this.readBinaryFile(options)
@@ -717,7 +732,7 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       const remotePath = resolveSessionPath(state.root, path)
       const directory = posix.dirname(remotePath)
       const prepared = await this.run({ abortSignal: stateSignal,
-        command: `mkdir -p -- ${shellQuote(directory)}` })
+        command: `mkdir -p -- ${shellQuote(directory)} && test ! -d ${shellQuote(remotePath)}` })
       if (prepared.exitCode !== 0) throw crabboxError(`prepare ${path}`, prepared)
       await withTemporaryFile(async (localPath) => {
         await writeFile(localPath, content)

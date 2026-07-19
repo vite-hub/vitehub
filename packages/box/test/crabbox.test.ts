@@ -104,7 +104,7 @@ describe("crabbox", () => {
 
         const invocations = await readFile(log, "utf8")
         expect(invocations).toContain("--no-sync")
-        expect(invocations).not.toContain("|cp|")
+        expect(invocations.split("\n").filter(invocation => invocation.includes("|cp|"))).toHaveLength(1)
       },
     )
   }, 30_000)
@@ -553,6 +553,11 @@ describe("crabbox", () => {
 
       await session.writeTextFile({ content: "cache", path: "cache.txt" })
       await expect(session.readTextFile({ path: "cache.txt" })).resolves.toBe("cache")
+      await session.run({ command: `ln -s cache.txt ${cacheRoot}/linked-cache.txt` })
+      await expect(session.readTextFile({ path: "linked-cache.txt" })).resolves.toBe("cache")
+      await session.run({ command: `mkdir ${cacheRoot}/directory.txt` })
+      await expect(session.writeTextFile({ content: "not a directory", path: "directory.txt" })).rejects.toThrow("prepare directory.txt")
+      await expect(readdir(join(cacheRoot, "directory.txt"))).resolves.toEqual([])
       await expect(session.run({
         command: "printf changed > changed.txt && printf 'newly-ignored.txt\\n' >> .gitignore && rm deleted.txt",
         workingDirectory: join(cacheRoot, "workspace"),
@@ -570,10 +575,9 @@ describe("crabbox", () => {
       const workspaceCwd = await realpath(workspace)
       const invocations = (await readFile(log, "utf8")).trim().split("\n")
       const copies = invocations.filter(invocation => invocation.includes("|cp|"))
-      expect(copies).toHaveLength(2)
-      expect(copies[0]).toContain(`--provider ssh --target linux --id static_test`)
-      expect(copies[0]).toContain(`SANDBOX:${cacheRoot}/cache.txt`)
-      expect(copies[1]).toContain(`--id static_test SANDBOX:${cacheRoot}/cache.txt`)
+      expect(copies).toHaveLength(4)
+      expect(copies.every(copy => copy.includes("--provider ssh --target linux --id static_test"))).toBe(true)
+      expect(copies).toContain(expect.stringContaining(`SANDBOX:${cacheRoot}/cache.txt`))
       expect(invocations).not.toContain(expect.stringContaining("|tunnel|"))
       expect(invocations.every(invocation => invocation.startsWith(`${workspaceCwd}|`))).toBe(true)
       expect(invocations.every(invocation => !invocation.includes("--static-work-root"))).toBe(true)
