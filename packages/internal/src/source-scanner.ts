@@ -228,7 +228,7 @@ export function stripBoundaryComments(source: string): string {
 }
 
 export function maskSourceLiterals(source: string): string {
-  const output = [...source]
+  const output = source.split("")
   let previousSignificant = ""
   const mask = (start: number, end: number) => {
     for (let index = start; index < end; index++) {

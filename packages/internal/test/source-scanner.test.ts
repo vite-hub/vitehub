@@ -190,6 +190,18 @@ describe("source scanner", () => {
     })
   })
 
+  it("preserves source offsets after astral Unicode characters", () => {
+    const call = findDefaultExportCall([
+      `// 😀`,
+      `export default defineThing({ value: "real" })`,
+    ].join("\n"), ["defineThing"])
+
+    expect(call).toMatchObject({
+      argument: `{ value: "real" }`,
+      name: "defineThing",
+    })
+  })
+
   it("reads top-level object properties without matching nested values", () => {
     expect(readObjectProperty(`{ nested: { cron: "wrong" }, cron: "0 8 * * *" }`, "cron"))
       .toBe(`"0 8 * * *"`)
