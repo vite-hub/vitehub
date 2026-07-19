@@ -188,10 +188,10 @@ describe("cloudflare queue runtime", () => {
     expect(observed.get("second")).toEqual(["second", "second"])
   })
 
-  it("dispatches custom physical Cloudflare queue names through generated definitions", async () => {
+  it("dispatches prefixed physical names in manually constructed Cloudflare workers", async () => {
     const handler = vi.fn(async () => {})
     const worker = createQueueCloudflareWorker({
-      definitions: { "preview-queue--77656c636f6d65": "welcome" },
+      queue: { namePrefix: "preview-", provider: "cloudflare" },
       registry: {
         welcome: async () => ({
           default: { handler },

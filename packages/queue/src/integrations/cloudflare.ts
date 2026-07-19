@@ -21,10 +21,11 @@ export function getCloudflareQueueBindingName(name: string): string {
   return encoded ? `${defaultCloudflareQueueBindingPrefix}_${encoded}` : defaultCloudflareQueueBindingPrefix
 }
 
-export function getCloudflareQueueDefinitionName(name: string): string {
-  if (!encodedCloudflareQueueNamePattern.test(name)) {
+export function getCloudflareQueueDefinitionName(name: string, namePrefix = ""): string {
+  const encodedName = namePrefix && name.startsWith(namePrefix) ? name.slice(namePrefix.length) : name
+  if (!encodedCloudflareQueueNamePattern.test(encodedName)) {
     return name
   }
 
-  return decodeQueueNameHex(name.slice(cloudflareQueueNamePrefix.length)) || name
+  return decodeQueueNameHex(encodedName.slice(cloudflareQueueNamePrefix.length)) || name
 }
