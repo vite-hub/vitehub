@@ -252,6 +252,49 @@ describe("executeSandboxDefinition", () => {
     }
   })
 
+  it("bounds Cloudflare session execution with the default exec deadline", async () => {
+    vi.useFakeTimers()
+    try {
+      const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
+      const deleteSession = vi.fn(async () => {})
+      Object.assign(sandbox, {
+        native: { createSession: vi.fn() },
+        cloudflare: {
+          createSession: vi.fn(async () => ({
+            id: "stalled-session",
+            exec: vi.fn(async () => await new Promise(() => {})),
+          })),
+          deleteSession,
+        } as unknown as typeof sandbox.cloudflare,
+      })
+
+      const execution = executeSandboxDefinition(
+        sandbox,
+        "release-notes",
+        undefined,
+        {
+          entry: "definition.mjs",
+          modules: {
+            "definition.mjs": "export default { run() { return { ok: true } } }",
+          },
+        },
+      )
+      const rejection = expect(execution).rejects.toMatchObject({
+        code: "SANDBOX_HANDLER_ERROR",
+        provider: "cloudflare",
+        details: { cause: "Cloudflare sandbox exec timed out after 180000ms." },
+      } satisfies Partial<SandboxError>)
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(240_000)
+
+      await rejection
+      expect(deleteSession).toHaveBeenCalledWith("stalled-session")
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("preserves Cloudflare session creation failures for runtime retry", async () => {
     const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
     const creationError = new Error("network connection lost")
