@@ -1,5 +1,5 @@
 import { declaredRateLimitPolicy, normalizeRateLimitPolicy, rateLimitPolicyKeys } from "./policy.ts"
-import { consumeDefinedRateLimit } from "./runtime/client.ts"
+import { consumeDefinedRateLimit, enforceDefinedRateLimit } from "./runtime/client.ts"
 
 import type { RateLimitHandle, RateLimitPolicy } from "./types.ts"
 
@@ -17,7 +17,8 @@ export function defineRateLimit(name: string, policy: RateLimitPolicy): RateLimi
   const declaredPolicy = declaredRateLimitPolicy(normalized)
 
   return Object.freeze({
-    consume: async (key: string) => await consumeDefinedRateLimit(id, declaredPolicy, key),
+    consume: async (key?: string) => await consumeDefinedRateLimit(id, declaredPolicy, key),
+    enforce: async (key?: string) => await enforceDefinedRateLimit(id, declaredPolicy, key),
     id,
     kind: "rate-limit-handle" as const,
     policy: normalized,

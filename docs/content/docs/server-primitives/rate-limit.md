@@ -5,7 +5,7 @@ navigation.order: 3.5
 icon: i-lucide-gauge
 ---
 
-Rate Limit owns atomic budget consumption before expensive server work starts. Your server code supplies an opaque key; the selected Rate Limit Driver decides whether one unit is allowed.
+Rate Limit owns atomic budget consumption before expensive server work starts. The active host integration supplies the request identity by default; an explicit user or tenant key can override it. The selected Rate Limit Driver decides whether one unit is allowed.
 
 Rate Limit is separate from KV. A generic KV `get()` followed by `set()` races under concurrency, so ViteHub accepts only drivers that implement atomic `consume()` for their backend.
 
@@ -34,22 +34,12 @@ const uploads = defineRateLimit('image-upload', {
 })
 
 export default defineEventHandler(async () => {
-  const decision = await uploads.consume('demo:image-upload')
-
-  if (!decision.allowed) {
-    return new Response('Too many uploads', {
-      headers: decision.retryAfter === undefined
-        ? undefined
-        : { 'retry-after': String(decision.retryAfter) },
-      status: 429,
-    })
-  }
-
-  return { ok: true, remaining: decision.remaining }
+  await uploads.enforce()
+  return { ok: true }
 })
 ```
 
-The fixed key makes the example testable. Production code should derive an opaque key from an authenticated user, account, or API client. The application remains responsible for choosing that identity and applying the `429` response.
+Inside an H3 request, `.enforce()` uses the client address installed by the integration and throws a standard H3 `HTTPError` when the request is limited. Pass an explicit key such as `.enforce(authenticatedUser.id)` when authenticated user, account, tenant, or API-client identity is the correct budget boundary.
 
 ## Define a managed Rate Limit
 
@@ -71,13 +61,13 @@ The call must be assigned directly to a top-level `const`. The ID, `limit`, `win
 | `limit` | positive integer | required | Allowed consumptions in each fixed window. |
 | `window` | duration string | required | Fixed window such as `10s`, `1m`, `1h`, or `1d`. |
 | `enforcement` | `"best-effort" \| "strict"` | `"best-effort"` | Minimum enforcement guarantee the selected driver must provide. |
-| `failure` | `"deny" \| "allow"` | `"deny"` | Whether an unavailable driver rejects the call or returns an allowed unavailable decision. |
+| `failure` | `"deny" \| "allow"` | `"deny"` | Whether an unavailable driver returns a denied or allowed unavailable decision. |
 
 ## Public imports
 
 | Import | Use |
 | --- | --- |
-| `defineRateLimit` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Declare a managed handle and consume it with `.consume(key)`. |
+| `defineRateLimit` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Declare a managed handle and enforce it with `.enforce(key?)` or inspect it with `.consume(key?)`. |
 | `createRateLimiter` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Build a direct limiter around a custom driver. |
 | `memoryRateLimitDriver` from `@vite-hub/rate-limit/drivers/memory` | Enforce fixed windows in one process. |
 | `cloudflareRateLimitDriver` from `@vite-hub/rate-limit/drivers/cloudflare` | Consume a Cloudflare Rate Limiting binding directly. |
@@ -92,6 +82,7 @@ Every driver returns `allowed`. Portable quota metadata is optional because nati
 ```ts
 interface RateLimitDecision {
   allowed: boolean
+  cause?: unknown
   limit: number
   reason?: 'limited' | 'unavailable'
   remaining?: number
@@ -102,7 +93,7 @@ interface RateLimitDecision {
 }
 ```
 
-Use `allowed` as the enforcement result. Add a `retry-after` header only when `retryAfter` is present, and do not calculate billing or authorization from optional best-effort metadata.
+Use `.consume()` when the application needs this decision for a custom response, explicit logging, or another transport. Provider unavailability follows the declared failure policy and carries its original `cause`; configuration and provider-contract defects still throw normal `TypeError` or `Error` instances. Rate Limit does not add a second coded error family: `.consume()` owns the portable `RateLimitDecision`, while `.enforce()` maps rejection to the host transport's H3 `HTTPError`. Add a `retry-after` header only when `retryAfter` is present, and do not calculate billing or authorization from optional best-effort metadata.
 
 ## Inspect generated guarantees
 
@@ -154,6 +145,8 @@ const decision = await limiter.consume({ key: 'demo' })
 
 Every direct limiter exposes `policy` and `capabilities`. The memory driver is process-local and intended for development, tests, and known single-process hosts.
 
+Custom drivers return `{ unavailable: true, cause }` only for expected operational outages that the declared failure policy should govern. Configuration, provider-contract, and implementation defects should throw normally.
+
 ## Deploy to Cloudflare
 
 With a Cloudflare Nitro preset, `hubRateLimit()` infers the provider. Set a deployment-unique namespace so matching Rate Limit IDs cannot share counters across Workers or environments in the same Cloudflare account.
@@ -172,7 +165,7 @@ Inspect generated `wrangler.json` entries and exercise the deployed Worker. A re
 
 - Memory enforcement is local and single-process. It is not a production default for horizontally scaled or request-scoped hosts.
 - A production build with unknown hosting must select a provider explicitly or use a direct Rate Limiter.
-- Identity and HTTP rejection remain application policy.
+- Request identity defaults to the active host integration; explicit user or tenant identities remain application policy.
 - Managed policies must be static so ViteHub can provision provider infrastructure.
 - The package exposes atomic consumption, not a non-consuming check that providers cannot implement consistently.
 

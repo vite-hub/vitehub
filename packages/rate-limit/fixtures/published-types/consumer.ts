@@ -14,7 +14,8 @@ const cloudflare = createRateLimiter({
   window: "1m",
 })
 
-await uploads.consume("user")
+await uploads.consume()
+await uploads.enforce("user")
 await local.consume({ key: "user" })
 await cloudflare.consume({ key: "user" })
 void cloudflare.capabilities.scope

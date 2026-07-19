@@ -44,7 +44,13 @@ export function cloudflareRateLimitDriver(options: CloudflareRateLimitDriverOpti
       if (!isBinding(binding)) {
         throw new Error(`[vitehub] Cloudflare Rate Limit binding "${bindingName}" was not found.`)
       }
-      const result = await binding.limit({ key: input.key })
+      let result
+      try {
+        result = await binding.limit({ key: input.key })
+      }
+      catch (cause) {
+        return { cause, unavailable: true }
+      }
       if (!result || typeof result.success !== "boolean") {
         throw new TypeError(`[vitehub] Cloudflare Rate Limit binding "${bindingName}" returned an invalid result.`)
       }

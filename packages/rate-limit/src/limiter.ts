@@ -102,16 +102,17 @@ function normalizeDriverResult(
     throw new TypeError("[vitehub] Rate Limit driver result resetAt must be a positive timestamp.")
   }
 
-  return {
-    allowed: result.allowed,
+  const decision = {
     limit,
     remaining: normalizeOptionalInteger(result.remaining, "remaining"),
     resetAt,
     retryAfter: normalizeOptionalInteger(result.retryAfter, "retryAfter"),
     used: normalizeOptionalInteger(result.used, "used"),
     windowMs,
-    ...(!result.allowed ? { reason: "limited" as const } : {}),
   }
+  return result.allowed
+    ? { ...decision, allowed: true }
+    : { ...decision, allowed: false, reason: "limited" }
 }
 
 function assertDriverSupportsPolicy(options: CreateRateLimiterOptions, capabilities: RateLimitDriverCapabilities, windowMs: number): void {
@@ -139,19 +140,19 @@ export function createRateLimiter(options: CreateRateLimiterOptions): RateLimite
       if (!input || typeof input.key !== "string" || input.key.length === 0) {
         throw new TypeError("[vitehub] Rate Limiter consume() requires a non-empty key.")
       }
-      let result: RateLimitDriverResult
-      try {
-        result = await options.driver.consume({
-          key: input.key,
-          limit: policy.limit,
-          name: options.name,
-          windowMs: policy.windowMs,
-        })
-      }
-      catch (error) {
-        if (policy.failure === "deny") throw error
+      const result = await options.driver.consume({
+        key: input.key,
+        limit: policy.limit,
+        name: options.name,
+        windowMs: policy.windowMs,
+      })
+      if ("unavailable" in result) {
+        if (result.unavailable !== true) {
+          throw new TypeError("[vitehub] Rate Limit driver unavailable outcome must set unavailable to true.")
+        }
         return {
-          allowed: true,
+          allowed: policy.failure === "allow",
+          cause: result.cause,
           limit: policy.limit,
           reason: "unavailable",
           windowMs: policy.windowMs,

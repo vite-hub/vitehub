@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@vite-hub/rate-limit": "0.0.1"
+    "@vite-hub/rate-limit": "file:./vite-hub-rate-limit-0.0.1.tgz",
+    "vite": "^8.0.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3"
   }
 }

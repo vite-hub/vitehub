@@ -4,6 +4,7 @@
   "description": "Provider-neutral Rate Limit primitives and Vite deployment integration for ViteHub.",
   "keywords": [
     "cloudflare",
+    "h3",
     "rate-limit",
     "vite",
     "vitehub"
@@ -37,6 +38,9 @@
     "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/rate-limit#build && vp test"
+  },
+  "dependencies": {
+    "h3": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

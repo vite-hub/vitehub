@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { copyFile, cp, mkdir, mkdtemp, rm } from "node:fs/promises"
+import { cp, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -12,14 +12,21 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(packageRoot, "../../node_modules/typescript/bin/tsc")
 
-it("publishes every documented Rate Limit entrypoint", async () => {
+async function runPnpm(args: string[], cwd: string): Promise<void> {
+  const npmExecPath = process.env.npm_execpath
+  if (npmExecPath?.includes("pnpm")) {
+    await execFileAsync(process.execPath, [npmExecPath, ...args], { cwd })
+    return
+  }
+  await execFileAsync("corepack", ["pnpm", ...args], { cwd })
+}
+
+it("publishes every documented Rate Limit entrypoint to a real consumer", { timeout: 60_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-types-"))
   try {
     await cp(fixtureRoot, root, { recursive: true })
-    const installedPackageRoot = join(root, "node_modules", "@vite-hub", "rate-limit")
-    await mkdir(installedPackageRoot, { recursive: true })
-    await copyFile(join(packageRoot, "package.json"), join(installedPackageRoot, "package.json"))
-    await cp(join(packageRoot, "dist"), join(installedPackageRoot, "dist"), { recursive: true })
+    await runPnpm(["pack", "--pack-destination", root], packageRoot)
+    await runPnpm(["install", "--ignore-scripts", "--no-frozen-lockfile"], root)
     try {
       await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root])
     }
