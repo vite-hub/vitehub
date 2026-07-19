@@ -1,15 +1,19 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
+import { getCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+
 import type { QueueDefinition, QueueDefinitionRegistry, ResolvedQueueOptions } from "../types.ts"
 
 let runtimeConfig: false | ResolvedQueueOptions | undefined
 let registryOverride: QueueDefinitionRegistry | undefined
 
 const queueEventStorage = new AsyncLocalStorage<unknown>()
+let queueEventDefaults: unknown
 const queueClientCache = new Map<string, Promise<unknown>>()
 
 export function setQueueRuntimeConfig(config: false | ResolvedQueueOptions | undefined): void {
   runtimeConfig = config
+  if (typeof config === "undefined") queueEventDefaults = undefined
   queueClientCache.clear()
 }
 
@@ -22,11 +26,19 @@ export function runWithQueueRuntimeEvent<T>(event: unknown, callback: () => T): 
 }
 
 export function enterQueueRuntimeEvent(event: unknown): void {
-  queueEventStorage.enterWith(event)
+  try {
+    queueEventStorage.enterWith(event)
+  }
+  catch {}
+  setActiveCloudflareEnv(getCloudflareEnv(event))
 }
 
 export function getQueueRuntimeEvent(): unknown {
-  return queueEventStorage.getStore()
+  return queueEventStorage.getStore() ?? queueEventDefaults
+}
+
+export function setQueueRuntimeEventDefaults(event: unknown): void {
+  queueEventDefaults = event
 }
 
 export function setQueueRuntimeRegistry(registry: QueueDefinitionRegistry | undefined): void {

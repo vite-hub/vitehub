@@ -154,12 +154,21 @@ export async function writeProviderOutputConfig(
   options: { removeIfEmpty?: boolean } = {},
 ): Promise<void> {
   const existing = await readProviderJsonRecord(file) ?? {}
+  const next = mergeProviderOutputConfig(existing, value, ownership)
+  await persistProviderJsonRecord(file, next, options.removeIfEmpty === true)
+}
+
+export function mergeProviderOutputConfig(
+  existing: unknown,
+  value: unknown,
+  ownership: ProviderOutputConfigOwnership = {},
+): ProviderJsonRecord {
+  assertProviderJsonRecord(existing)
   assertProviderJsonRecord(value)
-  const next = {
+  return {
     ...deleteOwnedFields(existing, ownership),
     ...mergeOwnedArrays(existing, value, ownership.arrays),
   }
-  await persistProviderJsonRecord(file, next, options.removeIfEmpty === true)
 }
 
 export function stringifyProviderOutputConfig(value: unknown): string {

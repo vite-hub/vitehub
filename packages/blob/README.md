@@ -56,13 +56,20 @@ At config time, the `fs` driver uses `BLOB_FS_BASE` when `blob.base` is omitted,
 
 Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. `serve: true` uses `/api/_vitehub/blob` as a safe namespaced API route. Use `serve.route` for product-facing paths such as `/assets`.
 Objects from the served store receive an absolute URL when `serve.publicBaseUrl` is configured, or a route-relative URL otherwise.
+Use `serve.headers` for static cache and security headers. Blob metadata remains authoritative for content headers such as `Content-Type`, `Content-Length`, and `ETag`.
 
 ```ts
 // vite.config.ts
 export default defineConfig({
   blob: {
     driver: "fs",
-    serve: { route: "/assets" },
+    serve: {
+      route: "/assets",
+      headers: {
+        "Cache-Control": "public, max-age=300",
+        "X-Content-Type-Options": "nosniff",
+      },
+    },
   },
   plugins: [hubBlob()],
 })

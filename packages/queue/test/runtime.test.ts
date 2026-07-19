@@ -1,5 +1,7 @@
+import { AsyncLocalStorage } from "node:async_hooks"
 import { createServer } from "node:http"
 
+import { clearActiveCloudflareEnv, getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createCloudflareQueueBatchHandler } from "../src/providers/cloudflare.ts"
@@ -9,7 +11,7 @@ import { runQueue } from "../src/runtime/client.ts"
 import { createQueueCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
 import { createQueueVercelServer } from "../src/runtime/vercel-vite.ts"
 import { deferQueue } from "../src/runtime/client.ts"
-import { runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/runtime/state.ts"
+import { enterQueueRuntimeEvent, getQueueRuntimeEvent, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/runtime/state.ts"
 
 const vercelQueueMock = vi.hoisted(() => {
   const state = {
@@ -50,9 +52,21 @@ afterEach(() => {
   delete process.env.QUEUE_REGION
   delete process.env.VERCEL_REGION
   vi.restoreAllMocks()
+  clearActiveCloudflareEnv()
 })
 
 describe("cloudflare queue runtime", () => {
+  it("sets the Cloudflare environment when enterWith is unavailable", () => {
+    const env = { QUEUE_WELCOME: {} }
+    vi.spyOn(AsyncLocalStorage.prototype, "enterWith").mockImplementation(() => {
+      throw new Error("enterWith is unavailable")
+    })
+    const event = { env }
+    expect(() => enterQueueRuntimeEvent(event)).not.toThrow()
+    expect(getActiveCloudflareEnv()).toBe(env)
+    expect(getQueueRuntimeEvent()).toBeUndefined()
+  })
+
   it("points direct Node scripts at generated provider output when no registry is loaded", async () => {
     await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toThrow(/Queue Runtime Registry is installed by generated Provider Output/)
   })
@@ -280,6 +294,31 @@ describe("vercel provider", () => {
     expect(vercelQueueMock.send).toHaveBeenCalledWith("topic--77656c636f6d65", { email: "ava@example.com" }, expect.objectContaining({
       idempotencyKey: expect.any(String),
     }))
+  })
+
+  it("infers the sdk region from Nitro node request headers", async () => {
+    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "fra1::iad1::request" } } } }, async () => {
+      const client = await createVercelQueueClient({
+        provider: "vercel",
+        topic: "topic--77656c636f6d65",
+      })
+
+      await client.send({ email: "ava@example.com" })
+    })
+
+    expect(vercelQueueMock.options).toEqual({ region: "fra1" })
+  })
+
+  it("does not cache regions inferred from Vercel requests", async () => {
+    setQueueRuntimeConfig({ provider: "vercel" })
+    setQueueRuntimeRegistry({
+      welcome: async () => ({ handler: async () => {} }),
+    })
+
+    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "fra1::request" } } } }, () => runQueue("welcome", { email: "ava@example.com" }))
+    expect(vercelQueueMock.options).toEqual({ region: "fra1" })
+    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "iad1::request" } } } }, () => runQueue("welcome", { email: "ava@example.com" }))
+    expect(vercelQueueMock.options).toEqual({ region: "iad1" })
   })
 
   it("uses Vercel waitUntil for deferred dispatch", async () => {

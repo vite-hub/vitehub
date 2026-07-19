@@ -1,10 +1,11 @@
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { resetComposedProviderOutput, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalMerger, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
+import { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput, resetComposedProviderOutput, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import { createNoExternalMerger, hasNitroVitePlugin, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
+import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
 
-import { generateProviderOutputs, prepareProviderOutputs, blobPackageName } from "./internal/vite-build.ts"
+import { createCloudflareR2Bindings, generateProviderOutputs, prepareProviderOutputs, blobPackageName } from "./internal/vite-build.ts"
 import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
   BLOB_VIRTUAL_CONFIG_ID,
@@ -53,6 +54,49 @@ function cloneNitroConfig(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
 }
 
+function hasNitroVitePluginOption(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasNitroVitePluginOption)
+  return Boolean(value)
+    && typeof value === "object"
+    && hasNitroVitePlugin({ plugins: [value as { name: string }] })
+}
+
+function mergeNitroExternal(value: unknown, addition: string): unknown {
+  if (typeof value === "undefined") return [addition]
+  if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
+  if (typeof value === "string" || value instanceof RegExp) return [value, addition]
+  if (typeof value === "function") {
+    return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
+  }
+  return value
+}
+
+function isNitroCloudflareHost(value: unknown): boolean {
+  const nitro = cloneNitroConfig(value)
+  const preset = typeof nitro.preset === "string" ? nitro.preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
+  return typeof preset === "string" && getHostingProvider(preset) === "cloudflare"
+}
+
+function mergeNitroCloudflareBlobOutput(config: object, nitro: Record<string, unknown>, blob: BlobModuleOptions | undefined, cloudflareOwnedByNitro: boolean): Record<string, unknown> {
+  if (!cloudflareOwnedByNitro) {
+    registerCloudflareProviderOutput(config, "blob", {})
+    return composeNitroCloudflareProviderOutput(config, nitro)
+  }
+  const bindings = createCloudflareR2Bindings(resolveBlobViteConfig(blob, { hosting: "cloudflare" }).blob)
+  const cloudflare = cloneNitroConfig(nitro.cloudflare)
+  const wrangler = cloneNitroConfig(cloudflare.wrangler)
+  const compatibilityFlags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
+  if (!compatibilityFlags.includes("nodejs_compat")) compatibilityFlags.push("nodejs_compat")
+  const rollupConfig = cloneNitroConfig(nitro.rollupConfig)
+  const baseNitro = {
+    ...nitro,
+    cloudflare: { ...cloudflare, wrangler: { ...wrangler, compatibility_flags: compatibilityFlags } },
+    rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") },
+  }
+  registerCloudflareProviderOutput(config, "blob", bindings ? { r2Buckets: bindings } : {})
+  return composeNitroCloudflareProviderOutput(config, baseNitro)
+}
+
 function normalizeNitroRoute(route: string): string {
   return (route.startsWith("/") ? route : `/${route}`).replace(/\[([^\]]+)\]/g, ":$1")
 }
@@ -77,37 +121,53 @@ function mergeNitroBlobConfig(value: unknown, serve?: BlobServeConfig): Record<s
   }
 }
 
-function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], importBase = blobPackageName): string {
+function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName): string {
   return [
-    `import { setBlobRuntimeConfig } from '${importBase}/runtime/state'`,
+    cloudflare ? "import { env as vitehubEnv } from 'cloudflare:workers'" : undefined,
+    `import { ${cloudflare ? "setActiveCloudflareEnv, " : ""}setBlobRuntimeConfig } from '${importBase}/runtime/state'`,
     "",
     `const blobConfig = ${JSON.stringify(blob)}`,
     "",
-    "export default function vitehubBlobPlugin() {",
+    `export default function vitehubBlobPlugin(${cloudflare ? "nitro" : ""}) {`,
+    cloudflare ? "  setActiveCloudflareEnv(vitehubEnv)" : undefined,
     "  setBlobRuntimeConfig(blobConfig)",
+    cloudflare ? "  nitro.hooks.hook('request', (event) => setActiveCloudflareEnv(event.env ?? event.context?.cloudflare?.env ?? event.context?._platform?.cloudflare?.env ?? event.req?.runtime?.cloudflare?.env ?? event.node?.req?.runtime?.cloudflare?.env ?? vitehubEnv))" : undefined,
     "}",
     "",
-  ].join("\n")
+  ].filter(line => typeof line === "string").join("\n")
 }
 
 function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPackageName): string {
+  const headers = serve.headers && Object.keys(serve.headers).length > 0 ? serve.headers : undefined
   return [
     `import { blob } from '${importBase}'`,
-    "import { createError, defineEventHandler, getRouterParam } from 'h3'",
+    `import { createError, defineEventHandler, getRouterParam${headers ? ", removeResponseHeader, setResponseHeaders" : ""} } from 'h3'`,
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
+    ...(headers ? [`const responseHeaders = ${JSON.stringify(headers)}`] : []),
     "",
     "export default defineEventHandler(async (event) => {",
     "  const pathname = getRouterParam(event, '_', { decode: false }) || ''",
     "  if (!pathname) throw createError({ statusCode: 404, statusMessage: 'Blob not found' })",
-    "  return await blob.store(storeName).serve(event, pathname)",
+    ...(headers ? ["  setResponseHeaders(event, responseHeaders)"] : []),
+    ...(headers
+      ? [
+          "  try {",
+          "    return await blob.store(storeName).serve(event, pathname)",
+          "  }",
+          "  catch (error) {",
+          "    for (const name of Object.keys(responseHeaders)) removeResponseHeader(event, name)",
+          "    throw error",
+          "  }",
+        ]
+      : ["  return await blob.store(storeName).serve(event, pathname)"]),
     "})",
     "",
   ].join("\n")
 }
 
-async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConfig["blob"], importBase = blobPackageName): Promise<void> {
-  await writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, importBase))
+async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName): Promise<void> {
+  await writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase))
   const serve = blob ? blob.serve : undefined
   if (!serve) return
   const file = resolve(root, generatedBlobServeRouteHandler)
@@ -119,6 +179,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
   let blob: BlobModuleOptions | undefined = options
   let clientOutDir = "dist"
   let command: "build" | "serve" = "serve"
+  let cloudflareOwnedByNitro = false
   let providerArtifacts: Awaited<ReturnType<typeof prepareProviderOutputs>> | undefined
   let providerOutput: ComposedProviderOutput | undefined
   let rootDir = process.cwd()
@@ -140,22 +201,28 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
     config(config, env) {
       command = env.command
       blob = config.blob ?? blob
-      const blobConfig = resolveBlobViteConfig(blob)
+      const configuredNitro = (config as { nitro?: unknown }).nitro
+      cloudflareOwnedByNitro = hasNitroVitePluginOption(config.plugins) && isNitroCloudflareHost(configuredNitro)
+      const blobConfig = resolveBlobViteConfig(blob, cloudflareOwnedByNitro ? { hosting: "cloudflare" } : undefined)
       const nitro = mergeNitroBlobConfig(
-        (config as { nitro?: unknown }).nitro,
+        configuredNitro,
         blobConfig.blob ? blobConfig.blob.serve : undefined,
       )
-      ;(config as { nitro?: unknown }).nitro = nitro
-      return { nitro } as never
+      const composedNitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflareOwnedByNitro)
+      ;(config as { nitro?: unknown }).nitro = composedNitro
     },
     async configResolved(config) {
       resolved = config
       clientOutDir = config.build.outDir
       rootDir = config.root
       blob = config.blob ?? blob
+      const configuredNitro = (config as { nitro?: unknown }).nitro
+      cloudflareOwnedByNitro = hasNitroVitePlugin(config) && isNitroCloudflareHost(configuredNitro)
+      const nitro = configuredNitro && typeof configuredNitro === "object" && !Array.isArray(configuredNitro) ? configuredNitro as Record<string, unknown> : {}
+      ;(config as { nitro?: unknown }).nitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflareOwnedByNitro)
       providerOutput = useComposedProviderOutput(config)
-      runtimeConfig = resolveBlobViteConfig(blob)
-      await refreshBlobGeneratedFiles(config.root, runtimeConfig.blob, importBase)
+      runtimeConfig = resolveBlobViteConfig(blob, cloudflareOwnedByNitro ? { hosting: "cloudflare" } : undefined)
+      await refreshBlobGeneratedFiles(config.root, runtimeConfig.blob, cloudflareOwnedByNitro, importBase)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
@@ -190,6 +257,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       await generateProviderOutputs({
         blob,
         clientOutDir,
+        cloudflareOwnedByNitro,
         artifacts: providerArtifacts,
         providerOutput,
         rootDir,

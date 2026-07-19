@@ -9,6 +9,7 @@ export default defineConfig({
         "vite",
         "esbuild",
         "#vitehub/agent/registry",
+        "#vitehub/env/server",
         "@vercel/nft",
         "@vite-hub/rate-limit",
         "@vite-hub/workflow",

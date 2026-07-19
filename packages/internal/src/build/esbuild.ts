@@ -8,6 +8,7 @@ import { resolveViteHubProjectRoot } from "./vite.ts"
 
 interface BundleEsmEntryOptions {
   alias?: Record<string, string>
+  banner?: string
   conditions?: string[]
   external?: string[]
   format?: "esm" | "cjs"
@@ -239,16 +240,19 @@ export async function bundleEsmEntry(
 
   await bundle({
     alias: aliases,
-    banner: format === "esm" && platform === "node"
+    banner: options.banner || (format === "esm" && platform === "node")
       ? {
           js: [
-            'import { createRequire as __createRequire } from "node:module";',
-            'import { dirname as __vitehubDirname } from "node:path";',
-            'import { fileURLToPath as __vitehubFileURLToPath } from "node:url";',
-            "globalThis.require = __createRequire(import.meta.url);",
-            "globalThis.__filename = __vitehubFileURLToPath(import.meta.url);",
-            "globalThis.__dirname = __vitehubDirname(globalThis.__filename);",
-          ].join("\n"),
+            options.banner,
+            ...(format === "esm" && platform === "node" ? [
+              'import { createRequire as __createRequire } from "node:module";',
+              'import { dirname as __vitehubDirname } from "node:path";',
+              'import { fileURLToPath as __vitehubFileURLToPath } from "node:url";',
+              "globalThis.require = __createRequire(import.meta.url);",
+              "globalThis.__filename = __vitehubFileURLToPath(import.meta.url);",
+              "globalThis.__dirname = __vitehubDirname(globalThis.__filename);",
+            ] : []),
+          ].filter(Boolean).join("\n"),
         }
       : undefined,
     bundle: true,
