@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
 import { join, relative, resolve } from 'pathe'
@@ -133,6 +132,10 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
     renderChunk(code, chunk) {
       if (!chunk.isEntry || chunk.fileName !== 'index.mjs')
         return null
+      const escapedClassName = className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const namedExport = new RegExp(`\\bexport\\s+(?:class\\s+${escapedClassName}\\b|\\{[^}]*\\b${escapedClassName}\\b[^}]*\\})`)
+      if (namedExport.test(code))
+        return null
 
       return {
         code: `${code}\nexport { ${className} } from './sandbox-cloudflare-exports.mjs'\n`,
@@ -183,10 +186,7 @@ export async function configureCloudflareSandboxNitro(
   const container = target.cloudflare!.wrangler!.containers!
     .find(entry => entry.class_name === resolvedOptions.className)!
   if (typeof existingContainer?.image !== 'string') {
-    const appDockerfile = resolve(rootDir, 'Dockerfile')
-    const dockerfile = existsSync(appDockerfile)
-      ? appDockerfile
-      : await writeCloudflareSandboxDockerfile(resolve(rootDir, '.vitehub/sandbox'))
+    const dockerfile = await writeCloudflareSandboxDockerfile(resolve(rootDir, '.vitehub/sandbox'))
     container.image = relativeWranglerPath(serverDir, dockerfile)
     container.image_build_context = relativeWranglerPath(serverDir, rootDir)
   }
@@ -198,7 +198,6 @@ export async function configureCloudflareSandboxNitro(
   if (!wrangler.compatibility_flags.includes('nodejs_compat'))
     wrangler.compatibility_flags.push('nodejs_compat')
 
-  if (!existingContainer)
-    installCloudflareSandboxEntrypoint(target, resolvedOptions)
+  installCloudflareSandboxEntrypoint(target, resolvedOptions)
   return target
 }

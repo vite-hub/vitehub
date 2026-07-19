@@ -235,6 +235,7 @@ export async function prepareSandboxRuntime(options: {
       aliases: {} as AliasMap,
       definitions: [],
       files: [],
+      hosting: context.hosting,
       stateModule,
     }
   }
@@ -261,6 +262,7 @@ export async function prepareSandboxRuntime(options: {
       cloudflare: plan.cloudflare,
       definitions,
       files: [],
+      hosting: context.hosting,
       stateModule,
     }
   }
@@ -279,6 +281,7 @@ export async function prepareSandboxRuntime(options: {
     cloudflare: plan.cloudflare,
     definitions,
     files: [facadeFile, ...Array.from(emitted.values(), artifact => artifact.dst)],
+    hosting: context.hosting,
     stateModule,
   }
 }

@@ -1,4 +1,5 @@
 import { createNoExternalMerger, hasNitroVitePlugin, isServerEnvironment } from '@vite-hub/internal/build/vite'
+import { getHostingProvider } from '@vite-hub/internal/hosting'
 import { normalize, relative } from 'pathe'
 
 import { configureCloudflareSandboxNitro } from './cloudflare'
@@ -91,6 +92,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   let rawConfig: Record<string, unknown> = {}
   let rawEnv: ConfigEnv = { command: 'serve', mode: 'development' }
   let resolvedConfig: ResolvedConfig | undefined
+  let composedCloudflareSandbox = false
 
   async function prepareCurrentSandboxRuntime(writeArtifacts = true) {
     const prepared = await prepareSandboxRuntime({
@@ -127,13 +129,14 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     config: { nitro?: unknown, plugins?: unknown, root?: string },
     prepared: Awaited<ReturnType<typeof prepareCurrentSandboxRuntime>>,
   ) {
-    if (!prepared.cloudflare || !hasNitroVitePlugin(config))
-      return
+    if (!prepared.cloudflare || !hasNitroVitePlugin(config) || getHostingProvider(prepared.hosting) !== 'cloudflare')
+      return false
     config.nitro = await configureCloudflareSandboxNitro(
       config.nitro as Parameters<typeof configureCloudflareSandboxNitro>[0],
       typeof config.root === 'string' ? config.root : process.cwd(),
       prepared.cloudflare,
     )
+    return true
   }
 
   return {
@@ -146,6 +149,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       generatedAliases = prepared.aliases
       generatedFiles = prepared.files
       definitions = prepared.definitions
+      composedCloudflareSandbox = await composeCloudflareSandbox(config, prepared)
       return {
         resolve: {
           alias: toSandboxAliasEntries({
@@ -170,7 +174,8 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     async configResolved(config) {
       resolvedConfig = config
       const prepared = await refreshSandboxRuntime()
-      await composeCloudflareSandbox(config, prepared)
+      if (!composedCloudflareSandbox)
+        composedCloudflareSandbox = await composeCloudflareSandbox(config, prepared)
     },
     async handleHotUpdate(context) {
       if (!isSandboxDefinitionUpdate(context.file, definitions, generatedFiles, resolvedConfig?.root))
