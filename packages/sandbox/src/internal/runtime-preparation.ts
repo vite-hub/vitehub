@@ -86,7 +86,9 @@ async function resolveSandboxViteContext(
   const nitro = isPlainObject(userConfig.nitro) ? userConfig.nitro : {}
   const preset = typeof userConfig.preset === 'string'
     ? userConfig.preset
-    : typeof nitro.preset === 'string' ? nitro.preset : undefined
+    : typeof nitro.preset === 'string'
+      ? nitro.preset
+      : process.env.NITRO_PRESET || process.env.SERVER_PRESET
   const hosting = detectHosting({ options: { preset } }) || undefined
   const config = options === false ? false : resolveSandboxFeatureConfig(options, hosting)
   const rootDir = resolve(process.cwd(), typeof userConfig.root === 'string' ? userConfig.root : '.')

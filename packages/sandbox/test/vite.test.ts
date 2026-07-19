@@ -242,6 +242,26 @@ describe("hubSandbox", () => {
     expect((resolvedConfig.nitro as any).cloudflare.wrangler.containers).toMatchObject([{ class_name: "Sandbox" }])
   })
 
+  it("infers Cloudflare from the Nitro preset environment", async () => {
+    const rootDir = await createViteRoot()
+    const previousPreset = process.env.NITRO_PRESET
+    process.env.NITRO_PRESET = "cloudflare-module"
+    try {
+      const { hubSandbox } = await import("../src/vite.ts")
+      const plugin = hubSandbox()
+      const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+      const userConfig = { root: rootDir, plugins: [{ name: "nitro:main" }], nitro: {} as Record<string, any> }
+
+      await configHook(userConfig, { command: "build", mode: "production" })
+
+      expect(userConfig.nitro.cloudflare.wrangler.containers).toMatchObject([{ class_name: "Sandbox" }])
+    }
+    finally {
+      if (typeof previousPreset === "undefined") delete process.env.NITRO_PRESET
+      else process.env.NITRO_PRESET = previousPreset
+    }
+  })
+
   it("composes Cloudflare Sandbox into Nitro output", async () => {
     const rootDir = await createViteRoot()
     const { hubSandbox } = await import("../src/vite.ts")
@@ -267,7 +287,7 @@ describe("hubSandbox", () => {
         output: {
           serverDir: ".nitro/server/output",
         },
-        rollupConfig: { plugins: existingPlugin },
+        rollupConfig: { external: "application-runtime", plugins: existingPlugin },
       },
     }
 
@@ -298,6 +318,7 @@ describe("hubSandbox", () => {
 
     const configuredNitro = userConfig.nitro as typeof userConfig.nitro & {
       rollupConfig: {
+        external: unknown
         plugins: Array<{
           load: (id: string) => string
           name: string
@@ -306,12 +327,15 @@ describe("hubSandbox", () => {
       }
     }
     expect(configuredNitro.rollupConfig.plugins[0]).toBe(existingPlugin)
+    expect(configuredNitro.rollupConfig.external).toEqual(["application-runtime", "cloudflare:workers"])
     const rollupPlugin = configuredNitro.rollupConfig.plugins[1]
     expect(rollupPlugin.name).toBe("vitehub-sandbox-cloudflare-exports:Sandbox")
     expect(rollupPlugin.load("\0virtual:vitehub-sandbox-cloudflare-exports"))
       .toContain("export class Sandbox extends CloudflareSandbox")
-    expect(rollupPlugin.renderChunk("export default {}", { isEntry: true, fileName: "index.mjs" }).code)
-      .toContain(`export { Sandbox } from './sandbox-cloudflare-exports.mjs'`)
+    expect(rollupPlugin.load("\0virtual:vitehub-sandbox-cloudflare-exports"))
+      .toContain("export { ContainerProxy } from '@cloudflare/sandbox'")
+    expect(rollupPlugin.renderChunk("export default {}", { isEntry: true, fileName: "server.js" }).code)
+      .toContain(`export { Sandbox, ContainerProxy } from './sandbox-cloudflare-exports.mjs'`)
   })
 
   it("preserves an application-owned Cloudflare Sandbox container", async () => {
@@ -352,10 +376,14 @@ describe("hubSandbox", () => {
     const [rollupPlugin] = (userConfig.nitro as typeof userConfig.nitro & {
       rollupConfig: { plugins: Array<{ renderChunk: (code: string, chunk: { fileName: string, isEntry: boolean }) => unknown }> }
     }).rollupConfig.plugins
-    expect(rollupPlugin.renderChunk("export class Sandbox {}", { isEntry: true, fileName: "index.mjs" })).toBeNull()
-    expect(rollupPlugin.renderChunk("class Worker {}; export { Worker as Sandbox }", { isEntry: true, fileName: "index.mjs" })).toBeNull()
+    expect(rollupPlugin.renderChunk("export class Sandbox {}", { isEntry: true, fileName: "index.mjs" }))
+      .toMatchObject({ code: expect.stringContaining(`export { ContainerProxy } from './sandbox-cloudflare-exports.mjs'`) })
+    expect(rollupPlugin.renderChunk("class Worker {}; export { Worker as Sandbox }", { isEntry: true, fileName: "index.mjs" }))
+      .toMatchObject({ code: expect.stringContaining(`export { ContainerProxy } from './sandbox-cloudflare-exports.mjs'`) })
     expect(rollupPlugin.renderChunk("class Sandbox {}; export { Sandbox as Worker }", { isEntry: true, fileName: "index.mjs" }))
-      .toMatchObject({ code: expect.stringContaining(`export { Sandbox } from './sandbox-cloudflare-exports.mjs'`) })
+      .toMatchObject({ code: expect.stringContaining(`export { Sandbox, ContainerProxy } from './sandbox-cloudflare-exports.mjs'`) })
+    expect(rollupPlugin.renderChunk("export class Sandbox {}; export { ContainerProxy }", { isEntry: true, fileName: "index.mjs" })).toBeNull()
+    expect(rollupPlugin.renderChunk("export default {}", { isEntry: false, fileName: "chunk.mjs" })).toBeNull()
   })
 
   it("rejects conflicting Cloudflare container build contexts", async () => {

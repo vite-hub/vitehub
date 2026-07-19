@@ -50,6 +50,20 @@ function resolveCloudflareSandboxEntrypointOptions(options: CloudflareSandboxEnt
   }
 }
 
+function mergeRollupExternal(value: unknown, addition: string): unknown {
+  if (typeof value === 'undefined')
+    return [addition]
+  if (Array.isArray(value))
+    return value.includes(addition) ? [...value] : [...value, addition]
+  if (typeof value === 'string' || value instanceof RegExp)
+    return [value, addition]
+  if (typeof value === 'function') {
+    return (source: string, importer?: string, isResolved?: boolean) =>
+      source === addition || Boolean(value(source, importer, isResolved))
+  }
+  return value
+}
+
 export function configureCloudflareSandbox(target: MutableCloudflareTarget, options: CloudflareSandboxEntrypointOptions = {}) {
   const { binding, className, migrationTag, name } = resolveCloudflareSandboxEntrypointOptions(options)
   if (typeof target.cloudflare?.wrangler?.exports !== 'undefined') {
@@ -123,6 +137,7 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
       if (id === resolvedModuleId) {
         return [
           `import { Sandbox as CloudflareSandbox } from '@cloudflare/sandbox'`,
+          `export { ContainerProxy } from '@cloudflare/sandbox'`,
           ``,
           `export class ${className} extends CloudflareSandbox {}`,
           ``,
@@ -130,21 +145,23 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
       }
     },
     renderChunk(code, chunk) {
-      if (!chunk.isEntry || chunk.fileName !== 'index.mjs')
+      if (!chunk.isEntry)
         return null
-      const escapedClassName = className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const exportsClass = new RegExp(`\\bexport\\s+class\\s+${escapedClassName}\\b`).test(code)
-      const exportsName = [...code.matchAll(/\bexport\s*\{([^}]*)\}/g)].some(([, specifiers]) =>
-        specifiers!.split(',').some((specifier) => {
-          const names = specifier.trim().split(/\s+as\s+/)
-          return names.at(-1) === className
-        }),
-      )
-      if (exportsClass || exportsName)
+      const exportLists = [...code.matchAll(/\bexport\s*\{([^}]*)\}/g)]
+      const hasNamedExport = (name: string) => {
+        const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        return new RegExp(`\\bexport\\s+class\\s+${escapedName}\\b`).test(code)
+          || exportLists.some(([, specifiers]) => specifiers!.split(',').some((specifier) => {
+            const names = specifier.trim().split(/\s+as\s+/)
+            return names.at(-1) === name
+          }))
+      }
+      const missingExports = [className, 'ContainerProxy'].filter(name => !hasNamedExport(name))
+      if (!missingExports.length)
         return null
 
       return {
-        code: `${code}\nexport { ${className} } from './sandbox-cloudflare-exports.mjs'\n`,
+        code: `${code}\nexport { ${missingExports.join(', ')} } from './sandbox-cloudflare-exports.mjs'\n`,
         map: null,
       }
     },
@@ -204,6 +221,8 @@ export async function configureCloudflareSandboxNitro(
   if (!wrangler.compatibility_flags.includes('nodejs_compat'))
     wrangler.compatibility_flags.push('nodejs_compat')
 
+  target.rollupConfig ||= {}
+  target.rollupConfig.external = mergeRollupExternal(target.rollupConfig.external, 'cloudflare:workers')
   installCloudflareSandboxEntrypoint(target, resolvedOptions)
   return target
 }

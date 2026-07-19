@@ -88,6 +88,7 @@ export interface MutableCloudflareTarget {
 
 export interface MutableRollupTarget {
   rollupConfig?: {
+    external?: unknown
     plugins?: unknown
   }
 }
