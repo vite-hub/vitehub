@@ -75,6 +75,26 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
 }
 
 describe("executeSandboxDefinition", () => {
+  it("bounds Cloudflare setup with the definition timeout", async () => {
+    const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
+    sandbox.mkdir = async () => await new Promise(() => {})
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "release-notes",
+      { timeout: 10 },
+      {
+        entry: "definition.mjs",
+        modules: {
+          "definition.mjs": "export default { run() { return { ok: true } } }",
+        },
+      },
+    )).rejects.toMatchObject({
+      code: "TIMEOUT",
+      provider: "cloudflare",
+    } satisfies Partial<SandboxError>)
+  })
+
   it("imports the generated entry once with the default Node launcher", async () => {
     const { sandbox, execCalls } = createFakeSandbox()
 

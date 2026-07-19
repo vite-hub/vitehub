@@ -171,7 +171,7 @@ export async function executeSandboxDefinition<TPayload, TResult>(
   context?: Record<string, unknown>,
 ): Promise<TResult> {
   const timeout = definitionOptions?.timeout
-  if (typeof timeout !== 'number' || timeout <= 0 || sandbox.provider === 'cloudflare') {
+  if (typeof timeout !== 'number' || timeout <= 0) {
     return await executeSandboxDefinitionOnce(
       sandbox,
       definitionName,
