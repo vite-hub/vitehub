@@ -117,8 +117,9 @@ function findCloudflareDockerfileFragmentImport(sourceFile: ts.SourceFile): Clou
 
     const importClause = statement.importClause
     const bindings = importClause?.namedBindings
-    if (!bindings || !ts.isNamedImports(bindings))
-      continue
+    if (!bindings || !ts.isNamedImports(bindings)) {
+      throw new Error('[vitehub] `defineDockerfileFragment` must be imported as a named import from `vite-hub/sandbox/cloudflare`.')
+    }
 
     const specifier = bindings.elements.find((specifier) => {
       return (specifier.propertyName?.text || specifier.name.text) === cloudflareDockerfileFragmentHelper

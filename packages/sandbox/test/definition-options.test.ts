@@ -176,4 +176,13 @@ describe("Cloudflare Dockerfile fragment extraction", () => {
 
     await expect(extractCloudflareDockerfileFragment(file)).resolves.toBeUndefined()
   })
+
+  it("rejects namespace imports from the fragment marker module", async () => {
+    const file = await writeDefinition([
+      `import * as cloudflare from "vite-hub/sandbox/cloudflare"`,
+      `cloudflare.defineDockerfileFragment\`RUN true\``,
+    ].join("\n"))
+
+    await expect(extractCloudflareDockerfileFragment(file)).rejects.toThrow("named import")
+  })
 })
