@@ -1,24 +1,42 @@
 import { EnvError } from "@vite-hub/env"
 
-import type { EnvErrorCode, EnvErrorOptions } from "@vite-hub/env"
+import type {
+  EnvErrorCode,
+  EnvErrorDetails,
+  EnvErrorOptions,
+  EnvSourceIdentifier,
+} from "@vite-hub/env"
 
 const code = "ENV_REQUIRED_MISSING" satisfies EnvErrorCode
-"ENV_SOURCE_FAILED" satisfies EnvErrorCode
+const source = "git:branch" satisfies EnvSourceIdentifier
+const details = { source } satisfies EnvErrorDetails<"ENV_SOURCE_FAILED">
 const options = {
+  cause: new Error("protected diagnostic"),
   code: "ENV_SOURCE_FAILED" as const,
-  details: { source: "vault:token" },
-  message: "Env source failed.",
-} satisfies EnvErrorOptions
+  details,
+} satisfies EnvErrorOptions<"ENV_SOURCE_FAILED">
 const error = new EnvError(options)
 
 error.code satisfies "ENV_SOURCE_FAILED"
-error.toJSON().details satisfies { source: string } | undefined
+error.toJSON().details satisfies { source?: EnvSourceIdentifier } | undefined
 
-new EnvError({ code, message: "Required Env is missing." })
+new EnvError({ code })
 
 new EnvError({
-  code: "INVALID_DETAILS",
-  // @ts-expect-error Env error details must be JSON-safe.
-  details: { failedAt: new Date() },
-  message: "Invalid details.",
+  // @ts-expect-error Env errors use the closed ViteHub code vocabulary.
+  code: "ENV_CUSTOM_FAILED",
+})
+
+new EnvError({
+  code: "ENV_SOURCE_FAILED",
+  details: {
+    // @ts-expect-error Env source details use the bounded public identifier vocabulary.
+    source: "vault:token",
+  },
+})
+
+new EnvError({
+  code,
+  // @ts-expect-error Env error messages are fixed by code.
+  message: "Required Env is missing.",
 })

@@ -584,7 +584,7 @@ describe("Vite plugin", () => {
       env: {
         WEBHOOK_URL: "https://example.test/hook",
       },
-    })).toThrow("Missing Runtime Env from env:VITEHUB_AIRTABLE_TOKEN.")
+    })).toThrow("[vitehub] Required Env value is missing.")
   })
 
 })
