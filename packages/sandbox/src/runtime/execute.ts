@@ -79,7 +79,7 @@ async function executeLauncher(
       }
     }
     finally {
-      await session.destroy().catch(() => {})
+      await cloudflareSandbox.cloudflare.deleteSession(session.id).catch(() => {})
     }
   }
 

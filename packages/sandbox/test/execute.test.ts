@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { executeSandboxDefinition } from "../src/runtime/execute.ts"
 import type { SandboxError } from "../src/sandbox/errors.ts"
@@ -134,6 +134,40 @@ describe("executeSandboxDefinition", () => {
       cmd: "rm",
       args: ["-rf", "--", expect.stringMatching(/^\/tmp\/vitehub-sandbox\/release-notes-/)],
     })
+  })
+
+  it("deletes Cloudflare execution sessions through the sandbox", async () => {
+    const { sandbox, files } = createFakeSandbox({ provider: "cloudflare" })
+    const deleteSession = vi.fn(async () => {})
+    Object.assign(sandbox, {
+      native: { createSession: vi.fn() },
+      cloudflare: {
+        createSession: vi.fn(async () => ({
+          id: "execution-session",
+          exec: vi.fn(async (command: string) => {
+            const outputPath = command.trim().split(/\s+/).at(-1)?.replace(/^'|'$/g, "")
+            if (outputPath)
+              files.set(outputPath, JSON.stringify({ ok: true, result: { ok: true } }))
+            return { exitCode: 0, stdout: "", stderr: "" }
+          }),
+        })),
+        deleteSession,
+      } as unknown as typeof sandbox.cloudflare,
+    })
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: {
+          "definition.mjs": "export default { run() { return { ok: true } } }",
+        },
+      },
+    )).resolves.toEqual({ ok: true })
+
+    expect(deleteSession).toHaveBeenCalledWith("execution-session")
   })
 
   it("rethrows unrecoverable exec errors instead of masking them as output parse failures", async () => {

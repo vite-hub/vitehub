@@ -23,7 +23,6 @@ export interface CloudflareSandboxSession {
   id: string
   exec: (cmd: string, opts?: { timeout?: number, env?: Record<string, string>, cwd?: string }) => Promise<{ stdout: string, stderr: string, exitCode: number }>
   startProcess: (cmd: string, args?: string[], opts?: { cwd?: string, env?: Record<string, string> }) => Promise<CloudflareSandboxSessionProcess>
-  destroy: () => Promise<void>
 }
 
 export interface CloudflareSandboxSessionProcess {
