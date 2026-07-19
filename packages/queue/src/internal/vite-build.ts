@@ -142,7 +142,6 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
   await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
 
   const entryFiles: Record<QueueProvider, string> = { cloudflare: "", vercel: "" }
-  const cloudflareQueueDefinitions = createCloudflareQueueDefinitionNames(definitions, queue && queue.provider === "cloudflare" ? queue.namePrefix : undefined)
   for (const spec of providerEntrySpecs) {
     if (!shouldWriteProviderEntry(spec, queue)) {
       continue
@@ -150,7 +149,10 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
     const entryFile = resolve(generatedDir, spec.entryFile)
     const queueConfig = resolveOutputQueueConfig(queue, spec.hosting)
     const preloadVercelQueue = spec.name === "vercel" && definitions.length > 0 && isVercelQueueEnabled(queueConfig)
-    await writeFile(entryFile, renderProviderEntry(spec, entryFile, registryFile, userAppEntry, queueConfig, preloadVercelQueue, spec.name === "cloudflare" ? cloudflareQueueDefinitions : undefined), "utf8")
+    const queueDefinitions = spec.name === "cloudflare"
+      ? createCloudflareQueueDefinitionNames(definitions, queue && queue.provider === "cloudflare" ? queue.namePrefix : undefined)
+      : undefined
+    await writeFile(entryFile, renderProviderEntry(spec, entryFile, registryFile, userAppEntry, queueConfig, preloadVercelQueue, queueDefinitions), "utf8")
     entryFiles[spec.name] = entryFile
   }
 

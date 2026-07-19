@@ -116,6 +116,7 @@ describe("hubBlob", () => {
         stores: {
           archive: { base: ".data/archive", driver: "fs" },
           default: { base: ".data/default", driver: "fs" },
+          remote: { driver: "vercel-blob" },
         },
       })
       const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
@@ -123,10 +124,11 @@ describe("hubBlob", () => {
 
       const runtimeFile = join(root, ".vitehub", "nitro", "blob", "runtime.mjs")
       const runtimeSource = await readFile(runtimeFile, "utf8")
-      expect(driverImports(runtimeSource)).toHaveLength(1)
+      expect(driverImports(runtimeSource)).toHaveLength(2)
       expect(driverImports(runtimeSource)[0]).toContain("/drivers/fs")
       expect(runtimeSource).not.toContain("/drivers/netlify-blobs")
-      expect(runtimeSource).not.toContain("/drivers/vercel")
+      expect(runtimeSource).toContain("/drivers/vercel")
+      expect(runtimeSource).toContain("setNamedBlobRuntimeStorage(name, createLazyGeneratedBlobStorage(name))")
 
       const entryFile = join(root, "entry.mjs")
       const artifactFile = join(artifactRoot, "server.mjs")

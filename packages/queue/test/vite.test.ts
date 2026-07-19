@@ -111,6 +111,18 @@ describe("hubQueue", () => {
     expect(await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")).toContain("import * as __vitehubVercelQueue from '@vercel/queue'")
   })
 
+  it("does not apply Cloudflare name limits to Vercel Nitro queues", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-vercel-name-"))
+    roots.push(root)
+    await writeFile(join(root, `${"q".repeat(30)}.queue.ts`), "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue({ provider: "vercel" })
+
+    await expect((plugin.configResolved as (config: unknown) => Promise<void>)({
+      queue: { provider: "vercel" },
+      root,
+    } as never)).resolves.toBeUndefined()
+  })
+
   it("uses the Nitro host instead of a mismatched explicit provider", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-host-"))
     roots.push(root)
