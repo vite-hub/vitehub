@@ -295,7 +295,7 @@ describe("hubSandbox", () => {
     }
 
     await configHook(userConfig, { command: "build", mode: "production" })
-    expect(userConfig.nitro.cloudflare.wrangler.containers[0].image).toBe("../../../.vitehub/sandbox/Dockerfile")
+    expect((userConfig.nitro.cloudflare.wrangler as any).containers[0].image).toBe("../../../.vitehub/sandbox/Dockerfile")
     userConfig.nitro.output.serverDir = ".nitro/server/final/output"
     await configResolved({ ...userConfig, resolve: { alias: [] } })
 
