@@ -188,6 +188,43 @@ describe("cloudflare queue runtime", () => {
     expect(observed.get("second")).toEqual(["second", "second"])
   })
 
+  it("dispatches custom physical Cloudflare queue names through generated definitions", async () => {
+    const handler = vi.fn(async () => {})
+    const worker = createQueueCloudflareWorker({
+      definitions: { "preview-queue--77656c636f6d65": "welcome" },
+      registry: {
+        welcome: async () => ({
+          default: { handler },
+        }),
+      },
+    })
+
+    await worker.queue({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: { id: 1 }, id: "1", retry: vi.fn() }],
+      queue: "preview-queue--77656c636f6d65",
+      retryAll: vi.fn(),
+    }, {}, { waitUntil: vi.fn() })
+
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ payload: { id: 1 } }))
+  })
+
+  it("rejects unknown physical and logical Cloudflare queue mappings", async () => {
+    const worker = createQueueCloudflareWorker({
+      definitions: { "preview-queue--77656c636f6d65": "missing" },
+      registry: {},
+    })
+    const createBatch = (queue: string) => ({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: {}, id: "1", retry: vi.fn() }],
+      queue,
+      retryAll: vi.fn(),
+    })
+
+    await expect(worker.queue(createBatch("unknown"), {}, { waitUntil: vi.fn() })).rejects.toThrow("is not mapped to a Queue Definition")
+    await expect(worker.queue(createBatch("preview-queue--77656c636f6d65"), {}, { waitUntil: vi.fn() })).rejects.toThrow('maps to unknown Queue Definition "missing"')
+  })
+
   it("uses nested Cloudflare waitUntil for deferred dispatch", async () => {
     const send = vi.fn(async () => {})
     const waitUntil = vi.fn()

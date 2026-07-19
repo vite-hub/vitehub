@@ -94,6 +94,7 @@ export interface CloudflareQueueProviderOptions extends QueueSharedOptions {
 
 interface CloudflareQueueModuleProviderOptions extends QueueSharedOptions {
   binding?: string
+  namePrefix?: string
   provider: "cloudflare"
 }
 

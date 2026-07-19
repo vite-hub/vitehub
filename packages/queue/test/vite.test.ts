@@ -71,6 +71,37 @@ describe("hubQueue", () => {
     expect(registry).toContain("welcome.queue.ts")
   })
 
+  it("keeps prefixed Cloudflare queue bindings and runtime definitions aligned", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-prefix-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+
+    const plugin = hubQueue({ namePrefix: "preview-", provider: "cloudflare" })
+    const userConfig = { nitro: { preset: "cloudflare_module" }, root }
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(userConfig)
+    expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.queues", {
+      consumers: [{ queue: "preview-queue--77656c636f6d65" }],
+      producers: [{ binding: "QUEUE_77656C636F6D65", queue: "preview-queue--77656c636f6d65" }],
+    })
+
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      ...userConfig,
+      queue: { namePrefix: "preview-", provider: "cloudflare" },
+    } as never)
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain('"preview-queue--77656c636f6d65": "welcome"')
+    expect(nitroPlugin).toContain("createQueueCloudflareWorker({ definitions: queueDefinitions")
+  })
+
+  it("rejects Cloudflare physical queue names at the provider limit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-prefix-limit-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+
+    const config = hubQueue({ namePrefix: "x".repeat(42), provider: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => void
+    expect(() => config({ nitro: { preset: "cloudflare_module" }, root })).toThrow("must be shorter than 63 characters")
+  })
+
   it("infers providers for generated Nitro runtime imports", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
     roots.push(root)

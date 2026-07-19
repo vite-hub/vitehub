@@ -103,7 +103,7 @@ export interface CloudflareQueueConfig {
   }
 }
 
-function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registryFile: string, userAppEntry: string | undefined, queueConfig: unknown, preloadVercelQueue = false) {
+function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registryFile: string, userAppEntry: string | undefined, queueConfig: unknown, preloadVercelQueue = false, queueDefinitions?: Record<string, string>) {
   const imports = [
     `import { ${spec.factory} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
     `import queueRegistry from ${JSON.stringify(`./${generatedRegistryFileName}`)}`,
@@ -120,9 +120,11 @@ function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registr
     preloadVercelQueue ? "globalThis.__vitehubVercelQueue = __vitehubVercelQueue" : "",
     "",
     `const queueConfig = ${JSON.stringify(queueConfig, null, 2)}`,
+    queueDefinitions ? `const queueDefinitions = ${JSON.stringify(queueDefinitions, null, 2)}` : "",
     "",
     `export default ${spec.factory}({`,
     userAppEntry ? "  app: queueApp," : "",
+    queueDefinitions ? "  definitions: queueDefinitions," : "",
     "  queue: queueConfig,",
     "  registry: queueRegistry,",
     "})",
@@ -140,6 +142,7 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
   await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
 
   const entryFiles: Record<QueueProvider, string> = { cloudflare: "", vercel: "" }
+  const cloudflareQueueDefinitions = createCloudflareQueueDefinitionNames(definitions, queue && queue.provider === "cloudflare" ? queue.namePrefix : undefined)
   for (const spec of providerEntrySpecs) {
     if (!shouldWriteProviderEntry(spec, queue)) {
       continue
@@ -147,7 +150,7 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
     const entryFile = resolve(generatedDir, spec.entryFile)
     const queueConfig = resolveOutputQueueConfig(queue, spec.hosting)
     const preloadVercelQueue = spec.name === "vercel" && definitions.length > 0 && isVercelQueueEnabled(queueConfig)
-    await writeFile(entryFile, renderProviderEntry(spec, entryFile, registryFile, userAppEntry, queueConfig, preloadVercelQueue), "utf8")
+    await writeFile(entryFile, renderProviderEntry(spec, entryFile, registryFile, userAppEntry, queueConfig, preloadVercelQueue, spec.name === "cloudflare" ? cloudflareQueueDefinitions : undefined), "utf8")
     entryFiles[spec.name] = entryFile
   }
 
@@ -160,21 +163,26 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
   }
 }
 
-export function createCloudflareQueueBindings(definitions: DiscoveredQueueDefinition[]): CloudflareQueueConfig["queues"] {
+export function createCloudflareQueueDefinitionNames(definitions: DiscoveredQueueDefinition[], namePrefix = ""): Record<string, string> {
+  return Object.fromEntries(definitions.map(definition => [getCloudflareQueueName(definition.name, namePrefix), definition.name]))
+}
+
+export function createCloudflareQueueBindings(definitions: DiscoveredQueueDefinition[], namePrefix = ""): CloudflareQueueConfig["queues"] {
   if (!definitions.length) {
     return undefined
   }
 
+  const names = createCloudflareQueueDefinitionNames(definitions, namePrefix)
   return {
-    consumers: definitions.map(definition => ({ queue: getCloudflareQueueName(definition.name) })),
+    consumers: Object.keys(names).map(queue => ({ queue })),
     producers: definitions.map(definition => ({
       binding: getCloudflareQueueBindingName(definition.name),
-      queue: getCloudflareQueueName(definition.name),
+      queue: getCloudflareQueueName(definition.name, namePrefix),
     })),
   }
 }
 
-function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig: NormalizedQueueOptions, hasDefinitions: boolean, cloudflareQueues: boolean) {
+function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig: NormalizedQueueOptions, hasDefinitions: boolean, cloudflareQueues: boolean, queueDefinitions: Record<string, string>) {
   const cloudflareRuntime = queueConfig !== false && queueConfig.provider === "cloudflare"
   const cloudflare = cloudflareQueues && cloudflareRuntime
   const vercel = hasDefinitions && queueConfig !== false && queueConfig.provider === "vercel"
@@ -188,7 +196,7 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
     "",
     ...(vercel ? ["globalThis.__vitehubVercelQueue = __vitehubVercelQueue", ""] : []),
     `const queueConfig = ${JSON.stringify(queueConfig, null, 2)}`,
-    ...(cloudflare ? ["const queueWorker = createQueueCloudflareWorker({ queue: queueConfig, registry: queueRegistry })"] : []),
+    ...(cloudflare ? [`const queueDefinitions = ${JSON.stringify(queueDefinitions, null, 2)}`, "const queueWorker = createQueueCloudflareWorker({ definitions: queueDefinitions, queue: queueConfig, registry: queueRegistry })"] : []),
     "",
     `export default definePlugin((${cloudflare ? "nitro" : ""}) => {`,
     "  setQueueRuntimeConfig(queueConfig)",
@@ -224,13 +232,14 @@ export async function writeQueueNitroIntegration(rootDir: string, queue: QueueMo
   const pluginFile = resolve(rootDir, generatedQueueNitroPlugin)
   const middlewareFile = resolve(rootDir, generatedQueueNitroMiddleware)
   const queueConfig = resolveOutputQueueConfig(typeof queue === "undefined" ? {} : queue, hosting)
+  const queueDefinitions = createCloudflareQueueDefinitionNames(definitions, queue && queue.provider === "cloudflare" ? queue.namePrefix : undefined)
   await Promise.all([
     mkdir(dirname(pluginFile), { recursive: true }),
     mkdir(generatedDir, { recursive: true }),
   ])
   await Promise.all([
     writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8"),
-    writeFile(pluginFile, renderNitroPlugin(pluginFile, registryFile, queueConfig, definitions.length > 0, cloudflareQueues), "utf8"),
+    writeFile(pluginFile, renderNitroPlugin(pluginFile, registryFile, queueConfig, definitions.length > 0, cloudflareQueues, queueDefinitions), "utf8"),
     writeFile(middlewareFile, renderNitroMiddleware(queueConfig, definitions.length > 0), "utf8"),
   ])
 }
@@ -249,8 +258,8 @@ export async function createCloudflareQueueConfig(options: CloudflareQueueConfig
   }
 }
 
-function createCloudflareOutput(artifacts: GeneratedQueueArtifacts): CloudflareProviderDeploymentOutput {
-  const queues = createCloudflareQueueBindings(artifacts.definitions)
+function createCloudflareOutput(artifacts: GeneratedQueueArtifacts, namePrefix = ""): CloudflareProviderDeploymentOutput {
+  const queues = createCloudflareQueueBindings(artifacts.definitions, namePrefix)
 
   const wranglerConfig: CloudflareQueueConfig = {
     compatibility_date: defaultCloudflareCompatibilityDate,
@@ -435,6 +444,7 @@ async function writeVercelQueueFunctions(rootDir: string, queue: QueueModuleOpti
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedQueueArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.queue, options.definitions)
+  const cloudflareNamePrefix = options.queue && options.queue.provider === "cloudflare" ? options.queue.namePrefix : undefined
   const usesCloudflare = shouldCreateCloudflareOutput(options.queue)
   const createCloudflare = !options.cloudflareOwnedByNitro && usesCloudflare
   const createVercel = shouldCreateVercelOutput(options.queue)
@@ -451,7 +461,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   }
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
-    cloudflare: createCloudflare ? createCloudflareOutput(artifacts) : undefined,
+    cloudflare: createCloudflare ? createCloudflareOutput(artifacts, cloudflareNamePrefix) : undefined,
     cleanup: {
       vercel: { serverFunctionName: options.serverFunctionName ?? "__server.func" },
     },
@@ -459,7 +469,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     vercel: createVercel ? createVercelOutput(artifacts, options.serverFunctionName) : undefined,
   })
   if (createCloudflare) {
-    const queues = createCloudflareQueueBindings(artifacts.definitions)
+    const queues = createCloudflareQueueBindings(artifacts.definitions, cloudflareNamePrefix)
     await mkdir(dirname(resolve(options.rootDir, cloudflareQueueOutputState)), { recursive: true })
     await writeFile(resolve(options.rootDir, cloudflareQueueOutputState), `${JSON.stringify({ queues }, null, 2)}\n`, "utf8")
   }

@@ -72,6 +72,26 @@ describe("queue provision step", () => {
     expect(posted).toEqual([{ queue_name: expectedName }])
   })
 
+  it("provisions the same prefixed physical queue name used by deployment output", async () => {
+    const rootDir = await createTempDir()
+    await writeFile(join(rootDir, "welcome.queue.ts"), "export default null\n", "utf8")
+    const expectedName = getCloudflareQueueName("welcome", "preview-")
+
+    const posted: unknown[] = []
+    const fetchImpl = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        posted.push(JSON.parse(String(init.body)))
+        return jsonResponse({ success: true, result: { queue_name: expectedName } })
+      }
+      return jsonResponse({ success: true, result: [] })
+    }) as unknown as typeof globalThis.fetch
+
+    const actions = await createQueueProvisionStep(() => rootDir, () => "preview-").plan(provisionContext(fetchImpl))
+    expect(actions[0]!.name).toBe(expectedName)
+    await actions[0]!.apply()
+    expect(posted).toEqual([{ queue_name: expectedName }])
+  })
+
   it("skips when Cloudflare credentials are missing", async () => {
     const rootDir = await createTempDir()
     await writeFile(join(rootDir, "welcome.queue.ts"), "export default null\n", "utf8")

@@ -75,7 +75,7 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
   if (!compatibilityFlags.includes("nodejs_compat")) compatibilityFlags.push("nodejs_compat")
   const cloudflareQueues = supportsCloudflareQueues(nitro)
   const rollupConfig = cloneNitroConfig(nitro.rollupConfig)
-  const generated = createCloudflareQueueBindings(definitions)
+  const generated = createCloudflareQueueBindings(definitions, queue?.provider === "cloudflare" ? queue.namePrefix : undefined)
   const baseNitro = {
     ...nitro,
     ...(cloudflareQueues ? { rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") } } : {}),
@@ -115,7 +115,13 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
     name: "@vite-hub/queue/vite",
     vitehub: {
       cli: async () => {
-        return { namespaces: [], provision: [createQueueProvisionStep(() => resolved?.root ?? process.cwd())] }
+        return {
+          namespaces: [],
+          provision: [createQueueProvisionStep(
+            () => resolved?.root ?? process.cwd(),
+            () => queue && queue.provider === "cloudflare" ? queue.namePrefix : undefined,
+          )],
+        }
       },
     },
     config(config) {
