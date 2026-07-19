@@ -114,7 +114,7 @@ The default resolver returns `null` for bot authors, so Chat SDK does not associ
 
 ## Persist state deliberately
 
-Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive process restarts. The default `provider: 'auto'` wires Cloudflare state only when the Agent host or runtime resolves to Cloudflare; Vercel, Netlify, and unknown hosted Node deployments use memory state. Configure a durable provider explicitly when that state must survive process restarts.
+Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive process restarts. The default `provider: 'auto'` uses Cloudflare state on Cloudflare and local SQLite at `file:.data/vitehub-agent-state.sqlite` during Vite development. Production output requires `VITEHUB_AGENT_STATE_URL` or explicit provider options before stateful webhook traffic; Cloudflare, Vercel, and Netlify production output rejects `file:` URLs because their compute filesystems are ephemeral.
 
 ```ts [vite.config.ts]
 import { hubAgent } from '@vite-hub/agent/vite'
@@ -133,7 +133,7 @@ export default defineConfig({
 })
 ```
 
-Choose a durable provider before treating Chat History as production conversation state.
+Use a hosted libSQL URL for serverless output. A `file:` URL is appropriate only when the Node host has a persistent local filesystem and a SQLite-safe deployment topology.
 
 ## Next steps
 

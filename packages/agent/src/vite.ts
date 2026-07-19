@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
@@ -415,7 +416,11 @@ type BuildWithRolldownOptions = {
 }
 type GeneratedLibsqlAgentStateOptions = Pick<ResolvedAgentModuleOptions["providers"]["state"], "tablePrefix" | "url"> & {
   authTokenEnvName?: string
+  durableUrlRequired?: boolean
+  ephemeralHosting?: "cloudflare" | "netlify" | "vercel"
 }
+
+const defaultLocalAgentStateUrl = "file:.data/vitehub-agent-state.sqlite"
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -448,9 +453,10 @@ function shouldInstallCloudflareAgentState(
   config: unknown,
 ): options is ResolvedAgentModuleOptions {
   if (!options) return false
-  const provider = options.providers.state.provider
+  const { provider, url } = options.providers.state
   if (provider === "cloudflare" || provider === "cloudflare-agents") return true
   if (provider !== "auto") return false
+  if (url) return false
   if (options.runtime === "cloudflare-agents") return true
   if (options.runtime === "vercel" || options.runtime === "deno") return false
   return resolveAgentHosting(config) === "cloudflare"
@@ -462,15 +468,33 @@ function resolveEnvNameForValue(value: string | undefined): string | undefined {
     .find(([name, envValue]) => name && envValue === value)?.[0]
 }
 
-function resolveLibsqlAgentState(options: false | ResolvedAgentModuleOptions): GeneratedLibsqlAgentStateOptions | undefined {
+function resolveLibsqlAgentState(
+  options: false | ResolvedAgentModuleOptions,
+  config: unknown,
+): GeneratedLibsqlAgentStateOptions | undefined {
   if (!options) return
   const { authToken, provider, tablePrefix, url } = options.providers.state
-  if (provider !== "sqlite" && provider !== "libsql") return
+  const auto = provider === "auto"
+  if (!auto && provider !== "sqlite" && provider !== "libsql") return
+  if (auto && shouldInstallCloudflareAgentState(options, config)) return
   const authTokenEnvName = resolveEnvNameForValue(authToken)
+  const target = isRecord(config) ? config : {}
+  const localDevelopment = target.command === "serve" && options.runtime !== "cloudflare-agents" && options.runtime !== "deno"
+  const localDefaultUrl = typeof target.root === "string"
+    ? pathToFileURL(resolve(target.root, defaultLocalAgentStateUrl.slice("file:".length))).href
+    : defaultLocalAgentStateUrl
+  const resolvedUrl = url || (auto && localDevelopment ? localDefaultUrl : undefined)
+  const explicitEphemeralHosting = options.runtime === "cloudflare-agents" ? "cloudflare" : options.runtime === "vercel" ? "vercel" : undefined
+  const ephemeralHosting = localDevelopment ? undefined : explicitEphemeralHosting || resolveAgentHosting(config)
+  if (ephemeralHosting && resolvedUrl?.startsWith("file:")) {
+    throw new TypeError(`[vitehub] Agent state cannot use a file: URL on ${ephemeralHosting} because its filesystem is ephemeral. Configure a durable libSQL URL.`)
+  }
   return {
     ...(authTokenEnvName ? { authTokenEnvName } : {}),
+    ...(!resolvedUrl ? { durableUrlRequired: true } : {}),
+    ...(ephemeralHosting ? { ephemeralHosting } : {}),
     ...(tablePrefix ? { tablePrefix } : {}),
-    ...(url ? { url } : {}),
+    ...(resolvedUrl ? { url: resolvedUrl } : {}),
   }
 }
 
@@ -705,23 +729,36 @@ function generatedCloudflareChatStateHelper(): string[] {
 }
 
 function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions): string[] {
-  const { authTokenEnvName, ...stateOptions } = state
+  const { authTokenEnvName, durableUrlRequired, ephemeralHosting, ...stateOptions } = state
   const configuredAuthTokenOption = authTokenEnvName
-    ? [`  ...(typeof process === 'object' && process?.env?.[${JSON.stringify(authTokenEnvName)}] ? { authToken: process.env[${JSON.stringify(authTokenEnvName)}] } : {}),`]
+    ? [`  ...(typeof process === 'object' && process.env[${JSON.stringify(authTokenEnvName)}] ? { authToken: process.env[${JSON.stringify(authTokenEnvName)}] } : {}),`]
     : []
   return [
     "",
     `const viteHubChatStateOptions = ${JSON.stringify(stateOptions)}`,
-    "const viteHubChatState = createLibsqlAgentState({",
-    "  ...viteHubChatStateOptions,",
-    ...configuredAuthTokenOption,
-    "  ...(typeof process === 'object' && process?.env?.VITEHUB_AGENT_STATE_AUTH_TOKEN ? { authToken: process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN } : {}),",
-    "  ...(typeof process === 'object' && process?.env?.VITEHUB_AGENT_STATE_URL ? { url: process.env.VITEHUB_AGENT_STATE_URL } : {}),",
-    "})",
+    "let viteHubChatState",
     "",
     "function chatStateFromLibsql() {",
+    "  const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined",
+    "  const url = runtimeUrl || viteHubChatStateOptions.url",
+    ...(durableUrlRequired
+      ? ["  if (!url) throw new Error('[vitehub] Agent state requires a durable VITEHUB_AGENT_STATE_URL for this deployment. Configure agent.providers.state or set the environment variable.')"]
+      : []),
+    ...(ephemeralHosting
+      ? [`  if (url?.startsWith('file:')) throw new Error(${JSON.stringify(`[vitehub] Agent state cannot use a file: URL on ${ephemeralHosting} because its filesystem is ephemeral. Configure a durable libSQL URL.`)})`]
+      : []),
+    "  if (!viteHubChatState) {",
+    "    viteHubChatState = createLibsqlAgentState({",
+    "      ...viteHubChatStateOptions,",
+    ...configuredAuthTokenOption.map(line => `  ${line}`),
+    "      ...(typeof process === 'object' && process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN ? { authToken: process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN } : {}),",
+    "      ...(url ? { url } : {}),",
+    "    })",
+    "  }",
     "  return viteHubChatState",
     "}",
+    "const viteHubChatStateResolver = () => chatStateFromLibsql()",
+    "viteHubChatStateResolver.ownsScope = false",
   ]
 }
 
@@ -881,7 +918,7 @@ async function generateAgentWebhookRouteHandler(
   const webhookStateOption = options.cloudflareState
     ? "state: chatStateFromCloudflare(cloudflare), "
     : options.libsqlState
-      ? "state: chatStateFromLibsql(), "
+      ? "state: viteHubChatStateResolver, "
       : ""
 
   return [
@@ -946,7 +983,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
     workspaceRuntimeImport: subpath(agentImportBase, "server/workspace"),
   })
   const webhookSelector = routeUsesParam(options.webhookRoute, "webhook") ? "netlifyParam(context, 'webhook')" : "''"
-  const webhookStateOption = options.libsqlState ? "state: chatStateFromLibsql(), " : ""
+  const webhookStateOption = options.libsqlState ? "state: viteHubChatStateResolver, " : ""
 
   return [
     ...deploymentCatalog.imports,
@@ -1301,7 +1338,7 @@ async function writeNetlifyAgentProviderOutput(
     ...generatedOptions,
     chatRoute: options.routes.chat,
     discordGatewayRoute: options.routes.discordGateway,
-    libsqlState: generatedOptions.libsqlState ?? resolveLibsqlAgentState(options),
+    libsqlState: generatedOptions.libsqlState ?? resolveLibsqlAgentState(options, config),
     webhookRoute: options.routes.webhooks,
   })
   await writeProviderDeploymentOutputs({
@@ -1372,7 +1409,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           agentImportBase: getAgentImportBase(agent, frameworkOptions),
           chatRoute: normalized.routes.chat,
           cloudflareState: shouldInstallCloudflareAgentState(normalized, config),
-          libsqlState: resolveLibsqlAgentState(normalized),
+          libsqlState: resolveLibsqlAgentState(normalized, config),
           ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
           runtimeCapabilities,
           schedule,
@@ -1399,7 +1436,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         if (config.command === "serve" && isNetlifyHosting(config)) {
           await writeNetlifyAgentProviderOutput(config, normalized, {
             agentImportBase: getAgentImportBase(agent, frameworkOptions),
-            libsqlState: resolveLibsqlAgentState(normalized),
+            libsqlState: resolveLibsqlAgentState(normalized, config),
             providerImportAliases: getProviderImportAliases(agent, frameworkOptions),
             runtime: "vite",
             runtimeCapabilities: standaloneRuntimeCapabilities,
@@ -1577,7 +1614,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         if (normalized && hasHostedAgentDefinitions(resolved.root) && isNetlifyHosting(resolved)) {
           await writeNetlifyAgentProviderOutput(resolved, normalized, {
             agentImportBase: getAgentImportBase(agent, frameworkOptions),
-            libsqlState: resolveLibsqlAgentState(normalized),
+            libsqlState: resolveLibsqlAgentState(normalized, resolved),
             providerImportAliases: getProviderImportAliases(agent, frameworkOptions),
             runtimeCapabilities: standaloneRuntimeCapabilities,
             schedule: hasScheduleVitePlugin(resolved),

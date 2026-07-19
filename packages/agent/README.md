@@ -214,7 +214,7 @@ Capability `cli` can be a static command tree or an invocation resolver that ret
 
 ## Chat state
 
-Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. The default `provider: "auto"` wires Cloudflare state only when the Agent host or runtime resolves to Cloudflare; Vercel, Netlify, and unknown hosted Node deployments use memory state, so they should configure a durable provider explicitly.
+Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. The default `provider: "auto"` uses Cloudflare state on Cloudflare and local SQLite at `file:.data/vitehub-agent-state.sqlite` during Vite development. Production Node and serverless output require `VITEHUB_AGENT_STATE_URL` or explicit provider options because ViteHub cannot infer a durable filesystem there.
 
 ```ts
 // vite.config.ts
@@ -230,7 +230,7 @@ export default defineConfig({
 });
 ```
 
-`provider: "sqlite"` uses the built-in libSQL-compatible state backend, so `file:` URLs work for local SQLite and hosted libSQL URLs work for remote deployments.
+`provider: "sqlite"` uses the built-in libSQL-compatible state backend, so `file:` URLs work for local or explicitly persistent Node deployments and hosted libSQL URLs work remotely. Cloudflare, Vercel, and Netlify production output rejects `file:` Agent state before it can write to an ephemeral filesystem.
 
 You can also wire the adapter manually when `chat({ state })` should own the state provider:
 
