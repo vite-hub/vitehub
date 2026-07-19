@@ -37,7 +37,7 @@ Proof labels describe repository coverage, not a blanket production guarantee. *
 
 The matrix follows source and executable proof rather than provider marketing:
 
-- Preset composition and Queue opt-in: [`packages/vite/src/index.ts`](https://github.com/vite-hub/vitehub/blob/main/packages/vite/src/index.ts) and [`packages/vite/test/vite.test.ts`](https://github.com/vite-hub/vitehub/blob/main/packages/vite/test/vite.test.ts).
+- Preset composition and Queue opt-in: [`packages/vite-hub/src/index.ts`](https://github.com/vite-hub/vitehub/blob/main/packages/vite-hub/src/index.ts) and [`packages/vite-hub/test/vite.test.ts`](https://github.com/vite-hub/vitehub/blob/main/packages/vite-hub/test/vite.test.ts).
 - Cloudflare and Vercel pull-request proof: [`.github/workflows/ci.yml`](https://github.com/vite-hub/vitehub/blob/main/.github/workflows/ci.yml).
 - Cloudflare and Vercel deployed primitive proof: [`.github/workflows/live-smoke.yml`](https://github.com/vite-hub/vitehub/blob/main/.github/workflows/live-smoke.yml).
 - Netlify local proof: the `verify-netlify` job in [`.github/workflows/ci.yml`](https://github.com/vite-hub/vitehub/blob/main/.github/workflows/ci.yml).

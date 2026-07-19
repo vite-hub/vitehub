@@ -24,11 +24,8 @@ become a barrel of every ViteHub API.
 | `@vite-hub/workspace` | `vite-hub/workspace` |
 | `@vite-hub/workflow` | `vite-hub/workflow` |
 
-`@vite-hub/vite` remains a supported root-only compatibility import for
-`vitehub()`. It does not expose `@vite-hub/vite/*` feature paths. Every owner
-package remains independently installable and supported. Applications that
-temporarily keep this import must still install `vite-hub` directly so generated
-framework imports resolve from the application root.
+`@vite-hub/vite` has been removed. Replace it with `vite-hub`. Every owner
+package remains independently installable and supported.
 
 ## Migrate an application
 

@@ -126,7 +126,7 @@ Server primitives are useful with or without Agents.
 
 Each package owns its Runtime Helpers and Vite Integration. Host-specific wiring stays behind ViteHub Provider Output, so app code can use stable imports instead of provider SDK plumbing.
 
-Libraries and focused integrations can depend on any `@vite-hub/*` owner package directly. Existing `@vite-hub/vite` imports remain supported as a root-only compatibility path for `vitehub()`; new applications should use `vite-hub`.
+Libraries and focused integrations can depend on any `@vite-hub/*` owner package directly.
 
 ## Learn More
 

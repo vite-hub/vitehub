@@ -14,9 +14,8 @@ Provider Selection belongs in Integration Options when it changes generated outp
 | --- | --- | --- | --- |
 | `vite-hub` | `ViteHubPresetOptions` | `vitehub(options)` in Vite `plugins` | Composes Agent, Blob, Database, DevTools, Env, Workflow, and Workspace unless a key is `false`. Auth, Email, KV, Queue, Rate Limit, Sandbox, and Schedule are enabled with `true` for inferred defaults or with their integration options. Application APIs use intentional `vite-hub/*` feature subpaths. |
 
-`@vite-hub/vite` remains a supported root-only compatibility import for
-`vitehub()`. Direct `hubX()` integration functions remain available from their
-independent `@vite-hub/*/vite` owner-package paths.
+Direct `hubX()` integration functions remain available from their independent
+`@vite-hub/*/vite` owner-package paths.
 
 Email, KV, Queue, Rate Limit, Sandbox, and Schedule are opt-in with `true` for inferred defaults or with their integration options. Auth follows the same opt-in shape but currently has no plugin option bag.
 

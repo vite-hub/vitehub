@@ -13,7 +13,6 @@ import { listWorkspacePackageInfos } from "../../packages/internal/src/workspace
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
 const fixtureRoot = resolve(repoRoot, "fixtures/consumer/vite-hub")
-const compatFixtureRoot = resolve(repoRoot, "fixtures/consumer/vite-compat")
 const maxBuffer = 64 * 1024 * 1024
 const optionalPackages = [
   "@ai-sdk/harness",
@@ -146,11 +145,6 @@ async function assertPackedPackage(tarball: string, framework: boolean) {
   }
 
   await assertRootDeclarationsAvoidOptionalPeers(tarball, manifest)
-
-  if (manifest.name === "@vite-hub/vite") {
-    expect(manifest.peerDependencies?.["vite-hub"], "compatibility package must require the canonical framework release")
-      .toBe(manifest.version)
-  }
 
   if (!framework) return
 
@@ -360,23 +354,17 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
   it("installs, typechecks, builds, and runs without workspace or hoisting access", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-consumer-"))
     const appDir = join(root, "app")
-    const compatAppDir = join(root, "compat-app")
     const packDir = join(root, "packs")
 
     try {
       await Promise.all([
         cp(fixtureRoot, appDir, { recursive: true }),
-        cp(compatFixtureRoot, compatAppDir, { recursive: true }),
         mkdir(packDir, { recursive: true }),
       ])
       await assertOnlyViteHubDependencies(appDir, ["vite-hub"])
-      await assertOnlyViteHubDependencies(compatAppDir, ["@vite-hub/vite", "vite-hub"])
 
       const specs = await packWorkspacePackages(packDir)
-      await Promise.all([
-        writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
-        writeFile(join(compatAppDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
-      ])
+      await writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8")
       await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
 
       expect(existsSync(join(appDir, "node_modules/@vite-hub")), "owner packages must not be visible at the consumer root").toBe(false)
@@ -509,29 +497,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         expect(client, `browser output contains server-only edge ${forbidden}`).not.toContain(forbidden)
       }
 
-      await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], compatAppDir)
-      expect(existsSync(join(compatAppDir, "node_modules/vite-hub")), "compatibility applications must expose the canonical framework for generated imports").toBe(true)
-      await run("pnpm", ["run", "typecheck"], compatAppDir)
-      await run("pnpm", ["run", "build"], compatAppDir)
-      await run("pnpm", ["run", "typecheck"], compatAppDir)
-      const compatVercelFunctionsRoot = join(compatAppDir, ".vercel/output/functions")
-      const compatVercelSources = await readJavaScriptSources(compatVercelFunctionsRoot)
-      const compatCanonicalImports = Object.entries(compatVercelSources).flatMap(([file, source]) =>
-        importSpecifierOccurrences(source)
-          .filter(({ specifier }) => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
-          .map(occurrence => ({ file, ...occurrence })),
-      )
-      expect(compatCanonicalImports, "@vite-hub/vite provider output must bundle its nested canonical framework dependency").toEqual([])
-      await assertVercelOwnerImportsResolveInside(
-        compatVercelFunctionsRoot,
-        compatVercelSources,
-        "@vite-hub/vite provider owner imports must resolve inside the generated function",
-      )
-      const compatClient = await readJavaScript(join(compatAppDir, "dist"))
-      expect(compatClient).toContain("VITE_HUB_COMPAT_CONSUMER_CLIENT")
-      expect(compatClient).toContain("VITE_HUB_COMPAT_CONSUMER_SERVER")
-      await expect(readFile(join(compatAppDir, ".vitehub/types/auth.d.ts"), "utf8"))
-        .resolves.toContain("vite-hub/auth/server")
     }
     finally {
       await rm(root, { force: true, recursive: true })

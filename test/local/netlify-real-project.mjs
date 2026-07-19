@@ -111,7 +111,7 @@ async function writeFixtureFiles(overrides) {
   await writeFile(join(appDir, "vite.config.ts"), [
     "import { fileURLToPath, URL } from \"node:url\"",
     "",
-    "import { vitehub } from \"@vite-hub/vite\"",
+    "import { vitehub } from \"vite-hub\"",
     "import { defineConfig } from \"vite-plus\"",
     "",
     "export default defineConfig({",
@@ -182,8 +182,8 @@ async function createProject({ packageSource, preview }) {
   await writeFixtureFiles(overrides)
 
   const packageSpecs = packageSource === "local"
-    ? [overrides["@vite-hub/agent"], overrides["@vite-hub/vite"], overrides["vite-hub"]]
-    : [previewSpec("@vite-hub/agent", preview), previewSpec("@vite-hub/vite", preview), previewSpec("vite-hub", preview)]
+    ? [overrides["@vite-hub/agent"], overrides["vite-hub"]]
+    : [previewSpec("@vite-hub/agent", preview), previewSpec("vite-hub", preview)]
 
   run("pnpm", [
     "add",

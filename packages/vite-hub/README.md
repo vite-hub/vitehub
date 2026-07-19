@@ -49,4 +49,4 @@ The root export intentionally contains only the framework configuration API. Fea
 
 ViteHub-owned adapters use `vite-hub/*` even when they integrate an optional third-party package. Install the external provider or SDK explicitly, such as `@ai-sdk/harness-codex` for `vite-hub/agent/harness/codex`; applications should not need a second `@vite-hub/*` dependency to reach the adapter.
 
-Install an `@vite-hub/*` owner package directly when building a custom composition, another framework integration, or package-level tooling. `@vite-hub/vite` remains a supported compatibility import for `vitehub()`; new applications should use `vite-hub`.
+Install an `@vite-hub/*` owner package directly when building a custom composition, another framework integration, or package-level tooling.
