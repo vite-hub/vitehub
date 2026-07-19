@@ -440,7 +440,7 @@ export function findDefaultExportCall(source: string, names: string[]): DefaultE
     const callArgument = stripBoundaryComments(call.arguments[0] || "")
     if (!callArgument.startsWith("{")) continue
     const objectEnd = findMatching(callArgument, 0, "{", "}")
-    if (objectEnd === -1) continue
+    if (objectEnd === undefined) continue
     const suffix = stripBoundaryComments(callArgument.slice(objectEnd + 1))
     if (suffix && !/^(?:as|satisfies)\b/.test(suffix)) continue
     const argument = callArgument.slice(0, objectEnd + 1)
