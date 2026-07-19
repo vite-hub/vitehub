@@ -139,6 +139,7 @@ export default defineNuxtConfig({
         d1_databases: [
           {
             binding: "DB",
+            database_id: process.env.CLOUDFLARE_D1_DATABASE_ID,
             database_name: "vitehub-docs",
           },
         ],

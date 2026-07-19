@@ -39,6 +39,8 @@ jobs:
       - uses: ./.github/actions/setup
 
       - name: Build docs
+        env:
+          CLOUDFLARE_D1_DATABASE_ID: 00000000-0000-0000-0000-000000000000
         run: vp run --filter vitehub-docs build
 
       - name: Verify Worker bundle
@@ -57,6 +59,27 @@ jobs:
 
       - name: Test docs
         run: vp run --filter vitehub-docs test
+
+      - name: Resolve D1 database
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          response="$(curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database?name=vitehub-docs")"
+          database_id="$(jq -r '.result[0].uuid // empty' <<<"${response}")"
+          if [ -z "${database_id}" ]; then
+            response="$(curl --fail-with-body --silent --show-error \
+              --request POST \
+              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              --header "Content-Type: application/json" \
+              --data '{"name":"vitehub-docs"}' \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database")"
+            database_id="$(jq -r '.result.uuid // empty' <<<"${response}")"
+          fi
+          test -n "${database_id}"
+          echo "CLOUDFLARE_D1_DATABASE_ID=${database_id}" >> "$GITHUB_ENV"
 
       - name: Build docs
         run: vp run --filter vitehub-docs build
