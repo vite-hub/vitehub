@@ -18,11 +18,18 @@ type SandboxEvent = {
 
 const allowedDefinitionKeys = new Set(['timeout', 'env', 'runtime'])
 
+function hashCloudflareSandboxName(name: string) {
+  let hash = 2166136261
+  for (let index = 0; index < name.length; index++)
+    hash = Math.imul(hash ^ name.charCodeAt(index), 16777619)
+  return (hash >>> 0).toString(36)
+}
+
 export function createCloudflareExecutionSandboxId(name: string, sandboxId?: string) {
   if (sandboxId)
     return sandboxId
 
-  return `vitehub-${encodeURIComponent(name)}-definition`
+  return `vitehub-${encodeURIComponent(name)}-${hashCloudflareSandboxName(name)}-definition`
 }
 
 export function resolveRuntimeProvider(provider?: SandboxDefinitionProviderOptions, event?: SandboxEvent) {

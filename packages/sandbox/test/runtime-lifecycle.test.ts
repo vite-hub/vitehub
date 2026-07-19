@@ -48,13 +48,13 @@ beforeEach(() => {
 
 describe("Sandbox runtime lifecycle", () => {
   it("keeps distinct Definition names distinct in default Cloudflare identities", () => {
-    expect(createCloudflareExecutionSandboxId("tools/release-notes")).toBe("vitehub-tools%2Frelease-notes-definition")
-    expect(createCloudflareExecutionSandboxId("api")).toBe("vitehub-api-definition")
-    expect(createCloudflareExecutionSandboxId("-preview-")).toBe("vitehub--preview--definition")
+    expect(createCloudflareExecutionSandboxId("tools/release-notes")).toMatch(/^vitehub-tools%2Frelease-notes-[a-z0-9]+-definition$/)
+    expect(createCloudflareExecutionSandboxId("api")).toMatch(/^vitehub-api-[a-z0-9]+-definition$/)
+    expect(createCloudflareExecutionSandboxId("-preview-")).toMatch(/^vitehub--preview--[a-z0-9]+-definition$/)
     expect(createCloudflareExecutionSandboxId("tools/release-notes"))
       .not.toBe(createCloudflareExecutionSandboxId("tools_release-notes"))
-    expect(createCloudflareExecutionSandboxId("Example"))
-      .not.toBe(createCloudflareExecutionSandboxId("example"))
+    expect(createCloudflareExecutionSandboxId("Example").toLowerCase())
+      .not.toBe(createCloudflareExecutionSandboxId("example").toLowerCase())
   })
 
   it("uses the Definition name as the default Cloudflare identity and keeps successful runs idle", async () => {
@@ -69,7 +69,7 @@ describe("Sandbox runtime lifecycle", () => {
     expect(result.isOk()).toBe(true)
     expect(runtimeMocks.createSandboxClient).toHaveBeenCalledWith(expect.objectContaining({
       provider: "cloudflare",
-      sandboxId: "vitehub-example-definition",
+      sandboxId: expect.stringMatching(/^vitehub-example-[a-z0-9]+-definition$/),
     }))
     expect(sandbox.stop).not.toHaveBeenCalled()
   })
@@ -99,6 +99,19 @@ describe("Sandbox runtime lifecycle", () => {
 
     expect(result.isErr()).toBe(true)
     expect(sandbox.stop).not.toHaveBeenCalled()
+  })
+
+  it("stops Cloudflare sandboxes that explicitly disable idle shutdown", async () => {
+    const sandbox = createSandbox("cloudflare")
+    setSandboxRuntimeConfig({ provider: "cloudflare", keepAlive: true })
+    setSandboxRuntimeRegistry({ example: definition })
+    runtimeMocks.createSandboxClient.mockResolvedValue(sandbox)
+    runtimeMocks.executeSandboxDefinition.mockResolvedValue({ ok: true })
+
+    const result = await runSandboxRuntime("example")
+
+    expect(result.isOk()).toBe(true)
+    expect(sandbox.stop).toHaveBeenCalledOnce()
   })
 
   it("keeps Vercel cleanup unchanged", async () => {

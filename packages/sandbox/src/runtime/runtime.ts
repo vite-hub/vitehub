@@ -139,7 +139,7 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
             await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt])
           }
           finally {
-            if (provider.provider !== 'cloudflare')
+            if (provider.provider !== 'cloudflare' || provider.keepAlive === true)
               await sandbox?.stop().catch(() => {})
           }
         }
