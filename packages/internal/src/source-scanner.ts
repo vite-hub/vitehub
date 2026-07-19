@@ -98,6 +98,7 @@ function isIdentifierChar(char: string | undefined) {
 
 function isRegexLiteralStart(previousSignificant: string) {
   const token = previousSignificant.trimEnd()
+  if (/^\.[\w$]+$/.test(token)) return false
   return !token || /[({[=,:!&|?;>+\-*%^~]/.test(token) || /\b(?:await|case|delete|do|else|in|instanceof|return|throw|typeof|void|yield)$/.test(token)
 }
 
