@@ -6,11 +6,13 @@ import { describe, expect, it } from "vitest"
 import * as ownerAgent from "@vite-hub/agent"
 import * as ownerCapabilities from "@vite-hub/agent/capabilities"
 import ownerAuthHandler from "@vite-hub/auth/server"
+import * as ownerBlobContentType from "@vite-hub/blob/content-type"
 import * as ownerRateLimit from "@vite-hub/rate-limit"
 import * as framework from "vite-hub"
 import * as frameworkAgent from "vite-hub/agent"
 import * as frameworkCapabilities from "vite-hub/agent/capabilities"
 import frameworkAuthHandler from "vite-hub/auth/server"
+import * as frameworkBlobContentType from "vite-hub/blob/content-type"
 import * as frameworkRateLimit from "vite-hub/rate-limit"
 import { distributionBinEntries, distributionEntriesFromManifest } from "../vite.config.ts"
 
@@ -136,6 +138,7 @@ describe("framework package contract", () => {
     expect(frameworkCapabilities.email).toBe(ownerCapabilities.email)
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
     expect(frameworkAuthHandler).toBe(ownerAuthHandler)
+    expect(frameworkBlobContentType.detectContentType).toBe(ownerBlobContentType.detectContentType)
     expect(frameworkRateLimit.defineRateLimit).toBe(ownerRateLimit.defineRateLimit)
     expect(frameworkRateLimit.createRateLimiter).toBe(ownerRateLimit.createRateLimiter)
   })

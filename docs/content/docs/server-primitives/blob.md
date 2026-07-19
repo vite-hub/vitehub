@@ -47,12 +47,15 @@ export default defineEventHandler(async () => {
 | Import | Use |
 | --- | --- |
 | `blob` from `@vite-hub/blob` | Read and write the Default Blob Store or named Blob Stores. |
+| `detectContentType` from `vite-hub/blob/content-type` or `@vite-hub/blob/content-type` | Classify common image and PDF signatures before storage. |
 | `ensureBlob` from `@vite-hub/blob` or `@vite-hub/blob/ensure` | Validate upload size and content type. |
 | `hubBlob` from `@vite-hub/blob/vite` | Register Blob runtime configuration and Provider Output. |
 | `resolveBlobViteConfig` from `@vite-hub/blob/vite` | Resolve Blob Vite runtime config manually. |
 | `@vite-hub/blob/drivers/*` | Import provider-specific Blob Driver Modules. |
 
 All Blob driver, object, list, put, store, and module types are exported from `@vite-hub/blob`.
+
+Content detection is explicit: Blob writes preserve caller-provided metadata, and recognizing a leading signature does not prove that the complete file is valid or safe.
 
 ## Store configuration
 
