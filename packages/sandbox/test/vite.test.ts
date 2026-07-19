@@ -231,7 +231,7 @@ describe("hubSandbox", () => {
         cloudflare: {
           wrangler: {
             compatibility_flags: ["custom"],
-            migrations: [{ tag: "v1", new_sqlite_classes: ["Existing"] }],
+            migrations: [{ tag: "existing", new_sqlite_classes: ["Existing"] }],
             routes: ["example.com/*"],
           },
         },
@@ -256,7 +256,10 @@ describe("hubSandbox", () => {
       durable_objects: {
         bindings: [{ name: "SANDBOX", class_name: "Sandbox" }],
       },
-      migrations: [{ tag: "v1", new_sqlite_classes: ["Existing", "Sandbox"] }],
+      migrations: [
+        { tag: "existing", new_sqlite_classes: ["Existing"] },
+        { tag: "v1", new_sqlite_classes: ["Sandbox"] },
+      ],
       routes: ["example.com/*"],
     })
     await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
@@ -277,6 +280,61 @@ describe("hubSandbox", () => {
       .toContain("export class Sandbox extends CloudflareSandbox")
     expect(rollupPlugin.renderChunk("export default {}", { isEntry: true, fileName: "index.mjs" }).code)
       .toContain(`export { Sandbox } from './sandbox-cloudflare-exports.mjs'`)
+  })
+
+  it("preserves an application-owned Cloudflare Sandbox container", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare", name: "generated-name" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const container = {
+      class_name: "Sandbox",
+      image: "./custom.Dockerfile",
+      instance_type: "standard-1",
+      max_instances: 2,
+      name: "application-owned",
+    }
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: {
+        cloudflare: { wrangler: { containers: [container] } },
+      },
+    }
+
+    await configHook(userConfig, { command: "build", mode: "production" })
+
+    expect(userConfig.nitro.cloudflare.wrangler.containers[0]).toBe(container)
+    expect(userConfig.nitro.cloudflare.wrangler.containers).toEqual([{
+      class_name: "Sandbox",
+      image: "./custom.Dockerfile",
+      instance_type: "standard-1",
+      max_instances: 2,
+      name: "application-owned",
+    }])
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("rejects an existing Cloudflare migration tag without changing it", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const migrations = [{ tag: "v1", new_sqlite_classes: ["Existing"] }]
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: {
+        cloudflare: { wrangler: { migrations } },
+      },
+    }
+
+    await expect(configHook(userConfig, { command: "build", mode: "production" }))
+      .rejects.toThrow('Cloudflare migration tag "v1" is already in use')
+    expect(userConfig.nitro.cloudflare.wrangler).toEqual({
+      migrations: [{ tag: "v1", new_sqlite_classes: ["Existing"] }],
+    })
   })
 
   it("defers generated definition bundling until Vite aliases are resolved", async () => {

@@ -1,4 +1,4 @@
-import { createNoExternalMerger, isServerEnvironment } from '@vite-hub/internal/build/vite'
+import { createNoExternalMerger, hasNitroVitePlugin, isServerEnvironment } from '@vite-hub/internal/build/vite'
 import { normalize, relative } from 'pathe'
 
 import { configureCloudflareSandboxNitro } from './cloudflare'
@@ -79,16 +79,6 @@ function invalidateGeneratedSandboxModules(files: string[], moduleGraph: { getMo
     if (module)
       moduleGraph.invalidateModule(module as never)
   }
-}
-
-function hasNitroVitePlugin(value: unknown): boolean {
-  if (Array.isArray(value))
-    return value.some(hasNitroVitePlugin)
-  if (!value || typeof value !== 'object')
-    return false
-  if ('name' in value && value.name === 'nitro:main')
-    return true
-  return 'plugins' in value && hasNitroVitePlugin(value.plugins)
 }
 
 export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {

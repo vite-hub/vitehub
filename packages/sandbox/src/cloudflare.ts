@@ -53,6 +53,11 @@ function resolveCloudflareSandboxEntrypointOptions(options: CloudflareSandboxEnt
 
 export function configureCloudflareSandbox(target: MutableCloudflareTarget, options: CloudflareSandboxEntrypointOptions = {}) {
   const { binding, className, migrationTag, name } = resolveCloudflareSandboxEntrypointOptions(options)
+  const existingMigrations = target.cloudflare?.wrangler?.migrations
+  const classIsMigrated = existingMigrations?.some(entry => entry.new_sqlite_classes?.includes(className))
+  if (!classIsMigrated && existingMigrations?.some(entry => entry.tag === migrationTag)) {
+    throw new Error(`[vitehub] Cloudflare migration tag ${JSON.stringify(migrationTag)} is already in use. Configure a unique sandbox migrationTag.`)
+  }
 
   target.cloudflare ||= {}
   target.cloudflare.wrangler ||= {}
@@ -72,21 +77,6 @@ export function configureCloudflareSandbox(target: MutableCloudflareTarget, opti
       ...(name ? { name } : {}),
     })
   }
-  else {
-    for (const container of containers) {
-      if (container.class_name !== className)
-        continue
-
-      if (typeof container.image !== 'string')
-        container.image = image
-
-      if (typeof container.max_instances !== 'number' || container.max_instances < defaultCloudflareSandboxMaxInstances)
-        container.max_instances = defaultCloudflareSandboxMaxInstances
-
-      if (name && typeof container.name !== 'string')
-        container.name = name
-    }
-  }
 
   const bindings = target.cloudflare.wrangler.durable_objects.bindings as WranglerDurableObjectBinding[]
   if (!bindings.some(entry => entry.name === binding && entry.class_name === className)) {
@@ -98,13 +88,7 @@ export function configureCloudflareSandbox(target: MutableCloudflareTarget, opti
 
   const migrations = target.cloudflare.wrangler.migrations as WranglerMigration[]
   if (!migrations.some(entry => Array.isArray(entry.new_sqlite_classes) && entry.new_sqlite_classes.includes(className))) {
-    const migration = migrations.find(entry => entry.tag === migrationTag)
-    if (migration) {
-      migration.new_sqlite_classes ||= []
-      migration.new_sqlite_classes.push(className)
-    }
-    else
-      migrations.push({ tag: migrationTag, new_sqlite_classes: [className] })
+    migrations.push({ tag: migrationTag, new_sqlite_classes: [className] })
   }
 }
 
@@ -189,7 +173,7 @@ export async function configureCloudflareSandboxNitro(
   configureCloudflareSandbox(target, resolvedOptions)
   const container = target.cloudflare!.wrangler!.containers!
     .find(entry => entry.class_name === resolvedOptions.className)!
-  if (typeof existingContainer?.image !== 'string') {
+  if (!existingContainer) {
     const appDockerfile = resolve(rootDir, 'Dockerfile')
     const dockerfile = existsSync(appDockerfile)
       ? appDockerfile
