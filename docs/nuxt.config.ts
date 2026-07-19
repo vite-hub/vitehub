@@ -129,6 +129,10 @@ export default defineNuxtConfig({
     enabled: false,
   },
   nitro: {
+    preset: "cloudflare_module",
+    cloudflare: {
+      nodeCompat: true,
+    },
     prerender: {
       failOnError: true,
     },
