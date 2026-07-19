@@ -354,6 +354,25 @@ describe("hubSandbox", () => {
     }).rollupConfig.plugins
     expect(rollupPlugin.renderChunk("export class Sandbox {}", { isEntry: true, fileName: "index.mjs" })).toBeNull()
     expect(rollupPlugin.renderChunk("class Worker {}; export { Worker as Sandbox }", { isEntry: true, fileName: "index.mjs" })).toBeNull()
+    expect(rollupPlugin.renderChunk("class Sandbox {}; export { Sandbox as Worker }", { isEntry: true, fileName: "index.mjs" }))
+      .toMatchObject({ code: expect.stringContaining(`export { Sandbox } from './sandbox-cloudflare-exports.mjs'`) })
+  })
+
+  it("rejects conflicting Cloudflare container build contexts", async () => {
+    const { finalizeCloudflareWranglerConfig } = await import("../src/internal/shared/cloudflare-wrangler.ts")
+    const target = {
+      cloudflare: {
+        wrangler: {
+          containers: [
+            { class_name: "Sandbox", image: "./Dockerfile", image_build_context: "../app" },
+            { class_name: "Sandbox", image: "./Dockerfile", image_build_context: "../sandbox" },
+          ],
+        },
+      },
+    }
+
+    expect(() => finalizeCloudflareWranglerConfig(target))
+      .toThrow('Conflicting Cloudflare container "Sandbox"')
   })
 
   it("completes only the required image fields on a partial Cloudflare Sandbox container", async () => {

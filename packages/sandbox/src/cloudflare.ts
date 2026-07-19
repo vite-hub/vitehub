@@ -133,8 +133,14 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
       if (!chunk.isEntry || chunk.fileName !== 'index.mjs')
         return null
       const escapedClassName = className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const namedExport = new RegExp(`\\bexport\\s+(?:class\\s+${escapedClassName}\\b|\\{[^}]*\\b${escapedClassName}\\b[^}]*\\})`)
-      if (namedExport.test(code))
+      const exportsClass = new RegExp(`\\bexport\\s+class\\s+${escapedClassName}\\b`).test(code)
+      const exportsName = [...code.matchAll(/\bexport\s*\{([^}]*)\}/g)].some(([, specifiers]) =>
+        specifiers!.split(',').some((specifier) => {
+          const names = specifier.trim().split(/\s+as\s+/)
+          return names.at(-1) === className
+        }),
+      )
+      if (exportsClass || exportsName)
         return null
 
       return {
