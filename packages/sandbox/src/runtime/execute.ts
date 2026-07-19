@@ -1,4 +1,4 @@
-import { resolveExecRequestTimeout } from '../sandbox/adapters/cloudflare/transport'
+import { resolveExecRequestTimeout, withCloudflareDeadline } from '../sandbox/adapters/cloudflare/transport'
 import { SandboxError } from '../sandbox/errors'
 import { shellQuote } from '../sandbox/utils'
 import { createEntrySource } from './entry-script'
@@ -62,9 +62,11 @@ async function executeLauncher(
   const nativeCloudflareSession = cloudflareSandbox?.native as { createSession?: unknown } | undefined
   if (cloudflareSandbox && typeof nativeCloudflareSession?.createSession === 'function') {
     const timeout = resolveExecRequestTimeout(options.timeout)
-    const session = await cloudflareSandbox.cloudflare.createSession({
-      env: options.env,
-      timeout,
+    const session = await withCloudflareDeadline('createSession', timeout, async () => {
+      return await cloudflareSandbox.cloudflare.createSession({
+        env: options.env,
+        timeout,
+      })
     })
     try {
       const result = await session.exec([command, ...args].map(shellQuote).join(' '), {
@@ -130,6 +132,9 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
       outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, execution, definitionOptions?.timeout, execution)
     }
     catch (error) {
+      if (error instanceof SandboxError && error.details?.operation === 'createSession')
+        throw error
+
       if (execution) {
         outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, error, definitionOptions?.timeout, execution)
       }

@@ -177,6 +177,43 @@ describe("executeSandboxDefinition", () => {
     expect(deleteSession).toHaveBeenCalledWith("execution-session")
   })
 
+  it("bounds Cloudflare session creation with the default exec deadline", async () => {
+    vi.useFakeTimers()
+    try {
+      const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
+      Object.assign(sandbox, {
+        native: { createSession: vi.fn() },
+        cloudflare: {
+          createSession: vi.fn(async () => await new Promise(() => {})),
+        } as unknown as typeof sandbox.cloudflare,
+      })
+
+      const execution = executeSandboxDefinition(
+        sandbox,
+        "release-notes",
+        undefined,
+        {
+          entry: "definition.mjs",
+          modules: {
+            "definition.mjs": "export default { run() { return { ok: true } } }",
+          },
+        },
+      )
+      const rejection = expect(execution).rejects.toMatchObject({
+        code: "TIMEOUT",
+        provider: "cloudflare",
+        details: { operation: "createSession", timeout: 180_000 },
+      } satisfies Partial<SandboxError>)
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(180_000)
+
+      await rejection
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("rethrows unrecoverable exec errors instead of masking them as output parse failures", async () => {
     const execError = new Error("vercel transport unavailable")
     const { sandbox } = createFakeSandbox({ execError })
