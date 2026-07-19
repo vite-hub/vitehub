@@ -162,8 +162,9 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       generatedAliases = prepared.aliases
       generatedFiles = prepared.files
       definitions = prepared.definitions
-      if (config.nitro && typeof config.nitro === 'object') {
-        earlyNitroTarget = config.nitro as Record<string, unknown>
+      const nitro = (config as { nitro?: unknown }).nitro
+      if (nitro && typeof nitro === 'object') {
+        earlyNitroTarget = nitro as Record<string, unknown>
         earlyNitroSnapshot = cloneConfigValue(earlyNitroTarget)
       }
       composedCloudflareEarly = await composeCloudflareSandbox(config, prepared)
