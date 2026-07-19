@@ -163,7 +163,7 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
   }
 }
 
-export function createCloudflareQueueDefinitionNames(definitions: DiscoveredQueueDefinition[], namePrefix = ""): Record<string, string> {
+function createCloudflareQueueDefinitionNames(definitions: DiscoveredQueueDefinition[], namePrefix = ""): Record<string, string> {
   return Object.fromEntries(definitions.map(definition => [getCloudflareQueueName(definition.name, namePrefix), definition.name]))
 }
 
