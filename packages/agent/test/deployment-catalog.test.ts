@@ -42,7 +42,7 @@ function deploymentRuntimeModules(): Map<string, string> {
       "  return Response.json({",
       "    agent: agent.description,",
       "    agentIdentity: options.agentIdentity,",
-      "    hasState: options.state === capture().stateAdapter,",
+      "    hasState: Boolean(options.state),",
       "    instructions: agent.sources?.__vitehubAgentInstructions?.content,",
       "    kind,",
       "    runtime: options.runtime,",
