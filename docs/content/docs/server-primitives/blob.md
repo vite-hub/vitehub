@@ -72,7 +72,8 @@ export default defineConfig({
 
 | Shape | Description |
 | --- | --- |
-| `blob: false` | Disables Blob runtime configuration. |
+| Omitted or `blob: false` | Disables Blob in the `vitehub()` preset. |
+| `blob: true` | Enables Blob with host-inferred defaults in the `vitehub()` preset. |
 | `blob: BlobStoreConfig` | Configures one Default Blob Store with a `driver` and its provider options. Without a driver, ViteHub infers Cloudflare R2, Netlify Blobs, Vercel Blob, or local filesystem storage from the host and runtime env. |
 | `blob: { stores: Record<string, BlobStoreConfig> }` | Defines named Blob Stores. `stores.default` is required. |
 | `blob: { serve: false }` | Disables Blob route generation. This is the default. |

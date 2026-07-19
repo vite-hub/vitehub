@@ -79,7 +79,8 @@ The Vite config key is `workflow`.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `workflow: false` | `false` | enabled | Disables Workflow provider output. |
+| Omitted or `workflow: false` | `false` | disabled | Disables Workflow provider output and Agent-generated Workflow loaders in the `vitehub()` preset. |
+| `workflow: true` | `true` | disabled | Enables Workflow with an inferred provider in the `vitehub()` preset. |
 | `provider` | `WorkflowProvider` | inferred | Selects `cloudflare`, `vercel`, or `openworkflow`. |
 | `binding` | `string` | provider default | Provider binding name for generated output. |
 | `name` | `string` | discovered workflow name | Provider resource name override. |

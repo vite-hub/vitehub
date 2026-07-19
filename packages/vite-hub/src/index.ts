@@ -152,8 +152,8 @@ function frameworkDependencyResolver(
 export interface ViteHubPresetOptions {
   agent?: false | AgentModuleOptions
   auth?: true | AuthModuleOptions
-  blob?: false | BlobModuleOptions
-  database?: false | DBModulePublicOptions
+  blob?: boolean | BlobModuleOptions
+  database?: boolean | DBModulePublicOptions
   devtools?: false | HubDevtoolsOptions
   email?: boolean | EmailVitePluginOptions
   env?: false | EnvIntegrationOptions
@@ -162,7 +162,7 @@ export interface ViteHubPresetOptions {
   rateLimit?: boolean | RateLimitModuleOptions
   sandbox?: boolean | SandboxPublicOptions
   schedule?: boolean | ScheduleVitePluginOptions
-  workflow?: false | WorkflowModuleOptions
+  workflow?: boolean | WorkflowModuleOptions
   workspace?: false | WorkspaceModuleOptions
 }
 
@@ -201,10 +201,16 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
     } as unknown as SandboxPublicOptions))
   }
   if (options.agent !== false) {
+    const agentOptions = options.agent || {}
+    const agentWorkflowEnabled = Boolean(options.workflow) && agentOptions.integrations?.workflow !== false
     plugins.push(hubAgent({
-      ...options.agent,
+      ...agentOptions,
       cloudflareStateImport: `${generatedImportBase}/agent/cloudflare/state`,
       importBase: `${generatedImportBase}/agent`,
+      integrations: {
+        ...agentOptions.integrations,
+        workflow: agentWorkflowEnabled,
+      },
       providerImportAliases,
       runtimeCapabilityImports: {
         blob: `${generatedImportBase}/blob`,
@@ -212,15 +218,15 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
         kv: `${generatedImportBase}/kv`,
       },
       scheduleRuntimeImport: `${generatedImportBase}/schedule/runtime`,
-      workflowImportBase: `${generatedImportBase}/workflow`,
+      workflowImportBase: agentWorkflowEnabled ? `${generatedImportBase}/workflow` : false,
       workspaceDependencyRuntimeImports,
       workspaceImportBase: `${generatedImportBase}/workspace`,
     } as AgentModuleOptions))
   }
-  if (options.database !== false) plugins.push(hubDb(options.database))
-  if (options.blob !== false) {
+  if (options.database) plugins.push(hubDb(options.database === true ? undefined : options.database))
+  if (options.blob) {
     plugins.push(hubBlob({
-      ...options.blob,
+      ...(options.blob === true ? {} : options.blob),
       importBase: `${generatedImportBase}/blob`,
     } as unknown as BlobModuleOptions))
   }
@@ -242,9 +248,9 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
       runtimeImport: `${generatedImportBase}/schedule/runtime/static`,
     } as ScheduleVitePluginOptions))
   }
-  if (options.workflow !== false) {
+  if (options.workflow) {
     plugins.push(hubWorkflow({
-      ...options.workflow,
+      ...(options.workflow === true ? {} : options.workflow),
       agentImportBase: `${generatedImportBase}/agent`,
       importBase: `${generatedImportBase}/workflow`,
       providerImportAliases,

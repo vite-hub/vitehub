@@ -3,9 +3,10 @@ const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
 
 type WorkflowModule = typeof import("@vite-hub/workflow")
 type WorkflowRuntimeStateModule = typeof import("@vite-hub/workflow/runtime/state")
+type WorkflowRuntimeAvailability = Pick<WorkflowRuntimeStateModule, "getWorkflowRuntimeConfig">
 
 export interface AgentWorkflowRuntimeLoaders {
-  state: () => Promise<WorkflowRuntimeStateModule>
+  state: () => Promise<WorkflowRuntimeAvailability | WorkflowRuntimeStateModule>
   workflow: () => Promise<WorkflowModule>
 }
 
@@ -23,5 +24,5 @@ export function loadAgentWorkflowModule(): Promise<WorkflowModule> {
 }
 
 export function loadAgentWorkflowRuntimeStateModule(): Promise<WorkflowRuntimeStateModule> {
-  return workflowRuntimeLoaders.state()
+  return workflowRuntimeLoaders.state() as Promise<WorkflowRuntimeStateModule>
 }

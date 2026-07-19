@@ -90,7 +90,7 @@ describe("launch documentation trust boundaries", () => {
     const config = readFileSync(resolve(docsRoot, "reference/config-options.md"), "utf8");
     const conventions = readFileSync(resolve(docsRoot, "reference/file-conventions.md"), "utf8");
 
-    expect(config).toContain("Email, KV, Queue, Rate Limit, Sandbox, and Schedule are opt-in with `true`");
+    expect(config).toContain("Blob, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, and Workflow are opt-in with `true`");
     expect(config).toContain("Netlify does not infer a provider");
     expect(conventions).toContain("`server/databases/<name>/config.ts`");
     expect(conventions).toContain("`<path>.agent.ts`");
