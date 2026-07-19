@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 describe("provider detection", () => {
   afterEach(() => {
@@ -33,6 +34,13 @@ describe("provider detection", () => {
         },
       },
     })).toBe("cloudflare")
+  })
+
+  it("infers the runtime provider from the scoped Cloudflare environment", async () => {
+    const { resolveRuntimeProvider } = await import("../src/runtime/runtime.ts")
+    vi.stubGlobal("process", undefined)
+
+    expect(runWithActiveCloudflareEnv({ SANDBOX: {} }, () => resolveRuntimeProvider())).toBe("cloudflare")
   })
 
   it("does not mark platform sandboxes available when their SDK cannot resolve", async () => {

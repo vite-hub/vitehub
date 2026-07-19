@@ -217,7 +217,7 @@ async function createDefaultInvoker<
 
   const kind = await resolveAuthenticatedValue(options.kind, context) ?? "authUser"
   const label = await resolveAuthenticatedValue(options.label, context)
-    ?? (providerFields && readProviderField(() => defaultLabel(providerFields.user)))
+    ?? (providerFields && readProviderField(() => defaultLabel(providerFields.user, providerFields.userId)))
     ?? defaultLabel(context.user)
   const sessionId = providerFields
     ? readProviderField(() => readString(providerFields.session.id))
@@ -252,8 +252,8 @@ function resolveAuthenticatedValue<
   return value
 }
 
-function defaultLabel(user: AuthenticatedUser): string {
-  return readString(user.email) ?? readString(user.name) ?? user.id
+function defaultLabel(user: AuthenticatedUser, fallbackId = user.id): string {
+  return readString(user.email) ?? readString(user.name) ?? fallbackId
 }
 
 function normalizeMeta(value: Record<string, unknown> | null | undefined): Record<string, unknown> {

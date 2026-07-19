@@ -244,6 +244,26 @@ describe("authenticated", () => {
     expect(error.cause).toBe(cause)
   })
 
+  it("uses the snapshotted provider user id for the default label fallback", async () => {
+    const request = new Request("https://example.com/api/agent")
+    let reads = 0
+    serverMocks.getSession.mockResolvedValueOnce({
+      session: {},
+      user: {
+        get id() {
+          reads++
+          if (reads > 1) throw new Error("provider user id changed")
+          return "user_1"
+        },
+      },
+    })
+
+    await expect(resolve(authenticated(), createContext({ request }))).resolves.toMatchObject({
+      id: "user_1",
+      label: "user_1",
+    })
+  })
+
   it("does not read default label fields when a mapper provides the invoker", async () => {
     const request = new Request("https://example.com/api/agent")
     serverMocks.getSession.mockResolvedValueOnce({
