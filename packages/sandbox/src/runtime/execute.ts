@@ -54,21 +54,38 @@ async function executeLauncher(
   sandbox: SandboxClient,
   command: string,
   args: string[],
-  options: { env?: Record<string, string>, timeout?: number },
+  options: { cwd?: string, deadline?: number, env?: Record<string, string>, signal?: AbortSignal, timeout?: number },
 ) {
   const cloudflareSandbox = sandbox.provider === 'cloudflare'
     ? sandbox as CloudflareSandboxClient
     : undefined
   const nativeCloudflareSession = cloudflareSandbox?.native as { createSession?: unknown } | undefined
   if (cloudflareSandbox && typeof nativeCloudflareSession?.createSession === 'function') {
-    const timeout = resolveExecRequestTimeout(options.timeout)
-    const session = await withCloudflareDeadline('createSession', timeout, async () => {
-      return await cloudflareSandbox.cloudflare.createSession({
-        env: options.env,
-        timeout,
-      })
+    const remaining = options.deadline ? Math.max(1, options.deadline - Date.now()) : undefined
+    const timeout = Math.min(resolveExecRequestTimeout(options.timeout), remaining ?? Number.POSITIVE_INFINITY)
+    const sessionPromise = cloudflareSandbox.cloudflare.createSession({
+      cwd: options.cwd,
+      env: options.env,
+      timeout,
     })
+    let session: Awaited<typeof sessionPromise>
     try {
+      session = await withCloudflareDeadline('createSession', timeout, async () => await sessionPromise)
+    }
+    catch (error) {
+      void sessionPromise.then(async lateSession => {
+        await cloudflareSandbox.cloudflare.deleteSession(lateSession.id).catch(() => {})
+      }).catch(() => {})
+      throw error
+    }
+    const deleteSession = async () => await cloudflareSandbox.cloudflare.deleteSession(session.id).catch(() => {})
+    const abortSession = () => void deleteSession()
+    try {
+      if (options.signal?.aborted) {
+        await deleteSession()
+        throw createTimeoutError(sandbox.provider, options.timeout || 0)
+      }
+      options.signal?.addEventListener('abort', abortSession, { once: true })
       const result = await session.exec([command, ...args].map(shellQuote).join(' '), {
         ...options,
         timeout,
@@ -81,11 +98,16 @@ async function executeLauncher(
       }
     }
     finally {
-      await cloudflareSandbox.cloudflare.deleteSession(session.id).catch(() => {})
+      options.signal?.removeEventListener('abort', abortSession)
+      await deleteSession()
     }
   }
 
-  return await sandbox.exec(command, args, options)
+  return await sandbox.exec(command, args, {
+    cwd: options.cwd,
+    env: options.env,
+    timeout: options.timeout,
+  })
 }
 
 async function executeSandboxDefinitionOnce<TPayload, TResult>(
@@ -96,6 +118,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
   payload?: TPayload,
   context?: Record<string, unknown>,
   signal?: AbortSignal,
+  deadline?: number,
 ) {
   const bundle = normalizeSandboxDefinitionBundle(source)
 
@@ -126,7 +149,10 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
 
     try {
       execution = await executeLauncher(sandbox, launcher.command, execArgs, {
+        cwd: files.baseDir,
+        deadline,
         env: definitionOptions?.env,
+        signal,
         timeout: definitionOptions?.timeout,
       })
       outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, execution, definitionOptions?.timeout, execution)
@@ -197,6 +223,7 @@ export async function executeSandboxDefinition<TPayload, TResult>(
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined
   const abortController = new AbortController()
+  const deadline = Date.now() + timeout
 
   try {
     return await Promise.race([
@@ -208,6 +235,7 @@ export async function executeSandboxDefinition<TPayload, TResult>(
         payload,
         context,
         abortController.signal,
+        deadline,
       ),
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
