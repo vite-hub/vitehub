@@ -177,14 +177,22 @@ export function workspaceCommandTools(
         const commandTimeout = normalizeWorkspaceCommandTimeout(value.timeout, `${toolName} timeout`) ?? timeout ?? defaultWorkspaceCommandTimeout
         assertWorkspace(workspace, options.missingWorkspaceMessage || "[vitehub] workspaceShell({ commands }) requires an executable Workspace Session. Trusted workspace/session execution requires a writable workspace.")
         const session = await workspace.startSession()
+        let result
         try {
-          const result = await session.exec(value.command, args, { cwd, env, timeout: commandTimeout })
+          result = await session.exec(value.command, args, { cwd, env, timeout: commandTimeout })
           if (mode === "write" && result.exitCode === 0) await session.commit({ message: options.commitMessage || "workspace shell command" })
-          return result
         }
-        finally {
-          await session.close()
+        catch (error) {
+          try {
+            await session.close()
+          }
+          catch (closeError) {
+            throw new AggregateError([error, closeError], "[vitehub] Workspace command failed and session cleanup also failed.")
+          }
+          throw error
         }
+        await session.close()
+        return result
       },
     }),
   }
