@@ -325,7 +325,7 @@ describe("hubSandbox", () => {
 
     expect(userConfig.nitro).toEqual({ preset: "cloudflare-module" })
     const stateId = await resolveId("#vitehub/sandbox")
-    await expect(load(stateId as string)).resolves.toContain('"sandbox": false')
+    expect(await load(stateId as string)).toContain('"sandbox": false')
     await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
       .rejects.toMatchObject({ code: "ENOENT" })
   })
