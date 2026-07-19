@@ -348,7 +348,7 @@ async function createSignInResponse(
   event?: unknown,
 ): Promise<Response> {
   const origin = authBaseURL(definition, request, event)
-  const response = await handleAuthRequest(definition, new Request(`${origin}${authRequestBasePath(definition, request, event)}/sign-in/social`, {
+  const signInRequest = new Request(`${origin}${authRequestBasePath(definition, request, event)}/sign-in/social`, {
     body: JSON.stringify({
       callbackURL: signIn.callbackURL,
       errorCallbackURL: signIn.errorCallbackURL,
@@ -362,7 +362,9 @@ async function createSignInResponse(
       "origin": origin,
     },
     method: "POST",
-  }), undefined, event)
+  })
+  const auth = createAuthenticationProvider(resolveBetterAuthOptionsForRequest(definition, signInRequest, undefined, event))
+  const response = await auth.handler(signInRequest)
 
   if (!response.ok) return response
 
