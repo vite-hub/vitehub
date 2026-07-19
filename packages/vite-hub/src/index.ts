@@ -126,8 +126,9 @@ function frameworkDependencyResolver(
   options: ViteHubPresetOptions,
   providerImportAliases: Record<string, string>,
 ): Plugin {
-  function hasPlugin(plugins: PluginOption[] | undefined, name: string): boolean {
-    return plugins?.flat(Infinity).some(plugin => plugin && typeof plugin === "object" && "name" in plugin && plugin.name === name) ?? false
+  function hasPlugin(plugin: unknown, name: string): boolean {
+    if (Array.isArray(plugin)) return plugin.some(candidate => hasPlugin(candidate, name))
+    return Boolean(plugin && typeof plugin === "object" && "name" in plugin && plugin.name === name)
   }
   return {
     name: "vite-hub/dependencies",
