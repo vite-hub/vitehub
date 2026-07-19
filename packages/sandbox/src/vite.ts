@@ -1,6 +1,7 @@
 import { createNoExternalMerger, isServerEnvironment } from '@vite-hub/internal/build/vite'
 import { normalize, relative } from 'pathe'
 
+import { configureCloudflareSandboxNitro } from './cloudflare'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
 import { prepareSandboxRuntime } from './internal/runtime-preparation'
 import type { Alias, ConfigEnv, Plugin, ResolvedConfig } from 'vite'
@@ -80,6 +81,16 @@ function invalidateGeneratedSandboxModules(files: string[], moduleGraph: { getMo
   }
 }
 
+function hasNitroVitePlugin(value: unknown): boolean {
+  if (Array.isArray(value))
+    return value.some(hasNitroVitePlugin)
+  if (!value || typeof value !== 'object')
+    return false
+  if ('name' in value && value.name === 'nitro:main')
+    return true
+  return 'plugins' in value && hasNitroVitePlugin(value.plugins)
+}
+
 export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   const internalOptions = options as SandboxPublicOptions & SandboxViteInternalOptions | undefined
   const mergeNoExternal = createNoExternalMerger('@vite-hub/sandbox')
@@ -132,6 +143,14 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       generatedAliases = prepared.aliases
       generatedFiles = prepared.files
       definitions = prepared.definitions
+      if (prepared.cloudflare && hasNitroVitePlugin(config.plugins)) {
+        const configWithNitro = config as typeof config & { nitro?: Parameters<typeof configureCloudflareSandboxNitro>[0] }
+        configWithNitro.nitro = await configureCloudflareSandboxNitro(
+          configWithNitro.nitro,
+          config.root || process.cwd(),
+          prepared.cloudflare,
+        )
+      }
       return {
         resolve: {
           alias: toSandboxAliasEntries({

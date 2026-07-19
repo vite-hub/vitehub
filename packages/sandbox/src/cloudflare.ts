@@ -1,9 +1,11 @@
-import { writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { join } from 'pathe'
+import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
+import { join, relative, resolve } from 'pathe'
 import type { Plugin } from 'rollup'
 import type {
   MutableCloudflareTarget,
+  MutableNitroCloudflareTarget,
   MutableRollupTarget,
   WranglerContainer,
   WranglerDurableObjectBinding,
@@ -21,19 +23,16 @@ function resolveCloudflareSandboxEntrypoint() {
     return require.resolve('@cloudflare/sandbox')
   }
   catch {
-    return '@cloudflare/sandbox'
+    throw new Error('[vitehub] The Cloudflare Sandbox provider requires @cloudflare/sandbox. Install a supported version before building.')
   }
 }
 
 function resolveCloudflareSandboxVersion() {
-  try {
-    const entry = require.resolve('@cloudflare/sandbox')
-    const pkg = require(join(entry, '..', '..', 'package.json'))
-    return typeof pkg?.version === 'string' ? pkg.version : '0.7.0'
-  }
-  catch {
-    return '0.7.0'
-  }
+  const entry = resolveCloudflareSandboxEntrypoint()
+  const pkg = require(join(entry, '..', '..', 'package.json'))
+  if (typeof pkg?.version !== 'string')
+    throw new Error('[vitehub] Could not resolve the installed @cloudflare/sandbox version.')
+  return pkg.version
 }
 
 export type CloudflareSandboxEntrypointOptions = {
@@ -99,10 +98,13 @@ export function configureCloudflareSandbox(target: MutableCloudflareTarget, opti
 
   const migrations = target.cloudflare.wrangler.migrations as WranglerMigration[]
   if (!migrations.some(entry => Array.isArray(entry.new_sqlite_classes) && entry.new_sqlite_classes.includes(className))) {
-    migrations.push({
-      tag: migrationTag,
-      new_sqlite_classes: [className],
-    })
+    const migration = migrations.find(entry => entry.tag === migrationTag)
+    if (migration) {
+      migration.new_sqlite_classes ||= []
+      migration.new_sqlite_classes.push(className)
+    }
+    else
+      migrations.push({ tag: migrationTag, new_sqlite_classes: [className] })
   }
 }
 
@@ -164,5 +166,45 @@ export function installCloudflareSandboxEntrypoint(target: MutableRollupTarget, 
 
 export async function writeCloudflareSandboxDockerfile(serverDir: string) {
   const dockerfilePath = join(serverDir, 'Dockerfile')
-  await writeFile(dockerfilePath, `FROM docker.io/cloudflare/sandbox:${resolveCloudflareSandboxVersion()}\n`)
+  await writeFileIfChanged(dockerfilePath, `FROM docker.io/cloudflare/sandbox:${resolveCloudflareSandboxVersion()}\n`)
+  return dockerfilePath
+}
+
+function relativeWranglerPath(from: string, to: string) {
+  const path = relative(from, to).replace(/\\/g, '/')
+  return path.startsWith('.') ? path : `./${path}`
+}
+
+export async function configureCloudflareSandboxNitro(
+  targetValue: MutableNitroCloudflareTarget | undefined,
+  rootDir: string,
+  options: CloudflareSandboxEntrypointOptions = {},
+) {
+  const target = targetValue || {}
+  const serverDir = resolve(rootDir, target.output?.serverDir || '.output/server')
+  const resolvedOptions = resolveCloudflareSandboxEntrypointOptions(options)
+  const existingContainer = target.cloudflare?.wrangler?.containers
+    ?.find(entry => entry.class_name === resolvedOptions.className)
+
+  configureCloudflareSandbox(target, resolvedOptions)
+  const container = target.cloudflare!.wrangler!.containers!
+    .find(entry => entry.class_name === resolvedOptions.className)!
+  if (typeof existingContainer?.image !== 'string') {
+    const appDockerfile = resolve(rootDir, 'Dockerfile')
+    const dockerfile = existsSync(appDockerfile)
+      ? appDockerfile
+      : await writeCloudflareSandboxDockerfile(resolve(rootDir, '.vitehub/sandbox'))
+    container.image = relativeWranglerPath(serverDir, dockerfile)
+    container.image_build_context = relativeWranglerPath(serverDir, rootDir)
+  }
+
+  const wrangler = target.cloudflare!.wrangler!
+  wrangler.compatibility_flags = Array.isArray(wrangler.compatibility_flags)
+    ? [...wrangler.compatibility_flags]
+    : []
+  if (!wrangler.compatibility_flags.includes('nodejs_compat'))
+    wrangler.compatibility_flags.push('nodejs_compat')
+
+  installCloudflareSandboxEntrypoint(target, resolvedOptions)
+  return target
 }

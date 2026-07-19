@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { builtinModules } from 'node:module'
 
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
 import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
@@ -16,6 +17,10 @@ import type { Alias, ConfigEnv, ResolvedConfig } from 'vite'
 
 const SANDBOX_PACKAGE_ID = '@vite-hub/sandbox'
 const SANDBOX_REGISTRY_ID = '#vitehub-sandbox-registry'
+const builtinModuleSet = new Set([
+  ...builtinModules,
+  ...builtinModules.map(name => `node:${name}`),
+])
 
 type AliasMap = Record<string, string>
 type SandboxPublicOptions = AgentSandboxConfig | false
@@ -130,7 +135,12 @@ function readAliasEntries(alias: unknown): Alias[] {
 function resolveStringAliases(alias: unknown): AliasMap {
   const aliases: AliasMap = {}
   for (const entry of readAliasEntries(alias)) {
-    if (typeof entry.find === 'string' && typeof entry.replacement === 'string')
+    if (
+      typeof entry.find === 'string'
+      && !entry.find.endsWith('/')
+      && !builtinModuleSet.has(entry.find)
+      && typeof entry.replacement === 'string'
+    )
       aliases[entry.find] = entry.replacement
   }
   return aliases
@@ -240,6 +250,7 @@ export async function prepareSandboxRuntime(options: {
   if (options.writeArtifacts === false) {
     return {
       aliases,
+      cloudflare: plan.cloudflare,
       definitions,
       files: [],
       stateModule,
@@ -257,6 +268,7 @@ export async function prepareSandboxRuntime(options: {
   )
   return {
     aliases,
+    cloudflare: plan.cloudflare,
     definitions,
     files: [facadeFile, ...Array.from(emitted.values(), artifact => artifact.dst)],
     stateModule,

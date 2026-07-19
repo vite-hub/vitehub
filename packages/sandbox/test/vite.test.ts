@@ -187,6 +187,98 @@ describe("hubSandbox", () => {
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs"), "utf8")).resolves.toContain("from alias")
   })
 
+  it("keeps Node built-ins out of definition bundle aliases", async () => {
+    const rootDir = await createViteRoot()
+    await writeFile(join(rootDir, "src/tools/release-notes.sandbox.ts"), [
+      `import { execFileSync } from "node:child_process"`,
+      ``,
+      `export default defineSandbox(async () => ({ version: execFileSync(process.execPath, ["--version"]).toString() }))`,
+      ``,
+    ].join("\n"))
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: AliasOptions } }) => unknown | Promise<unknown>
+
+    await configHook({ root: rootDir }, { command: "build", mode: "production" })
+    await configResolved({
+      root: rootDir,
+      resolve: {
+        alias: [
+          { find: "process/", replacement: "/virtual/process" },
+          { find: "node:child_process", replacement: "/virtual/child-process" },
+        ],
+      },
+    })
+
+    const definition = await readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs"), "utf8")
+    expect(definition).toContain("node:child_process")
+    expect(definition).not.toContain("/virtual/child-process")
+  })
+
+  it("composes Cloudflare Sandbox into Nitro output", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({
+      provider: "cloudflare",
+      name: "image-optimizer",
+    })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const userConfig = {
+      root: rootDir,
+      plugins: [[{ name: "nitro:main" }]],
+      nitro: {
+        cloudflare: {
+          wrangler: {
+            compatibility_flags: ["custom"],
+            migrations: [{ tag: "v1", new_sqlite_classes: ["Existing"] }],
+            routes: ["example.com/*"],
+          },
+        },
+        output: {
+          serverDir: ".output/server",
+        },
+      },
+    }
+
+    await configHook(userConfig, { command: "build", mode: "production" })
+
+    expect(userConfig.nitro.cloudflare.wrangler).toMatchObject({
+      compatibility_flags: ["custom", "nodejs_compat"],
+      containers: [{
+        class_name: "Sandbox",
+        image: "../../.vitehub/sandbox/Dockerfile",
+        image_build_context: "../..",
+        instance_type: "lite",
+        max_instances: 12,
+        name: "image-optimizer",
+      }],
+      durable_objects: {
+        bindings: [{ name: "SANDBOX", class_name: "Sandbox" }],
+      },
+      migrations: [{ tag: "v1", new_sqlite_classes: ["Existing", "Sandbox"] }],
+      routes: ["example.com/*"],
+    })
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
+      .resolves.toMatch(/^FROM docker\.io\/cloudflare\/sandbox:\d/)
+
+    const configuredNitro = userConfig.nitro as typeof userConfig.nitro & {
+      rollupConfig: {
+        plugins: Array<{
+          load: (id: string) => string
+          name: string
+          renderChunk: (code: string, chunk: { fileName: string, isEntry: boolean }) => { code: string }
+        }>
+      }
+    }
+    const [rollupPlugin] = configuredNitro.rollupConfig.plugins
+    expect(rollupPlugin.name).toBe("vitehub-sandbox-cloudflare-exports:Sandbox")
+    expect(rollupPlugin.load("\0virtual:vitehub-sandbox-cloudflare-exports"))
+      .toContain("export class Sandbox extends CloudflareSandbox")
+    expect(rollupPlugin.renderChunk("export default {}", { isEntry: true, fileName: "index.mjs" }).code)
+      .toContain(`export { Sandbox } from './sandbox-cloudflare-exports.mjs'`)
+  })
+
   it("defers generated definition bundling until Vite aliases are resolved", async () => {
     const rootDir = await createViteRoot()
     await mkdir(join(rootDir, "src/lib"), { recursive: true })
