@@ -4,13 +4,14 @@ import { executeSandboxDefinition } from "../src/runtime/execute.ts"
 import type { SandboxError } from "../src/sandbox/errors.ts"
 import type { SandboxClient, SandboxExecResult } from "../src/sandbox/types.ts"
 
-function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult } = {}) {
+function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, provider?: "cloudflare" | "vercel" } = {}) {
   const files = new Map<string, string>()
   const execCalls: Array<{ cmd: string, args: string[] }> = []
+  const deleteFileCalls: string[] = []
 
   const sandbox = {
     id: "fake",
-    provider: "vercel",
+    provider: options.provider ?? "vercel",
     supports: {
       execEnv: true,
       execCwd: false,
@@ -65,15 +66,19 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
     async exists() {
       throw new Error("not implemented")
     },
-    async deleteFile() {
-      throw new Error("not implemented")
+    async deleteFile(path: string) {
+      deleteFileCalls.push(path)
+      for (const file of files.keys()) {
+        if (file === path || file.startsWith(`${path}/`))
+          files.delete(file)
+      }
     },
     async moveFile() {
       throw new Error("not implemented")
     },
   } as unknown as SandboxClient
 
-  return { sandbox, execCalls }
+  return { sandbox, deleteFileCalls, execCalls, files }
 }
 
 describe("executeSandboxDefinition", () => {
@@ -95,6 +100,26 @@ describe("executeSandboxDefinition", () => {
     expect(execCalls).toHaveLength(1)
     expect(execCalls[0]?.cmd).toBe("node")
     expect(execCalls[0]?.args.slice(0, 2)).toEqual(["-e", "import(process.argv[1])"])
+  })
+
+  it("deletes successful Cloudflare invocation files before reuse", async () => {
+    const { sandbox, deleteFileCalls, files } = createFakeSandbox({ provider: "cloudflare" })
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: {
+          "definition.mjs": "export default { run() { return { ok: true } } }",
+        },
+      },
+    )).resolves.toEqual({ ok: true })
+
+    expect(deleteFileCalls).toHaveLength(1)
+    expect(deleteFileCalls[0]).toMatch(/^\/tmp\/vitehub-sandbox\/release-notes-/)
+    expect(files.size).toBe(0)
   })
 
   it("rethrows unrecoverable exec errors instead of masking them as output parse failures", async () => {

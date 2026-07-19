@@ -105,8 +105,11 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
     })
   }
 
-  if (output.ok)
+  if (output.ok) {
+    if (sandbox.provider === 'cloudflare')
+      await sandbox.deleteFile(files.baseDir)
     return output.result as TResult
+  }
 
   throw createHandlerError(output.error?.message || 'Sandbox definition failed.', sandbox.provider, {
     name: output.error?.name,
