@@ -96,13 +96,17 @@ async function resolveSandboxViteContext(
     : hasDefinitions
       ? resolveSandboxFeatureConfig(options, hosting)
       : { ...options }
+  const runtimeSandboxConfig = config !== false
+    && (hasDefinitions || getSandboxFeatureProvider(config)?.provider)
+    ? config
+    : false
   const rootDir = resolve(process.cwd(), typeof userConfig.root === 'string' ? userConfig.root : '.')
 
   return {
     rootDir,
     config,
     deps: hasDefinitions ? await readSandboxWorkspaceDeps(rootDir) : {},
-    runtimeConfig: createSandboxRuntimeConfig(config, hosting),
+    runtimeConfig: createSandboxRuntimeConfig(runtimeSandboxConfig, hosting),
     hosting,
     command: env.command,
     mode: env.mode,

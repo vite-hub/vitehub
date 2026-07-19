@@ -312,6 +312,8 @@ describe("hubSandbox", () => {
     const plugin = hubSandbox()
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
+    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
+    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
     const userConfig = {
       root: rootDir,
       nitro: { preset: "cloudflare-module" },
@@ -322,6 +324,8 @@ describe("hubSandbox", () => {
     await configResolved({ ...userConfig, resolve: { alias: [] } })
 
     expect(userConfig.nitro).toEqual({ preset: "cloudflare-module" })
+    const stateId = await resolveId("#vitehub/sandbox")
+    await expect(load(stateId as string)).resolves.toContain('"sandbox": false')
     await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
       .rejects.toMatchObject({ code: "ENOENT" })
   })

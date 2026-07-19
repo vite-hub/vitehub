@@ -104,6 +104,8 @@ The Vite config key is `sandbox`.
 
 Provider inference supports Cloudflare and Vercel hosting. Netlify cannot infer a Sandbox Provider; set `sandbox.provider` explicitly when a build target needs sandbox output.
 
+Hosting inference is activated by discovered Sandbox Definitions. Definition-free consumers such as a Workspace using `runtime: 'sandbox'` must configure `sandbox.provider` explicitly so ViteHub knows to provision provider output.
+
 ## Providers
 
 | Provider | Configure with | Provider output | Nuance |
