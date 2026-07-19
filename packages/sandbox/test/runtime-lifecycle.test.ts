@@ -86,7 +86,7 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.createSandboxClient).toHaveBeenNthCalledWith(2, expect.objectContaining({ sandboxId: "per-run" }))
   })
 
-  it("stops failed Cloudflare attempts", async () => {
+  it("leaves failed shared Cloudflare sandboxes to the idle timeout", async () => {
     const sandbox = createSandbox("cloudflare")
     setSandboxRuntimeConfig({ provider: "cloudflare" })
     setSandboxRuntimeRegistry({ example: definition })
@@ -96,7 +96,7 @@ describe("Sandbox runtime lifecycle", () => {
     const result = await runSandboxRuntime("example")
 
     expect(result.isErr()).toBe(true)
-    expect(sandbox.stop).toHaveBeenCalledOnce()
+    expect(sandbox.stop).not.toHaveBeenCalled()
   })
 
   it("keeps Vercel cleanup unchanged", async () => {

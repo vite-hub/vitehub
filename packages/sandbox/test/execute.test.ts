@@ -7,7 +7,6 @@ import type { SandboxClient, SandboxExecResult } from "../src/sandbox/types.ts"
 function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, provider?: "cloudflare" | "vercel" } = {}) {
   const files = new Map<string, string>()
   const execCalls: Array<{ cmd: string, args: string[] }> = []
-  const deleteFileCalls: string[] = []
 
   const sandbox = {
     id: "fake",
@@ -66,19 +65,13 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
     async exists() {
       throw new Error("not implemented")
     },
-    async deleteFile(path: string) {
-      deleteFileCalls.push(path)
-      for (const file of files.keys()) {
-        if (file === path || file.startsWith(`${path}/`))
-          files.delete(file)
-      }
-    },
+    async deleteFile() {},
     async moveFile() {
       throw new Error("not implemented")
     },
   } as unknown as SandboxClient
 
-  return { sandbox, deleteFileCalls, execCalls, files }
+  return { sandbox, execCalls, files }
 }
 
 describe("executeSandboxDefinition", () => {
@@ -102,8 +95,8 @@ describe("executeSandboxDefinition", () => {
     expect(execCalls[0]?.args.slice(0, 2)).toEqual(["-e", "import(process.argv[1])"])
   })
 
-  it("deletes successful Cloudflare invocation files before reuse", async () => {
-    const { sandbox, deleteFileCalls, files } = createFakeSandbox({ provider: "cloudflare" })
+  it("recursively deletes successful Cloudflare invocation files before reuse", async () => {
+    const { sandbox, execCalls } = createFakeSandbox({ provider: "cloudflare" })
 
     await expect(executeSandboxDefinition(
       sandbox,
@@ -117,9 +110,10 @@ describe("executeSandboxDefinition", () => {
       },
     )).resolves.toEqual({ ok: true })
 
-    expect(deleteFileCalls).toHaveLength(1)
-    expect(deleteFileCalls[0]).toMatch(/^\/tmp\/vitehub-sandbox\/release-notes-/)
-    expect(files.size).toBe(0)
+    expect(execCalls.at(-1)).toMatchObject({
+      cmd: "rm",
+      args: ["-rf", "--", expect.stringMatching(/^\/tmp\/vitehub-sandbox\/release-notes-/)],
+    })
   })
 
   it("rethrows unrecoverable exec errors instead of masking them as output parse failures", async () => {

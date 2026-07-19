@@ -63,62 +63,65 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
   const inputJson = toJson({ payload, context }, 'payload/context')
 
   await sandbox.mkdir(files.baseDir, { recursive: true })
-  await writeSandboxDefinitionBundle(sandbox, files.baseDir, bundle)
-  await Promise.all([
-    sandbox.writeFile(files.entryPath, createEntrySource(definitionPath)),
-    sandbox.writeFile(files.inputPath, inputJson),
-  ])
-
-  const launcher = resolveLauncher(sandbox.provider, definitionOptions?.runtime)
-  const execArgs = [...launcher.args, files.entryPath, files.inputPath, files.outputPath]
-
-  let outputRaw = ''
-  let execution: Awaited<ReturnType<SandboxClient['exec']>> | undefined
-
   try {
-    execution = await sandbox.exec(launcher.command, execArgs, {
-      env: definitionOptions?.env,
-      timeout: definitionOptions?.timeout,
-    })
-    outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, execution, definitionOptions?.timeout, execution)
-  }
-  catch (error) {
-    if (execution) {
-      outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, error, definitionOptions?.timeout, execution)
+    await writeSandboxDefinitionBundle(sandbox, files.baseDir, bundle)
+    await Promise.all([
+      sandbox.writeFile(files.entryPath, createEntrySource(definitionPath)),
+      sandbox.writeFile(files.inputPath, inputJson),
+    ])
+
+    const launcher = resolveLauncher(sandbox.provider, definitionOptions?.runtime)
+    const execArgs = [...launcher.args, files.entryPath, files.inputPath, files.outputPath]
+
+    let outputRaw = ''
+    let execution: Awaited<ReturnType<SandboxClient['exec']>> | undefined
+
+    try {
+      execution = await sandbox.exec(launcher.command, execArgs, {
+        env: definitionOptions?.env,
+        timeout: definitionOptions?.timeout,
+      })
+      outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, execution, definitionOptions?.timeout, execution)
     }
-    else {
-      const recoveredOutput = await recoverExecOutput(sandbox, files.outputPath, error, definitionOptions?.timeout, execution)
-      if (recoveredOutput == null)
-        throw error
+    catch (error) {
+      if (execution) {
+        outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, error, definitionOptions?.timeout, execution)
+      }
+      else {
+        const recoveredOutput = await recoverExecOutput(sandbox, files.outputPath, error, definitionOptions?.timeout, execution)
+        if (recoveredOutput == null)
+          throw error
 
-      outputRaw = recoveredOutput
+        outputRaw = recoveredOutput
+      }
     }
-  }
 
-  const output = tryParseSandboxOutput<TResult>(outputRaw)
-    || tryParseSandboxOutput(extractSandboxOutputFromExecution(execution) || '')
+    const output = tryParseSandboxOutput<TResult>(outputRaw)
+      || tryParseSandboxOutput(extractSandboxOutputFromExecution(execution) || '')
 
-  if (!output) {
-    throw createHandlerError('Sandbox definition output is not valid JSON.', sandbox.provider, {
-      output: outputRaw,
-      cause: 'Output file was empty or contained incomplete JSON.',
+    if (!output) {
+      throw createHandlerError('Sandbox definition output is not valid JSON.', sandbox.provider, {
+        output: outputRaw,
+        cause: 'Output file was empty or contained incomplete JSON.',
+      })
+    }
+
+    if (output.ok)
+      return output.result as TResult
+
+    throw createHandlerError(output.error?.message || 'Sandbox definition failed.', sandbox.provider, {
+      name: output.error?.name,
+      stack: output.error?.stack,
+      cause: output.error?.cause,
+      stdout: execution?.stdout,
+      stderr: execution?.stderr,
+      exitCode: execution?.code,
     })
   }
-
-  if (output.ok) {
+  finally {
     if (sandbox.provider === 'cloudflare')
-      await sandbox.deleteFile(files.baseDir)
-    return output.result as TResult
+      await sandbox.exec('rm', ['-rf', '--', files.baseDir]).catch(() => {})
   }
-
-  throw createHandlerError(output.error?.message || 'Sandbox definition failed.', sandbox.provider, {
-    name: output.error?.name,
-    stack: output.error?.stack,
-    cause: output.error?.cause,
-    stdout: execution?.stdout,
-    stderr: execution?.stderr,
-    exitCode: execution?.code,
-  })
 }
 
 export async function executeSandboxDefinition<TPayload, TResult>(

@@ -107,8 +107,6 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
 
         for (let attempt = 0; attempt < attempts; attempt++) {
           let sandbox: SandboxClient | undefined
-          let succeeded = false
-
           try {
             const createdSandbox = await runtimeProvider.createSandboxClient(
               cloudflareSandboxId
@@ -127,7 +125,6 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
               payload,
               options.context,
             )
-            succeeded = true
             return result
           }
           catch (error) {
@@ -142,7 +139,7 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
             await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt])
           }
           finally {
-            if (provider.provider !== 'cloudflare' || !succeeded)
+            if (provider.provider !== 'cloudflare')
               await sandbox?.stop().catch(() => {})
           }
         }
