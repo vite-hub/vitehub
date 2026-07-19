@@ -43,7 +43,9 @@
   },
   "dependencies": {
     "@vite-hub/kv": "workspace:*",
+    "@vite-hub/runtime": "workspace:*",
     "cron-schedule": "catalog:workflow",
+    "effect": "catalog:effect",
     "esbuild": "catalog:tooling"
   },
   "devDependencies": {
@@ -64,6 +66,6 @@
     }
   },
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=24.15.0"
   }
 }

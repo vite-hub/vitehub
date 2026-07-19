@@ -6,9 +6,10 @@ import { dirname, join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { WorkflowProviderStep } from "../src/types.ts"
+import { WorkflowError } from "../src/errors.ts"
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
-import { resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
-import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
+import { getOpenWorkflowRuntime, resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
+import { createOpenWorkflowWorker, startOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 import { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, resumeWorkflowSignal, runWorkflow } from "../src/runtime/client.ts"
 import { createWorkflowSteps } from "../src/runtime/execute.ts"
@@ -110,6 +111,8 @@ const openWorkflowMock = vi.hoisted(() => {
   }
 })
 
+type OpenWorkflowMockBackend = Awaited<ReturnType<typeof openWorkflowMock.connect>>
+
 vi.mock("openworkflow", () => ({
   OpenWorkflow: openWorkflowMock.OpenWorkflow,
 }))
@@ -126,9 +129,7 @@ vi.mock("openworkflow/sqlite", () => ({
   },
 }))
 
-beforeEach(async () => {
-  resetWorkflowRuntime()
-  await resetOpenWorkflowRuntime()
+function setOpenWorkflowMockImporter(): void {
   setOpenWorkflowImporter(async (specifier) => {
     if (specifier === "openworkflow") {
       return { OpenWorkflow: openWorkflowMock.OpenWorkflow } as never
@@ -141,6 +142,29 @@ beforeEach(async () => {
     }
     return await import(specifier) as never
   })
+}
+
+function interceptProcessSignals(): {
+  listeners: Map<string, () => void>
+  off: ReturnType<typeof vi.spyOn>
+  on: ReturnType<typeof vi.spyOn>
+} {
+  const listeners = new Map<string, () => void>()
+  const on = vi.spyOn(process, "on").mockImplementation(((event: string, listener: () => void) => {
+    listeners.set(event, listener)
+    return process
+  }) as typeof process.on)
+  const off = vi.spyOn(process, "off").mockImplementation(((event: string, listener: () => void) => {
+    if (listeners.get(event) === listener) listeners.delete(event)
+    return process
+  }) as typeof process.off)
+  return { listeners, off, on }
+}
+
+beforeEach(async () => {
+  resetWorkflowRuntime()
+  await resetOpenWorkflowRuntime()
+  setOpenWorkflowMockImporter()
   openWorkflowMock.connect.mockClear()
   openWorkflowMock.sqliteConnect.mockClear()
   openWorkflowMock.definitions.clear()
@@ -596,6 +620,129 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("shares one OpenWorkflow acquisition and closes its backend once", async () => {
+    let resolveBackend: ((backend: OpenWorkflowMockBackend) => void) | undefined
+    const stop = vi.fn()
+    const backend = { getWorkflowRun: vi.fn(), stop }
+    openWorkflowMock.connect.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveBackend = resolve
+    }))
+    const config = {
+      postgres: { url: "postgres://localhost/shared" },
+      provider: "openworkflow" as const,
+    }
+
+    const first = getOpenWorkflowRuntime(config)
+    const second = getOpenWorkflowRuntime(config)
+    await vi.waitFor(() => expect(openWorkflowMock.connect).toHaveBeenCalledOnce())
+    resolveBackend?.(backend)
+
+    await expect(first).resolves.toBe(await second)
+    await resetOpenWorkflowRuntime()
+    await resetOpenWorkflowRuntime()
+    expect(stop).toHaveBeenCalledOnce()
+  })
+
+  it("evicts a rejected OpenWorkflow acquisition", async () => {
+    const failure = new Error("database unavailable")
+    const config = {
+      postgres: { url: "postgres://localhost/retry" },
+      provider: "openworkflow" as const,
+    }
+    openWorkflowMock.connect.mockRejectedValueOnce(failure)
+
+    await expect(getOpenWorkflowRuntime(config)).rejects.toBe(failure)
+    await expect(getOpenWorkflowRuntime(config)).resolves.toBeDefined()
+    expect(openWorkflowMock.connect).toHaveBeenCalledTimes(2)
+  })
+
+  it("preserves every OpenWorkflow cleanup failure in cache order", async () => {
+    const firstCause = new Error("first close failed")
+    const secondCause = new Error("second close failed")
+    const firstStop = vi.fn().mockRejectedValue(firstCause)
+    const secondStop = vi.fn().mockRejectedValue(secondCause)
+    const thirdStop = vi.fn()
+    openWorkflowMock.connect
+      .mockResolvedValueOnce({ getWorkflowRun: vi.fn(), stop: firstStop })
+      .mockResolvedValueOnce({ getWorkflowRun: vi.fn(), stop: secondStop })
+      .mockResolvedValueOnce({ getWorkflowRun: vi.fn(), stop: thirdStop })
+
+    await Promise.all(["first", "second", "third"].map(url => getOpenWorkflowRuntime({
+      postgres: { url: `postgres://localhost/${url}` },
+      provider: "openworkflow",
+    })))
+
+    const failure = await resetOpenWorkflowRuntime().catch(error => error) as AggregateError
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect(failure.message).toBe("OpenWorkflow backend cleanup failed for multiple runtimes.")
+    expect(failure.errors).toEqual([
+      expect.objectContaining({ cause: firstCause, code: "OPENWORKFLOW_BACKEND_CLOSE_FAILED" }),
+      expect.objectContaining({ cause: secondCause, code: "OPENWORKFLOW_BACKEND_CLOSE_FAILED" }),
+    ])
+    expect(failure.errors.every(error => error instanceof WorkflowError)).toBe(true)
+    expect(firstStop).toHaveBeenCalledOnce()
+    expect(secondStop).toHaveBeenCalledOnce()
+    expect(thirdStop).toHaveBeenCalledOnce()
+
+    await expect(resetOpenWorkflowRuntime()).resolves.toBeUndefined()
+    expect(firstStop).toHaveBeenCalledOnce()
+    expect(secondStop).toHaveBeenCalledOnce()
+    expect(thirdStop).toHaveBeenCalledOnce()
+
+    const singleCause = new Error("single close failed")
+    const singleStop = vi.fn().mockRejectedValue(singleCause)
+    setOpenWorkflowMockImporter()
+    openWorkflowMock.connect.mockResolvedValueOnce({ getWorkflowRun: vi.fn(), stop: singleStop })
+    await getOpenWorkflowRuntime({
+      postgres: { url: "postgres://localhost/single" },
+      provider: "openworkflow",
+    })
+
+    const singleFailure = await resetOpenWorkflowRuntime().catch(error => error)
+    expect(singleFailure).toBeInstanceOf(WorkflowError)
+    expect(singleFailure).toMatchObject({
+      cause: singleCause,
+      code: "OPENWORKFLOW_BACKEND_CLOSE_FAILED",
+      provider: "openworkflow",
+    })
+    expect(singleStop).toHaveBeenCalledOnce()
+  })
+
+  it("separates OpenWorkflow acquisitions started across a reset", async () => {
+    let resolveOldBackend: ((backend: OpenWorkflowMockBackend) => void) | undefined
+    const oldStop = vi.fn()
+    const newStop = vi.fn()
+    openWorkflowMock.connect
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveOldBackend = resolve
+      }))
+      .mockResolvedValueOnce({ getWorkflowRun: vi.fn(), stop: newStop })
+    const config = {
+      postgres: { url: "postgres://localhost/reset-race" },
+      provider: "openworkflow" as const,
+    }
+
+    const oldRuntime = getOpenWorkflowRuntime(config)
+    await vi.waitFor(() => expect(openWorkflowMock.connect).toHaveBeenCalledOnce())
+    const resetting = resetOpenWorkflowRuntime()
+    setOpenWorkflowMockImporter()
+    const newRuntime = getOpenWorkflowRuntime(config)
+    await vi.waitFor(() => expect(openWorkflowMock.connect).toHaveBeenCalledTimes(2))
+    resolveOldBackend?.({ getWorkflowRun: vi.fn(), stop: oldStop })
+
+    await expect(oldRuntime).rejects.toMatchObject({
+      code: "OPENWORKFLOW_RUNTIME_RESET",
+      provider: "openworkflow",
+    })
+    await expect(resetting).resolves.toBeUndefined()
+    await expect(newRuntime).resolves.toBeDefined()
+    expect(oldStop).toHaveBeenCalledOnce()
+    expect(newStop).not.toHaveBeenCalled()
+
+    await resetOpenWorkflowRuntime()
+    expect(newStop).toHaveBeenCalledOnce()
+  })
+
   it("reads OpenWorkflow Postgres connection options from runtime environment", async () => {
     process.env.OPENWORKFLOW_NAMESPACE_ID = "staging"
     process.env.OPENWORKFLOW_POSTGRES_URL = "postgres://localhost/env"
@@ -726,6 +873,122 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.newWorker).toHaveBeenCalledWith({ concurrency: 3 })
     await worker.start()
     expect(worker.start).toHaveBeenCalled()
+  })
+
+  it("owns OpenWorkflow worker listeners until a cached public stop fails", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const controller = new AbortController()
+    const addEventListener = vi.spyOn(controller.signal, "addEventListener")
+    const removeEventListener = vi.spyOn(controller.signal, "removeEventListener")
+    const processSignals = interceptProcessSignals()
+    const cause = new Error("stop failed")
+    const stop = vi.fn(async () => { throw cause })
+    openWorkflowMock.newWorker.mockReturnValueOnce({
+      options: undefined,
+      start: vi.fn(async () => {}),
+      stop,
+    })
+
+    const worker = await startOpenWorkflowWorker({
+      signal: controller.signal,
+    })
+
+    expect(worker.start).toHaveBeenCalledOnce()
+    expect(addEventListener).toHaveBeenCalledWith("abort", expect.any(Function), { once: true })
+
+    const firstStop = worker.stop()
+    const secondStop = worker.stop()
+
+    expect(secondStop).toBe(firstStop)
+    await expect(firstStop).rejects.toMatchObject({
+      cause,
+      code: "OPENWORKFLOW_WORKER_STOP_FAILED",
+      provider: "openworkflow",
+    })
+    await expect(secondStop).rejects.toMatchObject({ cause })
+    expect(stop).toHaveBeenCalledOnce()
+    expect(removeEventListener).toHaveBeenCalledWith("abort", expect.any(Function))
+    expect(processSignals.off).toHaveBeenCalledTimes(2)
+
+    controller.abort()
+    expect(stop).toHaveBeenCalledOnce()
+  })
+
+  it("reports abort-triggered OpenWorkflow worker stop failures after removing listeners", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const cause = new Error("stop failed")
+    const stop = vi.fn(async () => { throw cause })
+    openWorkflowMock.newWorker.mockReturnValueOnce({
+      options: undefined,
+      start: vi.fn(async () => {}),
+      stop,
+    })
+    const controller = new AbortController()
+    const removeEventListener = vi.spyOn(controller.signal, "removeEventListener")
+    const processSignals = interceptProcessSignals()
+    const onError = vi.fn()
+
+    await startOpenWorkflowWorker({ onError, signal: controller.signal })
+    const sigint = processSignals.listeners.get("SIGINT")
+    const sigterm = processSignals.listeners.get("SIGTERM")
+
+    controller.abort()
+
+    await vi.waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+        cause,
+        code: "OPENWORKFLOW_WORKER_STOP_FAILED",
+        provider: "openworkflow",
+      }))
+    })
+    expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(WorkflowError)
+    expect(stop).toHaveBeenCalledOnce()
+    expect(removeEventListener).toHaveBeenCalledWith("abort", expect.any(Function))
+    expect(processSignals.off).toHaveBeenCalledWith("SIGINT", sigint)
+    expect(processSignals.off).toHaveBeenCalledWith("SIGTERM", sigterm)
+    expect(processSignals.on).toHaveBeenCalledTimes(2)
+  })
+
+  it("reports process-triggered OpenWorkflow worker stop failures without returning a promise to the host", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const cause = new Error("stop failed")
+    const stop = vi.fn(async () => { throw cause })
+    openWorkflowMock.newWorker.mockReturnValueOnce({
+      options: undefined,
+      start: vi.fn(async () => {}),
+      stop,
+    })
+    const processSignals = interceptProcessSignals()
+    const onError = vi.fn()
+
+    const worker = await startOpenWorkflowWorker({ onError })
+    const sigint = processSignals.listeners.get("SIGINT")
+    expect(sigint).toBeDefined()
+
+    const returned = sigint?.()
+
+    expect(returned).toBeUndefined()
+    await vi.waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+        cause,
+        code: "OPENWORKFLOW_WORKER_STOP_FAILED",
+      }))
+    })
+    await expect(worker.stop()).rejects.toMatchObject({
+      cause,
+      code: "OPENWORKFLOW_WORKER_STOP_FAILED",
+    })
+    expect(stop).toHaveBeenCalledOnce()
+    expect(processSignals.off).toHaveBeenCalledTimes(2)
   })
 
   it("registers inline workflow definitions in OpenWorkflow workers", async () => {

@@ -231,13 +231,13 @@ describe("Runtime Schedule helper", () => {
 
     await expect(schedules.create({ cron: "0 9 * * *", target: "report", timezone: "UTC" } as never)).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_INPUT",
-      message: "Runtime Schedule create does not support \"timezone\".",
+      message: "Runtime Schedule input is invalid.",
     })
 
     await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
     await expect(schedules.update("schedule-1", { timezone: "UTC" } as never)).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_INPUT",
-      message: "Runtime Schedule update does not support \"timezone\".",
+      message: "Runtime Schedule input is invalid.",
     })
   })
 

@@ -48,6 +48,10 @@ Errors built on `ViteHubError` snapshot their public `code`, `message`, `details
 | Trace Events | Runtime policy, approval, capability, lifecycle, and error records. |
 | Package tests | Contract failures owned by the primitive package. |
 
+### Schedule errors
+
+`ScheduleError` requires a stable `ScheduleErrorCode` when constructed. Its JSON form contains only `code`, `details`, `message`, `requestId`, and `retryable`; server-only fields such as `cause`, `stack`, and the `httpStatus` transport hint are not serialized. Validation failures describe the invalid field and value type without including the value itself.
+
 ## Local response
 
 Start with the owning package and the failing proof path. For packages that generate Provider Output, inspect that output before changing runtime code. Authenticated Agent bridges distinguish a missing session with `AuthenticationRequiredError` from a default provider lookup failure with `AuthSessionError`; use `cause` only in protected server-side diagnostics. Email emits no Provider Output; inspect `EmailError.code` and `driver` the same way.
