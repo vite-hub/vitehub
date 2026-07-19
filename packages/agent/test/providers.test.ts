@@ -342,6 +342,30 @@ describe("agent Vite plugin", () => {
       expect(composedWorkflowRegistry).toContain('state: () => import("vite-hub/_internal/workflow/runtime/state")')
       expect(composedWorkflowRegistry).toContain('workflow: () => import("vite-hub/_internal/workflow")')
       expect(composedWorkflowRegistry).not.toContain("Workflow is disabled")
+
+      for (const config of [
+        { agent: { integrations: { workflow: false } } },
+        { workflow: false },
+      ]) {
+        const optedOutPlugin = hubAgent({
+          importBase: "vite-hub/_internal/agent",
+          workflowImportBase: false,
+          workflowImportBaseWhenInstalled: "vite-hub/_internal/workflow",
+          workflowIntegrationAutoEnable: true,
+        } as never)
+        const optedOutConfigResolved = optedOutPlugin.configResolved as unknown as typeof configResolved
+        const optedOutTransform = optedOutPlugin.transform as typeof transform
+        await optedOutConfigResolved({
+          command: "serve",
+          createResolver: () => async () => undefined,
+          plugins: [{ name: "@vite-hub/workflow/vite" }],
+          root,
+          ...config,
+        })
+        const optedOutRegistry = await optedOutTransform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")
+        expect(optedOutRegistry).toContain("Workflow is disabled")
+        expect(optedOutRegistry).not.toContain("vite-hub/_internal/workflow")
+      }
     }
     finally {
       await rm(root, { force: true, recursive: true })

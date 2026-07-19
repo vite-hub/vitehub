@@ -1596,6 +1596,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       if (
         frameworkOptions?.workflowIntegrationAutoEnable
         && agent !== false
+        && getInternalAgentOptions(agent)?.integrations?.workflow !== false
+        && config.workflow !== false
         && config.plugins.some(plugin => plugin.name === "@vite-hub/workflow/vite")
       ) {
         agent = {

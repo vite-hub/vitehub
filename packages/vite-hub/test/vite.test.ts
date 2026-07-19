@@ -69,10 +69,13 @@ function dependencyPlugin(options: Parameters<typeof vitehub>[0] = {}): Plugin {
   return plugin
 }
 
-function dependencyAliases(options: Parameters<typeof vitehub>[0] = {}, plugins: PluginOption[] = []): Record<string, string> {
+function dependencyAliases(
+  options: Parameters<typeof vitehub>[0] = {},
+  config: { plugins?: PluginOption[], workflow?: false } = {},
+): Record<string, string> {
   const hook = dependencyPlugin(options).config
   if (typeof hook !== "function") throw new TypeError("Expected a dependency config hook.")
-  const result = hook.call({} as never, { plugins }, { command: "build", mode: "production" }) as { resolve?: { alias?: Record<string, string> } }
+  const result = hook.call({} as never, config, { command: "build", mode: "production" }) as { resolve?: { alias?: Record<string, string> } }
   return result.resolve?.alias ?? {}
 }
 
@@ -91,13 +94,19 @@ describe("vitehub", () => {
     expect(enabledAliases["vite-hub/agent"]).toMatch(/dist\/agent\.js$/)
     expect(enabledAliases["vite-hub/agent/server"]).toMatch(/dist\/agent\/server\.js$/)
 
-    const standaloneAliases = dependencyAliases({}, [
+    const standalonePlugins = [
       { name: "@vite-hub/blob/vite" },
       { name: "@vite-hub/workflow/vite" },
-    ])
+    ]
+    const standaloneAliases = dependencyAliases({}, { plugins: standalonePlugins })
     expect(standaloneAliases["vite-hub/blob"]).toMatch(/dist\/blob\.js$/)
     expect(standaloneAliases["vite-hub/workflow"]).toMatch(/dist\/workflow\.js$/)
     expect(standaloneAliases["vite-hub/agent"]).toMatch(/dist\/agent\.js$/)
+
+    expect(dependencyAliases({}, { plugins: standalonePlugins, workflow: false })).toMatchObject({
+      "vite-hub/agent": expect.stringMatching(/_internal\/agent\/workflow-disabled\.js$/),
+      "vite-hub/workflow": expect.stringMatching(/_internal\/workflow\/disabled\.js$/),
+    })
   })
 
   it("keeps coherent defaults and opt-in integrations", () => {
@@ -334,6 +343,16 @@ describe("vitehub", () => {
     const resolved = await dependencyResolver().call({} as never, name, "\0#vitehub/templates", {} as never)
     if (access === "deny") expect(resolved).toBeUndefined()
     else expect(resolved).toBe(fileURLToPath(import.meta.resolve(name)))
+  })
+
+  it("disables direct owner Blob imports when the preset omits Blob", async () => {
+    const plugin = dependencyPlugin()
+    const config = plugin.config as unknown as (config: object) => unknown
+    config({})
+    const resolveId = plugin.resolveId as Exclude<Plugin["resolveId"], undefined>
+
+    expect(await resolveId.call({} as never, "@vite-hub/blob", undefined, {} as never))
+      .toMatch(/_internal\/blob\/disabled\.js$/)
   })
 
   it("keeps third-party driver fallbacks out of the global alias map", async () => {
