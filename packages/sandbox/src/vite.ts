@@ -123,6 +123,19 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     return prepared
   }
 
+  async function composeCloudflareSandbox(
+    config: { nitro?: unknown, plugins?: unknown, root?: string },
+    prepared: Awaited<ReturnType<typeof prepareCurrentSandboxRuntime>>,
+  ) {
+    if (!prepared.cloudflare || !hasNitroVitePlugin(config))
+      return
+    config.nitro = await configureCloudflareSandboxNitro(
+      config.nitro as Parameters<typeof configureCloudflareSandboxNitro>[0],
+      typeof config.root === 'string' ? config.root : process.cwd(),
+      prepared.cloudflare,
+    )
+  }
+
   return {
     name: '@vite-hub/sandbox/vite',
     enforce: 'pre',
@@ -133,14 +146,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       generatedAliases = prepared.aliases
       generatedFiles = prepared.files
       definitions = prepared.definitions
-      if (prepared.cloudflare && hasNitroVitePlugin(config)) {
-        const configWithNitro = config as typeof config & { nitro?: Parameters<typeof configureCloudflareSandboxNitro>[0] }
-        configWithNitro.nitro = await configureCloudflareSandboxNitro(
-          configWithNitro.nitro,
-          config.root || process.cwd(),
-          prepared.cloudflare,
-        )
-      }
+      await composeCloudflareSandbox(config, prepared)
       return {
         resolve: {
           alias: toSandboxAliasEntries({
@@ -164,7 +170,8 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     },
     async configResolved(config) {
       resolvedConfig = config
-      await refreshSandboxRuntime()
+      const prepared = await refreshSandboxRuntime()
+      await composeCloudflareSandbox(config, prepared)
     },
     async handleHotUpdate(context) {
       if (!isSandboxDefinitionUpdate(context.file, definitions, generatedFiles, resolvedConfig?.root))

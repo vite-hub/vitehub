@@ -53,6 +53,9 @@ function resolveCloudflareSandboxEntrypointOptions(options: CloudflareSandboxEnt
 
 export function configureCloudflareSandbox(target: MutableCloudflareTarget, options: CloudflareSandboxEntrypointOptions = {}) {
   const { binding, className, migrationTag, name } = resolveCloudflareSandboxEntrypointOptions(options)
+  if (typeof target.cloudflare?.wrangler?.exports !== 'undefined') {
+    throw new Error('[vitehub] Cloudflare Sandbox cannot compose legacy migrations with an existing Wrangler exports configuration. Remove exports or configure the Sandbox Durable Object explicitly.')
+  }
   const existingMigrations = target.cloudflare?.wrangler?.migrations
   const classIsMigrated = existingMigrations?.some(entry => entry.new_sqlite_classes?.includes(className))
   if (!classIsMigrated && existingMigrations?.some(entry => entry.tag === migrationTag)) {

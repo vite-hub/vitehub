@@ -65,6 +65,7 @@ export interface WranglerHyperdriveBinding {
 
 export interface MutableWranglerConfig {
   compatibility_flags?: string[]
+  exports?: unknown
   kv_namespaces?: WranglerKVNamespace[]
   r2_buckets?: WranglerR2Bucket[]
   containers?: WranglerContainer[]

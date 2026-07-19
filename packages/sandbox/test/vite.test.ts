@@ -189,10 +189,13 @@ describe("hubSandbox", () => {
 
   it("keeps Node built-ins out of definition bundle aliases", async () => {
     const rootDir = await createViteRoot()
+    await mkdir(join(rootDir, "src/lib"), { recursive: true })
+    await writeFile(join(rootDir, "src/lib/version.ts"), `export const version = "from slash alias"\n`)
     await writeFile(join(rootDir, "src/tools/release-notes.sandbox.ts"), [
       `import { execFileSync } from "node:child_process"`,
+      `import { version } from "@/lib/version"`,
       ``,
-      `export default defineSandbox(async () => ({ version: execFileSync(process.execPath, ["--version"]).toString() }))`,
+      `export default defineSandbox(async () => ({ version, node: execFileSync(process.execPath, ["--version"]).toString() }))`,
       ``,
     ].join("\n"))
     const { hubSandbox } = await import("../src/vite.ts")
@@ -207,6 +210,7 @@ describe("hubSandbox", () => {
         alias: [
           { find: "process/", replacement: "/virtual/process" },
           { find: "node:child_process", replacement: "/virtual/child-process" },
+          { find: "@/", replacement: `${join(rootDir, "src")}/` },
         ],
       },
     })
@@ -214,6 +218,26 @@ describe("hubSandbox", () => {
     const definition = await readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs"), "utf8")
     expect(definition).toContain("node:child_process")
     expect(definition).not.toContain("/virtual/child-process")
+    expect(definition).toContain("from slash alias")
+  })
+
+  it("infers Cloudflare from a late-resolved Nitro preset", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox()
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
+    const userConfig = { root: rootDir, nitro: { preset: "cloudflare-module" } }
+
+    await configHook(userConfig, { command: "build", mode: "production" })
+    const resolvedConfig = {
+      ...userConfig,
+      plugins: [{ name: "nitro:main" }],
+      resolve: { alias: [] },
+    }
+    await configResolved(resolvedConfig)
+
+    expect((resolvedConfig.nitro as any).cloudflare.wrangler.containers).toMatchObject([{ class_name: "Sandbox" }])
   })
 
   it("composes Cloudflare Sandbox into Nitro output", async () => {
@@ -368,6 +392,23 @@ describe("hubSandbox", () => {
     expect(userConfig.nitro.cloudflare.wrangler).toEqual({
       migrations: [{ tag: "v1", new_sqlite_classes: ["Existing"] }],
     })
+  })
+
+  it("rejects Wrangler exports before adding legacy migrations", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const wrangler = { exports: { Existing: "Existing" } }
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      nitro: { cloudflare: { wrangler } },
+    }
+
+    await expect(configHook(userConfig, { command: "build", mode: "production" }))
+      .rejects.toThrow("cannot compose legacy migrations")
+    expect(userConfig.nitro.cloudflare.wrangler).toBe(wrangler)
   })
 
   it("defers generated definition bundling until Vite aliases are resolved", async () => {

@@ -83,7 +83,11 @@ async function resolveSandboxViteContext(
   const options = normalizeSandboxOptions(
     typeof configOptions === 'undefined' ? integrationOptions ?? {} : configOptions,
   )
-  const hosting = detectHosting({ options: userConfig as { preset?: string | null } }) || undefined
+  const nitro = isPlainObject(userConfig.nitro) ? userConfig.nitro : {}
+  const preset = typeof userConfig.preset === 'string'
+    ? userConfig.preset
+    : typeof nitro.preset === 'string' ? nitro.preset : undefined
+  const hosting = detectHosting({ options: { preset } }) || undefined
   const config = options === false ? false : resolveSandboxFeatureConfig(options, hosting)
   const rootDir = resolve(process.cwd(), typeof userConfig.root === 'string' ? userConfig.root : '.')
 
@@ -137,8 +141,7 @@ function resolveStringAliases(alias: unknown): AliasMap {
   for (const entry of readAliasEntries(alias)) {
     if (
       typeof entry.find === 'string'
-      && !entry.find.endsWith('/')
-      && !builtinModuleSet.has(entry.find)
+      && !builtinModuleSet.has(entry.find.replace(/\/$/, ''))
       && typeof entry.replacement === 'string'
     )
       aliases[entry.find] = entry.replacement
