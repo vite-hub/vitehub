@@ -88,13 +88,21 @@ async function executeLauncher(
         throw createTimeoutError(sandbox.provider, options.timeout || 0)
       }
       options.signal?.addEventListener('abort', abortSession, { once: true })
-      const result = await withCloudflareDeadline('exec', timeout, async () => await session.exec(
-        [command, ...args].map(shellQuote).join(' '),
-        {
-          ...options,
-          timeout,
-        },
-      ))
+      let result: Awaited<ReturnType<typeof session.exec>>
+      try {
+        result = await withCloudflareDeadline('exec', timeout, async () => await session.exec(
+          [command, ...args].map(shellQuote).join(' '),
+          {
+            ...options,
+            timeout,
+          },
+        ))
+      }
+      catch (error) {
+        throw error instanceof SandboxError
+          ? error
+          : createCloudflareTransportError('exec', error)
+      }
       return {
         ok: result.exitCode === 0,
         stdout: result.stdout,

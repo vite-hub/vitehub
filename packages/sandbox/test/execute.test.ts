@@ -295,6 +295,37 @@ describe("executeSandboxDefinition", () => {
     }
   })
 
+  it("recovers output after raw Cloudflare session transport failures", async () => {
+    const { sandbox, files } = createFakeSandbox({ provider: "cloudflare" })
+    Object.assign(sandbox, {
+      native: { createSession: vi.fn() },
+      cloudflare: {
+        createSession: vi.fn(async () => ({
+          id: "failed-session",
+          exec: vi.fn(async (command: string) => {
+            const outputPath = command.trim().split(/\s+/).at(-1)?.replace(/^'|'$/g, "")
+            if (outputPath)
+              files.set(outputPath, JSON.stringify({ ok: true, result: { recovered: true } }))
+            throw new Error("rpc unavailable")
+          }),
+        })),
+        deleteSession: vi.fn(async () => {}),
+      } as unknown as typeof sandbox.cloudflare,
+    })
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: {
+          "definition.mjs": "export default { run() { return { recovered: true } } }",
+        },
+      },
+    )).resolves.toEqual({ recovered: true })
+  })
+
   it("preserves Cloudflare session creation failures for runtime retry", async () => {
     const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
     const creationError = new Error("network connection lost")
