@@ -105,6 +105,17 @@ describe("hubQueue", () => {
     expect(() => invalidConfig({ nitro: { preset: "cloudflare_module" }, root })).toThrow("must be at most 63 characters")
   })
 
+  it("rejects invalid Cloudflare queue prefixes during configuration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-prefix-invalid-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+
+    for (const namePrefix of ["-preview-", "preview_", "preview/"]) {
+      const config = hubQueue({ namePrefix, provider: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => void
+      expect(() => config({ nitro: { preset: "cloudflare_module" }, root })).toThrow("must contain only letters, numbers, and dashes")
+    }
+  })
+
   it("infers providers for generated Nitro runtime imports", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
     roots.push(root)

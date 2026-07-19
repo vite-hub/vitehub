@@ -3,9 +3,13 @@ import { decodeQueueNameHex, encodeQueueNameHex } from "../internal/hex.ts"
 const cloudflareQueueNamePrefix = "queue--"
 const defaultCloudflareQueueBindingPrefix = "QUEUE"
 const encodedCloudflareQueueNamePattern = /^queue--([0-9a-f]{2})+$/i
+const cloudflareQueueNamePattern = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i
 
 export function getCloudflareQueueName(name: string, namePrefix = ""): string {
   const queueName = `${namePrefix}${cloudflareQueueNamePrefix}${encodeQueueNameHex(name)}`
+  if (!cloudflareQueueNamePattern.test(queueName)) {
+    throw new TypeError(`Cloudflare queue name ${JSON.stringify(queueName)} must contain only letters, numbers, and dashes, and must start and end with a letter or number.`)
+  }
   if (queueName.length > 63) {
     throw new TypeError(`Cloudflare queue name ${JSON.stringify(queueName)} must be at most 63 characters.`)
   }
