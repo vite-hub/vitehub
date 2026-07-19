@@ -1,6 +1,5 @@
-export { defineRateLimit } from "./definition.ts"
 export { createRateLimiter } from "./limiter.ts"
-export { parseRateLimitWindow } from "./policy.ts"
+export { requireRateLimit } from "./guard.ts"
 
 export type {
   CreateRateLimiterOptions,
@@ -15,7 +14,6 @@ export type {
   RateLimitDriverUnavailable,
   RateLimitEnforcement,
   RateLimitFailurePolicy,
-  RateLimitHandle,
   RateLimitMetadataAvailability,
   RateLimitMetadataCapability,
   RateLimitMetadataQuality,
@@ -24,7 +22,9 @@ export type {
   RateLimitPolicy,
   RateLimitProvider,
   RateLimitRejectedAttemptBehavior,
+  RateLimitRequestEvent,
   RateLimitRuntimeConfig,
   RateLimitWindow,
+  RequireRateLimitOptions,
   ResolvedRateLimitPolicy,
 } from "./types.ts"

@@ -139,7 +139,7 @@ describe("framework package contract", () => {
     expect(frameworkCapabilities.workspaceShell).toBe(ownerCapabilities.workspaceShell)
     expect(frameworkAuthHandler).toBe(ownerAuthHandler)
     expect(frameworkBlobContentType.detectContentType).toBe(ownerBlobContentType.detectContentType)
-    expect(frameworkRateLimit.defineRateLimit).toBe(ownerRateLimit.defineRateLimit)
+    expect(frameworkRateLimit.requireRateLimit).toBe(ownerRateLimit.requireRateLimit)
     expect(frameworkRateLimit.createRateLimiter).toBe(ownerRateLimit.createRateLimiter)
   })
 

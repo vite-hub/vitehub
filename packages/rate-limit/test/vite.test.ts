@@ -16,14 +16,27 @@ afterEach(async () => {
 
 async function writeCloudflareDeclaration(root: string): Promise<void> {
   await writeFile(join(root, "upload.ts"), [
-    'import { defineRateLimit } from "@vite-hub/rate-limit"',
-    'const upload = defineRateLimit("upload", { enforcement: "best-effort", limit: 10, window: "1m" })',
-    "void upload",
+    'import { requireRateLimit } from "@vite-hub/rate-limit"',
+    "export async function upload(event) {",
+    '  await requireRateLimit(event, "upload", { enforcement: "best-effort", limit: 10, window: "1m" })',
+    "}",
     "",
   ].join("\n"))
 }
 
 describe("hubRateLimit", () => {
+  it("fails configuration for conflicting policies with the same ID", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-conflicting-policies-"))
+    roots.push(root)
+    await writeFile(join(root, "first.ts"), 'import { requireRateLimit } from "@vite-hub/rate-limit"\nrequireRateLimit(event, "upload", { limit: 1, window: "1m" })\n')
+    await writeFile(join(root, "second.ts"), 'import { requireRateLimit } from "@vite-hub/rate-limit"\nrequireRateLimit(event, "upload", { limit: 2, window: "1m" })\n')
+    const plugin = hubRateLimit({ provider: "memory" })
+    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "serve" }) => void
+
+    expect(() => config({ root }, { command: "serve" }))
+      .toThrow(/Conflicting Rate Limit policies[\s\S]*first\.ts:2:1[\s\S]*second\.ts:2:1/)
+  })
+
   it("composes discovered Rate Limits into a Nitro Cloudflare Worker", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-nitro-cloudflare-"))
     roots.push(root)
@@ -194,7 +207,7 @@ describe("hubRateLimit", () => {
     await expect(closeBundle()).rejects.toThrow("changed after config resolution")
   })
 
-  it("registers generated Nitro runtime with config-key precedence", async () => {
+  it("registers provider runtime without global request middleware", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-vite-"))
     roots.push(root)
     const plugin = hubRateLimit({ namespace: "vite-test", projectRoot: ".", provider: "cloudflare" })
@@ -211,7 +224,6 @@ describe("hubRateLimit", () => {
     expect(userConfig).toMatchObject({
       nitro: {
         handlers: [
-          { handler: ".vitehub/nitro/rate-limit/middleware.ts", middleware: true, route: "/**" },
           { handler: "server/middleware.ts", middleware: true, route: "/**" },
         ],
         plugins: [".vitehub/nitro/rate-limit/plugin.ts", "server/plugin.ts"],
@@ -229,14 +241,9 @@ describe("hubRateLimit", () => {
     } as never)
 
     const installer = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")
-    const middleware = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "middleware.ts"), "utf8")
     expect(installer).toContain('const config = {"provider":"memory"}')
     expect(installer).not.toContain("Registry")
-    expect(installer).not.toContain("enterRateLimitRuntimeEvent")
-    expect(middleware).toContain("from 'nitro/h3'")
-    expect(middleware).toContain("getRequestIP(event)")
-    expect(middleware).toContain("runWithRateLimitRuntimeEvent(event, next, requestKey || config.requestKeyFallback)")
-    expect(middleware).not.toContain("requestKeyFallback\":\"local")
+    await expect(access(join(root, ".vitehub", "nitro", "rate-limit", "middleware.ts"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("installs the Cloudflare runtime in plain Vite SSR modules", async () => {
@@ -246,7 +253,7 @@ describe("hubRateLimit", () => {
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
     const transform = plugin.transform as unknown as (code: string, id: string) => string | undefined
     const entry = join(root, "server.ts")
-    await writeFile(entry, 'import { defineRateLimit } from "@vite-hub/rate-limit"\nconst uploads = defineRateLimit("uploads", { enforcement: "best-effort", limit: 1, window: "1m" })\n')
+    await writeFile(entry, 'import { requireRateLimit } from "@vite-hub/rate-limit"\nexport async function upload(event) { await requireRateLimit(event, "uploads", { enforcement: "best-effort", limit: 1, window: "1m" }) }\n')
     await configResolved({
       build: { outDir: "dist", ssr: "server.ts" },
       command: "build",
@@ -255,8 +262,31 @@ describe("hubRateLimit", () => {
       root,
     } as never)
 
-    const result = transform('import { defineRateLimit } from "@vite-hub/rate-limit"', entry)
+    const result = transform('import { requireRateLimit } from "@vite-hub/rate-limit"', entry)
     expect(result).toContain(`${join(root, ".vitehub", "rate-limit", "cloudflare-runtime.mjs")}"`)
+  })
+
+  it("installs the Cloudflare runtime in every module sharing a Rate Limit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-shared-plain-vite-"))
+    roots.push(root)
+    const plugin = hubRateLimit({ namespace: "vite-test", projectRoot: ".", provider: "cloudflare" })
+    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
+    const transform = plugin.transform as unknown as (code: string, id: string) => string | undefined
+    const entries = [join(root, "first.ts"), join(root, "second.ts")]
+    for (const entry of entries) {
+      await writeFile(entry, 'import { requireRateLimit } from "@vite-hub/rate-limit"\nexport async function upload(event) { await requireRateLimit(event, "uploads", { limit: 1, window: "1m" }) }\n')
+    }
+    await configResolved({
+      build: { outDir: "dist", ssr: "first.ts" },
+      command: "build",
+      plugins: [],
+      resolve: { alias: [] },
+      root,
+    } as never)
+
+    for (const entry of entries) {
+      expect(transform("export {}", entry)).toContain(`${join(root, ".vitehub", "rate-limit", "cloudflare-runtime.mjs")}"`)
+    }
   })
 
   it("removes the legacy generated registry", async () => {
@@ -292,10 +322,9 @@ describe("hubRateLimit", () => {
       root,
     } as never)
     const installer = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")
-    const middleware = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "middleware.ts"), "utf8")
-    expect(`${installer}\n${middleware}`).toContain('from "vite-hub/_internal/rate-limit/runtime"')
-    expect(middleware).toContain("event.node?.req?.runtime?.cloudflare?.env")
-    expect(`${installer}\n${middleware}`).not.toContain("@vite-hub/rate-limit/runtime")
+    expect(installer).toContain('from "vite-hub/_internal/rate-limit/runtime"')
+    expect(installer).not.toContain("@vite-hub/rate-limit/runtime")
+    await expect(access(join(root, ".vitehub", "nitro", "rate-limit", "middleware.ts"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("fails automatic hosted fallback where no native driver exists", async () => {
@@ -358,36 +387,14 @@ describe("hubRateLimit", () => {
     expect(installer).toContain('const config = {"provider":"cloudflare"}')
   })
 
-  it("trusts Cloudflare ingress for an explicit production Cloudflare provider", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-explicit-cloudflare-build-"))
-    roots.push(root)
-    const previousHosting = process.env.VITEHUB_HOSTING
-    delete process.env.VITEHUB_HOSTING
-    try {
-      const plugin = hubRateLimit({ provider: "cloudflare" })
-      const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-      await configResolved({
-        build: { outDir: "dist" },
-        command: "build",
-        plugins: [],
-        resolve: { alias: [] },
-        root,
-      } as never)
-      const middleware = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "middleware.ts"), "utf8")
-      expect(middleware).toContain("event.req.headers.get('cf-connecting-ip') || getRequestIP(event)")
-    }
-    finally {
-      if (previousHosting !== undefined) process.env.VITEHUB_HOSTING = previousHosting
-    }
-  })
-
-  it("collects source-local handles into the inspectable manifest", async () => {
+  it("collects handler-local guards into the inspectable manifest", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-manifest-"))
     roots.push(root)
     await writeFile(join(root, "search.ts"), [
-      'import { defineRateLimit } from "@vite-hub/rate-limit"',
-      'const search = defineRateLimit("search", { limit: 1, window: "1m" })',
-      "void search",
+      'import { requireRateLimit } from "@vite-hub/rate-limit"',
+      "export async function search(event) {",
+      '  await requireRateLimit(event, "search", { limit: 1, window: "1m" })',
+      "}",
       "",
     ].join("\n"))
     const plugin = hubRateLimit({ provider: "memory" })

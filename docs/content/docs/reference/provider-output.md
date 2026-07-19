@@ -38,11 +38,11 @@ find dist -maxdepth 4 -type f | sort
 
 Rate Limit writes `.vitehub/rate-limit/manifest.json` during Vite config resolution and refreshes it during Provider Output. Its `schemaVersion: 1` document contains sorted `rateLimits` entries shaped as `{ name, provider, capabilities }`. Inspect it before deploy; do not import it from application code.
 
-When Cloudflare is selected, each source-local `defineRateLimit()` call adds one `ratelimits` entry to generated `wrangler.json`. The entry contains a ViteHub-derived binding name, a stable namespace id, and the handle's static `limit` and 10-second or 60-second period.
+When Cloudflare is selected, each handler-local `requireRateLimit()` policy adds one `ratelimits` entry to generated `wrangler.json`. The entry contains a ViteHub-derived binding name, a stable namespace id, and the guard's static `limit` and 10-second or 60-second period.
 
 The Rate Limit integration owns only binding names derived from declared stable IDs. It preserves unrelated app and package entries, and removes stale entries when a handle is renamed, deleted, or built with a non-Cloudflare provider while the integration remains active.
 
-Application code consumes the handle returned by `defineRateLimit()`. Do not persist the generated provider binding name as source authority.
+Application code calls `requireRateLimit()` with the H3 event. Do not persist the generated provider binding name as source authority.
 
 ## Provider Output Contracts
 

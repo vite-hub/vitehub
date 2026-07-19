@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createRateLimiter, defineRateLimit, parseRateLimitWindow } from "../src/index.ts"
+import { createRateLimiter } from "../src/index.ts"
 import { memoryRateLimitDriver } from "../src/drivers/memory.ts"
 
 import type { RateLimitDriverCapabilities } from "../src/index.ts"
@@ -29,26 +29,16 @@ const noMetadataCapabilities = {
 
 describe("Rate Limit core", () => {
   it("validates and normalizes policies", () => {
-    const handle = defineRateLimit("uploads", { limit: 10, window: "1m" })
-    expect(handle).toEqual({
-      consume: expect.any(Function),
-      enforce: expect.any(Function),
-      id: "uploads",
-      kind: "rate-limit-handle",
-      policy: {
-        enforcement: "best-effort",
-        failure: "deny",
-        limit: 10,
-        window: "1m",
-        windowMs: 60_000,
-      },
+    const limiter = createRateLimiter({ driver: memoryRateLimitDriver(), limit: 10, window: "1m" })
+    expect(limiter.policy).toEqual({
+      enforcement: "best-effort",
+      failure: "deny",
+      limit: 10,
+      window: "1m",
+      windowMs: 60_000,
     })
-    expect(() => Object.assign(handle.policy, { limit: 9 })).toThrow(TypeError)
-    expect(parseRateLimitWindow("1.5m")).toBe(90_000)
-    expect(() => defineRateLimit("", { limit: 1, window: "1m" })).toThrow("non-empty stable ID")
-    expect(() => defineRateLimit("uploads", { limit: 0, window: "1m" })).toThrow("positive integer")
-    expect(() => defineRateLimit("uploads", { limit: 1, window: "soon" as never })).toThrow("must use a duration")
-    expect(() => defineRateLimit("uploads", { limit: 1, window: "1m", extra: true } as never)).toThrow("does not support")
+    expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 0, window: "1m" })).toThrow("positive integer")
+    expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window: "soon" as never })).toThrow("must use a duration")
   })
 
   it("consumes a fixed window atomically in memory", async () => {

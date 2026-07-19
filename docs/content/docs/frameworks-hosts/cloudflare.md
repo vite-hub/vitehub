@@ -78,7 +78,7 @@ Agent routes should come from generated Provider Output. Raw Cloudflare Worker f
 
 ### Rate Limiting bindings
 
-Register the Rate Limit integration. A Cloudflare Nitro preset infers the provider, and each source-local `defineRateLimit()` call contributes one `ratelimits` entry to Nitro's Wrangler config. Do not repeat those bindings in `nitro.cloudflare.wrangler`; plain Vite builds continue to write them to generated `wrangler.json`.
+Register the Rate Limit integration. A Cloudflare Nitro preset infers the provider, and each handler-local `requireRateLimit()` policy contributes one `ratelimits` entry to Nitro's Wrangler config. Do not repeat those bindings in `nitro.cloudflare.wrangler`; plain Vite builds continue to write them to generated `wrangler.json`.
 
 ```ts [vite.config.ts]
 import { hubRateLimit } from '@vite-hub/rate-limit/vite'

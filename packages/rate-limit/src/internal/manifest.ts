@@ -22,7 +22,9 @@ interface RateLimitManifest {
 }
 
 function resolveProviderCapabilities(provider: "cloudflare" | "memory"): RateLimitDriverCapabilities {
-  const driver = provider === "cloudflare" ? cloudflareRateLimitDriver() : memoryRateLimitDriver()
+  const driver = provider === "cloudflare"
+    ? cloudflareRateLimitDriver({ binding: { limit: async () => ({ success: true }) } })
+    : memoryRateLimitDriver()
   return createRateLimiter({ driver, limit: 1, window: "1m" }).capabilities
 }
 

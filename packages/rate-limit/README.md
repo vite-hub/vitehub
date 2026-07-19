@@ -8,28 +8,25 @@
 pnpm add @vite-hub/rate-limit
 ```
 
-## Define and enforce a Rate Limit
+## Require a Rate Limit
 
 Declare the Rate Limit beside the server code that consumes it. The stable ID and policy must use static literals so the Vite integration can generate provider infrastructure.
 
 ```ts
-import { defineRateLimit } from "@vite-hub/rate-limit"
+import { requireRateLimit } from "@vite-hub/rate-limit"
 
-const uploads = defineRateLimit("image-upload", {
-  failure: "deny",
-  limit: 10,
-  window: "1m",
-})
-
-export async function handleImageUpload(): Promise<Response> {
-  await uploads.enforce()
+export async function handleImageUpload(event): Promise<Response> {
+  await requireRateLimit(event, "image-upload", {
+    limit: 10,
+    window: "1m",
+  })
   return new Response("Upload accepted", { status: 202 })
 }
 ```
 
-`defineRateLimit()` can live in any ordinary server source file. It does not require a default export, dedicated directory, file suffix, registry, or separate string lookup. Inside an H3 request, `.enforce()` defaults to the client address installed by the active host integration and throws an `HTTPError` with status `429` when the budget is exhausted. Pass an explicit key such as `.enforce(authenticatedUser.id)` when authenticated user or tenant identity is the correct budget boundary; calls outside a request require one.
+`requireRateLimit()` can live inside any ordinary H3 handler. Its stable ID and provider policy must use static literals so the Vite integration can generate infrastructure; `event` and an optional dynamic `key` are runtime inputs. The guard defaults to the request's client address and throws an `HTTPError` with status `429` when the budget is exhausted. Pass `key: authenticatedUser.id` when a user or tenant is the correct budget boundary.
 
-Use `.consume()` when the application needs the full decision for a custom response or another transport. Provider unavailability follows the declared `failure` policy: fail-open decisions continue, while fail-closed enforcement throws status `503` and preserves the provider cause. Invalid configuration and provider contract violations still throw normally.
+Provider unavailability follows the declared `failure` policy: fail-open guards continue, while fail-closed guards throw status `503` and preserve the provider cause. Invalid configuration and provider contract violations still throw normally. Use `createRateLimiter()` when the application needs a decision for a custom response or another transport.
 
 Add the build integration:
 

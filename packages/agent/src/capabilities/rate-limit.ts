@@ -1,7 +1,6 @@
 import { defineCapability } from "../capability-runtime.ts"
 
 import type {
-  RateLimitHandle,
   RateLimitDecision as CoreRateLimitDecision,
   RateLimiter,
 } from "@vite-hub/rate-limit"
@@ -25,13 +24,12 @@ export type RateLimitIdentityResolver = (
 ) => MaybePromise<string | null | undefined>
 
 export type RateLimitLimiter =
-  | RateLimitHandle
   | RateLimiter
   | RateLimitLimiterResolver
 
 export type RateLimitLimiterResolver = (
   context: AgentCapabilityRuntimeContext,
-) => MaybePromise<RateLimitHandle | RateLimiter>
+) => MaybePromise<RateLimiter>
 
 interface RateLimitDecisionContext {
   capabilityId: string
@@ -50,7 +48,7 @@ export type RateLimitDecision = WithRateLimitDecisionContext<CoreRateLimitDecisi
 export interface RateLimitEvent {
   context: AgentCapabilityRuntimeContext
   decision: RateLimitDecision
-  limiter: RateLimitHandle | RateLimiter
+  limiter: RateLimiter
 }
 
 export interface RateLimitOptions {
@@ -88,10 +86,6 @@ export class RateLimitRejectedError extends Error {
       value: unavailable ? 503 : 429,
     })
   }
-}
-
-function isRateLimitHandle(limiter: RateLimitHandle | RateLimiter): limiter is RateLimitHandle {
-  return (limiter as Partial<RateLimitHandle>).kind === "rate-limit-handle"
 }
 
 function resolveRunIdentity(context: AgentCapabilityRuntimeContext): string | undefined {
@@ -201,10 +195,10 @@ async function resolveScope(
 async function resolveLimiter(
   limiter: RateLimitLimiter,
   context: AgentCapabilityRuntimeContext,
-): Promise<RateLimitHandle | RateLimiter> {
+): Promise<RateLimiter> {
   const resolved = typeof limiter === "function" ? await limiter(context) : limiter
   if (!resolved || typeof resolved.consume !== "function") {
-    throw new TypeError("[vitehub] rateLimit({ limiter }) must be a defined Rate Limit or RateLimiter.")
+    throw new TypeError("[vitehub] rateLimit({ limiter }) must be a RateLimiter.")
   }
   return resolved
 }
@@ -252,9 +246,7 @@ export function rateLimit(
       const scope = await resolveScope(options.scope, context, id)
       const key = `vitehub:rate-limit:${stableKeyPart(id)}:${scope}:${await hashKeyPart(`${resolvedIdentity.source}:${resolvedIdentity.value}`)}`
       const limiter = await resolveLimiter(options.limiter, context)
-      const consumed = isRateLimitHandle(limiter)
-        ? await limiter.consume(key)
-        : await limiter.consume({ key })
+      const consumed = await limiter.consume({ key })
       const decision: RateLimitDecision = {
         ...consumed,
         capabilityId: id,

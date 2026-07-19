@@ -36,12 +36,12 @@ interface RateLimitBindings {
   namespaces: Set<string>
 }
 
-function defineRateLimitBindings(program: ESTree.Program): RateLimitBindings {
+function requireRateLimitBindings(program: ESTree.Program): RateLimitBindings {
   const bindings: RateLimitBindings = { direct: new Set(), namespaces: new Set() }
   for (const statement of program.body) {
     if (statement.type !== "ImportDeclaration" || !rateLimitImports.has(statement.source.value)) continue
     for (const specifier of statement.specifiers) {
-      if (specifier.type === "ImportSpecifier" && specifier.imported.type === "Identifier" && specifier.imported.name === "defineRateLimit") {
+      if (specifier.type === "ImportSpecifier" && specifier.imported.type === "Identifier" && specifier.imported.name === "requireRateLimit") {
         bindings.direct.add(specifier.local.name)
       }
       if (specifier.type === "ImportNamespaceSpecifier") bindings.namespaces.add(specifier.local.name)
@@ -56,26 +56,7 @@ function rateLimitBindingName(callee: ESTree.CallExpression["callee"], bindings:
   const property = callee.computed
     ? callee.property.type === "Literal" ? callee.property.value : undefined
     : callee.property.type === "Identifier" ? callee.property.name : undefined
-  return property === "defineRateLimit" ? callee.object.name : undefined
-}
-
-function topLevelCalls(program: ESTree.Program, bindings: RateLimitBindings): Set<number> {
-  const calls = new Set<number>()
-  for (const statement of program.body) {
-    const declaration = statement.type === "VariableDeclaration"
-      ? statement
-      : statement.type === "ExportNamedDeclaration" && statement.declaration?.type === "VariableDeclaration"
-        ? statement.declaration
-        : undefined
-    if (!declaration || declaration.kind !== "const") continue
-    for (const declarator of declaration.declarations) {
-      const init = declarator.init
-      if (init?.type === "CallExpression" && rateLimitBindingName(init.callee, bindings)) {
-        calls.add(init.start)
-      }
-    }
-  }
-  return calls
+  return property === "requireRateLimit" ? callee.object.name : undefined
 }
 
 function addBindingNames(pattern: ESTree.BindingPattern | ESTree.ParamPattern, names: Set<string>): void {
@@ -167,25 +148,26 @@ function staticString(expression: ESTree.Expression): string | undefined {
 }
 
 function staticPolicy(call: ESTree.CallExpression, file: string, source: string): RateLimitPolicy {
-  const policyArgument = call.arguments[1]
+  const policyArgument = call.arguments[2]
   const policyNode = policyArgument?.type === "SpreadElement" ? policyArgument : policyArgument && unwrapStaticExpression(policyArgument)
   if (!policyNode || policyNode.type !== "ObjectExpression") {
-    throw declarationError(file, source, call, "`defineRateLimit()` requires a static policy object as its second argument.")
+    throw declarationError(file, source, call, "`requireRateLimit()` requires a static options object as its third argument.")
   }
 
   const values = new Map<string, string | number>()
   for (const property of policyNode.properties) {
     if (property.type !== "Property") {
-      throw declarationError(file, source, property, "`defineRateLimit()` policies cannot use object spreads.")
+      throw declarationError(file, source, property, "`requireRateLimit()` options cannot use object spreads.")
     }
     const name = staticPropertyName(property)
+    if (name === "key") continue
     if (!name || !rateLimitPolicyKeys.has(name)) {
-      throw declarationError(file, source, property, `\`defineRateLimit()\` does not support the ${name ? `"${name}"` : "dynamic"} policy option.`)
+      throw declarationError(file, source, property, `\`requireRateLimit()\` does not support the ${name ? `"${name}"` : "dynamic"} option.`)
     }
     const value = unwrapStaticExpression(property.value)
     const literal = value.type === "Literal" && typeof value.value === "number" ? value.value : staticString(value)
     if (literal === undefined) {
-      throw declarationError(file, source, property.value, `\`defineRateLimit()\` policy option "${name}" must be a static literal.`)
+      throw declarationError(file, source, property.value, `\`requireRateLimit()\` policy option "${name}" must be a static literal.`)
     }
     values.set(name, literal)
   }
@@ -206,15 +188,14 @@ function staticPolicy(call: ESTree.CallExpression, file: string, source: string)
 }
 
 export function extractRateLimitDeclarations(file: string, source: string): RateLimitDeclaration[] {
-  if (!source.includes("defineRateLimit")) return []
+  if (!source.includes("requireRateLimit")) return []
   const parsed = parseSync(file, source)
   if (parsed.errors.length > 0) {
     throw new Error(`[vitehub] Could not parse ${file} while collecting Rate Limits: ${parsed.errors[0]?.message}`)
   }
 
-  const bindings = defineRateLimitBindings(parsed.program)
+  const bindings = requireRateLimitBindings(parsed.program)
   if (bindings.direct.size === 0 && bindings.namespaces.size === 0) return []
-  const allowedCalls = topLevelCalls(parsed.program, bindings)
   const declarations: RateLimitDeclaration[] = []
   const localBindings: Set<string>[] = []
   const enterFunction = (node: ESTree.Function | ESTree.ArrowFunctionExpression): void => {
@@ -246,16 +227,13 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
       const calleeName = rateLimitBindingName(call.callee, bindings)
       if (!calleeName) return
       if (localBindings.some(scope => scope.has(calleeName))) return
-      if (!allowedCalls.has(call.start)) {
-        throw declarationError(file, source, call, "`defineRateLimit()` must be assigned directly to a top-level `const`.")
+      if (call.arguments.length !== 3) {
+        throw declarationError(file, source, call, "`requireRateLimit()` requires an event, a stable ID, and a static options object.")
       }
-      if (call.arguments.length !== 2) {
-        throw declarationError(file, source, call, "`defineRateLimit()` requires a stable ID and a static policy object.")
-      }
-      const idNode = call.arguments[0]
+      const idNode = call.arguments[1]
       const staticId = idNode?.type === "SpreadElement" ? undefined : idNode && staticString(idNode)
       if (!staticId?.trim()) {
-        throw declarationError(file, source, idNode ?? call, "`defineRateLimit()` requires a non-empty static string ID.")
+        throw declarationError(file, source, idNode ?? call, "`requireRateLimit()` requires a non-empty static string ID.")
       }
       const id = staticId.trim()
       const sourceLocation = location(source, call.start)
@@ -290,23 +268,33 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
   return declarations
 }
 
-export function discoverRateLimitDeclarations(options: { rootDir: string, scanDirs?: string[] }): RateLimitDeclaration[] {
+export function discoverRateLimitCatalog(options: { rootDir: string, scanDirs?: string[] }): { declarationFiles: Set<string>, declarations: RateLimitDeclaration[] } {
   const declarations = new Map<string, RateLimitDeclaration>()
-  const files = new Set(resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
+  const sourceFiles = new Set(resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
     .flatMap(root => listSourceFiles(root).filter(file => isApplicationSource(root, file))))
-  for (const file of files) {
+  const declarationFiles = new Set<string>()
+  for (const file of sourceFiles) {
     const source = readFileSync(file, "utf8")
-    for (const declaration of extractRateLimitDeclarations(file, source)) {
+    const extracted = extractRateLimitDeclarations(file, source)
+    if (extracted.length > 0) declarationFiles.add(file)
+    for (const declaration of extracted) {
       const existing = declarations.get(declaration.name)
-      if (existing) {
+      if (existing && JSON.stringify(existing.policy) !== JSON.stringify(declaration.policy)) {
         throw new Error([
-          `[vitehub] Duplicate Rate Limit ID "${declaration.name}":`,
-          `  - ${existing.source.file}:${existing.source.line}:${existing.source.column}`,
-          `  - ${declaration.source.file}:${declaration.source.line}:${declaration.source.column}`,
+          `[vitehub] Conflicting Rate Limit policies for ID "${declaration.name}":`,
+          `  - ${existing.source.file}:${existing.source.line}:${existing.source.column} ${JSON.stringify(existing.policy)}`,
+          `  - ${declaration.source.file}:${declaration.source.line}:${declaration.source.column} ${JSON.stringify(declaration.policy)}`,
         ].join("\n"))
       }
-      declarations.set(declaration.name, declaration)
+      if (!existing) declarations.set(declaration.name, declaration)
     }
   }
-  return [...declarations.values()].sort((left, right) => left.name.localeCompare(right.name))
+  return {
+    declarationFiles,
+    declarations: [...declarations.values()].sort((left, right) => left.name.localeCompare(right.name)),
+  }
+}
+
+export function discoverRateLimitDeclarations(options: { rootDir: string, scanDirs?: string[] }): RateLimitDeclaration[] {
+  return discoverRateLimitCatalog(options).declarations
 }

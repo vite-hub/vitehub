@@ -23,7 +23,7 @@ File conventions produce Discovered Definitions. Discovery Identity comes from t
 
 The table uses `.ts` for brevity. Directory and suffix patterns accept JavaScript and TypeScript module variants where the owning package permits them. `src/database.ts` is the exact default Database suffix-mode file.
 
-Rate Limit deliberately has no file convention. Assign `defineRateLimit(id, policy)` to a top-level `const` in ordinary server code; its explicit ID is the provider identity.
+Rate Limit deliberately has no file convention. Call `requireRateLimit(event, id, options)` inside ordinary H3 handlers; its explicit ID is the provider identity.
 
 ## Export shape
 

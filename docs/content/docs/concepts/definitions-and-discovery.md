@@ -29,7 +29,7 @@ server.auth.ts                    -> Primary Auth Definition alias
 
 Other primitive pages document their own Definition locations. Keep discovery examples on the package page when the package owns special rules.
 
-Rate Limit is intentionally outside this location-derived model. `defineRateLimit('image-upload', policy)` declares an explicit stable ID beside its caller, and the build integration collects that call through the compiler AST.
+Rate Limit is intentionally outside this location-derived model. `requireRateLimit(event, 'image-upload', options)` declares an explicit stable ID at its enforcement point, and the build integration collects that call through the compiler AST.
 
 ## Boundary helpers
 

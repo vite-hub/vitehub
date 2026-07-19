@@ -26,6 +26,18 @@ export interface RateLimitPolicy {
   window: RateLimitWindow
 }
 
+export interface RequireRateLimitOptions extends RateLimitPolicy {
+  key?: string
+}
+
+export interface RateLimitRequestEvent {
+  readonly req: {
+    readonly context?: { clientAddress?: string }
+    readonly headers: { get: (name: string) => string | null }
+    readonly ip?: string
+  }
+}
+
 export interface ResolvedRateLimitPolicy {
   readonly enforcement: RateLimitEnforcement
   readonly failure: RateLimitFailurePolicy
@@ -108,14 +120,6 @@ export interface RateLimiter {
   policy: ResolvedRateLimitPolicy
 }
 
-export interface RateLimitHandle {
-  consume: (key?: string) => Promise<RateLimitDecision>
-  enforce: (key?: string) => Promise<void>
-  readonly id: string
-  readonly kind: "rate-limit-handle"
-  readonly policy: ResolvedRateLimitPolicy
-}
-
 export interface RateLimitDeclaration {
   name: string
   policy: RateLimitPolicy
@@ -142,5 +146,4 @@ export interface RateLimitModuleOptions {
 
 export interface RateLimitRuntimeConfig {
   provider: Exclude<RateLimitProvider, "auto">
-  requestKeyFallback?: string
 }

@@ -1,6 +1,6 @@
 ---
 title: Rate limit
-description: Consume a named or custom Rate Limiter before an Agent Invocation starts.
+description: Consume a Rate Limiter before an Agent Invocation starts.
 navigation.title: Rate limit
 navigation.order: 190
 navigation.group: Decisions and output
@@ -9,16 +9,18 @@ icon: i-lucide-gauge
 
 `rateLimit()` consumes one budget unit before the main Agent Invocation starts. The Capability owns trusted Agent identity and rejection behavior, while the [Rate Limit primitive](/docs/server-primitives/rate-limit) owns atomic enforcement.
 
-## Configure a managed limiter
+## Configure a limiter
 
-Define the budget beside the Agent and pass its handle to the Capability.
+Create a direct limiter beside the Agent and pass it to the Capability. The Capability needs the portable decision to attach Agent identity and rejection context, so the handler-only `requireRateLimit()` guard is not its input.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
 import { rateLimit } from '@vite-hub/agent/capabilities'
-import { defineRateLimit } from '@vite-hub/rate-limit'
+import { createRateLimiter } from '@vite-hub/rate-limit'
+import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
 
-const invocations = defineRateLimit('agent-invocations', {
+const invocations = createRateLimiter({
+  driver: memoryRateLimitDriver(),
   limit: 20,
   window: '1m',
 })
@@ -33,11 +35,9 @@ export default defineAgent({
 })
 ```
 
-Register the Rate Limit Vite Integration through `vitehub({ rateLimit: true })` or `hubRateLimit()`. See the primitive guide for local and hosted provider configuration.
-
 ## Runtime behavior
 
-The Capability runs during the input phase. It derives a stable key from the Capability id, scope, and trusted identity, then calls the managed handle or custom `RateLimiter` exactly once.
+The Capability runs during the input phase. It derives a stable key from the Capability id, scope, and trusted identity, then calls the `RateLimiter` exactly once.
 
 A rejected decision throws `RateLimitRejectedError` with status code `429`. The error includes `retry-after` headers only when the selected driver reports `retryAfter`; Cloudflare native enforcement does not return portable quota metadata.
 
@@ -59,7 +59,7 @@ rateLimit({
 
 Do not trust a client-controlled forwarding header. The Capability reads only the headers listed in `trustedIpHeaders`, but the application remains responsible for ensuring the host overwrites them.
 
-## Use a custom Rate Limiter
+## Use a custom driver
 
 Pass any `RateLimiter` when the application owns state or enforcement outside managed ViteHub Rate Limits.
 
@@ -90,7 +90,7 @@ The custom driver must implement atomic `consume()`. ViteHub does not provide a 
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `limiter` | `RateLimitHandle \| RateLimiter \| function` | required | Managed Rate Limit handle, direct limiter, or runtime resolver. |
+| `limiter` | `RateLimiter \| function` | required | Direct limiter or runtime resolver. |
 | `id` | `string` | `"rate-limit"` | Capability id and Agent Invocation Context key. |
 | `identity` | `"auto" \| "invoker" \| "ip" \| "run" \| function` | `"auto"` | Identity used to derive the private rate-limit key. |
 | `scope` | `string \| function` | Capability id | Additional key partition. |
@@ -102,7 +102,7 @@ The custom driver must implement atomic `consume()`. ViteHub does not provide a 
 
 ## Migrate from an inline store
 
-The Capability no longer owns `limit`, `window`, `action`, or `store`. Move policy into `defineRateLimit()` or a direct `RateLimiter`, then replace `store` with `limiter`.
+The Capability no longer owns `limit`, `window`, `action`, or `store`. Move policy into a direct `RateLimiter`, then replace `store` with `limiter`.
 
 ```ts [Before]
 rateLimit({
@@ -113,7 +113,8 @@ rateLimit({
 ```
 
 ```ts [After]
-const invocations = defineRateLimit('agent-invocations', {
+const invocations = createRateLimiter({
+  driver: memoryRateLimitDriver(),
   limit: 20,
   window: '1m',
 })
@@ -129,7 +130,7 @@ There is no compatibility shim. `memoryRateLimitStore()` and `RateLimitStore` ar
 
 Run repeated Agent Invocations with the same identity. The first `limit` invocations should reach the Agent Driver; the next should fail with `RateLimitRejectedError` before model, harness, or custom-run execution.
 
-For local tests, use a dedicated memory driver instance. For Cloudflare, inspect the generated `wrangler.json` `ratelimits` entry and test the deployed binding because the native decision depends on request-scoped Worker environment.
+For local tests, use a dedicated memory driver instance. For Cloudflare, resolve the request binding in the limiter resolver and test the deployed binding because the native decision depends on request-scoped Worker environment.
 
 ## Related
 

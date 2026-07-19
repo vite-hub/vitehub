@@ -14,7 +14,7 @@ import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { normalizePath } from "vite"
 
-import { discoverRateLimitDeclarations } from "./discovery.ts"
+import { discoverRateLimitCatalog } from "./discovery.ts"
 import { writeRateLimitManifest } from "./internal/manifest.ts"
 import { createCloudflareRateLimitBindings, resolveRateLimitNamespace, writeRateLimitProviderOutput } from "./internal/provider-output.ts"
 
@@ -25,7 +25,7 @@ import type { RateLimitDeclaration, RateLimitModuleOptions, RateLimitRuntimeConf
 const packageName = "@vite-hub/rate-limit"
 const pluginName = "@vite-hub/rate-limit/vite"
 const generatedNitroPlugin = ".vitehub/nitro/rate-limit/plugin.ts"
-const generatedNitroMiddleware = ".vitehub/nitro/rate-limit/middleware.ts"
+const legacyGeneratedNitroMiddleware = ".vitehub/nitro/rate-limit/middleware.ts"
 const generatedRuntimeModule = ".vitehub/rate-limit/cloudflare-runtime.mjs"
 const legacyGeneratedRegistry = ".vitehub/nitro/rate-limit/registry.mjs"
 const mergeNoExternal = createNoExternalMerger(packageName)
@@ -52,11 +52,7 @@ function mergeNitroConfig(
   const nitro = cloneNitroConfig(value)
   const plugins = Array.isArray(nitro.plugins) ? [...nitro.plugins] : []
   if (!plugins.includes(generatedNitroPlugin)) plugins.unshift(generatedNitroPlugin)
-  const handlers = Array.isArray(nitro.handlers) ? [...nitro.handlers] : []
-  if (!handlers.some(handler => handler.handler === generatedNitroMiddleware)) {
-    handlers.unshift({ handler: generatedNitroMiddleware, middleware: true, route: "/**" })
-  }
-  const baseNitro = { ...nitro, handlers, plugins }
+  const baseNitro = { ...nitro, plugins }
   if (!nitroCloudflare || provider !== "cloudflare" || declarations.length === 0) {
     registerCloudflareProviderOutput(config, "rate-limit", {})
     return composeNitroCloudflareProviderOutput(config, baseNitro)
@@ -94,22 +90,6 @@ function renderRuntimeInstaller(
   ].join("\n")
 }
 
-function renderRequestMiddleware(runtimeConfig: RateLimitRuntimeConfig, importBase: string, trustCloudflareHeader: boolean): string {
-  return [
-    "import { defineMiddleware } from 'nitro'",
-    "import { getRequestIP } from 'nitro/h3'",
-    `import { runWithRateLimitRuntimeEvent } from ${JSON.stringify(`${importBase}/runtime`)}`,
-    "",
-    `const config = ${JSON.stringify(runtimeConfig)}`,
-    "export default defineMiddleware((event, next) => {",
-    "  Object.assign(event, { env: event.env ?? event.context?.cloudflare?.env ?? event.context?._platform?.cloudflare?.env ?? event.req?.runtime?.cloudflare?.env ?? event.node?.req?.runtime?.cloudflare?.env })",
-    `  const requestKey = ${trustCloudflareHeader ? "event.req.headers.get('cf-connecting-ip') || " : ""}getRequestIP(event)`,
-    "  return runWithRateLimitRuntimeEvent(event, next, requestKey || config.requestKeyFallback)",
-    "})",
-    "",
-  ].join("\n")
-}
-
 function resolveProvider(options: RateLimitModuleOptions, command: "build" | "serve", nitro: unknown, deferUnknown = false): "cloudflare" | "memory" | undefined {
   if (options.provider && options.provider !== "auto") return options.provider
   if (command === "serve") return "memory"
@@ -141,11 +121,12 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
 
   const collectDeclarations = (): void => {
     if (!projectRoot) return
-    declarations = discoverRateLimitDeclarations({
+    const catalog = discoverRateLimitCatalog({
       rootDir: projectRoot,
       scanDirs: rateLimit.scanDirs,
     })
-    declarationFiles = new Set(declarations.map(declaration => declaration.source.file))
+    declarations = catalog.declarations
+    declarationFiles = catalog.declarationFiles
   }
 
   const refreshDeclarations = async (): Promise<void> => {
@@ -193,20 +174,13 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       )
       await writeRateLimitManifest(config.root, declarations, provider)
       const pluginFile = resolve(config.root, generatedNitroPlugin)
-      const middlewareFile = resolve(config.root, generatedNitroMiddleware)
+      const middlewareFile = resolve(config.root, legacyGeneratedNitroMiddleware)
       const runtimeFile = resolve(config.root, generatedRuntimeModule)
-      const runtimeConfig = {
-        provider,
-        ...(config.command === "serve" ? { requestKeyFallback: "local" } : {}),
-      } satisfies RateLimitRuntimeConfig
+      const runtimeConfig = { provider } satisfies RateLimitRuntimeConfig
       await Promise.all([
         rm(resolve(config.root, legacyGeneratedRegistry), { force: true }),
+        rm(middlewareFile, { force: true }),
         writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig, importBase, true)),
-        writeFileIfChanged(middlewareFile, renderRequestMiddleware(
-          runtimeConfig,
-          importBase,
-          resolveNitroHosting(configuredNitro) === "cloudflare" || (provider === "cloudflare" && config.command !== "serve"),
-        )),
         writeFileIfChanged(runtimeFile, renderRuntimeInstaller(runtimeConfig, importBase, false)),
       ])
       registerProviderRuntimeModules(composedOutput, "rate-limit", { cloudflare: runtimeFile })
