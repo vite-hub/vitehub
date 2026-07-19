@@ -123,6 +123,8 @@ describe("vitehub", () => {
       },
       scheduleRuntimeImport: "vite-hub/_internal/schedule/runtime",
       workflowImportBase: "vite-hub/_internal/workflow",
+      workflowImportBaseWhenInstalled: "vite-hub/_internal/workflow",
+      workflowIntegrationAutoEnable: true,
       workspaceDependencyRuntimeImports: {
         shellWorkspace: "vite-hub/shell/workspace",
       },

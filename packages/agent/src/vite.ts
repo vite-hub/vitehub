@@ -97,6 +97,8 @@ interface InternalAgentModuleOptions extends AgentModuleOptions {
   runtimeCapabilityImports?: Record<string, string>
   scheduleRuntimeImport?: string
   workflowImportBase?: false | string
+  workflowImportBaseWhenInstalled?: string
+  workflowIntegrationAutoEnable?: boolean
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
 }
@@ -1584,6 +1586,17 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     async configResolved(config) {
       resolved = config
       agent = config.agent ?? agent
+      if (
+        frameworkOptions?.workflowIntegrationAutoEnable
+        && agent !== false
+        && config.plugins.some(plugin => plugin.name === "@vite-hub/workflow/vite")
+      ) {
+        agent = {
+          ...agent,
+          integrations: { ...agent?.integrations, workflow: true },
+          workflowImportBase: frameworkOptions.workflowImportBaseWhenInstalled,
+        } as InternalAgentModuleOptions
+      }
       runtimeCapabilities = await resolveGeneratedAgentRuntimeCapabilities(
         config,
         getInternalAgentOptions(agent)?.runtimeCapabilityImports ?? frameworkOptions?.runtimeCapabilityImports,

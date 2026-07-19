@@ -202,7 +202,8 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
   }
   if (options.agent !== false) {
     const agentOptions = options.agent || {}
-    const agentWorkflowEnabled = Boolean(options.workflow) && agentOptions.integrations?.workflow !== false
+    const agentWorkflowExplicitlyDisabled = agentOptions.integrations?.workflow === false
+    const agentWorkflowEnabled = Boolean(options.workflow) && !agentWorkflowExplicitlyDisabled
     plugins.push(hubAgent({
       ...agentOptions,
       cloudflareStateImport: `${generatedImportBase}/agent/cloudflare/state`,
@@ -219,6 +220,8 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
       },
       scheduleRuntimeImport: `${generatedImportBase}/schedule/runtime`,
       workflowImportBase: agentWorkflowEnabled ? `${generatedImportBase}/workflow` : false,
+      workflowImportBaseWhenInstalled: `${generatedImportBase}/workflow`,
+      workflowIntegrationAutoEnable: !agentWorkflowExplicitlyDisabled,
       workspaceDependencyRuntimeImports,
       workspaceImportBase: `${generatedImportBase}/workspace`,
     } as AgentModuleOptions))
