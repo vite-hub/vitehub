@@ -1,3 +1,4 @@
+import { resolveExecRequestTimeout } from '../sandbox/adapters/cloudflare/transport'
 import { SandboxError } from '../sandbox/errors'
 import { shellQuote } from '../sandbox/utils'
 import { createEntrySource } from './entry-script'
@@ -60,12 +61,16 @@ async function executeLauncher(
     : undefined
   const nativeCloudflareSession = cloudflareSandbox?.native as { createSession?: unknown } | undefined
   if (cloudflareSandbox && typeof nativeCloudflareSession?.createSession === 'function') {
+    const timeout = resolveExecRequestTimeout(options.timeout)
     const session = await cloudflareSandbox.cloudflare.createSession({
       env: options.env,
-      timeout: options.timeout,
+      timeout,
     })
     try {
-      const result = await session.exec([command, ...args].map(shellQuote).join(' '), options)
+      const result = await session.exec([command, ...args].map(shellQuote).join(' '), {
+        ...options,
+        timeout,
+      })
       return {
         ok: result.exitCode === 0,
         stdout: result.stdout,
