@@ -211,8 +211,8 @@ describe("hubRateLimit", () => {
     expect(userConfig).toMatchObject({
       nitro: {
         handlers: [
-          { handler: "server/middleware.ts", middleware: true, route: "/**" },
           { handler: ".vitehub/nitro/rate-limit/middleware.ts", middleware: true, route: "/**" },
+          { handler: "server/middleware.ts", middleware: true, route: "/**" },
         ],
         plugins: [".vitehub/nitro/rate-limit/plugin.ts", "server/plugin.ts"],
       },

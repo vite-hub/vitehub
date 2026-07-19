@@ -54,7 +54,7 @@ function mergeNitroConfig(
   if (!plugins.includes(generatedNitroPlugin)) plugins.unshift(generatedNitroPlugin)
   const handlers = Array.isArray(nitro.handlers) ? [...nitro.handlers] : []
   if (!handlers.some(handler => handler.handler === generatedNitroMiddleware)) {
-    handlers.push({ handler: generatedNitroMiddleware, middleware: true, route: "/**" })
+    handlers.unshift({ handler: generatedNitroMiddleware, middleware: true, route: "/**" })
   }
   const baseNitro = { ...nitro, handlers, plugins }
   if (!nitroCloudflare || provider !== "cloudflare" || declarations.length === 0) {
