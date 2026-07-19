@@ -1,5 +1,6 @@
 import { getOpenWorkflowRuntime, registerOpenWorkflowDefinition } from "./openworkflow.ts"
 import { getInlineWorkflowDefinitions, getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinitionForModule } from "./state.ts"
+import { WorkflowError } from "../errors.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDefinitionRegistry } from "../types.ts"
 
@@ -12,15 +13,23 @@ export interface CreateOpenWorkflowWorkerOptions {
 }
 
 export interface StartOpenWorkflowWorkerOptions extends CreateOpenWorkflowWorkerOptions {
+  onError?: (error: WorkflowError) => Promise<void> | void
   signal?: AbortSignal
   signals?: boolean
 }
 
 function getProcess(): {
+  emitWarning?: (warning: Error) => void
   off?: (event: string, listener: () => void) => void
   on?: (event: string, listener: () => void) => void
 } | undefined {
-  return (globalThis as { process?: { off?: (event: string, listener: () => void) => void, on?: (event: string, listener: () => void) => void } }).process
+  return (globalThis as {
+    process?: {
+      emitWarning?: (warning: Error) => void
+      off?: (event: string, listener: () => void) => void
+      on?: (event: string, listener: () => void) => void
+    }
+  }).process
 }
 
 async function loadRegistryDefinitions(registry: WorkflowDefinitionRegistry) {
@@ -79,16 +88,81 @@ export async function startOpenWorkflowWorker(options: StartOpenWorkflowWorkerOp
   const worker = await createOpenWorkflowWorker(options)
   await worker.start()
 
-  const stop = () => {
-    void worker.stop()
+  const originalStop = worker.stop.bind(worker)
+  const proc = getProcess()
+  let abortListenerActive = false
+  let processListenersActive = false
+  let stopTask: Promise<void> | undefined
+
+  const removeListeners = () => {
+    if (abortListenerActive) {
+      abortListenerActive = false
+      options.signal?.removeEventListener("abort", requestStop)
+    }
+    if (processListenersActive) {
+      processListenersActive = false
+      proc?.off?.("SIGINT", requestStop)
+      proc?.off?.("SIGTERM", requestStop)
+    }
   }
 
-  options.signal?.addEventListener("abort", stop, { once: true })
-  const proc = getProcess()
-  if (options.signals !== false) {
-    proc?.on?.("SIGINT", stop)
-    proc?.on?.("SIGTERM", stop)
+  const stop = (): Promise<void> => {
+    removeListeners()
+    stopTask ??= Promise.resolve()
+      .then(() => originalStop())
+      .catch((cause) => {
+        throw new WorkflowError("OpenWorkflow worker stop failed.", {
+          cause,
+          code: "OPENWORKFLOW_WORKER_STOP_FAILED",
+          provider: "openworkflow",
+        })
+      })
+    return stopTask
   }
+
+  const reportUnhandledError = (error: WorkflowError): void => {
+    try {
+      if (proc?.emitWarning) proc.emitWarning(error)
+      else console.error(error)
+    }
+    catch {}
+  }
+
+  const reportError = (error: WorkflowError): void => {
+    if (!options.onError) {
+      reportUnhandledError(error)
+      return
+    }
+    try {
+      Promise.resolve(options.onError(error)).catch(() => {
+        reportUnhandledError(error)
+      })
+    }
+    catch {
+      reportUnhandledError(error)
+    }
+  }
+
+  function requestStop(): void {
+    stop().catch(reportError)
+  }
+
+  Object.defineProperty(worker, "stop", {
+    configurable: true,
+    value: stop,
+    writable: true,
+  })
+
+  if (options.signal) {
+    abortListenerActive = true
+    options.signal.addEventListener("abort", requestStop, { once: true })
+  }
+  if (options.signals !== false && proc?.on && proc.off) {
+    processListenersActive = true
+    proc.on("SIGINT", requestStop)
+    proc.on("SIGTERM", requestStop)
+  }
+  if (options.signal?.aborted) requestStop()
 
   return worker
 }

@@ -393,11 +393,7 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
             const staticSchedule = staticSchedules.byId.get(input.scheduleId)
             if (staticSchedule) {
               if (!isRuntimeScheduleDue(staticSchedule.record, input.scheduledAt)) {
-                throw new ScheduleError(`Static Schedule is not due: ${staticSchedule.name}`, {
-                  code: "SCHEDULE_NOT_DUE",
-                  details: { id: input.scheduleId, scheduledAt: input.scheduledAt },
-                  httpStatus: 409,
-                })
+                throw new ScheduleError("SCHEDULE_NOT_DUE")
               }
               await executeStaticSchedule({
                 cron: staticSchedule.definition.cron,
