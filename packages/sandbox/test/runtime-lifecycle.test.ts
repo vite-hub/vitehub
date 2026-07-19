@@ -106,6 +106,10 @@ describe("Sandbox runtime lifecycle", () => {
     const sandbox = createSandbox("cloudflare")
     setSandboxRuntimeConfig({ provider: "cloudflare", keepAlive: true })
     setSandboxRuntimeRegistry({ example: definition })
+    runtimeMocks.resolveSandboxProvider.mockResolvedValue({
+      provider: "cloudflare",
+      cloudflare: { keepAlive: true },
+    })
     runtimeMocks.createSandboxClient.mockResolvedValue(sandbox)
     runtimeMocks.executeSandboxDefinition.mockResolvedValue({ ok: true })
 
