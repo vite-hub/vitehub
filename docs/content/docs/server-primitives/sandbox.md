@@ -99,7 +99,7 @@ The Vite config key is `sandbox`.
 | `sandbox: false` | `false` | enabled | Disables Sandbox discovery and provider runtime output. |
 | `provider` | `SandboxProvider` | inferred from hosting | Selects `cloudflare` or `vercel`. Omit it only when hosting inference is enough. |
 | `name` | `string` | package default | Shared provider resource name hint. |
-| Cloudflare provider options | `CloudflareSandboxDefinitionProviderOptions` | `sandboxId`: Definition name; `sleepAfter`: `5m` | `binding`, `className`, `migrationTag`, `sandboxId`, `sleepAfter`, `keepAlive`, and `normalizeId`. |
+| Cloudflare provider options | `CloudflareSandboxDefinitionProviderOptions` | `sandboxId`: URL-encoded Definition name; `sleepAfter`: `5m` | `binding`, `className`, `migrationTag`, `sandboxId`, `sleepAfter`, `keepAlive`, and `normalizeId`. |
 | Vercel provider options | `VercelSandboxProviderOptions` | provider defaults | `runtime`, `timeout`, `cpu`, `ports`, `source`, `networkPolicy`, `token`, `teamId`, and `projectId`. |
 
 Provider inference supports Cloudflare and Vercel hosting. Netlify cannot infer a Sandbox Provider; set `sandbox.provider` explicitly when a build target needs sandbox output.
@@ -108,7 +108,7 @@ Provider inference supports Cloudflare and Vercel hosting. Netlify cannot infer 
 
 | Provider | Configure with | Provider output | Nuance |
 | --- | --- | --- | --- |
-| Cloudflare | Inferred from hosting or `sandbox: { provider: 'cloudflare' }` | Durable Object binding, migration, and runtime provider loader output. | Uses request environment bindings. `binding` defaults to `SANDBOX`; the Definition name defaults `sandboxId`; `sleepAfter` defaults to `5m`. |
+| Cloudflare | Inferred from hosting or `sandbox: { provider: 'cloudflare' }` | Durable Object binding, migration, and runtime provider loader output. | Uses request environment bindings. `binding` defaults to `SANDBOX`; the URL-encoded Definition name defaults `sandboxId`; `sleepAfter` defaults to `5m`. |
 | Vercel | `sandbox: { provider: 'vercel' }` | Vercel Sandbox runtime provider output. | Requires `@vercel/sandbox` at runtime. Supported runtimes are currently `node22` and `node24`. |
 
 Cloudflare and Vercel expose different lifecycle, credential, network, and file behavior. Keep provider credentials in Server Env or provider configuration, not in Sandbox Payloads.

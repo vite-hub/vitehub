@@ -18,6 +18,7 @@ vi.mock("vitehub-sandbox-provider-loader", () => ({
 }))
 
 import { runSandboxRuntime } from "../src/runtime/runtime.ts"
+import { createCloudflareExecutionSandboxId } from "../src/runtime/provider-resolution.ts"
 import { resetSandboxRuntimeState, setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from "../src/runtime/state.ts"
 
 const definition = {
@@ -46,6 +47,14 @@ beforeEach(() => {
 })
 
 describe("Sandbox runtime lifecycle", () => {
+  it("keeps distinct Definition names distinct in default Cloudflare identities", () => {
+    expect(createCloudflareExecutionSandboxId("tools/release-notes")).toBe("tools%2Frelease-notes")
+    expect(createCloudflareExecutionSandboxId("tools/release-notes"))
+      .not.toBe(createCloudflareExecutionSandboxId("tools_release-notes"))
+    expect(createCloudflareExecutionSandboxId("Example"))
+      .not.toBe(createCloudflareExecutionSandboxId("example"))
+  })
+
   it("uses the Definition name as the default Cloudflare identity and keeps successful runs idle", async () => {
     const sandbox = createSandbox("cloudflare")
     setSandboxRuntimeConfig({ provider: "cloudflare" })

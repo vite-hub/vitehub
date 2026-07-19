@@ -176,7 +176,7 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
   const plugins: unknown[] = []
   const providerImportAliases: Record<string, string> = {}
   configureProviderOptionalImportAliases(providerImportAliases, options)
-  const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(Boolean(options.sandbox))
+  const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(options.sandbox !== false)
 
   plugins.push(frameworkDependencyResolver(options, providerImportAliases))
   plugins.push(hubMarkdownTemplate({ runtimeImport: `${generatedImportBase}/markdown-template` }))

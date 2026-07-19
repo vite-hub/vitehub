@@ -22,7 +22,7 @@ export function createCloudflareExecutionSandboxId(name: string, sandboxId?: str
   if (sandboxId)
     return sandboxId
 
-  return name.replace(/[^a-z0-9-]/gi, '-').toLowerCase()
+  return encodeURIComponent(name)
 }
 
 export function resolveRuntimeProvider(provider?: SandboxDefinitionProviderOptions, event?: SandboxEvent) {

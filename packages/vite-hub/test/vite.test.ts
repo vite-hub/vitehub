@@ -125,6 +125,8 @@ describe("vitehub", () => {
       scheduleRuntimeImport: "vite-hub/_internal/schedule/runtime",
       workflowImportBase: "vite-hub/_internal/workflow",
       workspaceDependencyRuntimeImports: {
+        sandbox: "@vite-hub/sandbox",
+        sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
         shellWorkspace: "vite-hub/shell/workspace",
       },
       workspaceImportBase: "vite-hub/_internal/workspace",
@@ -159,6 +161,8 @@ describe("vitehub", () => {
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
       },
       workspaceDependencyRuntimeImports: {
+        sandbox: "@vite-hub/sandbox",
+        sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
         shellWorkspace: "vite-hub/shell/workspace",
       },
       workspaceImportBase: "vite-hub/_internal/workspace",
@@ -218,8 +222,25 @@ describe("vitehub", () => {
     })
   })
 
-  it("keeps Sandbox loaders out of the default provider graph", () => {
+  it("keeps Sandbox loaders aligned with preset enablement", () => {
     vitehub()
+
+    expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
+      workspaceDependencyRuntimeImports: {
+        sandbox: "@vite-hub/sandbox",
+        sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
+        shellWorkspace: "vite-hub/shell/workspace",
+      },
+    }))
+    expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+      workspaceDependencyRuntimeImports: {
+        sandbox: "@vite-hub/sandbox",
+        sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
+        shellWorkspace: "vite-hub/shell/workspace",
+      },
+    }))
+
+    vitehub({ sandbox: false })
 
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
