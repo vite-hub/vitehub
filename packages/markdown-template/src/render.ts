@@ -10,12 +10,17 @@ import {
 
 import type { ComarkElement, ComarkNode } from "./ast.ts"
 import type { MarkdownTemplateRuntime } from "./markdown.ts"
-import type { RenderMarkdownTemplateOptions } from "./types.ts"
+import type {
+  RenderMarkdownTemplateInternalOptions,
+  RenderMarkdownTemplateOptions,
+  ResolveMarkdownTemplateImportsOptions,
+} from "./types.ts"
 
 interface RenderState {
   data: Record<string, unknown>
   fragmentToken: string
   fragments: Array<{ path: string }>
+  validateConditionPath?: (path: string) => boolean
 }
 
 interface TemplateTokenState {
@@ -29,17 +34,67 @@ const templatePathPattern = new RegExp(`^${templatePathSource}$`)
 const tripleBindingPattern = new RegExp(String.raw`\{\{\{\s*(${templatePathSource})\s*\}\}\}`, "g")
 const tagBindingPattern = new RegExp(String.raw`(?<!\{)\{\{(?!\{)\s*(${templatePathSource})\s*\}\}(?!\})`, "g")
 
+interface TemplatePreparation {
+  prepare: (value: string) => Promise<string>
+  protectedTokens: TemplateTokenState
+  runtime: MarkdownTemplateRuntime
+  tagTokens: TemplateTokenState
+}
+
+export async function resolveMarkdownTemplateImports(
+  template: string,
+  options: ResolveMarkdownTemplateImportsOptions,
+): Promise<string> {
+  assertTemplate(template)
+  const preparation = createTemplatePreparation()
+  const imported = await expandPreparedImports(await preparation.prepare(template), options, preparation)
+  return restoreTemplateTokens(restoreTemplateTags(imported, preparation.tagTokens), preparation.protectedTokens)
+}
+
 export async function renderMarkdownTemplate(
   template: string,
   options: RenderMarkdownTemplateOptions = {},
 ): Promise<string> {
+  return await renderMarkdownTemplateInternal(template, options)
+}
+
+export async function renderMarkdownTemplateInternal(
+  template: string,
+  options: RenderMarkdownTemplateInternalOptions = {},
+): Promise<string> {
+  assertTemplate(template)
+  const data = options.data ?? {}
+  const preparation = createTemplatePreparation()
+  const shorthand = await preparation.prepare(template)
+  const imported = options.resolveImport
+    ? await expandPreparedImports(shorthand, {
+        maxImportDepth: options.maxImportDepth,
+        resolveImport: options.resolveImport,
+        sourceId: options.sourceId,
+      }, preparation)
+    : shorthand
+  validateConditionalDirectives(await directiveValidationSource(imported))
+  const fragmentToken = `VITEHUBMARKDOWNTEMPLATEFRAGMENT${crypto.randomUUID().replaceAll("-", "")}`
+  const normalized = await normalizeTripleBindings(imported, fragmentToken, preparation.runtime)
+  const tree = await parseTemplateMarkdown(normalized.template, true)
+  const nodes = await composeNodes(tree.nodes, {
+    data,
+    fragmentToken,
+    fragments: normalized.fragments,
+    validateConditionPath: options.validateConditionPath,
+  })
+  const rendered = cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components: preparation.runtime.components }))
+  return restoreTemplateTokens(restoreTemplateTags(rendered, preparation.tagTokens, data), preparation.protectedTokens)
+}
+
+function assertTemplate(template: string): void {
   if (typeof template !== "string") {
     throw new TypeError("[vitehub] Markdown template must be a string.")
   }
+}
 
-  const data = options.data ?? {}
+function createTemplatePreparation(): TemplatePreparation {
   const nonce = crypto.randomUUID().replaceAll("-", "")
-  const runtime = createMarkdownTemplateRuntime(nonce)
   const protectedTokens: TemplateTokenState = {
     prefix: `VITEHUBMARKDOWNTEMPLATEPROTECTED${nonce}`,
     values: [],
@@ -48,31 +103,34 @@ export async function renderMarkdownTemplate(
     prefix: `VITEHUBMARKDOWNTEMPLATETAG${nonce}`,
     values: [],
   }
-  const prepare = async (value: string) => maskTemplateTags(
-    await protectCodeTemplateSyntax(value, protectedTokens, nonce),
+  return {
+    prepare: async (value) => {
+      const prepared = maskTemplateTags(
+        await protectCodeTemplateSyntax(value, protectedTokens, nonce),
+        tagTokens,
+      )
+      validateConditionalDirectives(await directiveValidationSource(prepared))
+      return prepared
+    },
+    protectedTokens,
+    runtime: createMarkdownTemplateRuntime(nonce),
     tagTokens,
-  )
-  const shorthand = await prepare(template)
-  const imported = options.resolveImport
-    ? await expandMarkdownTemplateImports(shorthand, {
-        maxImportDepth: options.maxImportDepth ?? defaultImportDepth,
-        prepare,
-        resolveImport: options.resolveImport,
-        runtime,
-        sourceId: options.sourceId ?? "<template>",
-      })
-    : shorthand
-  validateConditionalDirectives(await directiveValidationSource(imported))
-  const fragmentToken = `VITEHUBMARKDOWNTEMPLATEFRAGMENT${nonce}`
-  const normalized = await normalizeTripleBindings(imported, fragmentToken, runtime)
-  const tree = await parseTemplateMarkdown(normalized.template, true)
-  const nodes = await composeNodes(tree.nodes, {
-    data,
-    fragmentToken,
-    fragments: normalized.fragments,
+  }
+}
+
+async function expandPreparedImports(
+  template: string,
+  options: ResolveMarkdownTemplateImportsOptions,
+  preparation: TemplatePreparation,
+): Promise<string> {
+  return await expandMarkdownTemplateImports(template, {
+    maxImportDepth: options.maxImportDepth ?? defaultImportDepth,
+    prepare: preparation.prepare,
+    resolveBareImport: options.resolveBareImport,
+    resolveImport: options.resolveImport,
+    runtime: preparation.runtime,
+    sourceId: options.sourceId ?? "<template>",
   })
-  const rendered = cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components: runtime.components }))
-  return restoreTemplateTokens(restoreTemplateTags(rendered, tagTokens, data), protectedTokens)
 }
 
 function maskTemplateTags(
@@ -88,13 +146,13 @@ function maskTemplateTags(
 function restoreTemplateTags(
   template: string,
   state: TemplateTokenState,
-  data: Record<string, unknown>,
+  data?: Record<string, unknown>,
 ): string {
   return template.replace(
     new RegExp(`${state.prefix}(\\d+)END`, "g"),
     (_match, index: string) => {
       const tag = state.values[Number(index)]
-      return tag === undefined ? _match : renderTagBindings(tag, data)
+      return tag === undefined ? _match : data ? renderTagBindings(tag, data) : tag
     },
   )
 }
@@ -421,7 +479,7 @@ function hasMeaningfulContent(nodes: ComarkNode[]): boolean {
 async function composeIfNode(node: ComarkElement, state: RenderState): Promise<ComarkNode[]> {
   const { after, branches } = conditionalBranches(node)
   const selected = branches.find(branch =>
-    branch.expression === undefined || evaluateCondition(branch.expression, state.data))
+    branch.expression === undefined || evaluateCondition(branch.expression, state.data, state.validateConditionPath))
   return [
     ...(selected ? await composeNodes(selected.nodes, state) : []),
     ...await composeNodes(after, state),

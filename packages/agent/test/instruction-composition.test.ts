@@ -61,6 +61,22 @@ describe("instruction composition", () => {
     })).toBe("Shared\n\nShared")
   })
 
+  it("preserves relative import cycle and depth errors", async () => {
+    await expect(resolveInstructionImports("@./nested.md", {
+      file: "/agent/instructions.md",
+      read: importReader(new Map([
+        ["/agent/nested.md", "@./instructions.md"],
+        ["/agent/instructions.md", "Root"],
+      ])),
+    })).rejects.toThrow("Circular instruction import: ./instructions.md")
+
+    await expect(resolveInstructionImports("@./nested.md", {
+      file: "/agent/instructions.md",
+      maxDepth: 0,
+      read: importReader(new Map([["/agent/nested.md", "Nested"]])),
+    })).rejects.toThrow("Instruction import depth exceeded 0")
+  })
+
   it("preserves imported markdown structure on Comark 0.5", async () => {
     const files = new Map([["/agent/policy.md", [
       "## Policy",
@@ -332,9 +348,28 @@ describe("instruction composition", () => {
     ].join("\n\n"))
   })
 
+  it("preserves workspace import cycle and depth errors", async () => {
+    await expect(composeInstructionDocument("@workspace.policy", {
+      workspace: { policy: "@workspace.policy" },
+    })).rejects.toThrow("Circular instruction workspace import: @workspace.policy")
+
+    await expect(composeInstructionDocument("@workspace.one", {
+      workspace: {
+        five: "Done",
+        four: "@workspace.five",
+        one: "@workspace.two",
+        three: "@workspace.four",
+        two: "@workspace.three",
+      },
+    })).rejects.toThrow("Instruction workspace import depth exceeded 4")
+  })
+
   it("requires workspace Markdown to use recursive imports", async () => {
     await expect(composeInstructionDocument("{{{ workspace.policy }}}", {
       workspace: { policy: "Use {{ context.name }}." },
+    })).rejects.toThrow("must use a context.* path. Import Workspace Markdown with @workspace.policy")
+    await expect(composeInstructionDocument("<policy value=\"{{{ workspace.policy }}}\">Use it.</policy>", {
+      workspace: { policy: "Policy" },
     })).rejects.toThrow("must use a context.* path. Import Workspace Markdown with @workspace.policy")
   })
 
@@ -369,6 +404,7 @@ describe("instruction composition", () => {
     const syntax = [
       "{{ context.name }}",
       "{{{ context.section }}}",
+      "{{{ workspace.section }}}",
       "::if{context.enabled}",
       "@workspace.policy",
       "::",
@@ -394,7 +430,22 @@ describe("instruction composition", () => {
     expect(output.match(/@workspace\.policy/g)).toHaveLength(3)
     expect(output.match(/\{\{ context\.name \}\}/g)).toHaveLength(3)
     expect(output.match(/\{\{\{ context\.section \}\}\}/g)).toHaveLength(3)
+    expect(output.match(/\{\{\{ workspace\.section \}\}\}/g)).toHaveLength(3)
     expect(output.match(/::if\{context\.enabled\}/g)).toHaveLength(3)
+  })
+
+  it("keeps coverage directives in fenced code literal and unrecorded", async () => {
+    const coverage = createInstructionCoverage()
+    const document = [
+      "```md",
+      "::source{key=\"example\"}",
+      "Literal example.",
+      "::",
+      "```",
+    ].join("\n")
+
+    expect(await composeInstructionDocument(document, { coverage })).toBe(document)
+    expect([...coverage.sources]).toEqual([])
   })
 
   it("strips explicit instruction coverage wrappers and records covered primitives", async () => {
