@@ -768,6 +768,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     workspaceAssetsRegistryFile = resolve(options.rootDir, ".vitehub/vite-runtime/workspace/assets/registry.mjs")
     alias["#vitehub-workspace-assets-registry"] = workspaceAssetsRegistryFile
     alias["@vite-hub/workspace/internal/runtime/assets"] = workspaceAssetsRuntimeFile
+    alias["@vite-hub/workspace/internal/runtime/workspace"] = resolve(workspacePackageDir, "src/runtime/workspace.ts")
     alias["@vite-hub/workspace/runtime"] = workspaceStateRuntimeFile
     alias["@vite-hub/workspace/loader"] = resolve(workspacePackageDir, "src/loader.ts")
     alias["@vite-hub/workspace/publish"] = resolve(workspacePackageDir, "src/publish.ts")
