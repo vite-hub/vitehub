@@ -378,8 +378,16 @@ describe("vitehub", () => {
     await hook(config, { command: "build", mode: "production" })
     expect(config.nitro).toMatchObject({ preset: nitroPreset })
     if (preset === "deno") {
-      expect(config.nitro).toMatchObject({ commands: { deploy: "node ./deploy.mjs" }, hooks: { compiled: expect.any(Function) } })
+      expect(config.nitro).toMatchObject({ commands: { deploy: "node ./deploy.mjs" }, modules: [expect.any(Function)] })
     }
+  })
+
+  it("composes deployment output through a Nitro module", async () => {
+    const config = { nitro: { modules: ["existing-module"] } } as Record<string, unknown>
+    const plugin = vitehub({ preset: "node" }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    const hook = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
+    await hook(config, { command: "build", mode: "production" })
+    expect(config.nitro).toMatchObject({ modules: ["existing-module", expect.any(Function)] })
   })
 
   it.each([

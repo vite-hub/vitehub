@@ -1,15 +1,16 @@
 import { access, mkdir, writeFile } from "node:fs/promises"
-import { dirname, resolve } from "node:path"
+import { dirname, relative, resolve } from "node:path"
 
 import type { DeploymentPlan } from "../deployment.ts"
 
 interface FinalizeDeploymentPlanOutputOptions {
+  outputDir?: string
   plan: DeploymentPlan
   rootDir: string
 }
 
 export async function finalizeDeploymentPlanOutput(options: FinalizeDeploymentPlanOutputOptions): Promise<void> {
-  const outputRoot = resolve(options.rootDir, options.plan.output.directory)
+  const outputRoot = resolve(options.rootDir, options.outputDir ?? options.plan.output.directory)
   const entry = options.plan.output.entry ? resolve(outputRoot, options.plan.output.entry) : undefined
   if (entry) {
     try {
@@ -21,7 +22,10 @@ export async function finalizeDeploymentPlanOutput(options: FinalizeDeploymentPl
   }
   const manifest = {
     host: options.plan.host,
-    output: options.plan.output,
+    output: {
+      ...options.plan.output,
+      directory: relative(options.rootDir, outputRoot).replaceAll("\\", "/") || ".",
+    },
     preset: options.plan.preset,
     runtime: options.plan.runtime,
     services: options.plan.services,

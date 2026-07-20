@@ -63,4 +63,17 @@ describe("built-in deployment plans", () => {
       expect(manifest).toMatchObject({ host: plan.host, output: plan.output, preset, runtime: plan.runtime, services: plan.services })
     }
   })
+  it("validates and records a resolved custom output directory", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-plan-custom-output-"))
+    const outputDir = resolve(rootDir, "custom-output")
+    const plan = resolveDeploymentPlan("node")
+    const entry = resolve(outputDir, plan.output.entry!)
+    await mkdir(dirname(entry), { recursive: true })
+    await writeFile(entry, "export {}\n", "utf8")
+
+    await finalizeDeploymentPlanOutput({ outputDir, plan, rootDir })
+
+    const manifest = JSON.parse(await readFile(resolve(outputDir, "deployment.json"), "utf8"))
+    expect(manifest.output).toEqual({ ...plan.output, directory: "custom-output" })
+  })
 })
