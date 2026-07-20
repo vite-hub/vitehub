@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "pathe"
 
@@ -533,18 +534,26 @@ async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOpt
       serverFunctionName: options.serverFunctionName,
     })
   }
-  if (options.serverFunctionName && options.serverFunctionName !== "__server.func") {
-    await writeFile(resolve(options.rootDir, ".vercel/output/functions", options.serverFunctionName, vercelBlobOutputMarker), "", "utf8")
+  const shared = Object.entries(options.providerOutput?.runtimeModuleFilesByProduct || {})
+    .some(([product, modules]) => product !== productName && modules?.vercel)
+  if (!shared) {
+    const outputName = options.serverFunctionName ?? "__server.func"
+    const entry = await readFile(resolve(options.rootDir, ".vercel/output/functions", outputName, "index.mjs"))
+    await writeFile(resolve(options.rootDir, ".vercel/output/functions", outputName, vercelBlobOutputMarker), createHash("sha256").update(entry).digest("hex"), "utf8")
   }
 }
 
 async function getVercelBlobOutputNames(options: GenerateProviderOutputsOptions) {
-  const names = [...new Set([options.serverFunctionName, "__blob.func"].filter((name): name is string => Boolean(name && name !== "__server.func")))]
+  const names = [...new Set([options.serverFunctionName ?? "__server.func", "__blob.func"])]
   const owned: string[] = []
   for (const name of names) {
     try {
-      await access(resolve(options.rootDir, ".vercel/output/functions", name, vercelBlobOutputMarker))
-      owned.push(name)
+      const outputRoot = resolve(options.rootDir, ".vercel/output/functions", name)
+      const [entry, marker] = await Promise.all([
+        readFile(resolve(outputRoot, "index.mjs")),
+        readFile(resolve(outputRoot, vercelBlobOutputMarker), "utf8"),
+      ])
+      if (createHash("sha256").update(entry).digest("hex") === marker) owned.push(name)
     }
     catch {}
   }
