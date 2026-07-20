@@ -2294,7 +2294,9 @@ async function executeAgentInvocation<
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
   }
 
-  if (options.kind === "run" && invocation.context.get<boolean>(finalChannelOutputContextKey) === true) {
+  if (options.kind === "run"
+    && invocation.context.get<boolean>(finalChannelOutputContextKey) === true
+    && !hasTraceableStreamResult(result)) {
     const text = finalTextFromAgentOutput(result)
     if (text !== undefined && !(result instanceof Response)) {
       const synthesizedRaw = typeof result === "object" && result !== null
