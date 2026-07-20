@@ -68,6 +68,7 @@
     "test": "vp run -t @vite-hub/blob#build && vp test"
   },
   "dependencies": {
+    "@vercel/blob": "catalog:storage",
     "defu": "catalog:unjs",
     "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
