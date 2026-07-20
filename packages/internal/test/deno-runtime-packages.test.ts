@@ -65,5 +65,7 @@ describe("Deno deployment output", () => {
     expect(deployRunner).toContain('["deploy", "create"')
     expect(deployRunner).toContain("--do-not-use-detected-build-config")
     expect(deployRunner).toContain("server/index.ts")
+    expect(deployRunner).toContain('const common = ["--org", organization, "--app", app]')
+    expect(deployRunner).toContain('"--region", region, "--allow-node-modules", ...common')
   })
 })
