@@ -369,7 +369,8 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.kv) {
     const configuredKV = options.kv === true ? undefined : options.kv
     const presetKV = resolveKVViteConfig(configuredKV, { hosting: plan.nitroPreset }).kv
-    plugins.push(hubKv(presetKV || undefined))
+    const presetKVOptions = presetKV && (presetKV.stores ? { stores: presetKV.stores } : presetKV.store)
+    plugins.push(hubKv(presetKVOptions || undefined))
   }
   else plugins.push(hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
@@ -412,5 +413,3 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
 
   return plugins as PluginOption[]
 }
-
-export type { DeploymentPreset }

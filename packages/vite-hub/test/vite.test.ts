@@ -142,9 +142,7 @@ describe("vitehub", () => {
       importBase: "vite-hub/_internal/blob",
     })
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith(undefined)
-    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith({
-      store: { driver: "cloudflare-kv-binding" },
-    })
+    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith({ driver: "cloudflare-kv-binding" })
     expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith({
       provider: "cloudflare",
       providerImportAliases: expect.any(Object),
