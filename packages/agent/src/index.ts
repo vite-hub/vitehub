@@ -61,7 +61,7 @@ import {
 } from "./capability-runtime.ts"
 import type { AgentCapabilityRegistries, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
-import { finalizeUiMessageStreamOutput, isUIMessageStreamResult, normalizeUiMessageStream } from "./stream-output.ts"
+import { finalizeUiMessageStreamOutput, isUIMessageStreamResult, normalizeUiMessageStream, withReadableStreamCleanup } from "./stream-output.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -2392,16 +2392,48 @@ async function executeAgentInvocation<
         && !invocation.output
         && invocation.context.get<boolean>(responseTitleFallbackContextKey) === true
         && rendered !== result
-        && (isAsyncIterable((rendered as { stream?: unknown }).stream) || isAsyncIterable((rendered as { fullStream?: unknown }).fullStream))
+        && (isAsyncIterable((rendered as { stream?: unknown }).stream)
+          || isAsyncIterable((rendered as { fullStream?: unknown }).fullStream)
+          || isUIMessageStreamResult(rendered))
         && shouldWrapInvocationOutput(invocation)) {
+        if (isUIMessageStreamResult(rendered)
+          && !isAsyncIterable((rendered as { stream?: unknown }).stream)
+          && !isAsyncIterable((rendered as { fullStream?: unknown }).fullStream)) {
+          const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+          let finishTask: Promise<void> | undefined
+          const preserved = cloneWithPropertyDescriptors(rendered, {
+            toUIMessageStream: {
+              configurable: true,
+              enumerable: false,
+              value: (...args: unknown[]) => withReadableStreamCleanup(
+                normalizeUiMessageStream(toUIMessageStream.apply(rendered, args)),
+                outcome => (finishTask ??= finishStreamAgentInvocation(invocation, lifecycle, rendered, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)),
+              ),
+            },
+          })
+          return {
+            deferFinish: true,
+            finishResult: preserved,
+            value: preserved,
+          }
+        }
         const streamed = withStreamedResult(streamAgentOutputToEvents(rendered), rendered, driverUsageRecord)
         const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
           await finishStreamAgentInvocation(invocation, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
         }, { abortSignal: invocation.input.abortSignal })
+        const streamProperty = isAsyncIterable((rendered as { stream?: unknown }).stream) ? "stream" : "fullStream"
+        const preserved = cloneWithPropertyDescriptors(rendered as object, {
+          [streamProperty]: {
+            configurable: true,
+            enumerable: true,
+            value,
+            writable: true,
+          },
+        })
         return {
           deferFinish: true,
-          finishResult: value,
-          value,
+          finishResult: preserved,
+          value: preserved,
         }
       }
       const final = options.renderOutput ? await applyFinalOutputRenderers(rendered, invocation, outputExtensions) : rendered

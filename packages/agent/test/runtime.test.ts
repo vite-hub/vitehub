@@ -7121,15 +7121,15 @@ describe("agent message protocol", () => {
       hooks: { "agent:finish": finish },
     })
 
-    const stream = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       messages: [createMessage({
         parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
         role: "user",
       })],
-    }) as AsyncIterable<unknown>
+    }) as { stream: AsyncIterable<unknown> }
 
     expect(finish).not.toHaveBeenCalled()
-    for await (const _event of stream) {}
+    for await (const _event of result.stream) {}
 
     expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "response: Deferred reply" })
     expect(finish.mock.calls[0]![0].result.text).toBe("Deferred reply")
@@ -7559,6 +7559,36 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].result).toBe(result)
   })
 
+  it("preserves stream result methods while deriving attachment-only titles", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    class StreamResult {
+      fullStream = (async function* () {
+        yield { text: "Image description", type: "text-delta" }
+      })()
+
+      toTextStreamResponse() {
+        return new Response("native")
+      }
+    }
+    const agent = defineAgent({
+      capabilities: [title({ execute: ({ text }) => `Title: ${text}` })],
+      driver: { run: () => new StreamResult() },
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+        role: "user",
+      })],
+    }) as StreamResult
+    const events = []
+    for await (const event of result.fullStream) events.push(event)
+
+    expect(result).toBeInstanceOf(StreamResult)
+    expect(result.toTextStreamResponse).toEqual(expect.any(Function))
+    expect(events).toContainEqual({ data: { title: "Title: Image description", type: "title" }, type: "data" })
+  })
+
   it("preserves readable stream results when adding title data", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     class StreamResult {
@@ -7688,6 +7718,45 @@ describe("agent message protocol", () => {
       data: { title: "response: Image description", type: "title" },
       type: "data-title",
     })
+  })
+
+  it("defers attachment-only finish work for UI-only stream results", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    class StreamResult {
+      metadata = "preserved"
+
+      toUIMessageStream() {
+        return new ReadableStream<unknown>({
+          start(controller) {
+            controller.enqueue({ delta: "Image description", id: "text-1", type: "text-delta" })
+            controller.enqueue({ finishReason: "stop", type: "finish" })
+            controller.close()
+          },
+        })
+      }
+    }
+    const agent = defineAgent({
+      capabilities: [title({ execute: ({ text }) => `Title: ${text}` })],
+      hooks: { "agent:finish": finish },
+      driver: { run: () => new StreamResult() },
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+        role: "user",
+      })],
+    }) as StreamResult
+    expect(finish).not.toHaveBeenCalled()
+    for await (const _event of result.toUIMessageStream()) {}
+
+    expect(result).toBeInstanceOf(StreamResult)
+    expect(result.metadata).toBe("preserved")
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      extensions: expect.objectContaining({ get: expect.any(Function) }),
+    }))
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Title: Image description" })
   })
 
   it("cancels readable stream results while a source read is pending", async () => {
