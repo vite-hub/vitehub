@@ -112,7 +112,7 @@ export function finalTextFromAgentOutput(value: unknown): string | undefined {
 
     const final = finalTextFromStructuredResult(raw)
     if (final) return final
-    if (final === "") return textFromResult(value) ?? final
+    if (final === "") return text === structuredText ? final : text ?? final
   }
 
   const final = finalTextFromStructuredResult(value)

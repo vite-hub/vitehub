@@ -186,6 +186,19 @@ describe("agent output helpers", () => {
     })).toBe("Synthesized workspace answer.")
   })
 
+  it("does not restore aggregate commentary when raw output ends at a tool", () => {
+    expect(finalTextFromAgentOutput({
+      raw: {
+        content: [
+          { text: "Checking the workspace.", type: "text" },
+          { toolCallId: "call-1", toolName: "workspace", type: "tool-call" },
+          { toolCallId: "call-1", toolName: "workspace", type: "tool-result" },
+        ],
+      },
+      text: "Checking the workspace.",
+    })).toBe("")
+  })
+
   it("falls back to direct final text when structured output ends at a tool", () => {
     expect(finalTextFromAgentOutput({
       content: [
