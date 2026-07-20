@@ -626,7 +626,6 @@ describe("Workspace Source Resolution", () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
-      runtime: { allowProduction: true, type: "trusted-host" },
       sources: {
         inventoryHealthSummary: fetch({
           url: "https://portal.example.com/runtime/inventory-health",
@@ -1129,7 +1128,6 @@ describe("Workspace Source Resolution", () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
-      runtime: "trusted-host",
       sources: {
         docs: custom({
           materialize: "lazy",
@@ -1176,7 +1174,6 @@ describe("Workspace Source Resolution", () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
-      runtime: { allowProduction: true, type: "trusted-host" },
       sources: {
         portal: custom({
           materialize: "lazy",
@@ -1221,7 +1218,7 @@ describe("Workspace Source Resolution", () => {
     try {
       await expect(runShell(workspace, `rg -i "months.*stock" portal/app --max-depth 3`)).resolves.toMatchObject({
         exitCode: 0,
-        stdout: "portal/app/components/OrderSuggestion.vue:Months of Stock (Incl. Order Suggestion)\n",
+        stdout: "portal/app/components/OrderSuggestion.vue:1:Months of Stock (Incl. Order Suggestion)\n",
       })
       expect(startSession).toHaveBeenCalledWith({ paths: ["portal/app"] })
     }
@@ -1307,7 +1304,6 @@ describe("Workspace Source Resolution", () => {
     await base.writeFile("secrets/private.md", "secret")
     const definition: WorkspaceDefinition = {
       name: "support",
-      runtime: "trusted-host",
       sources: {},
     }
 

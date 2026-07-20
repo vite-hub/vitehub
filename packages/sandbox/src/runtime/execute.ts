@@ -1,6 +1,4 @@
-import { CLOUDFLARE_CONTROL_PLANE_TIMEOUT_MS, createCloudflareTransportError, resolveExecRequestTimeout, withCloudflareDeadline } from '../sandbox/adapters/cloudflare/transport'
 import { SandboxError } from '../sandbox/errors'
-import { shellQuote } from '../sandbox/utils'
 import { createEntrySource } from './entry-script'
 import {
   createExecutionFiles,
@@ -17,11 +15,12 @@ import {
   recoverExecOutput,
   tryParseSandboxOutput,
 } from './output-recovery'
+import type { SandboxExecutionBox } from './execution-box'
 
-import type { CloudflareSandboxClient, SandboxClient } from '../sandbox/types'
-import type { SandboxDefinitionOptions, SandboxDefinitionRuntime } from '../module-types'
+import type { SandboxDefinitionBundle, SandboxDefinitionOptions } from '../module-types'
 
 const defaultNodeLauncher = 'import(process.argv[1])'
+const projectPreparations = new Map<string, Promise<void>>()
 
 function toJson(value: unknown, label: string) {
   try {
@@ -36,102 +35,123 @@ function toJson(value: unknown, label: string) {
   }
 }
 
-function resolveLauncher(_provider: SandboxClient['provider'], runtime?: SandboxDefinitionRuntime) {
-  if (runtime) {
-    return {
-      command: runtime.command,
-      args: [...(runtime.args || [])],
-    }
-  }
-
+function resolveLauncher() {
   return {
     command: 'node',
     args: ['-e', defaultNodeLauncher],
   }
 }
 
+async function prepareSandboxProject(
+  sandbox: SandboxExecutionBox,
+  bundle: SandboxDefinitionBundle,
+  baseDir: string,
+  options: { deadline?: number, env?: Record<string, string>, signal?: AbortSignal, timeout?: number },
+) {
+  const project = bundle.project
+  if (!project)
+    return baseDir
+
+  const projectDir = `/tmp/vitehub-sandbox/projects/${project.digest}`
+  const marker = `${projectDir}/.vitehub/prepared`
+  await sandbox.mkdir('/tmp/vitehub-sandbox/projects', { recursive: true })
+  if (await sandbox.exists(marker))
+    return projectDir
+
+  const preparationKey = `${sandbox.id}:${project.digest}`
+  while (!await sandbox.exists(marker)) {
+    let preparation = projectPreparations.get(preparationKey)
+    let owned = false
+    if (!preparation) {
+      owned = true
+      preparation = prepareSandboxProjectAtomically(sandbox, { ...bundle, project }, projectDir, marker, options)
+      projectPreparations.set(preparationKey, preparation)
+      void preparation.finally(() => {
+        if (projectPreparations.get(preparationKey) === preparation)
+          projectPreparations.delete(preparationKey)
+      }).catch(() => {})
+    }
+    try {
+      await preparation
+    }
+    catch (error) {
+      if (projectPreparations.get(preparationKey) === preparation)
+        projectPreparations.delete(preparationKey)
+      if (owned || options.signal?.aborted) throw error
+      continue
+    }
+    if (projectPreparations.get(preparationKey) === preparation)
+      projectPreparations.delete(preparationKey)
+  }
+  return projectDir
+}
+
+async function prepareSandboxProjectAtomically(
+  sandbox: SandboxExecutionBox,
+  bundle: SandboxDefinitionBundle & { project: NonNullable<SandboxDefinitionBundle['project']> },
+  projectDir: string,
+  marker: string,
+  options: { deadline?: number, env?: Record<string, string>, signal?: AbortSignal, timeout?: number },
+) {
+  if (await sandbox.exists(marker)) return
+  const staging = `${projectDir}.staging-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  try {
+    await sandbox.mkdir(staging, { recursive: true })
+    await writeSandboxDefinitionBundle(sandbox, staging, bundle)
+    const result = await executeLauncher(
+      sandbox,
+      bundle.project.install.command,
+      bundle.project.install.args,
+      {
+        ...options,
+        cwd: resolveSandboxModulePath(staging, bundle.project.install.cwd),
+      },
+    )
+    if (!result.ok) {
+      throw new SandboxError('Sandbox package preparation failed.', {
+        code: 'EXECUTION_ERROR',
+        details: {
+          command: bundle.project.install.command,
+          exitCode: result.code,
+          stderr: result.stderr,
+        },
+      })
+    }
+    await sandbox.writeFile(`${staging}/.vitehub/prepared`, bundle.project.digest)
+    const published = await sandbox.exec('node', [
+      '-e',
+      'import("node:fs/promises").then(({ rename }) => rename(process.argv[1], process.argv[2]))',
+      staging,
+      projectDir,
+    ], { signal: options.signal })
+    if (!published.ok && !await sandbox.exists(marker)) {
+      throw new SandboxError('Sandbox package preparation could not publish its project.', {
+        code: 'EXECUTION_ERROR',
+        details: { exitCode: published.code, stderr: published.stderr },
+      })
+    }
+  }
+  finally {
+    await sandbox.exec('rm', ['-rf', '--', staging]).catch(() => {})
+  }
+}
+
 async function executeLauncher(
-  sandbox: SandboxClient,
+  sandbox: SandboxExecutionBox,
   command: string,
   args: string[],
   options: { cwd?: string, deadline?: number, env?: Record<string, string>, signal?: AbortSignal, timeout?: number },
 ) {
-  const cloudflareSandbox = sandbox.provider === 'cloudflare'
-    ? sandbox as CloudflareSandboxClient
-    : undefined
-  const nativeCloudflareSession = cloudflareSandbox?.native as { createSession?: unknown } | undefined
-  if (cloudflareSandbox && typeof nativeCloudflareSession?.createSession === 'function') {
-    const remaining = options.deadline ? Math.max(1, options.deadline - Date.now()) : undefined
-    const timeout = Math.min(resolveExecRequestTimeout(options.timeout), remaining ?? Number.POSITIVE_INFINITY)
-    const sessionPromise = cloudflareSandbox.cloudflare.createSession({
-      cwd: options.cwd,
-      env: options.env,
-      timeout,
-    })
-    let session: Awaited<typeof sessionPromise>
-    try {
-      session = await withCloudflareDeadline('createSession', timeout, async () => await sessionPromise)
-    }
-    catch (error) {
-      void sessionPromise.then(async lateSession => {
-        await cloudflareSandbox.cloudflare.deleteSession(lateSession.id).catch(() => {})
-      }).catch(() => {})
-      throw error instanceof SandboxError
-        ? error
-        : createCloudflareTransportError('createSession', error)
-    }
-    const deleteSession = async () => {
-      const remaining = options.deadline ? Math.max(1, options.deadline - Date.now()) : undefined
-      const timeout = Math.min(CLOUDFLARE_CONTROL_PLANE_TIMEOUT_MS, remaining ?? Number.POSITIVE_INFINITY)
-      await withCloudflareDeadline(
-        'deleteSession',
-        timeout,
-        async () => await cloudflareSandbox.cloudflare.deleteSession(session.id),
-      ).catch(() => {})
-    }
-    const abortSession = () => void deleteSession()
-    try {
-      if (options.signal?.aborted) {
-        await deleteSession()
-        throw createTimeoutError(sandbox.provider, options.timeout || 0)
-      }
-      options.signal?.addEventListener('abort', abortSession, { once: true })
-      let result: Awaited<ReturnType<typeof session.exec>>
-      try {
-        result = await withCloudflareDeadline('exec', timeout, async () => await session.exec(
-          [command, ...args].map(shellQuote).join(' '),
-          {
-            ...options,
-            timeout,
-          },
-        ))
-      }
-      catch (error) {
-        throw error instanceof SandboxError
-          ? error
-          : createCloudflareTransportError('exec', error)
-      }
-      return {
-        ok: result.exitCode === 0,
-        stdout: result.stdout,
-        stderr: result.stderr,
-        code: result.exitCode,
-      }
-    }
-    finally {
-      options.signal?.removeEventListener('abort', abortSession)
-      await deleteSession()
-    }
-  }
-
   return await sandbox.exec(command, args, {
+    cwd: options.cwd,
     env: options.env,
+    signal: options.signal,
     timeout: options.timeout,
   })
 }
 
 async function executeSandboxDefinitionOnce<TPayload, TResult>(
-  sandbox: SandboxClient,
+  sandbox: SandboxExecutionBox,
   definitionName: string,
   definitionOptions: SandboxDefinitionOptions | undefined,
   source: SandboxDefinitionSource,
@@ -143,7 +163,6 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
   const bundle = normalizeSandboxDefinitionBundle(source)
 
   const files = createExecutionFiles(definitionName)
-  const definitionPath = resolveSandboxModulePath(files.baseDir, bundle.entry)
   const inputJson = toJson({ payload, context }, 'payload/context')
   const throwIfAborted = () => {
     if (signal?.aborted)
@@ -153,7 +172,15 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
   await sandbox.mkdir(files.baseDir, { recursive: true })
   try {
     throwIfAborted()
-    await writeSandboxDefinitionBundle(sandbox, files.baseDir, bundle)
+    const bundleBaseDir = await prepareSandboxProject(sandbox, bundle, files.baseDir, {
+      deadline,
+      env: definitionOptions?.env,
+      signal,
+      timeout: definitionOptions?.timeout,
+    })
+    if (!bundle.project)
+      await writeSandboxDefinitionBundle(sandbox, bundleBaseDir, bundle)
+    const definitionPath = resolveSandboxModulePath(bundleBaseDir, bundle.entry)
     throwIfAborted()
     await Promise.all([
       sandbox.writeFile(files.entryPath, createEntrySource(definitionPath)),
@@ -161,15 +188,17 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
     ])
     throwIfAborted()
 
-    const launcher = resolveLauncher(sandbox.provider, definitionOptions?.runtime)
+    const launcher = resolveLauncher()
     const execArgs = [...launcher.args, files.entryPath, files.inputPath, files.outputPath]
 
     let outputRaw = ''
-    let execution: Awaited<ReturnType<SandboxClient['exec']>> | undefined
+    let execution: Awaited<ReturnType<SandboxExecutionBox['exec']>> | undefined
 
     try {
       execution = await executeLauncher(sandbox, launcher.command, execArgs, {
-        cwd: files.baseDir,
+        cwd: bundle.project
+          ? resolveSandboxModulePath(bundleBaseDir, bundle.project.packagePath)
+          : files.baseDir,
         deadline,
         env: definitionOptions?.env,
         signal,
@@ -222,7 +251,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
 }
 
 export async function executeSandboxDefinition<TPayload, TResult>(
-  sandbox: SandboxClient,
+  sandbox: SandboxExecutionBox,
   definitionName: string,
   definitionOptions: SandboxDefinitionOptions | undefined,
   source: SandboxDefinitionSource,

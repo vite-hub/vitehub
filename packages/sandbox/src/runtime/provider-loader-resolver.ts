@@ -1,5 +1,5 @@
 import type { SandboxRuntimeProvider } from './provider-loader'
-import type { SandboxProvider } from '../sandbox/types'
+import type { SandboxProvider } from '../module-types'
 
 type ProviderLoaderModule = {
   loadSandboxRuntimeProvider: (provider: SandboxProvider) => Promise<SandboxRuntimeProvider>

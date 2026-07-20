@@ -1,59 +1,33 @@
 # @vite-hub/sandbox
 
-<p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
-  <img alt="Vite" src="https://img.shields.io/badge/Vite-discovery-646cff?style=flat-square">
-  <img alt="Sandbox" src="https://img.shields.io/badge/Sandbox-isolated%20runs-b45309?style=flat-square">
-</p>
-
-`@vite-hub/sandbox` runs typed work in an isolated provider runtime without coupling callers to that provider.
-
-## Install
-
-```sh
-pnpm add @vite-hub/sandbox
-```
-
-Add `@cloudflare/sandbox` or `@vercel/sandbox` for the provider you use.
-
-## Minimal API
+`@vite-hub/sandbox` discovers and runs named work by composing a package project, a Workspace, and a Box. Sandbox owns orchestration; Workspace owns durable files; Box owns provider-specific execution.
 
 ```ts
-// src/release-notes.sandbox.ts
+// sandboxes/release-notes/release-notes.sandbox.ts
 import { defineSandbox } from "@vite-hub/sandbox"
 
-export default defineSandbox(async (payload: { notes?: string } = {}) => {
-  return {
-    summary: payload.notes?.split("\n")[0] ?? "",
-  }
+export default defineSandbox({
+  timeout: 30_000,
+  async run(payload: { notes?: string } = {}) {
+    return { summary: payload.notes?.split("\n")[0] ?? "" }
+  },
 })
 ```
 
+The Definition must belong to a real package project:
+
+```json
+{
+  "private": true
+}
+```
+
+ViteHub resolves the nearest `package.json` without walking above the Vite root. It uses the manifest's `packageManager`, then a lockfile at that package root, then npm. A matching `pnpm-workspace.yaml` selects pnpm, moves preparation to the pnpm Workspace root, and carries the transitive `workspace:*` dependency closure into the Box while the Definition still runs from its package directory.
+
 ```ts
-// server/api/release-notes.post.ts
 import { runSandbox } from "@vite-hub/sandbox"
-import { defineEventHandler, readBody } from "h3"
 
-export default defineEventHandler(async (event) => {
-  const result = await runSandbox("release-notes", await readBody(event))
-  return result.isOk() ? result.value : { error: result.error.message }
-})
+const result = await runSandbox("release-notes", { notes: "ship it" })
 ```
 
-```ts
-// vite.config.ts
-import { hubSandbox } from "@vite-hub/sandbox/vite"
-import { defineConfig } from "vite"
-
-export default defineConfig({
-  plugins: [hubSandbox()],
-  sandbox: { provider: "cloudflare" },
-})
-```
-
-## Vite Integration
-
-Use `hubSandbox()` in Vite to discover directory Definitions under `server/sandboxes/` and suffix Definitions such as `src/<name>.sandbox.ts`. Nested directory paths become nested Sandbox names. Provider config selects [Cloudflare Sandbox SDK](https://developers.cloudflare.com/sandbox/) or [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox/).
-
-Learn more at [vitehub.dev](https://vitehub.dev).
+Add `hubSandbox()` to Vite for discovery, typed registry generation, package preparation plans, and host output. Provider images and full Dockerfile overrides belong to the selected Box adapter or host configuration; Sandbox Definitions stay portable.

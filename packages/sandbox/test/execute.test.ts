@@ -1,28 +1,31 @@
 import { describe, expect, it, vi } from "vitest"
+import { posix } from "node:path"
 
 import { executeSandboxDefinition } from "../src/runtime/execute.ts"
 import type { SandboxError } from "../src/sandbox/errors.ts"
-import type { SandboxClient, SandboxExecResult } from "../src/sandbox/types.ts"
+import type { SandboxExecutionBox } from "../src/runtime/execution-box.ts"
 
-function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, provider?: "cloudflare" | "vercel" } = {}) {
-  const files = new Map<string, string>()
+type SandboxExecResult = Awaited<ReturnType<SandboxExecutionBox["exec"]>>
+
+function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, holdInstall?: boolean, provider?: "cloudflare" | "vercel" } = {}) {
+  const files = new Map<string, Uint8Array>()
+  const directories = new Set<string>(["/"])
+  const normalize = (path: string) => posix.resolve("/", path)
+  const addParents = (path: string) => {
+    let current = posix.dirname(normalize(path))
+    while (!directories.has(current)) {
+      directories.add(current)
+      current = posix.dirname(current)
+    }
+  }
   const execCalls: Array<{ cmd: string, args: string[], options?: { cwd?: string } }> = []
+  let releaseInstall = () => {}
+  const installGate = new Promise<void>(resolve => releaseInstall = resolve)
 
   const sandbox = {
     id: "fake",
     provider: options.provider ?? "vercel",
-    supports: {
-      execEnv: true,
-      execCwd: false,
-      execSudo: false,
-      listFiles: false,
-      exists: false,
-      deleteFile: false,
-      moveFile: false,
-      readFileStream: false,
-      startProcess: false,
-    },
-    native: {},
+    async close() {},
     async exec(cmd: string, args: string[] = [], execOptions?: { cwd?: string }): Promise<SandboxExecResult> {
       execCalls.push({ cmd, args, options: execOptions })
       if (options.execError)
@@ -30,52 +33,112 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
       if (options.execResult)
         return options.execResult
 
+      if (cmd === "mkdir") {
+        const target = normalize(args[0] || "")
+        if (directories.has(target)) return { ok: false, stdout: "", stderr: "exists", code: 1 }
+        addParents(target)
+        directories.add(target)
+        return { ok: true, stdout: "", stderr: "", code: 0 }
+      }
+
       const outputPath = args.at(-1)
       if (!outputPath)
         throw new Error("Missing output path")
 
-      files.set(outputPath, JSON.stringify({ ok: true, result: { ok: true } }))
-      return {
-        ok: true,
-        stdout: "",
-        stderr: "",
-        code: 0,
+      if (cmd === "pnpm" && execOptions?.cwd) {
+        if (options.holdInstall) await installGate
+        const installed = `${execOptions.cwd}/node_modules/.installed`
+        addParents(installed)
+        files.set(installed, new TextEncoder().encode("ready"))
+        return { ok: true, stdout: "", stderr: "", code: 0 }
       }
+      if (cmd === "node" && args[1]?.includes('rename(process.argv[1], process.argv[2])')) {
+        const source = normalize(args[2] || "")
+        const destination = normalize(args[3] || "")
+        if (directories.has(destination)) return { ok: false, stdout: "", stderr: "exists", code: 1 }
+        for (const directory of [...directories]) {
+          if (directory === source || directory.startsWith(`${source}/`)) {
+            directories.delete(directory)
+            directories.add(`${destination}${directory.slice(source.length)}`)
+          }
+        }
+        for (const [path, content] of [...files]) {
+          if (path === source || path.startsWith(`${source}/`)) {
+            files.delete(path)
+            files.set(`${destination}${path.slice(source.length)}`, content)
+          }
+        }
+        return { ok: true, stdout: "", stderr: "", code: 0 }
+      }
+      if (cmd === "rm") {
+        await sandbox.files.remove(args.at(-1) || "", { recursive: true })
+        return { ok: true, stdout: "", stderr: "", code: 0 }
+      }
+      files.set(normalize(outputPath), new TextEncoder().encode(JSON.stringify({ ok: true, result: { ok: true } })))
+      return { ok: true, stdout: "", stderr: "", code: 0 }
+    },
+    files: {
+      async exists(path: string) {
+        const target = normalize(path)
+        return files.has(target) || directories.has(target)
+      },
+      async list(path: string, listOptions?: { recursive?: boolean }) {
+        const root = normalize(path)
+        const prefix = root === "/" ? "/" : `${root}/`
+        return [
+          ...[...directories].filter(path => path !== root && path.startsWith(prefix)).map(path => ({ path, type: "directory" as const })),
+          ...[...files].filter(([path]) => path.startsWith(prefix)).map(([path, content]) => ({ path, size: content.byteLength, type: "file" as const })),
+        ].filter(entry => listOptions?.recursive || !entry.path.slice(prefix.length).includes("/"))
+      },
+      async mkdir(path: string) {
+        const target = normalize(path)
+        addParents(target)
+        directories.add(target)
+      },
+      async read(path: string) {
+        return files.get(normalize(path)) || null
+      },
+      async remove(path: string, removeOptions?: { recursive?: boolean }) {
+        const target = normalize(path)
+        files.delete(target)
+        directories.delete(target)
+        if (removeOptions?.recursive) {
+          for (const file of [...files.keys()]) if (file.startsWith(`${target}/`)) files.delete(file)
+          for (const directory of [...directories]) if (directory.startsWith(`${target}/`)) directories.delete(directory)
+        }
+      },
+      async write(path: string, content: Uint8Array) {
+        const target = normalize(path)
+        addParents(target)
+        files.set(target, content)
+      },
     },
     async writeFile(path: string, content: string) {
-      files.set(path, content)
+      const target = normalize(path)
+      addParents(target)
+      files.set(target, new TextEncoder().encode(content))
     },
     async readFile(path: string) {
-      const content = files.get(path)
+      const content = files.get(normalize(path))
       if (typeof content === "undefined")
-        throw new Error(`Missing file: ${path}`)
-      return content
+        throw new Error("Missing file: " + path)
+      return new TextDecoder().decode(content)
     },
-    async mkdir() {},
-    async stop() {},
-    async readFileStream() {
-      throw new Error("not implemented")
+    async mkdir(path: string) {
+      const target = normalize(path)
+      addParents(target)
+      directories.add(target)
     },
-    async startProcess() {
-      throw new Error("not implemented")
+    async exists(path: string) {
+      return files.has(normalize(path)) || directories.has(normalize(path))
     },
-    async listFiles() {
-      throw new Error("not implemented")
-    },
-    async exists() {
-      throw new Error("not implemented")
-    },
-    async deleteFile() {},
-    async moveFile() {
-      throw new Error("not implemented")
-    },
-  } as unknown as SandboxClient
+  } as SandboxExecutionBox
 
-  return { sandbox, execCalls, files }
+  return { sandbox, execCalls, hasFile: (path: string) => files.has(normalize(path)), releaseInstall }
 }
 
 describe("executeSandboxDefinition", () => {
-  it("bounds Cloudflare setup with the definition timeout", async () => {
+  it("bounds setup with the definition timeout", async () => {
     const { sandbox, execCalls } = createFakeSandbox({ provider: "cloudflare" })
     let finishSetup: (() => void) | undefined
     sandbox.mkdir = async () => await new Promise<void>((resolve) => {
@@ -117,10 +180,132 @@ describe("executeSandboxDefinition", () => {
       },
     )).resolves.toEqual({ ok: true })
 
-    expect(execCalls).toHaveLength(1)
-    expect(execCalls[0]?.cmd).toBe("node")
-    expect(execCalls[0]?.args.slice(0, 2)).toEqual(["-e", "import(process.argv[1])"])
-    expect(execCalls[0]?.options?.cwd).toBeUndefined()
+    const launchCalls = execCalls.filter(call => call.cmd === "node")
+    expect(launchCalls).toHaveLength(1)
+    expect(launchCalls[0]?.args.slice(0, 2)).toEqual(["-e", "import(process.argv[1])"])
+    expect(launchCalls[0]?.options?.cwd).toMatch(/^\/tmp\/vitehub-sandbox\/release-notes-/)
+  })
+
+  it("prepares one package project once per digest", async () => {
+    const { sandbox, execCalls, hasFile } = createFakeSandbox()
+    const bundle = {
+      entry: ".vitehub-sandbox/definition.js",
+      modules: { ".vitehub-sandbox/definition.js": "export default { run() { return { ok: true } } }" },
+      project: {
+        digest: "a".repeat(64),
+        files: {
+          "package.json": {
+            contents: Buffer.from(JSON.stringify({ private: true, type: "module" })).toString("base64"),
+            encoding: "base64" as const,
+          },
+        },
+        install: { args: ["install", "--frozen-lockfile"], command: "pnpm" as const, cwd: "." },
+        packagePath: ".",
+      },
+    }
+
+    await expect(executeSandboxDefinition(sandbox, "release-notes", undefined, bundle))
+      .resolves.toEqual({ ok: true })
+    await expect(executeSandboxDefinition(sandbox, "release-notes", undefined, bundle))
+      .resolves.toEqual({ ok: true })
+
+    expect(execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1)
+    expect(execCalls.filter(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])")).toHaveLength(2)
+    expect(hasFile(`/tmp/vitehub-sandbox/projects/${"a".repeat(64)}/node_modules/.installed`)).toBe(true)
+    expect(execCalls.find(call => call.cmd === "pnpm")).toMatchObject({
+      cmd: "pnpm",
+      args: ["install", "--frozen-lockfile"],
+      options: { cwd: expect.stringMatching(new RegExp(`^/tmp/vitehub-sandbox/projects/${"a".repeat(64)}\\.staging-`)) },
+    })
+  })
+
+  it("serializes concurrent preparation for one project digest", async () => {
+    const { sandbox, execCalls, releaseInstall } = createFakeSandbox({ holdInstall: true })
+    const bundle = {
+      entry: ".vitehub-sandbox/definition.js",
+      modules: { ".vitehub-sandbox/definition.js": "export default { run() { return { ok: true } } }" },
+      project: {
+        digest: "b".repeat(64),
+        files: {
+          "package.json": {
+            contents: Buffer.from(JSON.stringify({ private: true, type: "module" })).toString("base64"),
+            encoding: "base64" as const,
+          },
+        },
+        install: { args: ["install", "--frozen-lockfile"], command: "pnpm" as const, cwd: "." },
+        packagePath: ".",
+      },
+    }
+
+    const first = executeSandboxDefinition(sandbox, "release-notes", undefined, bundle)
+    await vi.waitFor(() => expect(execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1))
+    const second = executeSandboxDefinition(sandbox, "release-notes", undefined, bundle)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1)
+    releaseInstall()
+
+    await expect(Promise.all([first, second])).resolves.toEqual([{ ok: true }, { ok: true }])
+    expect(execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1)
+  })
+
+  it("prepares separate Box filesystems that share an id", async () => {
+    const firstBox = createFakeSandbox({ holdInstall: true })
+    const secondBox = createFakeSandbox()
+    const bundle = {
+      entry: ".vitehub-sandbox/definition.js",
+      modules: { ".vitehub-sandbox/definition.js": "export default { run() { return { ok: true } } }" },
+      project: {
+        digest: "c".repeat(64),
+        files: {
+          "package.json": {
+            contents: Buffer.from(JSON.stringify({ private: true })).toString("base64"),
+            encoding: "base64" as const,
+          },
+        },
+        install: { args: ["install", "--frozen-lockfile"], command: "pnpm" as const, cwd: "." },
+        packagePath: ".",
+      },
+    }
+
+    const first = executeSandboxDefinition(firstBox.sandbox, "first", undefined, bundle)
+    await vi.waitFor(() => expect(firstBox.execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1))
+    const second = executeSandboxDefinition(secondBox.sandbox, "second", undefined, bundle)
+    firstBox.releaseInstall()
+
+    await expect(Promise.all([first, second])).resolves.toEqual([{ ok: true }, { ok: true }])
+    expect(firstBox.execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1)
+    expect(secondBox.execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1)
+  })
+
+  it("cleans up the staging project when a concurrent publisher loses", async () => {
+    const shared = createFakeSandbox({ holdInstall: true })
+    const competing = { ...shared.sandbox, id: "competing" } as SandboxExecutionBox
+    const digest = "d".repeat(64)
+    const bundle = {
+      entry: ".vitehub-sandbox/definition.js",
+      modules: { ".vitehub-sandbox/definition.js": "export default { run() { return { ok: true } } }" },
+      project: {
+        digest,
+        files: {
+          "package.json": {
+            contents: Buffer.from(JSON.stringify({ private: true })).toString("base64"),
+            encoding: "base64" as const,
+          },
+        },
+        install: { args: ["install", "--frozen-lockfile"], command: "pnpm" as const, cwd: "." },
+        packagePath: ".",
+      },
+    }
+
+    const first = executeSandboxDefinition(shared.sandbox, "first", undefined, bundle)
+    const second = executeSandboxDefinition(competing, "second", undefined, bundle)
+    await vi.waitFor(() => expect(shared.execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(2))
+    shared.releaseInstall()
+
+    await expect(Promise.all([first, second])).resolves.toEqual([{ ok: true }, { ok: true }])
+    const entries = await shared.sandbox.files.list("/tmp/vitehub-sandbox/projects", { recursive: true })
+    expect(entries.some(entry => entry.path.includes(".staging-"))).toBe(false)
+    expect(entries.some(entry => entry.path === `/tmp/vitehub-sandbox/projects/${digest}/.vitehub/prepared`)).toBe(true)
   })
 
   it("recursively deletes successful Cloudflare invocation files before reuse", async () => {
@@ -144,258 +329,6 @@ describe("executeSandboxDefinition", () => {
     })
   })
 
-  it("deletes Cloudflare execution sessions through the sandbox", async () => {
-    const { sandbox, files } = createFakeSandbox({ provider: "cloudflare" })
-    const deleteSession = vi.fn(async () => {})
-    const createSession = vi.fn(async () => ({
-      id: "execution-session",
-      exec: vi.fn(async (command: string) => {
-        const outputPath = command.trim().split(/\s+/).at(-1)?.replace(/^'|'$/g, "")
-        if (outputPath)
-          files.set(outputPath, JSON.stringify({ ok: true, result: { ok: true } }))
-        return { exitCode: 0, stdout: "", stderr: "" }
-      }),
-    }))
-    Object.assign(sandbox, {
-      native: { createSession: vi.fn() },
-      cloudflare: {
-        createSession,
-        deleteSession,
-      } as unknown as typeof sandbox.cloudflare,
-    })
-
-    await expect(executeSandboxDefinition(
-      sandbox,
-      "release-notes",
-      undefined,
-      {
-        entry: "definition.mjs",
-        modules: {
-          "definition.mjs": "export default { run() { return { ok: true } } }",
-        },
-      },
-    )).resolves.toEqual({ ok: true })
-
-    expect(deleteSession).toHaveBeenCalledWith("execution-session")
-    expect(createSession).toHaveBeenCalledWith(expect.objectContaining({
-      cwd: expect.stringMatching(/^\/tmp\/vitehub-sandbox\/release-notes-/),
-    }))
-  })
-
-  it("deletes a Cloudflare session created after the definition timeout", async () => {
-    const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
-    const sessionExec = vi.fn()
-    const deleteSession = vi.fn(async () => {})
-    let finishCreation: ((session: unknown) => void) | undefined
-    Object.assign(sandbox, {
-      native: { createSession: vi.fn() },
-      cloudflare: {
-        createSession: vi.fn(async () => await new Promise(resolve => {
-          finishCreation = resolve
-        })),
-        deleteSession,
-      } as unknown as typeof sandbox.cloudflare,
-    })
-
-    await expect(executeSandboxDefinition(
-      sandbox,
-      "release-notes",
-      { timeout: 10 },
-      {
-        entry: "definition.mjs",
-        modules: {
-          "definition.mjs": "export default { run() { return { ok: true } } }",
-        },
-      },
-    )).rejects.toMatchObject({ code: "TIMEOUT", provider: "cloudflare" })
-
-    finishCreation?.({ id: "late-session", exec: sessionExec })
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(sessionExec).not.toHaveBeenCalled()
-    expect(deleteSession).toHaveBeenCalledWith("late-session")
-  })
-
-  it("bounds Cloudflare session creation with the default exec deadline", async () => {
-    vi.useFakeTimers()
-    try {
-      const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
-      Object.assign(sandbox, {
-        native: { createSession: vi.fn() },
-        cloudflare: {
-          createSession: vi.fn(async () => await new Promise(() => {})),
-        } as unknown as typeof sandbox.cloudflare,
-      })
-
-      const execution = executeSandboxDefinition(
-        sandbox,
-        "release-notes",
-        undefined,
-        {
-          entry: "definition.mjs",
-          modules: {
-            "definition.mjs": "export default { run() { return { ok: true } } }",
-          },
-        },
-      )
-      const rejection = expect(execution).rejects.toMatchObject({
-        code: "TIMEOUT",
-        provider: "cloudflare",
-        details: { operation: "createSession", timeout: 180_000 },
-      } satisfies Partial<SandboxError>)
-      await vi.advanceTimersByTimeAsync(0)
-      await vi.advanceTimersByTimeAsync(180_000)
-
-      await rejection
-    }
-    finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it("bounds Cloudflare session execution with the default exec deadline", async () => {
-    vi.useFakeTimers()
-    try {
-      const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
-      const deleteSession = vi.fn(async () => {})
-      Object.assign(sandbox, {
-        native: { createSession: vi.fn() },
-        cloudflare: {
-          createSession: vi.fn(async () => ({
-            id: "stalled-session",
-            exec: vi.fn(async () => await new Promise(() => {})),
-          })),
-          deleteSession,
-        } as unknown as typeof sandbox.cloudflare,
-      })
-
-      const execution = executeSandboxDefinition(
-        sandbox,
-        "release-notes",
-        undefined,
-        {
-          entry: "definition.mjs",
-          modules: {
-            "definition.mjs": "export default { run() { return { ok: true } } }",
-          },
-        },
-      )
-      const rejection = expect(execution).rejects.toMatchObject({
-        code: "SANDBOX_HANDLER_ERROR",
-        provider: "cloudflare",
-        details: { cause: "Cloudflare sandbox exec timed out after 180000ms." },
-      } satisfies Partial<SandboxError>)
-      await vi.advanceTimersByTimeAsync(0)
-      await vi.advanceTimersByTimeAsync(240_000)
-
-      await rejection
-      expect(deleteSession).toHaveBeenCalledWith("stalled-session")
-    }
-    finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it("bounds Cloudflare session deletion with the control-plane deadline", async () => {
-    vi.useFakeTimers()
-    try {
-      const { sandbox, files } = createFakeSandbox({ provider: "cloudflare" })
-      Object.assign(sandbox, {
-        native: { createSession: vi.fn() },
-        cloudflare: {
-          createSession: vi.fn(async () => ({
-            id: "completed-session",
-            exec: vi.fn(async (command: string) => {
-              const outputPath = command.trim().split(/\s+/).at(-1)?.replace(/^'|'$/g, "")
-              if (outputPath)
-                files.set(outputPath, JSON.stringify({ ok: true, result: { ok: true } }))
-              return { exitCode: 0, stdout: "", stderr: "" }
-            }),
-          })),
-          deleteSession: vi.fn(async () => await new Promise(() => {})),
-        } as unknown as typeof sandbox.cloudflare,
-      })
-
-      const execution = executeSandboxDefinition(
-        sandbox,
-        "release-notes",
-        undefined,
-        {
-          entry: "definition.mjs",
-          modules: {
-            "definition.mjs": "export default { run() { return { ok: true } } }",
-          },
-        },
-      )
-      await vi.advanceTimersByTimeAsync(0)
-      await vi.advanceTimersByTimeAsync(15_000)
-
-      await expect(execution).resolves.toEqual({ ok: true })
-    }
-    finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it("recovers output after raw Cloudflare session transport failures", async () => {
-    const { sandbox, files } = createFakeSandbox({ provider: "cloudflare" })
-    Object.assign(sandbox, {
-      native: { createSession: vi.fn() },
-      cloudflare: {
-        createSession: vi.fn(async () => ({
-          id: "failed-session",
-          exec: vi.fn(async (command: string) => {
-            const outputPath = command.trim().split(/\s+/).at(-1)?.replace(/^'|'$/g, "")
-            if (outputPath)
-              files.set(outputPath, JSON.stringify({ ok: true, result: { recovered: true } }))
-            throw new Error("rpc unavailable")
-          }),
-        })),
-        deleteSession: vi.fn(async () => {}),
-      } as unknown as typeof sandbox.cloudflare,
-    })
-
-    await expect(executeSandboxDefinition(
-      sandbox,
-      "release-notes",
-      undefined,
-      {
-        entry: "definition.mjs",
-        modules: {
-          "definition.mjs": "export default { run() { return { recovered: true } } }",
-        },
-      },
-    )).resolves.toEqual({ recovered: true })
-  })
-
-  it("preserves Cloudflare session creation failures for runtime retry", async () => {
-    const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
-    const creationError = new Error("network connection lost")
-    Object.assign(sandbox, {
-      native: { createSession: vi.fn() },
-      cloudflare: {
-        createSession: vi.fn(async () => { throw creationError }),
-      } as unknown as typeof sandbox.cloudflare,
-    })
-
-    await expect(executeSandboxDefinition(
-      sandbox,
-      "release-notes",
-      undefined,
-      {
-        entry: "definition.mjs",
-        modules: {
-          "definition.mjs": "export default { run() { return { ok: true } } }",
-        },
-      },
-    )).rejects.toMatchObject({
-      message: "network connection lost",
-      cause: creationError,
-      code: "SANDBOX_TRANSPORT_ERROR",
-      details: { operation: "createSession" },
-      provider: "cloudflare",
-    } satisfies Partial<SandboxError>)
-  })
-
   it("rethrows unrecoverable exec errors instead of masking them as output parse failures", async () => {
     const execError = new Error("vercel transport unavailable")
     const { sandbox } = createFakeSandbox({ execError })
@@ -413,7 +346,7 @@ describe("executeSandboxDefinition", () => {
     )).rejects.toThrow(execError)
   })
 
-  it("wraps missing output from completed non-Cloudflare executions with diagnostics", async () => {
+  it("wraps missing output from completed executions with diagnostics", async () => {
     const { sandbox } = createFakeSandbox({
       execResult: {
         ok: false,

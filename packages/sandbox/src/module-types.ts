@@ -1,8 +1,27 @@
-import type {
-  CloudflareSandboxOptions,
-  SandboxError,
-  VercelSandboxProviderOptions,
-} from './sandbox'
+import type { SandboxError } from './sandbox/errors'
+import type { VercelBoxNetworkPolicy, VercelBoxSource } from '@vite-hub/box/vercel'
+import type { SandboxProject } from './project'
+
+export type SandboxProvider = 'cloudflare' | 'vercel'
+
+export interface CloudflareSandboxOptions {
+  sleepAfter?: string | number
+  keepAlive?: boolean
+  normalizeId?: boolean
+}
+
+export interface VercelSandboxProviderOptions {
+  provider: 'vercel'
+  runtime?: string
+  timeout?: number
+  cpu?: number
+  ports?: number[]
+  source?: VercelBoxSource
+  networkPolicy?: VercelBoxNetworkPolicy
+  token?: string
+  teamId?: string
+  projectId?: string
+}
 
 export interface CloudflareSandboxDefinitionProviderOptions {
   provider: 'cloudflare'
@@ -24,14 +43,10 @@ export type AgentSandboxConfig =
   | SandboxDefinitionProviderOptions
   | { provider?: undefined, name?: string }
 
-export interface SandboxDefinitionRuntime {
-  command: string
-  args?: string[]
-}
-
 export interface SandboxDefinitionBundle {
   entry: string
   modules: Record<string, string>
+  project?: SandboxProject
 }
 
 export interface SandboxExecutionOptions {
@@ -53,7 +68,11 @@ type SandboxDefinitionResult<THandler extends (...args: any[]) => any>
 export interface SandboxDefinitionOptions {
   timeout?: number
   env?: Record<string, string>
-  runtime?: SandboxDefinitionRuntime
+}
+
+export interface SandboxDefinitionInput<TPayload = unknown, TResult = unknown>
+  extends SandboxDefinitionOptions {
+  run: SandboxDefinitionHandler<TPayload, TResult>
 }
 
 export interface SandboxDefinition<TPayload = unknown, TResult = unknown> {
@@ -83,9 +102,7 @@ export interface SandboxErrResult {
 export type SandboxRunResult<TResult = unknown> = SandboxOkResult<TResult> | SandboxErrResult
 
 export type {
-  CloudflareSandboxOptions,
   SandboxError,
-  VercelSandboxProviderOptions,
 }
 
 export function getSandboxFeatureProvider(config?: AgentSandboxConfig | false): SandboxDefinitionProviderOptions | undefined {

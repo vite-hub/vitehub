@@ -14,7 +14,7 @@ export function validateDefinitionOptions<T>(functionName: string, options: unkn
   if (typeof options === 'undefined')
     return undefined
   if (!options || typeof options !== 'object' || Array.isArray(options))
-    throw new TypeError(`[vitehub] \`${functionName}()\` accepts \`(handler, options?)\`.`)
+    throw new TypeError(`[vitehub] \`${functionName}()\` accepts one options object.`)
 
   const invalidKeys = Object.keys(options).filter((key) => {
     if (config.allowedKeys)

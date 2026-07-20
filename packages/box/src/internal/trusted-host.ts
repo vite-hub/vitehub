@@ -8,12 +8,15 @@ import { constants } from "node:fs";
 import {
   access,
   chmod,
+  lstat,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   realpath,
   rename,
   rm,
+  rmdir,
   stat,
   symlink,
   writeFile,
@@ -23,23 +26,23 @@ import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep 
 import { Readable } from "node:stream";
 import { promisify } from "node:util";
 
-import type { HarnessV1NetworkSandboxSession, HarnessV1SandboxProvider } from "@ai-sdk/harness";
-
 import type {
+  BoxFileEntry,
+  BoxPlan,
   BoxRuntime,
-  ResolvedBox,
   ResolvedBoxFile,
-  ResolvedBoxInput,
+  BoxRuntimeInput,
   ResolvedBoxRequirementInput,
   ResolvedBoxState,
 } from "../index.ts";
 import { materializeGitCheckout } from "./git-checkout.ts";
+import { createBoxSession, type RuntimeSession } from "./session.ts";
 
 export interface TrustedHostOptions {
   stateRoot?: string;
 }
 
-interface TrustedHostSession extends HarnessV1NetworkSandboxSession {
+interface TrustedHostSession extends RuntimeSession {
   readonly env: Record<string, string>;
   readonly home: string;
   readonly processes: Set<ChildProcessWithoutNullStreams>;
@@ -90,76 +93,75 @@ const runtimeEnvironmentKeys = new Set([
 export function trustedHost(options: TrustedHostOptions = {}): BoxRuntime {
   return {
     name: "trusted-host",
-    async resolve(input) {
-      const cwd = input.cwd ? resolve(input.cwd) : undefined;
-      if (cwd) await assertDirectory(cwd, "workspace");
-      const configuredStateRoot = options.stateRoot;
-      if (input.plan.state.length && (!configuredStateRoot || !isAbsolute(configuredStateRoot))) {
-        throw new Error(
-          "[vitehub] trustedHost({ stateRoot }) requires an absolute path when box.home.state is declared.",
-        );
-      }
-      const stateRoot = configuredStateRoot
-        ? await canonicalFuturePath(configuredStateRoot)
-        : undefined;
-      if (input.plan.state.length && stateRoot && dirname(stateRoot) === stateRoot) {
-        throw new Error(
-          "[vitehub] Box stateRoot must be a dedicated directory, not the filesystem root.",
-        );
-      }
-      if (cwd && input.plan.state.length && stateRoot) {
-        const workspace = await realpath(cwd);
-        if (pathsOverlap(workspace, stateRoot))
-          throw new Error("[vitehub] Box stateRoot must be outside the authoritative workspace.");
-      }
-      const sandbox = createTrustedHostSandbox({ ...input, ...(cwd ? { cwd } : {}) }, { stateRoot });
-      const environment = {} as ResolvedBox["environment"];
-      Object.defineProperty(environment, "env", { enumerable: false, value: Object.freeze({}) });
-      const box = {
+    async prepare(input) {
+      const { cwd } = await resolveTrustedHostInput(input, options);
+      return {
         cache: { state: "disposable" },
-        environment,
+        environment: { env: {} },
         identity: input.identity,
         isolation: "none",
         requirements: input.requirements.map(({ command, name }) => ({ command, name })),
         runtime: "trusted-host",
-        sandbox,
         workspace: cwd
           ? { path: cwd, state: "authoritative" as const, workDir: "workspace" as const }
           : input.checkout
             ? { state: "disposable" as const, workDir: "." as const }
-            : { state: "disposable" as const },
-      } as const;
-      Object.defineProperty(box, "sandbox", { enumerable: false, value: sandbox });
-      return box;
+            : { state: "disposable" as const, workDir: "." as const },
+      } satisfies BoxPlan;
+    },
+    async open(input, openOptions) {
+      const resolved = await resolveTrustedHostInput(input, options);
+      let initializedSession: ReturnType<typeof createBoxSession> | undefined;
+      const runtimeSession = await createSession(
+        { ...input, ...(resolved.cwd ? { cwd: resolved.cwd } : {}) },
+        { stateRoot: resolved.stateRoot },
+        {
+          abortSignal: openOptions?.signal,
+          ...(openOptions?.initialize
+            ? {
+                async initialize(session) {
+                  initializedSession = createBoxSession(session, openOptions);
+                  await openOptions.initialize!(initializedSession, { signal: openOptions.signal });
+                },
+              }
+            : {}),
+          sessionId: openOptions?.id,
+        },
+      );
+      return initializedSession ?? createBoxSession(runtimeSession, openOptions);
     },
   };
 }
 
-function createTrustedHostSandbox(
-  input: ResolvedBoxInput,
-  options: TrustedHostOptions,
-): HarnessV1SandboxProvider {
-  return {
-    providerId: "trusted-host",
-    specificationVersion: "harness-sandbox-v1",
-    async createSession(createOptions = {}) {
-      return await createSession(input, options, createOptions);
-    },
-    async resumeSession(resumeOptions) {
-      return await createSession(input, options, { sessionId: resumeOptions.sessionId });
-    },
-  };
+async function resolveTrustedHostInput(input: BoxRuntimeInput, options: TrustedHostOptions) {
+  const cwd = input.cwd ? resolve(input.cwd) : undefined;
+  if (cwd) await assertDirectory(cwd, "workspace");
+  const configuredStateRoot = options.stateRoot;
+  if (input.plan.state.length && (!configuredStateRoot || !isAbsolute(configuredStateRoot))) {
+    throw new Error(
+      "[vitehub] trustedHost({ stateRoot }) requires an absolute path when box.home.state is declared.",
+    );
+  }
+  const stateRoot = configuredStateRoot
+    ? await canonicalFuturePath(configuredStateRoot)
+    : undefined;
+  if (input.plan.state.length && stateRoot && dirname(stateRoot) === stateRoot) {
+    throw new Error("[vitehub] Box stateRoot must be a dedicated directory, not the filesystem root.");
+  }
+  if (cwd && input.plan.state.length && stateRoot) {
+    const workspace = await realpath(cwd);
+    if (pathsOverlap(workspace, stateRoot))
+      throw new Error("[vitehub] Box stateRoot must be outside the authoritative workspace.");
+  }
+  return { cwd, stateRoot };
 }
 
 async function createSession(
-  input: ResolvedBoxInput,
+  input: BoxRuntimeInput,
   options: TrustedHostOptions,
   createOptions: {
     abortSignal?: AbortSignal;
-    onFirstCreate?: (
-      session: HarnessV1NetworkSandboxSession,
-      context: { abortSignal?: AbortSignal },
-    ) => Promise<void>;
+    initialize?: (session: RuntimeSession) => Promise<void>;
     sessionId?: string;
   },
 ): Promise<TrustedHostSession> {
@@ -172,7 +174,7 @@ async function createSession(
   let session: TrustedHostSession | undefined;
   const initializedState: string[] = [];
   try {
-    root = await mkdtemp(join(tmpdir(), "vitehub-box-"));
+    root = await realpath(await mkdtemp(join(tmpdir(), "vitehub-box-")));
     const home = join(root, "home");
     await mkdir(home, { mode: 0o700 });
     const states = await prepareState(input.plan.state, options.stateRoot);
@@ -202,7 +204,7 @@ async function createSession(
       workspace: input.cwd,
     });
     await validateRequirements(input.requirements, env, checkout ?? input.cwd ?? root);
-    await createOptions.onFirstCreate?.(session, { abortSignal: createOptions.abortSignal });
+    await createOptions.initialize?.(session);
     return session;
   } catch (error) {
     if (session) {
@@ -407,6 +409,53 @@ async function createTrustedHostSession(options: {
     }) {
       return `${protocol}://127.0.0.1:${port}`;
     },
+    async existsFile({ path }: { path: string }) {
+      return await stat(resolveSessionPath(options.root, path)).then(
+        () => true,
+        (error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return false;
+          throw error;
+        },
+      );
+    },
+    async listFiles({
+      path,
+      recursive = false,
+    }: {
+      path: string;
+      recursive?: boolean;
+    }) {
+      const root = resolveSessionPath(options.root, path);
+      const entries: BoxFileEntry[] = [];
+      await visit(root, path);
+      return entries.sort((left, right) => left.path.localeCompare(right.path));
+
+      async function visit(directory: string, logicalDirectory: string) {
+        for (const entry of await readdir(directory, { withFileTypes: true })) {
+          const physicalPath = join(directory, entry.name);
+          const logicalPath = join(logicalDirectory, entry.name);
+          const item = await lstat(physicalPath);
+          entries.push({
+            path: logicalPath,
+            size: entry.isFile() ? item.size : undefined,
+            type: entry.isDirectory()
+              ? "directory" as const
+              : entry.isSymbolicLink()
+                ? "symlink" as const
+                : "file" as const,
+          });
+          if (recursive && entry.isDirectory()) await visit(physicalPath, logicalPath);
+        }
+      }
+    },
+    async makeDirectory({ path, recursive = false }: { path: string; recursive?: boolean }) {
+      await mkdir(resolveSessionPath(options.root, path), { recursive });
+    },
+    async moveFile({ destination, source }: { destination: string; source: string }) {
+      const target = resolveSessionPath(options.root, destination);
+      await mkdir(dirname(target), { recursive: true });
+      await rename(resolveSessionPath(options.root, source), target);
+    },
     async readBinaryFile({ path }: { path: string }) {
       return await readFile(resolveSessionPath(options.root, path)).catch(
         (error: NodeJS.ErrnoException) => {
@@ -448,7 +497,7 @@ async function createTrustedHostSession(options: {
       env?: Record<string, string>;
       workingDirectory?: string;
     }) {
-      const child = await this.spawn(runOptions);
+      const child = await (this.spawn as NonNullable<RuntimeSession["spawn"]>)(runOptions);
       const [stdout, stderr, { exitCode }] = await Promise.all([
         collect(child.stdout),
         collect(child.stderr),
@@ -498,6 +547,20 @@ async function createTrustedHostSession(options: {
       await Promise.all(active.map(waitForExit));
       processes.clear();
       processGroups.clear();
+    },
+    async removeFile({ path, recursive = false }: { path: string; recursive?: boolean }) {
+      const target = resolveSessionPath(options.root, path);
+      if (recursive) {
+        await rm(target, { force: true, recursive: true });
+        return;
+      }
+      const item = await lstat(target).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined;
+        throw error;
+      });
+      if (!item) return;
+      if (item.isDirectory() && !item.isSymbolicLink()) await rmdir(target);
+      else await rm(target, { force: true });
     },
     async writeBinaryFile({ content, path }: { content: Uint8Array; path: string }) {
       const target = resolveSessionPath(options.root, path);

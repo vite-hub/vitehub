@@ -1,4 +1,5 @@
 import agentRegistry from "#vitehub/agent/registry"
+import { posix } from "node:path"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
 import { cloneWithPropertyDescriptors } from "./internal/stream-result.ts"
@@ -152,9 +153,12 @@ import type {
   WritableWorkspaceFacade,
   WorkspaceDefinition,
   WorkspaceName,
+  WorkspaceSession,
+  WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
 import type { WorkflowHandle } from "@vite-hub/workflow"
-import type { BoxRequirement, ResolvedBox } from "@vite-hub/box"
+import type { Box, BoxRequirement } from "@vite-hub/box"
+import { shareBoxSessions } from "./harness/shared-box.ts"
 
 export type {
   AgentAccessInvocationContextValue,
@@ -1127,6 +1131,7 @@ function createWorkspaceAgentDefinition<
   const workspaceDefinition = workspaceDefinitionFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
   if (Array.isArray(options.capabilities)) {
     validateAgentCapabilityComposition(options.capabilities, {
+      hasBox: Boolean(options.box),
       hasWorkspace: true,
       workspaceMode: workspaceModeFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>),
     })
@@ -1272,7 +1277,7 @@ type AgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 > = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
-  box?: ResolvedBox
+  box?: Box
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
@@ -1328,6 +1333,59 @@ async function resolveRegisteredAgentWorkspaceDefinition(name: string): Promise<
   catch (error) {
     if (error instanceof Error && error.name === "WorkspaceNotFoundError") return undefined
     throw error
+  }
+}
+
+function withBoxWorkspaceSessions<Name extends WorkspaceName>(
+  workspace: WritableWorkspaceFacade<Name>,
+  box: Box,
+): WritableWorkspaceFacade<Name> {
+  return {
+    ...workspace,
+    async startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession> {
+      const host = await box.open()
+      try {
+        const session = await workspace.startSession({
+          ...options,
+          attach: true,
+          host,
+          target: options?.target || host.cwd,
+        })
+        let closePromise: Promise<void> | undefined
+        return {
+          ...session,
+          async close() {
+            closePromise ??= (async () => {
+              let sessionError: unknown
+              try {
+                await session.close()
+              }
+              catch (error) {
+                sessionError = error
+              }
+              try {
+                await host.close()
+              }
+              catch (error) {
+                if (sessionError) throw new AggregateError([sessionError, error], "[vitehub] Workspace and Box session cleanup failed.")
+                throw error
+              }
+              if (sessionError) throw sessionError
+            })()
+            await closePromise
+          },
+        }
+      }
+      catch (error) {
+        try {
+          await host.close()
+        }
+        catch (closeError) {
+          throw new AggregateError([error, closeError], "[vitehub] Workspace session setup and Box cleanup failed.")
+        }
+        throw error
+      }
+    },
   }
 }
 
@@ -1443,12 +1501,16 @@ async function createAgentInvocationContext<
     ]) as AgentCapabilityDefinition<TRuntimeConfig>[]
     const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
     validateAgentCapabilityComposition(resolvedCapabilityDefinitions, {
+      hasBox: Boolean(definition?.box),
       hasWorkspace: Boolean(workspaceOptions),
       ...(workspaceOptions ? { workspaceMode } : {}),
     })
     const boxDefinition = definition?.box
+    if (boxDefinition && workspaceOptions && (boxDefinition.cwd !== undefined || boxDefinition.checkout !== undefined)) {
+      throw new Error("[vitehub] defineAgent({ box, workspace }) cannot combine a Workspace with Box cwd or checkout because both own the same working tree. Remove cwd/checkout and let Workspace materialize into the Box.")
+    }
     const box = boxDefinition
-      ? await (await import("@vite-hub/box")).resolveBox(boxDefinition, {
+      ? shareBoxSessions(await (await import("@vite-hub/box")).resolveBox(boxDefinition, {
           ...callbackContext,
           actor: invoker,
           context: invocationContext,
@@ -1457,17 +1519,11 @@ async function createAgentInvocationContext<
           run: context.run,
         }, {
           requires: (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentBoxRequirements],
-        })
+        }))
       : undefined
-    if ((box?.workspace.path || box?.workspace.workDir) && workspaceOptions) {
-      throw new Error("[vitehub] defineAgent({ box.cwd or box.checkout, workspace }) is not supported because a Box-owned working tree must not be reset by Workspace materialization.")
-    }
-    const harnessSandboxProvider = box?.sandbox || (box
-      ? (await import("./harness/local-sandbox.ts")).createTrustedHostHarnessSandbox({
-          env: box.environment.env,
-          ...(box.workspace.path ? { workspaceDir: box.workspace.path } : {}),
-        })
-      : undefined)
+    const harnessSandboxProvider = box
+      ? (await import("./harness/box-sandbox.ts")).createBoxHarnessSandbox(box)
+      : undefined
     const workspaceName = workspaceOptions
       ? workspaceNameFromOptions(workspaceOptions, {}, context.agentIdentity)
       : undefined
@@ -1485,11 +1541,6 @@ async function createAgentInvocationContext<
       ? mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredDefinitionForMerge)
       : undefined
     const resolvedWorkspaceDefinition = baseResolvedWorkspaceDefinition
-      && workspaceMode === "write"
-      && runtimeContext.runtime === "vite"
-      && !baseResolvedWorkspaceDefinition.runtime
-      ? { ...baseResolvedWorkspaceDefinition, runtime: "trusted-host" as const }
-      : baseResolvedWorkspaceDefinition
     if (workspaceName && ownsWorkspaceDefinition && configuredWorkspaceDefinition && !registeredWorkspaceDefinition) {
       await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
     }
@@ -1497,11 +1548,14 @@ async function createAgentInvocationContext<
       ? { definition: resolvedWorkspaceDefinition }
       : undefined
     const workspaceModule = workspaceName ? await import("@vite-hub/workspace") : undefined
-    const workspace = workspaceName && workspaceModule
+    const baseWorkspace = workspaceName && workspaceModule
       ? workspaceMode === "write"
         ? workspaceModule.useWorkspace(workspaceName, workspaceUseOptions ? { ...workspaceUseOptions, mode: "write" } : { mode: "write" })
         : workspaceUseOptions ? workspaceModule.useWorkspace(workspaceName, { ...workspaceUseOptions, mode: "read" }) : workspaceModule.useWorkspace(workspaceName)
       : undefined
+    const workspace = box && baseWorkspace && workspaceMode === "write"
+      ? withBoxWorkspaceSessions(baseWorkspace as WritableWorkspaceFacade<WorkspaceName>, box)
+      : baseWorkspace
     const capabilityOptions = resolvedCapabilityDefinitions.length
       ? { capabilities: resolvedCapabilityDefinitions, hooks: definition?.hooks as never }
       : undefined
@@ -1577,7 +1631,7 @@ async function createAgentInvocationContext<
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
       handledResponse: capabilities.response,
       harnessSandboxProvider,
-      harnessWorkDir: box?.workspace.workDir ?? (box?.workspace.path ? "workspace" : undefined),
+      harnessWorkDir: box ? box.plan.workspace.workDir || "workspace" : undefined,
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
       instructions,
@@ -1598,6 +1652,7 @@ async function createAgentInvocationContext<
       workspaceAutoCommit,
       workspaceDefinition: activeWorkspaceDefinition,
       workspaceInstructionBindings,
+      workspaceMaterializationSource: box ? baseWorkspace : undefined,
       workspaceMaterializationPaths: capabilities.workspaceMaterializationPaths,
       workspaceMode,
     }

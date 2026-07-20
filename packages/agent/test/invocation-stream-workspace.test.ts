@@ -498,7 +498,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       }),
       mode: "write",
     })
-    expect(workspaceStartSession).toHaveBeenCalledWith(undefined)
+    expect(workspaceStartSession).toHaveBeenCalledWith({ host: undefined, paths: undefined })
     expect(workspaceSessionExec).toHaveBeenCalledWith("pnpm", ["test", "--filter", "api"], {
       abortSignal: expect.any(AbortSignal),
       timeout: 1234,

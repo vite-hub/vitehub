@@ -1,4 +1,5 @@
 export { defineWorkspace } from "./core/define.ts"
+export { createWorkspace } from "./core/workspace.ts"
 export {
   custom,
   fetch,

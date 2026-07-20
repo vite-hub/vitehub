@@ -8,7 +8,6 @@ import type {
   WorkspaceDefinition,
   WorkspaceMount,
   WorkspaceMountOptions,
-  WorkspaceRuntime,
   WorkspaceSession,
 } from "./types.ts"
 
@@ -18,10 +17,6 @@ type WorkspaceWithDefinitionSync = Workspace & {
 
 function getStore(definition: WorkspaceDefinition) {
   return getCachedWorkspaceStore(definition, () => createWorkspaceStoreFromProvider(definition))
-}
-
-function workspaceRuntimeType(runtime: WorkspaceRuntime | undefined) {
-  return typeof runtime === "string" ? runtime : runtime?.type
 }
 
 export function createWorkspace(definition: WorkspaceDefinition): Workspace {
@@ -80,17 +75,13 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
       return await store.diff(options)
     },
     async startSession(options): Promise<WorkspaceSession> {
-      const runtime = workspaceRuntimeType(definition.runtime)
-      if (runtime === "sandbox") {
-        const { createSandboxWorkspaceSession } = await import("../session/sandbox.ts")
-        return await createSandboxWorkspaceSession(definition, workspace, options)
-      }
-      if (runtime === "trusted-host") {
-        const { createTrustedHostWorkspaceSession } = await import("../session/trusted-host.ts")
-        return await createTrustedHostWorkspaceSession(definition, workspace, options)
+      const host = options?.host
+      if (host) {
+        const { createHostedWorkspaceSession } = await import("../session/host.ts")
+        return await createHostedWorkspaceSession(workspace, { ...options, host })
       }
 
-      return createBasicWorkspaceSession(workspace, options)
+      return await createBasicWorkspaceSession(workspace, options)
     },
     mount(options?: WorkspaceMountOptions): WorkspaceMount {
       const mode = options?.mode || "read-only"

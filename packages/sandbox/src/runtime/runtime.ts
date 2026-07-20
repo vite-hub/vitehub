@@ -1,3 +1,4 @@
+import { resolveBox } from '@vite-hub/box'
 import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
 import {
   createResourceRuntime,
@@ -6,17 +7,18 @@ import {
 } from '../internal/shared/resource-runtime'
 import { sleep } from '../internal/shared/utils'
 import { SandboxError } from '../sandbox/errors'
-import { detectSandbox, isSandboxAvailable } from '../sandbox/providers/shared'
-import { validateSandboxConfig } from '../sandbox/validation'
 import { safeUseRequest } from '../internal/shared/runtime'
 import { executeSandboxDefinition } from './execute'
 import { readSandboxErrorMetadata, toSandboxError } from './error-normalization'
-import { loadSandboxProviderRuntime } from './provider-loader-resolver'
+import { createSandboxExecutionBox, type SandboxExecutionBox } from './execution-box'
+import type { ResolvedSandboxBox } from './provider-loader'
 import {
   assertSandboxDefinitionOptions,
   createCloudflareExecutionSandboxId,
+  detectSandbox,
+  isSandboxAvailable,
   resolveRuntimeProvider,
-  resolveSandboxProvider,
+  resolveSandboxBox,
   withSandboxProvider,
   type SandboxEvent,
 } from './provider-resolution'
@@ -30,7 +32,6 @@ import type {
   SandboxRunResult,
 } from '../module-types'
 import { getSandboxFeatureProvider } from '../module-types'
-import type { SandboxClient, SandboxProviderOptions } from '../sandbox/types'
 
 type SandboxRuntimeContext = ResourceRuntimeContext<AgentSandboxConfig, SandboxRegistryEntry, SandboxEvent>
 const sandboxRegistry = {}
@@ -47,31 +48,6 @@ function isRetriableCloudflareSandboxError(error: unknown) {
   return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(collectCloudflareErrorMessages(error, extraMessage))
 }
 
-export async function createSandboxWithConfig(
-  config: AgentSandboxConfig,
-  local: SandboxDefinitionOptions = {},
-  context: { event?: SandboxEvent } = {},
-) {
-  assertSandboxDefinitionOptions(local)
-  const event = context.event ?? safeUseRequest<SandboxEvent>()
-  const resolvedProviderConfig = getSandboxFeatureProvider(config)
-  const provider = resolveRuntimeProvider(resolvedProviderConfig, event)
-  const { createSandboxClient, resolvedProvider } = await resolveSandboxProvider(
-    provider,
-    withSandboxProvider(provider, resolvedProviderConfig),
-    local,
-    { event },
-  )
-
-  const validation = validateSandboxConfig(resolvedProvider as SandboxProviderOptions)
-  if (!validation.ok) {
-    const firstIssue = validation.issues.find(issue => issue.severity === 'error') || validation.issues[0]
-    throw new SandboxError(firstIssue?.message || `[${provider}] invalid sandbox config`)
-  }
-
-  return await createSandboxClient(resolvedProvider as SandboxProviderOptions)
-}
-
 type SandboxRunner = {
   name: string
   run: <TPayload = unknown, TResult = unknown>(
@@ -80,20 +56,23 @@ type SandboxRunner = {
   ) => Promise<TResult>
 }
 
-const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRuntimeContext> = {
+const sandboxPort: ProviderPort<ResolvedSandboxBox, SandboxRunner, SandboxRuntimeContext> = {
   async resolve(context) {
     const config = getSandboxFeatureProvider(context.config)
     const provider = resolveRuntimeProvider(config, context.event)
 
-    return (await resolveSandboxProvider(
+    return await resolveSandboxBox(
       provider,
       withSandboxProvider(provider, config),
       context.definition.options ?? {},
       { event: context.event },
-    )).resolvedProvider
+    )
   },
   async create(provider, context) {
-    const runtimeProvider = await loadSandboxProviderRuntime(provider.provider)
+    const packageManager = context.definition.bundle.project?.install.command
+    const box = await resolveBox({ runtime: provider.runtime }, {}, {
+      requires: ['node', ...(packageManager ? [packageManager] : [])],
+    })
 
     return {
       name: context.name,
@@ -106,19 +85,12 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
           : 1
 
         for (let attempt = 0; attempt < attempts; attempt++) {
-          let sandbox: SandboxClient | undefined
+          let sandbox: SandboxExecutionBox | undefined
           try {
-            const createdSandbox = await runtimeProvider.createSandboxClient(
-              cloudflareSandboxId
-                ? {
-                    ...provider,
-                    sandboxId: cloudflareSandboxId,
-                  } as SandboxProviderOptions
-                : provider as SandboxProviderOptions,
-            )
-            sandbox = createdSandbox
+            const session = await box.open({ id: cloudflareSandboxId })
+            sandbox = createSandboxExecutionBox(session, provider.provider)
             const result = await executeSandboxDefinition<TPayload, TResult>(
-              createdSandbox,
+              sandbox,
               context.name,
               context.definition.options,
               context.definition.bundle,
@@ -139,8 +111,8 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
             await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt])
           }
           finally {
-            if (provider.provider !== 'cloudflare' || provider.cloudflare?.keepAlive === true)
-              await sandbox?.stop().catch(() => {})
+            if (provider.closeAfterRun !== false)
+              await sandbox?.close().catch(() => {})
           }
         }
 

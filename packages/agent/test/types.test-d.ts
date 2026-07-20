@@ -346,7 +346,7 @@ describe("agent public types", () => {
         browser(),
         browser({ command: "agent-browser", skillContent: "# Browser\n", skillPath: "skills/browser/SKILL.md", sourceKey: "skill.browser" }),
         workspaceShell({ commands: ["agent-browser", "/Users/maxi/quiver/agents/node_modules/.bin/agent-browser"] }),
-        workspaceShell({ commands: "trusted-host", mode: "write" }),
+        workspaceShell({ commands: "all", mode: "write" }),
         workspaceShell({ commands: ["agent-browser"], mode: "read", timeout: 1_000 }),
         workspaceShell({ commands: ["agent-browser"], mode: "write" }),
         inputCommands({

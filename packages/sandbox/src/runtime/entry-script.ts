@@ -26,7 +26,7 @@ export function createEntrySource(definitionPath: string) {
     `    const mod = await import(pathToFileURL(${JSON.stringify(definitionPath)}).href)`,
     `    const definition = mod?.default`,
     `    if (!definition || typeof definition.run !== 'function')`,
-    `      throw new Error('Sandbox definition must default-export defineSandbox(...).')`,
+    `      throw new Error('Sandbox Definition must default-export defineSandbox({ run }).')`,
     `    const raw = await readFile(inputPath, 'utf8')`,
     `    const input = JSON.parse(raw || '{}')`,
     `    const result = await definition.run(input.payload, input.context)`,

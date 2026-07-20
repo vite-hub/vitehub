@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import type { HarnessV1SandboxProvider } from "@ai-sdk/harness";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { resolveBox, trustedHost } from "../src/index.ts";
 import { materializeGitCheckout } from "../src/internal/git-checkout.ts";
+import { boxProvider } from "./helpers.ts";
 
 const exec = promisify(execFile);
 const roots: string[] = [];
@@ -42,9 +42,9 @@ describe("Box checkout", () => {
     );
 
     expect(resolutions).toBe(3);
-    expect(box.workspace).toEqual({ state: "disposable", workDir: "." });
+    expect(box.plan.workspace).toEqual({ state: "disposable", workDir: "." });
     expect(JSON.stringify(box)).not.toContain(repository.remote);
-    const sandbox = box.sandbox as HarnessV1SandboxProvider;
+    const sandbox = boxProvider(box);
     const [first, second] = await Promise.all([sandbox.createSession(), sandbox.createSession()]);
     const firstWorkspace = first.defaultWorkingDirectory;
     const secondWorkspace = second.defaultWorkingDirectory;
@@ -96,11 +96,13 @@ describe("Box checkout", () => {
     );
 
     await withEnvironment({ TMPDIR: sessionTmp }, async () => {
-      await expect((box.sandbox as HarnessV1SandboxProvider).createSession()).rejects.toThrow(
+      await expect(boxProvider(box).createSession()).rejects.toThrow(
         `expected ${"0".repeat(40)}, received ${repository.sha}`,
       );
     });
-    await expect(readdir(sessionTmp)).resolves.toEqual([]);
+    await expect(
+      readdir(sessionTmp).then((entries) => entries.filter((entry) => entry.startsWith("vitehub-box-"))),
+    ).resolves.toEqual([]);
   });
 
   it("honors cancellation and removes the partial checkout", async () => {
@@ -123,7 +125,7 @@ describe("Box checkout", () => {
     const abort = new AbortController();
 
     await withEnvironment({ PATH: bin, TMPDIR: sessionTmp }, async () => {
-      const creating = (box.sandbox as HarnessV1SandboxProvider).createSession({
+      const creating = boxProvider(box).createSession({
         abortSignal: abort.signal,
       });
       setTimeout(() => abort.abort(new Error("cancelled")), 25);
@@ -148,7 +150,7 @@ describe("Box checkout", () => {
       {},
     );
 
-    await expect((box.sandbox as HarnessV1SandboxProvider).createSession()).rejects.toThrow(
+    await expect(boxProvider(box).createSession()).rejects.toThrow(
       "checkout failed to fetch ref",
     );
     await expect(stat(marker)).rejects.toMatchObject({ code: "ENOENT" });
@@ -231,8 +233,8 @@ describe("Box checkout", () => {
     const same = await resolveBox(definition("0".repeat(40)), {});
     const changed = await resolveBox(definition("1".repeat(40)), {});
 
-    expect(first.identity).toBe(same.identity);
-    expect(first.identity).not.toBe(changed.identity);
+    expect(first.plan.identity).toBe(same.plan.identity);
+    expect(first.plan.identity).not.toBe(changed.plan.identity);
   });
 });
 

@@ -8,7 +8,7 @@ import { useWorkspace } from "./core/use.ts"
 
 import type { H3Event } from "h3"
 import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade } from "./core/use.ts"
-import type { ExecResult, WorkspaceDefinition, WorkspaceMaterializeSourcesOptions, WorkspaceName, WorkspacePrepareSessionProgressEvent, WorkspaceSession, WorkspaceSessionOptions } from "./core/types.ts"
+import type { ExecResult, WorkspaceDefinition, WorkspaceMaterializeSourcesOptions, WorkspaceName, WorkspacePrepareSessionProgressEvent, WorkspaceSession, WorkspaceSessionHost, WorkspaceSessionOptions } from "./core/types.ts"
 
 export const workspaceDevRoute = "/__vitehub/workspace/dev"
 export const workspaceDevHeader = "x-vitehub-workspace-dev"
@@ -54,6 +54,7 @@ export interface WorkspaceDevCommandInput<Name extends WorkspaceName = Workspace
   args?: string[]
   command: string
   definition?: WorkspaceDefinition
+  host?: WorkspaceSessionHost
   onProgress?: (event: WorkspacePrepareSessionProgressEvent) => void | Promise<void>
   paths?: readonly string[]
   timeout?: number
@@ -299,9 +300,7 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
 ): Promise<ExecResult> {
   const command = input.command.trim()
   if (!command) throw new Error("Workspace Dev command cannot be empty.")
-  const definition = input.definition && !input.definition.runtime
-    ? { ...input.definition, runtime: "trusted-host" as const }
-    : input.definition
+  const definition = input.definition
   const workspace = typeof input.workspace === "string"
     ? await useWorkspace(input.workspace, definition ? { definition, mode: "write" } as { mode: "write" } : { mode: "write" })
     : input.workspace
@@ -313,7 +312,7 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
     data: { paths: input.paths ?? null },
     id: "workspace.dev.start-session",
     label: "Starting workspace session",
-  }, async () => await startSession(input.paths ? { paths: input.paths } : undefined))
+  }, async () => await startSession({ host: input.host, paths: input.paths }))
   const execOptions = { abortSignal: input.abortSignal, timeout: input.timeout }
   let result
   try {

@@ -1,7 +1,8 @@
+import { createWorkspace } from '@vite-hub/workspace'
 import { dirname } from 'pathe'
 
-import type { SandboxClient } from '../sandbox/types'
 import type { SandboxDefinitionBundle } from '../module-types'
+import type { SandboxExecutionBox } from './execution-box'
 
 const DEFAULT_DEFINITION_ENTRY = 'definition.js'
 
@@ -32,13 +33,28 @@ export function createExecutionFiles(definitionName: string) {
 }
 
 export function resolveSandboxModulePath(baseDir: string, modulePath: string) {
+  if (modulePath === '.')
+    return baseDir
   return `${baseDir}/${modulePath}`
 }
 
-export async function writeSandboxDefinitionBundle(sandbox: SandboxClient, baseDir: string, bundle: SandboxDefinitionBundle) {
-  await Promise.all(Object.entries(bundle.modules).map(async ([modulePath, source]) => {
-    const filePath = resolveSandboxModulePath(baseDir, modulePath)
-    await sandbox.mkdir(dirname(filePath), { recursive: true })
-    await sandbox.writeFile(filePath, source)
+export async function writeSandboxDefinitionBundle(sandbox: SandboxExecutionBox, baseDir: string, bundle: SandboxDefinitionBundle) {
+  const workspace = createWorkspace({
+    name: `sandbox-${bundle.project?.digest || Math.random().toString(36).slice(2)}`,
+    store: { provider: 'memory' },
+  })
+  const files = {
+    ...(bundle.project
+      ? Object.fromEntries(Object.entries(bundle.project.files).map(([path, file]) => [path, Uint8Array.from(Buffer.from(file.contents, file.encoding))]))
+      : {}),
+    ...bundle.modules,
+  }
+  await Promise.all(Object.entries(files).map(async ([modulePath, source]) => {
+    const parent = dirname(modulePath)
+    if (parent !== '.') await workspace.mkdir(parent, { recursive: true })
+    await workspace.writeFile(modulePath, source)
   }))
+  await workspace.snapshot({ name: 'sandbox-bundle' })
+  const session = await workspace.startSession({ host: sandbox, target: baseDir })
+  await session.close()
 }

@@ -948,7 +948,6 @@ describe("Harness Workspace Session", () => {
   it("commits generated files selected by missing Workspace Session paths", async () => {
     const workspace = createWorkspace({
       ...defineWorkspace({
-        runtime: "trusted-host",
         store: { provider: "memory" },
       }),
       name: "docs",

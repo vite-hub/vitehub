@@ -641,7 +641,6 @@ async function resolveHarnessGlobalSkills(
   const { resolveWorkspaceSources } = await import("@vite-hub/workspace/runtime")
   const definition = await resolveWorkspaceSources({
     name: "__vitehub_global_skills",
-    runtime: { allowProduction: true, type: "trusted-host" },
     sources: Object.fromEntries(skills.map(skill => [skill.sourceKey, skill.source])),
     store: { provider: "memory" },
   }, {
@@ -668,7 +667,6 @@ async function resolveHarnessColocatedSkills(context: AgentAdapterRunContext) {
   if (!sources || !Object.keys(sources).length) return
   const definition = {
     name: "__vitehub_agent_skills",
-    runtime: "trusted-host" as const,
     sources,
     store: { provider: "memory" as const },
   }
@@ -986,9 +984,9 @@ export function createHarnessAgentAdapter<
       ...(context.box
         ? {
             box: {
-              identity: context.box.identity,
-              runtime: context.box.runtime,
-              workspace: context.box.workspace.path,
+              identity: context.box.plan.identity,
+              runtime: context.box.plan.runtime,
+              workspace: context.box.plan.workspace.path,
             },
           }
         : {}),
@@ -1049,7 +1047,7 @@ export function createHarnessAgentAdapter<
     const colocatedSkillsWorkspace = await resolveHarnessColocatedSkills(context)
     const resolved = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal, globalSkillsDirectory, globalSkillsWorkspace, sessionPrepare) => {
       const globalSkillsWorkingDirectory =
-        context.box?.runtime === "trusted-host" && !context.box.workspace.path ? "." : undefined
+        context.box?.plan.runtime === "trusted-host" && !context.box.plan.workspace.path ? "." : undefined
       const harnessInstructions = context.workspace ? await resolveHarnessInstructions(context) : undefined
       try {
         if (context.workspace) {
@@ -1057,7 +1055,7 @@ export function createHarnessAgentAdapter<
           const commitDefinition = context.workspaceDefinition && context.workspaceAutoCommit !== undefined
             ? workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit)
             : context.workspaceDefinition
-          workspaceSession = await prepareHarnessWorkspaceSession(context.workspace, {
+          workspaceSession = await prepareHarnessWorkspaceSession(context.workspaceMaterializationSource || context.workspace, {
             abortSignal,
             ...(hasWorkspaceCommitRules(commitDefinition) ? { definition: commitDefinition } : {}),
             ignoreWriteBackPaths: harnessWriteBackIgnorePaths(context, harnessInstructions),

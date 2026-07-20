@@ -191,7 +191,6 @@ describe("lazy sources", () => {
     await writeFile(join(sourceRoot, "review", "SKILL.md"), "# Review\n")
     const view = createWorkspaceSourceView({
       name: "trusted-host-directory",
-      runtime: { allowProduction: true, type: "trusted-host" },
       sourceRootDir: sourceRoot,
       sources: {
         review: globSource({

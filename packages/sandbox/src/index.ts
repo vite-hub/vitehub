@@ -1,6 +1,5 @@
 export { defineSandbox } from './runtime/registry'
 export { readRequestPayload } from './internal/shared/request-payload'
 export { readValidatedPayload } from './runtime/validation'
-export { createSandboxWithConfig } from './runtime/runtime'
 export { runSandbox } from './runtime/public'
 export type * from './module-types'

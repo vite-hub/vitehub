@@ -25,7 +25,9 @@ describe("types", () => {
   })
 
   it("types sandbox definitions and run results", () => {
-    const definition = defineSandbox(async (payload?: { value: string }) => ({ value: payload?.value || "" }))
+    const definition = defineSandbox({
+      run: async (payload?: { value: string }) => ({ value: payload?.value || "" }),
+    })
 
     expectTypeOf(definition).toMatchTypeOf<SandboxDefinition<{ value: string } | undefined, { value: string }>>()
     expectTypeOf(runSandbox("release-notes", { value: "ok" })).resolves.toMatchTypeOf<SandboxRunResult>()
