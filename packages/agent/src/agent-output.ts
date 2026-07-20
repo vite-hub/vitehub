@@ -2,6 +2,7 @@ import { ApprovalRequiredError } from "@vite-hub/runtime"
 import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
 import { readAgentUsageMetadata } from "./internal/agent-usage-metadata.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
+import { finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
 
 import type { StreamEvent } from "./messages.ts"
 import type { AgentRunMetadata, AgentRunResult, AgentUsage, AgentUsageRecord } from "./types.ts"
@@ -124,6 +125,7 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
 
   const result = value as Record<string, unknown>
   const explicitText = ownValue(result, "text")
+  const preserveEmptyText = Object.getOwnPropertyDescriptor(result, finalChannelOutputSelectedSymbol)?.value === true
   const usageRecord = isUsageRecord(ownValue(result, "usageRecord"))
     ? withFallbackUsageMetadata(ownValue(result, "usageRecord") as AgentUsageRecord, result)
     : usageRecordFromUsage(ownValue(result, "usage") ?? ownValue(result, "totalUsage"), result)
@@ -132,7 +134,7 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
     ...(artifacts.length ? { artifacts } : {}),
     finishReason: ownValue(result, "finishReason"),
     raw: value,
-    text: typeof explicitText === "string" ? explicitText : textFromResult(result),
+    text: preserveEmptyText && typeof explicitText === "string" ? explicitText : textFromResult(result),
     usage: ownValue(result, "usage") ?? usageRecord?.usage,
     usageRecord,
     warnings: ownValue(result, "warnings"),

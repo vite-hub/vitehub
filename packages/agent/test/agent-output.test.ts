@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { applyStreamEvent } from "../src/messages.ts"
+import { finalChannelOutputSelectedSymbol } from "../src/internal/final-channel-output.ts"
 import {
   finalTextFromAgentOutput,
   streamAgentOutputToEvents,
@@ -14,8 +15,10 @@ describe("agent output helpers", () => {
     expect(toAgentRunResult(42)).toEqual({ raw: 42, text: undefined })
   })
 
-  it("preserves an explicit empty text result", () => {
-    expect(toAgentRunResult({ content: [{ text: "progress", type: "text" }], text: "" }).text).toBe("")
+  it("preserves empty text selected for a final-only Channel", () => {
+    const value = { content: [{ text: "progress", type: "text" }], text: "" }
+    Object.defineProperty(value, finalChannelOutputSelectedSymbol, { value: true })
+    expect(toAgentRunResult(value).text).toBe("")
   })
 
   it("normalizes model output objects into Agent run results", () => {

@@ -39,7 +39,7 @@ import {
   scheduledAgentNameContextKey,
   scheduledAgentTurnContextKey,
 } from "./internal/scheduled-turn.ts"
-import { finalChannelOutputContextKey } from "./internal/final-channel-output.ts"
+import { finalChannelOutputContextKey, finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
 import {
   colocatedAgentSkillsContextKey,
   colocatedAgentSkillsSymbol,
@@ -2302,6 +2302,7 @@ async function executeAgentInvocation<
           value: text,
         },
       })
+      if (text === "") Object.defineProperty(result, finalChannelOutputSelectedSymbol, { value: true })
     }
   }
 
