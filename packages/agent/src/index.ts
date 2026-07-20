@@ -1,7 +1,7 @@
 import agentRegistry from "#vitehub/agent/registry"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
-import { cloneWithPropertyDescriptors, withAsyncIterator } from "./internal/stream-result.ts"
+import { cloneWithPropertyDescriptors } from "./internal/stream-result.ts"
 import { AgentOutputValidationError, validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { agentErrorDetails, agentErrorMessage } from "./agent-error.ts"
@@ -1787,9 +1787,6 @@ function withStreamedResult(
   let streamedText = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
   return {
-    text() {
-      return streamedText || undefined
-    },
     finishResult() {
       return resultWithStreamedTextAndUsage(result, streamedText, usageRecord, fallbackUsageRecord)
     },
@@ -1805,26 +1802,6 @@ function withStreamedResult(
       }
     })(),
   }
-}
-
-function toLazyReadableStream<T>(stream: AsyncIterable<T>): AsyncIterable<T> & ReadableStream<T> {
-  let iterator: AsyncIterator<T> | undefined
-  return withAsyncIterator(new ReadableStream<T>({
-    cancel() {
-      void iterator?.return?.().catch(() => undefined)
-    },
-    async pull(controller) {
-      iterator ??= stream[Symbol.asyncIterator]()
-      try {
-        const result = await iterator.next()
-        if (result.done) controller.close()
-        else controller.enqueue(result.value)
-      }
-      catch (error) {
-        controller.error(error)
-      }
-    },
-  }, { highWaterMark: 0 }))
 }
 
 async function finishStreamAgentInvocation<
@@ -2400,33 +2377,9 @@ async function executeAgentInvocation<
         && (isAsyncIterable((rendered as { stream?: unknown }).stream) || isAsyncIterable((rendered as { fullStream?: unknown }).fullStream))
         && shouldWrapInvocationOutput(invocation)) {
         const streamed = withStreamedResult(streamAgentOutputToEvents(rendered), rendered, driverUsageRecord)
-        const primaryStream = (rendered as { fullStream?: unknown, stream?: unknown }).stream
-          ?? (rendered as { fullStream?: unknown }).fullStream
-        const preserveResult = primaryStream instanceof ReadableStream || Object.getPrototypeOf(rendered) !== Object.prototype
-        let value: object
-        const stream = withCapabilityCleanup(streamed.stream, async (outcome) => {
-          if (preserveResult) {
-            Object.defineProperty(value, "text", {
-              configurable: true,
-              enumerable: true,
-              value: streamed.text(),
-            })
-          }
-          await finishStreamAgentInvocation(invocation, lifecycle, preserveResult ? value : streamed.finishResult(), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+        const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
+          await finishStreamAgentInvocation(invocation, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
         }, { abortSignal: invocation.input.abortSignal })
-        const outputStream = primaryStream instanceof ReadableStream ? toLazyReadableStream(stream) : stream
-        value = preserveResult ? cloneWithPropertyDescriptors(rendered as object, {
-          [isAsyncIterable((rendered as { stream?: unknown }).stream) ? "stream" : "fullStream"]: {
-            configurable: true,
-            enumerable: true,
-            value: outputStream,
-          },
-          text: {
-            configurable: true,
-            enumerable: true,
-            get: streamed.text,
-          },
-        }) : outputStream
         return {
           deferFinish: true,
           finishResult: value,
