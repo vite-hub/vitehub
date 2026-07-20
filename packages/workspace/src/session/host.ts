@@ -101,16 +101,16 @@ async function ensureHostParent(host: WorkspaceSessionHost, path: string) {
     await host.files.mkdir(parent, { recursive: true })
 }
 
-async function readHostSymlinkTarget(host: WorkspaceSessionHost, path: string): Promise<string> {
-  const result = await host.exec("readlink", [path])
+async function readHostSymlinkTarget(host: WorkspaceSessionHost, root: string, path: string): Promise<string> {
+  const result = await host.exec("readlink", [fromHostPath(root, path)], { cwd: root })
   if (result.code !== 0)
     throw new WorkspaceError(`[vitehub] Failed to read workspace symlink: ${path}. ${result.stderr || "readlink failed"}`)
   return result.stdout.replace(/\n$/, "")
 }
 
-async function writeHostSymlink(host: WorkspaceSessionHost, path: string, target: string) {
+async function writeHostSymlink(host: WorkspaceSessionHost, root: string, path: string, target: string) {
   await host.files.remove(path).catch(() => undefined)
-  const result = await host.exec("ln", ["-s", target, path])
+  const result = await host.exec("ln", ["-s", target, fromHostPath(root, path)], { cwd: root })
   if (result.code !== 0)
     throw new WorkspaceError(`[vitehub] Failed to create workspace symlink: ${path}. ${result.stderr || "ln failed"}`)
 }
@@ -126,7 +126,7 @@ async function listHostEntries(host: WorkspaceSessionHost, root: string, path = 
   const resolved = await Promise.all(entries.map(async (entry) => {
     const workspaceEntry = toWorkspaceEntry(root, entry)
     if (workspaceEntry.type !== "file" || isGitSymlinkEntry(workspaceEntry)) return workspaceEntry
-    const executable = await host.exec("test", ["-x", entry.path])
+    const executable = await host.exec("test", ["-x", fromHostPath(root, entry.path)], { cwd: root })
     return executable.code === 0
       ? { ...workspaceEntry, metadata: { ...workspaceEntry.metadata, gitMode: "100755" } }
       : workspaceEntry
@@ -136,8 +136,8 @@ async function listHostEntries(host: WorkspaceSessionHost, root: string, path = 
     .sort((left, right) => left.path.localeCompare(right.path))
 }
 
-async function makeHostFileExecutable(host: WorkspaceSessionHost, path: string) {
-  const result = await host.exec("chmod", ["+x", path])
+async function makeHostFileExecutable(host: WorkspaceSessionHost, root: string, path: string) {
+  const result = await host.exec("chmod", ["+x", fromHostPath(root, path)], { cwd: root })
   if (result.code !== 0)
     throw new WorkspaceError(`[vitehub] Failed to preserve executable Workspace file: ${path}. ${result.stderr || "chmod failed"}`)
 }
@@ -152,7 +152,7 @@ async function captureHostState(host: WorkspaceSessionHost, root: string, name?:
   const files = await Promise.all(entries.map(async (entry) => {
     if (entry.type !== "file") return entry
     const content = isGitSymlinkEntry(entry)
-      ? await readHostSymlinkTarget(host, toHostPath(root, entry.path))
+      ? await readHostSymlinkTarget(host, root, toHostPath(root, entry.path))
       : await host.files.read(toHostPath(root, entry.path))
     if (content === null) throw new WorkspaceError(`[vitehub] Workspace host file disappeared while snapshotting: ${entry.path}.`)
     contents.set(entry.path, content)
@@ -188,10 +188,10 @@ async function restoreAttachedHost(
     const content = state.contents.get(path)
     if (content === undefined) continue
     await ensureHostParent(host, target)
-    if (entry.metadata?.gitMode === "120000") await writeHostSymlink(host, target, String(content))
+    if (entry.metadata?.gitMode === "120000") await writeHostSymlink(host, root, target, String(content))
     else {
       await host.files.write(target, contentToBytes(content))
-      if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, target)
+      if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, root, target)
     }
   }
 }
@@ -244,13 +244,13 @@ async function materializeWorkspace(workspace: Workspace, host: WorkspaceSession
         ? entry.metadata.symlinkTarget
         : new TextDecoder().decode(contentToBytes(await workspace.readFile(entry.path, { encoding: "binary" })))
       if (isSafeHostSymlink(root, entry.path, symlinkTarget))
-        await writeHostSymlink(host, target, symlinkTarget)
+        await writeHostSymlink(host, root, target, symlinkTarget)
       else
         await host.files.write(target, contentToBytes(symlinkTarget))
     }
     else {
       await host.files.write(target, contentToBytes(await workspace.readFile(entry.path, { encoding: "binary" })))
-      if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, target)
+      if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, root, target)
     }
   }
   return await snapshotHost(host, root, "host-open")
@@ -281,7 +281,7 @@ async function commitHostChanges(
       : undefined
     const target = toHostPath(root, entry.path)
     const symlinkTarget = entry.after.metadata?.gitMode === "120000"
-      ? await readHostSymlinkTarget(host, target)
+      ? await readHostSymlinkTarget(host, root, target)
       : undefined
     const file = symlinkTarget === undefined
       ? await readHostFile(host, root, target)
@@ -337,13 +337,13 @@ export async function createHostedWorkspaceSession(
         ? new TextDecoder().decode(contentToBytes(content))
         : undefined
       if (symlinkTarget !== undefined && isSafeHostSymlink(root, fromHostPath(root, target), symlinkTarget))
-        await writeHostSymlink(host, target, symlinkTarget)
+        await writeHostSymlink(host, root, target, symlinkTarget)
       else {
         await host.files.write(target, contentToBytes(content))
         const workspacePath = fromHostPath(root, target)
         const preserveExecutable = writeOptions?.metadata?.gitMode === "100755"
           || baseline.entries[workspacePath]?.metadata?.gitMode === "100755"
-        if (preserveExecutable) await makeHostFileExecutable(host, target)
+        if (preserveExecutable) await makeHostFileExecutable(host, root, target)
       }
       const workspacePath = fromHostPath(root, target)
       if (writeOptions?.mediaType) mediaTypes.set(workspacePath, writeOptions.mediaType)

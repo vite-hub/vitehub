@@ -7,7 +7,6 @@ import {
 } from '../internal/shared/resource-runtime'
 import { sleep } from '../internal/shared/utils'
 import { SandboxError } from '../sandbox/errors'
-import { safeUseRequest } from '../internal/shared/runtime'
 import { executeSandboxDefinition } from './execute'
 import { readSandboxErrorMetadata, toSandboxError } from './error-normalization'
 import { createSandboxExecutionBox, type SandboxExecutionBox } from './execution-box'
@@ -27,11 +26,28 @@ import { getSandboxRuntimeConfig, getSandboxRuntimeRegistry, type SandboxRegistr
 
 import type {
   AgentSandboxConfig,
-  SandboxDefinitionOptions,
   SandboxExecutionOptions,
   SandboxRunResult,
 } from '../module-types'
 import { getSandboxFeatureProvider } from '../module-types'
+
+const cloudflareRunQueues = new Map<string, Promise<void>>()
+
+async function serializeCloudflareRun<TResult>(id: string | undefined, run: () => Promise<TResult>): Promise<TResult> {
+  if (!id) return await run()
+  const previous = cloudflareRunQueues.get(id) ?? Promise.resolve()
+  let release!: () => void
+  const current = new Promise<void>((resolve) => { release = resolve })
+  cloudflareRunQueues.set(id, current)
+  await previous
+  try {
+    return await run()
+  }
+  finally {
+    release()
+    if (cloudflareRunQueues.get(id) === current) cloudflareRunQueues.delete(id)
+  }
+}
 
 type SandboxRuntimeContext = ResourceRuntimeContext<AgentSandboxConfig, SandboxRegistryEntry, SandboxEvent>
 const sandboxRegistry = {}
@@ -85,7 +101,8 @@ const sandboxPort: ProviderPort<ResolvedSandboxBox, SandboxRunner, SandboxRuntim
           ? CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS.length + 1
           : 1
 
-        for (let attempt = 0; attempt < attempts; attempt++) {
+        return await serializeCloudflareRun(cloudflareSandboxId, async () => {
+          for (let attempt = 0; attempt < attempts; attempt++) {
           let sandbox: SandboxExecutionBox | undefined
           try {
             const session = await box.open({ id: cloudflareSandboxId })
@@ -115,11 +132,12 @@ const sandboxPort: ProviderPort<ResolvedSandboxBox, SandboxRunner, SandboxRuntim
             if (provider.closeAfterRun !== false)
               await sandbox?.close().catch(() => {})
           }
-        }
+          }
 
-        throw new SandboxError('Cloudflare sandbox retries exhausted.', {
-          code: 'SANDBOX_RUNTIME_ERROR',
-          provider: provider.provider,
+          throw new SandboxError('Cloudflare sandbox retries exhausted.', {
+            code: 'SANDBOX_RUNTIME_ERROR',
+            provider: provider.provider,
+          })
         })
       },
     }

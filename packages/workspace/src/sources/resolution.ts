@@ -455,7 +455,11 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       startSession: async (options) => {
         const paths = options?.paths?.length ? options.paths : [""]
         await Promise.all(paths.map(path => materializeSources({ path })))
-        return withSessionSourceGuards(await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options))
+        const startBoxSession = (workspace as unknown as Record<symbol, unknown>)[Symbol.for("vitehub.workspace.start-box-session")]
+        const session = typeof startBoxSession === "function"
+          ? await (startBoxSession as (target: Workspace, options?: WorkspaceSessionOptions) => Promise<WorkspaceSession>)(writeWorkspace, options)
+          : await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options)
+        return withSessionSourceGuards(session)
       },
       stat: writeFs.stat,
       sync: async (options) => {

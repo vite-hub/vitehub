@@ -351,6 +351,9 @@ export function validateAgentCapabilityComposition(
     if (capability.bash?.length && workspaceMode !== "write") {
       throw new Error(`[vitehub] ${capability.id}() bash requires workspace.mode: "write".`)
     }
+    if (capability.bash?.length && !options.hasBox) {
+      throw new Error(`[vitehub] ${capability.id}() bash requires defineAgent({ box }).`)
+    }
   }
 }
 

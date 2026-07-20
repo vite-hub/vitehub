@@ -42,7 +42,7 @@ export interface CloudflareDurableObjectNamespace {
 }
 
 export interface CloudflareSandboxStub {
-  deleteFile?(path: string): Promise<{ success: boolean }>;
+  deleteFile?(path: string): Promise<{ success: boolean } | void>;
   destroy(): Promise<void>;
   exec(
     command: string,
@@ -67,8 +67,8 @@ export interface CloudflareSandboxStub {
       type: "directory" | "file" | "other" | "symlink";
     }>;
   }>;
-  mkdir?(path: string, options?: { recursive?: boolean }): Promise<{ success: boolean }>;
-  moveFile?(source: string, destination: string): Promise<{ success: boolean }>;
+  mkdir?(path: string, options?: { recursive?: boolean }): Promise<{ success: boolean } | void>;
+  moveFile?(source: string, destination: string): Promise<{ success: boolean } | void>;
   readFile(path: string, options?: { encoding?: string }): Promise<{
     content: string;
     success: boolean;
@@ -86,7 +86,7 @@ export interface CloudflareSandboxStub {
     path: string,
     contents: string,
     options?: { encoding?: string },
-  ): Promise<{ success: boolean }>;
+  ): Promise<{ success: boolean } | void>;
 }
 
 export function cloudflareBox(options: CloudflareBoxOptions): BoxRuntime {
@@ -194,7 +194,7 @@ function createCloudflareSession(
       abortSignal?.throwIfAborted();
       if (stub.mkdir) {
         const result = await request("mkdir", async () => await stub.mkdir!(path, { recursive }));
-        if (!result.success) throw new Error(`[vitehub] Cloudflare failed to create ${path}.`);
+        if (result && !result.success) throw new Error(`[vitehub] Cloudflare failed to create ${path}.`);
         return;
       }
       const result = await run({
@@ -208,7 +208,7 @@ function createCloudflareSession(
           async moveFile({ abortSignal, destination, source }: { abortSignal?: AbortSignal; destination: string; source: string }) {
             abortSignal?.throwIfAborted();
             const result = await request("moveFile", async () => await stub.moveFile!(source, destination));
-            if (!result.success) throw new Error(`[vitehub] Cloudflare failed to move ${source}.`);
+            if (result && !result.success) throw new Error(`[vitehub] Cloudflare failed to move ${source}.`);
           },
         }
       : {}),
@@ -226,7 +226,7 @@ function createCloudflareSession(
       abortSignal?.throwIfAborted();
       if (!recursive && stub.deleteFile) {
         const result = await request("deleteFile", async () => await stub.deleteFile!(path));
-        if (!result.success) throw new Error(`[vitehub] Cloudflare failed to remove ${path}.`);
+        if (result && !result.success) throw new Error(`[vitehub] Cloudflare failed to remove ${path}.`);
         return;
       }
       const result = await run({
@@ -261,7 +261,7 @@ function createCloudflareSession(
       const result = await request("writeFile", async () => await stub.writeFile(path, Buffer.from(content).toString("base64"), {
         encoding: "base64",
       }));
-      if (!result.success) throw new Error(`[vitehub] Cloudflare failed to write ${path}.`);
+      if (result && !result.success) throw new Error(`[vitehub] Cloudflare failed to write ${path}.`);
     },
   };
 }

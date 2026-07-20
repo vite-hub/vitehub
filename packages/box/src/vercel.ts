@@ -44,6 +44,7 @@ export interface VercelBoxOptions {
 export interface VercelSandboxCreateOptions {
   networkPolicy?: VercelBoxNetworkPolicy;
   ports?: readonly number[];
+  persistent?: boolean;
   projectId?: string;
   resources?: { vcpus?: number };
   runtime: string;
@@ -108,10 +109,12 @@ export function vercelBox(options: VercelBoxOptions = {}): BoxRuntime {
       return remoteBoxPlan(input, { isolation: "microvm", runtime: "vercel" });
     },
     async open(input, openOptions) {
-      const env = await resolveRemoteEnvironment(input, {});
+      const workspace = options.source ? "/vercel/sandbox" : "/workspace";
+      const env = await resolveRemoteEnvironment(input, { workspace });
       const create = options.create ?? await loadVercelSandbox();
       const instance = await create({
         runtime,
+        persistent: false,
         signal: openOptions?.signal,
         timeout: options.timeout ?? 300_000,
         ...(options.cpu ? { resources: { vcpus: options.cpu } } : {}),
@@ -132,6 +135,8 @@ export function vercelBox(options: VercelBoxOptions = {}): BoxRuntime {
         initialize: openOptions?.initialize,
         isolation: "microvm",
         runtime: "vercel",
+        workspace,
+        preserveWorkspace: Boolean(options.source),
         signal: openOptions?.signal,
       });
     },

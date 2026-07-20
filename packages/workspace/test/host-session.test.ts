@@ -90,22 +90,23 @@ function memoryHost(): WorkspaceSessionHost & { isExecutable(path: string): bool
       },
     },
     async exec(command, args = [], options = {}) {
+      const commandPath = (path: string) => path.startsWith("/") ? path : `${options.cwd || "/"}/${path}`
       if (command === "readlink") {
-        const target = symlinks.get(normalize(args[0] || ""))
+        const target = symlinks.get(normalize(commandPath(args[0] || "")))
         return target === undefined
           ? { code: 1, stderr: "not a symlink", stdout: "" }
           : { code: 0, stderr: "", stdout: `${target}\n` }
       }
       if (command === "ln" && args[0] === "-s") {
-        const target = normalize(args[2] || "")
+        const target = normalize(commandPath(args[2] || ""))
         symlinks.set(target, args[1] || "")
         files.delete(target)
         return { code: 0, stderr: "", stdout: "" }
       }
       if (command === "test" && args[0] === "-x")
-        return { code: executables.has(normalize(args[1] || "")) ? 0 : 1, stderr: "", stdout: "" }
+        return { code: executables.has(normalize(commandPath(args[1] || ""))) ? 0 : 1, stderr: "", stdout: "" }
       if (command === "chmod" && args[0] === "+x") {
-        executables.add(normalize(args[1] || ""))
+        executables.add(normalize(commandPath(args[1] || "")))
         return { code: 0, stderr: "", stdout: "" }
       }
       if (command !== "write") return { code: 127, stderr: `Unsupported command: ${command}`, stdout: "" }

@@ -1,5 +1,5 @@
 import { WorkspaceError } from "../core/errors.ts"
-import { decodeFile, normalizeSafeWorkspacePath } from "../core/path.ts"
+import { decodeFile, matchesAny, normalizeSafeWorkspacePath } from "../core/path.ts"
 import { searchText } from "../core/search.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
 import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDiff, filterSessionEntries, scopedSearchQuery } from "./scope.ts"
@@ -24,7 +24,7 @@ function normalizeSessionPath(path = "", options: { allowEmpty?: boolean } = {})
 export async function createBasicWorkspaceSession(workspace: Workspace, options?: WorkspaceSessionOptions): Promise<WorkspaceSession> {
   const sessionPaths = normalizeSessionPaths(options)
   const overlay = createMemoryWorkspaceStore()
-  const initialEntries = await workspace.list("", { recursive: true })
+  const initialEntries = filterSessionEntries(await workspace.list("", { recursive: true }), sessionPaths)
   for (const entry of initialEntries.filter(entry => entry.type === "directory"))
     await overlay.mkdir(entry.path, { recursive: true })
   for (const entry of initialEntries.filter(entry => entry.type === "file")) {
@@ -58,7 +58,15 @@ export async function createBasicWorkspaceSession(workspace: Workspace, options?
       return filterSessionEntries(await overlay.list(normalizeSessionPath(path, { allowEmpty: true }), listOptions), sessionPaths)
     },
     async glob(pattern, globOptions) {
-      return filterSessionEntries(await overlay.glob(pattern, globOptions), sessionPaths)
+      const patterns = Array.isArray(pattern) ? pattern : [pattern]
+      const cwd = normalizeSessionPath(globOptions?.cwd || "", { allowEmpty: true })
+      return filterSessionEntries(await overlay.list("", { recursive: true }), sessionPaths)
+        .filter((entry) => {
+          if (entry.type !== "file") return false
+          if (!cwd) return patterns.some(item => matchesAny(entry.path, item))
+          if (!entry.path.startsWith(`${cwd}/`)) return false
+          return patterns.some(item => matchesAny(entry.path.slice(cwd.length + 1), item))
+        })
     },
     async search(query) {
       const scoped = scopedSearchQuery(query, sessionPaths, path => normalizeSessionPath(path, { allowEmpty: true }))

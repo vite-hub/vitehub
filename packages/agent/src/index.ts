@@ -1,5 +1,4 @@
 import agentRegistry from "#vitehub/agent/registry"
-import { posix } from "node:path"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
 import { cloneWithPropertyDescriptors } from "./internal/stream-result.ts"
@@ -1340,51 +1339,38 @@ function withBoxWorkspaceSessions<Name extends WorkspaceName>(
   workspace: WritableWorkspaceFacade<Name>,
   box: Box,
 ): WritableWorkspaceFacade<Name> {
+  async function startBoxSession(target: WritableWorkspaceFacade<Name>, options?: WorkspaceSessionOptions): Promise<WorkspaceSession> {
+    if (options?.host) return await target.startSession(options)
+    const host = await box.open()
+    try {
+      const session = await target.startSession({ ...options, attach: true, host, target: options?.target || host.cwd })
+      let closePromise: Promise<void> | undefined
+      return { ...session, async close() {
+        closePromise ??= (async () => {
+          let sessionError: unknown
+          try { await session.close() }
+          catch (error) { sessionError = error }
+          try { await host.close() }
+          catch (error) {
+            if (sessionError) throw new AggregateError([sessionError, error], "[vitehub] Workspace and Box session cleanup failed.")
+            throw error
+          }
+          if (sessionError) throw sessionError
+        })()
+        await closePromise
+      } }
+    }
+    catch (error) {
+      try { await host.close() }
+      catch (closeError) { throw new AggregateError([error, closeError], "[vitehub] Workspace session setup and Box cleanup failed.") }
+      throw error
+    }
+  }
   return {
     ...workspace,
+    [Symbol.for("vitehub.workspace.start-box-session")]: startBoxSession,
     async startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession> {
-      const host = await box.open()
-      try {
-        const session = await workspace.startSession({
-          ...options,
-          attach: true,
-          host,
-          target: options?.target || host.cwd,
-        })
-        let closePromise: Promise<void> | undefined
-        return {
-          ...session,
-          async close() {
-            closePromise ??= (async () => {
-              let sessionError: unknown
-              try {
-                await session.close()
-              }
-              catch (error) {
-                sessionError = error
-              }
-              try {
-                await host.close()
-              }
-              catch (error) {
-                if (sessionError) throw new AggregateError([sessionError, error], "[vitehub] Workspace and Box session cleanup failed.")
-                throw error
-              }
-              if (sessionError) throw sessionError
-            })()
-            await closePromise
-          },
-        }
-      }
-      catch (error) {
-        try {
-          await host.close()
-        }
-        catch (closeError) {
-          throw new AggregateError([error, closeError], "[vitehub] Workspace session setup and Box cleanup failed.")
-        }
-        throw error
-      }
+      return await startBoxSession(workspace, options)
     },
   }
 }

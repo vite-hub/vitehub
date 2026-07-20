@@ -14,6 +14,7 @@ interface RemoteRuntimeOptions {
   readonly isolation: BoxPlan["isolation"];
   readonly runtime: string;
   readonly workspace?: string;
+  readonly preserveWorkspace?: boolean;
 }
 
 export function remoteBoxPlan(
@@ -80,12 +81,12 @@ export async function resolveRemoteEnvironment(
 async function materializeRemotePlan(
   input: BoxRuntimeInput,
   session: RuntimeSession,
-  options: Pick<RemoteRuntimeOptions, "home" | "workspace"> & { signal?: AbortSignal },
+  options: Pick<RemoteRuntimeOptions, "home" | "workspace" | "preserveWorkspace"> & { signal?: AbortSignal },
 ) {
   const home = options.home ?? "/home/vitehub";
   const workspace = options.workspace ?? "/workspace";
   const abortSignal = options.signal;
-  for (const path of new Set([home, workspace])) {
+  for (const path of new Set([home, ...(options.preserveWorkspace ? [] : [workspace])])) {
     if (await session.existsFile({ abortSignal, path }))
       await session.removeFile({ abortSignal, path, recursive: true });
   }

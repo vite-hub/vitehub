@@ -132,7 +132,7 @@ async function findPnpmWorkspaceRoot(packageRoot: string, root: string) {
     if (!await isFile(file, root)) continue
     const source = await readFile(file, 'utf8')
     const packagePath = relative(directory, packageRoot).replaceAll('\\', '/') || '.'
-    if (isWorkspacePackage(packagePath, parsePnpmWorkspacePackages(source)))
+    if (directory === packageRoot || isWorkspacePackage(packagePath, parsePnpmWorkspacePackages(source)))
       return { directory, file, source }
   }
 }
@@ -216,7 +216,8 @@ export async function resolveSandboxProject(definitionFile: string, scanRoot: st
     : undefined
 
   const files: Record<string, SandboxProjectFile> = {}
-  await addProjectFile(files, installRoot, manifestPath, root)
+  for await (const match of glob('**/*', { cwd: packageRoot, exclude: ['node_modules/**', '.git/**', 'bun.lockb'] }))
+    await addProjectFile(files, installRoot, resolve(packageRoot, match), root)
   if (installRoot !== packageRoot)
     await addProjectFile(files, installRoot, resolve(installRoot, 'package.json'), root)
   if (workspace) {

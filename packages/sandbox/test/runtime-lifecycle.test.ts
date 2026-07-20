@@ -129,7 +129,7 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.open).toHaveBeenNthCalledWith(2, { id: "per-run" })
   })
 
-  it("does not destroy a shared Cloudflare Box during concurrent runs", async () => {
+  it("serializes concurrent runs that share a Cloudflare Box", async () => {
     setSandboxRuntimeConfig({ provider: "cloudflare" })
     setSandboxRuntimeRegistry({ example: definition })
     const releases: Array<() => void> = []
@@ -140,9 +140,11 @@ describe("Sandbox runtime lifecycle", () => {
     const runner = await resolveSandboxRunner("example")
     const first = runner.run()
     const second = runner.run()
+    await vi.waitFor(() => expect(runtimeMocks.open).toHaveBeenCalledOnce())
+    releases.shift()?.()
     await vi.waitFor(() => expect(runtimeMocks.open).toHaveBeenCalledTimes(2))
     expect(runtimeMocks.open.mock.calls[0]?.[0]?.id).toBe(runtimeMocks.open.mock.calls[1]?.[0]?.id)
-    for (const release of releases) release()
+    releases.shift()?.()
     await Promise.all([first, second])
 
     expect(runtimeMocks.close).not.toHaveBeenCalled()
