@@ -52,6 +52,56 @@ afterEach(() => {
   loadAiSdk.mockImplementation(async () => await import("ai"))
 })
 
+async function failedTitleInvocation(options: {
+  deliver?: (title: string) => Promise<void> | void
+  execute: () => string
+  fallback?: string
+  maxLength?: number
+  trigger?: string
+  when?: () => boolean
+}) {
+  const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+  const { defineChannel } = await import("../src/channels.ts")
+  const failure = new Error("driver failed")
+  const delivered: string[] = []
+  const titleEffect = vi.fn(async (context: { effect: { payload?: unknown } }) => {
+    const value = (context.effect.payload as { title: string }).title
+    await options.deliver?.(value)
+    delivered.push(value)
+  })
+  const agent = defineAgent({
+    capabilities: [title({
+      execute: options.execute,
+      ...(options.fallback === undefined ? {} : { fallback: options.fallback }),
+      ...(options.maxLength === undefined ? {} : { maxLength: options.maxLength }),
+      ...(options.trigger === undefined ? {} : { trigger: options.trigger }),
+      ...(options.when === undefined ? {} : { when: options.when }),
+    })],
+    channels: {
+      portal: defineChannel("portal", {
+        effects: { title: titleEffect as never },
+        messages: false,
+        triggers: {
+          message: {
+            invoke: context => ({
+              input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
+              run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+            }),
+          },
+        },
+      }),
+    },
+    driver: { run: () => { throw failure } },
+  })
+
+  await expect(runAgentTrigger(agent, {
+    memo: vi.fn(),
+    runtime: "unknown" as const,
+    waitUntil: vi.fn(),
+  }, "portal.message", {})).rejects.toBe(failure)
+  return { delivered, titleEffect }
+}
+
 describe("agent message protocol", () => {
   it("normalizes undefined tool output to JSON null", () => {
     expect(toJsonCompatibleValue(undefined)).toBeNull()
@@ -1705,6 +1755,8 @@ describe("agent message protocol", () => {
         }),
         createMessage({ id: "user-2", parts: [{ data: { scope: "kiwi-714" }, type: "data" }], role: "user" }),
         createMessage({ id: "user-3", parts: [{ error: "prior lookup warning", type: "error" }], role: "user" }),
+        createMessage({ id: "user-provider-only", parts: [{ fetchData: () => new Uint8Array([1]), mediaType: "application/pdf", type: "file" }], role: "user" }),
+        createMessage({ id: "user-url", parts: [{ fetchData: () => new Uint8Array([1]), mediaType: "application/pdf", type: "file", url: "https://cdn.example.com/report.pdf" }], role: "user" }),
         createMessage({ id: "user-4", role: "user", text: "What marker?" }),
       ],
     })).resolves.toMatchObject({ text: "ok" })
@@ -1721,6 +1773,7 @@ describe("agent message protocol", () => {
         "Assistant: Tool confirmed marker.",
         "User: {\"scope\":\"kiwi-714\"}",
         "User: prior lookup warning",
+        "User: [{\"data\":\"https://cdn.example.com/report.pdf\",\"mediaType\":\"application/pdf\",\"type\":\"file\"}]",
         "User: What marker?",
         "",
         "Respond to the latest user message.",
@@ -1980,6 +2033,28 @@ describe("agent message protocol", () => {
       prompt: "Review this: checkout",
       session,
     }))
+    expect(session.destroy).toHaveBeenCalledOnce()
+  })
+
+  it("keeps remote attachment URLs visible to chat harnesses", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({ text: "ok" })
+    const agent = defineAgent({
+      driver: { harness: { provider: "codex" } },
+    })
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      context: { chat: {} },
+      messages: [createMessage({
+        parts: [{ mediaType: "image/png", name: "photo.png", type: "image", url: "https://cdn.example.com/photo.png" }],
+        role: "user",
+      })],
+    })
+
+    const prompt = (harnessGenerate.mock.calls[0]?.[0] as { prompt?: string }).prompt
+    expect(prompt).toContain("https://cdn.example.com/photo.png")
     expect(session.destroy).toHaveBeenCalledOnce()
   })
 
@@ -2952,6 +3027,197 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("preserves remote attachment parts without invoking provider callbacks", async () => {
+    const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
+    const fetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
+
+    expect(toAiSdkModelMessages([
+      createMessage({
+        id: "m1",
+        parts: [
+          { text: "inspect these", type: "text" },
+          { fetchData, mediaType: "image/png", name: "photo.png", type: "image", url: "https://cdn.example.com/photo.png" },
+          { mediaType: "application/pdf", name: "report.pdf", type: "file", url: "https://cdn.example.com/report.pdf" },
+          { mediaType: "application/octet-stream", type: "file", url: "http://internal.example.test/private" },
+        ],
+        role: "user",
+      }),
+    ])).toEqual([{
+      content: [
+        { text: "inspect these", type: "text" },
+        { image: new URL("https://cdn.example.com/photo.png"), mediaType: "image/png", type: "image" },
+        { data: new URL("https://cdn.example.com/report.pdf"), filename: "report.pdf", mediaType: "application/pdf", type: "file" },
+      ],
+      role: "user",
+    }])
+    expect(fetchData).not.toHaveBeenCalled()
+
+    expect(() => toAiSdkModelMessages([
+      createMessage({
+        parts: [{ data: new Blob([new Uint8Array([1])], { type: "image/png" }), mediaType: "image/png", type: "image" }],
+        role: "user",
+      }),
+    ])).toThrow("cannot convert a Blob synchronously")
+
+    expect(() => toAiSdkModelMessages([
+      createMessage({
+        parts: [{ fetchData, mediaType: "image/png", type: "image" }],
+        role: "user",
+      }),
+    ])).toThrow("cannot resolve attachment callbacks synchronously")
+  })
+
+  it("maps Web Chat file parts to typed attachment references", async () => {
+    const { uiMessagesToAgentMessages } = await import("../src/chat-message-input.ts")
+
+    expect(uiMessagesToAgentMessages([{
+      id: "web-1",
+      parts: [
+        { filename: "photo.png", mediaType: "image/png", type: "file", url: "https://cdn.example.com/photo.png" },
+        { filename: "voice.ogg", mediaType: "audio/ogg", type: "file", url: "https://cdn.example.com/voice.ogg" },
+        { filename: "report.pdf", mediaType: "application/pdf", type: "file", url: "https://cdn.example.com/report.pdf" },
+      ],
+      role: "user",
+    }])[0]?.parts).toEqual([
+      { mediaType: "image/png", name: "photo.png", type: "image", url: "https://cdn.example.com/photo.png" },
+      { mediaType: "audio/ogg", name: "voice.ogg", type: "audio", url: "https://cdn.example.com/voice.ogg" },
+      { mediaType: "application/pdf", name: "report.pdf", type: "file", url: "https://cdn.example.com/report.pdf" },
+    ])
+  })
+
+  it("resolves provider callbacks only at model invocation with byte limits", async () => {
+    const generate = vi.fn(async (_input: unknown) => ({ finishReason: "stop", text: "ok" }))
+    loadAiSdk.mockResolvedValue({
+      isStepCount: vi.fn(count => ({ count })),
+      jsonSchema: vi.fn(schema => schema),
+      ToolLoopAgent: class {
+        constructor(_settings: unknown) {}
+
+        async generate(input: unknown) {
+          return await generate(input)
+        }
+      },
+    })
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const fetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
+    const staleFetchData = vi.fn(async () => new Uint8Array([7, 8, 9]))
+    const ignoredAssistantFetchData = vi.fn(async () => new Uint8Array([4, 5, 6]))
+    const agent = defineAgent({
+      driver: {
+        execution: { attachments: { maxBytes: 3 } },
+        model: "attachment-model" as never,
+      },
+    })
+
+    expect(fetchData).not.toHaveBeenCalled()
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [
+        createMessage({
+          id: "historical-attachment",
+          parts: [{ fetchData: staleFetchData, mediaType: "application/pdf", type: "file" }],
+          role: "user",
+        }),
+        createMessage({
+          parts: [{ fetchData: ignoredAssistantFetchData, mediaType: "image/png", size: 3, type: "image" }],
+          role: "assistant",
+        }),
+        createMessage({
+          id: "current-attachment",
+          parts: [{ fetchData, mediaType: "image/png", size: 3, type: "image", url: "https://cdn.example.com/photo.png" }],
+          role: "user",
+        }),
+      ],
+      context: { channel: { message: { id: "current-attachment", text: "" } } },
+    })).resolves.toMatchObject({ text: "ok" })
+    expect(fetchData).toHaveBeenCalledOnce()
+    expect(staleFetchData).not.toHaveBeenCalled()
+    expect(ignoredAssistantFetchData).not.toHaveBeenCalled()
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({
+      messages: [{
+        content: [{ image: new Uint8Array([1, 2, 3]), mediaType: "image/png", type: "image" }],
+        role: "user",
+      }],
+    }))
+
+    const currentIdlessFetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
+    const staleIdlessFetchData = vi.fn(async () => new Uint8Array([4, 5, 6]))
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      context: { channel: { message: { text: "" } } },
+      messages: [
+        createMessage({ parts: [{ fetchData: staleIdlessFetchData, mediaType: "application/pdf", type: "file" }], role: "user" }),
+        createMessage({ parts: [{ fetchData: currentIdlessFetchData, mediaType: "image/png", type: "image" }], role: "user" }),
+      ],
+    })
+    expect(staleIdlessFetchData).not.toHaveBeenCalled()
+    expect(currentIdlessFetchData).toHaveBeenCalledOnce()
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      context: { channel: { message: { id: "current-text", text: "continue" } } },
+      messages: [
+        createMessage({
+          id: "historical-blob",
+          parts: [{ data: new Blob([new Uint8Array([1, 2, 3])]), mediaType: "application/pdf", type: "file" }],
+          role: "user",
+        }),
+        createMessage({ id: "current-text", role: "user", text: "continue" }),
+      ],
+    })
+    const historyCall = generate.mock.calls.at(-1)?.[0] as { messages?: Array<{ content?: Array<{ data?: unknown }> }> }
+    expect(historyCall.messages?.[0]?.content?.[0]?.data).toBeInstanceOf(ArrayBuffer)
+
+    const blobAgent = defineAgent({
+      driver: {
+        execution: { attachments: { maxBytes: 3 } },
+        model: "attachment-model" as never,
+      },
+    })
+    await runAgent(blobAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ data: new Blob([new Uint8Array([1, 2, 3])]), mediaType: "application/pdf", type: "file" }],
+        role: "user",
+      })],
+    })
+    const blobCall = generate.mock.calls.at(-1)?.[0] as { messages?: Array<{ content?: Array<{ data?: unknown }> }> }
+    expect(blobCall.messages?.[0]?.content?.[0]?.data).toBeInstanceOf(ArrayBuffer)
+
+    const oversizedFetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
+    const oversizedAgent = defineAgent({
+      driver: {
+        execution: { attachments: { maxBytes: 2 } },
+        model: "attachment-model" as never,
+      },
+    })
+    await expect(runAgent(oversizedAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ fetchData: oversizedFetchData, mediaType: "application/pdf", size: 3, type: "file" }],
+        role: "user",
+      })],
+    })).rejects.toThrow("exceeds maxBytes")
+    expect(oversizedFetchData).not.toHaveBeenCalled()
+
+    const firstAggregateFetch = vi.fn(async () => new Uint8Array([1, 2]))
+    const secondAggregateFetch = vi.fn(async () => new Uint8Array([3, 4]))
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [
+          { fetchData: firstAggregateFetch, mediaType: "application/pdf", size: 2, type: "file" },
+          { fetchData: secondAggregateFetch, mediaType: "application/pdf", size: 2, type: "file" },
+        ],
+        role: "user",
+      })],
+    })).rejects.toThrow("exceeds maxBytes")
+    expect(firstAggregateFetch).toHaveBeenCalledOnce()
+    expect(secondAggregateFetch).not.toHaveBeenCalled()
+
+    const emptyFetchData = vi.fn(async () => "")
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ fetchData: emptyFetchData, mediaType: "application/pdf", type: "file" }],
+        role: "user",
+      })],
+    })).rejects.toThrow("did not return supported attachment data")
+  })
+
   it("preserves prefixed data parts during model conversion", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 
@@ -3687,6 +3953,64 @@ describe("agent message protocol", () => {
     await Promise.all(waitUntilTasks)
     expect(execute).toHaveBeenCalledOnce()
     expect(titleEffect).toHaveBeenCalledTimes(2)
+  })
+
+  it("marks failed message Channel titles after applying the ordinary title", async () => {
+    const execute = vi.fn(() => "Useful existing title")
+    const { delivered } = await failedTitleInvocation({ execute })
+
+    expect(execute).toHaveBeenCalledOnce()
+    expect(delivered).toEqual([
+      "Useful existing title",
+      "ERROR: Useful existing title",
+    ])
+  })
+
+  it("retries the ordinary title before marking a failed message Channel", async () => {
+    const deliver = vi.fn()
+      .mockRejectedValueOnce(new Error("temporary title failure"))
+      .mockResolvedValue(undefined)
+    const { delivered, titleEffect } = await failedTitleInvocation({
+      deliver,
+      execute: () => "Useful existing title",
+    })
+
+    expect(titleEffect).toHaveBeenCalledTimes(3)
+    expect(delivered).toEqual([
+      "Useful existing title",
+      "ERROR: Useful existing title",
+    ])
+  })
+
+  it.each([
+    ["ERROR: ERROR: Existing title", 80, "ERROR: Existing title"],
+    ["Quarterly billing reconciliation", 20, "ERROR: Quarterly bil"],
+  ])("keeps failed title prefixes idempotent within maxLength", async (generatedTitle, maxLength, expectedTitle) => {
+    const { delivered } = await failedTitleInvocation({ execute: () => generatedTitle, maxLength })
+
+    expect(delivered.at(-1)).toBe(expectedTitle)
+    expect(delivered.at(-1)?.length).toBeLessThanOrEqual(maxLength)
+    expect(delivered.at(-1)?.match(/ERROR:/g)).toHaveLength(1)
+  })
+
+  it("uses the configured fallback when failed title generation produced no title", async () => {
+    const execute = vi.fn(() => { throw new Error("title failed") })
+    const { delivered } = await failedTitleInvocation({ execute, fallback: "Untitled" })
+
+    expect(execute).toHaveBeenCalledOnce()
+    expect(delivered).toEqual(["ERROR: Untitled"])
+  })
+
+  it.each([
+    ["trigger", { trigger: "schedule.tick" }],
+    ["when", { when: () => false }],
+  ])("does not mark failed titles skipped by the %s filter", async (_filter, options) => {
+    const execute = vi.fn(() => "Skipped title")
+    const { delivered, titleEffect } = await failedTitleInvocation({ execute, ...options })
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(titleEffect).not.toHaveBeenCalled()
+    expect(delivered).toEqual([])
   })
 
   it("retries title delivery at finish when any early delivery handler fails", async () => {

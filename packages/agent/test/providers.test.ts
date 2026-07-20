@@ -32,7 +32,7 @@ const optionalMessageAdapterRuntimeExternals = [
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
 
-function createTestChatAdapter(options: { deferMessageProcessing?: boolean, missingIncomingMessageId?: boolean, persistThreadHistory?: boolean, secret?: string } = {}) {
+function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Buffer>, deferMessageProcessing?: boolean, missingIncomingMessageId?: boolean, persistThreadHistory?: boolean, secret?: string } = {}) {
   let chatInstance: ChatInstance | undefined
   let sentMessageId = 0
   const cachedMessages = new Map<string, Message[]>()
@@ -62,7 +62,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
       const message = new Message({
         attachments: rawMessage.audio
           ? [{
-              fetchData: async () => Buffer.from([1, 2, 3]),
+              fetchData: options.attachmentFetchData ?? (async () => Buffer.from([1, 2, 3])),
               fetchMetadata: { fileId: "audio-file" },
               mimeType: "audio/ogg",
               name: "voice.ogg",
@@ -71,16 +71,17 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
             }]
           : typeof document?.file_id === "string" && typeof document.mime_type === "string" && document.mime_type.startsWith("audio/")
             ? [{
-                fetchData: async () => Buffer.from([1, 2, 3]),
+                fetchData: options.attachmentFetchData ?? (async () => Buffer.from([1, 2, 3])),
                 fetchMetadata: { fileId: document.file_id },
                 mimeType: document.mime_type,
                 name: document.file_name,
                 size: document.file_size,
                 type: "file",
+                ...(typeof document.url === "string" ? { url: document.url } : {}),
               }]
           : document && (typeof document.file_id === "string" || typeof document.url === "string" || typeof document.content === "string")
             ? [{
-                ...(typeof document.content === "string" ? { fetchData: async () => Buffer.from(document.content ?? "") } : {}),
+                ...(typeof document.content === "string" ? { fetchData: options.attachmentFetchData ?? (async () => Buffer.from(document.content ?? "")) } : {}),
                 ...(typeof document.file_id === "string" ? { fetchMetadata: { fileId: document.file_id } } : {}),
                 ...(document.mime_type ? { mimeType: document.mime_type } : {}),
                 name: document.file_name,
@@ -90,7 +91,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
               }]
           : typeof photo?.file_id === "string"
             ? [{
-                fetchData: async () => Buffer.from([1, 2, 3]),
+                fetchData: options.attachmentFetchData ?? (async () => Buffer.from([1, 2, 3])),
                 fetchMetadata: { fileId: photo.file_id },
                 height: photo.height,
                 size: photo.file_size,
@@ -454,7 +455,7 @@ describe("agent Vite plugin", () => {
       expect(wrapper).toContain("const viteHubChatStateOptions = {\"tablePrefix\":\"agent_state_\",\"url\":\"libsql://state.example.test\"}")
       expect(wrapper).not.toContain("build-token")
       expect(wrapper).toContain("function chatStateFromLibsql()")
-      expect(wrapper).toContain("handler(request, webhook, { agentIdentity: agentIdentities[agent], state: viteHubChatStateResolver, waitUntil })")
+      expect(wrapper).toContain("handler(request, webhook, { agentIdentity: agentIdentities[agent], state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil })")
       expect(wrapper).not.toContain("runtime: 'vite'")
       expect(wrapper).not.toContain("@vite-hub/schedule/runtime")
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith({
@@ -531,7 +532,7 @@ describe("agent Vite plugin", () => {
       })
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
-      expect(wrapper).toContain("handler(request, webhook, { agentIdentity: agentIdentities[agent], runtime: 'vite', state: viteHubChatStateResolver, waitUntil })")
+      expect(wrapper).toContain("handler(request, webhook, { agentIdentity: agentIdentities[agent], runtime: 'vite', state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil })")
       expect(wrapper).toContain("handler(request, { agentIdentity: agentIdentities[agent], runtime: 'vite', waitUntil })")
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith(expect.objectContaining({
         netlify: expect.objectContaining({
@@ -1296,7 +1297,7 @@ describe("agent Vite plugin", () => {
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN")
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_URL")
         expect(webhookRoute).toContain("function chatStateFromLibsql()")
-        expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, waitUntil: waitUntilFromEvent(event) })")
+        expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, waitUntil: waitUntilFromEvent(event) })")
       }
       finally {
         await rm(root, { force: true, recursive: true })
@@ -1318,7 +1319,7 @@ describe("agent Vite plugin", () => {
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
       expect(webhookRoute).not.toContain("runtime: 'vite'")
-      expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, waitUntil: waitUntilFromEvent(event) })")
+      expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, waitUntil: waitUntilFromEvent(event) })")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -1422,7 +1423,8 @@ describe("agent Vite plugin", () => {
       expect(denoServer).toContain("await import('../schedule/deno-cron.mjs').catch")
       expect(denoServer).toContain("const chatRoutePattern = new RegExp(\"^/api/_vitehub/agents/(?<agent>[^/]+)/chat$\")")
       expect(denoServer).toContain("const webhookRoutePattern = new RegExp(\"^/api/_vitehub/agents/(?<agent>[^/]+)/webhooks/(?<webhook>[^/]+)$\")")
-      expect(denoServer).toContain("return isWebhookRoute ? await handler(request, webhook, { agentIdentity: agentIdentities[agent] }) : await handler(request, { agentIdentity: agentIdentities[agent] })")
+      expect(denoServer).toContain("import { createLibsqlAgentState } from \"@vite-hub/agent/state/sqlite\"")
+      expect(denoServer).toContain("return isWebhookRoute ? await handler(request, webhook, { agentIdentity: agentIdentities[agent], state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver }) : await handler(request, { agentIdentity: agentIdentities[agent], state: viteHubChatStateResolver })")
       expect(denoServer).not.toContain("@vite-hub/schedule/runtime")
       expect(denoServer).toContain("function resolveDenoServeOptions(args)")
       expect(denoServer).toContain("const serveOptions = resolveDenoServeOptions(Deno.args)")
@@ -1557,6 +1559,7 @@ describe("agent Vite plugin", () => {
   it("publishes only required root runtime peers", async () => {
     const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
       dependencies?: Record<string, string>
+      devDependencies?: Record<string, string>
       peerDependencies?: Record<string, string>
       peerDependenciesMeta?: Record<string, unknown>
     }
@@ -1579,6 +1582,10 @@ describe("agent Vite plugin", () => {
     expect(pkg.peerDependenciesMeta?.askweb).toEqual({ optional: true })
     expect(pkg.peerDependenciesMeta?.evalite).toBeUndefined()
     expect(pkg.peerDependenciesMeta?.vitest).toEqual({ optional: true })
+    expect(pkg.devDependencies?.["@ai-sdk/harness-codex"]).toBe("catalog:ai")
+    expect(pkg.peerDependencies?.["@ai-sdk/harness"]).toBe("catalog:ai-compat")
+    expect(pkg.peerDependencies?.["@ai-sdk/harness-claude-code"]).toBe("catalog:ai")
+    expect(pkg.peerDependencies?.["@ai-sdk/harness-codex"]).toBe("catalog:ai-compat")
     expect(pkg.peerDependencies?.ai).toBe("catalog:ai-compat")
     expect(pkg.dependencies?.["@types/json-schema"]).toBe("catalog:ai")
     expect(builtJs).not.toContain("import(\"@vite-hub/workflow\")")
@@ -2880,6 +2887,12 @@ describe("server helpers", () => {
         }),
         parts: [
           expect.objectContaining({ text: "hello", type: "text" }),
+          expect.objectContaining({
+            fetchData: expect.any(Function),
+            fetchMetadata: { fileId: "audio-file" },
+            mediaType: "audio/ogg",
+            type: "audio",
+          }),
         ],
       })],
       run: expect.objectContaining({
@@ -3226,11 +3239,12 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenCalledTimes(2)
   })
 
-  it("does not map audio mime file attachments without transcribe()", async () => {
+  it("maps audio mime file attachments by default without resolving bytes", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const adapter = createTestChatAdapter()
+    const attachmentFetchData = vi.fn(async () => Buffer.from([1, 2, 3]))
+    const adapter = createTestChatAdapter({ attachmentFetchData })
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
       channels: {
@@ -3251,6 +3265,7 @@ describe("server helpers", () => {
             file_name: "forwarded.ogg",
             file_size: 3,
             mime_type: "audio/ogg",
+            url: "https://cdn.example.com/forwarded.ogg",
           },
           from: { first_name: "Maxi", id: 123, username: "maxi" },
           message_id: 108,
@@ -3266,16 +3281,27 @@ describe("server helpers", () => {
       messages: [expect.objectContaining({
         parts: [
           expect.objectContaining({ text: "reenviado", type: "text" }),
+          expect.objectContaining({
+            fetchData: expect.any(Function),
+            fetchMetadata: { fileId: "forwarded-audio-file" },
+            mediaType: "audio/ogg",
+            name: "forwarded.ogg",
+            size: 3,
+            type: "audio",
+            url: "https://cdn.example.com/forwarded.ogg",
+          }),
         ],
       })],
     }))
+    expect(attachmentFetchData).not.toHaveBeenCalled()
   })
 
   it("invokes chat agents for attachment-only image messages", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const adapter = createTestChatAdapter()
+    const attachmentFetchData = vi.fn(async () => Buffer.from([1, 2, 3]))
+    const adapter = createTestChatAdapter({ attachmentFetchData })
     const hostIdentity = { name: "support", workspace: "support-workspace" }
     const run = vi.fn(({ agentIdentity }) => {
       expect(agentIdentity).toEqual(hostIdentity)
@@ -3312,10 +3338,58 @@ describe("server helpers", () => {
       messages: [expect.objectContaining({
         parts: [
           expect.objectContaining({
-            text: "Sent an image attachment.",
-            type: "text",
+            fetchData: expect.any(Function),
+            fetchMetadata: { fileId: "large-photo" },
+            mediaType: "application/octet-stream",
+            size: 3,
+            type: "file",
           }),
         ],
+      })],
+    }))
+    expect(attachmentFetchData).not.toHaveBeenCalled()
+  })
+
+  it("preserves generic attachment URLs as typed references", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: { telegram: telegram({ adapter: () => adapter as never }) },
+      driver: { run },
+    })
+
+    const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 43,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          document: {
+            file_name: "report.pdf",
+            file_size: 2048,
+            mime_type: "application/pdf",
+            url: "https://cdn.discordapp.com/attachments/channel/message/report.pdf",
+          },
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1013,
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      messages: [expect.objectContaining({
+        parts: [expect.objectContaining({
+          mediaType: "application/pdf",
+          name: "report.pdf",
+          size: 2048,
+          type: "file",
+          url: "https://cdn.discordapp.com/attachments/channel/message/report.pdf",
+        })],
       })],
     }))
   })
@@ -3415,7 +3489,6 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         defineCapability({
-          chatAttachments: { audio: true },
           id: "custom-audio",
           input,
         }),
@@ -3479,7 +3552,6 @@ describe("server helpers", () => {
         defineCapability({
           capabilities: [
             defineCapability({
-              chatAttachments: { audio: true },
               id: "nested-audio",
               input,
             }),
@@ -4423,6 +4495,344 @@ describe("server helpers", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it("claims webhook deliveries and exact-context concurrency before running the agent", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-ownership-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const acquireLock = vi.spyOn(state, "acquireLock")
+    const extendLock = vi.spyOn(state, "extendLock")
+    let releaseFirstRun!: () => void
+    const firstRun = new Promise<void>(resolve => {
+      releaseFirstRun = resolve
+    })
+    const run = vi.fn(async () => {
+      if (run.mock.calls.length === 1) await firstRun
+      return "accepted"
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => {
+                const deliveryId = (input as { github?: { deliveryId?: string } }).github?.deliveryId || ""
+                return {
+                  input: { prompt: "github delivery" },
+                  webhook: {
+                    concurrencyKey: "acme/app:42:head-sha",
+                    deliveryId,
+                  },
+                }
+              },
+            },
+          },
+          webhooks: { secretToken: "secret-token" },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntilTasks: Promise<unknown>[] = []
+    const webhookStateContexts: unknown[] = []
+    const request = (deliveryId: string) => {
+      const body = JSON.stringify({ action: "labeled" })
+      return new Request("https://example.com/api/github/webhook", {
+        body,
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": deliveryId,
+          "x-github-event": "pull_request",
+          "x-hub-signature-256": githubSignature("secret-token", body),
+        },
+        method: "POST",
+      })
+    }
+    const options = {
+      agentName: "review",
+      webhookState: (context: unknown) => {
+        webhookStateContexts.push(context)
+        return state
+      },
+      waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
+    }
+
+    try {
+      vi.useFakeTimers()
+      const accepted = await handler(request("delivery-1"), "github", options)
+      await expect(accepted.json()).resolves.toEqual({ accepted: true, ok: true })
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      expect(acquireLock).toHaveBeenCalledWith("webhook:review:github:github:lease:acme/app:42:head-sha", 30_000)
+      await vi.advanceTimersByTimeAsync(15_000)
+
+      const concurrentDuplicate = await handler(request("delivery-1"), "github", options)
+      await expect(concurrentDuplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true })
+
+      const busy = await handler(request("delivery-2"), "github", options)
+      expect(busy.status).toBe(503)
+      await expect(busy.json()).resolves.toEqual({ accepted: false, busy: true, ok: true })
+      expect(extendLock).toHaveBeenCalled()
+      expect(run).toHaveBeenCalledOnce()
+
+      releaseFirstRun()
+      await Promise.all(waitUntilTasks.splice(0))
+
+      const duplicate = await handler(request("delivery-1"), "github", options)
+      await expect(duplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true })
+
+      const rerun = await handler(request("delivery-2"), "github", options)
+      await expect(rerun.json()).resolves.toEqual({ accepted: true, ok: true })
+      await Promise.all(waitUntilTasks)
+      expect(run).toHaveBeenCalledTimes(2)
+      await expect(state.get("webhook:review:github:github:delivery:delivery-1")).resolves.toBe(true)
+      await expect(state.get("webhook:review:github:github:delivery:delivery-2")).resolves.toBe(true)
+      expect(webhookStateContexts[0]).toMatchObject({
+        webhook: {
+          agentName: "review",
+          channelId: "github",
+          provider: "github",
+          stateKeyPrefix: "webhook:review:github:github:",
+        },
+      })
+    }
+    finally {
+      releaseFirstRun()
+      await Promise.allSettled(waitUntilTasks)
+      vi.useRealTimers()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("aborts an inline webhook run when its ownership lease is lost", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-lost-lease-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const extendLock = vi.fn(async () => false)
+    const losingState = new Proxy(state, {
+      get(target, property) {
+        if (property === "extendLock") return extendLock
+        const value = Reflect.get(target, property)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    let abortSignal: AbortSignal | undefined
+    const run = vi.fn(async ({ input }: { input: { abortSignal?: AbortSignal } }) => {
+      if (run.mock.calls.length > 1) return "accepted"
+      abortSignal = input.abortSignal
+      if (!abortSignal?.aborted) {
+        await new Promise<void>(resolve => abortSignal?.addEventListener("abort", () => resolve(), { once: true }))
+      }
+      return "aborted"
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => ({
+                input: { prompt: "github delivery" },
+                webhook: {
+                  concurrencyKey: "acme/app:42:head-sha",
+                  concurrencyTtlMs: 1_000,
+                  deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
+                },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntilTasks: Promise<unknown>[] = []
+    const request = (deliveryId: string) => new Request("https://example.com/api/github/webhook", {
+      body: JSON.stringify({ action: "labeled" }),
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": deliveryId,
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    })
+    const options = {
+      agentName: "review",
+      webhookState: losingState,
+      waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
+    }
+
+    try {
+      vi.useFakeTimers()
+      const accepted = await handler(request("delivery-1"), "github", options)
+      await expect(accepted.json()).resolves.toEqual({ accepted: true, ok: true })
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(500)
+      await Promise.all(waitUntilTasks.splice(0))
+
+      expect(extendLock).toHaveBeenCalledOnce()
+      expect(abortSignal?.aborted).toBe(true)
+
+      const rerun = await handler(request("delivery-2"), "github", options)
+      await expect(rerun.json()).resolves.toEqual({ accepted: true, ok: true })
+      await Promise.all(waitUntilTasks)
+      expect(run).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      vi.useRealTimers()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("fails closed when webhook ownership has no durable state", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({
+                input: { prompt: "github delivery" },
+                webhook: { deliveryId: "delivery-1" },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+
+    const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/github/webhook", {
+      body: JSON.stringify({ action: "labeled" }),
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-1",
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    }), "github")
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toMatchObject({
+      message: "Durable Agent state is required for webhook delivery ownership.",
+      status: 503,
+    })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("fails closed before queueing workflow-backed webhook concurrency", async () => {
+    const { defineAgent, workflow } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({
+                input: { prompt: "github delivery" },
+                webhook: {
+                  concurrencyKey: "acme/app:42:head-sha",
+                  deliveryId: "delivery-1",
+                },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+      runtime: workflow("review"),
+    })
+
+    const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/github/webhook", {
+      body: JSON.stringify({ action: "labeled" }),
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-1",
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    }), "github")
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toMatchObject({
+      message: "Webhook concurrency ownership requires inline Agent execution.",
+      status: 503,
+    })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("keeps capability-bound default Workflow webhook runs inline", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-inline-workflow-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const run = vi.fn(() => "accepted")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({
+                input: { prompt: "github delivery" },
+                webhook: {
+                  concurrencyKey: "acme/app:42:head-sha",
+                  deliveryId: "delivery-1",
+                },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    const waitUntilTasks: Promise<unknown>[] = []
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    try {
+      const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/github/webhook", {
+        body: JSON.stringify({ action: "labeled" }),
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": "delivery-1",
+          "x-github-event": "pull_request",
+        },
+        method: "POST",
+      }), "github", {
+        agentIdentity: { name: "review" },
+        capabilities: { kv: {} as never },
+        webhookState: state,
+        waitUntil: task => waitUntilTasks.push(task),
+      })
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ accepted: true, ok: true })
+      await Promise.all(waitUntilTasks)
+      expect(run).toHaveBeenCalledOnce()
+    }
+    finally {
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("does not route channel webhook arrays by unsuffixed channel id", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { http } = await import("../src/channels.ts")
@@ -4448,6 +4858,58 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(404)
     await expect(response.json()).resolves.toMatchObject({ message: "Unknown ViteHub agent webhook.", status: 404 })
+  })
+
+  it("isolates delivery claims between webhook registrations", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-registration-ownership-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const run = vi.fn(() => "accepted")
+    const agent = defineAgent({
+      channels: {
+        support: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({
+                input: { prompt: "handle delivery" },
+                webhook: { deliveryId: "shared-delivery" },
+              }),
+            },
+          },
+          webhooks: [
+            { id: "primary", path: "/api/support/primary", secretToken: false },
+            { id: "fallback", path: "/api/support/fallback", secretToken: false },
+          ],
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntilTasks: Promise<unknown>[] = []
+    const options = {
+      agentName: "support",
+      webhookState: state,
+      waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
+    }
+
+    try {
+      const primary = await handler(new Request("https://example.com/webhook", { method: "POST" }), "primary", options)
+      const fallback = await handler(new Request("https://example.com/webhook", { method: "POST" }), "fallback", options)
+
+      await expect(primary.json()).resolves.toEqual({ accepted: true, ok: true })
+      await expect(fallback.json()).resolves.toEqual({ accepted: true, ok: true })
+      await Promise.all(waitUntilTasks)
+      expect(run).toHaveBeenCalledTimes(2)
+      await expect(state.get("webhook:support:support:primary:delivery:shared-delivery")).resolves.toBe(true)
+      await expect(state.get("webhook:support:support:fallback:delivery:shared-delivery")).resolves.toBe(true)
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
   })
 
   it("does not route ambiguous provider webhook selectors", async () => {
@@ -4753,6 +5215,29 @@ describe("server helpers", () => {
       error: readError,
     })
     expect(state.releaseLock).toHaveBeenCalledWith(lock)
+  })
+
+  it("clears a delivered Title claim before marking a failed Channel", async () => {
+    const {
+      finishMessageChannelTitleDelivery,
+      resetMessageChannelTitleDelivery,
+    } = await import("../src/internal/channels.ts")
+    const lock = { expiresAt: Date.now() + 60_000, threadId: "title:pending", token: "lock" }
+    const state = {
+      delete: vi.fn(async () => undefined),
+      releaseLock: vi.fn(async () => undefined),
+      set: vi.fn(async () => undefined),
+    }
+    const attempt = {
+      claim: { lock, markerKey: "channel-title:thread:delivered", state },
+      deliver: true,
+    }
+
+    await finishMessageChannelTitleDelivery(attempt as never, true)
+    await resetMessageChannelTitleDelivery(attempt as never)
+
+    expect(state.set).toHaveBeenCalledWith("channel-title:thread:delivered", true)
+    expect(state.delete).toHaveBeenCalledWith("channel-title:thread:delivered")
   })
 
   it("does not redeliver a Title when marker observation succeeds but lock release fails", async () => {
@@ -6110,7 +6595,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("falls back when durable thread history text attachment URLs fail", async () => {
+  it("preserves typed references when durable text attachment URL decoding fails", async () => {
     const { telegram } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
@@ -6120,6 +6605,7 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-history-stale-attachment-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const runs: string[][] = []
+    let receivedMessages: Array<{ parts: Array<Record<string, unknown>> }> = []
     try {
       await state.connect?.()
       await state.appendToList("msg-history:telegram:456", new Message({
@@ -6151,6 +6637,7 @@ describe("server helpers", () => {
         },
         driver: {
           run: ({ messages }) => {
+            receivedMessages = messages as unknown as Array<{ parts: Array<Record<string, unknown>> }>
             runs.push(messages.map(getMessageText))
             return "ok"
           },
@@ -6181,7 +6668,15 @@ describe("server helpers", () => {
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toEqual({ ok: true })
       expect(fetch).toHaveBeenCalledWith("https://cdn.example/old.txt")
-      expect(runs).toEqual([["Sent a file attachment.", "current after stale history"]])
+      expect(runs).toEqual([["", "current after stale history"]])
+      expect(receivedMessages[0]?.parts).toEqual([
+        expect.objectContaining({
+          mediaType: "text/plain",
+          name: "old.txt",
+          type: "file",
+          url: "https://cdn.example/old.txt",
+        }),
+      ])
     }
     finally {
       fetch.mockRestore()

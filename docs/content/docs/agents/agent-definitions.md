@@ -113,7 +113,7 @@ export default defineAgent({
 })
 ```
 
-The callback also receives the invocation input and runtime handles. Capabilities that contribute Agent Triggers, chat admission or attachments, or static Workspace Sources must stay in a static array because ViteHub registers those contributions before an invocation starts.
+The callback also receives the invocation input and runtime handles. Capabilities that contribute Agent Triggers, chat admission, or static Workspace Sources must stay in a static array because ViteHub registers those contributions before an invocation starts.
 
 ## Add Workspace context
 

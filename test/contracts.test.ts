@@ -127,15 +127,14 @@ describe("package manifest contracts", () => {
     }
   })
 
-  it("keeps blob adapter SDKs as optional peers", () => {
+  it("keeps the private Vercel Blob runtime owned by the blob package", () => {
     const manifest = readPackageManifest("blob")
 
-    for (const name of ["files-sdk"]) {
-      expect(manifest.dependencies?.[name], `${name} should not be installed with @vite-hub/blob by default`).toBeUndefined()
-      expect(manifest.peerDependencies?.[name], `${name} should be declared as an opt-in blob peer`).toEqual(expect.any(String))
-      expect(manifest.peerDependenciesMeta?.[name]?.optional, `${name} should be an optional blob peer`).toBe(true)
-      expect(manifest.devDependencies?.[name], `${name} should remain available for blob development and tests`).toEqual(expect.any(String))
-    }
+    expect(manifest.dependencies?.["files-sdk"]).toBeUndefined()
+    expect(manifest.peerDependencies?.["files-sdk"]).toEqual(expect.any(String))
+    expect(manifest.peerDependenciesMeta?.["files-sdk"]?.optional).toBe(true)
+    expect(manifest.devDependencies?.["files-sdk"]).toEqual(expect.any(String))
+    expect(manifest.dependencies?.["@vercel/blob"]).toEqual(expect.any(String))
   })
 })
 

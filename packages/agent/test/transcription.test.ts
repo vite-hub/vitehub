@@ -162,7 +162,7 @@ describe("agent transcription", () => {
     )
   })
 
-  it("accepts audio message parts", () => {
+  it("accepts typed attachment message parts and preserves multiple handles", () => {
     expect(createMessage({
       parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio" }],
       role: "user",
@@ -171,21 +171,45 @@ describe("agent transcription", () => {
     ])
 
     expect(createMessage({
-      parts: [{ fetchData: () => new Uint8Array([1]), mediaType: "audio/ogg", type: "audio" }],
+      parts: [{ fetchData: () => new Uint8Array([1]), fetchMetadata: { fileId: "audio-1" }, mediaType: "audio/ogg", type: "audio", url: "https://example.com/audio.ogg" }],
       role: "user",
     }).parts[0]).toMatchObject({
+      fetchData: expect.any(Function),
+      fetchMetadata: { fileId: "audio-1" },
       mediaType: "audio/ogg",
       type: "audio",
+      url: "https://example.com/audio.ogg",
     })
+
+    expect(createMessage({
+      parts: [
+        { mediaType: "image/png", type: "image", url: "https://example.com/photo.png" },
+        { mediaType: "application/pdf", name: "report.pdf", type: "file", url: "https://example.com/report.pdf" },
+      ],
+      role: "user",
+    }).parts).toMatchObject([
+      { type: "image", url: "https://example.com/photo.png" },
+      { name: "report.pdf", type: "file", url: "https://example.com/report.pdf" },
+    ])
   })
 
-  it("rejects serializing lazy audio message parts", () => {
+  it("rejects serializing lazy attachment message parts", () => {
     const message = createMessage({
       parts: [{ fetchData: () => new Uint8Array([1]), mediaType: "audio/ogg", type: "audio" }],
       role: "user",
     })
 
     expect(() => serializeMessages([message])).toThrow("cannot serialize")
+
+    expect(() => serializeMessages([createMessage({
+      parts: [{ fetchData: () => new Uint8Array([1]), mediaType: "image/png", type: "image" }],
+      role: "user",
+    })])).toThrow("cannot serialize")
+
+    expect(() => serializeMessages([createMessage({
+      parts: [{ data: new Uint8Array([1]), mediaType: "image/png", type: "image" }],
+      role: "user",
+    })])).toThrow("cannot serialize binary data")
   })
 
   it("rejects invalid audio message parts", () => {
@@ -195,9 +219,19 @@ describe("agent transcription", () => {
     })).toThrow("audio/* mediaType")
 
     expect(() => createMessage({
-      parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio", url: "https://example.com/audio.wav" }],
+      parts: [{ mediaType: "audio/wav", type: "audio" }],
       role: "user",
-    })).toThrow("exactly one of data, fetchData, or url")
+    })).toThrow("requires data, fetchData, or url")
+
+    expect(() => createMessage({
+      parts: [{ mediaType: "application/octet-stream", type: "image", url: "https://example.com/image" }],
+      role: "user",
+    })).toThrow("image/* mediaType")
+
+    expect(() => createMessage({
+      parts: [{ data: new Uint8Array(), mediaType: "audio/wav", type: "audio" }],
+      role: "user",
+    })).toThrow("requires data, fetchData, or url")
   })
 
   it("transcribes audio input with custom execution before agent execution", async () => {
@@ -232,6 +266,9 @@ describe("agent transcription", () => {
     expect(execute).toHaveBeenCalledWith({
       audio: { data: "AAAA", mediaType: "audio/wav", type: "audio" },
     })
+    expect(finish.mock.calls[0]![0].input.messages.at(-1)?.parts).toEqual([
+      { id: "text-0", text: "voice transcript", type: "text" },
+    ])
     expect(finish.mock.calls[0]![0].extensions.get("transcribe")).toEqual([{
       createdAt: expect.any(String),
       date: expect.any(String),

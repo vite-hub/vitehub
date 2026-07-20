@@ -7,6 +7,7 @@ import {
   finishMessageChannelTitleDelivery,
   messageChannelStateContextKey,
   messageChannelTitleDeliveredContextKey,
+  resetMessageChannelTitleDelivery,
 } from "../internal/channels.ts"
 import { getMessageText } from "../messages.ts"
 import { normalizeAgentDriver } from "../internal/agent-driver.ts"
@@ -33,6 +34,7 @@ import type { MessageChannelTitleDeliveryAttempt, MessageChannelStateBinding } f
 
 type ToUIMessageStream = (...args: unknown[]) => ReadableStream<unknown>
 const titleApplied = Symbol("vitehub.title.applied")
+const skippedTitleGeneration = Symbol("vitehub.title.skipped")
 type TitleApplied = { [titleApplied]?: true }
 
 export interface TitleExecuteInput {
@@ -118,6 +120,13 @@ function cleanGeneratedTitle(value: unknown, maxLength: number, fallback: string
   return (boundary >= 20 ? cut.slice(0, boundary) : title.slice(0, maxLength))
     .replace(/[\s"'`.!?:;,/-]+$/g, "")
     .trim() || fallback
+}
+
+function errorTitle(value: string | undefined, maxLength: number, fallback: string): string {
+  const existingTitle = (value || fallback)
+    .replace(/^(?:ERROR:\s*)+/i, "")
+    .trim() || "Untitled"
+  return cleanGeneratedTitle(`ERROR: ${existingTitle}`, maxLength, "ERROR".slice(0, Math.max(0, maxLength)))
 }
 
 function heuristicTitle(text: string, maxLength: number, fallback: string): string {
@@ -276,7 +285,7 @@ async function generateTitleWithDriver(
   } as never).generate(runContext as never))
 }
 
-async function generateTitle(context: AgentCapabilityRuntimeContext, options: TitleOptions, input: TitleExecuteInput): Promise<string | undefined> {
+async function generateTitle(context: AgentCapabilityRuntimeContext, options: TitleOptions, input: TitleExecuteInput): Promise<string | typeof skippedTitleGeneration> {
   const fallback = options.fallback ?? "Untitled"
   const maxLength = options.maxLength ?? 80
   const templateInput = {
@@ -287,8 +296,8 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
     trigger: agentTriggerId(context),
   }
 
-  if (!shouldRunForTrigger(options.trigger, templateInput.trigger)) return
-  if (options.when && !await options.when(templateInput)) return
+  if (!shouldRunForTrigger(options.trigger, templateInput.trigger)) return skippedTitleGeneration
+  if (options.when && !await options.when(templateInput)) return skippedTitleGeneration
 
   if (options.execute) {
     const result = await options.execute(input)
@@ -565,6 +574,8 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         await finishMessageChannelTitleDelivery(await getChannelDeliveryAttempt(), false).catch(() => undefined)
       }
       let title: Promise<string | undefined> | undefined
+      let titleClaimed = false
+      let titleSkipped = false
       const getTitle = () => {
         title ??= (async () => {
           const messages = context.input.messages()
@@ -573,6 +584,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           const pendingAttempt = getChannelDeliveryAttempt()
           const attempt = pendingAttempt instanceof Promise ? await pendingAttempt : pendingAttempt
           if (!attempt.deliver) return
+          titleClaimed = true
           try {
             const resolvedTitle = await generateTitle(context, options as TitleOptions, {
               input: context.input.get(),
@@ -580,6 +592,11 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
               messages,
               text: getMessageText(message),
             })
+            if (resolvedTitle === skippedTitleGeneration) {
+              titleSkipped = true
+              await finishMessageChannelTitleDelivery(attempt, false).catch(() => undefined)
+              return
+            }
             if (!resolvedTitle) {
               await finishMessageChannelTitleDelivery(attempt, false).catch(() => undefined)
             }
@@ -618,6 +635,27 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         return resolvedTitle ? { title: resolvedTitle } : undefined
       })
       const titleDeliveryEffect: AgentChannelDeliveryFinishEffectCallback = async (finish) => {
+        if (Object.hasOwn(finish.event, "error")) {
+          const resolvedTitle = await getTitle()
+          if (!titleClaimed || titleSkipped) return
+          const attempt = await getChannelDeliveryAttempt()
+          await resetMessageChannelTitleDelivery(attempt).catch(() => undefined)
+          const failureIntent = createMessageChannelTitleEffectIntent(
+            errorTitle(resolvedTitle, options.maxLength ?? 80, options.fallback ?? "Untitled"),
+            "always",
+            attempt,
+          )
+          if (!resolvedTitle || finish.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) {
+            return failureIntent
+          }
+          return [
+            createMessageChannelTitleEffectIntent(
+              resolvedTitle.trim(),
+              "always",
+            ),
+            failureIntent,
+          ]
+        }
         const resolvedTitle = finish.extensions.get(capabilityId, "title")
         return typeof resolvedTitle === "string" && resolvedTitle.trim()
           ? createMessageChannelTitleEffectIntent(
@@ -631,7 +669,8 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         Boolean(finish.channel)
         && Boolean(firstUserMessage(context.input.messages()))
         && finish.context.get<boolean>(messageChannelTitleSupportContextKey) !== false
-        && finish.context.get<boolean>(messageChannelTitleDeliveredContextKey) !== true
+        && (Object.hasOwn(finish.event, "error")
+          || finish.context.get<boolean>(messageChannelTitleDeliveredContextKey) !== true)
       titleDeliveryEffect.kind = "title"
       context.delivery.finishEffect(titleDeliveryEffect)
       context.output.render((result) => {

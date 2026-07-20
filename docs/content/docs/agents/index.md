@@ -28,6 +28,7 @@ An Agent Definition keeps the execution boundary visible in one file. The Agent 
 | --- | --- |
 | Declare the server actor, its driver, hooks, context, and abilities | [Agent Definitions](/docs/agents/agent-definitions) |
 | Choose model-backed, harness-backed, or custom-run-backed execution | [Agent Drivers](/docs/agents/agent-drivers) |
+| Understand how a harness wraps a model and composes with Skills and execution boundaries | [Harness](/docs/agents/harness) |
 | Compose model-facing instruction text and explicit primitive coverage | [Instructions](/docs/agents/instructions) |
 | Start, stream, and inspect one runtime request | [Invocations](/docs/agents/invocations) |
 

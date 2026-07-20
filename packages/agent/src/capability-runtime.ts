@@ -277,7 +277,6 @@ export async function resolveAgentCapabilityDefinitions<
     const unsupported = [
       capability.triggers ? "triggers" : undefined,
       capability.workspaceSources ? "workspaceSources" : undefined,
-      capability.chatAttachments ? "chatAttachments" : undefined,
       accessMetadata?.chat === true ? "chat access" : undefined,
     ].filter((value): value is string => Boolean(value))
     if (unsupported.length) {

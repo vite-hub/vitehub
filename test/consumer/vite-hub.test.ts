@@ -306,12 +306,12 @@ async function resolveEsmSpecifiers(entries: Array<{ parent: string, specifier: 
   return JSON.parse(String(stdout)) as Array<{ error?: string, resolved?: string }>
 }
 
-async function assertVercelOwnerImportsResolveInside(
+async function assertVercelRuntimeImportsResolveInside(
   functionsRoot: string,
   sources: Record<string, string>,
   message: string,
 ) {
-  const ownerImports = Object.entries(sources).flatMap(([file, source]) =>
+  const runtimeImports = Object.entries(sources).flatMap(([file, source]) =>
     importSpecifierOccurrences(source)
       .filter(({ specifier }) => specifier.startsWith("@vite-hub/"))
       .map(occurrence => ({ file, ...occurrence })),
@@ -322,10 +322,10 @@ async function assertVercelOwnerImportsResolveInside(
     const importer = join(functionsRoot, occurrence.file)
     return { ...occurrence, functionDir, importer }
   })
-  const invalid = ownerImports
+  const invalid = runtimeImports
     .filter(entry => !("functionDir" in entry) || !("importer" in entry))
     .map(entry => ({ ...entry, reason: "importer is outside a Vercel function" }))
-  const contained = ownerImports.filter(
+  const contained = runtimeImports.filter(
     (entry): entry is typeof entry & { functionDir: string, importer: string } => "functionDir" in entry && "importer" in entry,
   )
   const resolutions = await resolveEsmSpecifiers(contained.map(entry => ({
@@ -425,10 +425,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const vercelOptionalImports = vercelImports.filter(({ specifier }) => isOptionalPackageSpecifier(specifier))
       expect(vercelOptionalImports, "Vercel functions must not ship opt-in packages").toEqual([])
 
-      await assertVercelOwnerImportsResolveInside(
+      await assertVercelRuntimeImportsResolveInside(
         vercelFunctionsRoot,
         vercelSources,
-        "Vercel owner imports must resolve inside their own function output",
+        "Vercel runtime imports must resolve inside their own function output",
       )
 
       const cloudflareExternalImports = Object.entries(cloudflareSources).flatMap(([file, source]) =>

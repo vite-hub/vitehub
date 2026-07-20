@@ -153,6 +153,7 @@
   "devDependencies": {
     "@ai-sdk/harness": "catalog:ai",
     "@ai-sdk/harness-claude-code": "catalog:ai",
+    "@ai-sdk/harness-codex": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@types/node": "catalog:tooling",
@@ -170,9 +171,9 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
-    "@ai-sdk/harness": "catalog:ai",
+    "@ai-sdk/harness": "catalog:ai-compat",
     "@ai-sdk/harness-claude-code": "catalog:ai",
-    "@ai-sdk/harness-codex": "catalog:ai",
+    "@ai-sdk/harness-codex": "catalog:ai-compat",
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@vercel/functions": "catalog:vercel",

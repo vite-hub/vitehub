@@ -24,6 +24,7 @@ import {
   type ColocatedAgentSkills,
 } from "./internal/colocated-agent-skills.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
+import { isAttachmentPart } from "./messages.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import {
   applyAgentToolPolicies,
@@ -311,10 +312,22 @@ function renderHarnessModelMessageContent(content: unknown): string {
   return JSON.stringify(content)
 }
 
+function harnessSerializableMessages(messages: Message[]): Message[] {
+  return messages.map(message => ({
+    ...message,
+    parts: message.parts.flatMap((part) => {
+      if (!isAttachmentPart(part) || (!part.fetchData && !(part.data instanceof Blob))) return [part]
+      const { fetchData: _fetchData, ...reference } = part
+      if (reference.data instanceof Blob) delete reference.data
+      return reference.data || reference.url ? [reference] : []
+    }),
+  }))
+}
+
 function renderHarnessChatPrompt(messages: Message[]): string {
   return [
     "Conversation history:",
-    ...toAiSdkModelMessages(messages).map((message) => {
+    ...toAiSdkModelMessages(harnessSerializableMessages(messages)).map((message) => {
       const role = message.role === "assistant" ? "Assistant" : message.role === "user" ? "User" : message.role
       return `${role}: ${renderHarnessModelMessageContent(message.content)}`
     }),
@@ -347,7 +360,7 @@ async function toHarnessCallInput(context: AgentAdapterRunContext, resumesSessio
     }
     return {
       ...base,
-      messages: toAiSdkModelMessages(context.messages),
+      messages: toAiSdkModelMessages(harnessSerializableMessages(context.messages)),
     }
   }
   if (context.prompt) {
