@@ -3,6 +3,7 @@ import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
 import { readAgentUsageMetadata } from "./internal/agent-usage-metadata.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
+import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 
 import type { StreamEvent } from "./messages.ts"
 import type { AgentRunMetadata, AgentRunResult, AgentUsage, AgentUsageRecord } from "./types.ts"
@@ -107,6 +108,9 @@ export function finalTextFromAgentOutput(value: unknown): string | undefined {
   const raw = ownValue(value, "raw")
   if (isRecord(raw)) {
     const final = finalTextFromStructuredResult(raw)
+    if (final === "" && Object.getOwnPropertyDescriptor(value, synthesizedAgentOutputSymbol)?.value === true) {
+      return textFromResult(value) ?? final
+    }
     return final ?? textFromResult(value)
   }
 

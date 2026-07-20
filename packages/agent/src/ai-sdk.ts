@@ -10,6 +10,7 @@ import {
 } from "./capability-runtime.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
+import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import {
   applyAgentToolPolicies,
   reportWorkspaceMaterialization,
@@ -910,7 +911,11 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       if (fallback.enabled && (result.finishReason === "tool-calls" || !text && hasToolResults(result))) {
         const synthesized = await synthesizeWorkspaceFallback(model as never, context, result, fallback.maxToolResults)
           ?? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [])
-        if (synthesized) return { raw: result, text: synthesized }
+        if (synthesized) {
+          const output = { raw: result, text: synthesized }
+          Object.defineProperty(output, synthesizedAgentOutputSymbol, { value: true })
+          return output
+        }
       }
       if (text) return result as unknown as AgentAdapterResult
 

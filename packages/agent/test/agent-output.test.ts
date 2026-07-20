@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { applyStreamEvent } from "../src/messages.ts"
 import { finalChannelOutputSelectedSymbol } from "../src/internal/final-channel-output.ts"
+import { synthesizedAgentOutputSymbol } from "../src/internal/synthesized-agent-output.ts"
 import {
   finalTextFromAgentOutput,
   streamAgentOutputToEvents,
@@ -195,6 +196,22 @@ describe("agent output helpers", () => {
       },
       text: "Synthesized workspace answer.",
     })).toBe("")
+  })
+
+  it("preserves marked synthesized output when raw output ends at a tool", () => {
+    const value = {
+      raw: {
+        content: [
+          { text: "Checking the workspace.", type: "text" },
+          { toolCallId: "call-1", toolName: "workspace", type: "tool-call" },
+          { toolCallId: "call-1", toolName: "workspace", type: "tool-result" },
+        ],
+      },
+      text: "Synthesized workspace answer.",
+    }
+    Object.defineProperty(value, synthesizedAgentOutputSymbol, { value: true })
+
+    expect(finalTextFromAgentOutput(value)).toBe("Synthesized workspace answer.")
   })
 
   it("does not restore aggregate commentary when raw output ends at a tool", () => {
