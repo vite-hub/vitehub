@@ -286,6 +286,15 @@ describe("workspace host sessions", () => {
     await session.close()
   })
 
+  it("maps the portable /workspace cwd alias to a custom target", async () => {
+    const host = memoryHost()
+    const session = await workspace().startSession({ host, target: "/boxes/live" })
+
+    await session.exec("write", ["result.txt", "done"], { cwd: "/workspace" })
+    expect(host.readText("/boxes/live/result.txt")).toBe("done")
+    await session.close()
+  })
+
   it("resolves glob patterns from the requested working directory", async () => {
     const docs = workspace()
     await docs.writeFile("src/index.ts", "export {}")

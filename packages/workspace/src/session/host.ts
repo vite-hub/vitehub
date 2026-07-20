@@ -43,6 +43,8 @@ function toHostCwd(root: string, cwd: string | undefined) {
   if (!posix.isAbsolute(cwd)) return toHostPath(root, cwd)
   const normalized = posix.normalize(cwd)
   if (normalized === root || normalized.startsWith(`${root}/`)) return normalized
+  if (normalized === "/workspace" || normalized.startsWith("/workspace/"))
+    return toHostPath(root, normalized.slice("/workspace".length))
   throw new WorkspaceError(`[vitehub] Workspace exec cwd must stay inside ${root}: ${cwd}.`)
 }
 
