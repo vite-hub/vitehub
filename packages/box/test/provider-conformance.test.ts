@@ -119,7 +119,11 @@ function cloudflareFixture() {
     async destroy() {
       machine.stops++;
     },
-    async exec(_command, options) {
+    async exec(command, options) {
+      if (command.startsWith("rm -rf -- ")) {
+        machine.remove(command.slice("rm -rf -- ".length).replace(/^'|'$/g, ""), true);
+        return { exitCode: 0, stderr: "", stdout: "", success: true };
+      }
       return {
         exitCode: 0,
         stderr: "",
@@ -216,15 +220,7 @@ function vercelFixture() {
         machine.move(source, destination);
       },
       async rm(path, options) {
-        const target = normalize(path);
-        machine.files.delete(target);
-        machine.directories.delete(target);
-        if (options?.recursive) {
-          for (const file of [...machine.files.keys()])
-            if (file.startsWith(`${target}/`)) machine.files.delete(file);
-          for (const directory of [...machine.directories])
-            if (directory.startsWith(`${target}/`)) machine.directories.delete(directory);
-        }
+        machine.remove(path, options?.recursive);
       },
       async stat(path) {
         return machine.stat(path);
@@ -311,6 +307,18 @@ class VirtualMachine {
     if (!contents) throw new Error(`Missing ${source}`);
     this.files.delete(normalize(source));
     this.write(destination, contents);
+  }
+
+  remove(path: string, recursive = false) {
+    const target = normalize(path);
+    this.files.delete(target);
+    this.directories.delete(target);
+    if (recursive) {
+      for (const file of [...this.files.keys()])
+        if (file.startsWith(`${target}/`)) this.files.delete(file);
+      for (const directory of [...this.directories])
+        if (directory.startsWith(`${target}/`)) this.directories.delete(directory);
+    }
   }
 
   stat(path: string): VercelFileStat {

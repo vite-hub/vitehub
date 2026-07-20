@@ -74,7 +74,13 @@ function namespace(stub: CloudflareSandboxStub) {
 function cloudflareStub(exec: CloudflareSandboxStub["exec"]): CloudflareSandboxStub {
   return {
     async destroy() {},
-    exec,
+    async exec(command, options) {
+      if (command.startsWith("rm -rf -- "))
+        return { exitCode: 0, stderr: "", stdout: "", success: true };
+      if (command.startsWith("test -e "))
+        return { exitCode: 1, stderr: "", stdout: "", success: false };
+      return await exec(command, options);
+    },
     async mkdir() { return { success: true }; },
     async readFile() { return { content: "", success: false }; },
     async writeFile() { return { success: true }; },
