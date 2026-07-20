@@ -1,6 +1,4 @@
-import { existsSync, statSync } from "node:fs"
-import { dirname, join } from "node:path"
-import { pathToFileURL } from "node:url"
+import { join } from "node:path"
 
 import { createGitHubWorkspaceStore } from "@vite-hub/workspace/internal/stores/github"
 import { installHostedWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted"
@@ -13,12 +11,16 @@ import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent } from "../index.ts"
-import { createAgentRuntimeContext } from "../runtime/context.ts"
-import { workspaceAgentOwnsWorkspaceDefinition, workspaceAgentWithSourceRoot, workspaceModeFromOptions, workspaceNameFromOptions } from "../workspace-agent.ts"
-import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
-import { readColocatedAgentSkills } from "./colocated-agent-skills.ts"
+import { workspaceAgentOwnsWorkspaceDefinition, workspaceModeFromOptions, workspaceNameFromOptions } from "../workspace-agent.ts"
+import {
+  createViteAgentDiscoveryContext,
+  createViteAgentRuntimeContext,
+  createViteWorkspaceAgentLoader,
+  loadViteAgent,
+  writeViteResponse as writeResponse,
+} from "./runtime-adapter.ts"
 
-import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
+import type { IncomingMessage, ServerResponse } from "node:http"
 import type { ViteDevServer } from "vite"
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { AgentInvocationStreamEvent } from "../invocation-stream.ts"
@@ -31,24 +33,14 @@ import type {
   AgentRunInput,
   AgentRunMetadata,
   AgentRuntimeConfig,
-  AgentRuntimeContext,
   DiscoveredAgentDefinition,
   ResolvedAgentTriggerDefinition,
 } from "../index.ts"
 import type { WorkspaceDevTokenOptions } from "@vite-hub/workspace/server"
+import type { ViteAgentRuntimeContext } from "./runtime-adapter.ts"
 
 const capabilityCliRunSurface = Symbol.for("vitehub.capabilityCliRunSurface")
 const workspaceRegistryId = "#vitehub-workspace-registry"
-
-interface ViteAgentDevRuntimeConfig extends AgentRuntimeConfig {
-  agent?: unknown
-}
-
-interface ViteAgentDevRuntimeContext extends AgentRuntimeContext<ViteAgentDevRuntimeConfig> {
-  request?: Request
-  runtime: "vite"
-  runtimeConfig: ViteAgentDevRuntimeConfig
-}
 
 interface AgentInvocationStreamBody {
   agent?: string
@@ -74,11 +66,11 @@ interface AgentInvocationStreamBody {
 }
 
 interface AgentInvocationStreamEntry {
-  agent: AgentInput<ViteAgentDevRuntimeContext>
+  agent: AgentInput<ViteAgentRuntimeContext>
   aliases?: string[]
   identity: AgentHostIdentity
   name: string
-  triggers: Record<string, ResolvedAgentTriggerDefinition<ViteAgentDevRuntimeContext>>
+  triggers: Record<string, ResolvedAgentTriggerDefinition<ViteAgentRuntimeContext>>
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -146,13 +138,13 @@ function createWorkspaceCommandAbortSignal(req: IncomingMessage, parent?: AbortS
 }
 
 function withDeliveryPreviewChannels(
-  agent: AgentInput<ViteAgentDevRuntimeContext>,
+  agent: AgentInput<ViteAgentRuntimeContext>,
   preview: (event: Extract<AgentInvocationStreamEvent, { type: "delivery-preview" }>) => void,
-): AgentInput<ViteAgentDevRuntimeContext> {
+): AgentInput<ViteAgentRuntimeContext> {
   if (!isRecord(agent) || !isRecord(agent.channels)) return agent
   const channels = Object.fromEntries(Object.entries(agent.channels).map(([channelId, channel]) => {
     if (!isRecord(channel) || !isRecord(channel.effects)) return [channelId, channel]
-    const effects = Object.fromEntries(Object.keys(channel.effects).map(kind => [kind, (context: AgentChannelDeliveryEffectContext<ViteAgentDevRuntimeConfig>) => {
+    const effects = Object.fromEntries(Object.keys(channel.effects).map(kind => [kind, (context: AgentChannelDeliveryEffectContext<AgentRuntimeConfig>) => {
       preview({
         channelId: context.trigger?.channelId || context.run?.channelId || channelId,
         effect: context.effect,
@@ -162,7 +154,7 @@ function withDeliveryPreviewChannels(
     }]))
     return [channelId, { ...channel, effects }]
   }))
-  const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput<ViteAgentDevRuntimeContext>
+  const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput<ViteAgentRuntimeContext>
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
   Object.defineProperty(clone, "channels", {
     configurable: true,
@@ -194,25 +186,6 @@ function withCliDeliveryPreviews(
   }
 }
 
-function headersFromNode(headers: IncomingHttpHeaders): Headers {
-  const result = new Headers()
-  for (const [name, value] of Object.entries(headers)) {
-    if (typeof value === "string") result.set(name, value)
-    else if (Array.isArray(value)) {
-      for (const item of value) result.append(name, item)
-    }
-  }
-  return result
-}
-
-function createRequest(server: ViteDevServer, req: IncomingMessage): Request {
-  const base = server.resolvedUrls?.local?.[0] || `http://localhost:${server.config.server.port || 5173}/`
-  return new Request(new URL(req.url || agentInvocationStreamRoute, base), {
-    headers: headersFromNode(req.headers),
-    method: req.method || "GET",
-  })
-}
-
 function requestOrigin(server: ViteDevServer, req: IncomingMessage): string {
   const host = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host
   if (host) {
@@ -239,56 +212,15 @@ function validateDevLoopRequest(server: ViteDevServer, req: IncomingMessage): Re
   }
 }
 
-function createRuntimeContext(server: ViteDevServer, req: IncomingMessage, identity: AgentHostIdentity, run?: AgentRunMetadata): ViteAgentDevRuntimeContext {
-  return createAgentRuntimeContext({
-    agentIdentity: identity,
-    request: createRequest(server, req),
-    ...(run ? { run } : {}),
-    runtime: "vite",
-    runtimeConfig: {},
-    waitUntil: task => void Promise.resolve(task).catch(() => {}),
-  }) as ViteAgentDevRuntimeContext
-}
-
-function createDiscoveryContext(identity: AgentHostIdentity): ViteAgentDevRuntimeContext {
-  return createAgentRuntimeContext({
-    agentIdentity: identity,
-    runtime: "vite",
-    runtimeConfig: {},
-    waitUntil: task => void Promise.resolve(task).catch(() => {}),
-  }) as ViteAgentDevRuntimeContext
-}
-
-function resolveAgentModule(module: unknown): AgentInput<ViteAgentDevRuntimeContext> | undefined {
-  if (isRecord(module) && "default" in module) {
-    return module.default as AgentInput<ViteAgentDevRuntimeContext> | undefined
-  }
-  return module as AgentInput<ViteAgentDevRuntimeContext> | undefined
-}
-
-function resolveWorkspaceSourceRoot(file: string): string {
-  const workspaceDirectory = join(dirname(file), "workspace")
-  return existsSync(workspaceDirectory) && statSync(workspaceDirectory).isDirectory()
-    ? workspaceDirectory
-    : dirname(file)
-}
-
-function declaredAgentName(agent: AgentInput<ViteAgentDevRuntimeContext> | undefined): string | undefined {
+function declaredAgentName(agent: AgentInput<ViteAgentRuntimeContext> | undefined): string | undefined {
   if (typeof agent?.name === "string" && agent.name) return agent.name
   const options = isRecord(agent) && isRecord(agent.__vitehubWorkspaceAgentOptions) ? agent.__vitehubWorkspaceAgentOptions : undefined
   return typeof options?.name === "string" && options.name ? options.name : undefined
 }
 
-function agentAliases(definition: DiscoveredAgentDefinition, agent: AgentInput<ViteAgentDevRuntimeContext>): string[] | undefined {
+function agentAliases(definition: DiscoveredAgentDefinition, agent: AgentInput<ViteAgentRuntimeContext>): string[] | undefined {
   const declaredName = declaredAgentName(agent)
   return declaredName && declaredName !== definition.name ? [declaredName] : undefined
-}
-
-function agentIdentity(definition: DiscoveredAgentDefinition): AgentHostIdentity {
-  return {
-    name: definition.name,
-    ...(definition.workspace ? { workspace: definition.workspace } : {}),
-  }
 }
 
 type WorkspaceRegistry = Parameters<typeof setWorkspaceRuntimeRegistry>[0]
@@ -297,7 +229,7 @@ function isWorkspaceRegistry(value: unknown): value is WorkspaceRegistry {
   return isRecord(value) && Object.values(value).every(item => typeof item === "function")
 }
 
-function hasHostedWorkspaceStore(agent: AgentInput<ViteAgentDevRuntimeContext>): boolean {
+function hasHostedWorkspaceStore(agent: AgentInput<ViteAgentRuntimeContext>): boolean {
   const options = isRecord(agent) && isRecord(agent.__vitehubWorkspaceAgentOptions) ? agent.__vitehubWorkspaceAgentOptions : undefined
   const workspace = typeof options?.workspace === "string" || isRecord(options?.workspace) ? options.workspace : undefined
   const store = isRecord(workspace) && isRecord(workspace.store) ? workspace.store : undefined
@@ -305,7 +237,7 @@ function hasHostedWorkspaceStore(agent: AgentInput<ViteAgentDevRuntimeContext>):
   return store?.provider === "cloudflare-artifacts" || store?.provider === "github"
 }
 
-function hasHostedVercelBlobWorkspaceStore(agent: AgentInput<ViteAgentDevRuntimeContext>): boolean {
+function hasHostedVercelBlobWorkspaceStore(agent: AgentInput<ViteAgentRuntimeContext>): boolean {
   const options = isRecord(agent) && isRecord(agent.__vitehubWorkspaceAgentOptions) ? agent.__vitehubWorkspaceAgentOptions : undefined
   const workspace = typeof options?.workspace === "string" || isRecord(options?.workspace) ? options.workspace : undefined
   const store = isRecord(workspace) && isRecord(workspace.store) ? workspace.store : undefined
@@ -322,7 +254,7 @@ async function loadViteWorkspaceRegistry(server: ViteDevServer): Promise<Workspa
 
 async function installServerAgentWorkspaceRegistry(
   server: ViteDevServer,
-  entries: Array<{ agent: AgentInput<ViteAgentDevRuntimeContext>, aliases?: string[], definition: DiscoveredAgentDefinition }>,
+  entries: Array<{ agent: AgentInput<ViteAgentRuntimeContext>, aliases?: string[], definition: DiscoveredAgentDefinition }>,
 ): Promise<WorkspaceRegistry> {
   const registry = {
     ...await loadViteWorkspaceRegistry(server),
@@ -330,17 +262,7 @@ async function installServerAgentWorkspaceRegistry(
     .filter(entry => entry.definition.workspace && workspaceAgentOwnsWorkspaceDefinition(entry.agent))
     .flatMap(({ aliases, definition }) => [definition.workspace!, ...(aliases || [])].map(name => [
       name,
-      async () => {
-        const mod = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
-        const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
-        return {
-          ...mod,
-          default: workspaceAgentWithSourceRoot(
-            withColocatedAgentSkills(mod.default, decodeColocatedAgentSkills(readColocatedAgentSkills(definition.handler))),
-            sourceRootDir,
-          ),
-        }
-      },
+      createViteWorkspaceAgentLoader(server, definition),
     ]))),
   } satisfies WorkspaceRegistry
   if (entries.some(({ agent }) => hasHostedWorkspaceStore(agent))) installHostedWorkspaceRuntime()
@@ -355,14 +277,6 @@ async function installServerAgentWorkspaceRegistry(
   return registry
 }
 
-async function loadDiscoveredAgent(
-  server: ViteDevServer,
-  definition: DiscoveredAgentDefinition,
-): Promise<AgentInput<ViteAgentDevRuntimeContext> | undefined> {
-  const module = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
-  return withColocatedAgentSkills(resolveAgentModule(module), decodeColocatedAgentSkills(readColocatedAgentSkills(definition.handler)))
-}
-
 async function discoverStreamAgents(server: ViteDevServer): Promise<AgentInvocationStreamEntry[]> {
   const definitions = discoverAgentDefinitions({
     mode: "server-agents",
@@ -370,15 +284,13 @@ async function discoverStreamAgents(server: ViteDevServer): Promise<AgentInvocat
   })
   const loaded = []
   for (const definition of definitions) {
-    const agent = await loadDiscoveredAgent(server, definition)
-    if (!agent) continue
-    loaded.push({ agent, aliases: agentAliases(definition, agent), definition })
+    const entry = await loadViteAgent(server, definition)
+    if (entry) loaded.push({ ...entry, aliases: agentAliases(definition, entry.agent) })
   }
   await installServerAgentWorkspaceRegistry(server, loaded)
   const entries: AgentInvocationStreamEntry[] = []
-  for (const { agent, aliases, definition } of loaded) {
-    const identity = agentIdentity(definition)
-    const context = createDiscoveryContext(identity)
+  for (const { agent, aliases, definition, identity } of loaded) {
+    const context = createViteAgentDiscoveryContext(identity)
     const triggers = await resolveAgentTriggers(agent as never, context as never)
     entries.push({ agent, ...(aliases ? { aliases } : {}), identity, name: definition.name, triggers })
   }
@@ -608,7 +520,7 @@ async function runCapabilityCliWithTimeout(
   agent: AgentInput,
   cli: string,
   execution: AgentCapabilityCliExecutionInput,
-  context: ViteAgentDevRuntimeContext,
+  context: ViteAgentRuntimeContext,
   input: AgentRunInput<unknown>,
   timeout: number,
   abortSignal?: AbortSignal,
@@ -657,7 +569,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
   const body = parseBody(await readRequestBody(req))
   const entry = selectedEntry(entries, body.agent)
   const run = body.run || devRun(entry.name)
-  const context = createRuntimeContext(server, req, entry.identity, run)
+  const context = createViteAgentRuntimeContext(server, req, entry.identity, { fallbackRoute: agentInvocationStreamRoute, run })
   const payload = payloadFromBody(body)
   const timeout = typeof body.timeout === "number" && Number.isFinite(body.timeout) ? body.timeout : 90_000
 
@@ -768,49 +680,7 @@ function routeMatches(req: IncomingMessage): boolean {
   return new URL(req.url || "/", "http://localhost").pathname === agentInvocationStreamRoute
 }
 
-export async function writeResponse(res: ServerResponse, response: Response): Promise<void> {
-  res.statusCode = response.status
-  for (const [name, value] of response.headers) {
-    res.setHeader(name, value)
-  }
-  if (!response.body) {
-    res.end()
-    return
-  }
-
-  const reader = response.body.getReader()
-  let closed = false
-  const cancel = () => {
-    if (closed) return
-    closed = true
-    Promise.resolve().then(() => reader.cancel()).catch(() => {})
-  }
-  res.once("close", cancel)
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      res.write(value)
-    }
-    closed = true
-    res.end()
-  }
-  catch (error) {
-    const wasClosed = closed
-    closed = true
-    if (wasClosed && isAbortError(error)) return
-    res.destroy(error instanceof Error ? error : undefined)
-  }
-  finally {
-    closed = true
-    res.off("close", cancel)
-    reader.releaseLock()
-  }
-}
-
-function isAbortError(error: unknown): error is Error {
-  return error instanceof Error && error.name === "AbortError"
-}
+export { writeResponse }
 
 function errorResponse(error: unknown): Response {
   if (error instanceof Response) return error

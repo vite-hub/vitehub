@@ -1,6 +1,4 @@
-import { existsSync, statSync } from "node:fs"
-import { dirname, join } from "node:path"
-import { pathToFileURL } from "node:url"
+import { join } from "node:path"
 
 import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
 
@@ -35,22 +33,25 @@ import {
   validChatDevtoolsInvokerProfileId,
 } from "../devtools-runtime.ts"
 import { createChatDevtoolsStreamResponse } from "../devtools-stream.ts"
-import { createAgentRuntimeContext } from "../../runtime/context.ts"
 import { discoverAgentDefinitions } from "../../discovery.ts"
-import { workspaceAgentOwnsWorkspaceDefinition, workspaceAgentWithSourceRoot } from "../../workspace-agent.ts"
-import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../../internal/colocated-agent-skills.ts"
-import { readColocatedAgentSkills } from "../../vite/colocated-agent-skills.ts"
+import { workspaceAgentOwnsWorkspaceDefinition } from "../../workspace-agent.ts"
+import {
+  createViteAgentDiscoveryContext,
+  createViteAgentRuntimeContext,
+  createViteWorkspaceAgentLoader,
+  loadViteAgent,
+  writeViteResponse,
+} from "../../vite/runtime-adapter.ts"
 
-import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
+import type { IncomingMessage } from "node:http"
 import type { ViteDevServer } from "vite"
 import type { ChatDevtoolsBridgeBody, ChatDevtoolsInvokerSelection, ChatDevtoolsSession as ChatDevtoolsSessionState } from "../devtools-runtime.ts"
 import type { AgentChatMessageTriggerInput } from "../../chat-trigger.ts"
+import type { ViteAgentRuntimeContext } from "../../vite/runtime-adapter.ts"
 import type {
   AgentInput,
   AgentHostIdentity,
   AgentRunMetadata,
-  AgentRuntimeConfig,
-  AgentRuntimeContext,
   DiscoveredAgentDefinition,
 } from "../../index.ts"
 
@@ -59,22 +60,12 @@ const chatDevtoolsUser: Record<string, unknown> = {
   name: "DevTools User",
 }
 
-interface ViteAgentDevtoolsRuntimeConfig extends AgentRuntimeConfig {
-  agent?: unknown
-}
-
-interface ViteAgentDevtoolsRuntimeContext extends AgentRuntimeContext<ViteAgentDevtoolsRuntimeConfig> {
-  request?: Request
-  runtime: "vite"
-  runtimeConfig: ViteAgentDevtoolsRuntimeConfig
-}
-
 interface ChatDevtoolsSession extends ChatDevtoolsSessionState {
   name: string
 }
 
 interface ChatDevtoolsAgentEntry {
-  agent: AgentInput<ViteAgentDevtoolsRuntimeContext>
+  agent: AgentInput<ViteAgentRuntimeContext>
   identity: AgentHostIdentity
   metadata: ChatDevtoolsMetadata
   metadataError?: string
@@ -92,98 +83,16 @@ interface ChatDevtoolsBridgeState {
   selected?: string
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-}
-
-function resolveAgentModule(module: unknown): AgentInput<ViteAgentDevtoolsRuntimeContext> | undefined {
-  if (isRecord(module) && "default" in module) {
-    return module.default as AgentInput<ViteAgentDevtoolsRuntimeContext> | undefined
-  }
-  return module as AgentInput<ViteAgentDevtoolsRuntimeContext> | undefined
-}
-
-function resolveWorkspaceSourceRoot(file: string): string {
-  const workspaceDirectory = join(dirname(file), "workspace")
-  return existsSync(workspaceDirectory) && statSync(workspaceDirectory).isDirectory()
-    ? workspaceDirectory
-    : dirname(file)
-}
-
 function installServerAgentWorkspaceRegistry(
   server: ViteDevServer,
-  entries: Array<{ agent: AgentInput<ViteAgentDevtoolsRuntimeContext>, definition: DiscoveredAgentDefinition }>,
+  entries: Array<{ agent: AgentInput<ViteAgentRuntimeContext>, definition: DiscoveredAgentDefinition }>,
 ): void {
   setWorkspaceRuntimeRegistry(Object.fromEntries(entries
     .filter(entry => entry.definition.workspace && workspaceAgentOwnsWorkspaceDefinition(entry.agent))
     .map(({ definition }) => [
       definition.workspace!,
-      async () => {
-        const mod = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
-        const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
-        return {
-          ...mod,
-          default: workspaceAgentWithSourceRoot(
-            withColocatedAgentSkills(mod.default, decodeColocatedAgentSkills(readColocatedAgentSkills(definition.handler))),
-            sourceRootDir,
-          ),
-        }
-      },
+      createViteWorkspaceAgentLoader(server, definition),
     ])))
-}
-
-async function loadDiscoveredAgent(
-  server: ViteDevServer,
-  definition: DiscoveredAgentDefinition,
-): Promise<AgentInput<ViteAgentDevtoolsRuntimeContext> | undefined> {
-  const module = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
-  return withColocatedAgentSkills(resolveAgentModule(module), decodeColocatedAgentSkills(readColocatedAgentSkills(definition.handler)))
-}
-
-function agentIdentity(definition: DiscoveredAgentDefinition): AgentHostIdentity {
-  return {
-    name: definition.name,
-    ...(definition.workspace ? { workspace: definition.workspace } : {}),
-  }
-}
-
-function createDevtoolsDiscoveryContext(identity: AgentHostIdentity): ViteAgentDevtoolsRuntimeContext {
-  return createAgentRuntimeContext({
-    agentIdentity: identity,
-    runtime: "vite",
-    runtimeConfig: {},
-    waitUntil: task => void Promise.resolve(task).catch(() => {}),
-  }) as ViteAgentDevtoolsRuntimeContext
-}
-
-function headersFromNode(headers: IncomingHttpHeaders): Headers {
-  const result = new Headers()
-  for (const [name, value] of Object.entries(headers)) {
-    if (typeof value === "string") result.set(name, value)
-    else if (Array.isArray(value)) {
-      for (const item of value) result.append(name, item)
-    }
-  }
-  return result
-}
-
-function createRequest(server: ViteDevServer, req: IncomingMessage): Request {
-  const base = server.resolvedUrls?.local?.[0] || `http://localhost:${server.config.server.port || 5173}/`
-  return new Request(new URL(req.url || chatDevtoolsBridgeRoute, base), {
-    headers: headersFromNode(req.headers),
-    method: req.method || "GET",
-  })
-}
-
-function createRuntimeContext(server: ViteDevServer, req: IncomingMessage, identity: AgentHostIdentity, run: AgentRunMetadata): ViteAgentDevtoolsRuntimeContext {
-  return createAgentRuntimeContext({
-    agentIdentity: identity,
-    request: createRequest(server, req),
-    run,
-    runtime: "vite",
-    runtimeConfig: {},
-    waitUntil: task => void Promise.resolve(task).catch(() => {}),
-  }) as ViteAgentDevtoolsRuntimeContext
 }
 
 function createDevtoolsMetadataRunMetadata(name: string): AgentRunMetadata<"devtools"> {
@@ -196,17 +105,17 @@ function createDevtoolsMetadataRunMetadata(name: string): AgentRunMetadata<"devt
 }
 
 function metadataSelectionForAgent(
-  agent: AgentInput<ViteAgentDevtoolsRuntimeContext>,
+  agent: AgentInput<ViteAgentRuntimeContext>,
   selection: ChatDevtoolsInvokerSelection = {},
 ): ChatDevtoolsInvokerSelection {
   return chatDevtoolsMetadataSelection(createAgentDevtoolsMetadata(agent as never), selection)
 }
 
-function canResolveWorkspaceMetadata(agent: AgentInput<ViteAgentDevtoolsRuntimeContext>): boolean {
+function canResolveWorkspaceMetadata(agent: AgentInput<ViteAgentRuntimeContext>): boolean {
   return Boolean((agent as { __vitehubWorkspaceAgent?: unknown }).__vitehubWorkspaceAgent)
 }
 
-function createStaticDevtoolsMetadata(name: string, agent: AgentInput<ViteAgentDevtoolsRuntimeContext>): ChatDevtoolsMetadata {
+function createStaticDevtoolsMetadata(name: string, agent: AgentInput<ViteAgentRuntimeContext>): ChatDevtoolsMetadata {
   return chatDevtoolsMetadataWithAgentName(createAgentDevtoolsMetadata(agent as never), name)
 }
 
@@ -216,7 +125,7 @@ function metadataStaticKey(metadata: ChatDevtoolsMetadata): string {
 
 function createChatDevtoolsAgentEntry(
   name: string,
-  agent: AgentInput<ViteAgentDevtoolsRuntimeContext>,
+  agent: AgentInput<ViteAgentRuntimeContext>,
   identity: AgentHostIdentity,
   previous: ChatDevtoolsAgentEntry | undefined,
 ): ChatDevtoolsAgentEntry {
@@ -272,15 +181,13 @@ async function discoverChatAgents(server: ViteDevServer, state: ChatDevtoolsBrid
 
   const loaded = []
   for (const definition of definitions) {
-    const agent = await loadDiscoveredAgent(server, definition)
-    if (!agent) continue
-    loaded.push({ agent, definition })
+    const entry = await loadViteAgent(server, definition)
+    if (entry) loaded.push(entry)
   }
   installServerAgentWorkspaceRegistry(server, loaded)
 
-  for (const { agent, definition } of loaded) {
-    const identity = agentIdentity(definition)
-    const context = createDevtoolsDiscoveryContext(identity)
+  for (const { agent, definition, identity } of loaded) {
+    const context = createViteAgentDiscoveryContext(identity)
     const triggers = await resolveAgentTriggers(agent as never, context as never)
     const trigger = triggers["chat.message"]
     if (!trigger || trigger.devtools === false) continue
@@ -446,7 +353,7 @@ async function sendDevtoolsUIMessage(
   session.thinkingFallback = null
   await onChange?.(await serializeState(state, selected))
 
-  const runtimeContext = createRuntimeContext(server, req, selectedEntry.identity, run)
+  const runtimeContext = createViteAgentRuntimeContext(server, req, selectedEntry.identity, { fallbackRoute: chatDevtoolsBridgeRoute, run })
   const triggerInput: AgentChatMessageTriggerInput = {
     ...(session.invokerProfileId ? { invokerProfileId: session.invokerProfileId } : {}),
     ...(requestedSelection.meta ? { meta: requestedSelection.meta } : {}),
@@ -617,30 +524,6 @@ function installChatDevtoolsInvalidation(server: ViteDevServer, state: ChatDevto
   server.watcher?.on("unlink", invalidate)
 }
 
-async function writeResponse(res: ServerResponse, response: Response): Promise<void> {
-  res.statusCode = response.status
-  for (const [name, value] of response.headers) {
-    res.setHeader(name, value)
-  }
-  if (!response.body) {
-    res.end()
-    return
-  }
-
-  const reader = response.body.getReader()
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      res.write(value)
-    }
-    res.end()
-  }
-  catch (error) {
-    res.destroy(error instanceof Error ? error : undefined)
-  }
-}
-
 function errorResponse(error: unknown): Response {
   if (error instanceof Response) return error
   return new Response("Chat DevTools bridge failed.", {
@@ -670,19 +553,19 @@ export function registerChatDevtoolsBridge(server: ViteDevServer): void {
       return
     }
     if (req.method !== "POST") {
-      void writeResponse(res, new Response("Method not allowed.", { status: 405 }))
+      void writeViteResponse(res, new Response("Method not allowed.", { status: 405 }))
       return
     }
 
     void handleChatDevtoolsRequest(server, req, state)
       .then((response) => {
         response.headers.set("access-control-allow-origin", "*")
-        return writeResponse(res, response)
+        return writeViteResponse(res, response)
       })
       .catch((error) => {
         const response = errorResponse(error)
         response.headers.set("access-control-allow-origin", "*")
-        return writeResponse(res, response)
+        return writeViteResponse(res, response)
       })
   })
 }
