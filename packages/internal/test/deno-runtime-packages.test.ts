@@ -101,6 +101,25 @@ import "sharp"
     await expect(readFile(join(root, ".output/node_modules/native/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "2" })
   })
 
+  it("preserves bundle-marker paths above a nested Vite root", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vitehub-deno-monorepo-"))
+    const root = join(workspace, "apps/api")
+    const bundledDir = join(workspace, "node_modules/.pnpm/sharp@2/node_modules/sharp")
+    await writeJson(join(root, "package.json"), {})
+    await writeJson(join(bundledDir, "package.json"), { name: "sharp", optionalDependencies: { native: "2" }, version: "2" })
+    await writeJson(join(dirname(bundledDir), "node_modules/native/package.json"), { name: "native", version: "2" })
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(
+      join(root, ".output/server/index.ts"),
+      `//#region ${relative(root, bundledDir).replaceAll("\\", "/")}/index.js\n`,
+    )
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/node_modules/sharp/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "2" })
+    await expect(readFile(join(root, ".output/node_modules/native/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "2" })
+  })
+
   it("stages a required package that also has a bundle marker", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-required-marker-"))
     await writeJson(join(root, "package.json"), {})
