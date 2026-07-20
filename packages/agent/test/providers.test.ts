@@ -1558,6 +1558,7 @@ describe("agent Vite plugin", () => {
   it("publishes only required root runtime peers", async () => {
     const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
       dependencies?: Record<string, string>
+      devDependencies?: Record<string, string>
       peerDependencies?: Record<string, string>
       peerDependenciesMeta?: Record<string, unknown>
     }
@@ -1580,6 +1581,10 @@ describe("agent Vite plugin", () => {
     expect(pkg.peerDependenciesMeta?.askweb).toEqual({ optional: true })
     expect(pkg.peerDependenciesMeta?.evalite).toBeUndefined()
     expect(pkg.peerDependenciesMeta?.vitest).toEqual({ optional: true })
+    expect(pkg.devDependencies?.["@ai-sdk/harness-codex"]).toBe("catalog:ai")
+    expect(pkg.peerDependencies?.["@ai-sdk/harness"]).toBe("catalog:ai-compat")
+    expect(pkg.peerDependencies?.["@ai-sdk/harness-claude-code"]).toBe("catalog:ai")
+    expect(pkg.peerDependencies?.["@ai-sdk/harness-codex"]).toBe("catalog:ai-compat")
     expect(pkg.peerDependencies?.ai).toBe("catalog:ai-compat")
     expect(pkg.dependencies?.["@types/json-schema"]).toBe("catalog:ai")
     expect(builtJs).not.toContain("import(\"@vite-hub/workflow\")")

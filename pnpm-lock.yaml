@@ -36,6 +36,10 @@ catalogs:
     evalite:
       specifier: 1.0.0-beta.16
       version: 1.0.0-beta.16
+  ai-compat:
+    '@ai-sdk/harness-codex':
+      specifier: ^1.0.0
+      version: 1.0.0
   auth:
     better-auth:
       specifier: ^1.6.23
@@ -442,9 +446,6 @@ importers:
 
   packages/agent:
     dependencies:
-      '@ai-sdk/harness-codex':
-        specifier: catalog:ai
-        version: 1.0.0
       '@libsql/client':
         specifier: catalog:database
         version: 0.17.4
@@ -507,6 +508,9 @@ importers:
         specifier: catalog:ai
         version: 1.0.0(ws@8.21.1)(zod@4.4.3)
       '@ai-sdk/harness-claude-code':
+        specifier: catalog:ai
+        version: 1.0.0
+      '@ai-sdk/harness-codex':
         specifier: catalog:ai
         version: 1.0.0
       '@ai-sdk/mcp':
