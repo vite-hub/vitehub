@@ -21,6 +21,7 @@ import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput
 export const queuePackageName = "@vite-hub/queue"
 const cloudflareQueueWorkerMarker = "vitehub-queue-worker"
 const cloudflareQueueOutputState = ".vitehub/queue/cloudflare-output.json"
+const vercelQueueOutputState = ".vitehub/queue/vercel-output.json"
 const productName = "queue"
 
 const generatedRegistryFileName = "registry.mjs"
@@ -408,6 +409,19 @@ function createVercelOutput(artifacts: GeneratedQueueArtifacts, serverFunctionNa
   }
 }
 
+async function readVercelQueueFunctionName(rootDir: string): Promise<string | undefined> {
+  try {
+    const state = JSON.parse(await readFile(resolve(rootDir, vercelQueueOutputState), "utf8")) as { serverFunctionName?: unknown }
+    return typeof state.serverFunctionName === "string" && /^[^/\\]+\.func$/.test(state.serverFunctionName)
+      ? state.serverFunctionName
+      : undefined
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+    throw error
+  }
+}
+
 async function writeVercelQueueFunctions(rootDir: string, queue: QueueModuleOptions | undefined, artifacts: GeneratedQueueArtifacts) {
   const outputRoot = createDefaultVercelOutputRoot(rootDir)
   const queueRoot = resolve(outputRoot, "functions", "api", "vitehub", "queues", "vercel")
@@ -458,6 +472,8 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const cloudflareNamePrefix = cloudflareQueueConfig !== false && cloudflareQueueConfig.provider === "cloudflare" ? cloudflareQueueConfig.namePrefix : undefined
   const createCloudflare = !options.cloudflareOwnedByNitro && usesCloudflare
   const createVercel = shouldCreateVercelOutput(options.queue)
+  const vercelFunctionName = options.serverFunctionName ?? "__server.func"
+  const previousVercelFunctionName = await readVercelQueueFunctionName(options.rootDir)
   if (!createCloudflare) {
     await writeProviderDeploymentOutputs({
       clientOutDir: options.clientOutDir,
@@ -469,18 +485,27 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
       rootDir: options.rootDir,
     })
   }
+  if (createVercel && previousVercelFunctionName && previousVercelFunctionName !== vercelFunctionName) {
+    await rm(resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", previousVercelFunctionName), { force: true, recursive: true })
+  }
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
     cloudflare: createCloudflare ? createCloudflareOutput(artifacts, cloudflareNamePrefix) : undefined,
     cleanup: {
       vercel: {
-        serverFunctionName: options.serverFunctionName
-          ?? (options.cloudflareOwnedByNitro ? "__queue.func" : "__server.func"),
+        serverFunctionName: previousVercelFunctionName,
       },
     },
     rootDir: options.rootDir,
     vercel: createVercel ? createVercelOutput(artifacts, options.serverFunctionName) : undefined,
   })
+  if (createVercel) {
+    await mkdir(dirname(resolve(options.rootDir, vercelQueueOutputState)), { recursive: true })
+    await writeFile(resolve(options.rootDir, vercelQueueOutputState), `${JSON.stringify({ serverFunctionName: vercelFunctionName }, null, 2)}\n`, "utf8")
+  }
+  else {
+    await rm(resolve(options.rootDir, vercelQueueOutputState), { force: true })
+  }
   if (createCloudflare) {
     const queues = createCloudflareQueueBindings(artifacts.definitions, cloudflareNamePrefix)
     await mkdir(dirname(resolve(options.rootDir, cloudflareQueueOutputState)), { recursive: true })

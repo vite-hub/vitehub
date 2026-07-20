@@ -356,16 +356,12 @@ describe("Vite provider outputs", () => {
 
   it("does not preload or emit Vercel output for a non-Vercel queue provider", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-cloudflare-provider-")
-    const staleVercelServer = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
-    const staleVercelConsumer = join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "stale", "stale.func", "index.mjs")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
-    await mkdir(join(rootDir, ".vercel", "output", "functions", "__server.func"), { recursive: true })
-    await mkdir(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "stale", "stale.func"), { recursive: true })
     await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
     await writeFile(join(rootDir, "dist", "index.html"), "<!doctype html><title>vitehub</title>\n", "utf8")
-    await writeFile(staleVercelServer, "import '@vercel/queue'\n", "utf8")
-    await writeFile(staleVercelConsumer, "import '@vercel/queue'\n", "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist", queue: { provider: "vercel" }, rootDir })
 
     await generateProviderOutputs({
       clientOutDir: "dist",
@@ -375,6 +371,34 @@ describe("Vite provider outputs", () => {
 
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"))).toBe(false)
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel"))).toBe(false)
+  })
+
+  it("removes only the Vercel function recorded as Queue-owned across output modes", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-vercel-ownership-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "dist", "index.html"), "<!doctype html><title>vitehub</title>\n", "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist", queue: { provider: "vercel" }, rootDir })
+    const functionsRoot = join(rootDir, ".vercel", "output", "functions")
+    expect(existsSync(join(functionsRoot, "__server.func"))).toBe(true)
+
+    await generateProviderOutputs({
+      clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
+      queue: { provider: "vercel" },
+      rootDir,
+      serverFunctionName: "__queue.func",
+    })
+    expect(existsSync(join(functionsRoot, "__server.func"))).toBe(false)
+    expect(existsSync(join(functionsRoot, "__queue.func"))).toBe(true)
+
+    await mkdir(join(functionsRoot, "__server.func"), { recursive: true })
+    await writeFile(join(functionsRoot, "__server.func", "index.mjs"), "export default { nitro: true }\n", "utf8")
+    await generateProviderOutputs({ clientOutDir: "dist", queue: { provider: "cloudflare" }, rootDir })
+    expect(existsSync(join(functionsRoot, "__queue.func"))).toBe(false)
+    expect(existsSync(join(functionsRoot, "__server.func", "index.mjs"))).toBe(true)
   })
 
   it("uses an inferred Cloudflare prefix in standalone bindings and dispatch", async () => {
