@@ -413,6 +413,14 @@ describe("vitehub", () => {
     const config = (dependency.config as () => { resolve: { alias: Record<string, string> } })()
     expect(config.resolve.alias["vite-hub/blob"]).toBeUndefined()
     expect(config.resolve.alias["vite-hub/blob/content-type"]).toEqual(expect.any(String))
+    const resolveDependency = dependency.resolveId as unknown as (source: string, importer?: string) => void
+    expect(() => resolveDependency("@vite-hub/blob", "/app/.vitehub/agents.mjs")).toThrow("Blob is unavailable")
+  })
+
+  it("allows the Agent Blob Capability fallback with an explicit Deno Blob store", () => {
+    const dependency = dependencyPlugin({ preset: "deno", blob: { driver: "fs" } })
+    const resolveDependency = dependency.resolveId as unknown as (source: string, importer?: string) => unknown
+    expect(resolveDependency("@vite-hub/blob", "/app/.vitehub/agents.mjs")).toEqual(expect.any(String))
   })
 
   it("wires supported Sandbox adapters from the deployment plan", () => {

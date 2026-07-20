@@ -148,6 +148,9 @@ function frameworkDependencyResolver(
       )
     },
     resolveId(id, importer) {
+      if (!blobEnabled && id === "@vite-hub/blob") {
+        throw new Error("[vitehub] Blob is unavailable for this deployment preset. Configure an explicit Blob store before using Blob APIs or Agent Capabilities.")
+      }
       for (const specifier in providerImportAliases) {
         const frameworkFacade = frameworkProviderImportAliases[specifier]
         if (!frameworkFacade) continue
