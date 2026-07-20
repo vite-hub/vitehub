@@ -1,6 +1,6 @@
 import { access, cp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
-import { dirname, extname, join, resolve } from "node:path"
+import { dirname, extname, join, relative, resolve, sep } from "node:path"
 
 
 const builtinModuleNames = new Set([
@@ -123,7 +123,11 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   copied.add(packageKey)
   const targetDir = join(outputNodeModules, ...name.split("/"))
   await rm(targetDir, { force: true, recursive: true })
-  await cp(packageDir, targetDir, { dereference: true, recursive: true })
+  await cp(packageDir, targetDir, {
+    dereference: true,
+    filter: source => relative(packageDir, source).split(sep)[0] !== "node_modules",
+    recursive: true,
+  })
   const packageRequire = createRequire(resolvedPackageJsonPath)
   const dependencyNames = new Set(Object.keys(packageJson.dependencies || {}))
   if (options.includeOptionalDependencies) {
