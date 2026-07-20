@@ -2294,7 +2294,7 @@ async function executeAgentInvocation<
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
   }
 
-  if (options.kind === "run" && invocation.context.get<boolean>(finalChannelOutputContextKey) === true) {
+  if (invocation.context.get<boolean>(finalChannelOutputContextKey) === true) {
     const text = finalTextFromAgentOutput(result)
     if (text !== undefined && !(result instanceof Response)) {
       result = { raw: result, text }

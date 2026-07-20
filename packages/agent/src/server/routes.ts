@@ -1882,7 +1882,7 @@ async function handleChatSdkMessage(
     const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, invocation.input as AgentRunInput, invocation.run, messageContext)
     if (!invoker) return
 
-    const streamsPhasedReplies = options?.stream !== false || options?.commentary === "message"
+    const streamsPhasedReplies = options?.stream !== false || options?.commentary !== undefined
     typing = streamsPhasedReplies ? startChatTypingRefresh(thread, context) : undefined
     run = invocation.run
     const runContext = {
