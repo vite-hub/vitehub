@@ -332,12 +332,12 @@ export class QueueError<TCode extends string = QueueErrorCode> extends ViteHubEr
     })
     queueErrorPublicShapes.set(this, shape)
     Object.defineProperties(this, {
-      code: { configurable: false, value: normalized.code, writable: false },
-      details: { configurable: false, value: normalized.details, writable: false },
-      message: { configurable: false, value: normalized.message, writable: false },
-      name: { configurable: false, value: "QueueError", writable: false },
-      requestId: { configurable: false, value: normalized.requestId, writable: false },
-      retryable: { configurable: false, value: normalized.retryable, writable: false },
+      code: { configurable: false, enumerable: true, value: normalized.code, writable: false },
+      details: { configurable: false, enumerable: true, value: normalized.details, writable: false },
+      message: { configurable: false, enumerable: false, value: normalized.message, writable: false },
+      name: { configurable: false, enumerable: false, value: "QueueError", writable: false },
+      requestId: { configurable: false, enumerable: true, value: normalized.requestId, writable: false },
+      retryable: { configurable: false, enumerable: true, value: normalized.retryable, writable: false },
     })
     if (!Object.getOwnPropertyDescriptor(this, "toJSON")) {
       Object.defineProperty(this, "toJSON", {

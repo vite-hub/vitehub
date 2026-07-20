@@ -26,6 +26,12 @@ describe("QueueError", () => {
     })
     expect(Reflect.set(error, "toJSON", () => ({ message: "private provider detail" }))).toBe(false)
     expect(Object.keys(error)).not.toContain("toJSON")
+    expect({ ...error }).toMatchObject({
+      code: "EXPIRY_INVALID_PAYLOAD",
+      details: { counter: "expiry_invalid_payload" },
+      requestId: undefined,
+      retryable: false,
+    })
     expect(JSON.stringify(error)).not.toContain("private provider detail")
   })
 
