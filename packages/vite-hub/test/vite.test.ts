@@ -405,6 +405,7 @@ describe("vitehub", () => {
     const deployment = vitehub({ preset: "deno" }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     const resolveId = deployment.resolveId as unknown as (source: string, importer?: string) => void
     expect(() => resolveId("vite-hub/blob", "/app/server/api.ts")).toThrow("cannot provide blob")
+    expect(() => resolveId("vite-hub/blob/content-type", "/app/server/api.ts")).not.toThrow()
   })
 
   it("wires supported Sandbox adapters from the deployment plan", () => {

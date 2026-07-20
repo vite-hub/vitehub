@@ -210,11 +210,11 @@ function run(args) {
   })
 }
 
-const common = ["--org", organization, "--app", app, "--allow-node-modules"]
+const common = ["--org", organization, "--app", app]
 const deployment = await run(["deploy", ".", ...common])
 if (deployment.code === 0) process.exit(0)
 
-const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", "server/index.ts", "--working-directory", ".", "--region", region, ...common])
+const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", "server/index.ts", "--working-directory", ".", "--region", region, "--allow-node-modules", ...common])
 if (creation.code !== 0) {
   throw new Error("deno deploy/create exited with " + (creation.signal || "code " + creation.code))
 }
