@@ -262,55 +262,69 @@ export default defineAgent({
 
 The GitHub channel renders inline image artifacts as markdown in `reply` and `review` effects. It does not attach local files directly to GitHub comments.
 
-## Update GitHub pull request labels
+## Trigger an Agent from a pull request label
 
-GitHub pull request channels support a `labels` delivery effect with `add`, `remove`, and `replace` actions. The channel always applies the effect to the pull request admitted by the current invocation; effect payloads cannot select another repository or pull request.
+Use the GitHub Channel's `pull_request.labeled` trigger when a GitHub App should start an Agent without polling or a scheduler. The Channel verifies the webhook and admits the configured label and sender before the Agent Driver runs. Capabilities and finish hooks can move application-owned lifecycle labels through generic delivery effects.
 
-```ts [server/agents/review.ts]
+```ts [server/agents/maintainer.ts]
 import { defineAgent, defineCapability } from '@vite-hub/agent'
 import { github } from '@vite-hub/agent/channels'
 
-const reviewLifecycle = defineCapability({
-  id: 'review-lifecycle',
+const lifecycle = defineCapability({
+  id: 'pull-request-lifecycle',
   prepare(context) {
     context.delivery.effect({
       kind: 'labels',
       payload: { action: 'add', labels: ['agent:working'] },
     })
+    context.delivery.effect({
+      kind: 'labels',
+      payload: { action: 'remove', labels: ['agent:ready'] },
+    })
   },
 })
 
 export default defineAgent({
-  capabilities: [reviewLifecycle],
-  channels: { github: github({ app: true, pullRequest: true }) },
-  driver: { run: () => 'Review complete.' },
-})
-```
-
-Use `add` or `remove` to preserve unrelated labels. `replace` sends the complete desired label set, including an empty array when the pull request should have no labels.
-
-GitHub Pull Request Context enrichment is bounded before it reaches the Agent Invocation Context. By default, `github({ pullRequest: true })` records up to 30 comments, 200 changed files, 12,000 pull request body characters, and 2,000 characters per comment body. Override those with `maxComments`, `maxFiles`, `maxBodyLength`, and `maxCommentBodyLength` on the `pullRequest` option. Rendered comments are labeled as untrusted user content, and failed metadata enrichment is recorded at `pullRequest.metadata.unavailable`.
-
-Use a labeled event when an Agent Invocation should start only after a trusted GitHub actor applies a specific label:
-
-```ts [server/agents/triage.ts]
-export default defineAgent({
+  capabilities: [lifecycle],
   channels: {
     github: github({
       app: true,
       pullRequest: {
         labeled: {
-          label: 'agent:triage',
+          label: 'agent:ready',
           allowedSenders: [{ id: 583231, login: 'octocat' }],
         },
       },
     }),
   },
-  driver: { run: () => 'Triage this pull request.' },
+  driver: { run: () => 'Maintained the pull request.' },
+  runtime: false,
+  hooks: {
+    'agent:finish'(event) {
+      return [{
+        kind: 'labels',
+        payload: {
+          action: 'add',
+          labels: [event.error ? 'agent:blocked' : 'agent:done'],
+        },
+      }, {
+        kind: 'labels',
+        payload: { action: 'remove', labels: ['agent:working'] },
+      }]
+    },
+  },
 })
 ```
 
-`allowedSenders` uses GitHub's stable numeric account ID for admission. An optional `login` is a case-insensitive assertion for reviewable configuration; a mismatch is rejected. Labeled events require a valid GitHub SHA-256 webhook signature. Admitted invocations include the label and sender, repository identity, GitHub App installation identity when present, delivery ID, and the exact base and head refs and SHAs in the Pull Request Context. Repeated deliveries share a delivery identity, while invocations for the same pull request head share an exact-head concurrency identity. The dev trigger also accepts a raw GitHub `pull_request` payload for local fixture replay and derives a deterministic development delivery ID from it.
+The lifecycle names belong to the application. Use `add` or `remove` to preserve unrelated labels. `replace` sends the complete desired label set, including an empty array when the pull request should have no labels. Each action is a separate, best-effort delivery effect: a failure is recorded in the `channel:delivery-effect` trace and does not fail the Agent Invocation, so a multi-action transition can be only partly applied. The channel always applies effects to the pull request and App installation admitted by the current invocation; effect payloads and metadata cannot redirect them.
+
+GitHub Pull Request Context enrichment is bounded before it reaches the Agent Invocation Context. By default, `github({ pullRequest: true })` records up to 30 comments, 200 changed files, 12,000 pull request body characters, and 2,000 characters per comment body. Override those with `maxComments`, `maxFiles`, `maxBodyLength`, and `maxCommentBodyLength` on the `pullRequest` option. Rendered comments are labeled as untrusted user content, and failed metadata enrichment is recorded at `pullRequest.metadata.unavailable`.
+
+GitHub calls the account that caused a webhook the `sender`. `allowedSenders` uses its stable numeric account ID on the configured GitHub host. An optional `login` is a readable, case-insensitive assertion; a mismatch is rejected. Admitted invocations include the repository id and full name, pull request number, exact base and head refs and SHAs, source repo and immutable head SHA, label, sender, installation id, and GitHub delivery id in the typed Pull Request Context.
+
+Configure an [Agent State Provider](/docs/agents/chat-history-sessions#persist-state-deliberately) for durable delivery claims and exact-head leases, and keep execution inline with `runtime: false` so ownership and the Agent run share one execution boundary. One delivery id starts only one run. After ownership is released, removing and reapplying the label creates a new delivery that can rerun the same head; simultaneous deliveries for the same repository, pull request, and head SHA are rejected. The dev trigger also accepts a raw GitHub `pull_request` payload for local fixture replay and derives a deterministic development delivery ID from it.
+
+The GitHub App must subscribe to pull request events and grant either `Pull requests: write`, or `Pull requests: read` together with `Issues: write`. With `app: true`, configure `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_ID`, and either `GITHUB_APP_PRIVATE_KEY` or `GITHUB_APP_PRIVATE_KEY_PATH`. The webhook secret verifies deliveries; the installation id selects the App installation whose short-lived token changes labels. Keep the private key and installation tokens in the Channel runtime; ViteHub does not pass them into an Agent Box.
 
 ## Next steps
 
