@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "pathe"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
@@ -16,6 +16,7 @@ import type { CloudflareProviderDeploymentOutput, ComposedProviderOutput, Vercel
 export const blobPackageName = "@vite-hub/blob"
 const cloudflareBlobWorkerMarker = "vitehub-blob-worker"
 const cloudflareBlobOutputState = ".vitehub/blob/cloudflare-output.json"
+const vercelBlobOutputMarker = ".vitehub-blob-output"
 const productName = "blob"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
@@ -525,13 +526,24 @@ async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOpt
     packages.add("@aws-sdk/s3-presigned-post")
     packages.add("@aws-sdk/s3-request-presigner")
   }
-  if (!packages.size) return
+  if (packages.size) {
+    await copyVercelFunctionRuntimePackages({
+      packages: [...packages].map(name => ({ name, resolveFrom: resolve(packageDir, "package.json") })),
+      rootDir: options.rootDir,
+      serverFunctionName: options.serverFunctionName,
+    })
+  }
+  await writeFile(resolve(options.rootDir, ".vercel/output/functions", options.serverFunctionName ?? "__server.func", vercelBlobOutputMarker), "", "utf8")
+}
 
-  await copyVercelFunctionRuntimePackages({
-    packages: [...packages].map(name => ({ name, resolveFrom: resolve(packageDir, "package.json") })),
-    rootDir: options.rootDir,
-    serverFunctionName: options.serverFunctionName,
-  })
+async function hasVercelBlobOutput(options: GenerateProviderOutputsOptions) {
+  try {
+    await access(resolve(options.rootDir, ".vercel/output/functions", options.serverFunctionName ?? "__server.func", vercelBlobOutputMarker))
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 function registerSupportedProviderRuntimeModules(
@@ -548,6 +560,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const localOnly = !shouldCreateProviderOutput(options.blob)
   const createCloudflare = !localOnly && !options.cloudflareOwnedByNitro
   const createVercel = !localOnly && !options.cloudflareOwnedByNitro
+  const cleanupVercel = options.cloudflareOwnedByNitro && await hasVercelBlobOutput(options)
   const hasCurrentCloudflareContribution = Boolean(createCloudflareR2Bindings(resolveBlobConfig(options.blob, "cloudflare"))?.length)
   if (options.cloudflareOwnedByNitro) {
     await writeProviderDeploymentOutputs({
@@ -560,6 +573,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     afterWrite: createVercel ? () => copyVercelBlobRuntimePackages(options) : undefined,
     clientOutDir: options.clientOutDir,
     cloudflare: createCloudflare ? createCloudflareOutput(options.blob, artifacts, options.providerOutput) : undefined,
+    cleanup: cleanupVercel ? { vercel: { serverFunctionName: options.serverFunctionName ?? "__server.func" } } : undefined,
     rootDir: options.rootDir,
     vercel: createVercel ? createVercelOutput(artifacts, options.providerOutput, options.serverFunctionName) : undefined,
   })
