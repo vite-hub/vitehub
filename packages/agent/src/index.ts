@@ -2241,7 +2241,15 @@ async function finalizeAgentInvocationResult<
   const shouldWrapOutput = shouldWrapInvocationOutput(context)
   try {
     if (result instanceof Response) {
-      const response = shouldWrapOutput ? await withResponseCleanup(result, outcome => lifecycle.finish(finishOutcomeFromCleanup(outcome, result))) : result
+      const responseText = context.context.get<boolean>(responseTitleFallbackContextKey) === true
+        ? result.clone().text()
+        : undefined
+      const response = shouldWrapOutput ? await withResponseCleanup(result, async (outcome) => {
+        const finishResult = responseText && !outcome.failed
+          ? { raw: result, text: await responseText }
+          : result
+        await lifecycle.finish(finishOutcomeFromCleanup(outcome, finishResult))
+      }) : result
       return response
     }
     if (isAsyncIterable(result) && !hasTraceableStreamResult(result) && !options.finalizeRawStreams) {
