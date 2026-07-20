@@ -153,6 +153,24 @@ describe("resolveSandboxProject", () => {
     expect(project.files).not.toHaveProperty("bun.lockb")
   })
 
+  it("does not upload local environment and npm credential files", async () => {
+    const root = await createRoot()
+    await writeFile(join(root, "package.json"), JSON.stringify({ private: true }))
+    await writeFile(join(root, ".env"), "TOKEN=secret\n")
+    await writeFile(join(root, ".env.local"), "TOKEN=local-secret\n")
+    await writeFile(join(root, ".npmrc"), "//registry.npmjs.org/:_authToken=secret\n")
+    await mkdir(join(root, "src"))
+    await writeFile(join(root, "src/.env.production"), "TOKEN=nested-secret\n")
+    await writeFile(join(root, "run.sandbox.ts"), "export default null")
+
+    const project = await resolveSandboxProject(join(root, "run.sandbox.ts"), root)
+
+    expect(project.files).not.toHaveProperty(".env")
+    expect(project.files).not.toHaveProperty(".env.local")
+    expect(project.files).not.toHaveProperty(".npmrc")
+    expect(project.files).not.toHaveProperty("src/.env.production")
+  })
+
   it("uses the Yarn Classic frozen lockfile flag", async () => {
     const root = await createRoot()
     await writeFile(join(root, "package.json"), JSON.stringify({ packageManager: "yarn@1.22.22", private: true }))

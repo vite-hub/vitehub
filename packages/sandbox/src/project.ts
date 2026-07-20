@@ -36,6 +36,8 @@ const lockfiles: Array<{ file: string, manager: SandboxPackageManager }> = [
   { file: 'bun.lock', manager: 'bun' },
 ]
 
+const projectFileExcludes = ['node_modules/**', '.git/**', '**/.env', '**/.env.*', '**/.npmrc', 'bun.lockb']
+
 function isInside(root: string, path: string) {
   const next = relative(root, path)
   return next === '' || (!next.startsWith('..') && !next.startsWith('/'))
@@ -181,7 +183,7 @@ async function addPnpmWorkspaceDependencies(
       throw new Error(`[vitehub] Sandbox package references missing pnpm workspace dependency "${name}".`)
     included.add(name)
     pending.push(...workspaceDependencyNames(dependency.manifest))
-    for await (const match of glob('**/*', { cwd: dependency.root, exclude: ['node_modules/**', '.git/**'] }))
+    for await (const match of glob('**/*', { cwd: dependency.root, exclude: projectFileExcludes }))
       await addProjectFile(files, workspaceRoot, resolve(dependency.root, match), scanRoot)
   }
 }
@@ -216,7 +218,7 @@ export async function resolveSandboxProject(definitionFile: string, scanRoot: st
     : undefined
 
   const files: Record<string, SandboxProjectFile> = {}
-  for await (const match of glob('**/*', { cwd: packageRoot, exclude: ['node_modules/**', '.git/**', 'bun.lockb'] }))
+  for await (const match of glob('**/*', { cwd: packageRoot, exclude: projectFileExcludes }))
     await addProjectFile(files, installRoot, resolve(packageRoot, match), root)
   if (installRoot !== packageRoot)
     await addProjectFile(files, installRoot, resolve(installRoot, 'package.json'), root)
