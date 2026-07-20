@@ -1,6 +1,6 @@
 import { access, cp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
-import { dirname, extname, join, relative, resolve, sep } from "node:path"
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 
 const builtinModuleNames = new Set([
@@ -41,7 +41,7 @@ function collectBundledPackageNames(source: string): Set<string> {
 function collectBundledPackages(source: string): Map<string, string> {
   const packages = new Map<string, string>()
   for (const match of source.matchAll(
-    /(node_modules[/\\](?:\.pnpm[/\\][^/\\]+[/\\]node_modules[/\\])?((?:@[^/\\]+[/\\])?[^/\\\s]+))/g,
+    /(?:^|[\s"'`(])((?:[A-Za-z]:)?[^\s"'`()]*?node_modules[/\\](?:\.pnpm[/\\][^/\\]+[/\\]node_modules[/\\])?((?:@[^/\\]+[/\\])?[^/\\\s"'`()]+))/gm,
   )) {
     const name = packageNameFromSpecifier(match[2]!.replaceAll("\\", "/"))
     if (name) packages.set(name, match[1]!)
@@ -213,7 +213,7 @@ async function readRuntimePackages(serverDir: string, rootDir: string): Promise<
         name,
         onlyIfOptionalDependencies: existing?.onlyIfOptionalDependencies ?? true,
         optional: existing?.optional ?? true,
-        packageJsonPath: resolve(rootDir, packagePath.replace(/^[/\\]/, ""), "package.json"),
+        packageJsonPath: resolve(isAbsolute(packagePath) ? packagePath : resolve(rootDir, packagePath), "package.json"),
       })
     }
     for (const name of collectImportedPackageNames(source)) {
