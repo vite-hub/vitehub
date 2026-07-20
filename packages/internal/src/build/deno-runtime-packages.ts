@@ -212,13 +212,14 @@ async function readRuntimePackages(serverDir: string, rootDir: string): Promise<
       })
     }
     for (const name of collectImportedPackageNames(source)) {
-      if (!packages.has(name)) {
-        packages.set(name, {
-          includeOptionalDependencies: true,
-          includePeerDependencies: true,
-          name,
-        })
-      }
+      packages.set(name, {
+        ...packages.get(name),
+        includeOptionalDependencies: true,
+        includePeerDependencies: true,
+        name,
+        onlyIfOptionalDependencies: false,
+        optional: false,
+      })
     }
   }
   return [...packages.values()].sort((a, b) => a.name.localeCompare(b.name))
@@ -289,10 +290,10 @@ try {
   }
   await cp(sourceRoot, uploadRoot, { recursive: true })
 
-  const common = ["--allow-node-modules", "--org", organization, "--app", app]
+  const common = ["--org", organization, "--app", app]
   const deployment = await run(["deploy", ".", "--prod", ...common], uploadRoot)
   if (deployment.code !== 0) {
-    const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", "server/index.ts", "--working-directory", ".", "--region", region, ...common], uploadRoot)
+    const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--allow-node-modules", "--entrypoint", "server/index.ts", "--working-directory", ".", "--region", region, ...common], uploadRoot)
     if (creation.code !== 0) {
       throw new Error("deno deploy/create exited with " + (creation.signal || "code " + creation.code))
     }
