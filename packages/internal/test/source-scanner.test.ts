@@ -190,6 +190,43 @@ describe("source scanner", () => {
     expect(readObjectProperty(call!.argument, "value")).toBe(`"real"`)
   })
 
+  it("scans control-flow regex literals inside template expressions without recursion", () => {
+    const call = findDefaultExportCall([
+      `export default defineThing({`,
+      "  handler: () => `${(() => { if (ready) /\\}/.test(\"}\") })()}` ,",
+      `  value: "real",`,
+      `})`,
+    ].join("\n"), ["defineThing"])
+
+    expect(call).toMatchObject({ name: "defineThing" })
+    expect(readObjectProperty(call!.argument, "value")).toBe(`"real"`)
+  })
+
+  it("does not repeatedly rescan control-flow regex literals inside template expressions", () => {
+    const checks = Array.from({ length: 12 }, (_, index) => `if (ready${index}) /\\}/.test("}")`).join("; ")
+    const call = findDefaultExportCall([
+      `export default defineThing({`,
+      `  handler: () => \`${"${"}(() => { ${checks} })()}\` ,`,
+      `  value: "real",`,
+      `})`,
+    ].join("\n"), ["defineThing"])
+
+    expect(call).toMatchObject({ name: "defineThing" })
+    expect(readObjectProperty(call!.argument, "value")).toBe(`"real"`)
+  })
+
+  it("shares regex classifications while matching nested template conditions", () => {
+    const call = findDefaultExportCall([
+      `export default defineThing({`,
+      "  handler: () => `${(() => { if (`${(() => { if (inner) /\\}/.test(\"}\") })()}`) /\\}/.test(\"}\") })()}` ,",
+      `  value: "real",`,
+      `})`,
+    ].join("\n"), ["defineThing"])
+
+    expect(call).toMatchObject({ name: "defineThing" })
+    expect(readObjectProperty(call!.argument, "value")).toBe(`"real"`)
+  })
+
   it("finds default-exported definition calls", () => {
     const call = findDefaultExportCall([
       `const ignored = defineThing({ value: "ignored" })`,
