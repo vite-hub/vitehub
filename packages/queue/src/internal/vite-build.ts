@@ -496,15 +496,6 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const createCloudflare = !options.cloudflareOwnedByNitro && usesCloudflare
   const createVercel = shouldCreateVercelOutput(options.queue)
   const vercelFunctionName = options.serverFunctionName ?? "__server.func"
-  const previousVercelOutput = await readVercelQueueOutputState(options.rootDir)
-  const vercelFunctionCandidates = new Set(["__server.func", "__queue.func"])
-  if (previousVercelOutput) vercelFunctionCandidates.add(previousVercelOutput.serverFunctionName)
-  const ownedVercelFunctions: string[] = []
-  for (const serverFunctionName of vercelFunctionCandidates) {
-    if (await isVercelQueueFunctionOwned(options.rootDir, serverFunctionName, previousVercelOutput)) {
-      ownedVercelFunctions.push(serverFunctionName)
-    }
-  }
   if (!createCloudflare) {
     await writeProviderDeploymentOutputs({
       clientOutDir: options.clientOutDir,
@@ -516,34 +507,41 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
       rootDir: options.rootDir,
     })
   }
-  await Promise.all(ownedVercelFunctions
-    .filter(serverFunctionName => !createVercel || serverFunctionName !== vercelFunctionName)
-    .map(serverFunctionName => rm(resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", serverFunctionName), { force: true, recursive: true })))
+  // Verify and update Queue ownership under the shared provider-output lock.
   await writeProviderDeploymentOutputs({
+    afterWrite: async () => {
+      const previousVercelOutput = await readVercelQueueOutputState(options.rootDir)
+      const vercelFunctionCandidates = new Set(["__server.func", "__queue.func"])
+      if (previousVercelOutput) vercelFunctionCandidates.add(previousVercelOutput.serverFunctionName)
+      const ownedVercelFunctions: string[] = []
+      for (const serverFunctionName of vercelFunctionCandidates) {
+        if (await isVercelQueueFunctionOwned(options.rootDir, serverFunctionName, previousVercelOutput)) {
+          ownedVercelFunctions.push(serverFunctionName)
+        }
+      }
+      await Promise.all(ownedVercelFunctions
+        .filter(serverFunctionName => !createVercel || serverFunctionName !== vercelFunctionName)
+        .map(serverFunctionName => rm(resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", serverFunctionName), { force: true, recursive: true })))
+      if (createVercel) {
+        const functionRoot = resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", vercelFunctionName)
+        const contents = await readFile(resolve(functionRoot, "index.mjs"))
+        const digest = hash("sha256", contents, "hex")
+        await writeFile(resolve(functionRoot, vercelQueueFunctionMarker), `${JSON.stringify({ digest }, null, 2)}\n`, "utf8")
+        await mkdir(dirname(resolve(options.rootDir, vercelQueueOutputState)), { recursive: true })
+        await writeFile(resolve(options.rootDir, vercelQueueOutputState), `${JSON.stringify({
+          digest,
+          serverFunctionName: vercelFunctionName,
+        }, null, 2)}\n`, "utf8")
+      }
+      else {
+        await rm(resolve(options.rootDir, vercelQueueOutputState), { force: true })
+      }
+    },
     clientOutDir: options.clientOutDir,
     cloudflare: createCloudflare ? createCloudflareOutput(artifacts, cloudflareNamePrefix) : undefined,
-    cleanup: {
-      vercel: {
-        serverFunctionName: undefined,
-      },
-    },
     rootDir: options.rootDir,
     vercel: createVercel ? createVercelOutput(artifacts, options.serverFunctionName) : undefined,
   })
-  if (createVercel) {
-    const functionRoot = resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", vercelFunctionName)
-    const contents = await readFile(resolve(functionRoot, "index.mjs"))
-    const digest = hash("sha256", contents, "hex")
-    await writeFile(resolve(functionRoot, vercelQueueFunctionMarker), `${JSON.stringify({ digest }, null, 2)}\n`, "utf8")
-    await mkdir(dirname(resolve(options.rootDir, vercelQueueOutputState)), { recursive: true })
-    await writeFile(resolve(options.rootDir, vercelQueueOutputState), `${JSON.stringify({
-      digest,
-      serverFunctionName: vercelFunctionName,
-    }, null, 2)}\n`, "utf8")
-  }
-  else {
-    await rm(resolve(options.rootDir, vercelQueueOutputState), { force: true })
-  }
   if (createCloudflare) {
     const queues = createCloudflareQueueBindings(artifacts.definitions, cloudflareNamePrefix)
     await mkdir(dirname(resolve(options.rootDir, cloudflareQueueOutputState)), { recursive: true })
