@@ -117,6 +117,7 @@ async function prepareSandboxProjectAtomically(
         },
       })
     }
+    await sandbox.mkdir(`${staging}/.vitehub`, { recursive: true })
     await sandbox.writeFile(`${staging}/.vitehub/prepared`, bundle.project.digest)
     const published = await sandbox.exec('node', [
       '-e',

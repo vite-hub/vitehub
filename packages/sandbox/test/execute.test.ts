@@ -19,6 +19,7 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
     }
   }
   const execCalls: Array<{ cmd: string, args: string[], options?: { cwd?: string, env?: Record<string, string> } }> = []
+  const mkdirCalls: string[] = []
   let releaseInstall = () => {}
   const installGate = new Promise<void>(resolve => releaseInstall = resolve)
 
@@ -125,6 +126,7 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
       return new TextDecoder().decode(content)
     },
     async mkdir(path: string) {
+      mkdirCalls.push(path)
       const target = normalize(path)
       addParents(target)
       directories.add(target)
@@ -134,7 +136,7 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
     },
   } as SandboxExecutionBox
 
-  return { sandbox, execCalls, hasFile: (path: string) => files.has(normalize(path)), releaseInstall }
+  return { sandbox, execCalls, hasFile: (path: string) => files.has(normalize(path)), mkdirCalls, releaseInstall }
 }
 
 describe("executeSandboxDefinition", () => {
@@ -187,7 +189,7 @@ describe("executeSandboxDefinition", () => {
   })
 
   it("prepares one package project once per digest", async () => {
-    const { sandbox, execCalls, hasFile } = createFakeSandbox()
+    const { sandbox, execCalls, hasFile, mkdirCalls } = createFakeSandbox()
     const bundle = {
       entry: ".vitehub-sandbox/definition.js",
       modules: { ".vitehub-sandbox/definition.js": "export default { run() { return { ok: true } } }" },
@@ -218,6 +220,7 @@ describe("executeSandboxDefinition", () => {
       options: { cwd: expect.stringMatching(new RegExp(`^/tmp/vitehub-sandbox/projects/${"a".repeat(64)}\\.staging-`)) },
     })
     expect(execCalls.find(call => call.cmd === "pnpm")?.options?.env).toBeUndefined()
+    expect(mkdirCalls).toContainEqual(expect.stringMatching(new RegExp(`^/tmp/vitehub-sandbox/projects/${"a".repeat(64)}\\.staging-.+/\\.vitehub$`)))
     expect(execCalls.filter(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])"))
       .toEqual(expect.arrayContaining([
         expect.objectContaining({ options: expect.objectContaining({ env: { SECRET: "handler-only" } }) }),
