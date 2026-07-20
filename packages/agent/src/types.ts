@@ -803,9 +803,6 @@ export interface AgentCapabilityDefinition<
   bash?: readonly AgentCapabilityBashCommand[]
   bind?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[]
-  chatAttachments?: {
-    audio?: boolean
-  }
   cli?: AgentCapabilityCliResolver<TRuntimeConfig, Name>
   close?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   configure?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
@@ -922,10 +919,15 @@ export interface AgentModelExecutionInstrumentation<
   model?: AgentModelInstrumentation<TRuntimeConfig>
 }
 
+export interface AgentAttachmentExecutionOptions {
+  maxBytes?: number
+}
+
 export interface AgentModelExecutionOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > {
+  attachments?: AgentAttachmentExecutionOptions
   callSettings?: Record<string, unknown>
   instrumentation?: AgentModelExecutionInstrumentation<TRuntimeConfig, CALL_OPTIONS>
   stepLimit?: number

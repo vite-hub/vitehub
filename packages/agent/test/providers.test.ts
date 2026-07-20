@@ -32,7 +32,7 @@ const optionalMessageAdapterRuntimeExternals = [
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
 
-function createTestChatAdapter(options: { deferMessageProcessing?: boolean, missingIncomingMessageId?: boolean, persistThreadHistory?: boolean, secret?: string } = {}) {
+function createTestChatAdapter(options: { attachmentFetchData?: () => Promise<Buffer>, deferMessageProcessing?: boolean, missingIncomingMessageId?: boolean, persistThreadHistory?: boolean, secret?: string } = {}) {
   let chatInstance: ChatInstance | undefined
   let sentMessageId = 0
   const cachedMessages = new Map<string, Message[]>()
@@ -62,7 +62,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
       const message = new Message({
         attachments: rawMessage.audio
           ? [{
-              fetchData: async () => Buffer.from([1, 2, 3]),
+              fetchData: options.attachmentFetchData ?? (async () => Buffer.from([1, 2, 3])),
               fetchMetadata: { fileId: "audio-file" },
               mimeType: "audio/ogg",
               name: "voice.ogg",
@@ -71,16 +71,17 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
             }]
           : typeof document?.file_id === "string" && typeof document.mime_type === "string" && document.mime_type.startsWith("audio/")
             ? [{
-                fetchData: async () => Buffer.from([1, 2, 3]),
+                fetchData: options.attachmentFetchData ?? (async () => Buffer.from([1, 2, 3])),
                 fetchMetadata: { fileId: document.file_id },
                 mimeType: document.mime_type,
                 name: document.file_name,
                 size: document.file_size,
                 type: "file",
+                ...(typeof document.url === "string" ? { url: document.url } : {}),
               }]
           : document && (typeof document.file_id === "string" || typeof document.url === "string" || typeof document.content === "string")
             ? [{
-                ...(typeof document.content === "string" ? { fetchData: async () => Buffer.from(document.content ?? "") } : {}),
+                ...(typeof document.content === "string" ? { fetchData: options.attachmentFetchData ?? (async () => Buffer.from(document.content ?? "")) } : {}),
                 ...(typeof document.file_id === "string" ? { fetchMetadata: { fileId: document.file_id } } : {}),
                 ...(document.mime_type ? { mimeType: document.mime_type } : {}),
                 name: document.file_name,
@@ -90,7 +91,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
               }]
           : typeof photo?.file_id === "string"
             ? [{
-                fetchData: async () => Buffer.from([1, 2, 3]),
+                fetchData: options.attachmentFetchData ?? (async () => Buffer.from([1, 2, 3])),
                 fetchMetadata: { fileId: photo.file_id },
                 height: photo.height,
                 size: photo.file_size,
@@ -2880,6 +2881,12 @@ describe("server helpers", () => {
         }),
         parts: [
           expect.objectContaining({ text: "hello", type: "text" }),
+          expect.objectContaining({
+            fetchData: expect.any(Function),
+            fetchMetadata: { fileId: "audio-file" },
+            mediaType: "audio/ogg",
+            type: "audio",
+          }),
         ],
       })],
       run: expect.objectContaining({
@@ -3226,11 +3233,12 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenCalledTimes(2)
   })
 
-  it("does not map audio mime file attachments without transcribe()", async () => {
+  it("maps audio mime file attachments by default without resolving bytes", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const adapter = createTestChatAdapter()
+    const attachmentFetchData = vi.fn(async () => Buffer.from([1, 2, 3]))
+    const adapter = createTestChatAdapter({ attachmentFetchData })
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
       channels: {
@@ -3251,6 +3259,7 @@ describe("server helpers", () => {
             file_name: "forwarded.ogg",
             file_size: 3,
             mime_type: "audio/ogg",
+            url: "https://cdn.example.com/forwarded.ogg",
           },
           from: { first_name: "Maxi", id: 123, username: "maxi" },
           message_id: 108,
@@ -3266,16 +3275,27 @@ describe("server helpers", () => {
       messages: [expect.objectContaining({
         parts: [
           expect.objectContaining({ text: "reenviado", type: "text" }),
+          expect.objectContaining({
+            fetchData: expect.any(Function),
+            fetchMetadata: { fileId: "forwarded-audio-file" },
+            mediaType: "audio/ogg",
+            name: "forwarded.ogg",
+            size: 3,
+            type: "audio",
+            url: "https://cdn.example.com/forwarded.ogg",
+          }),
         ],
       })],
     }))
+    expect(attachmentFetchData).not.toHaveBeenCalled()
   })
 
   it("invokes chat agents for attachment-only image messages", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const adapter = createTestChatAdapter()
+    const attachmentFetchData = vi.fn(async () => Buffer.from([1, 2, 3]))
+    const adapter = createTestChatAdapter({ attachmentFetchData })
     const hostIdentity = { name: "support", workspace: "support-workspace" }
     const run = vi.fn(({ agentIdentity }) => {
       expect(agentIdentity).toEqual(hostIdentity)
@@ -3312,10 +3332,58 @@ describe("server helpers", () => {
       messages: [expect.objectContaining({
         parts: [
           expect.objectContaining({
-            text: "Sent an image attachment.",
-            type: "text",
+            fetchData: expect.any(Function),
+            fetchMetadata: { fileId: "large-photo" },
+            mediaType: "application/octet-stream",
+            size: 3,
+            type: "file",
           }),
         ],
+      })],
+    }))
+    expect(attachmentFetchData).not.toHaveBeenCalled()
+  })
+
+  it("preserves generic attachment URLs as typed references", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: { telegram: telegram({ adapter: () => adapter as never }) },
+      driver: { run },
+    })
+
+    const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 43,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          document: {
+            file_name: "report.pdf",
+            file_size: 2048,
+            mime_type: "application/pdf",
+            url: "https://cdn.discordapp.com/attachments/channel/message/report.pdf",
+          },
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1013,
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      messages: [expect.objectContaining({
+        parts: [expect.objectContaining({
+          mediaType: "application/pdf",
+          name: "report.pdf",
+          size: 2048,
+          type: "file",
+          url: "https://cdn.discordapp.com/attachments/channel/message/report.pdf",
+        })],
       })],
     }))
   })
@@ -3415,7 +3483,6 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         defineCapability({
-          chatAttachments: { audio: true },
           id: "custom-audio",
           input,
         }),
@@ -3479,7 +3546,6 @@ describe("server helpers", () => {
         defineCapability({
           capabilities: [
             defineCapability({
-              chatAttachments: { audio: true },
               id: "nested-audio",
               input,
             }),
@@ -6133,7 +6199,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("falls back when durable thread history text attachment URLs fail", async () => {
+  it("preserves typed references when durable text attachment URL decoding fails", async () => {
     const { telegram } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
@@ -6143,6 +6209,7 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-history-stale-attachment-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const runs: string[][] = []
+    let receivedMessages: Array<{ parts: Array<Record<string, unknown>> }> = []
     try {
       await state.connect?.()
       await state.appendToList("msg-history:telegram:456", new Message({
@@ -6174,6 +6241,7 @@ describe("server helpers", () => {
         },
         driver: {
           run: ({ messages }) => {
+            receivedMessages = messages as unknown as Array<{ parts: Array<Record<string, unknown>> }>
             runs.push(messages.map(getMessageText))
             return "ok"
           },
@@ -6204,7 +6272,15 @@ describe("server helpers", () => {
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toEqual({ ok: true })
       expect(fetch).toHaveBeenCalledWith("https://cdn.example/old.txt")
-      expect(runs).toEqual([["Sent a file attachment.", "current after stale history"]])
+      expect(runs).toEqual([["", "current after stale history"]])
+      expect(receivedMessages[0]?.parts).toEqual([
+        expect.objectContaining({
+          mediaType: "text/plain",
+          name: "old.txt",
+          type: "file",
+          url: "https://cdn.example/old.txt",
+        }),
+      ])
     }
     finally {
       fetch.mockRestore()
