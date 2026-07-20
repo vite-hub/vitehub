@@ -1,4 +1,4 @@
-import { getMessageText, isAttachmentPart } from "./messages.ts"
+import { getMessageText, isAttachmentData, isAttachmentPart } from "./messages.ts"
 import {
   cloneWithPropertyDescriptors,
   isAsyncIterable,
@@ -97,16 +97,20 @@ type UserContentPart = Exclude<UserContent, string>[number]
 
 function attachmentModelData(part: AttachmentPart): Exclude<AttachmentData, Blob> | URL | undefined {
   if (part.data && !(part.data instanceof Blob)) return part.data
-  if (part.data instanceof Blob && !part.url) {
+  if (part.url) {
+    try {
+      const url = new URL(part.url)
+      if (url.protocol === "https:") return url
+    }
+    catch {
+      // Invalid URLs are not model input.
+    }
+  }
+  if (part.data instanceof Blob) {
     throw new TypeError("[vitehub] toAiSdkModelMessages() cannot convert a Blob synchronously. Pass the message through a model-backed Agent Driver or provide an HTTPS URL.")
   }
-  if (!part.url) return
-  try {
-    const url = new URL(part.url)
-    return url.protocol === "https:" ? url : undefined
-  }
-  catch {
-    return undefined
+  if (part.fetchData) {
+    throw new TypeError("[vitehub] toAiSdkModelMessages() cannot resolve attachment callbacks synchronously. Pass the message through a model-backed Agent Driver or provide an HTTPS URL.")
   }
 }
 
@@ -325,6 +329,9 @@ function assertAttachmentWithinLimit(part: AttachmentPart, byteLength: number | 
 async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number): Promise<AttachmentPart> {
   assertAttachmentWithinLimit(part, part.size, maxBytes)
   const resolved = typeof part.fetchData === "function" ? await part.fetchData() : part.data
+  if (typeof part.fetchData === "function" && !isAttachmentData(resolved)) {
+    throw new TypeError(`[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.`)
+  }
   if (!resolved) return part
   assertAttachmentWithinLimit(part, attachmentDataByteLength(resolved), maxBytes)
   const data = resolved instanceof Blob ? await resolved.arrayBuffer() : resolved

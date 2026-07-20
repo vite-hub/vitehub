@@ -162,7 +162,9 @@ export default defineAgent({
 
 Only HTTPS attachment URLs are forwarded as remote model input. ViteHub does not download arbitrary URLs on the server, because that would create an SSRF surface. Forwarding a signed URL also discloses its temporary access to the model provider, and provider URLs may expire; use `fetchData` for authenticated or refreshable access and treat durable persistence as a separate application decision.
 
-Harness-backed Agents retain URL-bearing parts in their input, but a function callback cannot cross a serialized harness boundary. A private callback-only attachment needs a Capability that consumes it or an explicit future asset/persistence contract; ViteHub does not materialize it in `/tmp`. `serializeMessages()` similarly rejects unresolved attachment callbacks. The pure synchronous `toAiSdkModelMessages()` converter does not invoke callbacks or convert Blob-only data; use the model-backed Agent Driver for its asynchronous invocation-time conversion, or provide an HTTPS URL.
+The byte limit checks a declared `size` before resolving provider data, then checks the resolved value using UTF-8 bytes for strings, `byteLength` for buffers and typed-array views, and `size` for Blobs. Invalid and non-HTTPS URLs are omitted from model input.
+
+Harness-backed Agents retain URL-bearing parts in their input, but a function callback cannot cross a serialized harness boundary. A private callback-only attachment needs a Capability that consumes it or an explicit future asset/persistence contract; ViteHub does not materialize it in `/tmp`. `serializeMessages()` similarly rejects unresolved attachment callbacks. The pure synchronous `toAiSdkModelMessages()` converter rejects callback- and Blob-only inputs; use the model-backed Agent Driver for its asynchronous invocation-time conversion, or provide an HTTPS URL.
 
 Text-like files keep the existing bounded prompt behavior: ViteHub decodes recognized text attachments up to 8 MiB and emits a text part instead of a duplicate file part. Other attachment normalization is inert.
 

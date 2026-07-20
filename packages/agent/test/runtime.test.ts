@@ -3002,6 +3002,13 @@ describe("agent message protocol", () => {
         role: "user",
       }),
     ])).toThrow("cannot convert a Blob synchronously")
+
+    expect(() => toAiSdkModelMessages([
+      createMessage({
+        parts: [{ fetchData, mediaType: "image/png", type: "image" }],
+        role: "user",
+      }),
+    ])).toThrow("cannot resolve attachment callbacks synchronously")
   })
 
   it("maps Web Chat file parts to typed attachment references", async () => {
@@ -3096,6 +3103,14 @@ describe("agent message protocol", () => {
       })],
     })).rejects.toThrow("exceeds maxBytes")
     expect(oversizedFetchData).not.toHaveBeenCalled()
+
+    const emptyFetchData = vi.fn(async () => "")
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ fetchData: emptyFetchData, mediaType: "application/pdf", type: "file" }],
+        role: "user",
+      })],
+    })).rejects.toThrow("did not return supported attachment data")
   })
 
   it("preserves prefixed data parts during model conversion", async () => {
