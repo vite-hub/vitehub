@@ -199,6 +199,7 @@ describe("playground import contracts", () => {
 
     expect(shimExports).toEqual(["defineWorkspace", "source", "useWorkspace"])
     expect(shimProperties.sort()).toEqual(sourceExports)
+    expect(viteE2e).toContain('alias["@vite-hub/workspace/internal/runtime/workspace"] = workspaceRuntimeFile')
   })
 })
 
