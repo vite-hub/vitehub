@@ -102,6 +102,21 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.close).not.toHaveBeenCalled()
   })
 
+  it("rejects removed Definition options before resolving a provider", async () => {
+    setSandboxRuntimeConfig({ provider: "cloudflare" })
+    setSandboxRuntimeRegistry({
+      example: {
+        ...definition,
+        options: { runtime: { command: "node" } } as never,
+      },
+    })
+
+    const result = await runSandboxRuntime("example")
+
+    expect(result.isErr()).toBe(true)
+    expect(runtimeMocks.resolveSandboxBox).not.toHaveBeenCalled()
+  })
+
   it("keeps configured and per-run Cloudflare identity overrides", async () => {
     setSandboxRuntimeConfig({ provider: "cloudflare", sandboxId: "configured" })
     setSandboxRuntimeRegistry({ example: definition })

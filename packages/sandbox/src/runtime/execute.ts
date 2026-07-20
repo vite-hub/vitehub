@@ -46,7 +46,7 @@ async function prepareSandboxProject(
   sandbox: SandboxExecutionBox,
   bundle: SandboxDefinitionBundle,
   baseDir: string,
-  options: { deadline?: number, env?: Record<string, string>, signal?: AbortSignal, timeout?: number },
+  options: { deadline?: number, signal?: AbortSignal, timeout?: number },
 ) {
   const project = bundle.project
   if (!project)
@@ -91,7 +91,7 @@ async function prepareSandboxProjectAtomically(
   bundle: SandboxDefinitionBundle & { project: NonNullable<SandboxDefinitionBundle['project']> },
   projectDir: string,
   marker: string,
-  options: { deadline?: number, env?: Record<string, string>, signal?: AbortSignal, timeout?: number },
+  options: { deadline?: number, signal?: AbortSignal, timeout?: number },
 ) {
   if (await sandbox.exists(marker)) return
   const staging = `${projectDir}.staging-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
@@ -174,7 +174,6 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
     throwIfAborted()
     const bundleBaseDir = await prepareSandboxProject(sandbox, bundle, files.baseDir, {
       deadline,
-      env: definitionOptions?.env,
       signal,
       timeout: definitionOptions?.timeout,
     })

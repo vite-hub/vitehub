@@ -18,7 +18,7 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
       current = posix.dirname(current)
     }
   }
-  const execCalls: Array<{ cmd: string, args: string[], options?: { cwd?: string } }> = []
+  const execCalls: Array<{ cmd: string, args: string[], options?: { cwd?: string, env?: Record<string, string> } }> = []
   let releaseInstall = () => {}
   const installGate = new Promise<void>(resolve => releaseInstall = resolve)
 
@@ -26,7 +26,7 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
     id: "fake",
     provider: options.provider ?? "vercel",
     async close() {},
-    async exec(cmd: string, args: string[] = [], execOptions?: { cwd?: string }): Promise<SandboxExecResult> {
+    async exec(cmd: string, args: string[] = [], execOptions?: { cwd?: string, env?: Record<string, string> }): Promise<SandboxExecResult> {
       execCalls.push({ cmd, args, options: execOptions })
       if (options.execError)
         throw options.execError
@@ -204,9 +204,9 @@ describe("executeSandboxDefinition", () => {
       },
     }
 
-    await expect(executeSandboxDefinition(sandbox, "release-notes", undefined, bundle))
+    await expect(executeSandboxDefinition(sandbox, "release-notes", { env: { SECRET: "handler-only" } }, bundle))
       .resolves.toEqual({ ok: true })
-    await expect(executeSandboxDefinition(sandbox, "release-notes", undefined, bundle))
+    await expect(executeSandboxDefinition(sandbox, "release-notes", { env: { SECRET: "handler-only" } }, bundle))
       .resolves.toEqual({ ok: true })
 
     expect(execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1)
@@ -217,6 +217,11 @@ describe("executeSandboxDefinition", () => {
       args: ["install", "--frozen-lockfile"],
       options: { cwd: expect.stringMatching(new RegExp(`^/tmp/vitehub-sandbox/projects/${"a".repeat(64)}\\.staging-`)) },
     })
+    expect(execCalls.find(call => call.cmd === "pnpm")?.options?.env).toBeUndefined()
+    expect(execCalls.filter(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])"))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ options: expect.objectContaining({ env: { SECRET: "handler-only" } }) }),
+      ]))
   })
 
   it("serializes concurrent preparation for one project digest", async () => {

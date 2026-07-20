@@ -58,6 +58,7 @@ type SandboxRunner = {
 
 const sandboxPort: ProviderPort<ResolvedSandboxBox, SandboxRunner, SandboxRuntimeContext> = {
   async resolve(context) {
+    assertSandboxDefinitionOptions(context.definition.options ?? {})
     const config = getSandboxFeatureProvider(context.config)
     const provider = resolveRuntimeProvider(config, context.event)
 
