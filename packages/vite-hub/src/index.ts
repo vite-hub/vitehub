@@ -20,7 +20,7 @@ import { hubWorkflow } from "@vite-hub/workflow/vite"
 import { hubWorkspace } from "@vite-hub/workspace/vite"
 import { finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { finalizeDenoDeploymentOutput } from "@vite-hub/internal/build/deno-runtime-packages"
-import { assertDeploymentService, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { assertDeploymentService, deploymentPresetFromNitro, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import type { AgentModuleOptions } from "@vite-hub/agent"
 import type { AuthModuleOptions } from "@vite-hub/auth"
@@ -251,11 +251,15 @@ function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentSe
         if (configuredPreset && normalizeNitroPreset(configuredPreset) !== plan.nitroPreset) {
           throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with nitro.preset " + JSON.stringify(configuredPreset) + ".")
         }
-        for (const name of ["NITRO_PRESET", "SERVER_PRESET", "VITEHUB_HOSTING"] as const) {
+        for (const name of ["NITRO_PRESET", "SERVER_PRESET"] as const) {
           const value = process.env[name]
           if (value && normalizeNitroPreset(value) !== plan.nitroPreset) {
             throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with " + name + "=" + JSON.stringify(value) + ".")
           }
+        }
+        const configuredHosting = process.env.VITEHUB_HOSTING
+        if (configuredHosting && deploymentPresetFromNitro(configuredHosting) !== plan.preset) {
+          throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with VITEHUB_HOSTING=" + JSON.stringify(configuredHosting) + ".")
         }
         nitro.modules = [
           ...(Array.isArray(nitro.modules) ? nitro.modules : []),
@@ -309,7 +313,10 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.sandbox) requestedServices.push("sandbox")
   plugins.push(...deploymentPlugins(plan, requestedServices, blobEnabled))
   const providerImportAliases: Record<string, string> = {}
-  configureProviderOptionalImportAliases(providerImportAliases, options)
+  const configuredKV = options.kv && options.kv !== true ? options.kv : undefined
+  const presetKV = options.kv ? resolveKVViteConfig(configuredKV, { hosting: plan.nitroPreset }).kv : false
+  const presetKVOptions = presetKV && (presetKV.stores ? { stores: presetKV.stores } : presetKV.store)
+  configureProviderOptionalImportAliases(providerImportAliases, options, presetKVOptions || undefined)
   const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(sandboxEnabled)
 
   plugins.push(frameworkDependencyResolver(options, providerImportAliases))
@@ -367,9 +374,6 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   if (options.email) plugins.push(hubEmail(options.email === true ? undefined : options.email))
   if (options.kv) {
-    const configuredKV = options.kv === true ? undefined : options.kv
-    const presetKV = resolveKVViteConfig(configuredKV, { hosting: plan.nitroPreset }).kv
-    const presetKVOptions = presetKV && (presetKV.stores ? { stores: presetKV.stores } : presetKV.store)
     plugins.push(hubKv(presetKVOptions || undefined))
   }
   else plugins.push(hubKvOptionalPeerResolver())

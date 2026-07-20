@@ -24,6 +24,12 @@ describe("Deno deployment output", () => {
     ).toEqual(["@scope/tool", "native-addon", "sharp"])
   })
 
+  it("ignores import-shaped comments and strings", () => {
+    expect(collectDenoRuntimePackageNames(`// import "comment-package"
+const example = "import missing from 'string-package'"
+import "real-package"`)).toEqual(["real-package"])
+  })
+
   it("stages reachable packages and their installed optional native dependencies", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-deno-output-"))
     const outputDir = join(rootDir, ".output")
@@ -65,6 +71,7 @@ describe("Deno deployment output", () => {
     expect(deployRunner).toContain('["deploy", "create"')
     expect(deployRunner).toContain("--do-not-use-detected-build-config")
     expect(deployRunner).toContain("server/index.ts")
+    expect(deployRunner).toContain('["deploy", ".", "--prod"')
     expect(deployRunner).toContain('const common = ["--org", organization, "--app", app]')
     expect(deployRunner).toContain('"--region", region, "--allow-node-modules", ...common')
   })
