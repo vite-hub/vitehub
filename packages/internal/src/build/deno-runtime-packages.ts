@@ -40,10 +40,13 @@ function collectBundledPackageNames(source: string): Set<string> {
 
 function collectImportedPackageNames(source: string): Set<string> {
   const names = new Set<string>()
-  const executableSource = source.replace(/\/\*[\s\S]*?\*\//g, "")
+  const executableSource = source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "")
   const patterns = [
-    /\b(?:from|import)\s*(?:\(\s*)?["']([^"']+)["']/g,
-    /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
+    /(?:^|;)\s*(?:import|export)\s+(?:[^"']+\s+from\s+)?["']([^"']+)["']/gm,
+    /(?:^|;)\s*(?:const|let|var)\s+[^=]+?=\s*require\s*\(\s*["']([^"']+)["']\s*\)/gm,
+    /(?:^|;)\s*(?:await\s+)?import\s*\(\s*["']([^"']+)["']\s*\)/gm,
   ]
   for (const pattern of patterns) {
     for (const match of executableSource.matchAll(pattern)) {
@@ -93,12 +96,11 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   }
   if (options.onlyIfOptionalDependencies && !Object.keys(packageJson.optionalDependencies || {}).length) return
   const packageKey = name + "\0" + resolvedPackageJsonPath
-  if (!copied.has(packageKey)) {
-    copied.add(packageKey)
-    const targetDir = join(outputNodeModules, ...name.split("/"))
-    await rm(targetDir, { force: true, recursive: true })
-    await cp(packageDir, targetDir, { dereference: true, recursive: true })
-  }
+  if (copied.has(packageKey)) return
+  copied.add(packageKey)
+  const targetDir = join(outputNodeModules, ...name.split("/"))
+  await rm(targetDir, { force: true, recursive: true })
+  await cp(packageDir, targetDir, { dereference: true, recursive: true })
   const packageRequire = createRequire(resolvedPackageJsonPath)
   const dependencyNames = new Set(Object.keys(packageJson.dependencies || {}))
   if (options.includeOptionalDependencies) {
@@ -110,13 +112,14 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
     }
   }
   for (const dependencyName of dependencyNames) {
-    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, outputNodeModules, copied, {
+    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, join(targetDir, "node_modules"), copied, {
       includeOptionalDependencies: options.includeOptionalDependencies,
       includePeerDependencies: options.includePeerDependencies,
       name: dependencyName,
       optional: Boolean(packageJson.optionalDependencies?.[dependencyName]),
     })
   }
+  copied.delete(packageKey)
 }
 
 async function resolvePackageJson(name: string, resolver: NodeJS.Require, fromDir: string): Promise<string | undefined> {
@@ -211,7 +214,7 @@ function run(args) {
 }
 
 const common = ["--org", organization, "--app", app]
-const deployment = await run(["deploy", ".", ...common])
+const deployment = await run(["deploy", ".", "--prod", ...common])
 if (deployment.code === 0) process.exit(0)
 
 const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", "server/index.ts", "--working-directory", ".", "--region", region, "--allow-node-modules", ...common])
