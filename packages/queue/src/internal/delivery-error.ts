@@ -1,4 +1,20 @@
 import { getQueueErrorPublicShape, normalizePublicQueueIdentifier } from "../errors.ts"
+import type { QueueErrorCode } from "../errors.ts"
+
+const nonRetryableBuiltInCodes = new Set<QueueErrorCode>([
+  "CLOUDFLARE_BINDING_INVALID",
+  "CLOUDFLARE_BINDING_RESOLUTION_REQUIRED",
+  "CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS",
+  "QUEUE_DEFINITION_LOAD_FAILED",
+  "QUEUE_DEFINITION_NOT_FOUND",
+  "QUEUE_DISABLED",
+  "VERCEL_PROVIDER_EXPECTED",
+  "VERCEL_QUEUE_REGION_REQUIRED",
+  "VERCEL_QUEUE_SDK_INVALID",
+  "VERCEL_QUEUE_SDK_LOAD_FAILED",
+  "VERCEL_TOPIC_RESOLUTION_REQUIRED",
+  "VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS",
+])
 
 interface QueueDeliveryErrorContext {
   attempts: number
@@ -20,7 +36,8 @@ interface QueueDeliveryErrorReport extends Omit<QueueDeliveryErrorContext, "id" 
 }
 
 export function isNonRetryableQueueError(error: unknown): boolean {
-  return getQueueErrorPublicShape(error)?.retryable === false
+  const shape = getQueueErrorPublicShape(error)
+  return shape?.retryable === false || (shape !== undefined && nonRetryableBuiltInCodes.has(shape.code))
 }
 
 export function createQueueDeliveryErrorReport(error: unknown, context: QueueDeliveryErrorContext): QueueDeliveryErrorReport {

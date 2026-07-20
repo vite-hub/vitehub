@@ -173,6 +173,21 @@ describe("QueueError", () => {
     expect(JSON.stringify(report)).not.toContain("private provider detail")
   })
 
+  it("applies the built-in Queue retry policy to delivery reports", () => {
+    const context = { attempts: 1, id: "message-1", provider: "vercel" as const, queue: "welcome" }
+    const unsupported = new QueueError<"VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS">({
+      code: "VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS",
+      details: { provider: "vercel", unsupported: ["contentType"] },
+    })
+    const providerFailure = new QueueError<"QUEUE_PROVIDER_OPERATION_FAILED">({
+      code: "QUEUE_PROVIDER_OPERATION_FAILED",
+      details: { operation: "send", provider: "vercel" },
+    })
+
+    expect(createQueueDeliveryErrorReport(unsupported, context).retryable).toBe(false)
+    expect(createQueueDeliveryErrorReport(providerFailure, context).retryable).toBe(true)
+  })
+
   it("omits unsafe queue and message identifiers from delivery reports", () => {
     const report = createQueueDeliveryErrorReport(
       new Error("Bearer secret-token failed at https://queue.example/private"),
