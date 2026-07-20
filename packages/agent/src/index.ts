@@ -2242,11 +2242,11 @@ async function finalizeAgentInvocationResult<
   try {
     if (result instanceof Response) {
       const responseMediaType = result.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase()
-      const responseIsText = responseMediaType?.startsWith("text/")
+      const responseIsText = responseMediaType !== "text/event-stream" && (responseMediaType?.startsWith("text/")
         || responseMediaType === "application/json"
         || responseMediaType?.endsWith("+json")
         || responseMediaType === "application/xml"
-        || responseMediaType?.endsWith("+xml")
+        || responseMediaType?.endsWith("+xml"))
       const responseDecoder = context.context.get<boolean>(responseTitleFallbackContextKey) === true && responseIsText
         ? new TextDecoder()
         : undefined

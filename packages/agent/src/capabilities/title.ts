@@ -743,6 +743,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
 
       invocationStarts.set(context.context, async () => {
         if (!firstUserMessage(context.input.messages())) return
+        if (!shouldRunForTrigger(options.trigger, agentTriggerId(context))) return
         if (!preparedTitleInput()) {
           context.context.set(responseTitleFallbackContextKey, true)
           return

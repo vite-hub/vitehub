@@ -6892,6 +6892,54 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].result).toBe(binary)
   })
 
+  it("does not generate a fallback title from an event-stream Response", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => "Unused title")
+    const agent = defineAgent({
+      capabilities: [title({ execute })],
+      driver: {
+        run: () => new Response('data: {"type":"text-delta","text":"hello"}\n\ndata: [DONE]\n\n', {
+          headers: { "content-type": "text/event-stream" },
+        }),
+      },
+    })
+
+    const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+        role: "user",
+      })],
+    }) as Response
+
+    await response.text()
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it("does not defer unmatched trigger streams for response fallback", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    class StreamResult {
+      stream = (async function* () {
+        yield { text: "hello", type: "text-delta" }
+      })()
+    }
+    const agent = defineAgent({
+      capabilities: [title({ execute: () => "Unused title", trigger: "portal.message" })],
+      driver: { run: () => new StreamResult() },
+      hooks: { "agent:finish": finish },
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+        role: "user",
+      })],
+    })
+
+    expect(result).toBeInstanceOf(StreamResult)
+    expect(finish).toHaveBeenCalledOnce()
+  })
+
   it("leaves the title unset when both user input and the final reply have no text", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const execute = vi.fn(() => "Unused title")
