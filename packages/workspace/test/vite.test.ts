@@ -702,7 +702,7 @@ describe("hubWorkspace", () => {
   it("preserves lazy GitHub store callbacks in generated Nitro runtime setup", async () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
-    const plugin = hubWorkspace()
+    const plugin = hubWorkspace({ hosting: "cloudflare-module" } as never)
     const config = plugin.config as (
       config: { nitro?: { plugins?: string[] }, root: string, workspace?: { store?: { provider: "github", repository?: () => string | undefined, root?: string, token?: () => string | undefined } } },
       env: { command: "build", mode: string },

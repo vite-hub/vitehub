@@ -115,6 +115,19 @@ import "plain"
     await expect(readFile(join(root, ".output/node_modules/plain/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1" })
   })
 
+  it("does not demote imports found before bundle markers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-import-before-marker-"))
+    await writeJson(join(root, "package.json"), {})
+    await writeJson(join(root, "node_modules/plain/package.json"), { name: "plain", version: "1" })
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/a-import.ts"), 'import "plain"\n')
+    await writeFile(join(root, ".output/server/b-marker.ts"), "//#region node_modules/plain/index.js\n")
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/node_modules/plain/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1" })
+  })
+
   it("deploys ignored output from a complete temporary stage and cleans it", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-ignored-output-"))
     const output = join(root, ".output")
