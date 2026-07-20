@@ -278,6 +278,20 @@ describe("workspace host sessions", () => {
     await session.close()
   })
 
+  it("resolves glob patterns from the requested working directory", async () => {
+    const docs = workspace()
+    await docs.writeFile("src/index.ts", "export {}")
+    await docs.writeFile("src/nested/ignored.ts", "export {}")
+    await docs.writeFile("outside.ts", "export {}")
+    await docs.snapshot({ name: "baseline" })
+
+    const session = await docs.startSession({ host: memoryHost() })
+    await expect(session.glob("*.ts", { cwd: "src" })).resolves.toMatchObject([
+      { path: "src/index.ts" },
+    ])
+    await session.close()
+  })
+
   it("rejects execution runtime options on Workspace Definitions", () => {
     expect(() => defineWorkspace({ runtime: "sandbox" } as never)).toThrow("does not support option: runtime")
   })

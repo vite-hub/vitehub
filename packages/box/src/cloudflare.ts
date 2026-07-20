@@ -245,7 +245,7 @@ function createCloudflareSession(
           }) {
             commandOptions.abortSignal?.throwIfAborted();
             const process = await request("startProcess", async () => await stub.startProcess!(commandOptions.command, {
-              cwd: commandOptions.workingDirectory,
+              cwd: commandOptions.workingDirectory ?? "/workspace",
               env: { ...baseEnv, ...commandOptions.env },
             }));
             return cloudflareProcess(process);

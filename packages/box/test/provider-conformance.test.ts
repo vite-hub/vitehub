@@ -60,6 +60,7 @@ for (const provider of [cloudflareFixture, vercelFixture]) {
       });
       expect(session.spawn).toBeTypeOf("function");
       const process = await session.spawn!("background");
+      expect(fixture.machine.spawnCwd).toBe("/workspace");
       await expect(new Response(process.stdout).text()).resolves.toBe("spawned");
       await expect(process.wait()).resolves.toEqual({ code: 0 });
       await expect(session.ports!.expose(4321)).resolves.toBeInstanceOf(URL);
@@ -151,7 +152,8 @@ function cloudflareFixture() {
         success: contents !== undefined,
       };
     },
-    async startProcess() {
+    async startProcess(_command, options) {
+      machine.spawnCwd = options?.cwd;
       return {
         async getLogs() {
           return { stderr: "", stdout: "spawned" };
@@ -225,6 +227,7 @@ function vercelFixture() {
       return machine.files.get(normalize(path)) ?? null;
     },
     async runCommand(options) {
+      if (options.cmd === "sh" && options.args?.[1] === "background") machine.spawnCwd = options.cwd;
       const stdout = options.cmd === "sh" && options.args?.[1] === "background"
         ? "spawned"
         : `${options.cwd}|${options.env?.DECLARED}|${options.env?.INVOCATION}`;
@@ -263,6 +266,7 @@ function command(stdout: string): VercelSandboxCommand {
 class VirtualMachine {
   readonly directories = new Set(["/", "/home", "/workspace"]);
   readonly files = new Map<string, Uint8Array>();
+  spawnCwd: string | undefined;
   stops = 0;
 
   children(path: string) {

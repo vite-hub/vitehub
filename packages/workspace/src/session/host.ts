@@ -358,12 +358,19 @@ export async function createHostedWorkspaceSession(
       assertOpen()
       return filterSessionEntries(await listHostEntries(host, root, path, listOptions.recursive), sessionPaths)
     },
-    async glob(pattern) {
+    async glob(pattern, globOptions) {
       assertOpen()
       const patterns = Array.isArray(pattern) ? pattern : [pattern]
+      const cwd = normalizeSearchRoot(globOptions?.cwd || "")
       const { matchesAny } = await import("../core/path.ts")
       return filterSessionEntries(await listHostEntries(host, root, "", true), sessionPaths)
-        .filter(entry => entry.type === "file" && patterns.some(item => matchesAny(entry.path, item)))
+        .filter((entry) => {
+          if (entry.type !== "file") return false
+          if (!cwd) return patterns.some(item => matchesAny(entry.path, item))
+          if (!entry.path.startsWith(`${cwd}/`)) return false
+          const relative = entry.path.slice(cwd.length + 1)
+          return patterns.some(item => matchesAny(relative, item))
+        })
     },
     async search(query) {
       assertOpen()
