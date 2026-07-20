@@ -1,5 +1,6 @@
 import { runWorkflowHandler } from "./execute.ts"
 import { WorkflowError } from "../errors.ts"
+import { runWorkflowProviderOperation } from "./provider-operation.ts"
 
 import type { RetryPolicy } from "openworkflow"
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowStepOptions } from "../types.ts"
@@ -26,6 +27,10 @@ interface OpenWorkflowRuntime {
 }
 
 let runtimes = new Map<string, Promise<OpenWorkflowRuntime>>()
+
+async function importOpenWorkflowModule<T>(specifier: string, importer: OpenWorkflowImporter): Promise<T> {
+  return await runWorkflowProviderOperation("openworkflow", "import", () => importer<T>(specifier))
+}
 
 function readEnv(name: string): string | undefined {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
@@ -61,8 +66,8 @@ function normalizeSqlitePath(path: string): string {
 async function prepareSqlitePath(path: string, importer: OpenWorkflowImporter): Promise<string> {
   if (path !== ":memory:") {
     const [{ mkdirSync }, { dirname }] = await Promise.all([
-      importer<NodeFsModule>("node:fs"),
-      importer<NodePathModule>("node:path"),
+      importOpenWorkflowModule<NodeFsModule>("node:fs", importer),
+      importOpenWorkflowModule<NodePathModule>("node:path", importer),
     ])
     mkdirSync(dirname(path), { recursive: true })
   }
@@ -119,25 +124,32 @@ async function createOpenWorkflowRuntime(
 ): Promise<OpenWorkflowRuntime> {
   const options = getOpenWorkflowConfig(config)
   const [{ OpenWorkflow }, backendModule] = await Promise.all([
-    importer<OpenWorkflowModule>("openworkflow"),
+    importOpenWorkflowModule<OpenWorkflowModule>("openworkflow", importer),
     options.backend === "sqlite"
-      ? importer<OpenWorkflowSqliteModule>("openworkflow/sqlite")
-      : importer<OpenWorkflowPostgresModule>("openworkflow/postgres"),
+      ? importOpenWorkflowModule<OpenWorkflowSqliteModule>("openworkflow/sqlite", importer)
+      : importOpenWorkflowModule<OpenWorkflowPostgresModule>("openworkflow/postgres", importer),
   ])
-  const backend = options.backend === "sqlite"
-    ? (backendModule as OpenWorkflowSqliteModule).BackendSqlite.connect(await prepareSqlitePath(options.path, importer), {
+  const { backend, client } = await runWorkflowProviderOperation("openworkflow", "connect", async () => {
+    let backend: OpenWorkflowBackend
+    if (options.backend === "sqlite") {
+      backend = await (backendModule as OpenWorkflowSqliteModule).BackendSqlite.connect(await prepareSqlitePath(options.path, importer), {
         namespaceId: options.namespaceId,
         ...(typeof options.runMigrations === "boolean" ? { runMigrations: options.runMigrations } : {}),
       })
-    : await (backendModule as OpenWorkflowPostgresModule).BackendPostgres.connect(options.url, {
+    }
+    else {
+      backend = await (backendModule as OpenWorkflowPostgresModule).BackendPostgres.connect(options.url, {
         namespaceId: options.namespaceId,
         ...(typeof options.runMigrations === "boolean" ? { runMigrations: options.runMigrations } : {}),
         schema: options.schema,
       })
+    }
+    return { backend, client: new OpenWorkflow({ backend }) }
+  })
 
   return {
     backend,
-    client: new OpenWorkflow({ backend }),
+    client,
     workflows: new Map(),
   }
 }
@@ -259,18 +271,22 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const runtime = await getOpenWorkflowRuntime(config)
   const workflow = await registerOpenWorkflowDefinition(runtime, name, definition as never)
-  const handle = await workflow.run(payload, options.id ? { idempotencyKey: options.id } : undefined)
-
-  return {
-    id: handle.workflowRun.id,
-    metadata: {
-      ...(options.id ? { idempotencyKey: options.id } : {}),
-      workflow: name,
-    },
-    payload,
-    provider: "openworkflow",
-    status: normalizeOpenWorkflowStatus(handle.workflowRun.status),
-  }
+  return await runWorkflowProviderOperation("openworkflow", "run", async () => {
+    const handle = await workflow.run(
+      payload,
+      options.id ? { idempotencyKey: options.id } : undefined,
+    )
+    return {
+      id: handle.workflowRun.id,
+      metadata: {
+        ...(options.id ? { idempotencyKey: options.id } : {}),
+        workflow: name,
+      },
+      payload,
+      provider: "openworkflow" as const,
+      status: normalizeOpenWorkflowStatus(handle.workflowRun.status),
+    }
+  })
 }
 
 export async function getOpenWorkflowRun<TPayload = unknown, TResult = unknown>(
@@ -279,15 +295,17 @@ export async function getOpenWorkflowRun<TPayload = unknown, TResult = unknown>(
   id: string,
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const runtime = await getOpenWorkflowRuntime(config)
-  const run = await runtime.backend.getWorkflowRun({ workflowRunId: id })
-  const serialized = serializeOpenWorkflowRun(run, name)
-  return serialized.id
-    ? serialized as WorkflowRun<TPayload, TResult>
-    : {
-        id,
-        provider: "openworkflow",
-        status: "unknown",
-      }
+  return await runWorkflowProviderOperation("openworkflow", "get", async () => {
+    const run = await runtime.backend.getWorkflowRun({ workflowRunId: id })
+    const serialized = serializeOpenWorkflowRun(run, name)
+    return serialized.id
+      ? serialized as WorkflowRun<TPayload, TResult>
+      : {
+          id,
+          provider: "openworkflow" as const,
+          status: "unknown" as const,
+        }
+  })
 }
 
 export async function resetOpenWorkflowRuntime(): Promise<void> {

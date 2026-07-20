@@ -7,7 +7,7 @@ import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-en
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { WorkflowProviderStep } from "../src/types.ts"
-import { WorkflowError } from "../src/errors.ts"
+import { ApplicationWorkflowError, WorkflowError } from "../src/errors.ts"
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
 import { getOpenWorkflowRuntime, resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
 import { createOpenWorkflowWorker, startOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
@@ -188,6 +188,42 @@ afterEach(() => {
 })
 
 describe("workflow runtime", () => {
+  async function expectProviderFailure(
+    request: Promise<unknown>,
+    cause: unknown,
+    details: { operation: string, provider: string, status?: number },
+  ) {
+    const error = await request.catch(error => error)
+    expect(error).toBeInstanceOf(WorkflowError)
+    expect(error).toMatchObject({
+      cause,
+      code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+      details,
+      message: "Workflow provider operation failed.",
+    })
+    expect(JSON.parse(JSON.stringify(error))).toEqual({
+      code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+      details,
+      message: "Workflow provider operation failed.",
+    })
+    expect(JSON.stringify(error)).not.toContain("provider-secret")
+  }
+
+  async function expectInvalidProviderResult(
+    request: Promise<unknown>,
+    operation: string,
+    field: string,
+  ) {
+    const error = await request.catch(error => error)
+    expect(error).toBeInstanceOf(WorkflowError)
+    expect(error).toMatchObject({
+      cause: new TypeError(`Vercel Workflow provider returned an invalid ${field}.`),
+      code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+      details: { operation, provider: "vercel" },
+      message: "Workflow provider operation failed.",
+    })
+  }
+
   it("defines inline workflows and returns a typed runtime handle", async () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
 
@@ -413,7 +449,7 @@ describe("workflow runtime", () => {
       },
     })
 
-    await expect(runWorkflow("server/workflows/chat", undefined, { id: "chat" })).rejects.toThrow(/Unknown workflow definition/)
+    await expect(runWorkflow("server/workflows/chat", undefined, { id: "chat" })).rejects.toThrow("Workflow definition was not found.")
     expect(helper).not.toHaveBeenCalled()
   })
 
@@ -428,7 +464,7 @@ describe("workflow runtime", () => {
       },
     })
 
-    await expect(runWorkflow("server/workflows/chat", undefined, { id: "chat" })).rejects.toThrow(/Unknown workflow definition/)
+    await expect(runWorkflow("server/workflows/chat", undefined, { id: "chat" })).rejects.toThrow("Workflow definition was not found.")
     expect(helper).not.toHaveBeenCalled()
   })
 
@@ -474,7 +510,7 @@ describe("workflow runtime", () => {
     await vi.waitFor(() => {
       expect(getInlineWorkflowDefinitions().has("legacy-alpha")).toBe(true)
     })
-    await expect(runWorkflow("beta", undefined, { id: "beta" })).rejects.toThrow(/Unknown workflow definition: beta/)
+    await expect(runWorkflow("beta", undefined, { id: "beta" })).rejects.toThrow("Workflow definition was not found.")
     releaseAlpha()
     await alphaRun
   })
@@ -913,6 +949,191 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("narrows OpenWorkflow import failures at the public boundary", async () => {
+    const cause = new Error("provider-secret:import")
+    setOpenWorkflowImporter(async (specifier) => {
+      if (specifier === "openworkflow") throw cause
+      if (specifier === "openworkflow/sqlite") {
+        return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+      }
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expectProviderFailure(runWorkflow("welcome", {}), cause, {
+      operation: "import",
+      provider: "openworkflow",
+    })
+  })
+
+  it("narrows OpenWorkflow connection failures at the public boundary", async () => {
+    const cause = new Error("provider-secret:connect")
+    openWorkflowMock.sqliteConnect.mockImplementationOnce(() => { throw cause })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expectProviderFailure(runWorkflow("welcome", {}), cause, {
+      operation: "connect",
+      provider: "openworkflow",
+    })
+  })
+
+  it("narrows OpenWorkflow client construction failures as connection failures", async () => {
+    const cause = new Error("provider-secret:client")
+    class RejectingOpenWorkflow {
+      constructor() {
+        throw cause
+      }
+    }
+    setOpenWorkflowImporter(async (specifier) => {
+      if (specifier === "openworkflow") return { OpenWorkflow: RejectingOpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+      }
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expectProviderFailure(runWorkflow("welcome", {}), cause, {
+      operation: "connect",
+      provider: "openworkflow",
+    })
+  })
+
+  it("narrows OpenWorkflow run failures at the public boundary", async () => {
+    const cause = new Error("provider-secret:run")
+    class RejectingOpenWorkflow {
+      defineWorkflow() {
+        return { run: async () => { throw cause } }
+      }
+    }
+    setOpenWorkflowImporter(async (specifier) => {
+      if (specifier === "openworkflow") return { OpenWorkflow: RejectingOpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+      }
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expectProviderFailure(runWorkflow("welcome", {}), cause, {
+      operation: "run",
+      provider: "openworkflow",
+    })
+  })
+
+  it("narrows malformed OpenWorkflow run results at the public boundary", async () => {
+    const cause = new Error("provider-secret:run-result")
+    class MalformedOpenWorkflow {
+      defineWorkflow() {
+        return {
+          run: async () => ({
+            get workflowRun() {
+              throw cause
+            },
+          }),
+        }
+      }
+    }
+    setOpenWorkflowImporter(async (specifier) => {
+      if (specifier === "openworkflow") return { OpenWorkflow: MalformedOpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+      }
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expectProviderFailure(runWorkflow("welcome", {}), cause, {
+      operation: "run",
+      provider: "openworkflow",
+    })
+  })
+
+  it("narrows OpenWorkflow get failures at the public boundary", async () => {
+    const cause = new Error("provider-secret:get")
+    setOpenWorkflowImporter(async (specifier) => {
+      if (specifier === "openworkflow") return { OpenWorkflow: openWorkflowMock.OpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        return {
+          BackendSqlite: {
+            connect: () => ({
+              getWorkflowRun: async () => { throw cause },
+              stop: vi.fn(),
+            }),
+          },
+        } as never
+      }
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expectProviderFailure(getWorkflowRun("welcome", "private-run"), cause, {
+      operation: "get",
+      provider: "openworkflow",
+    })
+  })
+
+  it("narrows malformed OpenWorkflow get results at the public boundary", async () => {
+    const cause = new Error("provider-secret:get-result")
+    setOpenWorkflowImporter(async (specifier) => {
+      if (specifier === "openworkflow") return { OpenWorkflow: openWorkflowMock.OpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        return {
+          BackendSqlite: {
+            connect: () => ({
+              getWorkflowRun: async () => ({
+                get workflowName() {
+                  throw cause
+                },
+              }),
+              stop: vi.fn(),
+            }),
+          },
+        } as never
+      }
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expectProviderFailure(getWorkflowRun("welcome", "private-run"), cause, {
+      operation: "get",
+      provider: "openworkflow",
+    })
+  })
+
+  it("preserves OpenWorkflow configuration errors", async () => {
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: "https://provider.example/workflow.db" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    const error = await runWorkflow("welcome", {}).catch(error => error)
+
+    expect(error).not.toBeInstanceOf(WorkflowError)
+    expect(error).toEqual(new Error("OpenWorkflow SQLite storage requires a local SQLite file path, received \"https://provider.example/workflow.db\"."))
+  })
+
   it("creates an OpenWorkflow worker from the runtime registry", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
@@ -1322,7 +1543,7 @@ describe("workflow runtime", () => {
 
     await expect(runWorkflow("welcome", {}, { id: "caller-id" })).rejects.toMatchObject({
       code: "WORKFLOW_RUN_ID_UNSUPPORTED",
-      provider: "vercel",
+      details: { name: "welcome", provider: "vercel" },
     })
   })
 
@@ -1357,6 +1578,100 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("narrows malformed and hostile Vercel results at the provider boundary", async () => {
+    const native = Object.assign(async () => "native", { workflowId: "durable-welcome" })
+    const createRun = (overrides: Record<string, unknown> = {}) => ({
+      cancel: vi.fn(),
+      completedAt: Promise.resolve(undefined),
+      createdAt: Promise.resolve(new Date()),
+      exists: Promise.resolve(true),
+      returnValue: Promise.resolve(undefined),
+      runId: "wdk-malformed",
+      startedAt: Promise.resolve(undefined),
+      status: Promise.resolve("pending"),
+      workflowName: Promise.resolve(native.workflowId),
+      ...overrides,
+    }) as VercelRun
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({
+        default: { handler: async () => "inline", options: { native } },
+      }),
+    })
+
+    const invalidRuns: [Record<string, unknown>, string][] = [
+      [{ exists: Promise.resolve("yes") }, "existence state"],
+      [{ workflowName: Promise.resolve(42) }, "workflow name"],
+      [{ status: Promise.resolve(42) }, "status"],
+      [{ createdAt: Promise.resolve("today") }, "creation date"],
+      [{ startedAt: Promise.resolve("today") }, "start date"],
+      [{ completedAt: Promise.resolve("today") }, "completion date"],
+    ]
+    for (const [overrides, field] of invalidRuns) {
+      setVercelWorkflowRuntimeLoader(async () => ({
+        getRun: () => createRun(overrides),
+        listSteps: async () => [],
+        resumeHook: vi.fn(),
+        start: vi.fn(),
+      }))
+      await expectInvalidProviderResult(getWorkflowRun("welcome", "wdk-malformed"), "get-run", field)
+    }
+
+    const step = {
+      attempt: 1,
+      status: "pending",
+      stepId: "step-1",
+      stepName: "transcribe",
+    }
+    const invalidSteps: [unknown, string][] = [
+      [{ not: "an array" }, "step list"],
+      [[null], "step"],
+      [[{ ...step, attempt: "one" }], "step attempt"],
+      [[{ ...step, stepId: 42 }], "step ID"],
+      [[{ ...step, stepName: 42 }], "step name"],
+      [[{ ...step, completedAt: "today" }], "step completion date"],
+      [[{ ...step, startedAt: "today" }], "step start date"],
+      [[{ ...step, status: 42 }], "status"],
+    ]
+    for (const [steps, field] of invalidSteps) {
+      setVercelWorkflowRuntimeLoader(async () => ({
+        getRun: () => createRun(),
+        listSteps: async () => steps as never,
+        resumeHook: vi.fn(),
+        start: vi.fn(),
+      }))
+      await expectInvalidProviderResult(getWorkflowRun("welcome", "wdk-malformed"), "list-steps", field)
+    }
+
+    const stepCause = new Error("provider-secret:step-result")
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: () => createRun(),
+      listSteps: async () => [new Proxy({}, { get: () => { throw stepCause } })] as never,
+      resumeHook: vi.fn(),
+      start: vi.fn(),
+    }))
+    await expectProviderFailure(getWorkflowRun("welcome", "wdk-malformed"), stepCause, {
+      operation: "list-steps",
+      provider: "vercel",
+    })
+
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: vi.fn(),
+      listSteps: vi.fn(),
+      resumeHook: vi.fn(),
+      start: async () => ({ runId: 42 }) as never,
+    }))
+    await expectInvalidProviderResult(runWorkflow("welcome", {}), "start", "run ID")
+
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: vi.fn(),
+      listSteps: vi.fn(),
+      resumeHook: async () => ({ runId: 42 }) as never,
+      start: vi.fn(),
+    }))
+    await expectInvalidProviderResult(resumeWorkflowSignal("opaque", {}), "resume-signal", "run ID")
+  })
+
   it("fails unsupported inline cancellation and non-Vercel signals explicitly", async () => {
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => "inline" } }),
@@ -1385,7 +1700,168 @@ describe("workflow runtime", () => {
 
     await expect(getWorkflowRun("welcome", "missing-sdk")).rejects.toMatchObject({
       code: "VERCEL_WORKFLOW_SDK_LOAD_FAILED",
+      details: { provider: "vercel" },
+    })
+  })
+
+  it("preserves custom and abort errors from the Vercel runtime loader", async () => {
+    const custom = new ApplicationWorkflowError({ code: "CUSTOM_RUNTIME_LOAD_FAILED", message: "Custom load failure." })
+    const abort = new DOMException("cancelled", "AbortError")
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({
+        default: { handler: async () => "inline", options: { native: async () => "native" } },
+      }),
+    })
+
+    setVercelWorkflowRuntimeLoader(async () => {
+      throw custom
+    })
+    await expect(getWorkflowRun("welcome", "custom")).rejects.toBe(custom)
+
+    setVercelWorkflowRuntimeLoader(async () => {
+      throw abort
+    })
+    await expect(getWorkflowRun("welcome", "abort")).rejects.toBe(abort)
+  })
+
+  it("narrows every Vercel provider operation at the public boundary", async () => {
+    const native = Object.assign(async () => "native", { workflowId: "durable-welcome" })
+    const createRun = (cancel: () => Promise<void> = async () => {}) => ({
+      cancel,
+      completedAt: Promise.resolve(undefined),
+      createdAt: Promise.resolve(new Date("2026-07-18T00:00:00.000Z")),
+      exists: Promise.resolve(true),
+      returnValue: Promise.resolve(undefined),
+      runId: "wdk-provider-failure",
+      startedAt: Promise.resolve(undefined),
+      status: Promise.resolve("pending"),
+      workflowName: Promise.resolve(native.workflowId),
+    } satisfies VercelRun)
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({
+        default: { handler: async () => "inline", options: { native } },
+      }),
+    })
+
+    const getRunCause = Object.assign(new Error("provider-secret:get-run"), { status: 502 })
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: () => { throw getRunCause },
+      listSteps: vi.fn(),
+      resumeHook: vi.fn(),
+      start: vi.fn(),
+    }) as never)
+    await expectProviderFailure(getWorkflowRun("welcome", "private-run"), getRunCause, {
+      operation: "get-run",
       provider: "vercel",
+      status: 502,
+    })
+
+    const listCause = new Error("provider-secret:list-steps")
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: () => createRun(),
+      listSteps: async () => { throw listCause },
+      resumeHook: vi.fn(),
+      start: vi.fn(),
+    }))
+    await expectProviderFailure(getWorkflowRun("welcome", "private-run"), listCause, {
+      operation: "list-steps",
+      provider: "vercel",
+    })
+
+    const startCause = new Error("provider-secret:start")
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: vi.fn(),
+      listSteps: vi.fn(),
+      resumeHook: vi.fn(),
+      start: async () => { throw startCause },
+    }) as never)
+    await expectProviderFailure(runWorkflow("welcome", {}), startCause, {
+      operation: "start",
+      provider: "vercel",
+    })
+
+    const cancelCause = new Error("provider-secret:cancel")
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: () => createRun(async () => { throw cancelCause }),
+      listSteps: vi.fn(),
+      resumeHook: vi.fn(),
+      start: vi.fn(),
+    }))
+    await expectProviderFailure(cancelWorkflow("welcome", "private-run"), cancelCause, {
+      operation: "cancel",
+      provider: "vercel",
+    })
+
+    const resumeCause = new Error("provider-secret:resume")
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: vi.fn(),
+      listSteps: vi.fn(),
+      resumeHook: async () => { throw resumeCause },
+      start: vi.fn(),
+    }) as never)
+    await expectProviderFailure(resumeWorkflowSignal("private-token", {}), resumeCause, {
+      operation: "resume-signal",
+      provider: "vercel",
+    })
+  })
+
+  it("narrows every Cloudflare provider operation at the public boundary", async () => {
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+    const enterBinding = (binding: unknown) => enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: { WORKFLOW_CUSTOM: binding } } } },
+    })
+
+    const getCause = new Error("provider-secret:get")
+    enterBinding({ create: vi.fn(), get: async () => { throw getCause } })
+    await expectProviderFailure(getWorkflowRun("welcome", "private-run"), getCause, {
+      operation: "get",
+      provider: "cloudflare",
+    })
+
+    const statusCause = new Error("provider-secret:status")
+    enterBinding({
+      create: vi.fn(),
+      get: async () => ({ id: "private-run", status: async () => { throw statusCause } }),
+    })
+    await expectProviderFailure(getWorkflowRun("welcome", "private-run"), statusCause, {
+      operation: "status",
+      provider: "cloudflare",
+    })
+
+    const createCause = new Error("provider-secret:create")
+    enterBinding({ create: async () => { throw createCause }, get: vi.fn() })
+    await expectProviderFailure(runWorkflow("welcome", {}), createCause, {
+      operation: "create",
+      provider: "cloudflare",
+    })
+  })
+
+  it("omits unsafe workflow names and caller run IDs from public errors", async () => {
+    const unsafeName = "https://provider.example/private?token=provider-secret"
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({})
+
+    const missing = await runWorkflow(unsafeName, {}).catch(error => error)
+    expect(JSON.parse(JSON.stringify(missing))).toEqual({
+      code: "WORKFLOW_DEFINITION_NOT_FOUND",
+      message: "Workflow definition was not found.",
+    })
+
+    setWorkflowRuntimeRegistry({
+      [unsafeName]: async () => ({
+        default: { handler: async () => "inline", options: { native: async () => "native" } },
+      }),
+    })
+    const unsupportedId = await runWorkflow(unsafeName, {}, { id: "provider-secret-run-id" }).catch(error => error)
+    expect(JSON.parse(JSON.stringify(unsupportedId))).toEqual({
+      code: "WORKFLOW_RUN_ID_UNSUPPORTED",
+      details: { provider: "vercel" },
+      message: "Native Vercel workflows assign their own run IDs.",
     })
   })
 
