@@ -1579,6 +1579,7 @@ describe("agent Vite plugin", () => {
     expect(pkg.peerDependenciesMeta?.askweb).toEqual({ optional: true })
     expect(pkg.peerDependenciesMeta?.evalite).toBeUndefined()
     expect(pkg.peerDependenciesMeta?.vitest).toEqual({ optional: true })
+    expect(pkg.devDependencies?.["@ai-sdk/harness-codex"]).toBe("catalog:ai")
     expect(pkg.peerDependencies?.["@ai-sdk/harness"]).toBe("catalog:ai-compat")
     expect(pkg.peerDependencies?.["@ai-sdk/harness-claude-code"]).toBe("catalog:ai")
     expect(pkg.peerDependencies?.["@ai-sdk/harness-codex"]).toBe("catalog:ai-compat")
