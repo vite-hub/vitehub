@@ -64,6 +64,10 @@ for (const provider of [cloudflareFixture, vercelFixture]) {
       await expect(new Response(process.stdout).text()).resolves.toBe("spawned");
       await expect(process.wait()).resolves.toEqual({ code: 0 });
       await expect(session.ports!.expose(4321)).resolves.toBeInstanceOf(URL);
+      if (fixture.name === "vercel") {
+        await expect(session.ports!.expose(4321, { protocol: "ws" }))
+          .resolves.toEqual(new URL("wss://box-4321.sandbox.vercel.test/"));
+      }
 
       await session.files.write("/home/vitehub/stale", new Uint8Array([1]));
       await session.files.write("/workspace/stale", new Uint8Array([1]));

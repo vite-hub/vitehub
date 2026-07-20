@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -169,6 +169,20 @@ describe("resolveSandboxProject", () => {
     expect(project.files).not.toHaveProperty(".env.local")
     expect(project.files).not.toHaveProperty(".npmrc")
     expect(project.files).not.toHaveProperty("src/.env.production")
+  })
+
+  it("preserves executable project file modes", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "scripts"))
+    await writeFile(join(root, "package.json"), JSON.stringify({ private: true }))
+    await writeFile(join(root, "scripts/build.sh"), "#!/bin/sh\n")
+    await chmod(join(root, "scripts/build.sh"), 0o755)
+    await writeFile(join(root, "run.sandbox.ts"), "export default null")
+
+    const project = await resolveSandboxProject(join(root, "run.sandbox.ts"), root)
+
+    expect(project.files["scripts/build.sh"]?.mode).toBe(0o755)
+    expect(project.files["package.json"]?.mode).toBeUndefined()
   })
 
   it("uses the Yarn Classic frozen lockfile flag", async () => {

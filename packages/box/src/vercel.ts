@@ -172,14 +172,27 @@ function createVercelSession(
     workingDirectory?: string;
   }) => {
     options.abortSignal?.throwIfAborted();
-    return await collectProcessOutput(await instance.runCommand({
+    const process = await instance.runCommand({
       args: ["-lc", options.command],
       cmd: "sh",
       cwd: options.workingDirectory ?? workspace,
       detached: true,
       env: { ...baseEnv, ...options.env },
       signal: options.abortSignal,
-    }));
+    });
+    let abort: (() => void) | undefined;
+    const aborted = new Promise<never>((_, reject) => {
+      abort = () => {
+        void process.kill().catch(() => undefined);
+        reject(options.abortSignal!.reason);
+      };
+      options.abortSignal?.addEventListener("abort", abort, { once: true });
+    });
+    try {
+      return await Promise.race([collectProcessOutput(process), aborted]);
+    } finally {
+      if (abort) options.abortSignal?.removeEventListener("abort", abort);
+    }
   };
   const fs = instance.fs;
   return {
@@ -210,7 +223,9 @@ function createVercelSession(
           async getPortUrl({ port, protocol = "http" }: { port: number; protocol?: "http" | "https" | "ws" }) {
             if (!ports.includes(port)) throw new Error(`[vitehub] Vercel Box port ${port} was not declared in vercelBox({ ports }).`);
             const url = new URL(instance.domain(port));
-            url.protocol = `${protocol}:`;
+            url.protocol = protocol === "ws"
+              ? url.protocol === "https:" ? "wss:" : "ws:"
+              : `${protocol}:`;
             return String(url);
           },
         }

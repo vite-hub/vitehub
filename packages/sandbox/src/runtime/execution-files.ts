@@ -57,4 +57,7 @@ export async function writeSandboxDefinitionBundle(sandbox: SandboxExecutionBox,
   await workspace.snapshot({ name: 'sandbox-bundle' })
   const session = await workspace.startSession({ host: sandbox, target: baseDir })
   await session.close()
+  await Promise.all(Object.entries(bundle.project?.files || {}).map(async ([path, file]) => {
+    if (file.mode) await sandbox.exec('chmod', [file.mode.toString(8), `${baseDir}/${path}`])
+  }))
 }

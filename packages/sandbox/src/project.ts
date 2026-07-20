@@ -7,6 +7,7 @@ export type SandboxPackageManager = 'bun' | 'npm' | 'pnpm' | 'yarn'
 export interface SandboxProjectFile {
   contents: string
   encoding: 'base64'
+  mode?: number
 }
 
 export interface SandboxProject {
@@ -141,9 +142,11 @@ async function findPnpmWorkspaceRoot(packageRoot: string, root: string) {
 
 async function addProjectFile(files: Record<string, SandboxProjectFile>, installRoot: string, path: string, scanRoot: string) {
   if (!await isFile(path, scanRoot)) return
+  const mode = (await stat(path)).mode & 0o777
   files[relative(installRoot, path).replaceAll('\\', '/')] = {
     contents: (await readFile(path)).toString('base64'),
     encoding: 'base64',
+    ...(mode & 0o111 ? { mode } : {}),
   }
 }
 
