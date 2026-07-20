@@ -2974,7 +2974,6 @@ describe("agent message protocol", () => {
   it("preserves remote attachment parts without invoking provider callbacks", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
     const fetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
-    const staleFetchData = vi.fn(async () => new Uint8Array([7, 8, 9]))
 
     expect(toAiSdkModelMessages([
       createMessage({
@@ -3045,6 +3044,7 @@ describe("agent message protocol", () => {
     })
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const fetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
+    const staleFetchData = vi.fn(async () => new Uint8Array([7, 8, 9]))
     const ignoredAssistantFetchData = vi.fn(async () => new Uint8Array([4, 5, 6]))
     const agent = defineAgent({
       driver: {
@@ -3071,7 +3071,7 @@ describe("agent message protocol", () => {
           role: "user",
         }),
       ],
-      context: { channel: { message: { id: "current-attachment" } } },
+      context: { channel: { message: { id: "current-attachment", text: "" } } },
     })).resolves.toMatchObject({ text: "ok" })
     expect(fetchData).toHaveBeenCalledOnce()
     expect(staleFetchData).not.toHaveBeenCalled()
@@ -3084,7 +3084,7 @@ describe("agent message protocol", () => {
     }))
 
     await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      context: { channel: { message: { id: "current-text" } } },
+      context: { channel: { message: { id: "current-text", text: "continue" } } },
       messages: [
         createMessage({
           id: "historical-blob",
