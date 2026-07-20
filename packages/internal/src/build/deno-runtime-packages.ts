@@ -192,7 +192,7 @@ async function readRuntimePackages(serverDir: string): Promise<RuntimePackage[]>
   return [...packages.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
-export const denoDeployRunnerSource = `import { spawn } from "node:child_process"
+const denoDeployRunnerSource = `import { spawn } from "node:child_process"
 
 const organization = process.env.DENO_DEPLOY_ORG
 const app = process.env.DENO_DEPLOY_APP || process.env.VITEHUB_DEPLOYMENT_NAME
