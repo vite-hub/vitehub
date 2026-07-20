@@ -144,7 +144,6 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith({
-      name: "vite-hub-sandbox",
       provider: "cloudflare",
       providerImportAliases: expect.any(Object),
       providerImportSpecifier: "vite-hub/sandbox",
@@ -180,19 +179,17 @@ describe("vitehub", () => {
     expect(pluginNames(vitehub({ preset: "vercel", queue: true }))).toContain("@vite-hub/queue/vite")
     expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "vercel" })
     expect(pluginNames(vitehub({ preset: "cloudflare", queue: true }))).toContain("@vite-hub/queue/vite")
-    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ namePrefix: "vite-hub-", provider: "cloudflare" })
+    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "cloudflare" })
 
     integrationMocks.hubRateLimit.mockClear()
     expect(pluginNames(vitehub({ preset: "node", rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/rate-limit",
-      namespace: "vite-hub",
       provider: "memory",
     })
     expect(pluginNames(vitehub({ preset: "cloudflare", rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/rate-limit",
-      namespace: "vite-hub",
       provider: "cloudflare",
     })
   })
@@ -412,9 +409,22 @@ describe("vitehub", () => {
 
   it("wires supported Sandbox adapters from the deployment plan", () => {
     vitehub({ preset: "cloudflare", sandbox: true })
-    expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith(expect.objectContaining({ name: "vite-hub-sandbox", provider: "cloudflare" }))
+    expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "cloudflare" }))
     vitehub({ preset: "vercel", sandbox: true })
     expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "vercel" }))
+  })
+
+  it("scopes generated resource names to the Vite project root", async () => {
+    const config = { root: "apps/api" } as Record<string, unknown>
+    const plugin = vitehub({ preset: "cloudflare", queue: true, rateLimit: true, sandbox: true })
+      .find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    const hook = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
+    await hook(config, { command: "build", mode: "production" })
+    expect(config).toMatchObject({
+      queue: { namePrefix: "api-", provider: "cloudflare" },
+      rateLimit: { namespace: "api", provider: "cloudflare" },
+      sandbox: { name: "api-sandbox", provider: "cloudflare" },
+    })
   })
 
   it("rejects unsupported capabilities and conflicting target selection", async () => {
