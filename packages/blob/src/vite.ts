@@ -74,10 +74,14 @@ function mergeNitroExternal(value: unknown, addition: string): unknown {
   return value
 }
 
-function isNitroCloudflareHost(value: unknown): boolean {
+function getNitroHostingProvider(value: unknown): ReturnType<typeof getHostingProvider> {
   const nitro = cloneNitroConfig(value)
   const preset = typeof nitro.preset === "string" ? nitro.preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
-  return typeof preset === "string" && getHostingProvider(preset) === "cloudflare"
+  return typeof preset === "string" ? getHostingProvider(preset) : undefined
+}
+
+function isNitroCloudflareHost(value: unknown): boolean {
+  return getNitroHostingProvider(value) === "cloudflare"
 }
 
 function mergeNitroCloudflareBlobOutput(config: object, nitro: Record<string, unknown>, blob: BlobModuleOptions | undefined, cloudflareOwnedByNitro: boolean): Record<string, unknown> {
@@ -187,10 +191,10 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   ].join("\n")
 }
 
-async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName): Promise<void> {
+async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, provider?: "cloudflare" | "vercel"): Promise<void> {
   const runtimeFile = resolve(root, generatedNitroBlobRuntime)
   await Promise.all([
-    writeFileIfChanged(runtimeFile, renderBlobRuntimeModule(runtimeFile, blob)),
+    writeFileIfChanged(runtimeFile, renderBlobRuntimeModule(runtimeFile, blob, provider)),
     writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase)),
     writeFileIfChanged(resolve(root, generatedNitroBlobMiddleware), renderNitroBlobMiddleware(importBase)),
   ])
@@ -256,7 +260,15 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       ;(config as { nitro?: unknown }).nitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflareOwnedByNitro)
       providerOutput = useComposedProviderOutput(config)
       runtimeConfig = blobConfig
-      await refreshBlobGeneratedFiles(config.root, runtimeConfig.blob, cloudflareOwnedByNitro, importBase)
+      const hosting = getNitroHostingProvider(configuredNitro)
+        ?? (resolveNitroVercelFunctionName(config, "blob") ? "vercel" : undefined)
+      await refreshBlobGeneratedFiles(
+        config.root,
+        runtimeConfig.blob,
+        cloudflareOwnedByNitro,
+        importBase,
+        hosting === "cloudflare" || hosting === "vercel" ? hosting : undefined,
+      )
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {

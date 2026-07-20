@@ -59,6 +59,7 @@ catalogs:
     "@netlify/blobs": ^10.7.5
     "@upstash/redis": ^1.38.0
     "@vercel/blob": ^2.6.1
+    aws4fetch: ^1.0.20
     files-sdk: ^2.1.0
     unstorage: ^2.0.0-alpha.7
   tooling:

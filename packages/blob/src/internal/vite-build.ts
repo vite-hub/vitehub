@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "pathe"
 
@@ -16,6 +17,7 @@ import type { CloudflareProviderDeploymentOutput, ComposedProviderOutput, Vercel
 export const blobPackageName = "@vite-hub/blob"
 const cloudflareBlobWorkerMarker = "vitehub-blob-worker"
 const cloudflareBlobOutputState = ".vitehub/blob/cloudflare-output.json"
+const vercelBlobOutputMarker = ".vitehub-blob-output"
 const productName = "blob"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
@@ -91,7 +93,8 @@ const driverModules = {
   "vercel-blob": "drivers/vercel",
 } satisfies Record<NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], string>
 
-function getDriverModule(driver: NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], provider?: BlobProvider) {
+function getDriverModule(driver: NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], provider?: BlobProvider, nativeCloudflareR2 = false) {
+  if (driver === "cloudflare-r2" && provider === "cloudflare" && nativeCloudflareR2) return "drivers/cloudflare-native"
   if (driver === "vercel-blob" && provider === "vercel") return "drivers/vercel-bundled"
   return driverModules[driver]
 }
@@ -179,7 +182,8 @@ function renderProviderEntry(
     `import { setBlobRuntimeConfig, setBlobRuntimeStorage } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("runtime/state")))}`,
     `import { ${spec.factory} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
   ]
-  const driverModule = blobConfig ? getDriverModule(blobConfig.store.driver, spec.name) : undefined
+  const nativeCloudflareR2 = Boolean(blobConfig && isCloudflareR2StoreWithBucket(blobConfig.store))
+  const driverModule = blobConfig ? getDriverModule(blobConfig.store.driver, spec.name, nativeCloudflareR2) : undefined
   if (driverModule) {
     imports.push(`import { createBlobStorage } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("storage")))}`)
     imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(driverModule)))}`)
@@ -215,7 +219,10 @@ function renderProviderEntry(
 
 export function renderBlobRuntimeModule(file: string, blobConfig: false | ResolvedBlobModuleOptions, provider?: BlobProvider) {
   const stores = blobConfig ? Object.values(blobConfig.stores || { default: blobConfig.store }) : []
-  const selectedDriverModules = [...new Set(stores.map(store => getDriverModule(store.driver, provider)))]
+  const nativeCloudflareR2 = stores
+    .filter(store => store.driver === "cloudflare-r2")
+    .every(isCloudflareR2StoreWithBucket)
+  const selectedDriverModules = [...new Set(stores.map(store => getDriverModule(store.driver, provider, nativeCloudflareR2)))]
   const driverImports = Object.fromEntries(selectedDriverModules.map((driverModule, index) => [driverModule, `createDriver${index}`]))
   const imports = [
     `import { ensureBlob } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("ensure")))}`,
@@ -234,7 +241,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
   }
 
   const createDriverCases = Object.keys(driverModules).map((driver) => {
-    const driverModule = getDriverModule(driver as keyof typeof driverModules, provider)
+    const driverModule = getDriverModule(driver as keyof typeof driverModules, provider, nativeCloudflareR2)
     const driverImport = driverImports[driverModule]
     if (!driverImport) return undefined
     const runtimeStoreResolver = getRuntimeBlobStoreResolver(driver)
@@ -507,8 +514,16 @@ function hasCloudflareR2Store(blob: BlobModuleOptions | ResolvedBlobModuleOption
     .some(store => store.driver === "cloudflare-r2")
 }
 
+function hasSiblingVercelRuntime(providerOutput: ComposedProviderOutput | undefined): boolean {
+  return Object.entries(providerOutput?.runtimeModuleFilesByProduct || {})
+    .some(([product, modules]) => product !== productName && Boolean(modules?.vercel))
+}
+
 async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOptions) {
   const packages = new Set<string>()
+  const isolated = Boolean(options.serverFunctionName && options.serverFunctionName !== "__server.func")
+  const shared = !isolated && hasSiblingVercelRuntime(options.providerOutput)
+  const outputName = options.serverFunctionName ?? "__server.func"
   const resolved = resolveBlobConfig(options.blob, "vercel")
   if (resolved !== false && Object.values(resolved.stores || { default: resolved.store }).some(store => store.driver === "vercel-blob")) {
     packages.add("@vercel/blob")
@@ -520,13 +535,36 @@ async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOpt
     packages.add("@aws-sdk/s3-presigned-post")
     packages.add("@aws-sdk/s3-request-presigner")
   }
-  if (!packages.size) return
+  if (packages.size) {
+    if (shared) await mkdir(resolve(options.rootDir, ".vercel/output/functions", outputName), { recursive: true })
+    await copyVercelFunctionRuntimePackages({
+      packages: [...packages].map(name => ({ name, resolveFrom: resolve(packageDir, "package.json") })),
+      rootDir: options.rootDir,
+      serverFunctionName: options.serverFunctionName,
+    })
+  }
+  if (!shared) {
+    const entry = await readFile(resolve(options.rootDir, ".vercel/output/functions", outputName, "index.mjs"))
+    await writeFile(resolve(options.rootDir, ".vercel/output/functions", outputName, vercelBlobOutputMarker), createHash("sha256").update(entry).digest("hex"), "utf8")
+  }
+}
 
-  await copyVercelFunctionRuntimePackages({
-    packages: [...packages].map(name => ({ name, resolveFrom: resolve(packageDir, "package.json") })),
-    rootDir: options.rootDir,
-    serverFunctionName: options.serverFunctionName,
-  })
+function getVercelBlobOutputCleanup(options: GenerateProviderOutputsOptions) {
+  return async () => {
+    const cleanup: Array<{ serverFunctionName: string }> = []
+    for (const name of new Set([options.serverFunctionName, "__blob.func"].filter((name): name is string => Boolean(name && name !== "__server.func")))) {
+      try {
+        const outputRoot = resolve(options.rootDir, ".vercel/output/functions", name)
+        const [entry, marker] = await Promise.all([
+          readFile(resolve(outputRoot, "index.mjs")),
+          readFile(resolve(outputRoot, vercelBlobOutputMarker), "utf8"),
+        ])
+        if (createHash("sha256").update(entry).digest("hex") === marker) cleanup.push({ serverFunctionName: name })
+      }
+      catch {}
+    }
+    return cleanup
+  }
 }
 
 function registerSupportedProviderRuntimeModules(
@@ -542,6 +580,10 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.blob)
   const localOnly = !shouldCreateProviderOutput(options.blob)
   const createCloudflare = !localOnly && !options.cloudflareOwnedByNitro
+  const createVercel = !localOnly && !options.cloudflareOwnedByNitro
+  const stageSharedVercelRuntime = (!options.serverFunctionName || options.serverFunctionName === "__server.func")
+    && hasSiblingVercelRuntime(options.providerOutput)
+  const cleanupVercel = options.cloudflareOwnedByNitro ? getVercelBlobOutputCleanup(options) : undefined
   const hasCurrentCloudflareContribution = Boolean(createCloudflareR2Bindings(resolveBlobConfig(options.blob, "cloudflare"))?.length)
   if (options.cloudflareOwnedByNitro) {
     await writeProviderDeploymentOutputs({
@@ -550,12 +592,21 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
       rootDir: options.rootDir,
     })
   }
+  if (cleanupVercel) {
+    await writeProviderDeploymentOutputs({
+      clientOutDir: options.clientOutDir,
+      cleanup: { vercel: cleanupVercel },
+      rootDir: options.rootDir,
+    })
+  }
   await writeProviderDeploymentOutputs({
-    afterWrite: localOnly ? undefined : () => copyVercelBlobRuntimePackages(options),
+    afterWrite: createVercel || stageSharedVercelRuntime
+      ? () => copyVercelBlobRuntimePackages(options)
+      : undefined,
     clientOutDir: options.clientOutDir,
     cloudflare: createCloudflare ? createCloudflareOutput(options.blob, artifacts, options.providerOutput) : undefined,
     rootDir: options.rootDir,
-    vercel: localOnly ? undefined : createVercelOutput(artifacts, options.providerOutput, options.serverFunctionName),
+    vercel: createVercel ? createVercelOutput(artifacts, options.providerOutput, options.serverFunctionName) : undefined,
   })
   if (createCloudflare) {
     const r2Buckets = createCloudflareR2Bindings(resolveBlobConfig(options.blob, "cloudflare"))
