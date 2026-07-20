@@ -65,9 +65,15 @@ for (const provider of [cloudflareFixture, vercelFixture]) {
       await expect(process.wait()).resolves.toEqual({ code: 0 });
       await expect(session.ports!.expose(4321)).resolves.toBeInstanceOf(URL);
 
+      await session.files.write("/home/vitehub/stale", new Uint8Array([1]));
+      await session.files.write("/workspace/stale", new Uint8Array([1]));
       await session.close();
       await session.close();
-      expect(fixture.machine.stops).toBe(1);
+      const reopened = await box.open({ id: "provider-session" });
+      await expect(reopened.files.exists("/home/vitehub/stale")).resolves.toBe(false);
+      await expect(reopened.files.exists("/workspace/stale")).resolves.toBe(false);
+      await reopened.close();
+      expect(fixture.machine.stops).toBe(2);
       await expect(session.exec("probe")).rejects.toThrow("Box session is closed");
     });
 
@@ -209,9 +215,16 @@ function vercelFixture() {
       async rename(source, destination) {
         machine.move(source, destination);
       },
-      async rm(path) {
-        machine.files.delete(normalize(path));
-        machine.directories.delete(normalize(path));
+      async rm(path, options) {
+        const target = normalize(path);
+        machine.files.delete(target);
+        machine.directories.delete(target);
+        if (options?.recursive) {
+          for (const file of [...machine.files.keys()])
+            if (file.startsWith(`${target}/`)) machine.files.delete(file);
+          for (const directory of [...machine.directories])
+            if (directory.startsWith(`${target}/`)) machine.directories.delete(directory);
+        }
       },
       async stat(path) {
         return machine.stat(path);

@@ -85,6 +85,10 @@ async function materializeRemotePlan(
   const home = options.home ?? "/home/vitehub";
   const workspace = options.workspace ?? "/workspace";
   const abortSignal = options.signal;
+  for (const path of new Set([home, workspace])) {
+    if (await session.existsFile({ abortSignal, path }))
+      await session.removeFile({ abortSignal, path, recursive: true });
+  }
   await session.makeDirectory({ abortSignal, path: home, recursive: true });
   await session.makeDirectory({ abortSignal, path: workspace, recursive: true });
   for (const [path, file] of Object.entries(input.plan.files)) {
