@@ -437,11 +437,12 @@ async function* streamChunksToEvents(chunks: AsyncIterable<unknown>, usageSource
 async function* streamChunksToEventsWithTextFallback(
   chunks: AsyncIterable<unknown>,
   usageSource: unknown,
-  textStream: AsyncIterable<unknown>,
+  getTextIterator: () => AsyncIterator<unknown> | undefined,
+  initialTextIterator?: AsyncIterator<unknown>,
 ): AsyncIterable<StreamEvent> {
   let hasText = false
   const terminalEvents: StreamEvent[] = []
-  const textIterator = textStream[Symbol.asyncIterator]()
+  let textIterator = initialTextIterator
   let textIteratorClosed = false
   try {
     for await (const event of streamChunksToEvents(chunks, usageSource)) {
@@ -453,6 +454,11 @@ async function* streamChunksToEventsWithTextFallback(
       yield event
     }
     if (!hasText) {
+      textIterator ??= getTextIterator()
+      if (!textIterator) {
+        yield* terminalEvents
+        return
+      }
       for (;;) {
         const result = await textIterator.next()
         if (result.done) {
@@ -467,11 +473,21 @@ async function* streamChunksToEventsWithTextFallback(
     }
   }
   finally {
-    if (!textIteratorClosed) {
+    if (textIterator && !textIteratorClosed) {
       await textIterator.return?.()
     }
   }
   yield* terminalEvents
+}
+
+function hasPropertyGetter(value: object, key: PropertyKey): boolean {
+  let current: object | null = value
+  while (current) {
+    const descriptor = Object.getOwnPropertyDescriptor(current, key)
+    if (descriptor) return typeof descriptor.get === "function"
+    current = Object.getPrototypeOf(current) as object | null
+  }
+  return false
 }
 
 export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<StreamEvent> {
@@ -489,20 +505,30 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   const result = value && typeof value === "object"
     ? value as { fullStream?: unknown, stream?: unknown, textStream?: unknown }
     : undefined
-  const textStream = isAsyncIterable(result?.textStream) ? result.textStream : undefined
+  const textStreamIsLazy = !!result && hasPropertyGetter(result, "textStream")
+  let textStreamRead = !textStreamIsLazy
+  let textStreamCandidate = textStreamRead ? result?.textStream : undefined
+  const getTextStream = () => {
+    if (!textStreamRead) {
+      textStreamCandidate = result?.textStream
+      textStreamRead = true
+    }
+    return isAsyncIterable(textStreamCandidate) ? textStreamCandidate : undefined
+  }
+  let textIterator: AsyncIterator<unknown> | undefined
+  const getTextIterator = () => (textIterator ??= getTextStream()?.[Symbol.asyncIterator]())
   if (isAsyncIterable(result?.stream)) {
-    yield* (textStream
-      ? streamChunksToEventsWithTextFallback(result.stream, result, textStream)
-      : streamChunksToEvents(result.stream, result))
+    const initialTextIterator = textStreamIsLazy ? undefined : getTextIterator()
+    yield* streamChunksToEventsWithTextFallback(result.stream, result, getTextIterator, initialTextIterator)
     return
   }
   const fullStream = result?.fullStream
   if (isAsyncIterable(fullStream)) {
-    yield* (textStream
-      ? streamChunksToEventsWithTextFallback(fullStream, result, textStream)
-      : streamChunksToEvents(fullStream, result))
+    const initialTextIterator = textStreamIsLazy ? undefined : getTextIterator()
+    yield* streamChunksToEventsWithTextFallback(fullStream, result, getTextIterator, initialTextIterator)
     return
   }
+  const textStream = getTextStream()
   if (textStream) {
     for await (const text of textStream) {
       if (typeof text === "string" && text) {

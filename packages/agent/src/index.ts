@@ -1,7 +1,7 @@
 import agentRegistry from "#vitehub/agent/registry"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
-import { cloneWithPropertyDescriptors } from "./internal/stream-result.ts"
+import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
 import { AgentOutputValidationError, validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { agentErrorDetails, agentErrorMessage } from "./agent-error.ts"
@@ -11,7 +11,7 @@ import {
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
 import { createTraceEventLog, resolveRuntimeContext } from "@vite-hub/runtime"
-import { agentResultKind, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
+import { agentResultKind, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import {
   finishMessageChannelTitleDelivery,
@@ -39,7 +39,7 @@ import {
   scheduledAgentNameContextKey,
   scheduledAgentTurnContextKey,
 } from "./internal/scheduled-turn.ts"
-import { finalChannelOutputContextKey, finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
+import { finalChannelOutputContextKey, finalChannelOutputSelectedSymbol, responseTitleFallbackContextKey } from "./internal/final-channel-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import {
   colocatedAgentSkillsContextKey,
@@ -61,7 +61,7 @@ import {
 } from "./capability-runtime.ts"
 import type { AgentCapabilityRegistries, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
-import { finalizeUiMessageStreamOutput, isUIMessageStreamResult, normalizeUiMessageStream } from "./stream-output.ts"
+import { finalizeUiMessageStreamOutput, isUIMessageStreamResult, normalizeUiMessageStream, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -2241,7 +2241,25 @@ async function finalizeAgentInvocationResult<
   const shouldWrapOutput = shouldWrapInvocationOutput(context)
   try {
     if (result instanceof Response) {
-      const response = shouldWrapOutput ? await withResponseCleanup(result, outcome => lifecycle.finish(finishOutcomeFromCleanup(outcome, result))) : result
+      const responseMediaType = result.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase()
+      const responseIsText = responseMediaType !== "text/event-stream" && (responseMediaType?.startsWith("text/")
+        || responseMediaType === "application/json"
+        || responseMediaType?.endsWith("+json")
+        || responseMediaType === "application/xml"
+        || responseMediaType?.endsWith("+xml"))
+      const responseDecoder = context.context.get<boolean>(responseTitleFallbackContextKey) === true && responseIsText
+        ? new TextDecoder()
+        : undefined
+      let responseText = ""
+      const response = shouldWrapOutput ? await withResponseCleanup(result, async (outcome) => {
+        responseText += responseDecoder?.decode() ?? ""
+        const finishResult = responseText && !outcome.failed
+          ? { raw: result, text: responseText }
+          : result
+        await lifecycle.finish(finishOutcomeFromCleanup(outcome, finishResult))
+      }, {
+        onChunk: chunk => responseText += responseDecoder?.decode(chunk, { stream: true }) ?? "",
+      }) : result
       return response
     }
     if (isAsyncIterable(result) && !hasTraceableStreamResult(result) && !options.finalizeRawStreams) {
@@ -2370,6 +2388,91 @@ async function executeAgentInvocation<
       const rendered = options.renderOutput
         ? renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
         : result
+      if (options.renderOutput
+        && !invocation.output
+        && invocation.context.get<boolean>(responseTitleFallbackContextKey) === true
+        && rendered !== result
+        && (isAsyncIterable((rendered as { stream?: unknown }).stream)
+          || isAsyncIterable((rendered as { fullStream?: unknown }).fullStream)
+          || isUIMessageStreamResult(rendered))
+        && shouldWrapInvocationOutput(invocation)) {
+        if (isUIMessageStreamResult(rendered)
+          && !isAsyncIterable((rendered as { stream?: unknown }).stream)
+          && !isAsyncIterable((rendered as { fullStream?: unknown }).fullStream)) {
+          const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+          let finishTask: Promise<void> | undefined
+          let streamedText = ""
+          let streamedUsageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
+          const preserved = cloneWithPropertyDescriptors(rendered, {
+            toUIMessageStream: {
+              configurable: true,
+              enumerable: false,
+              value: (...args: unknown[]) => withReadableStreamCleanup(
+                normalizeUiMessageStream(toUIMessageStream.apply(rendered, args)),
+                outcome => (finishTask ??= finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(rendered, streamedText, streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)),
+                {
+                  onChunk(chunk) {
+                    streamedText += uiMessageTextDelta(chunk) || ""
+                    streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord
+                  },
+                },
+              ),
+            },
+          })
+          return {
+            deferFinish: true,
+            finishResult: preserved,
+            value: preserved,
+          }
+        }
+        const streamProperties = (["stream", "fullStream"] as const)
+          .filter(property => isAsyncIterable((rendered as { fullStream?: unknown, stream?: unknown })[property]))
+        let finishTask: Promise<void> | undefined
+        const preserveStream = (renderedStream: AsyncIterable<unknown>) => {
+          const streamed = withStreamedResult(renderedStream, rendered, driverUsageRecord)
+          const value = withCapabilityCleanup(streamed.stream, (outcome) => {
+            return finishTask ??= finishStreamAgentInvocation(invocation, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+          }, { abortSignal: invocation.input.abortSignal })
+          const preservedStream = typeof (renderedStream as ReadableStream<unknown>).pipeThrough === "function"
+            ? toReadableAsyncIterableStream(value)
+            : value
+          return preservedStream
+        }
+        const descriptors: PropertyDescriptorMap = Object.fromEntries(streamProperties.map((property) => {
+          const renderedStream = (rendered as { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown> })[property]!
+          return [property, {
+            configurable: true,
+            enumerable: true,
+            value: preserveStream(renderedStream),
+            writable: true,
+          }]
+        }))
+        let textStreamDescriptor: PropertyDescriptor | undefined
+        for (let owner: object | null = rendered as object; owner && !textStreamDescriptor; owner = Object.getPrototypeOf(owner))
+          textStreamDescriptor = Object.getOwnPropertyDescriptor(owner, "textStream")
+        if (textStreamDescriptor) {
+          let preservedTextStream: unknown
+          let initialized = false
+          descriptors.textStream = {
+            configurable: true,
+            enumerable: textStreamDescriptor.enumerable ?? false,
+            get() {
+              if (!initialized) {
+                const textStream = Reflect.get(rendered as object, "textStream")
+                preservedTextStream = isAsyncIterable(textStream) ? preserveStream(textStream) : textStream
+                initialized = true
+              }
+              return preservedTextStream
+            },
+          }
+        }
+        const preserved = cloneWithPropertyDescriptors(rendered as object, descriptors)
+        return {
+          deferFinish: true,
+          finishResult: preserved,
+          value: preserved,
+        }
+      }
       const final = options.renderOutput ? await applyFinalOutputRenderers(rendered, invocation, outputExtensions) : rendered
       const structuredFinal = options.renderOutput && invocation.output ? await materializeAgentStructuredOutput(final, invocation.input.abortSignal) : final
       const structuredUsageRecord = options.renderOutput && invocation.output
