@@ -360,7 +360,7 @@ describe("hubBlob", () => {
   })
 
   it("lets a facade declare Nitro ownership without a separate Nitro Vite plugin", () => {
-    const plugin = hubBlob({ driver: "cloudflare-r2", nitroOwned: true } as never)
+    const plugin = hubBlob({ bucketName: "vitehub-blob", driver: "cloudflare-r2", nitroOwned: true } as never)
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
     const userConfig = { nitro: { preset: "cloudflare-module" } }
 
