@@ -203,6 +203,7 @@ export type {
   AgentChannelDeliveryEffectPayload,
   AgentChannelDeliveryEffectKind,
   AgentChannelDeliveryEffects,
+  AgentChannelDeliveryLabelsPayload,
   AgentChannelDeliveryFinishEffectCallback,
   AgentChannelDeliveryFinishEffectResult,
   AgentChannelDeliveryFinishEffectContext,

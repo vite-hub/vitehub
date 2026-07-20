@@ -825,7 +825,6 @@ describe("agent channels", () => {
         apiBaseUrl: "https://api.github.test",
         appId: "1",
         fetch: fetcher as typeof fetch,
-        installationId: 123,
         privateKey: privateKeyPem,
       },
     })
@@ -843,6 +842,22 @@ describe("agent channels", () => {
           url: "https://assets.example/review/screenshots/login.png",
         }],
         kind: "review",
+        metadata: {
+          github: {
+            action: "created",
+            actor: { login: "onmax" },
+            args: "",
+            body: "/review",
+            command: "/review",
+            commentId: 99,
+            installationId: 123,
+            issueNumber: 42,
+            owner: "vite-hub",
+            pullRequestUrl: "https://api.github.test/repos/vite-hub/vitehub/pulls/42",
+            repo: "vitehub",
+            repository: "vite-hub/vitehub",
+          },
+        },
         payload: { body: "Review body\n\n![Login badge](/workspace/codex-session/screenshots/login.png)" },
       },
       input: {
@@ -854,7 +869,6 @@ describe("agent channels", () => {
             body: "/review",
             command: "/review",
             commentId: 99,
-            installationId: 123,
             issueNumber: 42,
             owner: "vite-hub",
             pullRequestUrl: "https://api.github.test/repos/vite-hub/vitehub/pulls/42",
@@ -880,6 +894,237 @@ describe("agent channels", () => {
         method: "POST",
       }),
     )
+  })
+
+  it("changes pull request labels through the triggering GitHub App installation", async () => {
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith("/app/installations/123/access_tokens")) {
+        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      }
+      if (String(url).endsWith("/labels/agent%3Aready")) {
+        return Response.json({ message: "Label does not exist" }, { status: 404 })
+      }
+      return Response.json({ ok: true })
+    })
+    const channel = github({
+      app: {
+        apiBaseUrl: "https://api.github.test",
+        appId: "label-effects",
+        fetch: fetcher as typeof fetch,
+        privateKey: privateKeyPem,
+      },
+    })
+    const labelsEffect = channel.effects?.labels
+    if (typeof labelsEffect !== "function") throw new Error("Missing GitHub labels effect.")
+    const input = {
+      context: {
+        pullRequest: {
+          pullRequest: { number: 42 },
+          repository: { fullName: "vite-hub/vitehub", id: 1001, name: "vitehub", owner: "vite-hub" },
+          run: { messageId: "delivery-1", origin: "github-pull-request-labeled", runId: "run-1", threadId: "thread-1" },
+          trigger: {
+            action: "labeled",
+            deliveryId: "delivery-1",
+            event: "pull_request",
+            installationId: 123,
+            label: { name: "agent:ready" },
+            sender: { id: 1, login: "mona" },
+          },
+        },
+      },
+      prompt: "Maintain this pull request.",
+    }
+    const invoke = async (
+      payload: { action: "add" | "remove" | "replace", github?: Record<string, unknown>, labels: string[] },
+      metadata?: Record<string, unknown>,
+    ) => await labelsEffect({
+      channel,
+      effect: { kind: "labels", ...(metadata ? { metadata } : {}), payload },
+      input,
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    } as never)
+
+    const attackerTarget = {
+      commentId: 1,
+      installationId: 999,
+      issueNumber: 1,
+      owner: "attacker",
+      pullRequestUrl: "https://api.github.test/repos/attacker/repo/pulls/1",
+      repo: "repo",
+      repository: "attacker/repo",
+    }
+    await invoke({ action: "add", github: attackerTarget, labels: ["agent:working"] }, { github: attackerTarget })
+    await invoke({ action: "remove", labels: ["agent:ready", "needs review"] })
+    await invoke({ action: "replace", labels: ["agent:done", "bug"] })
+
+    const calls = fetcher.mock.calls.slice(1)
+    expect(calls).toEqual([
+      ["https://api.github.test/repos/vite-hub/vitehub/issues/42/labels", expect.objectContaining({
+        body: JSON.stringify({ labels: ["agent:working"] }),
+        headers: expect.objectContaining({ authorization: "Bearer installation-token" }),
+        method: "POST",
+      })],
+      ["https://api.github.test/repos/vite-hub/vitehub/issues/42/labels/agent%3Aready", expect.objectContaining({
+        headers: expect.objectContaining({ authorization: "Bearer installation-token" }),
+        method: "DELETE",
+      })],
+      ["https://api.github.test/repos/vite-hub/vitehub/issues/42/labels/needs%20review", expect.objectContaining({
+        headers: expect.objectContaining({ authorization: "Bearer installation-token" }),
+        method: "DELETE",
+      })],
+      ["https://api.github.test/repos/vite-hub/vitehub/issues/42/labels", expect.objectContaining({
+        body: JSON.stringify({ labels: ["agent:done", "bug"] }),
+        headers: expect.objectContaining({ authorization: "Bearer installation-token" }),
+        method: "PUT",
+      })],
+    ])
+  })
+
+  it("surfaces GitHub pull request label API failures", async () => {
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).endsWith("/access_tokens")) {
+        return Response.json({ token: "installation-token" })
+      }
+      if (init?.method === "DELETE") {
+        return Response.json({ message: "Not Found" }, { status: 404 })
+      }
+      return Response.json({ message: "unprocessable" }, { status: 422 })
+    })
+    const channel = github({
+      app: {
+        apiBaseUrl: "https://api.github.test",
+        appId: "label-effects-failure",
+        fetch: fetcher as typeof fetch,
+        privateKey: privateKey.export({ format: "pem", type: "pkcs1" }).toString(),
+      },
+    })
+    const labelsEffect = channel.effects?.labels
+    if (typeof labelsEffect !== "function") throw new Error("Missing GitHub labels effect.")
+
+    await expect(labelsEffect({
+      channel,
+      effect: { kind: "labels", payload: { action: "add", labels: ["agent:working"] } },
+      input: {
+        context: {
+          pullRequest: {
+            pullRequest: { number: 42 },
+            repository: { fullName: "vite-hub/vitehub", name: "vitehub", owner: "vite-hub" },
+            run: { runId: "run-1" },
+            trigger: {
+              action: "labeled",
+              deliveryId: "delivery-1",
+              event: "pull_request",
+              installationId: 456,
+              label: { name: "agent:ready" },
+              sender: { id: 1, login: "mona" },
+            },
+          },
+        },
+        prompt: "Maintain this pull request.",
+      },
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    } as never)).rejects.toThrow("GitHub delivery effect failed with 422")
+
+    await expect(labelsEffect({
+      channel,
+      effect: { kind: "labels", payload: { action: "remove", labels: ["agent:working"] } },
+      input: {
+        context: {
+          pullRequest: {
+            pullRequest: { number: 42 },
+            repository: { fullName: "vite-hub/vitehub", name: "vitehub", owner: "vite-hub" },
+            run: { runId: "run-1" },
+            trigger: {
+              action: "labeled",
+              deliveryId: "delivery-1",
+              event: "pull_request",
+              installationId: 456,
+              label: { name: "agent:ready" },
+              sender: { id: 1, login: "mona" },
+            },
+          },
+        },
+        prompt: "Maintain this pull request.",
+      },
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    } as never)).rejects.toThrow("GitHub delivery effect failed with 404")
+  })
+
+  it("uses admitted issue-comment context as the only GitHub label target", async () => {
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith("/app/installations/321/access_tokens")) {
+        return Response.json({ token: "installation-token" })
+      }
+      return Response.json({ ok: true })
+    })
+    const channel = github({
+      app: {
+        apiBaseUrl: "https://api.github.test",
+        appId: "comment-label-effects",
+        fetch: fetcher as typeof fetch,
+        privateKey: privateKey.export({ format: "pem", type: "pkcs1" }).toString(),
+      },
+    })
+    const labelsEffect = channel.effects?.labels
+    if (typeof labelsEffect !== "function") throw new Error("Missing GitHub labels effect.")
+    const attackerTarget = {
+      commentId: 1,
+      installationId: 999,
+      issueNumber: 1,
+      owner: "attacker",
+      pullRequestUrl: "https://api.github.test/repos/attacker/repo/pulls/1",
+      repo: "repo",
+      repository: "attacker/repo",
+    }
+
+    await labelsEffect({
+      channel,
+      effect: {
+        kind: "labels",
+        metadata: { github: attackerTarget },
+        payload: { action: "add", github: attackerTarget, labels: ["agent:working"] },
+      },
+      input: {
+        context: {
+          github: {
+            action: "created",
+            actor: { login: "mona" },
+            args: "",
+            body: "/review",
+            command: "/review",
+            commentId: 99,
+            installationId: 321,
+            issueNumber: 42,
+            owner: "vite-hub",
+            pullRequestUrl: "https://api.github.test/repos/vite-hub/vitehub/pulls/42",
+            repo: "vitehub",
+            repository: "vite-hub/vitehub",
+          },
+        },
+        prompt: "/review",
+      },
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    } as never)
+
+    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual([
+      "https://api.github.test/app/installations/321/access_tokens",
+      "https://api.github.test/repos/vite-hub/vitehub/issues/42/labels",
+    ])
   })
 
   it("publishes Workspace image paths before posting GitHub PR replies", async () => {

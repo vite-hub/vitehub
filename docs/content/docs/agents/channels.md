@@ -262,6 +262,33 @@ export default defineAgent({
 
 The GitHub channel renders inline image artifacts as markdown in `reply` and `review` effects. It does not attach local files directly to GitHub comments.
 
+## Update GitHub pull request labels
+
+GitHub pull request channels support a `labels` delivery effect with `add`, `remove`, and `replace` actions. The channel always applies the effect to the pull request admitted by the current invocation; effect payloads cannot select another repository or pull request.
+
+```ts [server/agents/review.ts]
+import { defineAgent, defineCapability } from '@vite-hub/agent'
+import { github } from '@vite-hub/agent/channels'
+
+const reviewLifecycle = defineCapability({
+  id: 'review-lifecycle',
+  prepare(context) {
+    context.delivery.effect({
+      kind: 'labels',
+      payload: { action: 'add', labels: ['agent:working'] },
+    })
+  },
+})
+
+export default defineAgent({
+  capabilities: [reviewLifecycle],
+  channels: { github: github({ app: true, pullRequest: true }) },
+  driver: { run: () => 'Review complete.' },
+})
+```
+
+Use `add` or `remove` to preserve unrelated labels. `replace` sends the complete desired label set, including an empty array when the pull request should have no labels.
+
 GitHub Pull Request Context enrichment is bounded before it reaches the Agent Invocation Context. By default, `github({ pullRequest: true })` records up to 30 comments, 200 changed files, 12,000 pull request body characters, and 2,000 characters per comment body. Override those with `maxComments`, `maxFiles`, `maxBodyLength`, and `maxCommentBodyLength` on the `pullRequest` option. Rendered comments are labeled as untrusted user content, and failed metadata enrichment is recorded at `pullRequest.metadata.unavailable`.
 
 Use a labeled event when an Agent Invocation should start only after a trusted GitHub actor applies a specific label:
