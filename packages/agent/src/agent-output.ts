@@ -4,7 +4,7 @@ import { readAgentUsageMetadata } from "./internal/agent-usage-metadata.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
 
-import type { StreamEvent } from "./messages.ts"
+import type { AgentMessagePhase, StreamEvent } from "./messages.ts"
 import type { AgentRunMetadata, AgentRunResult, AgentUsage, AgentUsageRecord } from "./types.ts"
 
 export { isAsyncIterable } from "./internal/stream-result.ts"
@@ -334,7 +334,11 @@ function optionalDurationMs(durationMs: number | undefined): { durationMs?: numb
   return durationMs === undefined ? {} : { durationMs }
 }
 
-export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, string>): StreamEvent | undefined {
+export function toAgentStreamEvent(
+  chunk: unknown,
+  toolNames?: Map<string, string>,
+  textPhases?: Map<string, AgentMessagePhase>,
+): StreamEvent | undefined {
   if (typeof chunk === "string") {
     return { text: chunk, type: "text-delta" }
   }
@@ -345,8 +349,28 @@ export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, strin
   const value = chunk as Record<string, unknown>
   const type = String(value.type || "")
   const messageId = typeof value.messageId === "string" ? value.messageId : undefined
+  const hasExplicitPhase = "phase" in value && value.phase !== undefined
+  const phase = value.phase === "commentary"
+    ? "commentary"
+    : value.phase === "final" || value.phase === "final_answer"
+      ? "final"
+      : undefined
+  const textId = typeof value.id === "string" ? value.id : undefined
+  if (type === "text-start") {
+    if (textId) {
+      textPhases?.delete(textId)
+      if (phase) textPhases?.set(textId, phase)
+    }
+    return undefined
+  }
+  if (type === "text-end") {
+    if (textId) textPhases?.delete(textId)
+    return undefined
+  }
   if (type === "text-delta" || type === "text") {
-    return { id: value.id as string | undefined, ...optionalMessageId(messageId), ...(typeof value.role === "string" ? { role: value.role as never } : {}), text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
+    if (value.phase === "reasoning") return undefined
+    const textPhase = phase ?? (!hasExplicitPhase && textId ? textPhases?.get(textId) : undefined)
+    return { id: textId, ...optionalMessageId(messageId), ...(textPhase ? { phase: textPhase } : {}), ...(typeof value.role === "string" ? { role: value.role as never } : {}), text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
   }
   if (type === "data" || type.startsWith("data-")) {
     return { data: value.data, id: value.id as string | undefined, ...optionalMessageId(messageId), ...(typeof value.transient === "boolean" ? { transient: value.transient } : {}), type: type as "data" | `data-${string}` }
@@ -401,12 +425,13 @@ export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, strin
 
 async function* streamChunksToEvents(chunks: AsyncIterable<unknown>, usageSource?: unknown): AsyncIterable<StreamEvent> {
   const toolNames = new Map<string, string>()
+  const textPhases = new Map<string, AgentMessagePhase>()
   let usageRecord: AgentUsageRecord | undefined
   let explicitUsageEvent = false
   let finishEvent: StreamEvent | undefined
   for await (const chunk of chunks) {
     if (!explicitUsageEvent) usageRecord = usageRecordFromStreamChunk(chunk, usageSource) ?? usageRecord
-    const event = toAgentStreamEvent(chunk, toolNames)
+    const event = toAgentStreamEvent(chunk, toolNames, textPhases)
     if (!event) continue
     if (event.type === "usage") {
       usageRecord = withFallbackUsageMetadata(event.usageRecord, usageSource)

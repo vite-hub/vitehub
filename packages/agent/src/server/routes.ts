@@ -612,6 +612,14 @@ type ChatTextStream = AsyncIterable<string> & {
   getText: () => string
 }
 
+interface ChatTextStreamController {
+  close: () => void
+  discard: () => void
+  fail: (error: unknown) => void
+  stream: ChatTextStream
+  write: (text: string) => void
+}
+
 const discordMaxContentLength = 2000
 const discordLongContentModeSymbol = Symbol.for("vitehub.discord.longContent.mode")
 
@@ -671,6 +679,68 @@ function startChatTypingRefresh(thread: Thread, context: ViteAgentRouteRuntimeCo
   }
 }
 
+function createChatTextStream(): ChatTextStreamController {
+  const chunks: string[] = []
+  let collected = ""
+  let discarded = false
+  let failure: unknown
+  let finished = false
+  let wake: (() => void) | undefined
+  const notify = () => {
+    wake?.()
+    wake = undefined
+  }
+  const stream: ChatTextStream = {
+    async *[Symbol.asyncIterator]() {
+      try {
+        for (;;) {
+          if (chunks.length) {
+            yield chunks.shift()!
+            continue
+          }
+          if (failure !== undefined) throw failure
+          if (finished) return
+          await new Promise<void>(resolve => {
+            wake = resolve
+          })
+        }
+      }
+      finally {
+        if (!finished) {
+          discarded = true
+          chunks.length = 0
+        }
+      }
+    },
+    getText: () => collected,
+  }
+  return {
+    close() {
+      if (finished) return
+      finished = true
+      notify()
+    },
+    discard() {
+      discarded = true
+      chunks.length = 0
+      finished = true
+      notify()
+    },
+    fail(error) {
+      if (finished) return
+      failure = error
+      notify()
+    },
+    stream,
+    write(text) {
+      if (!text || discarded || finished) return
+      collected += text
+      chunks.push(text)
+      notify()
+    },
+  }
+}
+
 function streamAgentOutputToChatText(
   result: Promise<unknown>,
 ): ChatTextStream {
@@ -707,6 +777,54 @@ function streamAgentOutputToChatText(
     },
     getText: () => collected,
   }
+}
+
+function streamAgentOutputToChatReplies(
+  result: Promise<unknown>,
+  options: {
+    commentary: "hidden" | "message"
+    onCommentary: (stream: ChatTextStream, discard: () => void) => void
+    onFinal: (stream: ChatTextStream) => void
+  },
+): { completion: Promise<void> } {
+  const commentary = createChatTextStream()
+  const final = createChatTextStream()
+  let commentaryStarted = false
+  let finalStarted = false
+  const completion = (async () => {
+    try {
+      const output = await result
+      for await (const event of streamAgentOutputToEvents(output)) {
+        if (event.type === "error") throw new Error(event.error)
+        if (event.type !== "text-delta" || !event.text) continue
+        if (event.phase === "commentary" && !finalStarted) {
+          if (options.commentary === "message" && !commentaryStarted) {
+            commentaryStarted = true
+            options.onCommentary(commentary.stream, commentary.discard)
+          }
+          if (commentaryStarted) commentary.write(event.text)
+          continue
+        }
+        if (event.phase !== "final") continue
+        if (!finalStarted) {
+          finalStarted = true
+          commentary.close()
+          options.onFinal(final.stream)
+        }
+        final.write(event.text)
+      }
+    }
+    catch (error) {
+      commentary.fail(error)
+      final.fail(error)
+      throw error
+    }
+    finally {
+      commentary.close()
+      final.close()
+    }
+  })()
+  return { completion }
 }
 
 function chatStreamPostable(thread: Thread, response: ChatTextStream): ChatTextStream | StreamingPlan {
@@ -1743,7 +1861,8 @@ async function handleChatSdkMessage(
     const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, invocation.input as AgentRunInput, invocation.run, messageContext)
     if (!invoker) return
 
-    typing = options?.stream !== false ? startChatTypingRefresh(thread, context) : undefined
+    const streamsPhasedReplies = options?.stream !== false || options?.commentary !== undefined
+    typing = streamsPhasedReplies ? startChatTypingRefresh(thread, context) : undefined
     run = invocation.run
     const runContext = {
       ...context,
@@ -1758,7 +1877,7 @@ async function handleChatSdkMessage(
         ...(options?.stream === false ? { [finalChannelOutputContextKey]: true } : {}),
       },
     }, invoker), chatFinish)
-    if (options?.stream === false) {
+    if (!streamsPhasedReplies) {
       const result = await runAgentInline(agent as never, runContext as never, invocationInput as never)
       const text = await collectAgentOutput(result)
       if (text) {
@@ -1772,15 +1891,45 @@ async function handleChatSdkMessage(
       const result = streamAgent(agent as never, runContext as never, invocationInput as never, {
         output: "events",
       })
-      const response = streamAgentOutputToChatText(result)
       const thinkingFallback = invocation.metadata?.thinkingFallback
       try {
-        await postChatStream(
-          thread,
-          response,
-          typeof thinkingFallback === "string" || thinkingFallback === null ? thinkingFallback : undefined,
-          context.waitUntil,
-        )
+        if (options?.commentary === undefined) {
+          await postChatStream(
+            thread,
+            streamAgentOutputToChatText(result),
+            typeof thinkingFallback === "string" || thinkingFallback === null ? thinkingFallback : undefined,
+            context.waitUntil,
+          )
+        }
+        else {
+          let finalDelivery: Promise<void> | undefined
+          let finalDeliveryError: unknown
+          const replies = streamAgentOutputToChatReplies(result, {
+            commentary: options.commentary,
+            onCommentary(response, discard) {
+              const delivery = postChatStream(thread, response, undefined, context.waitUntil)
+                .catch(() => discard())
+              context.waitUntil(delivery)
+            },
+            onFinal(response) {
+              finalDelivery = postChatStream(
+                thread,
+                response,
+                typeof thinkingFallback === "string" || thinkingFallback === null ? thinkingFallback : undefined,
+                context.waitUntil,
+              ).catch((error) => {
+                finalDeliveryError = error
+              })
+            },
+          })
+          let streamError: unknown
+          await replies.completion.catch((error) => {
+            streamError = error
+          })
+          await finalDelivery
+          if (streamError !== undefined) throw streamError
+          if (finalDeliveryError !== undefined) throw finalDeliveryError
+        }
       }
       finally {
         typing?.stop()

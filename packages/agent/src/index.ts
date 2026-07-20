@@ -376,6 +376,7 @@ export type {
 } from "./workspace-agent.ts"
 
 export type {
+  AgentMessagePhase,
   Message,
   MessageMetadata,
   MessagePart,

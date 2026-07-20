@@ -1317,6 +1317,7 @@ export interface AgentChatFinishExtension {
 }
 
 export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  commentary?: "hidden" | "message"
   concurrency?: AgentMessageConcurrency
   dedupeTtlMs?: number
   errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
