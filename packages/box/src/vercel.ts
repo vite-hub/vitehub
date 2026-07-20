@@ -292,7 +292,7 @@ function createVercelSession(
       const process = await instance.runCommand({
         args: ["-lc", options.command],
         cmd: "sh",
-        cwd: options.workingDirectory ?? "/workspace",
+        cwd: options.workingDirectory ?? workspace,
         detached: true,
         env: { ...baseEnv, ...options.env },
         signal: options.abortSignal,
