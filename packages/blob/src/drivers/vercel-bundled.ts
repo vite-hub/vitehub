@@ -29,6 +29,16 @@ function isMissingBlobError(error: unknown) {
   )
 }
 
+function resolveBlobAccess(url: string, fallback: "private" | "public") {
+  try {
+    const hostname = new URL(url).hostname
+    if (hostname.endsWith(".private.blob.vercel-storage.com")) return "private"
+    if (hostname.endsWith(".public.blob.vercel-storage.com")) return "public"
+  }
+  catch {}
+  return fallback
+}
+
 export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreConfig): BlobDriverAdapter<ResolvedVercelBlobStoreConfig> {
   const auth = { token: options.token }
 
@@ -36,17 +46,14 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
     const abortSignal = options.downloadTimeoutMs && options.downloadTimeoutMs > 0
       ? AbortSignal.timeout(options.downloadTimeoutMs)
       : undefined
-    if (options.access === "private") {
-      const result = await get(pathname, { ...auth, abortSignal, access: "private" })
-      return result ? new Response(result.stream, { headers: result.blob.contentType ? { "content-type": result.blob.contentType } : undefined }) : null
-    }
-
     try {
       const metadata = await head(pathname, { ...auth, abortSignal })
-      const response = await fetch(metadata.url, { signal: abortSignal })
-      if (response.status === 404) return null
-      if (!response.ok) throw new Error(`Vercel Blob read failed: ${response.status} ${response.statusText}`)
-      return response
+      const result = await get(metadata.url, {
+        ...auth,
+        abortSignal,
+        access: resolveBlobAccess(metadata.url, options.access),
+      })
+      return result ? new Response(result.stream, { headers: result.blob.contentType ? { "content-type": result.blob.contentType } : undefined }) : null
     }
     catch (error) {
       if (isMissingBlobError(error)) return null

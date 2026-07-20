@@ -128,9 +128,44 @@ afterEach(() => {
   vercelBlobMock.head.mockClear()
   vercelBlobMock.list.mockClear()
   vercelBlobMock.put.mockClear()
+  vi.unstubAllGlobals()
 })
 
 describe("Vite provider outputs", () => {
+  it.each([
+    { objectAccess: "private" as const, storeAccess: "public" as const },
+    { objectAccess: "public" as const, storeAccess: "private" as const },
+  ])("reads a $objectAccess Vercel object when per-put access differs from the $storeAccess store default", async ({ objectAccess, storeAccess }) => {
+    const pathname = "images/private.txt"
+    const canonicalUrl = `https://store.${objectAccess}.blob.vercel-storage.com/${pathname}`
+    vercelBlobMock.head.mockResolvedValueOnce({
+      pathname,
+      size: 5,
+      uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
+      url: canonicalUrl,
+    })
+    const anonymousFetch = vi.fn(async () => new Response(null, {
+      status: 403,
+      statusText: "Forbidden",
+    }))
+    vi.stubGlobal("fetch", anonymousFetch)
+    const driver = createBundledVercelBlobDriver({
+      access: storeAccess,
+      driver: "vercel-blob",
+      token: "vercel_blob_rw_test",
+    })
+
+    await driver.put(pathname, "value", { access: objectAccess })
+    const value = await driver.getArrayBuffer(pathname)
+    expect(new TextDecoder().decode(value || undefined)).toBe("value")
+    expect(vercelBlobMock.put).toHaveBeenCalledWith(pathname, "value", expect.objectContaining({ access: objectAccess }))
+    expect(vercelBlobMock.get).toHaveBeenCalledWith(canonicalUrl, expect.objectContaining({
+      access: objectAccess,
+      token: "vercel_blob_rw_test",
+    }))
+    expect(anonymousFetch).not.toHaveBeenCalled()
+  })
+
   it("maps Vercel missing-object errors to Blob misses", async () => {
     const missing = new Error("Vercel Blob: The requested blob does not exist")
     missing.name = "BlobNotFoundError"
