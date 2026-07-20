@@ -16,7 +16,8 @@ import type {
 interface ExpandMarkdownTemplateImportsOptions {
   maxImportDepth: number
   prepare: (template: string) => Promise<string>
-  resolveImport: ResolveMarkdownTemplateImport
+  resolveBareImport?: ResolveMarkdownTemplateImport
+  resolveImport?: ResolveMarkdownTemplateImport
   runtime: MarkdownTemplateRuntime
   sourceId: string
 }
@@ -93,20 +94,18 @@ async function replaceImports(segment: string, state: ImportState, depth: number
 
 async function importReplacement(token: string, state: ImportState, depth: number): Promise<string | undefined> {
   if (/^@(?:https?:)?\/\//.test(token) || token.startsWith("@/")) {
+    if (!state.resolveImport) return
     throw new Error(`[vitehub] Markdown template import "${token}" must be a relative path.`)
   }
-  if (!token.startsWith("@./") && !token.startsWith("@../")) return
-
   const trailing = token.match(/[.,;:!?)]*$/)?.[0] || ""
   const specifier = token.slice(1, token.length - trailing.length)
-  if (/[*?]/.test(specifier)) {
-    throw new Error(`[vitehub] Markdown template import "${specifier}" cannot use globs.`)
-  }
-  if (depth >= state.maxImportDepth) {
-    throw new Error(`[vitehub] Markdown template import depth exceeded ${state.maxImportDepth}.`)
-  }
-
-  const resolved = await state.resolveImport(specifier, state.sourceId)
+  const relative = specifier.startsWith("./") || specifier.startsWith("../")
+  const resolveImport = relative ? state.resolveImport : state.resolveBareImport
+  if (!resolveImport) return
+  if (relative) validateImportRequest(specifier, state, depth)
+  const resolved = await resolveImport(specifier, state.sourceId)
+  if (!resolved && !relative) return
+  if (!relative) validateImportRequest(specifier, state, depth)
   assertImportResolution(resolved, specifier)
   if (state.seen.has(resolved.id)) {
     throw new Error(`[vitehub] Circular Markdown template import: ${specifier}.`)
@@ -122,6 +121,15 @@ async function importReplacement(token: string, state: ImportState, depth: numbe
   }
   finally {
     state.seen.delete(resolved.id)
+  }
+}
+
+function validateImportRequest(specifier: string, state: ImportState, depth: number): void {
+  if (/[*?]/.test(specifier)) {
+    throw new Error(`[vitehub] Markdown template import "${specifier}" cannot use globs.`)
+  }
+  if (depth >= state.maxImportDepth) {
+    throw new Error(`[vitehub] Markdown template import depth exceeded ${state.maxImportDepth}.`)
   }
 }
 

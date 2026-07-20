@@ -1,9 +1,9 @@
 import { parse } from "comark"
-import binding, { Binding } from "comark/plugins/binding"
-import { renderMarkdown } from "comark/render"
-import { renderMarkdownTemplate } from "@vite-hub/markdown-template"
-
-import type { NodeHandler } from "comark/render"
+import binding from "comark/plugins/binding"
+import {
+  renderMarkdownTemplateInternal,
+  resolveMarkdownTemplateImports,
+} from "@vite-hub/markdown-template/internal/composition"
 
 export interface InstructionImportResolution {
   content: string
@@ -36,62 +36,57 @@ interface InstructionCoverageMarker {
   prefix: string
 }
 
-type ConditionOperator = "!" | "!=" | "!==" | "&&" | "(" | ")" | "==" | "===" | "||"
-type ConditionToken =
-  | { type: "literal", value: unknown }
-  | { type: "op", value: ConditionOperator }
-  | { path: string, type: "path" }
 type ComarkElementAttributes = Record<string, unknown>
 type ComarkElement = [string, ComarkElementAttributes, ...ComarkNode[]]
 type ComarkComment = [null, ComarkElementAttributes, string]
 type ComarkNode = ComarkComment | ComarkElement | string
-interface InstructionMarkdownRuntime {
-  components: Record<string, NodeHandler>
-  rawTag: string
-}
 
 interface InstructionTemplateTags {
   prefix: string
   values: string[]
 }
 
-interface InstructionProtectedTokens {
-  prefix: string
-  values: string[]
-}
-
 const defaultImportDepth = 4
-const contextPathPattern = /context(?:\.[A-Za-z_$][\w$-]*)+/
+const contextConditionPathPattern = /^context(?:\.[A-Za-z_$][\w$-]*)+$/
 const instructionTripleBindingPattern = /\{\{\{\s*([A-Za-z_$][\w$-]*(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}\}/g
 
 export async function resolveInstructionImports(content: string, options: ResolveInstructionImportsOptions): Promise<string> {
-  const runtime = createInstructionMarkdownRuntime()
-  const protectedTokens = createInstructionProtectedTokens()
-  const expanded = await expandInstructionImports(await normalizeDynamicConditionShorthand(content, protectedTokens), {
-    ...options,
-    maxDepth: options.maxDepth ?? defaultImportDepth,
-    protectedTokens,
-    runtime,
-    seen: new Set([options.file]),
-  })
-  return restoreInstructionProtectedTokens(expanded, protectedTokens)
+  try {
+    return await resolveMarkdownTemplateImports(content, {
+      maxImportDepth: options.maxDepth ?? defaultImportDepth,
+      resolveImport(specifier, importer) {
+        const resolved = options.read(specifier, importer)
+        return { id: resolved.file, template: resolved.content }
+      },
+      sourceId: options.file,
+    })
+  }
+  catch (error) {
+    rethrowInstructionCompositionError(error)
+  }
 }
 
 export async function composeInstructionDocument(content: string, options: ComposeInstructionDocumentOptions = {}): Promise<string> {
   const state = { context: options.context || {}, workspace: options.workspace || {} }
-  const protectedTokens = createInstructionProtectedTokens()
-  const shorthand = await normalizeDynamicConditionShorthand(content, protectedTokens)
-  validateConditionalDirectives(await instructionDirectiveValidationSource(shorthand))
-  const imported = await expandWorkspaceInstructionImports(shorthand, state.workspace, 0, new Set(), protectedTokens)
-  validateConditionalDirectives(await instructionDirectiveValidationSource(imported))
-  validateInstructionMarkdownBindings(imported)
+  let imported: string
+  try {
+    imported = await resolveMarkdownTemplateImports(content, {
+      resolveBareImport: specifier => resolveWorkspaceInstructionImport(specifier, state.workspace),
+    })
+  }
+  catch (error) {
+    rethrowInstructionCompositionError(error, true)
+  }
+  await validateInstructionMarkdownBindings(imported)
   await validateLegacyInstructionBindings(imported)
-  await validateInstructionConditions(imported, state.context)
   const coverageMarker = createInstructionCoverageMarker()
   const marked = await markInstructionCoverage(imported, coverageMarker)
 
   try {
-    const rendered = await renderMarkdownTemplate(restoreInstructionProtectedTokens(marked, protectedTokens), { data: state })
+    const rendered = await renderMarkdownTemplateInternal(marked, {
+      data: state,
+      validateConditionPath: path => contextConditionPathPattern.test(path),
+    })
     return await stripMarkedInstructionCoverage(rendered, coverageMarker, options.coverage)
   }
   catch (error) {
@@ -99,8 +94,29 @@ export async function composeInstructionDocument(content: string, options: Compo
   }
 }
 
-function validateInstructionMarkdownBindings(content: string): void {
-  for (const match of content.matchAll(instructionTripleBindingPattern)) {
+async function validateInstructionMarkdownBindings(content: string): Promise<void> {
+  if (!content.includes("{{{")) return
+  const { tags, tree } = await parseInstructionTemplate(content)
+  validateInstructionMarkdownBindingNodes(tree.nodes, tags)
+}
+
+function validateInstructionMarkdownBindingNodes(nodes: ComarkNode[], tags: InstructionTemplateTags): void {
+  for (const node of nodes) {
+    if (typeof node === "string") {
+      validateInstructionMarkdownBindingValue(node)
+      for (const match of node.matchAll(new RegExp(`${tags.prefix}(\\d+)END`, "g"))) {
+        const tag = tags.values[Number(match[1])]
+        if (tag) validateInstructionMarkdownBindingValue(tag)
+      }
+      continue
+    }
+    if (!isElement(node) || node[0] === "code") continue
+    validateInstructionMarkdownBindingNodes(node.slice(2) as ComarkNode[], tags)
+  }
+}
+
+function validateInstructionMarkdownBindingValue(value: string): void {
+  for (const match of value.matchAll(instructionTripleBindingPattern)) {
     const path = match[1]!
     if (!path.startsWith("context.")) {
       throw new Error(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" must use a context.* path. Import Workspace Markdown with @${path}.`)
@@ -146,42 +162,19 @@ function validateLegacyInstructionBindingNodes(nodes: ComarkNode[]): void {
   }
 }
 
-async function validateInstructionConditions(
-  content: string,
-  context: Record<string, unknown>,
-): Promise<void> {
-  const { tree } = await parseInstructionTemplate(content)
-  validateInstructionConditionNodes(tree.nodes, context)
-}
-
-function validateInstructionConditionNodes(
-  nodes: ComarkNode[],
-  context: Record<string, unknown>,
-): void {
-  for (const node of nodes) {
-    if (!isElement(node)) continue
-    const [tag, , ...children] = node
-    if (tag === "code") continue
-    if (tag === "if") {
-      const { after, branches } = conditionalBranches(node)
-      const selected = branches.find(branch =>
-        branch.expression === undefined || evaluateCondition(branch.expression, context))
-      if (selected) validateInstructionConditionNodes(selected.nodes, context)
-      validateInstructionConditionNodes(after, context)
-    }
-    else {
-      validateInstructionConditionNodes(children, context)
-    }
-  }
-}
-
 async function markInstructionCoverage(
   content: string,
   marker: InstructionCoverageMarker,
 ): Promise<string> {
+  const directivesInCode = await instructionDirectiveLinesInCode(content)
   const stack: Array<{ coverage?: number }> = []
   const lines: string[] = []
+  let directiveIndex = 0
   for (const line of content.split(/\r?\n/)) {
+    if (/^\s*:{2,}[^\r\n]*$/.test(line) && directivesInCode.has(directiveIndex++)) {
+      lines.push(line)
+      continue
+    }
     if (/^\s*:{2,}\s*$/.test(line)) {
       const current = stack.pop()
       lines.push(current?.coverage === undefined
@@ -208,6 +201,33 @@ async function markInstructionCoverage(
     lines.push(`<!--${coverageMarkerValue(marker, index, "start")}-->`)
   }
   return lines.join("\n")
+}
+
+async function instructionDirectiveLinesInCode(content: string): Promise<Set<number>> {
+  const prefix = `VITEHUBINSTRUCTIONDIRECTIVE${crypto.randomUUID().replaceAll("-", "")}`
+  let index = 0
+  const masked = content.replace(/^(\s*)(:{2,}[^\r\n]*)$/gm, (_match, indentation: string) =>
+    `${indentation}${prefix}${index++}END`)
+  if (!index) return new Set()
+  const { tree } = await parseInstructionTemplate(masked)
+  return instructionTokensInCode(tree.nodes, prefix)
+}
+
+function instructionTokensInCode(nodes: ComarkNode[], prefix: string, inCode = false): Set<number> {
+  const found = new Set<number>()
+  for (const node of nodes) {
+    if (typeof node === "string") {
+      if (inCode) {
+        for (const match of node.matchAll(new RegExp(`${prefix}(\\d+)END`, "g"))) found.add(Number(match[1]))
+      }
+      continue
+    }
+    if (!isElement(node)) continue
+    for (const index of instructionTokensInCode(node.slice(2) as ComarkNode[], prefix, inCode || node[0] === "code")) {
+      found.add(index)
+    }
+  }
+  return found
 }
 
 async function instructionDirectiveAttributes(
@@ -249,15 +269,22 @@ function coverageMarkerValue(
   return `${marker.prefix}-${index}-${boundary}`
 }
 
-function rethrowInstructionCompositionError(error: unknown): never {
+function rethrowInstructionCompositionError(error: unknown, workspaceImport = false): never {
   if (!(error instanceof Error)) throw error
-  const message = error.message
+  let message = error.message
     .replaceAll("Markdown template fragment", "Instruction markdown binding")
     .replaceAll("Markdown template binding", "Instruction binding")
     .replaceAll("Markdown template", "Instruction")
+    .replaceAll("Circular Instruction", "Circular instruction")
     .replaceAll("Unsafe Instruction condition", "Unsafe instruction condition")
     .replaceAll("Invalid Instruction condition", "Invalid instruction condition")
     .replaceAll("read data paths", "read context.* paths")
+    .replaceAll("must be a relative path", "must be a relative file path")
+  if (workspaceImport) {
+    message = message
+      .replace(/Circular instruction import: (workspace(?:\.[\w$-]+)+)\./, "Circular instruction workspace import: @$1.")
+      .replace("Instruction import depth exceeded", "Instruction workspace import depth exceeded")
+  }
   throw error instanceof TypeError ? new TypeError(message) : new Error(message)
 }
 
@@ -271,34 +298,6 @@ async function parseInstructionMarkdown(content: string, bindings = false) {
   })
 }
 
-function createInstructionMarkdownRuntime(): InstructionMarkdownRuntime {
-  const rawTag = `vitehub-instruction-raw-${crypto.randomUUID().replaceAll("-", "")}`
-  return {
-    components: {
-      Binding,
-      [rawTag]: (node: ComarkElement) => typeof node[1].value === "string" ? node[1].value : "",
-    },
-    rawTag,
-  }
-}
-
-function createInstructionProtectedTokens(): InstructionProtectedTokens {
-  return {
-    prefix: `VITEHUBINSTRUCTIONPROTECTED${crypto.randomUUID().replaceAll("-", "")}`,
-    values: [],
-  }
-}
-
-function restoreInstructionProtectedTokens(
-  content: string,
-  protectedTokens: InstructionProtectedTokens,
-): string {
-  return content.replace(
-    new RegExp(`${protectedTokens.prefix}(\\d+)END`, "g"),
-    (_match, index: string) => protectedTokens.values[Number(index)] ?? _match,
-  )
-}
-
 function cleanMarkdown(content: string): string {
   return content.trim()
 }
@@ -308,18 +307,7 @@ async function parseInstructionTemplate(content: string, bindings = false) {
     prefix: `VITEHUBINSTRUCTIONTAG${crypto.randomUUID().replaceAll("-", "")}`,
     values: [],
   }
-  const tree = await parseInstructionMarkdown(maskInstructionTags(content, tags), bindings)
-  return { tags, tree }
-}
-
-async function renderInstructionTemplate(
-  tree: Awaited<ReturnType<typeof parseInstructionMarkdown>>,
-  nodes: ComarkNode[],
-  tags: InstructionTemplateTags,
-  components: Record<string, NodeHandler>,
-): Promise<string> {
-  const rendered = cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components }))
-  return restoreInstructionTags(rendered, tags)
+  return { tags, tree: await parseInstructionMarkdown(maskInstructionTags(content, tags), bindings) }
 }
 
 function maskInstructionTags(content: string, tags: InstructionTemplateTags): string {
@@ -329,246 +317,19 @@ function maskInstructionTags(content: string, tags: InstructionTemplateTags): st
   })
 }
 
-function restoreInstructionTags(content: string, tags: InstructionTemplateTags): string {
-  return content.replace(
-    new RegExp(`${tags.prefix}(\\d+)END`, "g"),
-    (_match, index: string) => tags.values[Number(index)] ?? _match,
-  )
-}
-
-async function expandInstructionImports(
-  content: string,
-  options: ResolveInstructionImportsOptions & {
-    maxDepth: number
-    protectedTokens: InstructionProtectedTokens
-    runtime: InstructionMarkdownRuntime
-    seen: Set<string>
-  },
-  depth = 0,
-): Promise<string> {
-  const { tags, tree } = await parseInstructionTemplate(content)
-  const nodes = await expandImportNodes(tree.nodes, options, depth)
-  const rendered = await renderInstructionTemplate(tree, nodes, tags, options.runtime.components)
-  return content.endsWith("\n") ? `${rendered}\n` : rendered
-}
-
-async function expandImportNodes(
-  nodes: ComarkNode[],
-  options: ResolveInstructionImportsOptions & { maxDepth: number, protectedTokens: InstructionProtectedTokens, runtime: InstructionMarkdownRuntime, seen: Set<string> },
-  depth: number,
-): Promise<ComarkNode[]> {
-  const expanded: ComarkNode[] = []
-  for (const node of nodes) expanded.push(...await expandImportNode(node, options, depth))
-  return expanded
-}
-
-async function expandImportNode(
-  node: ComarkNode,
-  options: ResolveInstructionImportsOptions & { maxDepth: number, protectedTokens: InstructionProtectedTokens, runtime: InstructionMarkdownRuntime, seen: Set<string> },
-  depth: number,
-): Promise<ComarkNode[]> {
-  if (typeof node === "string") return await replaceImportsInText(node, options, depth)
-  if (!isElement(node)) return [node]
-
-  const [tag, attrs, ...children] = node
-  if (tag === "code") return [node]
-  return [[tag, attrs, ...(await expandImportNodes(children, options, depth))] as ComarkElement]
-}
-
-async function replaceImportsInText(
-  text: string,
-  options: ResolveInstructionImportsOptions & { maxDepth: number, protectedTokens: InstructionProtectedTokens, runtime: InstructionMarkdownRuntime, seen: Set<string> },
-  depth: number,
-): Promise<ComarkNode[]> {
-  const nodes: ComarkNode[] = []
-  let textNode = ""
-  let index = 0
-  for (const match of text.matchAll(/@[^\s<>{}[\]]+/g)) {
-    textNode += text.slice(index, match.index)
-    const token = match[0]
-    const replacement = await importReplacement(token, options, depth)
-    if (replacement === undefined) {
-      textNode += token
-    }
-    else {
-      if (textNode) nodes.push(textNode)
-      nodes.push(rawMarkdownNode(replacement, options.runtime))
-      textNode = ""
-    }
-    index = match.index + token.length
-  }
-  textNode += text.slice(index)
-  if (textNode) nodes.push(textNode)
-  return nodes
-}
-
-async function expandWorkspaceInstructionImports(
-  content: string,
+function resolveWorkspaceInstructionImport(
+  specifier: string,
   workspace: Record<string, unknown>,
-  depth = 0,
-  seen: Set<string> = new Set(),
-  protectedTokens: InstructionProtectedTokens = createInstructionProtectedTokens(),
-): Promise<string> {
-  let expanded = ""
-  let offset = 0
-  for (const match of content.matchAll(/@workspace(?:\.[A-Za-z_$][\w$-]*)+/g)) {
-    expanded += content.slice(offset, match.index)
-    expanded += await workspaceImportReplacement(match[0], workspace, depth, seen, protectedTokens)
-    offset = match.index + match[0].length
-  }
-  return expanded + content.slice(offset)
-}
-
-function rawMarkdownNode(value: string, runtime: InstructionMarkdownRuntime): ComarkElement {
-  return [runtime.rawTag, { value }]
-}
-
-async function workspaceImportReplacement(
-  token: string,
-  workspace: Record<string, unknown>,
-  depth: number,
-  seen: Set<string>,
-  protectedTokens: InstructionProtectedTokens,
-): Promise<string> {
-  if (depth >= defaultImportDepth) {
-    throw new Error(`[vitehub] Instruction workspace import depth exceeded ${defaultImportDepth}.`)
-  }
-  const path = token.slice(1)
-  const value = namespacePathValue(workspace, path)
+) {
+  if (!specifier.startsWith("workspace.")) return
+  const value = namespacePathValue(workspace, specifier)
   if (value === null || value === undefined) {
-    throw new Error(`[vitehub] Instruction workspace import "${token}" is not defined.`)
+    throw new Error(`[vitehub] Instruction workspace import "@${specifier}" is not defined.`)
   }
   if (typeof value !== "string") {
-    throw new TypeError(`[vitehub] Instruction workspace import "${token}" must resolve to a string.`)
+    throw new TypeError(`[vitehub] Instruction workspace import "@${specifier}" must resolve to a string.`)
   }
-  if (seen.has(path)) {
-    throw new Error(`[vitehub] Circular instruction workspace import: ${token}.`)
-  }
-  seen.add(path)
-  try {
-    return await expandWorkspaceInstructionImports(
-      await normalizeDynamicConditionShorthand(value, protectedTokens),
-      workspace,
-      depth + 1,
-      seen,
-      protectedTokens,
-    )
-  }
-  finally {
-    seen.delete(path)
-  }
-}
-
-async function importReplacement(
-  token: string,
-  options: ResolveInstructionImportsOptions & { maxDepth: number, protectedTokens: InstructionProtectedTokens, runtime: InstructionMarkdownRuntime, seen: Set<string> },
-  depth: number,
-): Promise<string | undefined> {
-  if (/^@(?:https?:)?\/\//.test(token) || token.startsWith("@/")) {
-    throw new Error(`[vitehub] Instruction import "${token}" must be a relative file path.`)
-  }
-  if (!token.startsWith("@./") && !token.startsWith("@../")) return undefined
-
-  const trailing = token.match(/[.,;:!?)]*$/)?.[0] || ""
-  const specifier = token.slice(1, token.length - trailing.length)
-  if (/[*?]/.test(specifier)) {
-    throw new Error(`[vitehub] Instruction import "${specifier}" cannot use globs.`)
-  }
-  if (depth >= options.maxDepth) {
-    throw new Error(`[vitehub] Instruction import depth exceeded ${options.maxDepth}.`)
-  }
-
-  const resolved = options.read(specifier, options.file)
-  if (options.seen.has(resolved.file)) {
-    throw new Error(`[vitehub] Circular instruction import: ${specifier}.`)
-  }
-  options.seen.add(resolved.file)
-  try {
-    return `${await expandInstructionImports(await normalizeDynamicConditionShorthand(resolved.content, options.protectedTokens), { ...options, file: resolved.file }, depth + 1)}${trailing}`
-  }
-  finally {
-    options.seen.delete(resolved.file)
-  }
-}
-
-async function normalizeDynamicConditionShorthand(
-  content: string,
-  protectedTokens: InstructionProtectedTokens,
-): Promise<string> {
-  const nonce = crypto.randomUUID().replaceAll("-", "")
-  const prefix = `VITEHUBINSTRUCTIONCANDIDATE${nonce}`
-  const candidates: Array<{ kind: "directive" | "syntax", value: string }> = []
-  let masked = content.replace(/^(\s*)(::[^\r\n]*)$/gm, (_match, indentation: string, directive: string) => {
-    const index = candidates.push({ kind: "directive", value: directive }) - 1
-    return `${indentation}${prefix}${index}END`
-  })
-  masked = masked.replace(/\{\{\{[^{}\r\n]*\}\}\}|\{\{[^{}\r\n]*\}\}/g, (binding) => {
-    const index = candidates.push({ kind: "syntax", value: binding }) - 1
-    return `${prefix}${index}END`
-  })
-  masked = masked.replace(/@[^\s<>{}[\]]+/g, (specifier) => {
-    const index = candidates.push({ kind: "syntax", value: specifier }) - 1
-    return `${prefix}${index}END`
-  })
-  if (!candidates.length) return content
-
-  const { tree } = await parseInstructionTemplate(masked)
-  const inCode = instructionDirectiveTokensInCode(tree.nodes, prefix)
-  return masked.replace(new RegExp(`${prefix}(\\d+)END`, "g"), (_match, index: string) => {
-    const candidate = candidates[Number(index)]
-    if (!candidate) return _match
-    if (!inCode.has(Number(index))) {
-      return candidate.kind === "directive" ? normalizeConditionDirective(candidate.value) : candidate.value
-    }
-    const protectedIndex = protectedTokens.values.push(candidate.value) - 1
-    return `${protectedTokens.prefix}${protectedIndex}END`
-  })
-}
-
-function normalizeConditionDirective(directive: string): string {
-  return directive.replace(/^(::(?:if|else-if))\{([\s\S]+)\}(\s*)$/, (match, start: string, expression: string, end: string) =>
-    /^(?:if|condition)\s*=/.test(expression.trim())
-      ? match
-      : `${start}{condition=${JSON.stringify(expression.trim())}}${end}`)
-}
-
-async function instructionDirectiveValidationSource(content: string): Promise<string> {
-  const prefix = `VITEHUBINSTRUCTIONVALIDATION${crypto.randomUUID().replaceAll("-", "")}`
-  const directives: string[] = []
-  const masked = content.replace(/^(\s*)(::[^\r\n]*)$/gm, (_match, indentation: string, directive: string) => {
-    const index = directives.push(directive) - 1
-    return `${indentation}${prefix}${index}END`
-  })
-  if (!directives.length) return content
-
-  const { tree } = await parseInstructionTemplate(masked)
-  const inCode = instructionDirectiveTokensInCode(tree.nodes, prefix)
-  return masked.replace(new RegExp(`${prefix}(\\d+)END`, "g"), (_match, index: string) =>
-    inCode.has(Number(index)) ? "code" : directives[Number(index)] ?? _match)
-}
-
-function instructionDirectiveTokensInCode(
-  nodes: ComarkNode[],
-  prefix: string,
-  inCode = false,
-): Set<number> {
-  const found = new Set<number>()
-  for (const node of nodes) {
-    if (typeof node === "string") {
-      if (inCode) {
-        for (const match of node.matchAll(new RegExp(`${prefix}(\\d+)END`, "g"))) found.add(Number(match[1]))
-      }
-      continue
-    }
-    if (!isElement(node)) continue
-    const nested = instructionDirectiveTokensInCode(
-      node.slice(2) as ComarkNode[],
-      prefix,
-      inCode || node[0] === "code",
-    )
-    for (const index of nested) found.add(index)
-  }
-  return found
+  return { id: specifier, template: value }
 }
 
 function isInstructionCoverageTag(tag: string): tag is "capability" | "skill" | "source" {
@@ -596,228 +357,8 @@ function recordInstructionCoverage(
   if (tag === "source") coverage.sources.add(value)
 }
 
-function conditionalBranches(node: ComarkElement): { after: ComarkNode[], branches: Array<{ expression?: string, nodes: ComarkNode[] }> } {
-  const branches: Array<{ expression?: string, nodes: ComarkNode[] }> = []
-  let current: ComarkElement | undefined = node
-  const after: ComarkNode[] = []
-  while (current) {
-    const [tag, attrs, ...children] = current
-    if (tag === "else" && Object.keys(attrs).length) {
-      throw new Error("[vitehub] Instruction else block does not accept a condition.")
-    }
-    const expression = tag === "else" ? undefined : conditionExpressionFromAttrs(attrs, tag)
-    const nextIndex = children.findIndex(child => isElement(child) && (child[0] === "else-if" || child[0] === "else"))
-    if (tag === "else" && nextIndex !== -1) {
-      throw new Error("[vitehub] Instruction else block cannot be followed by another branch.")
-    }
-    branches.push({
-      expression,
-      nodes: nextIndex === -1 ? children : children.slice(0, nextIndex),
-    })
-    if (nextIndex !== -1) after.push(...children.slice(nextIndex + 1))
-    current = nextIndex === -1 ? undefined : children[nextIndex] as ComarkElement
-  }
-  return { after, branches }
-}
-
 function isElement(node: ComarkNode): node is ComarkElement {
   return Array.isArray(node) && typeof node[0] === "string"
-}
-
-function conditionExpressionFromAttrs(attrs: Record<string, unknown>, kind: string): string {
-  const expression = attrs.condition ?? attrs.if
-  if (typeof expression !== "string" || !expression.trim()) {
-    throw new Error(`[vitehub] Instruction ${kind} block requires a condition.`)
-  }
-  return expression.trim()
-}
-
-function validateConditionalDirectives(content: string): void {
-  const stack: Array<{ kind: "if", sawElse: boolean } | { kind: "other" }> = []
-  let fenced: string | undefined
-
-  for (const line of content.split(/\r?\n/)) {
-    const fence = line.match(/^\s*(```|~~~)/)?.[1]
-    if (fence) {
-      fenced = fenced === fence ? undefined : fence
-      continue
-    }
-    if (fenced) continue
-    if (/^\s*::\s*$/.test(line)) {
-      stack.pop()
-      continue
-    }
-
-    const directive = directiveLine(line)
-    if (!directive) {
-      if (/^\s*::[A-Za-z][\w-]*(?:\{.*\})?\s*$/.test(line)) stack.push({ kind: "other" })
-      continue
-    }
-    if (directive.kind === "if") {
-      stack.push({ kind: "if", sawElse: false })
-      continue
-    }
-
-    const current = stack.at(-1)
-    if (!current || current.kind !== "if") {
-      throw new Error(`[vitehub] Instruction ${directive.kind} block must follow an if block.`)
-    }
-    if (directive.kind === "else-if") {
-      if (current.sawElse) throw new Error("[vitehub] Instruction else-if block cannot follow else.")
-      continue
-    }
-    if (directive.raw?.trim()) {
-      throw new Error("[vitehub] Instruction else block does not accept a condition.")
-    }
-    if (current.sawElse) throw new Error("[vitehub] Instruction if chain cannot contain more than one else block.")
-    current.sawElse = true
-  }
-
-  if (stack.some(entry => entry.kind === "if")) {
-    throw new Error("[vitehub] Instruction if block is missing a closing :: line.")
-  }
-}
-
-function directiveLine(line: string): { expression?: string, kind: "else" | "else-if" | "if", raw?: string } | undefined {
-  const match = line.match(/^\s*::(if|else-if|else)(?:\{(.+)\})?\s*$/)
-  if (!match) return
-  const kind = match[1] as "else" | "else-if" | "if"
-  if (kind === "else") {
-    if (match[2]?.trim()) throw new Error("[vitehub] Instruction else block does not accept a condition.")
-    return { kind, raw: match[2] }
-  }
-  const expression = conditionExpression(match[2])
-  if (!expression) throw new Error(`[vitehub] Instruction ${kind} block requires a condition.`)
-  return { expression, kind, raw: match[2] }
-}
-
-function conditionExpression(raw: string | undefined): string | undefined {
-  const value = raw?.trim()
-  if (!value) return
-  const attr = value.match(/^(?:if|condition)\s*=\s*(["'])([\s\S]*)\1$/)
-  return (attr ? attr[2] : value).trim()
-}
-
-function evaluateCondition(expression: string, context: Record<string, unknown>): boolean {
-  const parser = createConditionParser(tokenizeCondition(expression), expression, context)
-  const value = parser.parseOr()
-  parser.done()
-  return Boolean(value)
-}
-
-function tokenizeCondition(expression: string): ConditionToken[] {
-  const tokens: ConditionToken[] = []
-  for (let index = 0; index < expression.length;) {
-    const rest = expression.slice(index)
-    if (/^\s/.test(rest)) {
-      index += 1
-      continue
-    }
-    const op = rest.match(/^(===|!==|==|!=|&&|\|\||[!()])/)
-    if (op) {
-      tokens.push({ type: "op", value: op[1] as ConditionOperator })
-      index += op[1]!.length
-      continue
-    }
-    const path = rest.match(new RegExp(`^${contextPathPattern.source}`))
-    if (path) {
-      tokens.push({ path: path[0], type: "path" })
-      index += path[0].length
-      continue
-    }
-    const string = rest.match(/^(['"])((?:\\.|(?!\1)[^\\])*)\1/)
-    if (string) {
-      tokens.push({ type: "literal", value: string[2]!.replace(/\\(['"\\])/g, "$1") })
-      index += string[0].length
-      continue
-    }
-    const number = rest.match(/^-?\d+(?:\.\d+)?/)
-    if (number) {
-      tokens.push({ type: "literal", value: Number(number[0]) })
-      index += number[0].length
-      continue
-    }
-    const literal = rest.match(/^(true|false|null)\b/)
-    if (literal) {
-      tokens.push({ type: "literal", value: literal[1] === "true" ? true : literal[1] === "false" ? false : null })
-      index += literal[0].length
-      continue
-    }
-    throw new Error(`[vitehub] Unsafe instruction condition "${expression}". Conditions can only read context.* paths and use literals, ===, !==, &&, ||, !, and parentheses.`)
-  }
-  return tokens
-}
-
-function createConditionParser(tokens: ConditionToken[], expression: string, context: Record<string, unknown>) {
-  let index = 0
-  const error = () => new Error(`[vitehub] Invalid instruction condition "${expression}".`)
-  const peek = () => tokens[index]
-  const take = (value?: string) => {
-    const token = tokens[index]
-    if (value && (token?.type !== "op" || token.value !== value)) throw error()
-    index += 1
-    return token
-  }
-
-  function parsePrimary(): unknown {
-    const token = take()
-    if (!token) throw error()
-    if (token.type === "literal") return token.value
-    if (token.type === "path") return namespacePathValue(context, token.path)
-    if (token.type === "op" && token.value === "(") {
-      const value = parseOr()
-      take(")")
-      return value
-    }
-    throw error()
-  }
-
-  function parseUnary(): unknown {
-    const token = peek()
-    if (token?.type === "op" && token.value === "!") {
-      take("!")
-      return !parseUnary()
-    }
-    return parsePrimary()
-  }
-
-  function parseEquality(): unknown {
-    let value = parseUnary()
-    const token = peek()
-    if (token?.type === "op" && ["==", "===", "!=", "!=="].includes(token.value)) {
-      take()
-      const right = parseUnary()
-      value = token.value === "!=" || token.value === "!==" ? value !== right : value === right
-    }
-    return value
-  }
-
-  function parseAnd(): unknown {
-    let value = parseEquality()
-    while (peek()?.type === "op" && (peek() as { value: string }).value === "&&") {
-      take("&&")
-      const right = parseEquality()
-      value = Boolean(value) && Boolean(right)
-    }
-    return value
-  }
-
-  function parseOr(): unknown {
-    let value = parseAnd()
-    while (peek()?.type === "op" && (peek() as { value: string }).value === "||") {
-      take("||")
-      const right = parseAnd()
-      value = Boolean(value) || Boolean(right)
-    }
-    return value
-  }
-
-  return {
-    done() {
-      if (index !== tokens.length) throw error()
-    },
-    parseOr,
-  }
 }
 
 function namespacePathValue(context: Record<string, unknown>, path: string): unknown {

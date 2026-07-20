@@ -8,7 +8,7 @@ export default defineConfig({
       neverBundle: ["comark"],
       onlyBundle: false,
     },
-    entry: ["src/index.ts", "src/internal/vite.ts", "src/vite.ts"],
+    entry: ["src/index.ts", "src/internal/composition.ts", "src/internal/vite.ts", "src/vite.ts"],
     exports: {
       inlinedDependencies: false,
     },
