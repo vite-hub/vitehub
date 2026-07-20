@@ -6886,7 +6886,7 @@ describe("agent message protocol", () => {
 
     await expect(iterator.next()).resolves.toEqual({
       done: false,
-      value: { text: "Quarterly ", type: "text-delta" },
+      value: "Quarterly ",
     })
     expect(execute).not.toHaveBeenCalled()
 
