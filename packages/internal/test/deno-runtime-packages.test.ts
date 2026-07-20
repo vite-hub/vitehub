@@ -19,9 +19,9 @@ describe("Deno deployment output", () => {
   it("finds external packages without treating runtime protocols as npm packages", () => {
     expect(
       collectDenoRuntimePackageNames(
-        'import sharp from "sharp"; const tool = ready ? await import("@scope/tool/subpath") : undefined; module.exports = require("native-addon"); import "node:path"; import "cloudflare:workers"\n//#region node_modules/.pnpm/native-addon@1.0.0/node_modules/native-addon/index.js\n/** @example const got = require("got") */',
+        'import sharp from "sharp";import{image}from "minified-image";export{tool}from"minified-tool"; const tool = ready ? await import("@scope/tool/subpath") : undefined; module.exports = require("native-addon"); import "node:path"; import "cloudflare:workers"\n//#region node_modules/.pnpm/native-addon@1.0.0/node_modules/native-addon/index.js\n/** @example const got = require("got") */',
       ),
-    ).toEqual(["@scope/tool", "native-addon", "sharp"])
+    ).toEqual(["@scope/tool", "minified-image", "minified-tool", "native-addon", "sharp"])
   })
 
   it("ignores import comments", () => {
