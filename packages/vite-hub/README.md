@@ -51,7 +51,7 @@ Selecting an unsupported opt-in capability fails the build with the preset polic
 
 The Deno preset uses Nitro's Deno entrypoint, so it rejects Schedule and `agent.runtime: "deno"`; those owner-package outputs require an explicit deployment integration.
 
-The Deno preset emits `.output/deno.json`, stages emitted runtime packages and installed optional native dependencies under `.output/node_modules`, and writes `.output/deploy.mjs`, a non-interactive create-or-update runner used by the `node ./deploy.mjs` command in `.output/nitro.json`; set `DENO_DEPLOY_ORG` plus `DENO_DEPLOY_APP` or `VITEHUB_DEPLOYMENT_NAME` before deployment. The runner creates new apps with node-module uploads enabled. For an existing app that already has that policy enabled, also set `DENO_DEPLOY_NODE_MODULES_ENABLED=1`; otherwise the runner stops instead of silently omitting staged packages. The Node preset emits a plain Node server artifact suitable for a VPS or container image; Docker is not a hosting preset.
+The Deno preset emits `.output/deno.json`, stages emitted runtime packages and installed optional native dependencies under `.output/node_modules`, and writes `.output/deploy.mjs`, a non-interactive create-or-update runner used by the `node ./deploy.mjs` command in `.output/nitro.json`; set `DENO_DEPLOY_ORG` plus `DENO_DEPLOY_APP` or `VITEHUB_DEPLOYMENT_NAME` before deployment. The runner uploads node modules when it creates or updates an app. The Node preset emits a plain Node server artifact suitable for a VPS or container image; Docker is not a hosting preset.
 
 ## Use feature APIs
 
