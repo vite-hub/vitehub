@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -267,6 +267,86 @@ describe("hubQueue", () => {
     expect(disabled.nitro.plugins).toEqual(["server/plugin.ts"])
     expect(disabled.nitro.handlers).toEqual([{ handler: "server/middleware.ts", middleware: true }])
     expect(disabled.nitro).not.toHaveProperty("cloudflare")
+  })
+
+  it("preserves Nitro-owned Vercel output across a sequential Cloudflare build", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-provider-switch-"))
+    roots.push(root)
+    await symlink(join(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+
+    const vercelPlugin = hubQueue({ provider: "vercel" })
+    const vercelConfig = {
+      build: { outDir: "dist" },
+      command: "build",
+      nitro: { preset: "vercel" },
+      plugins: [{ name: "nitro:main" }],
+      queue: { provider: "vercel" },
+      resolve: { alias: [] },
+      root,
+    }
+    ;(vercelPlugin.config as unknown as (config: Record<string, unknown>) => void)(vercelConfig)
+    await (vercelPlugin.configResolved as (config: unknown) => Promise<void>)(vercelConfig as never)
+    await (vercelPlugin.closeBundle as () => Promise<void>)()
+
+    const outputRoot = join(root, ".vercel", "output")
+    const functionsRoot = join(outputRoot, "functions")
+    const serverFunction = join(functionsRoot, "__server.func")
+    const blobFunction = join(functionsRoot, "__blob.func")
+    const queueFunction = join(functionsRoot, "__queue.func")
+    const queueConsumers = join(functionsRoot, "api", "vitehub", "queues", "vercel")
+    const routeLinks = [
+      join(functionsRoot, "api", "images.func"),
+      join(functionsRoot, "api", "stats.func"),
+      join(functionsRoot, "i", "[...].func"),
+    ]
+    const serverContents = "export default { nitro: true }\n"
+    const configContents = `${JSON.stringify({
+      routes: [
+        { dest: "/__server", src: "/api/(.*)" },
+        { dest: "/__server", src: "/i/(.*)" },
+      ],
+      version: 3,
+    }, null, 2)}\n`
+
+    await Promise.all([
+      mkdir(serverFunction, { recursive: true }),
+      mkdir(blobFunction, { recursive: true }),
+      mkdir(join(functionsRoot, "api"), { recursive: true }),
+      mkdir(join(functionsRoot, "i"), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(join(serverFunction, "index.mjs"), serverContents),
+      writeFile(join(blobFunction, "index.mjs"), "export default { blob: true }\n"),
+      writeFile(join(outputRoot, "config.json"), configContents),
+      ...routeLinks.map(link => symlink("../__server.func", link, "dir")),
+    ])
+
+    expect(existsSync(join(queueFunction, "index.mjs"))).toBe(true)
+    expect(existsSync(queueConsumers)).toBe(true)
+
+    const cloudflarePlugin = hubQueue({ provider: "cloudflare" })
+    const cloudflareConfig = {
+      build: { outDir: "dist" },
+      command: "build",
+      nitro: { preset: "cloudflare_module" },
+      plugins: [{ name: "nitro:main" }],
+      queue: { provider: "cloudflare" },
+      resolve: { alias: [] },
+      root,
+    }
+    ;(cloudflarePlugin.config as unknown as (config: Record<string, unknown>) => void)(cloudflareConfig)
+    await (cloudflarePlugin.configResolved as (config: unknown) => Promise<void>)(cloudflareConfig as never)
+    await (cloudflarePlugin.closeBundle as () => Promise<void>)()
+
+    await expect(readFile(join(serverFunction, "index.mjs"), "utf8")).resolves.toBe(serverContents)
+    await expect(readFile(join(blobFunction, "index.mjs"), "utf8")).resolves.toContain("blob: true")
+    await expect(readFile(join(outputRoot, "config.json"), "utf8")).resolves.toBe(configContents)
+    for (const link of routeLinks) {
+      await expect(readFile(join(link, "index.mjs"), "utf8")).resolves.toBe(serverContents)
+    }
+    expect(existsSync(queueFunction)).toBe(false)
+    expect(existsSync(queueConsumers)).toBe(false)
   })
 
   it("preserves custom bindings and skips Cloudflare Pages consumers", async () => {

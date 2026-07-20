@@ -473,7 +473,10 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     clientOutDir: options.clientOutDir,
     cloudflare: createCloudflare ? createCloudflareOutput(artifacts, cloudflareNamePrefix) : undefined,
     cleanup: {
-      vercel: { serverFunctionName: options.serverFunctionName ?? "__server.func" },
+      vercel: {
+        serverFunctionName: options.serverFunctionName
+          ?? (options.cloudflareOwnedByNitro ? "__queue.func" : "__server.func"),
+      },
     },
     rootDir: options.rootDir,
     vercel: createVercel ? createVercelOutput(artifacts, options.serverFunctionName) : undefined,
