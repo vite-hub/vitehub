@@ -133,6 +133,7 @@
     "test": "vp run -t @vite-hub/workspace#build && vp test"
   },
   "dependencies": {
+    "@vite-hub/box": "workspace:*",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
@@ -148,7 +149,6 @@
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vercel/blob": "catalog:storage",
-    "@vite-hub/box": "workspace:*",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/shell": "workspace:*",
@@ -162,16 +162,12 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
-    "@vite-hub/box": "workspace:*",
     "@vercel/blob": "catalog:storage",
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
-    "@vite-hub/box": {
-      "optional": true
-    },
     "@vercel/blob": {
       "optional": true
     },

@@ -1351,6 +1351,9 @@ importers:
 
   packages/workspace:
     dependencies:
+      '@vite-hub/box':
+        specifier: workspace:*
+        version: link:../box
       '@vercel/nft':
         specifier: catalog:vercel
         version: 1.10.2(rollup@4.62.2)
@@ -1394,9 +1397,6 @@ importers:
       '@vercel/blob':
         specifier: catalog:storage
         version: 2.6.1
-      '@vite-hub/box':
-        specifier: workspace:*
-        version: link:../box
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
