@@ -11,6 +11,7 @@ import { getProviderRuntimeModule, type ComposedProviderOutput } from "@vite-hub
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 
 import { normalizeBlobOptions } from "../src/config.ts"
+import { createBundledVercelBlobDriver } from "../src/drivers/vercel-bundled.ts"
 import { generateProviderOutputs, prepareProviderOutputs } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
@@ -55,6 +56,8 @@ const vercelBlobMock = vi.hoisted(() => ({
 const filesSdkMock = vi.hoisted(() => ({
   minio: vi.fn((options: unknown) => ({ options, provider: "minio" })),
 }))
+
+vi.mock("@vercel/blob", () => vercelBlobMock)
 
 vi.mock("files-sdk", () => ({
   Files: class {
@@ -128,6 +131,23 @@ afterEach(() => {
 })
 
 describe("Vite provider outputs", () => {
+  it("maps Vercel missing-object errors to Blob misses", async () => {
+    const missing = new Error("Vercel Blob: The requested blob does not exist")
+    missing.name = "BlobNotFoundError"
+    vercelBlobMock.head.mockRejectedValueOnce(missing)
+    const driver = createBundledVercelBlobDriver({
+      access: "private",
+      driver: "vercel-blob",
+      token: "vercel_blob_rw_test",
+    })
+
+    await expect(driver.head("missing.txt")).resolves.toBeNull()
+
+    const missingStore = new Error("Vercel Blob: The requested store does not exist")
+    vercelBlobMock.head.mockRejectedValueOnce(missingStore)
+    await expect(driver.head("missing.txt")).rejects.toBe(missingStore)
+  })
+
   it("rejects malformed resolved Blob config before rendering provider entries", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-invalid-resolved-config-")
 
@@ -497,6 +517,34 @@ describe("Vite provider outputs", () => {
     await generateProviderOutputs({ blob: {}, clientOutDir: "dist/client", rootDir, serverFunctionName: "__blob.func" })
     expect(existsSync(staleFile)).toBe(false)
     await writeFile(runtimeProbe, runtimeProbeSource, "utf8")
+    await expect(execFileAsync(process.execPath, [runtimeProbe])).resolves.toMatchObject({ stderr: "", stdout: "" })
+  })
+
+  it("copies the private Vercel Blob runtime into isolated Vercel output", { timeout: 15_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-vercel-blob-runtime-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist", "client"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
+
+    await generateProviderOutputs({
+      blob: {
+        access: "private",
+        driver: "vercel-blob",
+        token: "vercel_blob_rw_test",
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+      serverFunctionName: "__blob.func",
+    })
+
+    const runtimeModule = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
+    expect(runtimeModule).toContain("drivers/vercel-bundled")
+
+    const serverEntry = join(rootDir, ".vercel", "output", "functions", "__blob.func", "index.mjs")
+    await expect(import(`${pathToFileURL(serverEntry).href}?t=${Date.now()}`)).resolves.toHaveProperty("default")
+
+    const runtimeProbe = join(dirname(serverEntry), "runtime-probe.mjs")
+    await writeFile(runtimeProbe, `await import("@vercel/blob")\n`, "utf8")
     await expect(execFileAsync(process.execPath, [runtimeProbe])).resolves.toMatchObject({ stderr: "", stdout: "" })
   })
 
