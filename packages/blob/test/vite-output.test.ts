@@ -406,7 +406,9 @@ describe("Vite provider outputs", () => {
       rootDir,
     })
 
-    expect(await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "wrangler.json"), "utf8")).not.toContain("\"r2_buckets\"")
+    const outputRoot = join(rootDir, "dist", toSafeAppName(rootDir))
+    expect(await readFile(join(outputRoot, "wrangler.json"), "utf8")).not.toContain("\"r2_buckets\"")
+    expect(await readFile(join(outputRoot, "index.js"), "utf8")).toContain("files-sdk/r2")
   })
 
   it("emits Cloudflare bucket bindings for named R2 stores", { timeout: 15_000 }, async () => {

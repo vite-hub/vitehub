@@ -91,8 +91,8 @@ const driverModules = {
   "vercel-blob": "drivers/vercel",
 } satisfies Record<NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], string>
 
-function getDriverModule(driver: NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], provider?: BlobProvider) {
-  if (driver === "cloudflare-r2" && provider === "cloudflare") return "drivers/cloudflare-native"
+function getDriverModule(driver: NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], provider?: BlobProvider, nativeCloudflareR2 = false) {
+  if (driver === "cloudflare-r2" && provider === "cloudflare" && nativeCloudflareR2) return "drivers/cloudflare-native"
   if (driver === "vercel-blob" && provider === "vercel") return "drivers/vercel-bundled"
   return driverModules[driver]
 }
@@ -180,7 +180,8 @@ function renderProviderEntry(
     `import { setBlobRuntimeConfig, setBlobRuntimeStorage } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("runtime/state")))}`,
     `import { ${spec.factory} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
   ]
-  const driverModule = blobConfig ? getDriverModule(blobConfig.store.driver, spec.name) : undefined
+  const nativeCloudflareR2 = Boolean(blobConfig && isCloudflareR2StoreWithBucket(blobConfig.store))
+  const driverModule = blobConfig ? getDriverModule(blobConfig.store.driver, spec.name, nativeCloudflareR2) : undefined
   if (driverModule) {
     imports.push(`import { createBlobStorage } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("storage")))}`)
     imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(driverModule)))}`)
@@ -216,7 +217,10 @@ function renderProviderEntry(
 
 export function renderBlobRuntimeModule(file: string, blobConfig: false | ResolvedBlobModuleOptions, provider?: BlobProvider) {
   const stores = blobConfig ? Object.values(blobConfig.stores || { default: blobConfig.store }) : []
-  const selectedDriverModules = [...new Set(stores.map(store => getDriverModule(store.driver, provider)))]
+  const nativeCloudflareR2 = stores
+    .filter(store => store.driver === "cloudflare-r2")
+    .every(isCloudflareR2StoreWithBucket)
+  const selectedDriverModules = [...new Set(stores.map(store => getDriverModule(store.driver, provider, nativeCloudflareR2)))]
   const driverImports = Object.fromEntries(selectedDriverModules.map((driverModule, index) => [driverModule, `createDriver${index}`]))
   const imports = [
     `import { ensureBlob } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("ensure")))}`,
@@ -235,7 +239,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
   }
 
   const createDriverCases = Object.keys(driverModules).map((driver) => {
-    const driverModule = getDriverModule(driver as keyof typeof driverModules, provider)
+    const driverModule = getDriverModule(driver as keyof typeof driverModules, provider, nativeCloudflareR2)
     const driverImport = driverImports[driverModule]
     if (!driverImport) return undefined
     const runtimeStoreResolver = getRuntimeBlobStoreResolver(driver)
