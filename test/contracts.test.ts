@@ -129,12 +129,14 @@ describe("package manifest contracts", () => {
 
   it("keeps blob adapter SDKs as optional peers", () => {
     const manifest = readPackageManifest("blob")
+    const frameworkManifest = readPackageManifest("vite-hub")
 
     for (const name of ["files-sdk"]) {
       expect(manifest.dependencies?.[name], `${name} should not be installed with @vite-hub/blob by default`).toBeUndefined()
       expect(manifest.peerDependencies?.[name], `${name} should be declared as an opt-in blob peer`).toEqual(expect.any(String))
       expect(manifest.peerDependenciesMeta?.[name]?.optional, `${name} should be an optional blob peer`).toBe(true)
       expect(manifest.devDependencies?.[name], `${name} should remain available for blob development and tests`).toEqual(expect.any(String))
+      expect(frameworkManifest.dependencies?.[name], `${name} should be installed with the framework's default Netlify Blob adapter`).toEqual(expect.any(String))
     }
   })
 })
