@@ -54,7 +54,7 @@ export default defineAgent({
 })
 ```
 
-Return only invocation-scoped behavior from the callback. Capabilities that contribute Agent Triggers, chat admission or attachments, or static Workspace Sources must stay in a static list because ViteHub registers those contributions before an invocation exists.
+Return only invocation-scoped behavior from the callback. Capabilities that contribute Agent Triggers, chat admission, or static Workspace Sources must stay in a static list because ViteHub registers those contributions before an invocation exists.
 
 ## What Capabilities can contribute
 

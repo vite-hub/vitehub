@@ -1,4 +1,4 @@
-import { createMessage } from "./messages.ts"
+import { createMessage, isAttachmentData, isAttachmentPart } from "./messages.ts"
 import { normalizeAgentInvoker } from "./invoker.ts"
 
 import type {
@@ -11,7 +11,7 @@ import type {
   AgentRunMetadata,
   AgentRuntimeConfig,
 } from "./types.ts"
-import type { AudioData, Message, MessagePart } from "./messages.ts"
+import type { AttachmentData, AttachmentPart, Message, MessagePart } from "./messages.ts"
 
 export type UIMessageLike = {
   createdAt?: Date | string
@@ -95,39 +95,36 @@ function uiToolId(part: Record<string, unknown>, name: string, index: number): s
   return firstString(part.toolCallId, part.id) || `${name}-${index + 1}`
 }
 
-function isAudioData(value: unknown): value is AudioData {
-  if (typeof value === "string") return value.length > 0
-  if (!value || typeof value !== "object") return false
-  if ("byteLength" in value && typeof (value as { byteLength?: unknown }).byteLength === "number") return (value as { byteLength: number }).byteLength > 0
-  if ("size" in value && typeof (value as { size?: unknown }).size === "number") return (value as { size: number }).size > 0
-  return false
-}
-
-function uiAudioPartToAgentPart(part: Record<string, unknown>): MessagePart[] {
-  const mediaType = typeof part.mediaType === "string" && part.mediaType.startsWith("audio/")
-    ? part.mediaType
-    : undefined
-  if (!mediaType) return []
+function uiAttachmentPartToAgentPart(part: Record<string, unknown>): MessagePart[] {
+  const mediaType = typeof part.mediaType === "string" && part.mediaType ? part.mediaType : undefined
+  const inputType = isAttachmentPart(part) ? part.type : undefined
+  const type = mediaType?.startsWith("audio/")
+    ? "audio"
+    : mediaType?.startsWith("image/")
+      ? "image"
+      : inputType
+  if (!type || !mediaType) return []
 
   const id = firstString(part.id)
-  const base = {
+  const data = isAttachmentData(part.data) ? part.data : undefined
+  const fetchData = typeof part.fetchData === "function"
+    ? part.fetchData as () => AttachmentData | Promise<AttachmentData>
+    : undefined
+  const name = firstString(part.name, part.filename)
+  const url = typeof part.url === "string" && part.url ? part.url : undefined
+  if (!data && !fetchData && !url) return []
+  const attachment = {
+    ...(data ? { data } : {}),
+    ...(fetchData ? { fetchData } : {}),
     ...(id ? { id } : {}),
-    ...(typeof part.name === "string" ? { name: part.name } : {}),
+    ...(name ? { name } : {}),
     ...(typeof part.size === "number" && Number.isFinite(part.size) ? { size: part.size } : {}),
     ...(typeof part.fetchMetadata === "object" && part.fetchMetadata !== null ? { fetchMetadata: part.fetchMetadata as Record<string, string> } : {}),
     mediaType,
-    type: "audio" as const,
-  }
-  if (typeof part.fetchData === "function") {
-    return [{ ...base, fetchData: part.fetchData as () => AudioData | Promise<AudioData> }]
-  }
-  if (typeof part.url === "string" && part.url) {
-    return [{ ...base, url: part.url }]
-  }
-  if (isAudioData(part.data)) {
-    return [{ ...base, data: part.data }]
-  }
-  return []
+    type,
+    ...(url ? { url } : {}),
+  } satisfies AttachmentPart
+  return [attachment]
 }
 
 function uiMessagePartsToAgentParts(message: UIMessageLike): Array<MessagePart | string> {
@@ -143,7 +140,9 @@ function uiMessagePartsToAgentParts(message: UIMessageLike): Array<MessagePart |
         type: record.type as "data" | `data-${string}`,
       }]
     }
-    if (record.type === "audio") return uiAudioPartToAgentPart(record)
+    if (record.type === "audio" || record.type === "file" || record.type === "image") {
+      return uiAttachmentPartToAgentPart(record)
+    }
     if (record.type === "dynamic-tool" || (typeof record.type === "string" && record.type.startsWith("tool-"))) {
       const state = typeof record.state === "string" ? record.state : undefined
       const errorText = typeof record.errorText === "string" ? record.errorText : undefined

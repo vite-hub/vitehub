@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentFinishEvent, type AgentHarnessDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentUsageRecord, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentFinishEvent, type AgentHarnessDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
 import { access, blob, browser, chat, title, db, email, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, openapi, papercuts, pullRequestContext, repositoryHost, repositoryHostContext, sandbox, schedule, skills, subagents, transcribe, webSearch, workspaceShell, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type PapercutReportContext, type PapercutReportEvent, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
@@ -930,11 +930,22 @@ describe("agent public types", () => {
     })
 
     expectTypeOf(inventoryRuntime.cli).toMatchTypeOf<AgentCapabilityCliResolver | undefined>()
-    const audioRuntime = defineCapability({
+    const image: ImagePart = {
+      fetchData: () => new Uint8Array([1]),
+      fetchMetadata: { fileId: "provider-file" },
+      mediaType: "image/png",
+      name: "photo.png",
+      size: 1,
+      type: "image",
+      url: "https://example.com/photo.png",
+    }
+    expectTypeOf(image.fetchData).toMatchTypeOf<(() => ArrayBuffer | Blob | string | Uint8Array | Promise<ArrayBuffer | Blob | string | Uint8Array>) | undefined>()
+
+    defineCapability({
+      // @ts-expect-error Attachments are normalized by default rather than enabled by a Capability.
       chatAttachments: { audio: true },
-      id: "audio-runtime",
+      id: "legacy-audio-runtime",
     })
-    expectTypeOf(audioRuntime.chatAttachments).toMatchTypeOf<{ audio?: boolean } | undefined>()
 
     defineCapability({
       id: "legacy-instructions",

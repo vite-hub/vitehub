@@ -13,6 +13,7 @@ import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { finalChannelOutputContextKey } from "../internal/final-channel-output.ts"
+import { isAttachmentData } from "../messages.ts"
 import { normalizeAgentInvokerProfiles, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
@@ -66,7 +67,7 @@ import type {
   MaybeResolvable,
   ResolvedAgentTriggerDefinition,
 } from "../types.ts"
-import type { AudioData, MessagePart } from "../messages.ts"
+import type { AttachmentPart, MessagePart } from "../messages.ts"
 import type {
   ChatDevtoolsConversation,
   ChatDevtoolsMetadata,
@@ -1185,14 +1186,6 @@ function chatMessageAuthorEmail(message: ChatSdkMessage): string | undefined {
   )
 }
 
-function audioData(value: unknown): AudioData | undefined {
-  if (typeof value === "string") return value
-  if (value instanceof ArrayBuffer) return value
-  if (value instanceof Blob) return value
-  if (value instanceof Uint8Array) return value
-  return undefined
-}
-
 const chatTextAttachmentMaxBytes = 8 * 1024 * 1024
 const textAttachmentExtensions = new Set(["csv", "json", "log", "md", "txt", "yaml", "yml"])
 const textAttachmentMimeTypes = new Set(["application/json", "application/x-yaml", "application/yaml", "text/csv"])
@@ -1305,39 +1298,40 @@ async function textPartFromAttachment(attachment: Attachment, index: number, opt
   }
 }
 
-function audioPartFromAttachment(attachment: Attachment, index: number): MessagePart | undefined {
-  const mediaType = typeof attachment.mimeType === "string" && attachment.mimeType.startsWith("audio/")
+function attachmentPartFromAttachment(attachment: Attachment, index: number): AttachmentPart | undefined {
+  const mediaType = typeof attachment.mimeType === "string" && attachment.mimeType
     ? attachment.mimeType
     : undefined
-  if (attachment.type !== "audio" && !mediaType) return undefined
-  const base = objectWithoutUndefined({
+  const type = attachment.type === "audio" || mediaType?.startsWith("audio/")
+    ? "audio"
+    : attachment.type === "image" || mediaType?.startsWith("image/")
+      ? "image"
+      : "file"
+  const data = isAttachmentData(attachment.data) ? attachment.data : undefined
+  const fetchData = typeof attachment.fetchData === "function"
+    ? async () => {
+        const value = await attachment.fetchData?.()
+        const resolved = isAttachmentData(value) ? value : undefined
+        if (!resolved) {
+          throw new Error("[vitehub] Chat attachment fetchData() did not return supported attachment data.")
+        }
+        return resolved
+      }
+    : undefined
+  const url = typeof attachment.url === "string" && attachment.url ? attachment.url : undefined
+  if (!data && !fetchData && !url) return undefined
+  const part = objectWithoutUndefined({
+    data,
+    fetchData,
     fetchMetadata: attachment.fetchMetadata,
-    id: `audio-${index + 1}`,
-    mediaType: mediaType ?? "audio/ogg",
+    id: `attachment-${index + 1}`,
+    mediaType: mediaType ?? (type === "audio" ? "audio/ogg" : type === "image" ? "image/*" : "application/octet-stream"),
     name: attachment.name,
     size: attachment.size,
-    type: "audio" as const,
+    type,
+    url,
   })
-  if (typeof attachment.fetchData === "function") {
-    return {
-      ...base,
-      fetchData: async () => {
-        const data = audioData(await attachment.fetchData?.())
-        if (!data) {
-          throw new Error("[vitehub] Chat attachment fetchData() did not return supported audio data.")
-        }
-        return data
-      },
-    }
-  }
-  if (typeof attachment.url === "string" && attachment.url) {
-    return { ...base, url: attachment.url }
-  }
-  const data = audioData(attachment.data)
-  if (data) {
-    return { ...base, data }
-  }
-  return undefined
+  return part as AttachmentPart
 }
 
 function attachmentFallbackLabel(attachment: Attachment): string {
@@ -1363,20 +1357,19 @@ function attachmentFallbackText(attachments: Attachment[]): string {
   return `Sent attachments: ${summary}.`
 }
 
-async function chatMessageParts(message: ChatSdkMessage, options: { includeAudioAttachments?: boolean, rejectOversizedTextAttachments?: boolean } = {}): Promise<MessagePart[]> {
+async function chatMessageParts(message: ChatSdkMessage, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<MessagePart[]> {
   const parts: MessagePart[] = []
   if (message.text) {
     parts.push({ id: "text-0", text: message.text, type: "text" })
   }
   for (const [index, attachment] of message.attachments.entries()) {
-    const part = await textPartFromAttachment(attachment, index, options)
-    if (part) parts.push(part)
-  }
-  if (options.includeAudioAttachments) {
-    for (const [index, attachment] of message.attachments.entries()) {
-      const part = audioPartFromAttachment(attachment, index)
-      if (part) parts.push(part)
+    const textPart = await textPartFromAttachment(attachment, index, options)
+    if (textPart) {
+      parts.push(textPart)
+      continue
     }
+    const attachmentPart = attachmentPartFromAttachment(attachment, index)
+    if (attachmentPart) parts.push(attachmentPart)
   }
   if (!parts.length) {
     const text = attachmentFallbackText(message.attachments)
@@ -1407,7 +1400,7 @@ function chatMessageMetadata(thread: Thread, message: ChatSdkMessage, messageCon
 async function chatSdkMessageToUiMessage(
   message: ChatSdkMessage,
   metadata?: Record<string, unknown>,
-  options?: { includeAudioAttachments?: boolean, rejectOversizedTextAttachments?: boolean },
+  options?: { rejectOversizedTextAttachments?: boolean },
 ): Promise<UIMessageLike> {
   return {
     createdAt: isoDate(message.metadata.dateSent),
@@ -1455,10 +1448,8 @@ async function chatTriggerMessages(
   message: ChatSdkMessage,
   options: AgentChatOptions | undefined,
   messageContext?: MessageContext,
-  messageOptions?: { includeAudioAttachments?: boolean },
 ): Promise<UIMessageLike[]> {
   const current = await chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), {
-    ...messageOptions,
     rejectOversizedTextAttachments: true,
   })
   const limit = chatTriggerHistoryLimit(resolveChatTriggerHistory(options))
@@ -1467,14 +1458,14 @@ async function chatTriggerMessages(
   const fetchedNewestFirst: UIMessageLike[] = []
   try {
     for await (const item of thread.messages) {
-      fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : await chatSdkMessageToUiMessage(item, undefined, messageOptions))
+      fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : await chatSdkMessageToUiMessage(item))
       if (fetchedNewestFirst.length >= limit) break
     }
   } catch {}
 
   const durable = await durableChatThreadMessages(thread, limit)
   const messages = [
-    ...(await Promise.all(durable.map(item => item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item, undefined, messageOptions)))),
+    ...(await Promise.all(durable.map(item => item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item)))),
     ...fetchedNewestFirst.slice().reverse(),
   ].reduce<UIMessageLike[]>((deduped, item) => {
     if (!item.id) {
@@ -1737,18 +1728,12 @@ async function handleChatSdkMessage(
   let run: AgentRunMetadata | undefined
   let typing: ChatTypingRefresh | undefined
   try {
-    const messageOptions = {
-      includeAudioAttachments: getAgentCapabilities(agent).some((capability) => {
-        const metadata = capability.metadata as { chatAttachments?: { audio?: unknown } } | undefined
-        return capability.chatAttachments?.audio === true || metadata?.chatAttachments?.audio === true
-      }),
-    }
     input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, [chatAuthorizationUiMessage(thread, message, messageContext)], messageContext, registration.channelId)
     const authorizationInput = createChatMessageTriggerInput(options || {}, input).input
     const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
     if (!invoker) return
 
-    const messages = await chatTriggerMessages(thread, message, options, messageContext, messageOptions)
+    const messages = await chatTriggerMessages(thread, message, options, messageContext)
     const currentMessage = message.id
       ? messages.find(item => item.id === message.id)
       : messages.at(-1)
