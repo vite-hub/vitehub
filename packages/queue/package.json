@@ -42,6 +42,7 @@
     "test": "vp run -t @vite-hub/queue#build && vp test"
   },
   "dependencies": {
+    "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
     "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",

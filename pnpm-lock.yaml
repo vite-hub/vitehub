@@ -929,6 +929,9 @@ importers:
 
   packages/queue:
     dependencies:
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       '@vercel/queue':
         specifier: catalog:vercel
         version: 0.0.0-alpha.40
