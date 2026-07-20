@@ -71,7 +71,7 @@ export interface CloudflareSandboxStub {
   moveFile?(source: string, destination: string): Promise<{ success: boolean } | void>;
   readFile(path: string, options?: { encoding?: string }): Promise<{
     content: string;
-    success: boolean;
+    success?: boolean;
   }>;
   startProcess?(
     command: string,
@@ -215,7 +215,7 @@ function createCloudflareSession(
     async readBinaryFile({ abortSignal, path }) {
       abortSignal?.throwIfAborted();
       const result = await request("readFile", async () => await stub.readFile(path, { encoding: "base64" }), cloudflareReadTimeout);
-      if (!result.success) {
+      if (result.success === false) {
         const exists = stub.exists ? (await request("exists", async () => await stub.exists!(path))).exists : false;
         if (!exists) return null;
         throw new Error(`[vitehub] Cloudflare failed to read ${path}.`);

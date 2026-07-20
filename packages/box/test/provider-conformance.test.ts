@@ -161,10 +161,9 @@ function cloudflareFixture() {
     },
     async readFile(path) {
       const contents = machine.files.get(normalize(path));
-      return {
-        content: contents ? Buffer.from(contents).toString("base64") : "",
-        success: contents !== undefined,
-      };
+      return contents
+        ? { content: Buffer.from(contents).toString("base64") }
+        : { content: "", success: false };
     },
     async startProcess(_command, options) {
       machine.spawnCwd = options?.cwd;
