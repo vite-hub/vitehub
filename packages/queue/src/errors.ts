@@ -5,6 +5,8 @@ import type { QueueProvider } from "./types.ts"
 
 export type QueueProviderOperation = "create-client" | "load-sdk" | "send" | "send-batch"
 
+export const cloudflareUnsupportedEnqueueOptions = ["idempotencyKey", "region", "retentionSeconds"] as const
+
 export type QueueErrorCode =
   | "CLOUDFLARE_BINDING_INVALID"
   | "CLOUDFLARE_BINDING_RESOLUTION_REQUIRED"
@@ -24,7 +26,7 @@ export type QueueErrorCode =
 type QueueErrorDetailMap = {
   CLOUDFLARE_BINDING_INVALID: { readonly provider: "cloudflare" }
   CLOUDFLARE_BINDING_RESOLUTION_REQUIRED: { readonly provider: "cloudflare" }
-  CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS: { readonly provider: "cloudflare", readonly unsupported: readonly ("idempotencyKey" | "retentionSeconds")[] }
+  CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS: { readonly provider: "cloudflare", readonly unsupported: readonly (typeof cloudflareUnsupportedEnqueueOptions)[number][] }
   QUEUE_DEFINITION_LOAD_FAILED: { readonly queue?: string }
   QUEUE_DEFINITION_NOT_FOUND: { readonly queue?: string }
   QUEUE_DISABLED: never
@@ -139,7 +141,7 @@ function normalizeBuiltInDetails(code: QueueErrorCode, value: unknown): ViteHubE
       validateFixedDetail(details?.provider, "cloudflare")
       return Object.freeze({
         provider: "cloudflare",
-        unsupported: parseUnsupportedOptions(details?.unsupported, ["idempotencyKey", "retentionSeconds"]),
+        unsupported: parseUnsupportedOptions(details?.unsupported, cloudflareUnsupportedEnqueueOptions),
       })
     case "QUEUE_DEFINITION_LOAD_FAILED":
     case "QUEUE_DEFINITION_NOT_FOUND": {

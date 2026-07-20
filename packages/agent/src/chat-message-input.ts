@@ -61,6 +61,27 @@ function chatIdentity(user: Record<string, unknown> | undefined, run: AgentRunMe
   return run?.origin ? `${run.origin}:${identity}` : identity
 }
 
+export function resolveChatTriggerInvoker(triggerInput: AgentChatMessageTriggerInput | undefined): AgentInvoker | undefined {
+  const userMeta: Record<string, unknown> = {}
+  for (const key of ["id", "sub", "email", "username", "name", "customer"]) {
+    const value = firstString(triggerInput?.user?.[key])?.trim()
+    if (value) userMeta[key] = value
+  }
+  const meta = Object.keys(userMeta).length || triggerInput?.meta
+    ? { ...userMeta, ...triggerInput?.meta }
+    : undefined
+  const invokerId = chatIdentity(triggerInput?.user, triggerInput?.run)
+  return triggerInput?.invoker
+    ? normalizeAgentInvoker(triggerInput.invoker, "chat.message input.invoker")
+    : invokerId
+      ? normalizeAgentInvoker({
+          id: invokerId,
+          kind: triggerInput?.run?.origin === "devtools" ? "devtools" as const : "chat" as const,
+          ...(meta ? { meta } : {}),
+        }, "chat.message input.user")
+      : undefined
+}
+
 function uiToolName(part: Record<string, unknown>): string {
   if (part.type === "dynamic-tool") {
     return firstString(part.toolName, part.name) || "tool"
@@ -306,24 +327,7 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   const triggerHistory = resolveChatTriggerHistory(options, triggerInput?.triggerHistory)
   const selectedMessages = selectChatHistory(messages, triggerHistory, options.sessions, triggerInput?.session)
   const hookArgs = createChatTriggerHookArgs<TRuntimeConfig>(selectedMessages, triggerInput?.run, triggerInput?.session)
-  const userMeta: Record<string, unknown> = {}
-  for (const key of ["id", "sub", "email", "username", "name", "customer"]) {
-    const value = firstString(triggerInput?.user?.[key])?.trim()
-    if (value) userMeta[key] = value
-  }
-  const meta = Object.keys(userMeta).length || triggerInput?.meta
-    ? { ...userMeta, ...triggerInput?.meta }
-    : undefined
-  const invokerId = chatIdentity(triggerInput?.user, triggerInput?.run)
-  const invoker = triggerInput?.invoker
-    ? normalizeAgentInvoker(triggerInput.invoker, "chat.message input.invoker")
-    : invokerId
-      ? normalizeAgentInvoker({
-          id: invokerId,
-          kind: triggerInput?.run?.origin === "devtools" ? "devtools" as const : "chat" as const,
-          ...(meta ? { meta } : {}),
-        }, "chat.message input.user")
-      : undefined
+  const invoker = resolveChatTriggerInvoker(triggerInput)
   return {
     hookArgs,
     input: {

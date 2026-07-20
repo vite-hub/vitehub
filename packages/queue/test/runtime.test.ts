@@ -61,6 +61,29 @@ afterEach(() => {
 })
 
 describe("cloudflare queue runtime", () => {
+  it("rejects region for single and batch sends while forwarding supported options", async () => {
+    const send = vi.fn(async () => {})
+    const sendBatch = vi.fn(async () => {})
+    const client = createCloudflareQueueClient({
+      binding: { send, sendBatch },
+      provider: "cloudflare",
+    })
+
+    const unsupportedRegion = {
+      code: "CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS",
+      details: { provider: "cloudflare", unsupported: ["region"] },
+    }
+    await expect(client.send({ payload: { id: 1 }, region: "weur" })).rejects.toMatchObject(unsupportedRegion)
+    await expect(client.sendBatch([{ body: { id: 2 } }], { region: "weur" })).rejects.toMatchObject(unsupportedRegion)
+    expect(send).not.toHaveBeenCalled()
+    expect(sendBatch).not.toHaveBeenCalled()
+
+    await client.send({ contentType: "json", delaySeconds: 1, payload: { id: 3 } })
+    await client.sendBatch([{ body: { id: 4 }, contentType: "json" }], { delaySeconds: 2 })
+    expect(send).toHaveBeenCalledWith({ id: 3 }, { contentType: "json", delaySeconds: 1 })
+    expect(sendBatch).toHaveBeenCalledWith([{ body: { id: 4 }, contentType: "json", delaySeconds: 2 }])
+  })
+
   it("sets the Cloudflare environment when enterWith is unavailable", () => {
     const env = { QUEUE_WELCOME: {} }
     vi.spyOn(AsyncLocalStorage.prototype, "enterWith").mockImplementation(() => {
