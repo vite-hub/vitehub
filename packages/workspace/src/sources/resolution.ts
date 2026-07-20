@@ -30,6 +30,7 @@ import type {
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
   WorkspaceStore,
+  WorkspaceSession,
   WorkspaceSessionOptions,
   WorkspaceWriteInput,
   WorkspaceSelectedScope,
@@ -385,6 +386,24 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       }
     }
 
+    function withSessionSourceGuards(session: WorkspaceSession): WorkspaceSession {
+      return {
+        ...session,
+        async mkdir(path, options) {
+          await sourceView.assertWritable(path)
+          await session.mkdir(path, options)
+        },
+        async rm(path, options) {
+          await sourceView.assertWritable(path)
+          await session.rm(path, options)
+        },
+        async writeFile(path, content, options) {
+          await sourceView.assertWritable(path)
+          await session.writeFile(path, content, options)
+        },
+      }
+    }
+
     const writeFs: WritableWorkspaceFacade<Name>["fs"] = attachWorkspaceSourceRequestExecution({
       appendFile: async (path, content) => await appendWorkspaceFile(writeWorkspace, path, content),
       copyPath: async (from, to, options) => await copyWorkspacePath(writeWorkspace, from, to, options?.overwrite),
@@ -436,7 +455,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       startSession: async (options) => {
         const paths = options?.paths?.length ? options.paths : [""]
         await Promise.all(paths.map(path => materializeSources({ path })))
-        return await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options)
+        return withSessionSourceGuards(await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options))
       },
       stat: writeFs.stat,
       sync: async (options) => {
