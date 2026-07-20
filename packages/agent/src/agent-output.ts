@@ -106,13 +106,8 @@ export function finalTextFromAgentOutput(value: unknown): string | undefined {
 
   const raw = ownValue(value, "raw")
   if (isRecord(raw)) {
-    const text = textFromResult(value)
-    const structuredText = structuredTextFromResult(raw)
-    if (text && structuredText !== undefined && text !== structuredText) return text
-
     const final = finalTextFromStructuredResult(raw)
-    if (final) return final
-    if (final === "") return text === structuredText ? final : text ?? final
+    return final ?? textFromResult(value)
   }
 
   const final = finalTextFromStructuredResult(value)
@@ -132,18 +127,19 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
   const explicitText = ownValue(result, "text")
   const selectedChannelOutput = Object.getOwnPropertyDescriptor(result, finalChannelOutputSelectedSymbol)?.value === true
   const raw = selectedChannelOutput ? ownValue(result, "raw") : value
-  const usageRecord = isUsageRecord(ownValue(result, "usageRecord"))
-    ? withFallbackUsageMetadata(ownValue(result, "usageRecord") as AgentUsageRecord, result)
-    : usageRecordFromUsage(ownValue(result, "usage") ?? ownValue(result, "totalUsage"), result)
-  const artifacts = publishedDeliveryArtifactsFromUnknown(ownValue(result, "artifacts"))
+  const normalized = selectedChannelOutput && isRecord(raw) ? raw : result
+  const usageRecord = isUsageRecord(ownValue(normalized, "usageRecord"))
+    ? withFallbackUsageMetadata(ownValue(normalized, "usageRecord") as AgentUsageRecord, normalized)
+    : usageRecordFromUsage(ownValue(normalized, "usage") ?? ownValue(normalized, "totalUsage"), normalized)
+  const artifacts = publishedDeliveryArtifactsFromUnknown(ownValue(normalized, "artifacts"))
   return {
     ...(artifacts.length ? { artifacts } : {}),
-    finishReason: ownValue(result, "finishReason"),
+    finishReason: ownValue(normalized, "finishReason"),
     raw,
     text: selectedChannelOutput && typeof explicitText === "string" ? explicitText : textFromResult(result),
-    usage: ownValue(result, "usage") ?? usageRecord?.usage,
+    usage: ownValue(normalized, "usage") ?? usageRecord?.usage,
     usageRecord,
-    warnings: ownValue(result, "warnings"),
+    warnings: ownValue(normalized, "warnings"),
   }
 }
 

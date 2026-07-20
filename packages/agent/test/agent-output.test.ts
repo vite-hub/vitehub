@@ -15,11 +15,22 @@ describe("agent output helpers", () => {
     expect(toAgentRunResult(42)).toEqual({ raw: 42, text: undefined })
   })
 
-  it("preserves empty text selected for a final-only Channel", () => {
-    const raw = { content: [{ text: "progress", type: "text" }] }
+  it("preserves raw metadata with text selected for a final-only Channel", () => {
+    const raw = {
+      artifacts: [{ path: "result.txt", url: "https://example.com/result.txt" }],
+      content: [{ text: "progress", type: "text" }],
+      finishReason: "tool-calls",
+      warnings: ["warning"],
+    }
     const value = { raw, text: "" }
     Object.defineProperty(value, finalChannelOutputSelectedSymbol, { value: true })
-    expect(toAgentRunResult(value)).toMatchObject({ raw, text: "" })
+    expect(toAgentRunResult(value)).toMatchObject({
+      artifacts: raw.artifacts,
+      finishReason: "tool-calls",
+      raw,
+      text: "",
+      warnings: ["warning"],
+    })
   })
 
   it("normalizes model output objects into Agent run results", () => {
@@ -173,7 +184,7 @@ describe("agent output helpers", () => {
     })).toBe("Final answer.")
   })
 
-  it("falls back to synthesized wrapper text when raw output ends at a tool", () => {
+  it("keeps wrapper output empty when raw output ends at a tool", () => {
     expect(finalTextFromAgentOutput({
       raw: {
         content: [
@@ -183,7 +194,7 @@ describe("agent output helpers", () => {
         ],
       },
       text: "Synthesized workspace answer.",
-    })).toBe("Synthesized workspace answer.")
+    })).toBe("")
   })
 
   it("does not restore aggregate commentary when raw output ends at a tool", () => {
@@ -210,7 +221,7 @@ describe("agent output helpers", () => {
     })).toBe("Synthesized workspace answer.")
   })
 
-  it("preserves rendered wrapper text after raw tool output", () => {
+  it("selects raw final text before output rendering", () => {
     const raw = {
       content: [
         { text: "I'll inspect it.", type: "text" },
@@ -221,7 +232,7 @@ describe("agent output helpers", () => {
     }
 
     expect(finalTextFromAgentOutput({ raw, text: "Rendered &lt;answer&gt;" }))
-      .toBe("Rendered &lt;answer&gt;")
+      .toBe("unsafe <answer>")
   })
 
   it("preserves normal assistant text when no tool runs", () => {
