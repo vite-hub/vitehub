@@ -3069,8 +3069,10 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     await Promise.all(waitUntilTasks)
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "...")
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "...")
+    await vi.waitFor(() => {
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "...")
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "...")
+    })
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Checking the image." })
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-2", { markdown: "The image shows a dental X-ray." })
     expect(adapter.editMessage).not.toHaveBeenCalledWith(
@@ -3261,7 +3263,9 @@ describe("server helpers", () => {
     }), "discord")
 
     expect(response.status).toBe(200)
-    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Final streamed answer." })
+    await vi.waitFor(() => {
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Final streamed answer." })
+    })
   })
 
   it("scopes progressive delivery to the active Channel", async () => {
