@@ -1,5 +1,5 @@
 import { capabilityInvocationStartSymbol, defineCapability } from "../capability-runtime.ts"
-import { streamAgentOutputToEvents, toAgentRunResult } from "../agent-output.ts"
+import { streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "../agent-output.ts"
 import { messageChannelTitleSupportContextKey } from "../channels.ts"
 import {
   claimMessageChannelTitleDelivery,
@@ -332,9 +332,10 @@ function withTitleParallel<T>(
   title: TitleResolution,
   renderTitle: (title: string) => T,
   getText: (value: T) => string = () => "",
+  isTerminal: (value: T) => boolean = () => false,
 ): AsyncIterable<T> {
   if (typeof (result as ReadableStream<T>).pipeThrough === "function") {
-    return withTitleReadableStreamParallel(result as ReadableStream<T>, title, renderTitle, getText)
+    return withTitleReadableStreamParallel(result as ReadableStream<T>, title, renderTitle, getText, isTerminal)
   }
   const iterable = (async function* () {
     const iterator = result[Symbol.asyncIterator]()
@@ -368,6 +369,11 @@ function withTitleParallel<T>(
           break
         }
         text += getText(next.value.value)
+        if (deferredTitle && isTerminal(next.value.value)) {
+          const resolvedTitle = await deferredTitle(text).catch(() => undefined)
+          titlePending = false
+          if (resolvedTitle) yield renderTitle(resolvedTitle)
+        }
         yield next.value.value
         streamNext = iterator.next()
       }
@@ -395,6 +401,7 @@ function withTitleReadableStreamParallel<T>(
   title: TitleResolution,
   renderTitle: (title: string) => T,
   getText: (value: T) => string = () => "",
+  isTerminal: (value: T) => boolean = () => false,
 ): AsyncIterable<T> & ReadableStream<T> {
   let reader: ReadableStreamDefaultReader<T> | undefined
   let cancelled = false
@@ -454,6 +461,11 @@ function withTitleReadableStreamParallel<T>(
           streamNext = undefined
           if (!next.value.done) {
             text += getText(next.value.value)
+            if (deferredTitle && isTerminal(next.value.value)) {
+              const resolvedTitle = await deferredTitle(text).catch(() => undefined)
+              titlePending = false
+              if (resolvedTitle) controller.enqueue(renderTitle(resolvedTitle))
+            }
             controller.enqueue(next.value.value)
             return
           }
@@ -483,18 +495,20 @@ function withTitleReadableStreamParallel<T>(
 }
 
 function textDelta(value: unknown): string {
-  if (!value || typeof value !== "object" || (value as { type?: unknown }).type !== "text-delta") return ""
-  const event = value as { delta?: unknown, text?: unknown }
-  if (typeof event.text === "string") return event.text
-  return typeof event.delta === "string" ? event.delta : ""
+  const event = toAgentStreamEvent(value)
+  return event?.type === "text-delta" ? event.text : ""
+}
+
+function isFinish(value: unknown): boolean {
+  return toAgentStreamEvent(value)?.type === "finish"
 }
 
 function withTitleEvent(result: AsyncIterable<StreamEvent>, title: TitleResolution): AsyncIterable<StreamEvent> {
-  return withTitleParallel(result, title, resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }), textDelta)
+  return withTitleParallel(result, title, resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }), textDelta, isFinish)
 }
 
 function withTitleFullStream(result: AsyncIterable<unknown>, title: TitleResolution): AsyncIterable<unknown> {
-  return withTitleParallel(result, title, resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }), textDelta)
+  return withTitleParallel(result, title, resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }), textDelta, isFinish)
 }
 
 function withTitleTextStream(result: AsyncIterable<string>, title: TitleResolution): AsyncIterable<StreamEvent> {
@@ -507,6 +521,7 @@ function withTitleTextStream(result: AsyncIterable<string>, title: TitleResoluti
     title,
     resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }),
     textDelta,
+    isFinish,
   )
 }
 
@@ -516,6 +531,7 @@ function withTitleUiMessageStream(result: ReadableStream<unknown>, title: TitleR
     title,
     resolvedTitle => ({ data: titleData(resolvedTitle), type: "data-title" }),
     textDelta,
+    isFinish,
   )
 }
 

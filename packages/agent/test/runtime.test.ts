@@ -6869,8 +6869,8 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       capabilities: [title({ execute })],
       driver: { run: () => (async function* () {
-          yield { text: "Quarterly ", type: "text-delta" }
-          yield { text: "roadmap", type: "text-delta" }
+          yield "Quarterly "
+          yield { text: "roadmap", type: "text" }
           yield { type: "finish" }
         })() },
       hooks: { "agent:finish": finish },
@@ -6901,6 +6901,8 @@ describe("agent message protocol", () => {
       data: { title: "response: Quarterly roadmap", type: "title" },
       type: "data",
     })
+    expect(rest.findIndex(event => (event as { type?: unknown }).type === "data"))
+      .toBeLessThan(rest.findIndex(event => (event as { type?: unknown }).type === "finish"))
     expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "response: Quarterly roadmap" })
   })
 
