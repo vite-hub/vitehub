@@ -476,7 +476,7 @@ describe("agent channels", () => {
             head: { ref: "feature", repo: "acme/fork", sha: "head-sha" },
             labels: ["agent:ready", "bug"],
             number: 42,
-            source: { mount: "app", ref: "refs/pull/42/head", repo: "acme/app" },
+            source: { mount: "app", ref: "head-sha", repo: "acme/app" },
           },
           repository: { fullName: "acme/app", id: 1001, name: "app", nodeId: "repo-node", owner: "acme" },
           trigger: {
@@ -1308,6 +1308,69 @@ describe("agent channels", () => {
     finally {
       await rm(rootDir, { force: true, recursive: true })
     }
+  })
+
+  it("posts labeled pull request statuses to the webhook head SHA", async () => {
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      const href = String(url)
+      if (href.endsWith("/app/installations/789/access_tokens")) {
+        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      }
+      if (href.endsWith("/statuses/webhook-head-sha")) return Response.json({ ok: true }, { status: 201 })
+      throw new Error(`Unexpected GitHub API call: ${href}`)
+    })
+    const channel = github({
+      app: {
+        apiBaseUrl: "https://api.github.test",
+        appId: "4",
+        fetch: fetcher as typeof fetch,
+        installationId: 789,
+        privateKey: privateKey.export({ format: "pem", type: "pkcs1" }).toString(),
+      },
+    })
+    const statusEffect = channel.effects?.status
+    if (typeof statusEffect !== "function") throw new Error("Missing GitHub status effect.")
+
+    await statusEffect({
+      channel,
+      effect: { kind: "status", payload: "success" },
+      input: {
+        context: {
+          pullRequest: {
+            pullRequest: {
+              apiUrl: "https://api.github.test/repos/vite-hub/vitehub/pulls/42",
+              head: { sha: "webhook-head-sha" },
+              number: 42,
+            },
+            repository: { fullName: "vite-hub/vitehub", name: "vitehub", owner: "vite-hub" },
+            run: { messageId: "delivery-1", origin: "github-pull-request-labeled", runId: "run-1", threadId: "thread-1" },
+            trigger: {
+              action: "labeled",
+              deliveryId: "delivery-1",
+              event: "pull_request",
+              installationId: 789,
+              label: { name: "agent:ready" },
+              sender: { id: 1, login: "mona" },
+            },
+          },
+        },
+        prompt: "Maintain this pull request.",
+      },
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    } as never)
+
+    expect(fetcher).not.toHaveBeenCalledWith(
+      "https://api.github.test/repos/vite-hub/vitehub/pulls/42",
+      expect.anything(),
+    )
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://api.github.test/repos/vite-hub/vitehub/statuses/webhook-head-sha",
+      expect.objectContaining({ method: "POST" }),
+    )
   })
 
   it("ignores GitHub PR delivery effects without pull request context", async () => {

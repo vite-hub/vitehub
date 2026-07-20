@@ -360,6 +360,33 @@ describe("git capability", () => {
     expect(setupScript).not.toContain("vitehub-base")
   })
 
+  it("fetches an exact pull request head SHA without treating it as a branch", async () => {
+    const session = gitSession()
+    session.exec.mockImplementation(async (command: string, args: string[] = []) => ({
+      args,
+      command,
+      exitCode: command === "git" && args.join(" ") === "rev-parse --is-inside-work-tree" ? 1 : 0,
+      stderr: "",
+      stdout: "",
+    }))
+    const headSha = "0123456789abcdef0123456789abcdef01234567"
+    const { tools } = await capabilityTools(git(), session, {
+      pullRequest: {
+        pullRequest: {
+          number: 42,
+          source: { mount: "vitehub", ref: headSha, repo: "vite-hub/vitehub" },
+        },
+        repository: { fullName: "vite-hub/vitehub", name: "vitehub" },
+      },
+    })
+
+    await tools.shell!.execute?.({ command: "git status --short" })
+
+    const setupScript = session.exec.mock.calls.find(([command]) => command === "sh")?.[1]?.[1]
+    expect(setupScript).toContain(`git fetch --depth=100 origin '${headSha}:refs/vitehub/head'`)
+    expect(setupScript).not.toContain(`refs/heads/${headSha}`)
+  })
+
   it("keeps internally prepared pull request checkouts out of write commits", async () => {
     const session = gitSession()
     session.exec.mockImplementation(async (command: string, args: string[] = []) => ({

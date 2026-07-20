@@ -308,7 +308,7 @@ function safeWorkspacePath(path: unknown): string | undefined {
 }
 
 function gitRemoteRef(ref: string): string {
-  return ref.startsWith("refs/") ? ref : `refs/heads/${ref}`
+  return ref.startsWith("refs/") || /^[0-9a-f]{40}$/i.test(ref) ? ref : `refs/heads/${ref}`
 }
 
 function gitRemoteBranchRef(ref: string): string {

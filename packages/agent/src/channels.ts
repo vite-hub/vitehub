@@ -213,6 +213,7 @@ export interface GitHubPullRequestCommand {
   commentId: number
   commentNodeId?: string
   deliveryId?: string
+  headSha?: string
   installationId?: number
   issueNumber: number
   owner: string
@@ -763,7 +764,7 @@ function githubPullRequestLabeledRunContext(
       number: event.number,
       source: {
         mount: options.sourceMount || event.repository.name,
-        ref: `refs/pull/${event.number}/head`,
+        ref: event.head.sha,
         repo: event.repository.fullName,
       },
       ...(event.title ? { title: event.title } : {}),
@@ -980,6 +981,7 @@ function githubCommandFromUnknown(value: unknown): GitHubPullRequestCommand | un
     commentId,
     ...(maybeString(value.commentNodeId) ? { commentNodeId: maybeString(value.commentNodeId) } : {}),
     ...(maybeString(value.deliveryId) ? { deliveryId: maybeString(value.deliveryId) } : {}),
+    ...(maybeString(value.headSha) ? { headSha: maybeString(value.headSha) } : {}),
     ...(maybeNumber(value.installationId) ? { installationId: maybeNumber(value.installationId) } : {}),
     issueNumber,
     owner,
@@ -1861,7 +1863,7 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
       const token = await resolveEffectOption(options.token, context)
       const headers = githubApiHeaders(token, options.userAgent)
       const payload = statusPayload(context, options.statusContext || "ViteHub Agent")
-      const sha = maybeString(payload.sha) || await githubPullRequestHeadSha(fetcher, command, headers)
+      const sha = maybeString(payload.sha) || command.headSha || await githubPullRequestHeadSha(fetcher, command, headers)
       if (!sha) return
       const url = `${options.apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/statuses/${sha}`
       await githubApi(fetcher, url, {
@@ -2010,6 +2012,7 @@ function githubCommandFromRunContext(value: GitHubPullRequestRunContext | undefi
       command: "",
       commentId: 0,
       deliveryId: value.trigger.deliveryId,
+      ...(value.pullRequest.head?.sha ? { headSha: value.pullRequest.head.sha } : {}),
       ...(value.trigger.installationId ? { installationId: value.trigger.installationId } : {}),
       issueNumber,
       owner,
