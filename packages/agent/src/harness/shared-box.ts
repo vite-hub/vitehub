@@ -16,11 +16,6 @@ export async function openHarnessBox(box: Box, options?: BoxOpenOptions) {
 export function shareBoxSessions(box: Box): SharedHarnessBox {
   let active: Promise<BoxSession> | undefined
   let initializing: BoxSession | undefined
-  let harnessError: unknown
-  let resolveHarness: (() => void) | undefined
-  const harnessReady = new Promise<void>((resolve) => {
-    resolveHarness = resolve
-  })
   let leases = 0
   const lease = (session: BoxSession) => {
     leases++
@@ -46,11 +41,16 @@ export function shareBoxSessions(box: Box): SharedHarnessBox {
         options?.signal?.throwIfAborted()
         return lease(initializing)
       }
-      await harnessReady
-      if (harnessError) throw harnessError
+      await Promise.resolve()
       options?.signal?.throwIfAborted()
-      if (!active) throw new Error("[vitehub] The invocation Box session is already closed.")
-      return lease(await active)
+      active ||= box.open(options)
+      try {
+        return lease(await active)
+      }
+      catch (error) {
+        active = undefined
+        throw error
+      }
     },
     async [harnessBoxOpen](options) {
       if (!active) {
@@ -74,15 +74,12 @@ export function shareBoxSessions(box: Box): SharedHarnessBox {
         })
         try {
           const session = await active
-          resolveHarness?.()
           return harnessLease || lease(session)
         }
         catch (error) {
           leases = 0
           initializing = undefined
           active = undefined
-          harnessError = error
-          resolveHarness?.()
           throw error
         }
       }

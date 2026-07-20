@@ -6,6 +6,18 @@ import { shareBoxSessions } from "../src/harness/shared-box.ts"
 import type { Box, BoxSession } from "@vite-hub/box"
 
 describe("Box harness adapter", () => {
+  it("opens a shared Box without a Harness driver", async () => {
+    const session = boxSession()
+    const open = vi.fn(async () => session)
+    const shared = shareBoxSessions({ plan: plan(), open })
+
+    const lease = await shared.open()
+
+    expect(open).toHaveBeenCalledOnce()
+    expect(lease.id).toBe(session.id)
+    await lease.close()
+  })
+
   it("coordinates one physical session when Workspace opens before Harness", async () => {
     const close = vi.fn(async () => {})
     const session = boxSession({ close })
