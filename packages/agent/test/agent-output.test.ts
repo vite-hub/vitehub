@@ -165,6 +165,19 @@ describe("agent output helpers", () => {
     })).toBe("Final answer.")
   })
 
+  it("falls back to synthesized wrapper text when raw output ends at a tool", () => {
+    expect(finalTextFromAgentOutput({
+      raw: {
+        content: [
+          { text: "Checking the workspace.", type: "text" },
+          { toolCallId: "call-1", toolName: "workspace", type: "tool-call" },
+          { toolCallId: "call-1", toolName: "workspace", type: "tool-result" },
+        ],
+      },
+      text: "Synthesized workspace answer.",
+    })).toBe("Synthesized workspace answer.")
+  })
+
   it("preserves normal assistant text when no tool runs", () => {
     expect(finalTextFromAgentOutput({
       content: [

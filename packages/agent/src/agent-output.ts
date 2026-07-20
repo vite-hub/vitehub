@@ -93,7 +93,8 @@ export function finalTextFromAgentOutput(value: unknown): string | undefined {
   const raw = ownValue(value, "raw")
   if (isRecord(raw)) {
     const final = finalTextFromStructuredResult(raw)
-    if (final !== undefined) return final
+    if (final) return final
+    if (final === "") return textFromResult(value) ?? final
   }
 
   return finalTextFromStructuredResult(value) ?? textFromResult(value)
