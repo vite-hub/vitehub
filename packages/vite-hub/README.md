@@ -39,13 +39,13 @@ vitehub({
 })
 ```
 
-| Preset | Blob | Queue | Rate Limit | Sandbox |
-| --- | --- | --- | --- | --- |
-| `cloudflare` | R2 | Cloudflare Queues | Cloudflare | Cloudflare Containers |
-| `netlify` | Netlify Blobs | Unsupported | Unsupported | Unsupported |
-| `vercel` | Vercel Blob | Vercel Queues | Unsupported | Vercel Sandbox |
-| `deno` | Unsupported | Unsupported | Unsupported | Unsupported |
-| `node` | Local filesystem (single host) | Unsupported | Process memory (single process) | Unsupported |
+| Preset | Blob | Queue | Rate Limit | Sandbox | Schedule |
+| --- | --- | --- | --- | --- | --- |
+| `cloudflare` | R2 | Cloudflare Queues | Cloudflare | Cloudflare Containers | Supported |
+| `netlify` | Netlify Blobs | Unsupported | Unsupported | Unsupported | Supported |
+| `vercel` | Vercel Blob | Vercel Queues | Unsupported | Vercel Sandbox | Supported |
+| `deno` | Unsupported | Unsupported | Unsupported | Unsupported | Unsupported |
+| `node` | Local filesystem (single host) | Unsupported | Process memory (single process) | Unsupported | Supported |
 
 Selecting an unsupported opt-in capability fails the build with the preset policy. You can instead configure an explicit Blob driver through `blob` or compose an owner package directly when the application provides its own portable implementation.
 

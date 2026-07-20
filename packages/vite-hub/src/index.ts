@@ -304,6 +304,9 @@ function presetBlobOptions(plan: DeploymentPlan, options: BlobModuleOptions | un
 export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw new TypeError("vitehub() requires a built-in deployment preset.")
   const plan = resolveDeploymentPlan(options.preset)
+  if (options.schedule && plan.preset === "deno") {
+    throw new Error("[vitehub] The \"deno\" preset cannot provide Schedule because its generated cron output is not part of the deployed Nitro entrypoint. Disable Schedule or compose an explicit Deno scheduling integration.")
+  }
   const sandboxEnabled = options.sandbox === true && plan.services.sandbox.supported
   const blobEnabled = options.blob !== false && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
   const plugins: unknown[] = []
