@@ -157,7 +157,7 @@ import type {
 } from "@vite-hub/workspace"
 import type { WorkflowHandle } from "@vite-hub/workflow"
 import type { Box, BoxRequirement } from "@vite-hub/box"
-import { shareBoxSessions } from "./harness/shared-box.ts"
+import { isHarnessBoxActive, shareBoxSessions } from "./harness/shared-box.ts"
 
 export type {
   AgentAccessInvocationContextValue,
@@ -1343,7 +1343,12 @@ function withBoxWorkspaceSessions<Name extends WorkspaceName>(
     if (options?.host) return await target.startSession(options)
     const host = await box.open()
     try {
-      const session = await target.startSession({ ...options, attach: true, host, target: options?.target || host.cwd })
+      const session = await target.startSession({
+        ...options,
+        attach: isHarnessBoxActive(box),
+        host,
+        target: options?.target || host.cwd,
+      })
       let closePromise: Promise<void> | undefined
       return { ...session, async close() {
         closePromise ??= (async () => {
@@ -1617,7 +1622,7 @@ async function createAgentInvocationContext<
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
       handledResponse: capabilities.response,
       harnessSandboxProvider,
-      harnessWorkDir: box ? box.plan.workspace.workDir || "workspace" : undefined,
+      harnessWorkDir: box ? "." : undefined,
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
       instructions,

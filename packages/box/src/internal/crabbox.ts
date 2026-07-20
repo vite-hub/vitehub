@@ -115,14 +115,22 @@ export function crabbox(options: CrabboxOptions = {}): BoxRuntime {
         ...(openOptions?.initialize
           ? {
               async initialize(session: RuntimeSession) {
-                initializedSession = createBoxSession(session, openOptions)
+                initializedSession = createBoxSession(
+                  session,
+                  openOptions,
+                  posix.join(session.defaultWorkingDirectory, "workspace"),
+                )
                 await openOptions.initialize!(initializedSession, { signal: openOptions.signal })
               },
             }
           : {}),
         sessionId: openOptions?.id,
       })
-      return initializedSession ?? createBoxSession(runtimeSession, openOptions)
+      return initializedSession ?? createBoxSession(
+        runtimeSession,
+        openOptions,
+        posix.join(runtimeSession.defaultWorkingDirectory, "workspace"),
+      )
     },
   }
 }

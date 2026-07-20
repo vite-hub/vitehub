@@ -96,6 +96,7 @@ interface RuntimeCommandOptions {
 export function createBoxSession(
   runtime: RuntimeSession,
   openOptions: BoxOpenOptions = {},
+  cwd = runtime.defaultWorkingDirectory,
 ): BoxSession {
   let closePromise: Promise<void> | undefined;
   let closed = false;
@@ -123,7 +124,7 @@ export function createBoxSession(
   };
 
   const session: BoxSession = {
-    cwd: runtime.defaultWorkingDirectory,
+    cwd,
     files: {
       async exists(path, options) {
         return await runtime.existsFile({
@@ -197,7 +198,7 @@ export function createBoxSession(
               abortSignal: operationSignal(options?.signal, options?.timeout),
               command: commandLine(command, args),
               env: options?.env ? { ...options.env } : undefined,
-              workingDirectory: options?.cwd,
+              workingDirectory: options?.cwd ?? cwd,
             });
             return adaptProcess(process);
           },
@@ -214,7 +215,7 @@ export function createBoxSession(
         abortSignal: operationSignal(options?.signal, options?.timeout),
         command: commandLine(command, args),
         env: options?.env ? { ...options.env } : undefined,
-        workingDirectory: options?.cwd,
+        workingDirectory: options?.cwd ?? cwd,
       });
       return {
         code: result.exitCode,

@@ -120,7 +120,11 @@ export function trustedHost(options: TrustedHostOptions = {}): BoxRuntime {
           ...(openOptions?.initialize
             ? {
                 async initialize(session) {
-                  initializedSession = createBoxSession(session, openOptions);
+                  initializedSession = createBoxSession(
+                    session,
+                    openOptions,
+                    resolved.cwd ? join(session.defaultWorkingDirectory, "workspace") : undefined,
+                  );
                   await openOptions.initialize!(initializedSession, { signal: openOptions.signal });
                 },
               }
@@ -128,7 +132,11 @@ export function trustedHost(options: TrustedHostOptions = {}): BoxRuntime {
           sessionId: openOptions?.id,
         },
       );
-      return initializedSession ?? createBoxSession(runtimeSession, openOptions);
+      return initializedSession ?? createBoxSession(
+        runtimeSession,
+        openOptions,
+        resolved.cwd ? join(runtimeSession.defaultWorkingDirectory, "workspace") : undefined,
+      );
     },
   };
 }

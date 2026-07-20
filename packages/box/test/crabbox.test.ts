@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process"
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it } from "vitest"
@@ -77,7 +77,7 @@ describe("crabbox", () => {
         }, {})
         expect(box.plan.workspace).toEqual({ state: "disposable", workDir: "workspace" })
         const session = await boxProvider(box).createSession()
-        const sessionRoot = session.defaultWorkingDirectory
+        const sessionRoot = dirname(session.defaultWorkingDirectory)
         await expect(session.run({
           command: "git rev-parse HEAD",
           workingDirectory: join(sessionRoot, "workspace"),
@@ -549,7 +549,7 @@ describe("crabbox", () => {
         );
         const sandbox = boxProvider(box)
       const session = await sandbox.createSession()
-      const cacheRoot = session.defaultWorkingDirectory
+      const cacheRoot = dirname(session.defaultWorkingDirectory)
 
       await session.writeTextFile({ content: "cache", path: "cache.txt" })
       await session.writeTextFile({ content: "CACHE", path: "cache.txt" })

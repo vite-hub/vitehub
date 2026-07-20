@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -66,6 +66,24 @@ describe("BoxSession", () => {
       );
     } finally {
       await session.close();
+    }
+  });
+
+  it("uses an authoritative workspace as the public and default cwd", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vitehub-box-workspace-"));
+    await writeFile(join(workspace, "package.json"), "{}");
+    const box = await resolveBox({ cwd: workspace, runtime: trustedHost() }, {});
+    const session = await box.open();
+
+    try {
+      expect(await realpath(session.cwd)).toBe(await realpath(workspace));
+      await expect(session.exec("test", ["-f", "package.json"])).resolves.toMatchObject({
+        code: 0,
+        ok: true,
+      });
+    } finally {
+      await session.close();
+      await rm(workspace, { force: true, recursive: true });
     }
   });
 

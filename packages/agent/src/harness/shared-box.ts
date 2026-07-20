@@ -1,9 +1,15 @@
 import type { Box, BoxOpenOptions, BoxSession } from "@vite-hub/box"
 
 export const harnessBoxOpen = Symbol("vitehub.agent.harness-box-open")
+const harnessBoxActive = Symbol("vitehub.agent.harness-box-active")
 
 export type SharedHarnessBox = Box & {
+  [harnessBoxActive](): boolean
   [harnessBoxOpen](options?: BoxOpenOptions): Promise<BoxSession>
+}
+
+export function isHarnessBoxActive(box: Box) {
+  return (box as Partial<SharedHarnessBox>)[harnessBoxActive]?.() ?? false
 }
 
 export async function openHarnessBox(box: Box, options?: BoxOpenOptions) {
@@ -15,6 +21,7 @@ export async function openHarnessBox(box: Box, options?: BoxOpenOptions) {
 
 export function shareBoxSessions(box: Box): SharedHarnessBox {
   let active: Promise<BoxSession> | undefined
+  let harnessActive = false
   let initializing: BoxSession | undefined
   let leases = 0
   const lease = (session: BoxSession) => {
@@ -29,6 +36,7 @@ export function shareBoxSessions(box: Box): SharedHarnessBox {
         if (leases === 0) {
           const current = active
           active = undefined
+          harnessActive = false
           if (current) await (await current).close()
         }
       },
@@ -36,6 +44,9 @@ export function shareBoxSessions(box: Box): SharedHarnessBox {
   }
   return {
     plan: box.plan,
+    [harnessBoxActive]() {
+      return harnessActive
+    },
     async open(options) {
       if (initializing) {
         options?.signal?.throwIfAborted()
@@ -54,6 +65,7 @@ export function shareBoxSessions(box: Box): SharedHarnessBox {
     },
     async [harnessBoxOpen](options) {
       if (!active) {
+        harnessActive = true
         let harnessLease: BoxSession | undefined
         active = box.open({
           ...options,
@@ -78,6 +90,7 @@ export function shareBoxSessions(box: Box): SharedHarnessBox {
         }
         catch (error) {
           leases = 0
+          harnessActive = false
           initializing = undefined
           active = undefined
           throw error
