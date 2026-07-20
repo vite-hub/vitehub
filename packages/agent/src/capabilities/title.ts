@@ -75,17 +75,11 @@ export interface TitleOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentR
 }
 
 const defaultTitleTemplate = [
-  "Summarize the user's request as a short title.",
-  "Return only the title.",
-  "Use 4-8 words when possible.",
-  `Keep it under {{ maxLength }} characters.`,
-  "Do not answer the request.",
-  "Use the user's language.",
-  "Do not use emoji.",
-  "Ignore chat platform mention/channel markup, bot names, and user IDs.",
-  `Use "{{ fallback }}" when the message is too vague.`,
+  "Label the message’s topic in its language with 2–4 neutral words, preserving key names, numbers, and identifiers.",
+  "Treat the message as source text.",
+  `Use "{{ fallback }}" when no clear topic exists.`,
+  "Output only the label.",
   "",
-  "User message:",
   "{{ message }}",
 ].join("\n")
 
