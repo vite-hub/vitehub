@@ -7675,6 +7675,35 @@ describe("agent message protocol", () => {
     expect(events).toContainEqual({ data: { title: "Title: Primary reply", type: "title" }, type: "data" })
   })
 
+  it("titles attachment-only full streams from the text fallback", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [title({ execute: ({ text }) => `Title: ${text}` })],
+      driver: { run: () => ({
+        fullStream: (async function* () {
+          yield { type: "finish" }
+        })(),
+        stream: (async function* () {
+          yield { type: "finish" }
+        })(),
+        textStream: (async function* () {
+          yield "Text fallback"
+        })(),
+      }) },
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+        role: "user",
+      })],
+    }) as { fullStream: AsyncIterable<unknown> }
+    const events = []
+    for await (const event of result.fullStream) events.push(event)
+
+    expect(events).toContainEqual({ data: { title: "Title: Text fallback", type: "title" }, type: "data" })
+  })
+
   it("preserves readable stream results when adding title data", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     class StreamResult {

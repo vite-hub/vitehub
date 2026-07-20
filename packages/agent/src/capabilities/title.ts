@@ -51,23 +51,29 @@ function hasPropertyGetter(value: object, key: PropertyKey): boolean {
   return false
 }
 
-function fallbackBranch<T>(value: AsyncIterable<T> & ReadableStream<T>): StreamFallback<T> {
-  const fallback: StreamFallback<T> = () => value
-  fallback.cancel = () => {
-    void value.cancel().catch(() => undefined)
-  }
-  return fallback
-}
-
-function lazyFallback<T>(getValue: () => AsyncIterable<T> | undefined): StreamFallback<T> {
-  let value: AsyncIterable<T> | undefined
-  const fallback: StreamFallback<T> = () => (value ??= getValue())
-  fallback.cancel = () => {
-    if (value && typeof (value as ReadableStream<T>).cancel === "function") {
-      void (value as ReadableStream<T>).cancel().catch(() => undefined)
+function lazyFallbackBranches<T>(getValue: () => AsyncIterable<T> | undefined, count: number): StreamFallback<T>[] {
+  let branches: Array<AsyncIterable<T> & ReadableStream<T>> | undefined
+  const initialize = () => {
+    if (branches) return branches
+    const value = getValue()
+    if (!value) return
+    let remaining = toReadableAsyncIterableStream(value)
+    branches = []
+    while (branches.length < count - 1) {
+      const [branch, rest] = remaining.tee()
+      branches.push(branch)
+      remaining = rest
     }
+    branches.push(remaining)
+    return branches
   }
-  return fallback
+  return Array.from({ length: count }, (_, index) => {
+    const fallback: StreamFallback<T> = () => initialize()?.[index]
+    fallback.cancel = () => {
+      void branches?.[index]?.cancel().catch(() => undefined)
+    }
+    return fallback
+  })
 }
 
 function cancelFallback<T>(fallback: StreamFallback<T> | undefined): void {
@@ -858,20 +864,19 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
             const stream = result.stream
             const fullStream = result.fullStream
             const title = preparedInput ? getTitle() : (text: string) => getTitle(text)
-            const fallbackBranches = !preparedInput && !hasPropertyGetter(result, "textStream") && result.textStream
-              ? toReadableAsyncIterableStream(result.textStream).tee()
+            const fallbackCount = Number(Boolean(stream)) + Number(Boolean(fullStream && fullStream !== stream))
+            const fallbackBranches = !preparedInput && fallbackCount
+              ? lazyFallbackBranches(() => result.textStream, fallbackCount + (hasPropertyGetter(result, "textStream") ? 0 : 1))
+              : []
+            const outputTextStream = fallbackBranches.length > fallbackCount
+              ? fallbackBranches[fallbackCount]!()
               : undefined
-            const responseFallback = !preparedInput
-              ? fallbackBranches
-                ? fallbackBranch(withAsyncIterator(fallbackBranches[0]))
-                : lazyFallback(() => result.textStream)
-              : undefined
-            const outputTextStream = fallbackBranches ? withAsyncIterator(fallbackBranches[1]) : undefined
-            const titleStream = stream ? withTitleFullStream(stream, title, responseFallback) : undefined
+            let fallbackIndex = 0
+            const titleStream = stream ? withTitleFullStream(stream, title, fallbackBranches[fallbackIndex++]) : undefined
             return cloneStreamTextResult(result, {
               ...(titleStream ? { stream: titleStream } : {}),
               ...(fullStream
-                ? { fullStream: fullStream === stream && titleStream ? titleStream : withTitleFullStream(fullStream, title, stream ? undefined : responseFallback) }
+                ? { fullStream: fullStream === stream && titleStream ? titleStream : withTitleFullStream(fullStream, title, fallbackBranches[fallbackIndex++]) }
                 : {}),
               ...(outputTextStream ? { textStream: outputTextStream } : {}),
               ...titleUiMessageStreamOverride(toUIMessageStream, title),
