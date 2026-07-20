@@ -825,7 +825,6 @@ describe("agent channels", () => {
         apiBaseUrl: "https://api.github.test",
         appId: "1",
         fetch: fetcher as typeof fetch,
-        installationId: 123,
         privateKey: privateKeyPem,
       },
     })
@@ -843,6 +842,22 @@ describe("agent channels", () => {
           url: "https://assets.example/review/screenshots/login.png",
         }],
         kind: "review",
+        metadata: {
+          github: {
+            action: "created",
+            actor: { login: "onmax" },
+            args: "",
+            body: "/review",
+            command: "/review",
+            commentId: 99,
+            installationId: 123,
+            issueNumber: 42,
+            owner: "vite-hub",
+            pullRequestUrl: "https://api.github.test/repos/vite-hub/vitehub/pulls/42",
+            repo: "vitehub",
+            repository: "vite-hub/vitehub",
+          },
+        },
         payload: { body: "Review body\n\n![Login badge](/workspace/codex-session/screenshots/login.png)" },
       },
       input: {
@@ -854,7 +869,6 @@ describe("agent channels", () => {
             body: "/review",
             command: "/review",
             commentId: 99,
-            installationId: 123,
             issueNumber: 42,
             owner: "vite-hub",
             pullRequestUrl: "https://api.github.test/repos/vite-hub/vitehub/pulls/42",
@@ -889,6 +903,9 @@ describe("agent channels", () => {
     const fetcher = vi.fn(async (url: string | URL | Request) => {
       if (String(url).endsWith("/app/installations/123/access_tokens")) {
         return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      }
+      if (String(url).endsWith("/labels/agent%3Aready")) {
+        return Response.json({ message: "Label does not exist" }, { status: 404 })
       }
       return Response.json({ ok: true })
     })

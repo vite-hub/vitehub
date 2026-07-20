@@ -1168,7 +1168,11 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
   const env = await githubEnv(context)
   const appId = requiredString(await githubAppSetting(options, env, "appId", "appId", context), "appId")
   const installationId = installation
-    ?? ("effect" in context ? githubPullRequestTargetFromEffect(context as AgentChannelDeliveryEffectContext<TRuntimeConfig>)?.installationId : undefined)
+    ?? ("effect" in context
+      ? context.effect.kind === "labels"
+        ? githubPullRequestTargetFromEffect(context)?.installationId
+        : githubCommandFromEffect(context)?.installationId
+      : undefined)
     ?? requiredNumber(await githubAppSetting(options, env, "installationId", "appInstallationId", context), "installationId")
   const apiBaseUrl = options.apiBaseUrl || "https://api.github.com"
   const cacheKey = `${apiBaseUrl}:${appId}:${installationId}`
@@ -1757,10 +1761,13 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
       const url = `${options.apiBaseUrl || "https://api.github.com"}/repos/${target.owner}/${target.repo}/issues/${target.issueNumber}/labels`
       if (payload.action === "remove") {
         for (const label of payload.labels) {
-          await githubApi(fetcher, `${url}/${encodeURIComponent(label)}`, {
+          const response = await fetcher(`${url}/${encodeURIComponent(label)}`, {
             headers,
             method: "DELETE",
           })
+          if (!response.ok && response.status !== 404) {
+            throw new Error(`[vitehub] GitHub delivery effect failed with ${response.status}.`)
+          }
         }
         return
       }
