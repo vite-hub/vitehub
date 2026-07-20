@@ -386,6 +386,12 @@ function withTitleParallel<T>(
       }
 
       if (titlePending) {
+        if (!titleNext && !text && fallback) {
+          for await (const value of fallback) {
+            text += getText(value)
+            yield value
+          }
+        }
         const resolvedTitle = titleNext
           ? await titleNext
           : await deferredTitle!(text)
@@ -484,6 +490,12 @@ function withTitleReadableStreamParallel<T>(
             return
           }
           if (titlePending) {
+            if (!titleNext && !text && fallback) {
+              for await (const value of fallback) {
+                text += getText(value)
+                controller.enqueue(value)
+              }
+            }
             const resolvedTitle = titleNext
               ? await titleNext
               : await deferredTitle!(text)

@@ -6912,7 +6912,7 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       capabilities: [title({ execute })],
       driver: { run: () => ({
-        stream: (async function* () { yield { type: "finish" } })(),
+        stream: (async function* () {})(),
         textStream: (async function* () { yield "Fallback reply" })(),
       }) },
     })
@@ -6930,7 +6930,6 @@ describe("agent message protocol", () => {
     expect(events).toEqual([
       "Fallback reply",
       { data: { title: "response: Fallback reply", type: "title" }, type: "data" },
-      { type: "finish" },
     ])
   })
 
