@@ -113,6 +113,10 @@
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js"
     },
+    "./internal/runtime/workspace": {
+      "types": "./dist/runtime/workspace.d.ts",
+      "import": "./dist/runtime/workspace.js"
+    },
     "./internal/stores/cloudflare-artifacts": {
       "types": "./dist/providers/cloudflare/artifacts-store.d.ts",
       "import": "./dist/providers/cloudflare/artifacts-store.js"

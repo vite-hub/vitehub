@@ -59,4 +59,22 @@ describe("MCP resource workspace sources", () => {
       ],
     })
   })
+
+  it("loads inferred MCP resource Sources through their provider boundary", async () => {
+    registerWorkspace("nuxt-mcp", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        nuxt: {
+          mount: "nuxt",
+          server: client,
+        },
+      },
+    }))
+
+    const workspace = await useRegisteredWorkspace("nuxt-mcp")
+
+    await expect(workspace.readFile("nuxt/nuxt-com/documentation-pages.json")).resolves.toBe(
+      JSON.stringify([{ path: "/docs/getting-started/introduction" }], null, 2),
+    )
+  })
 })

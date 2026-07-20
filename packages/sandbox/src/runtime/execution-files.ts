@@ -1,4 +1,4 @@
-import { createWorkspace } from '@vite-hub/workspace'
+import { createWorkspace } from '@vite-hub/workspace/internal/runtime/workspace'
 import { dirname } from 'pathe'
 
 import type { SandboxDefinitionBundle } from '../module-types'
