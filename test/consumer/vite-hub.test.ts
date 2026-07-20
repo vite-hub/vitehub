@@ -409,8 +409,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/execute")
       expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/state")
       expect(workflowRegistry).toContain("setWorkspaceDependencyRuntimeLoaders")
-      expect(workflowRegistry).toContain("vite-hub/_internal/sandbox/runtime/state")
-      expect(workflowRegistry).toContain("vite-hub/sandbox")
+      expect(workflowRegistry).not.toContain("vite-hub/_internal/sandbox/runtime/state")
+      expect(workflowRegistry).not.toContain("vite-hub/sandbox")
       expect(workflowRegistry).toContain("vite-hub/shell/workspace")
       expect(workspacePlugin).toContain("vite-hub/_internal/workspace/runtime")
 
@@ -453,7 +453,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       )
       expect(workspaceDisabledVercelImports, "canonical Workflow output must bundle Workspace when its Vite plugin is disabled").toEqual([])
 
-      await run("pnpm", ["exec", "vite", "build"], appDir, { ...process.env, VITEHUB_HOSTING: "netlify" })
+      await run("pnpm", ["exec", "vite", "build"], appDir, { ...process.env, VITEHUB_HOSTING: "netlify", VITEHUB_PRESET: "netlify" })
       const netlifyFunctionPath = join(appDir, ".netlify/v1/functions/vitehub-agent.mjs")
       const netlifyFunctionSource = await readFile(netlifyFunctionPath, "utf8")
       const netlifyProviderImports = importSpecifierOccurrences(netlifyFunctionSource)
