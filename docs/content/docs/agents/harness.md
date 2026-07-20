@@ -22,7 +22,7 @@ The layers compose from the model outward. Each one owns a different part of the
 | Skills | Add reusable procedures and supporting files. Skills guide the harness, but they do not grant runtime authority by themselves. |
 | Workspace | Supplies scoped file-tree state, Sources, rules, snapshots, and writeback. |
 | Box | Prepares a harness process environment, private Home, working checkout, credentials, and boot requirements. |
-| Sandbox | Provides an isolated execution boundary when work should run through a process-capable or provider-managed environment. |
+| Sandbox | Selects the process or session environment for harness work. Isolation is provided only by an isolation-capable provider or the separate Sandbox primitive. |
 
 ViteHub owns the composition boundary around these layers. An [Agent Driver](/docs/agents/agent-drivers) selects model-backed, harness-backed, or custom-run-backed execution, while Capabilities and Workspace policy decide which abilities and context the invocation receives.
 
@@ -74,7 +74,7 @@ Workspace, Box, and Sandbox surround harness execution for different reasons. Th
 
 - Use [Workspace context](/docs/agents/workspace-context) for model-visible files, Sources, scope, and writeback.
 - Use a [Box](/docs/agents/boxes) when the harness needs a prepared Home, environment, checkout, credentials, and executable checks. A trusted-host Box does not isolate untrusted code from the host.
-- Use `driver.sandbox` when a harness-backed Agent needs a process-capable or provider-specific harness session. The separate [Sandbox primitive](/docs/server-primitives/sandbox) owns named isolated application work, and the [Sandbox Capability](/docs/capabilities/sandbox) can expose allowlisted Sandbox commands to an Agent.
+- Use `driver.sandbox` when a harness-backed Agent needs a process-capable or provider-specific harness session. The default local provider is a tempdir-backed shell convenience, not OS/process isolation. The separate [Sandbox primitive](/docs/server-primitives/sandbox) owns named isolated application work, and the [Sandbox Capability](/docs/capabilities/sandbox) can expose allowlisted Sandbox commands to an Agent.
 
 ## Next steps
 
