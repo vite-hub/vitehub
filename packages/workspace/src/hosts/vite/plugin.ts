@@ -6,7 +6,6 @@ import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
-import { resolveBox, trustedHost } from "@vite-hub/box"
 
 import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, shouldBundleWorkspaceAssets } from "../../build/assets.ts"
 import { createWorkspaceRegistryContents, discoverViteWorkspaceDefinitions } from "../../build/discovery.ts"
@@ -448,6 +447,8 @@ async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMes
   const args = command.args as string[] | undefined
   const paths = command.paths as string[] | undefined
   const timeout = typeof command.timeout === "number" && Number.isFinite(command.timeout) ? command.timeout : undefined
+  // Keep the dev-only runtime out of provider output tracing.
+  const { resolveBox, trustedHost } = await import("@vite-hub/" + "box") as typeof import("@vite-hub/box")
   const host = await (await resolveBox({ runtime: trustedHost() }, {})).open({ signal: abortSignal })
   const input = {
     abortSignal,

@@ -1397,6 +1397,9 @@ importers:
       '@vercel/blob':
         specifier: catalog:storage
         version: 2.6.1
+      '@vite-hub/box':
+        specifier: workspace:*
+        version: link:../box
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
