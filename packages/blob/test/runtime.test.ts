@@ -541,6 +541,33 @@ describe("blob runtime", () => {
     ])
   })
 
+  it("rechecks the active Cloudflare binding after runtime storage is cached", async () => {
+    process.env.CLOUDFLARE_R2_ACCOUNT_ID = "account"
+    process.env.CLOUDFLARE_R2_ACCESS_KEY_ID = "access-key"
+    process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY = "secret-key"
+    process.env.R2_BUCKET_NAME = "runtime-assets"
+    setBlobRuntimeConfig({
+      store: {
+        accountId: "********",
+        accessKeyId: "********",
+        binding: "BLOB",
+        bucketName: "********",
+        driver: "cloudflare-r2",
+        secretAccessKey: "********",
+      },
+    })
+    setActiveCloudflareEnv({ BLOB: createMemoryBucket() })
+    await blob.list()
+
+    setActiveCloudflareEnv(undefined)
+    await blob.list()
+
+    expect(filesSdkMock.r2).toHaveBeenCalledWith(expect.objectContaining({
+      accountId: "account",
+      bucket: "runtime-assets",
+    }))
+  })
+
   it("keeps Cloudflare binding mode when the binding appears after driver creation", async () => {
     const { createDriver } = await import("../src/drivers/cloudflare.ts")
     const storage = createBlobStorage(createDriver({
