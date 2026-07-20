@@ -101,24 +101,32 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
         allowOverwrite: options.allowOverwrite ?? true,
         contentType: putOptions.contentType,
       })
-      const size = typeof body === "string"
+      let size = typeof body === "string"
         ? new TextEncoder().encode(body).byteLength
         : body instanceof Blob
           ? body.size
           : body instanceof ArrayBuffer || ArrayBuffer.isView(body)
             ? body.byteLength
             : Number(putOptions.contentLength) || 0
+      let uploadedAt = new Date()
+      let httpEtag = (result as typeof result & { etag?: string }).etag
+      if (!size) {
+        const metadata = await head(result.url, auth)
+        size = metadata.size
+        uploadedAt = metadata.uploadedAt
+        httpEtag ||= metadata.etag
+      }
       const contentType = result.contentType || putOptions.contentType
       const httpMetadata: Record<string, string> = {}
       if (contentType) httpMetadata.contentType = contentType
       return {
         contentType,
         customMetadata: putOptions.customMetadata || {},
-        httpEtag: undefined,
+        httpEtag,
         httpMetadata,
         pathname: result.pathname,
         size,
-        uploadedAt: new Date(),
+        uploadedAt,
         url: result.url,
       }
     },
