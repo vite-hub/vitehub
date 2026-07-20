@@ -275,7 +275,7 @@ const reviewLifecycle = defineCapability({
   prepare(context) {
     context.delivery.effect({
       kind: 'labels',
-      payload: { action: 'replace', labels: ['agent:done'] },
+      payload: { action: 'replace', labels: ['agent:working'] },
     })
   },
 })
