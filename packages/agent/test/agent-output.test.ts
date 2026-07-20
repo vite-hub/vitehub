@@ -178,6 +178,20 @@ describe("agent output helpers", () => {
     })).toBe("Synthesized workspace answer.")
   })
 
+  it("preserves rendered wrapper text after raw tool output", () => {
+    const raw = {
+      content: [
+        { text: "I'll inspect it.", type: "text" },
+        { toolCallId: "call-1", toolName: "inspect", type: "tool-call" },
+        { toolCallId: "call-1", toolName: "inspect", type: "tool-result" },
+        { text: "unsafe <answer>", type: "text" },
+      ],
+    }
+
+    expect(finalTextFromAgentOutput({ raw, text: "Rendered &lt;answer&gt;" }))
+      .toBe("Rendered &lt;answer&gt;")
+  })
+
   it("preserves normal assistant text when no tool runs", () => {
     expect(finalTextFromAgentOutput({
       content: [

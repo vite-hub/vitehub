@@ -73,6 +73,19 @@ function finalTextFromContent(content: unknown): string | undefined {
   return boundary >= 0 ? textFromContent(content.slice(boundary + 1)) ?? "" : undefined
 }
 
+function structuredTextFromResult(result: Record<string, unknown>): string | undefined {
+  const content = textFromContent(ownValue(result, "content"))
+  if (content !== undefined) return content
+
+  const steps = ownValue(result, "steps")
+  if (!Array.isArray(steps)) return
+  return textFromContent(steps.flatMap((step) => {
+    if (!step || typeof step !== "object") return []
+    const stepContent = ownValue(step as Record<string, unknown>, "content")
+    return Array.isArray(stepContent) ? stepContent : []
+  }))
+}
+
 function finalTextFromStructuredResult(result: Record<string, unknown>): string | undefined {
   const content = finalTextFromContent(ownValue(result, "content"))
   if (content !== undefined) return content
@@ -92,6 +105,10 @@ export function finalTextFromAgentOutput(value: unknown): string | undefined {
 
   const raw = ownValue(value, "raw")
   if (isRecord(raw)) {
+    const text = textFromResult(value)
+    const structuredText = structuredTextFromResult(raw)
+    if (text && structuredText !== undefined && text !== structuredText) return text
+
     const final = finalTextFromStructuredResult(raw)
     if (final) return final
     if (final === "") return textFromResult(value) ?? final
