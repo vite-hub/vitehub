@@ -16,8 +16,10 @@ interface CloudflareR2Bucket {
 }
 
 interface VercelBlobStore {
+  access?: "private" | "public"
   id?: string
   name?: string
+  projectsMetadata?: Array<{ projectId?: string }>
   type?: string
 }
 
@@ -26,13 +28,12 @@ interface VercelBlobStoresResponse {
 }
 
 interface VercelBlobStoreCreateResponse {
-  store?: { id?: string }
-  // Token returned on creation; treated as a secret, never persisted to disk or logged.
-  token?: string
-  BLOB_READ_WRITE_TOKEN?: string
+  store?: VercelBlobStore
 }
 
 const VERCEL_BLOB_STORE_NAME = "vitehub-blob"
+const VERCEL_BLOB_STORE_REGION = "iad1"
+const VERCEL_PROJECT_ENVIRONMENTS = ["production", "preview", "development"] as const
 
 function resolvedStores(options: BlobModuleOptions | undefined, env: Record<string, string | undefined>): ResolvedBlobStoreConfig[] {
   const config = resolveBlobViteConfig(options, { env })
@@ -79,8 +80,8 @@ export function createBlobVercelProvisionStep(resolveOptions: () => BlobModuleOp
     id: "blob:vercel-blob",
     provider: "vercel",
     async plan(context) {
-      const usesVercelBlob = resolvedStores(resolveOptions(), context.env).some(store => store.driver === "vercel-blob")
-      if (!usesVercelBlob) return []
+      const requested = resolvedStores(resolveOptions(), context.env).find(store => store.driver === "vercel-blob")
+      if (!requested || requested.driver !== "vercel-blob") return []
 
       const config = resolveVercelProvisionConfig(context.env)
       const projectId = readEnv(context.env, "VERCEL_PROJECT_ID")
@@ -91,43 +92,40 @@ export function createBlobVercelProvisionStep(resolveOptions: () => BlobModuleOp
 
       const request = createVercelProvisionClient(config, context.fetch)
       const listed = await request<VercelBlobStoresResponse>("/v1/storage/stores")
-      const existing = (listed.stores ?? []).find(store => store.type === "blob")
+      const existing = (listed.stores ?? []).find(store =>
+        (!store.type || store.type === "blob")
+        && (store.access ?? "public") === requested.access,
+      )
 
       return [{
         kind: "vercel-blob-store",
         name: existing?.name ?? VERCEL_BLOB_STORE_NAME,
         exists: Boolean(existing),
         apply: async () => {
-          const token = existing
-            ? readEnv(context.env, "BLOB_READ_WRITE_TOKEN")
-            : extractToken(await request<VercelBlobStoreCreateResponse>("/v1/storage/stores", {
-                method: "POST",
-                body: { type: "blob", name: VERCEL_BLOB_STORE_NAME },
-              }))
-          if (token) {
-            await pushVercelProjectEnv(request, projectId, "BLOB_READ_WRITE_TOKEN", token)
+          const store = existing ?? (await request<VercelBlobStoreCreateResponse>("/v1/storage/stores/blob", {
+            method: "POST",
+            body: {
+              access: requested.access,
+              name: VERCEL_BLOB_STORE_NAME,
+              region: VERCEL_BLOB_STORE_REGION,
+            },
+          })).store
+          if (!store?.id) {
+            throw new Error("Vercel Blob provisioning did not return a store id.")
+          }
+          if (!store.projectsMetadata?.some(project => project.projectId === projectId)) {
+            await request(`/v1/storage/stores/${store.id}/connections`, {
+              method: "POST",
+              body: {
+                envVarEnvironments: VERCEL_PROJECT_ENVIRONMENTS,
+                projectId,
+                type: "integration",
+              },
+            })
           }
           return {}
         },
       }]
     },
   }
-}
-
-function extractToken(response: VercelBlobStoreCreateResponse): string | undefined {
-  return response.token ?? response.BLOB_READ_WRITE_TOKEN
-}
-
-// Pushes a secret to the Vercel project env store. The value is never written to disk or logged.
-async function pushVercelProjectEnv(
-  request: ReturnType<typeof createVercelProvisionClient>,
-  projectId: string,
-  key: string,
-  value: string,
-): Promise<void> {
-  await request(`/v10/projects/${projectId}/env`, {
-    method: "POST",
-    query: { upsert: "true" },
-    body: { key, value, type: "encrypted", target: ["production", "preview", "development"] },
-  })
 }

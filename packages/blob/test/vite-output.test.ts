@@ -128,6 +128,16 @@ afterEach(() => {
 })
 
 describe("Vite provider outputs", () => {
+  it("rejects malformed resolved Blob config before rendering provider entries", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-invalid-resolved-config-")
+
+    await expect(generateProviderOutputs({
+      blob: { store: { access: "private" } } as never,
+      clientOutDir: "dist",
+      rootDir,
+    })).rejects.toThrow("`blob.store` must contain a fully resolved Blob store with a supported `driver`.")
+  })
+
   it("hydrates configured Blob options in bundled server output", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-runtime-config-")
     const entry = join(rootDir, "src", "server.ts")
