@@ -28,6 +28,7 @@ import {
 } from "./channels.ts"
 import { agentInvocationCallbackContextValues, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents } from "./run-events.ts"
+import type { AgentMessagePhase } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
   normalizeAgentInvokerOptions,
