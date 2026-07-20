@@ -399,7 +399,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(expect.objectContaining({ driver }))
   })
 
-  it("omits unsupported implicit Blob wiring and rejects Blob imports for Deno", () => {
+  it("omits unsupported implicit Blob wiring and its facade alias for Deno", () => {
     integrationMocks.hubBlob.mockClear()
     expect(pluginNames(vitehub({ preset: "deno" }))).not.toContain("@vite-hub/blob/vite")
     expect(integrationMocks.hubBlob).not.toHaveBeenCalled()
@@ -408,6 +408,11 @@ describe("vitehub", () => {
     expect(() => resolveId("vite-hub/blob", "/app/server/api.ts")).toThrow("cannot provide blob")
     expect(() => resolveId(fileURLToPath(import.meta.resolve("vite-hub/blob")), "/app/server/api.ts")).toThrow("cannot provide blob")
     expect(() => resolveId("vite-hub/blob/content-type", "/app/server/api.ts")).not.toThrow()
+
+    const dependency = dependencyPlugin({ preset: "deno" })
+    const config = (dependency.config as () => { resolve: { alias: Record<string, string> } })()
+    expect(config.resolve.alias["vite-hub/blob"]).toBeUndefined()
+    expect(config.resolve.alias["vite-hub/blob/content-type"]).toEqual(expect.any(String))
   })
 
   it("wires supported Sandbox adapters from the deployment plan", () => {

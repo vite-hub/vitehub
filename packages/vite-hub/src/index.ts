@@ -125,15 +125,18 @@ function configureProviderOptionalImportAliases(
 function frameworkDependencyResolver(
   options: ViteHubOptions,
   providerImportAliases: Record<string, string>,
+  blobEnabled: boolean,
   presetKVOptions?: KVModuleOptions,
 ): Plugin {
   return {
     name: "vite-hub/dependencies",
     enforce: "pre",
     config() {
+      const aliases = { ...frameworkProviderImportAliases }
+      if (!blobEnabled) delete aliases["vite-hub/blob"]
       return {
         resolve: {
-          alias: frameworkProviderImportAliases,
+          alias: aliases,
         },
       }
     },
@@ -329,7 +332,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   configureProviderOptionalImportAliases(providerImportAliases, options, presetKVOptions || undefined)
   const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(sandboxEnabled)
 
-  plugins.push(frameworkDependencyResolver(options, providerImportAliases, presetKVOptions || undefined))
+  plugins.push(frameworkDependencyResolver(options, providerImportAliases, blobEnabled, presetKVOptions || undefined))
   plugins.push(hubMarkdownTemplate({ runtimeImport: `${generatedImportBase}/markdown-template` }))
 
   if (options.env !== false) {
