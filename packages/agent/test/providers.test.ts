@@ -24,6 +24,32 @@ function githubSignature(secret: string, body: string) {
   return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
 }
 
+function githubPullRequestLabeledPayload() {
+  return {
+    action: "labeled",
+    installation: { id: 123 },
+    label: { name: "agent:ready" },
+    number: 42,
+    pull_request: {
+      base: { ref: "main", repo: { full_name: "acme/app" }, sha: "base-sha" },
+      head: { ref: "feature", repo: { full_name: "acme/fork" }, sha: "head-sha" },
+      html_url: "https://github.com/acme/app/pull/42",
+      labels: [{ name: "agent:ready" }],
+      number: 42,
+      title: "Improve app",
+      url: "https://api.github.com/repos/acme/app/pulls/42",
+    },
+    repository: {
+      full_name: "acme/app",
+      id: 1001,
+      name: "app",
+      node_id: "repo-node",
+      owner: { login: "acme" },
+    },
+    sender: { id: 1, login: "mona", node_id: "sender-node", type: "User" },
+  }
+}
+
 const optionalMessageAdapterRuntimeExternals = [
   "bufferutil",
   "utf-8-validate",
@@ -4421,6 +4447,195 @@ describe("server helpers", () => {
 
     expect(rejected.status).toBe(401)
     await expect(rejected.json()).resolves.toEqual({ error: "[vitehub] Webhook secret verification failed." })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("runs only admitted signed GitHub pull request label deliveries", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-github-labeled-trigger-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const run = vi.fn((_context: unknown) => "accepted")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          app: { webhookSecret: "secret-token" },
+          pullRequest: {
+            labeled: {
+              allowedSenders: [{ id: 1, login: "Mona" }],
+              label: "agent:ready",
+            },
+          },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntilTasks: Promise<unknown>[] = []
+    const request = (
+      deliveryId: string,
+      payload: ReturnType<typeof githubPullRequestLabeledPayload>,
+      event = "pull_request",
+      signature = githubSignature("secret-token", JSON.stringify(payload)),
+    ) => {
+      const body = JSON.stringify(payload)
+      return new Request("https://example.com/api/github/webhook", {
+        body,
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": deliveryId,
+          "x-github-event": event,
+          "x-hub-signature-256": signature,
+        },
+        method: "POST",
+      })
+    }
+    const options = {
+      agentName: "review",
+      webhookState: state,
+      waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
+    }
+
+    try {
+      const wrongLabel = githubPullRequestLabeledPayload()
+      wrongLabel.label.name = "agent:done"
+      await expect((await handler(request("wrong-label", wrongLabel), "github", options)).json()).resolves.toMatchObject({ reason: "wrong_label" })
+
+      const wrongSender = githubPullRequestLabeledPayload()
+      wrongSender.sender.id = 2
+      await expect((await handler(request("wrong-sender", wrongSender), "github", options)).json()).resolves.toMatchObject({ reason: "sender_not_allowed" })
+
+      const wrongAction = githubPullRequestLabeledPayload()
+      wrongAction.action = "synchronize"
+      await expect((await handler(request("wrong-action", wrongAction), "github", options)).json()).resolves.toMatchObject({ reason: "not_labeled" })
+
+      for (const event of ["issue_comment", "pull_request_review", "check_suite"]) {
+        const ignoredEvent = await handler(request(`wrong-event-${event}`, githubPullRequestLabeledPayload(), event), "github", options)
+        await expect(ignoredEvent.json()).resolves.toMatchObject({ reason: "wrong_event" })
+      }
+      expect(run).not.toHaveBeenCalled()
+
+      const invalidSignature = await handler(request("bad-signature", githubPullRequestLabeledPayload(), "pull_request", "sha256=wrong"), "github", options)
+      expect(invalidSignature.status).toBe(401)
+      expect(run).not.toHaveBeenCalled()
+
+      const accepted = await handler(request("delivery-1", githubPullRequestLabeledPayload()), "github", options)
+      await expect(accepted.json()).resolves.toEqual({ accepted: true, ok: true })
+      await Promise.all(waitUntilTasks.splice(0))
+      expect(run).toHaveBeenCalledOnce()
+      expect(run.mock.calls[0]?.[0]).toMatchObject({
+        input: {
+          context: {
+            actor: { id: "github:github.com:1", label: "@mona" },
+            pullRequest: {
+              pullRequest: {
+                base: { ref: "main", repo: "acme/app", sha: "base-sha" },
+                head: { ref: "feature", repo: "acme/fork", sha: "head-sha" },
+                source: { ref: "refs/pull/42/head", repo: "acme/app" },
+              },
+              trigger: {
+                deliveryId: "delivery-1",
+                installationId: 123,
+                label: { name: "agent:ready" },
+                sender: { id: 1, login: "mona", nodeId: "sender-node" },
+              },
+            },
+          },
+        },
+        run: {
+          runId: "github:github.com:delivery:delivery-1",
+          threadId: "github:github.com:repository:1001:pull:42:head:head-sha",
+        },
+      })
+
+      const duplicate = await handler(request("delivery-1", githubPullRequestLabeledPayload()), "github", options)
+      await expect(duplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true })
+      expect(run).toHaveBeenCalledOnce()
+
+      const reapplied = await handler(request("delivery-2", githubPullRequestLabeledPayload()), "github", options)
+      await expect(reapplied.json()).resolves.toEqual({ accepted: true, ok: true })
+      await Promise.all(waitUntilTasks)
+      expect(run).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("fails closed when GitHub label admission disables webhook verification", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          app: { webhookSecret: false },
+          pullRequest: {
+            labeled: {
+              allowedSenders: [{ id: 1 }],
+              label: "agent:ready",
+            },
+          },
+        }),
+      },
+      driver: { run },
+    })
+    const payload = githubPullRequestLabeledPayload()
+    const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/github/webhook", {
+      body: JSON.stringify(payload),
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-1",
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    }), "github")
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toMatchObject({ reason: "unverified" })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("uses one resolved GitHub App secret for label signature verification", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const run = vi.fn(() => "unexpected")
+    let resolutions = 0
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          app: {
+            webhookSecret: () => ++resolutions === 1 ? "secret-token" : false,
+          },
+          pullRequest: {
+            labeled: {
+              allowedSenders: [{ id: 1 }],
+              label: "agent:ready",
+            },
+          },
+        }),
+      },
+      driver: { run },
+    })
+    const payload = githubPullRequestLabeledPayload()
+    const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/github/webhook", {
+      body: JSON.stringify(payload),
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-1",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": "sha256=wrong",
+      },
+      method: "POST",
+    }), "github")
+
+    expect(response.status).toBe(401)
+    expect(resolutions).toBe(1)
     expect(run).not.toHaveBeenCalled()
   })
 

@@ -264,6 +264,27 @@ The GitHub channel renders inline image artifacts as markdown in `reply` and `re
 
 GitHub Pull Request Context enrichment is bounded before it reaches the Agent Invocation Context. By default, `github({ pullRequest: true })` records up to 30 comments, 200 changed files, 12,000 pull request body characters, and 2,000 characters per comment body. Override those with `maxComments`, `maxFiles`, `maxBodyLength`, and `maxCommentBodyLength` on the `pullRequest` option. Rendered comments are labeled as untrusted user content, and failed metadata enrichment is recorded at `pullRequest.metadata.unavailable`.
 
+Use a labeled event when an Agent Invocation should start only after a trusted GitHub actor applies a specific label:
+
+```ts [server/agents/triage.ts]
+export default defineAgent({
+  channels: {
+    github: github({
+      app: true,
+      pullRequest: {
+        labeled: {
+          label: 'agent:triage',
+          allowedSenders: [{ id: 583231, login: 'octocat' }],
+        },
+      },
+    }),
+  },
+  driver: { run: () => 'Triage this pull request.' },
+})
+```
+
+`allowedSenders` uses GitHub's stable numeric account ID for admission. An optional `login` is a case-insensitive assertion for reviewable configuration; a mismatch is rejected. Labeled events require a valid GitHub SHA-256 webhook signature. Admitted invocations include the label and sender, repository identity, GitHub App installation identity when present, delivery ID, and the exact base and head refs and SHAs in the Pull Request Context. Repeated deliveries share a delivery identity, while invocations for the same pull request head share an exact-head concurrency identity. The dev trigger also accepts a raw GitHub `pull_request` payload for local fixture replay and derives a deterministic development delivery ID from it.
+
 ## Next steps
 
 - Read [Triggers](/docs/agents/triggers) for `chat.message` and app-owned trigger consumers.

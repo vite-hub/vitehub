@@ -30,6 +30,33 @@ function githubIssueCommentPayload(body = "/review please") {
   }
 }
 
+function githubPullRequestLabeledPayload() {
+  return {
+    action: "labeled",
+    installation: { id: 123 },
+    label: { name: "agent:ready" },
+    number: 42,
+    pull_request: {
+      base: { ref: "main", repo: { full_name: "acme/app" }, sha: "base-sha" },
+      body: "Keep this pull request moving.",
+      head: { ref: "feature", repo: { full_name: "acme/fork" }, sha: "head-sha" },
+      html_url: "https://github.test/acme/app/pull/42",
+      labels: [{ name: "agent:ready" }, { name: "bug" }],
+      number: 42,
+      title: "Improve app",
+      url: "https://api.github.test/repos/acme/app/pulls/42",
+    },
+    repository: {
+      full_name: "acme/app",
+      id: 1001,
+      name: "app",
+      node_id: "repo-node",
+      owner: { login: "acme" },
+    },
+    sender: { id: 1, login: "mona", node_id: "sender-node", type: "User" },
+  }
+}
+
 describe("agent channels", () => {
   it("uses normalized finish context text for default GitHub PR replies", async () => {
     const { github } = await import("../src/channels.ts")
@@ -383,6 +410,264 @@ describe("agent channels", () => {
       installationId: 123,
       repository: "acme/app",
     })
+  })
+
+  it("admits configured GitHub pull_request labeled senders with exact head context", async () => {
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith("/app/installations/123/access_tokens")) {
+        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      }
+      return Response.json({ ok: true }, { status: 201 })
+    })
+    const channel = github({
+      app: {
+        apiBaseUrl: "https://api.github.test",
+        appId: "1",
+        fetch: fetcher as typeof fetch,
+        privateKey: privateKeyPem,
+      },
+      pullRequest: {
+        comment: { reply: false },
+        labeled: {
+          allowedSenders: [{ id: 1, login: "Mona" }],
+          label: "agent:ready",
+        },
+      },
+    })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    const context = {
+      capabilities: [],
+      channel,
+      trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+    }
+    const result = await trigger.invoke(context as never, {
+      github: { deliveryId: "delivery-1", event: "pull_request", installationId: 123 },
+      payload: githubPullRequestLabeledPayload(),
+      webhook: { signatureVerified: true },
+    })
+    if (result instanceof Response) throw new Error("Expected GitHub labeled invocation.")
+
+    expect(result.webhook).toEqual({
+      concurrencyKey: "github:https://api.github.test:repository:1001:pull:42:head:head-sha",
+      deliveryId: "delivery-1",
+    })
+    expect(result.run).toEqual({
+      channelId: "github",
+      messageId: "delivery-1",
+      origin: "github-pull-request-labeled",
+      runId: "github:https://api.github.test:delivery:delivery-1",
+      threadId: "github:https://api.github.test:repository:1001:pull:42:head:head-sha",
+    })
+    expect(result.input).toMatchObject({
+      context: {
+        actor: {
+          id: "github:https://api.github.test:1",
+          kind: "github",
+          label: "@mona",
+          meta: { github: { id: 1, login: "mona", nodeId: "sender-node", type: "User" } },
+        },
+        pullRequest: {
+          pullRequest: {
+            base: { ref: "main", repo: "acme/app", sha: "base-sha" },
+            head: { ref: "feature", repo: "acme/fork", sha: "head-sha" },
+            labels: ["agent:ready", "bug"],
+            number: 42,
+            source: { mount: "app", ref: "refs/pull/42/head", repo: "acme/app" },
+          },
+          repository: { fullName: "acme/app", id: 1001, name: "app", nodeId: "repo-node", owner: "acme" },
+          trigger: {
+            action: "labeled",
+            deliveryId: "delivery-1",
+            event: "pull_request",
+            installationId: 123,
+            label: { name: "agent:ready" },
+            sender: { id: 1, login: "mona", nodeId: "sender-node", type: "User" },
+          },
+        },
+      },
+    })
+
+    const replyEffect = channel.effects?.reply
+    if (typeof replyEffect !== "function") throw new Error("Missing GitHub reply effect.")
+    await replyEffect({
+      channel,
+      effect: { kind: "reply", payload: { body: "Label run complete." } },
+      input: result.input,
+      memo: vi.fn(),
+      run: result.run,
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    } as never)
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://api.github.test/repos/acme/app/issues/42/comments",
+      expect.objectContaining({ body: JSON.stringify({ body: "Label run complete." }), method: "POST" }),
+    )
+
+    const comment = await trigger.invoke(context as never, {
+      payload: githubIssueCommentPayload(),
+    })
+    if (comment instanceof Response) throw new Error("Expected compatible GitHub issue comment invocation.")
+    expect(comment.input.context?.github).toMatchObject({ command: "/review" })
+
+    const dev = channel.triggers?.dev
+    if (!dev) throw new Error("Missing GitHub dev trigger.")
+    const labeledContext = result.input.context?.pullRequest
+    const fromContext = await dev.invoke({
+      ...context,
+      trigger: { ...context.trigger, id: "github.dev", name: "dev" },
+    } as never, { pullRequest: labeledContext })
+    if (fromContext instanceof Response) throw new Error("Expected admitted GitHub labeled dev context.")
+    expect(fromContext.webhook?.concurrencyKey).toBe("github:https://api.github.test:repository:1001:pull:42:head:head-sha")
+
+    const rawPayload = githubPullRequestLabeledPayload() as Omit<ReturnType<typeof githubPullRequestLabeledPayload>, "installation"> & {
+      installation?: { id: number }
+    }
+    delete rawPayload.installation
+    const fromRawPayload = await dev.invoke({
+      ...context,
+      trigger: { ...context.trigger, id: "github.dev", name: "dev" },
+    } as never, rawPayload)
+    if (fromRawPayload instanceof Response) throw new Error("Expected raw GitHub labeled dev payload.")
+    expect(fromRawPayload.input.context?.pullRequest).toMatchObject({
+      trigger: {
+        deliveryId: "dev:1001:42:head-sha:agent:ready",
+        label: { name: "agent:ready" },
+      },
+    })
+    expect((fromRawPayload.input.context?.pullRequest as { trigger?: { installationId?: number } }).trigger?.installationId).toBeUndefined()
+
+    const callerControlled = structuredClone(labeledContext) as {
+      run: { runId: string, threadId: string }
+      trigger: { action: string }
+    }
+    callerControlled.run.runId = "attacker-run"
+    callerControlled.run.threadId = "attacker-thread"
+    const canonical = await dev.invoke({
+      ...context,
+      trigger: { ...context.trigger, id: "github.dev", name: "dev" },
+    } as never, { pullRequest: callerControlled })
+    if (canonical instanceof Response) throw new Error("Expected canonical GitHub labeled dev context.")
+    expect(canonical.run?.runId).toBe("github:https://api.github.test:delivery:delivery-1")
+    expect(canonical.run?.threadId).toBe("github:https://api.github.test:repository:1001:pull:42:head:head-sha")
+    expect(canonical.input.context?.pullRequest?.run).toEqual({
+      messageId: "delivery-1",
+      origin: "github-pull-request-labeled",
+      runId: "github:https://api.github.test:delivery:delivery-1",
+      threadId: "github:https://api.github.test:repository:1001:pull:42:head:head-sha",
+    })
+
+    callerControlled.trigger.action = "unlabeled"
+    const wrongAction = await dev.invoke({
+      ...context,
+      trigger: { ...context.trigger, id: "github.dev", name: "dev" },
+    } as never, { pullRequest: callerControlled })
+    if (!(wrongAction instanceof Response)) throw new Error("Expected rejected GitHub labeled dev action.")
+    await expect(wrongAction.json()).resolves.toMatchObject({ reason: "not_labeled" })
+
+    const staleContext = structuredClone(labeledContext) as { trigger: { sender: { login: string } } }
+    staleContext.trigger.sender.login = "octocat"
+    const rejectedContext = await dev.invoke({
+      ...context,
+      trigger: { ...context.trigger, id: "github.dev", name: "dev" },
+    } as never, { pullRequest: staleContext })
+    if (!(rejectedContext instanceof Response)) throw new Error("Expected rejected GitHub labeled dev context.")
+    await expect(rejectedContext.json()).resolves.toMatchObject({ reason: "sender_login_mismatch" })
+  })
+
+  it("handles unverified, wrong-label, wrong-action, and disallowed-sender GitHub events", async () => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({
+      pullRequest: {
+        labeled: {
+          allowedSenders: [{ id: 1, login: "mona" }],
+          label: "agent:ready",
+        },
+      },
+    })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    const context = {
+      capabilities: [],
+      channel,
+      trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+    }
+    const invoke = async (payload: ReturnType<typeof githubPullRequestLabeledPayload>, verified = true) => {
+      const result = await trigger.invoke(context as never, {
+        github: { deliveryId: "delivery-1", event: "pull_request", installationId: 123 },
+        payload,
+        webhook: { signatureVerified: verified },
+      })
+      if (!(result instanceof Response)) throw new Error("Expected handled GitHub event.")
+      return result
+    }
+
+    const unverified = await invoke(githubPullRequestLabeledPayload(), false)
+    expect(unverified.status).toBe(401)
+    await expect(unverified.json()).resolves.toMatchObject({ reason: "unverified" })
+
+    const wrongLabel = githubPullRequestLabeledPayload()
+    wrongLabel.label.name = "agent:done"
+    await expect((await invoke(wrongLabel)).json()).resolves.toMatchObject({ reason: "wrong_label" })
+
+    const wrongAction = githubPullRequestLabeledPayload()
+    wrongAction.action = "unlabeled"
+    await expect((await invoke(wrongAction)).json()).resolves.toMatchObject({ reason: "not_labeled" })
+
+    const wrongSender = githubPullRequestLabeledPayload()
+    wrongSender.sender.id = 2
+    await expect((await invoke(wrongSender)).json()).resolves.toMatchObject({ reason: "sender_not_allowed" })
+
+    const renamedSender = githubPullRequestLabeledPayload()
+    renamedSender.sender.login = "octocat"
+    await expect((await invoke(renamedSender)).json()).resolves.toMatchObject({ reason: "sender_login_mismatch" })
+  })
+
+  it("requires stable GitHub sender selectors for labeled pull request admission", async () => {
+    const { github } = await import("../src/channels.ts")
+
+    expect(() => github({
+      pullRequest: { labeled: { allowedSenders: [], label: "agent:ready" } },
+    })).toThrow("requires at least one allowed sender")
+    expect(() => github({
+      pullRequest: { labeled: { allowedSenders: [{ id: 0 }], label: "agent:ready" } },
+    })).toThrow("positive safe integers")
+    expect(() => github({
+      pullRequest: { labeled: { allowedSenders: [{ id: 1, login: "" }], label: "agent:ready" } },
+    })).toThrow("logins must be non-empty")
+    expect(() => github({
+      app: { apiBaseUrl: "not a url" },
+      pullRequest: { labeled: { allowedSenders: [{ id: 1 }], label: "agent:ready" } },
+    })).toThrow("apiBaseUrl must be a valid HTTP URL")
+
+    const signed = github({
+      app: { webhookSecret: "secret-token" },
+      pullRequest: { labeled: { allowedSenders: [{ id: 1 }], label: "agent:ready" } },
+      webhooks: {
+        secretHeader: "x-insecure-token",
+        signature: "plain-token",
+      },
+    })
+    expect(signed.webhooks).toMatchObject({
+      secretHeader: "x-hub-signature-256",
+      signature: "github-sha256",
+    })
+  })
+
+  it("preserves legacy GitHub pull request comment options with an undefined labeled flag", async () => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({
+      pullRequest: {
+        labeled: undefined,
+        reply: false,
+      } as { labeled?: undefined, reply: false },
+    })
+
+    expect(channel.triggers?.webhook).toBeDefined()
+    expect(channel.triggers?.dev).toBeDefined()
   })
 
   it("uses token fallback to fetch GitHub PR metadata", async () => {

@@ -108,6 +108,7 @@ export interface PullRequestContextValue extends JsonObject {
     deliveryId?: string
     event?: string
     installationId?: number | string
+    label?: JsonObject & { name: string }
     sender?: PullRequestContextUser
   }
 }
@@ -394,8 +395,9 @@ function normalizedTrigger(value: unknown): PullRequestContextValue["trigger"] |
   const deliveryId = maybeString(value.deliveryId)
   const event = maybeString(value.event)
   const installationId = maybeContextValue(value.installationId)
+  const label = isRecord(value.label) ? maybeString(value.label.name) : undefined
   const sender = normalizedUser(value.sender)
-  if (!action && !actor && !args && !command && !comment && !deliveryId && !event && installationId === undefined && !sender) return
+  if (!action && !actor && !args && !command && !comment && !deliveryId && !event && installationId === undefined && !label && !sender) return
   return {
     ...(action ? { action } : {}),
     ...(actor ? { actor } : {}),
@@ -405,6 +407,7 @@ function normalizedTrigger(value: unknown): PullRequestContextValue["trigger"] |
     ...(deliveryId ? { deliveryId } : {}),
     ...(event ? { event } : {}),
     ...(installationId !== undefined ? { installationId } : {}),
+    ...(label ? { label: { name: label } } : {}),
     ...(sender ? { sender } : {}),
   }
 }

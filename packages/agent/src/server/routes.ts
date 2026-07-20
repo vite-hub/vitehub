@@ -493,7 +493,11 @@ function githubInstallationId(payload: unknown): number | undefined {
   return typeof id === "number" ? id : undefined
 }
 
-async function createAgentWebhookTriggerInput(request: Request, registration: AgentWebhookRegistrationDefinition): Promise<Record<string, unknown>> {
+async function createAgentWebhookTriggerInput(
+  request: Request,
+  registration: AgentWebhookRegistrationDefinition,
+  verified: boolean,
+): Promise<Record<string, unknown>> {
   const body = await request.clone().text()
   const payload = parseWebhookPayload(body)
   const headers = requestHeaders(request)
@@ -502,6 +506,7 @@ async function createAgentWebhookTriggerInput(request: Request, registration: Ag
     ...(registration.id ? { id: registration.id } : {}),
     ...(registration.path ? { path: registration.path } : {}),
     provider: registration.provider,
+    signatureVerified: verified,
   }
   return {
     body,
@@ -2584,20 +2589,25 @@ export function createChannelWebhookRouteHandler(
       }
 
       const { registration, trigger } = match
-      if (await matchedWebhookRegistrationRequiresVerification(registration, context, trigger.id !== "chat.message")) {
-        try {
+      let signatureVerified = false
+      try {
+        if (trigger.id !== "chat.message") {
+          const verification = await verifyAgentWebhookRequest([registration], request, context, { requireSecretHeader: true })
+          signatureVerified = verification.method === "github-sha256"
+        }
+        else if (await matchedWebhookRegistrationRequiresVerification(registration, context, false)) {
           await verifyAgentWebhookRequest([registration], request, context, { requireSecretHeader: true })
         }
-        catch (error) {
-          const response = toHttpErrorResponse(error)
-          if (response) return response
-          throw error
-        }
+      }
+      catch (error) {
+        const response = toHttpErrorResponse(error)
+        if (response) return response
+        throw error
       }
 
       if (trigger.id !== "chat.message") {
         try {
-          const input = await createAgentWebhookTriggerInput(request, registration)
+          const input = await createAgentWebhookTriggerInput(request, registration, signatureVerified)
           const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, trigger.id, input)
           if (isResolvedAgentTriggerHandledInvocation(invocation)) {
             await context.flushWaitUntil?.()

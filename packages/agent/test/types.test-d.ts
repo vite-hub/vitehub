@@ -1639,6 +1639,26 @@ describe("agent public types", () => {
     // @ts-expect-error GitHub Channel PR comments are configured through pullRequest, not legacy events.
     github({ events: { pullRequestComments: true } })
 
+    github({
+      pullRequest: {
+        comment: { reply: false },
+        labeled: {
+          allowedSenders: [{ id: 583231, login: "octocat" }],
+          label: "agent:ready",
+        },
+      },
+    })
+
+    github({
+      pullRequest: {
+        labeled: {
+          // @ts-expect-error GitHub label admission requires the stable numeric account id.
+          allowedSenders: [{ login: "octocat" }],
+          label: "agent:ready",
+        },
+      },
+    })
+
     const broadCapabilities: AgentCapabilityDefinition[] = [
       access({
         workspace: {

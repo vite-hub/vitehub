@@ -228,6 +228,7 @@ export function isResolvedAgentTriggerHandledInvocation<
 }
 
 export interface AgentWebhookVerificationResult {
+  method: "disabled" | "github-sha256" | "none" | "secret-token"
   registration?: AgentWebhookRegistrationDefinition
   verified: boolean
 }
@@ -297,21 +298,21 @@ async function verifyRequiredWebhookHeaders<TRuntimeConfig extends AgentRuntimeC
   for (const registration of registrations) {
     const secretToken = await resolveMaybe(registration.secretToken, context)
     if (!registration.secretHeader) {
-      if (secretToken === false) return { registration, verified: true }
+      if (secretToken === false) return { method: "disabled", registration, verified: true }
       if (secretToken) {
         throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretToken but no secretHeader is configured. Verification requires secretHeader; secretToken: false explicitly disables verification.`)
       }
       continue
     }
     if (secretToken === false) {
-      return { registration, verified: true }
+      return { method: "disabled", registration, verified: true }
     }
     if (!secretToken) {
       throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.`)
     }
     throw webhookVerificationError(`[vitehub] Webhook secret header "${registration.secretHeader}" is required.`)
   }
-  return { verified: true }
+  return { method: "none", verified: true }
 }
 
 export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
@@ -331,13 +332,13 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
   if (!targeted.length) {
     return options.requireSecretHeader
       ? await verifyRequiredWebhookHeaders(registrations, verificationContext)
-      : { verified: true }
+      : { method: "none", verified: true }
   }
 
   for (const { headerValue, registration } of targeted) {
     const secretToken = await resolveMaybe(registration.secretToken, verificationContext)
     if (secretToken === false) {
-      return { registration, verified: true }
+      return { method: "disabled", registration, verified: true }
     }
     if (!secretToken) {
       throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.`)
@@ -345,12 +346,12 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     if (registration.signature === "github-sha256") {
       const expected = `sha256=${await hmacSha256(secretToken, await request.clone().text())}`
       if (await constantTimeEqual(expected, headerValue)) {
-        return { registration, verified: true }
+        return { method: "github-sha256", registration, verified: true }
       }
       continue
     }
     if (await constantTimeEqual(secretToken, headerValue)) {
-      return { registration, verified: true }
+      return { method: "secret-token", registration, verified: true }
     }
   }
 

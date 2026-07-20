@@ -402,6 +402,7 @@ describe("repositoryHostContext", () => {
       trigger: {
         actor: { login: "mona" },
         deliveryId: "delivery-1",
+        label: { name: "agent:triage" },
       },
     } as const
 
@@ -412,6 +413,7 @@ describe("repositoryHostContext", () => {
       number: 42,
       repository: "acme/app",
       source: { mount: "vitehub" },
+      trigger: { label: { name: "agent:triage" } },
     })
     await expect(repositoryHostContext.read({
       context: { get: (key: string) => key === "pullRequest" ? rawPullRequestContext : undefined },

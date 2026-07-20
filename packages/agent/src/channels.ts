@@ -158,6 +158,43 @@ export type GitHubIssueCommentPayload = {
   sender?: { id?: unknown, login?: unknown, type?: unknown }
 }
 
+export type GitHubPullRequestLabeledPayload = {
+  action?: unknown
+  installation?: { id?: unknown }
+  label?: { name?: unknown }
+  number?: unknown
+  pull_request?: {
+    base?: { ref?: unknown, repo?: { full_name?: unknown } | null, sha?: unknown }
+    body?: unknown
+    html_url?: unknown
+    labels?: unknown
+    number?: unknown
+    head?: { ref?: unknown, repo?: { full_name?: unknown } | null, sha?: unknown }
+    title?: unknown
+    url?: unknown
+  }
+  repository?: {
+    full_name?: unknown
+    id?: unknown
+    name?: unknown
+    node_id?: unknown
+    owner?: { login?: unknown }
+  }
+  sender?: { id?: unknown, login?: unknown, node_id?: unknown, type?: unknown }
+}
+
+export interface GitHubSenderSelector {
+  id: number
+  login?: string
+}
+
+export interface GitHubSender {
+  id: number
+  login: string
+  nodeId?: string
+  type?: string
+}
+
 export interface GitHubPullRequestCommand {
   action: "created"
   actor: {
@@ -240,7 +277,9 @@ export interface GitHubPullRequestRunContext {
   }
   repository: {
     fullName: string
+    id?: number
     name: string
+    nodeId?: string
     owner: string
   }
   run: {
@@ -249,7 +288,10 @@ export interface GitHubPullRequestRunContext {
     runId: string
     threadId: string
   }
-  trigger: {
+  trigger: GitHubPullRequestCommentRunTrigger | GitHubPullRequestLabeledRunTrigger
+}
+
+export interface GitHubPullRequestCommentRunTrigger {
     action: GitHubPullRequestCommand["action"]
     actor: GitHubPullRequestCommand["actor"]
     args: string
@@ -271,7 +313,17 @@ export interface GitHubPullRequestRunContext {
       login?: string
       type?: string
     }
+}
+
+export interface GitHubPullRequestLabeledRunTrigger {
+  action: "labeled"
+  deliveryId: string
+  event: "pull_request"
+  installationId?: number
+  label: {
+    name: string
   }
+  sender: GitHubSender
 }
 
 export interface GitHubPullRequestReadInvocation {
@@ -319,10 +371,23 @@ export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends Age
   threadId?: string
 }
 
+export interface GitHubPullRequestLabeledEventOptions {
+  allowedSenders: readonly GitHubSenderSelector[]
+  ignored?: (reason: string) => Response
+  label: string
+  origin?: string
+  sourceMount?: string
+}
+
+export interface GitHubPullRequestEventOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  comment?: boolean | GitHubPullRequestCommentEventOptions<TRuntimeConfig>
+  labeled?: GitHubPullRequestLabeledEventOptions
+}
+
 export interface GitHubChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentChannelOptions<TRuntimeConfig> {
   app?: true | GitHubAppOptions<TRuntimeConfig>
-  pullRequest?: boolean | GitHubPullRequestCommentEventOptions<TRuntimeConfig>
+  pullRequest?: boolean | GitHubPullRequestCommentEventOptions<TRuntimeConfig> | GitHubPullRequestEventOptions<TRuntimeConfig>
 }
 
 export interface DiscordAdapterOptions {
@@ -567,6 +632,183 @@ function githubPullRequestCommandFromInput(input: unknown): GitHubPullRequestCom
   }
 }
 
+interface GitHubPullRequestLabeledEvent {
+  base: Required<GitHubPullRequestRefMetadata>
+  body?: string
+  deliveryId: string
+  head: Required<GitHubPullRequestRefMetadata>
+  htmlUrl: string
+  installationId?: number
+  label: string
+  labels?: string[]
+  number: number
+  pullRequestUrl: string
+  repository: {
+    fullName: string
+    id: number
+    name: string
+    nodeId?: string
+    owner: string
+  }
+  sender: GitHubSender
+  title?: string
+}
+
+function githubPositiveInteger(value: unknown): number | undefined {
+  const number = maybeNumber(value)
+  return number !== undefined && Number.isSafeInteger(number) && number > 0 ? number : undefined
+}
+
+function githubPullRequestLabeledFromInput(input: unknown): GitHubPullRequestLabeledEvent | undefined {
+  const payload = inputPayloadOrBody(input) as GitHubPullRequestLabeledPayload | undefined
+  const facts = inputGithubFacts(input)
+  if (!payload || maybeString(facts?.event) !== "pull_request" || payload.action !== "labeled") return
+  const pullRequest = payload.pull_request
+  const base = githubRefMetadata(pullRequest?.base)
+  const head = githubRefMetadata(pullRequest?.head)
+  const repository = maybeString(payload.repository?.full_name)
+  const repositoryId = githubPositiveInteger(payload.repository?.id)
+  const [owner, repo] = repository?.split("/") || []
+  const number = githubPositiveInteger(payload.number) ?? githubPositiveInteger(pullRequest?.number)
+  const senderId = githubPositiveInteger(payload.sender?.id)
+  const senderLogin = maybeString(payload.sender?.login)
+  const deliveryId = maybeString(facts?.deliveryId)
+  const installationId = githubPositiveInteger(facts?.installationId) ?? githubPositiveInteger(payload.installation?.id)
+  const label = maybeString(payload.label?.name)
+  const pullRequestUrl = maybeString(pullRequest?.url)
+  const htmlUrl = maybeString(pullRequest?.html_url)
+  if (
+    !base?.ref || !base.repo || !base.sha
+    || !head?.ref || !head.repo || !head.sha
+    || !repository || !repositoryId || !owner || !repo || !number
+    || !senderId || !senderLogin || !deliveryId || !label
+    || !pullRequestUrl || !htmlUrl
+  ) return
+  const labels = maybeStrings(Array.isArray(pullRequest?.labels)
+    ? pullRequest.labels.map(value => isRecord(value) ? maybeString(value.name) : undefined)
+    : undefined)
+  return {
+    base: { ref: base.ref, repo: base.repo, sha: base.sha },
+    ...(maybeString(pullRequest?.body) ? { body: maybeString(pullRequest?.body) } : {}),
+    deliveryId,
+    head: { ref: head.ref, repo: head.repo, sha: head.sha },
+    htmlUrl,
+    ...(installationId ? { installationId } : {}),
+    label,
+    ...(labels ? { labels } : {}),
+    number,
+    pullRequestUrl,
+    repository: {
+      fullName: repository,
+      id: repositoryId,
+      name: repo,
+      ...(maybeString(payload.repository?.node_id) ? { nodeId: maybeString(payload.repository?.node_id) } : {}),
+      owner,
+    },
+    sender: {
+      id: senderId,
+      login: senderLogin,
+      ...(maybeString(payload.sender?.node_id) ? { nodeId: maybeString(payload.sender?.node_id) } : {}),
+      ...(maybeString(payload.sender?.type) ? { type: maybeString(payload.sender?.type) } : {}),
+    },
+    ...(maybeString(pullRequest?.title) ? { title: maybeString(pullRequest?.title) } : {}),
+  }
+}
+
+function githubSenderAdmissionReason(
+  sender: GitHubSender,
+  allowedSenders: readonly GitHubSenderSelector[],
+): "sender_login_mismatch" | "sender_not_allowed" | undefined {
+  const matchingIds = allowedSenders.filter(allowed => allowed.id === sender.id)
+  if (!matchingIds.length) return "sender_not_allowed"
+  if (matchingIds.some(allowed => allowed.login === undefined || allowed.login.toLowerCase() === sender.login.toLowerCase())) return
+  return "sender_login_mismatch"
+}
+
+function githubWebhookVerified(input: unknown): boolean {
+  return isRecord(input) && isRecord(input.webhook) && input.webhook.signatureVerified === true
+}
+
+function githubAppHost<TRuntimeConfig extends AgentRuntimeConfig>(app: true | GitHubAppOptions<TRuntimeConfig> | undefined): string {
+  const apiBaseUrl = app && app !== true ? app.apiBaseUrl : undefined
+  if (!apiBaseUrl) return "github.com"
+  try {
+    const url = new URL(apiBaseUrl)
+    if ((url.protocol !== "https:" && url.protocol !== "http:") || !url.hostname) throw new TypeError()
+    return url.origin === "https://api.github.com" ? "github.com" : url.origin
+  }
+  catch {
+    throw new TypeError("[vitehub] GitHub App apiBaseUrl must be a valid HTTP URL.")
+  }
+}
+
+function githubPullRequestLabeledRunContext(
+  event: GitHubPullRequestLabeledEvent,
+  options: GitHubPullRequestLabeledEventOptions,
+  host: string,
+): GitHubPullRequestRunContext {
+  const executionKey = `github:${host}:repository:${event.repository.id}:pull:${event.number}:head:${event.head.sha}`
+  return {
+    pullRequest: {
+      apiUrl: event.pullRequestUrl,
+      base: event.base,
+      ...(event.body ? { body: event.body } : {}),
+      head: event.head,
+      htmlUrl: event.htmlUrl,
+      ...(event.labels ? { labels: event.labels } : {}),
+      number: event.number,
+      source: {
+        mount: options.sourceMount || event.repository.name,
+        ref: `refs/pull/${event.number}/head`,
+        repo: event.repository.fullName,
+      },
+      ...(event.title ? { title: event.title } : {}),
+    },
+    repository: event.repository,
+    run: {
+      messageId: event.deliveryId,
+      origin: options.origin || "github-pull-request-labeled",
+      runId: `github:${host}:delivery:${event.deliveryId}`,
+      threadId: executionKey,
+    },
+    trigger: {
+      action: "labeled",
+      deliveryId: event.deliveryId,
+      event: "pull_request",
+      ...(event.installationId ? { installationId: event.installationId } : {}),
+      label: { name: event.label },
+      sender: event.sender,
+    },
+  }
+}
+
+function githubSenderActor(sender: GitHubSender, host: string) {
+  return {
+    id: `github:${host}:${sender.id}`,
+    kind: "github",
+    label: `@${sender.login}`,
+    meta: {
+      github: sender,
+    },
+  }
+}
+
+function githubPullRequestLabeledInput(
+  event: GitHubPullRequestLabeledEvent,
+  pullRequest: GitHubPullRequestRunContext,
+  host: string,
+): AgentRunInput {
+  const actor = githubSenderActor(event.sender, host)
+  return {
+    context: {
+      actor,
+      invoker: actor,
+      pullRequest,
+    },
+    prompt: `Pull request #${event.number} was labeled ${event.label} by @${event.sender.login}.`,
+  }
+}
+
 async function githubPullRequestMetadata<TRuntimeConfig extends AgentRuntimeConfig>(
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
   context: AgentCallbackContext<TRuntimeConfig>,
@@ -751,6 +993,9 @@ function githubCommandFromEffect<TRuntimeConfig extends AgentRuntimeConfig>(
   return githubCommandFromUnknown(effectPayload?.github)
     || githubCommandFromUnknown(effectMetadata?.github)
     || githubCommandFromUnknown(isRecord(context.input.context) ? context.input.context.github : undefined)
+    || githubCommandFromRunContext(githubPullRequestRunContextFromUnknown(
+      isRecord(context.input.context) ? context.input.context.pullRequest : undefined,
+    ))
 }
 
 async function resolveEffectOption<T, TRuntimeConfig extends AgentRuntimeConfig>(
@@ -1452,7 +1697,7 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
   return {
     async reaction(context) {
       const command = githubCommandFromEffect(context)
-      if (!command) return
+      if (!command?.commentId) return
       const fetcher = options.fetch || fetch
       const token = await resolveEffectOption(options.token, context)
       const url = `${options.apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/issues/comments/${command.commentId}/reactions`
@@ -1493,7 +1738,7 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
     },
     async update(context) {
       const command = githubCommandFromEffect(context)
-      if (!command) return
+      if (!command?.commentId) return
       const fetcher = options.fetch || fetch
       const token = await resolveEffectOption(options.token, context)
       const headers = githubApiHeaders(token, options.userAgent)
@@ -1547,6 +1792,7 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
 function githubWebhookDefaults<TRuntimeConfig extends AgentRuntimeConfig>(
   webhooks: AgentChannelDefinition<TRuntimeConfig>["webhooks"],
   app?: true | GitHubAppOptions<TRuntimeConfig>,
+  requireGitHubSignature = false,
 ): AgentChannelDefinition<TRuntimeConfig>["webhooks"] {
   const defaults = {
     secretHeader: "x-hub-signature-256",
@@ -1555,7 +1801,13 @@ function githubWebhookDefaults<TRuntimeConfig extends AgentRuntimeConfig>(
   }
   if (webhooks === undefined || webhooks === true) return defaults
   if (webhooks === false) return false
-  const apply = (webhook: AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>) => ({ ...defaults, ...webhook })
+  const apply = (webhook: AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>) => ({
+    ...defaults,
+    ...webhook,
+    ...(requireGitHubSignature
+      ? { secretHeader: "x-hub-signature-256", signature: "github-sha256" as const }
+      : {}),
+  })
   return Array.isArray(webhooks) ? webhooks.map(apply) : apply(webhooks)
 }
 
@@ -1650,16 +1902,41 @@ function githubPullRequestRunContextFromInput(input: unknown): GitHubPullRequest
   return githubPullRequestRunContextFromUnknown(input)
 }
 
-function githubCommandFromRunContext(value: GitHubPullRequestRunContext): GitHubPullRequestCommand | undefined {
+function githubCommandFromRunContext(value: GitHubPullRequestRunContext | undefined): GitHubPullRequestCommand | undefined {
+  if (!value) return
   const repository = maybeString(value.repository.fullName)
   const [fallbackOwner, fallbackRepo] = repository?.split("/") || []
   const owner = maybeString(value.repository.owner) || fallbackOwner
   const repo = maybeString(value.repository.name) || fallbackRepo
   const issueNumber = maybeNumber(value.pullRequest.number)
-  const commentId = maybeNumber(value.trigger.comment.id)
   const pullRequestUrl = maybeString(value.pullRequest.apiUrl)
+  if (!repository || !owner || !repo || !issueNumber || !pullRequestUrl) return
+  if (value.trigger.event === "pull_request") {
+    const login = maybeString(value.trigger.sender.login)
+    if (!login) return
+    return {
+      action: "created",
+      actor: {
+        id: value.trigger.sender.id,
+        login,
+        ...(value.trigger.sender.type ? { type: value.trigger.sender.type } : {}),
+      },
+      args: "",
+      body: "",
+      command: "",
+      commentId: 0,
+      deliveryId: value.trigger.deliveryId,
+      ...(value.trigger.installationId ? { installationId: value.trigger.installationId } : {}),
+      issueNumber,
+      owner,
+      pullRequestUrl,
+      repo,
+      repository,
+    }
+  }
+  const commentId = maybeNumber(value.trigger.comment.id)
   const login = maybeString(value.trigger.actor.login)
-  if (!repository || !owner || !repo || !issueNumber || !commentId || !pullRequestUrl || !login) return
+  if (!commentId || !login) return
   return {
     action: value.trigger.action,
     actor: value.trigger.actor,
@@ -1679,6 +1956,10 @@ function githubCommandFromRunContext(value: GitHubPullRequestRunContext): GitHub
 }
 
 function githubPullRequestDevPrompt(input: Record<string, unknown>, pullRequest: GitHubPullRequestRunContext): string {
+  if (pullRequest.trigger.event === "pull_request") {
+    return maybeString(input.prompt)
+      || `Pull request #${pullRequest.pullRequest.number} was labeled ${pullRequest.trigger.label.name} by @${pullRequest.trigger.sender.login}.`
+  }
   const command = maybeString(pullRequest.trigger.command)
   const args = maybeString(pullRequest.trigger.args)
   return maybeString(input.prompt) || maybeString(pullRequest.trigger.comment.body) || (command && args ? `${command} ${args}` : command) || "/review"
@@ -1691,15 +1972,117 @@ function githubDevPayload(input: unknown): GitHubIssueCommentPayload | undefined
   return input as GitHubIssueCommentPayload
 }
 
+function githubPullRequestDevInput(input: unknown): unknown {
+  if (!isRecord(input) || !isRecord(input.pull_request)) return input
+  const repositoryId = githubPositiveInteger(isRecord(input.repository) ? input.repository.id : undefined)
+  const number = githubPositiveInteger(input.number) ?? githubPositiveInteger(input.pull_request.number)
+  const head = isRecord(input.pull_request.head) ? maybeString(input.pull_request.head.sha) : undefined
+  const label = isRecord(input.label) ? maybeString(input.label.name) : undefined
+  const deliveryId = `dev:${repositoryId || "repository"}:${number || "pull"}:${head || "head"}:${label || "label"}`
+  return {
+    ...input,
+    github: {
+      deliveryId,
+      event: "pull_request",
+      ...(isRecord(input.installation) && githubPositiveInteger(input.installation.id)
+        ? { installationId: githubPositiveInteger(input.installation.id) }
+        : {}),
+    },
+    payload: input,
+  }
+}
+
+function githubPullRequestEventOptions<TRuntimeConfig extends AgentRuntimeConfig>(
+  pullRequest: boolean | GitHubPullRequestCommentEventOptions<TRuntimeConfig> | GitHubPullRequestEventOptions<TRuntimeConfig> | undefined,
+): {
+  comment?: GitHubPullRequestCommentEventOptions<TRuntimeConfig>
+  labeled?: GitHubPullRequestLabeledEventOptions
+} {
+  if (!pullRequest) return {}
+  if (pullRequest === true) return { comment: {} }
+  const grouped = pullRequest as GitHubPullRequestEventOptions<TRuntimeConfig>
+  if (grouped.comment !== undefined || grouped.labeled !== undefined) {
+    const comment = grouped.comment
+    return {
+      ...(comment ? { comment: comment === true ? {} : comment } : {}),
+      ...(grouped.labeled ? { labeled: grouped.labeled } : {}),
+    }
+  }
+  return { comment: pullRequest as GitHubPullRequestCommentEventOptions<TRuntimeConfig> }
+}
+
+function validateGitHubPullRequestLabeledOptions(options: GitHubPullRequestLabeledEventOptions): void {
+  if (!options.label.trim()) {
+    throw new TypeError("[vitehub] github({ pullRequest: { labeled } }) requires a non-empty label.")
+  }
+  if (!Array.isArray(options.allowedSenders) || !options.allowedSenders.length) {
+    throw new TypeError("[vitehub] github({ pullRequest: { labeled } }) requires at least one allowed sender.")
+  }
+  for (const sender of options.allowedSenders) {
+    if (!Number.isSafeInteger(sender.id) || sender.id <= 0) {
+      throw new TypeError("[vitehub] GitHub allowed sender ids must be positive safe integers.")
+    }
+    if (sender.login !== undefined && !sender.login.trim()) {
+      throw new TypeError("[vitehub] GitHub allowed sender logins must be non-empty when provided.")
+    }
+  }
+}
+
+function githubPullRequestLabeledInvocation<TRuntimeConfig extends AgentRuntimeConfig>(
+  input: unknown,
+  options: GitHubPullRequestLabeledEventOptions,
+  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+  channelId: string,
+  requireVerified: boolean,
+  controls: Pick<AgentRunInput, "abortSignal" | "timeout"> = {},
+): AgentTriggerInvokeResult {
+  if (requireVerified && !githubWebhookVerified(input)) {
+    return options.ignored?.("unverified") || Response.json({ accepted: false, ok: true, reason: "unverified" }, { status: 401 })
+  }
+  const payload = inputPayloadOrBody(input) as GitHubPullRequestLabeledPayload | undefined
+  if (!payload) return options.ignored?.("missing_payload") || ignored("missing_payload")
+  if (payload.action !== "labeled") return options.ignored?.("not_labeled") || ignored("not_labeled")
+  const event = githubPullRequestLabeledFromInput(input)
+  if (!event) return options.ignored?.("invalid_payload") || ignored("invalid_payload")
+  if (event.label !== options.label) return options.ignored?.("wrong_label") || ignored("wrong_label")
+  const senderAdmissionReason = githubSenderAdmissionReason(event.sender, options.allowedSenders)
+  if (senderAdmissionReason) {
+    return options.ignored?.(senderAdmissionReason) || ignored(senderAdmissionReason)
+  }
+  const host = githubAppHost(app)
+  const pullRequest = githubPullRequestLabeledRunContext(event, options, host)
+  return {
+    input: {
+      ...githubPullRequestLabeledInput(event, pullRequest, host),
+      ...controls,
+    },
+    run: {
+      ...pullRequest.run,
+      channelId,
+    },
+    webhook: {
+      concurrencyKey: pullRequest.run.threadId,
+      deliveryId: event.deliveryId,
+    },
+  }
+}
+
 function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
-  pullRequest: boolean | GitHubPullRequestCommentEventOptions<TRuntimeConfig> | undefined,
+  pullRequest: boolean | GitHubPullRequestCommentEventOptions<TRuntimeConfig> | GitHubPullRequestEventOptions<TRuntimeConfig> | undefined,
   app?: true | GitHubAppOptions<TRuntimeConfig>,
 ): AgentChannelDefinition<TRuntimeConfig>["triggers"] {
-  if (!pullRequest) return undefined
-  const options = pullRequest === true ? {} : pullRequest
+  const { comment: options, labeled } = githubPullRequestEventOptions(pullRequest)
+  if (!options && !labeled) return undefined
+  if (labeled) validateGitHubPullRequestLabeledOptions(labeled)
   return {
     webhook: {
       async invoke(context, input): Promise<AgentTriggerInvokeResult> {
+        if (maybeString(inputGithubFacts(input)?.event) === "pull_request") {
+          return labeled
+            ? githubPullRequestLabeledInvocation(input, labeled, app, context.trigger.channelId, true)
+            : ignored("not_configured")
+        }
+        if (!options) return labeled?.ignored?.("wrong_event") || ignored("wrong_event")
         const payload = inputPayloadOrBody(input)
         const command = githubPullRequestCommandFromInput(isRecord(input) ? { ...input, payload } : { payload })
         if (!payload && !command) return options.ignored?.("missing_payload") || ignored("missing_payload")
@@ -1725,13 +2108,64 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
       webhooks: [],
       async invoke(context, input): Promise<AgentTriggerInvokeResult> {
         const inputRecord = isRecord(input) ? input : {}
-        const finishEffects = githubPullRequestCommentFinishEffects(options)
+        const devInput = githubPullRequestDevInput(input)
         const existingPullRequest = githubPullRequestRunContextFromInput(input)
         const controls = {
           ...(inputRecord.abortSignal ? { abortSignal: inputRecord.abortSignal as AbortSignal } : {}),
           ...(typeof inputRecord.timeout === "number" ? { timeout: inputRecord.timeout } : {}),
         }
         if (existingPullRequest) {
+          if (existingPullRequest.trigger.event === "pull_request") {
+            if (!labeled) return ignored("not_configured")
+            if (existingPullRequest.trigger.action !== "labeled") {
+              return labeled.ignored?.("not_labeled") || ignored("not_labeled")
+            }
+            const sender = existingPullRequest.trigger.sender
+            if (existingPullRequest.trigger.label.name !== labeled.label) {
+              return labeled.ignored?.("wrong_label") || ignored("wrong_label")
+            }
+            const senderAdmissionReason = githubSenderAdmissionReason(sender, labeled.allowedSenders)
+            if (senderAdmissionReason) {
+              return labeled.ignored?.(senderAdmissionReason) || ignored(senderAdmissionReason)
+            }
+            const repositoryId = githubPositiveInteger(existingPullRequest.repository.id)
+            const headSha = maybeString(existingPullRequest.pullRequest.head?.sha)
+            if (!repositoryId || !headSha) return labeled.ignored?.("invalid_payload") || ignored("invalid_payload")
+            const host = githubAppHost(app)
+            const actor = githubSenderActor(sender, host)
+            const executionKey = `github:${host}:repository:${repositoryId}:pull:${existingPullRequest.pullRequest.number}:head:${headSha}`
+            const run = {
+              messageId: existingPullRequest.trigger.deliveryId,
+              origin: labeled.origin || "github-pull-request-labeled",
+              runId: `github:${host}:delivery:${existingPullRequest.trigger.deliveryId}`,
+              threadId: executionKey,
+            }
+            const canonicalPullRequest = {
+              ...existingPullRequest,
+              run,
+            }
+            return {
+              input: {
+                ...controls,
+                context: {
+                  actor,
+                  invoker: actor,
+                  pullRequest: canonicalPullRequest,
+                },
+                prompt: githubPullRequestDevPrompt(inputRecord, canonicalPullRequest),
+              },
+              run: {
+                ...run,
+                channelId: context.trigger.channelId,
+              },
+              webhook: {
+                concurrencyKey: executionKey,
+                deliveryId: existingPullRequest.trigger.deliveryId,
+              },
+            }
+          }
+          if (!options) return labeled?.ignored?.("wrong_event") || ignored("wrong_event")
+          const finishEffects = githubPullRequestCommentFinishEffects(options)
           const command = githubCommandFromUnknown(inputRecord.github) || githubCommandFromRunContext(existingPullRequest)
           if (command && declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
           return {
@@ -1751,6 +2185,13 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
           }
         }
 
+        if (maybeString(inputGithubFacts(devInput)?.event) === "pull_request") {
+          return labeled
+            ? githubPullRequestLabeledInvocation(devInput, labeled, app, context.trigger.channelId, false, controls)
+            : ignored("not_configured")
+        }
+        if (!options) return labeled?.ignored?.("wrong_event") || ignored("wrong_event")
+
         const payload = githubDevPayload(input)
         const command = githubPullRequestCommandFromInput(isRecord(input) ? { ...input, payload } : { payload })
         if (!payload && !command) return options.ignored?.("missing_payload") || ignored("missing_payload")
@@ -1761,6 +2202,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
           ...options,
           threadId: options.threadId || maybeString(payload?.issue?.pull_request?.html_url) || maybeString(payload?.issue?.html_url) || command.pullRequestUrl,
         }, payload, metadata)
+        const finishEffects = githubPullRequestCommentFinishEffects(options)
         return {
           ...(finishEffects ? { delivery: { finishEffects } } : {}),
           input: {
@@ -1816,6 +2258,8 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
   options: GitHubChannelOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
   const { app: appOptions, pullRequest, ...channelOptions } = options
+  const requiresGitHubSignature = Boolean(githubPullRequestEventOptions(pullRequest).labeled)
+  if (requiresGitHubSignature) githubAppHost(appOptions)
   const app = githubAppOptions(appOptions)
   const appEffects: AgentChannelDeliveryEffects<TRuntimeConfig> | undefined = appOptions
     ? githubPullRequestEffects<TRuntimeConfig>({
@@ -1835,7 +2279,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
       ...githubEventTriggers(pullRequest, appOptions),
       ...options.triggers,
     },
-    webhooks: githubWebhookDefaults(options.webhooks, appOptions),
+    webhooks: githubWebhookDefaults(options.webhooks, appOptions, requiresGitHubSignature),
   })
 }
 
