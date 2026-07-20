@@ -143,6 +143,7 @@
     "@workflow/builders": "catalog:workflow",
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
+    "files-sdk": "catalog:storage",
     "workflow": "catalog:workflow"
   },
   "devDependencies": {
