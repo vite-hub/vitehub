@@ -1745,6 +1745,7 @@ function withStreamedResult(
   fallbackUsageRecord?: Extract<StreamEvent, { type: "usage" }>["usageRecord"],
 ) {
   const toolNames = new Map<string, string>()
+  const textPhases = new Map<string, AgentMessagePhase | "hidden">()
   let streamedText = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
   return {
@@ -1756,7 +1757,7 @@ function withStreamedResult(
     },
     stream: (async function* () {
       for await (const chunk of stream) {
-        const event = toAgentStreamEvent(chunk, toolNames)
+        const event = toAgentStreamEvent(chunk, toolNames, textPhases)
         if (event?.type === "text-delta" && event.text) streamedText += event.text
         if (event?.type === "usage") usageRecord = event.usageRecord
         yield chunk
@@ -1802,6 +1803,7 @@ function traceUiMessageStream<
 >(stream: ReadableStream<unknown>, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): ReadableStream<unknown> {
   const reader = stream.getReader()
   const toolNames = new Map<string, string>()
+  const textPhases = new Map<string, AgentMessagePhase | "hidden">()
   let finished = false
   let released = false
   const release = () => {
@@ -1819,7 +1821,7 @@ function traceUiMessageStream<
           controller.close()
           return
         }
-        const event = toAgentStreamEvent(result.value, toolNames)
+        const event = toAgentStreamEvent(result.value, toolNames, textPhases)
         if (event) {
           if (event.type === "finish") finished = true
           await traceAgentStreamEvent(toTraceContext(context), event)
