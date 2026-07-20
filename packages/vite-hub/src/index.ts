@@ -20,7 +20,7 @@ import { hubWorkflow } from "@vite-hub/workflow/vite"
 import { hubWorkspace } from "@vite-hub/workspace/vite"
 import { finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { finalizeDenoDeploymentOutput } from "@vite-hub/internal/build/deno-runtime-packages"
-import { assertDeploymentService, deploymentPresetFromNitro, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { assertDeploymentService, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import type { AgentModuleOptions } from "@vite-hub/agent"
 import type { AuthModuleOptions } from "@vite-hub/auth"
@@ -30,7 +30,7 @@ import type { HubDevtoolsOptions } from "@vite-hub/devtools"
 import type { EmailVitePluginOptions } from "@vite-hub/email/vite"
 import type { EnvIntegrationOptions } from "@vite-hub/env"
 import type { KVModuleOptions } from "@vite-hub/kv"
-import type { DeploymentPlan, DeploymentPreset, DeploymentService } from "@vite-hub/internal/deployment"
+import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
 import type { SandboxPublicOptions } from "@vite-hub/sandbox/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
@@ -177,6 +177,8 @@ export interface ViteHubOptions {
   workspace?: false | WorkspaceModuleOptions
 }
 
+export type DeploymentPreset = "cloudflare" | "deno" | "netlify" | "node" | "vercel"
+
 function deploymentName(root?: string): string {
   return (process.env.VITEHUB_DEPLOYMENT_NAME || basename(resolve(process.cwd(), root || ".")))
     .toLowerCase()
@@ -187,6 +189,10 @@ function deploymentName(root?: string): string {
 
 function cloneRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
+}
+
+function normalizeNitroPreset(value: string): string {
+  return value.trim().toLowerCase().replaceAll("_", "-")
 }
 
 function deploymentNitroModule(plan: DeploymentPlan) {
@@ -223,7 +229,7 @@ function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentSe
           ;(config as { queue?: unknown }).queue = {
             ...cloneRecord((config as { queue?: unknown }).queue),
             provider: plan.services.queue.adapter,
-            ...(plan.services.queue.adapter === "cloudflare" ? { namePrefix: name + "-" } : {}),
+            ...(plan.services.queue.adapter === "cloudflare" ? { namePrefix: name.slice(0, 41) + "-" } : {}),
           }
         }
         if (requestedServices.includes("rateLimit") && plan.services.rateLimit.supported) {
@@ -242,12 +248,12 @@ function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentSe
         }
         const nitro = cloneRecord((config as { nitro?: unknown }).nitro)
         const configuredPreset = typeof nitro.preset === "string" ? nitro.preset : undefined
-        if (configuredPreset && deploymentPresetFromNitro(configuredPreset) !== plan.preset) {
+        if (configuredPreset && normalizeNitroPreset(configuredPreset) !== plan.nitroPreset) {
           throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with nitro.preset " + JSON.stringify(configuredPreset) + ".")
         }
         for (const name of ["NITRO_PRESET", "SERVER_PRESET", "VITEHUB_HOSTING"] as const) {
           const value = process.env[name]
-          if (value && deploymentPresetFromNitro(value) !== plan.preset) {
+          if (value && normalizeNitroPreset(value) !== plan.nitroPreset) {
             throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with " + name + "=" + JSON.stringify(value) + ".")
           }
         }
@@ -360,7 +366,11 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     } as unknown as BlobModuleOptions))
   }
   if (options.email) plugins.push(hubEmail(options.email === true ? undefined : options.email))
-  if (options.kv) plugins.push(hubKv(options.kv === true ? undefined : options.kv))
+  if (options.kv) {
+    const configuredKV = options.kv === true ? undefined : options.kv
+    const presetKV = resolveKVViteConfig(configuredKV, { hosting: plan.nitroPreset }).kv
+    plugins.push(hubKv(presetKV || undefined))
+  }
   else plugins.push(hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
     plugins.push(hubQueue({

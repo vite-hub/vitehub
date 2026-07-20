@@ -75,7 +75,7 @@ const plans = {
   netlify: {
     host: "netlify",
     nitroPreset: "netlify",
-    output: { directory: ".netlify", entry: "functions-internal/server/main.mjs", packaging: "none" },
+    output: { directory: ".netlify", entry: "functions-internal/server/server.mjs", packaging: "none" },
     preset: "netlify",
     runtime: "node",
     services: {
