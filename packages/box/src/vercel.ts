@@ -130,6 +130,7 @@ export function vercelBox(options: VercelBoxOptions = {}): BoxRuntime {
         instance,
         env,
         options.ports,
+        workspace,
       );
       return await openRemoteBox(input, runtimeSession, {
         initialize: openOptions?.initialize,
@@ -161,6 +162,7 @@ function createVercelSession(
   instance: VercelSandboxInstance,
   baseEnv: Record<string, string>,
   ports: readonly number[] | undefined,
+  workspace: string,
 ): RuntimeSession {
   let destroyed = false;
   const run = async (options: {
@@ -173,7 +175,7 @@ function createVercelSession(
     return await collectProcessOutput(await instance.runCommand({
       args: ["-lc", options.command],
       cmd: "sh",
-      cwd: options.workingDirectory ?? "/workspace",
+      cwd: options.workingDirectory ?? workspace,
       detached: true,
       env: { ...baseEnv, ...options.env },
       signal: options.abortSignal,
@@ -181,7 +183,7 @@ function createVercelSession(
   };
   const fs = instance.fs;
   return {
-    defaultWorkingDirectory: "/workspace",
+    defaultWorkingDirectory: workspace,
     id,
     ...(ports?.length ? { ports } : {}),
     async destroy() {

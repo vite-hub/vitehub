@@ -34,6 +34,27 @@ describe("Box harness adapter", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
+  it("leases the in-flight session when Workspace opens during Harness initialization", async () => {
+    const session = boxSession()
+    const open = vi.fn(async (options: Parameters<Box["open"]>[0]) => {
+      await options?.initialize?.(session, { signal: options.signal })
+      return session
+    })
+    const shared = shareBoxSessions({ plan: plan(), open })
+    let workspaceLease: BoxSession | undefined
+
+    const harness = await createBoxHarnessSandbox(shared).createSession({
+      async onFirstCreate() {
+        workspaceLease = await shared.open()
+      },
+    })
+
+    expect(open).toHaveBeenCalledOnce()
+    expect(workspaceLease?.id).toBe(session.id)
+    await harness.destroy?.()
+    await workspaceLease?.close()
+  })
+
   it("rejects and closes a Box without process spawning", async () => {
     const close = vi.fn(async () => {})
     const session = boxSession({ close, spawn: undefined })

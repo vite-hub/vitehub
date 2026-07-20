@@ -15,6 +15,7 @@ export async function openHarnessBox(box: Box, options?: BoxOpenOptions) {
 
 export function shareBoxSessions(box: Box): SharedHarnessBox {
   let active: Promise<BoxSession> | undefined
+  let initializing: BoxSession | undefined
   let harnessError: unknown
   let resolveHarness: (() => void) | undefined
   const harnessReady = new Promise<void>((resolve) => {
@@ -41,6 +42,10 @@ export function shareBoxSessions(box: Box): SharedHarnessBox {
   return {
     plan: box.plan,
     async open(options) {
+      if (initializing) {
+        options?.signal?.throwIfAborted()
+        return lease(initializing)
+      }
       await harnessReady
       if (harnessError) throw harnessError
       options?.signal?.throwIfAborted()
@@ -55,8 +60,14 @@ export function shareBoxSessions(box: Box): SharedHarnessBox {
           ...(options?.initialize
             ? {
                 async initialize(session, context) {
+                  initializing = session
                   harnessLease = lease(session)
-                  await options.initialize!(harnessLease, context)
+                  try {
+                    await options.initialize!(harnessLease, context)
+                  }
+                  finally {
+                    initializing = undefined
+                  }
                 },
               }
             : {}),
@@ -68,6 +79,7 @@ export function shareBoxSessions(box: Box): SharedHarnessBox {
         }
         catch (error) {
           leases = 0
+          initializing = undefined
           active = undefined
           harnessError = error
           resolveHarness?.()
