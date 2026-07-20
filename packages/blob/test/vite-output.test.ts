@@ -7,7 +7,7 @@ import { promisify } from "node:util"
 
 import { build as bundle } from "esbuild"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
-import { getProviderRuntimeModule, type ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import { getProviderRuntimeModule, writeProviderDeploymentOutputs, type ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 
 import { normalizeBlobOptions } from "../src/config.ts"
@@ -358,8 +358,8 @@ describe("Vite provider outputs", () => {
   it("copies Blob dependencies for sibling Vercel output during Cloudflare builds", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-shared-vercel-runtime-")
     const functionDir = join(rootDir, ".vercel/output/functions/__server.func")
-    await mkdir(functionDir, { recursive: true })
-    await writeFile(join(functionDir, "index.mjs"), "// sibling server\n", "utf8")
+    const siblingEntry = join(rootDir, "sibling.mjs")
+    await writeFile(siblingEntry, "export default 'sibling'\n", "utf8")
 
     await generateProviderOutputs({
       blob: { bucketName: "assets", driver: "cloudflare-r2" },
@@ -367,6 +367,12 @@ describe("Vite provider outputs", () => {
       cloudflareOwnedByNitro: true,
       providerOutput: { runtimeModuleFilesByProduct: { database: { vercel: "database-runtime.mjs" } } },
       rootDir,
+    })
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist",
+      rootDir,
+      vercel: { bundleEntry: siblingEntry, bundleOptions: {} },
     })
 
     const runtimeProbe = join(functionDir, "runtime-probe.mjs")

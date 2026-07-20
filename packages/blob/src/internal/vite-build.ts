@@ -521,6 +521,9 @@ function hasSiblingVercelRuntime(providerOutput: ComposedProviderOutput | undefi
 
 async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOptions) {
   const packages = new Set<string>()
+  const isolated = Boolean(options.serverFunctionName && options.serverFunctionName !== "__server.func")
+  const shared = !isolated && hasSiblingVercelRuntime(options.providerOutput)
+  const outputName = options.serverFunctionName ?? "__server.func"
   const resolved = resolveBlobConfig(options.blob, "vercel")
   if (resolved !== false && Object.values(resolved.stores || { default: resolved.store }).some(store => store.driver === "vercel-blob")) {
     packages.add("@vercel/blob")
@@ -533,16 +536,14 @@ async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOpt
     packages.add("@aws-sdk/s3-request-presigner")
   }
   if (packages.size) {
+    if (shared) await mkdir(resolve(options.rootDir, ".vercel/output/functions", outputName), { recursive: true })
     await copyVercelFunctionRuntimePackages({
       packages: [...packages].map(name => ({ name, resolveFrom: resolve(packageDir, "package.json") })),
       rootDir: options.rootDir,
       serverFunctionName: options.serverFunctionName,
     })
   }
-  const isolated = Boolean(options.serverFunctionName && options.serverFunctionName !== "__server.func")
-  const shared = !isolated && hasSiblingVercelRuntime(options.providerOutput)
   if (!shared) {
-    const outputName = options.serverFunctionName ?? "__server.func"
     const entry = await readFile(resolve(options.rootDir, ".vercel/output/functions", outputName, "index.mjs"))
     await writeFile(resolve(options.rootDir, ".vercel/output/functions", outputName, vercelBlobOutputMarker), createHash("sha256").update(entry).digest("hex"), "utf8")
   }
