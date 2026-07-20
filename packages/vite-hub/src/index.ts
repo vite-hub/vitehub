@@ -218,7 +218,7 @@ function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentSe
       name: "vite-hub/deployment-preset",
       enforce: "pre",
       resolveId(source) {
-        if (!blobEnabled && source === "vite-hub/blob") {
+        if (!blobEnabled && (source === "vite-hub/blob" || source === frameworkProviderImportAliases["vite-hub/blob"])) {
           if (!plan.services.blob.supported) assertDeploymentService(plan, "blob")
           throw new Error("[vitehub] Blob is disabled but the application imports " + JSON.stringify(source) + ".")
         }
