@@ -6928,8 +6928,9 @@ describe("agent message protocol", () => {
 
     expect(execute).toHaveBeenCalledWith(expect.objectContaining({ source: "response", text: "Fallback reply" }))
     expect(events).toEqual([
-      "Fallback reply",
-      { data: { title: "response: Fallback reply", type: "title" }, type: "data" },
+      { text: "Fallback reply", type: "text-delta" },
+      { data: { title: "response: Fallback reply", type: "title" }, id: undefined, type: "data" },
+      { type: "finish" },
     ])
   })
 
