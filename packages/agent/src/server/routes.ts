@@ -596,16 +596,25 @@ async function collectAgentOutput(result: unknown): Promise<string> {
     if (typeof text === "string") return text.trim()
   }
 
-  let text = ""
+  let explicitPhaseSeen = false
+  let finalText = ""
+  let unphasedText = ""
   for await (const event of streamAgentOutputToEvents(result)) {
     if (event.type === "text-delta") {
-      text += event.text
+      if (event.phase === undefined) {
+        if (!explicitPhaseSeen) unphasedText += event.text
+      }
+      else {
+        explicitPhaseSeen = true
+        unphasedText = ""
+        if (event.phase === "final") finalText += event.text
+      }
     }
     if (event.type === "error") {
       throw new Error(event.error)
     }
   }
-  return text.trim()
+  return (explicitPhaseSeen ? finalText : unphasedText).trim()
 }
 
 type ChatTextStream = AsyncIterable<string> & {
