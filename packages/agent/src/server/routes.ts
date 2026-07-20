@@ -2644,7 +2644,7 @@ export function createChannelWebhookRouteHandler(
               }
               if (!webhookLock) {
                 await webhookState.state.delete(deliveryClaimKey)
-                return Response.json({ accepted: false, busy: true, ok: true }, { status: 202 })
+                return Response.json({ accepted: false, busy: true, ok: true }, { status: 503 })
               }
             }
           }

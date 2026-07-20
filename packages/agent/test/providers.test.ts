@@ -4498,7 +4498,7 @@ describe("server helpers", () => {
       await expect(duplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true })
 
       const busy = await handler(request("delivery-2"), "github", options)
-      expect(busy.status).toBe(202)
+      expect(busy.status).toBe(503)
       await expect(busy.json()).resolves.toEqual({ accepted: false, busy: true, ok: true })
       expect(extendLock).toHaveBeenCalled()
       expect(run).toHaveBeenCalledOnce()
