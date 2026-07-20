@@ -267,7 +267,7 @@ describe("agent transcription", () => {
       audio: { data: "AAAA", mediaType: "audio/wav", type: "audio" },
     })
     expect(finish.mock.calls[0]![0].input.messages.at(-1)?.parts).toEqual([
-      { text: "voice transcript", type: "text" },
+      { id: "text-0", text: "voice transcript", type: "text" },
     ])
     expect(finish.mock.calls[0]![0].extensions.get("transcribe")).toEqual([{
       createdAt: expect.any(String),
