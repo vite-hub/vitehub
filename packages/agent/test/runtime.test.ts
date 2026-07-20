@@ -6906,6 +6906,34 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "response: Quarterly roadmap" })
   })
 
+  it("generates fallback titles after an event stream uses its text stream fallback", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const execute = vi.fn(({ source, text }) => `${source}: ${text}`)
+    const agent = defineAgent({
+      capabilities: [title({ execute })],
+      driver: { run: () => ({
+        stream: (async function* () { yield { type: "finish" } })(),
+        textStream: (async function* () { yield "Fallback reply" })(),
+      }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+        role: "user",
+      })],
+    }) as AsyncIterable<unknown>
+    const events = []
+    for await (const event of stream) events.push(event)
+
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ source: "response", text: "Fallback reply" }))
+    expect(events).toEqual([
+      "Fallback reply",
+      { data: { title: "response: Fallback reply", type: "title" }, type: "data" },
+      { type: "finish" },
+    ])
+  })
+
   it("keeps plain stream titles per invocation with once-per-thread Channel delivery", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const execute = vi.fn(({ text }) => `Title: ${text}`)

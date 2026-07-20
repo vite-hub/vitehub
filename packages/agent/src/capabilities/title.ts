@@ -333,9 +333,10 @@ function withTitleParallel<T>(
   renderTitle: (title: string) => T,
   getText: (value: T) => string = () => "",
   isTerminal: (value: T) => boolean = () => false,
+  fallback?: AsyncIterable<T>,
 ): AsyncIterable<T> {
   if (typeof (result as ReadableStream<T>).pipeThrough === "function") {
-    return withTitleReadableStreamParallel(result as ReadableStream<T>, title, renderTitle, getText, isTerminal)
+    return withTitleReadableStreamParallel(result as ReadableStream<T>, title, renderTitle, getText, isTerminal, fallback)
   }
   const iterable = (async function* () {
     const iterator = result[Symbol.asyncIterator]()
@@ -370,6 +371,12 @@ function withTitleParallel<T>(
         }
         text += getText(next.value.value)
         if (deferredTitle && isTerminal(next.value.value)) {
+          if (!text && fallback) {
+            for await (const value of fallback) {
+              text += getText(value)
+              yield value
+            }
+          }
           const resolvedTitle = await deferredTitle(text).catch(() => undefined)
           titlePending = false
           if (resolvedTitle) yield renderTitle(resolvedTitle)
@@ -402,6 +409,7 @@ function withTitleReadableStreamParallel<T>(
   renderTitle: (title: string) => T,
   getText: (value: T) => string = () => "",
   isTerminal: (value: T) => boolean = () => false,
+  fallback?: AsyncIterable<T>,
 ): AsyncIterable<T> & ReadableStream<T> {
   let reader: ReadableStreamDefaultReader<T> | undefined
   let cancelled = false
@@ -462,6 +470,12 @@ function withTitleReadableStreamParallel<T>(
           if (!next.value.done) {
             text += getText(next.value.value)
             if (deferredTitle && isTerminal(next.value.value)) {
+              if (!text && fallback) {
+                for await (const value of fallback) {
+                  text += getText(value)
+                  controller.enqueue(value)
+                }
+              }
               const resolvedTitle = await deferredTitle(text).catch(() => undefined)
               titlePending = false
               if (resolvedTitle) controller.enqueue(renderTitle(resolvedTitle))
@@ -507,8 +521,12 @@ function withTitleEvent(result: AsyncIterable<StreamEvent>, title: TitleResoluti
   return withTitleParallel(result, title, resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }), textDelta, isFinish)
 }
 
-function withTitleFullStream(result: AsyncIterable<unknown>, title: TitleResolution): AsyncIterable<unknown> {
-  return withTitleParallel(result, title, resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }), textDelta, isFinish)
+function withTitleFullStream(
+  result: AsyncIterable<unknown>,
+  title: TitleResolution,
+  fallback?: AsyncIterable<unknown>,
+): AsyncIterable<unknown> {
+  return withTitleParallel(result, title, resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }), textDelta, isFinish, fallback)
 }
 
 function withTitleTextStream(result: AsyncIterable<string>, title: TitleResolution): AsyncIterable<StreamEvent> {
@@ -743,11 +761,12 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
             const stream = result.stream
             const fullStream = result.fullStream
             const title = preparedInput ? getTitle() : (text: string) => getTitle(text)
-            const titleStream = stream ? withTitleFullStream(stream, title) : undefined
+            const responseFallback = preparedInput ? undefined : result.textStream
+            const titleStream = stream ? withTitleFullStream(stream, title, responseFallback) : undefined
             return cloneStreamTextResult(result, {
               ...(titleStream ? { stream: titleStream } : {}),
               ...(fullStream
-                ? { fullStream: fullStream === stream && titleStream ? titleStream : withTitleFullStream(fullStream, title) }
+                ? { fullStream: fullStream === stream && titleStream ? titleStream : withTitleFullStream(fullStream, title, stream ? undefined : responseFallback) }
                 : {}),
               ...titleUiMessageStreamOverride(toUIMessageStream, title),
             })
