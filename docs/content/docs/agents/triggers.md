@@ -142,7 +142,7 @@ invoke(context, event: { deliveryId: string, pullRequest: number, head: string }
 }
 ```
 
-Delivery claims are durable and do not expire. A duplicate delivery does not start another Agent Invocation. Concurrency leases heartbeat for the lifetime of inline execution; a busy delivery remains unclaimed so the provider can retry it. Webhook ownership requires durable Agent State, and concurrency ownership rejects execution that would be queued to a Workflow because the route cannot retain that lease across the Workflow boundary.
+Delivery claims are durable and do not expire. A duplicate delivery does not start another Agent Invocation. Concurrency leases default to 30 seconds and heartbeat for the lifetime of inline execution, so a dead owner releases work promptly; set `concurrencyTtlMs` when an integration needs a different recovery window. A busy delivery remains unclaimed so the provider can retry it. Webhook ownership requires durable Agent State, and concurrency ownership rejects execution that would be queued to a Workflow because the route cannot retain that lease across the Workflow boundary.
 
 ## Next steps
 

@@ -4431,6 +4431,7 @@ describe("server helpers", () => {
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-ownership-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const acquireLock = vi.spyOn(state, "acquireLock")
     const extendLock = vi.spyOn(state, "extendLock")
     let releaseFirstRun!: () => void
     const firstRun = new Promise<void>(resolve => {
@@ -4451,7 +4452,6 @@ describe("server helpers", () => {
                   input: { prompt: "github delivery" },
                   webhook: {
                     concurrencyKey: "acme/app:42:head-sha",
-                    concurrencyTtlMs: 1_000,
                     deliveryId,
                   },
                 }
@@ -4493,7 +4493,8 @@ describe("server helpers", () => {
       const accepted = await handler(request("delivery-1"), "github", options)
       await expect(accepted.json()).resolves.toEqual({ accepted: true, ok: true })
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
-      await vi.advanceTimersByTimeAsync(500)
+      expect(acquireLock).toHaveBeenCalledWith("webhook:review:github:github:lease:acme/app:42:head-sha", 30_000)
+      await vi.advanceTimersByTimeAsync(15_000)
 
       const concurrentDuplicate = await handler(request("delivery-1"), "github", options)
       await expect(concurrentDuplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true })

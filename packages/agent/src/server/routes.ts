@@ -528,7 +528,7 @@ async function createAgentWebhookTriggerInput(request: Request, registration: Ag
   }
 }
 
-const defaultWebhookConcurrencyTtlMs = 24 * 60 * 60 * 1000
+const defaultWebhookConcurrencyTtlMs = 30_000
 async function resolveAgentWebhookState(
   context: ViteAgentRouteRuntimeContext,
   registration: AgentWebhookRegistrationDefinition,
