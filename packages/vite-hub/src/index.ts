@@ -230,7 +230,7 @@ function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentSe
           ;(config as { queue?: unknown }).queue = {
             ...cloneRecord((config as { queue?: unknown }).queue),
             provider: plan.services.queue.adapter,
-            ...(plan.services.queue.adapter === "cloudflare" ? { namePrefix: name.slice(0, 41) + "-" } : {}),
+            ...(plan.services.queue.adapter === "cloudflare" ? { namePrefix: `${name}-` } : {}),
           }
         }
         if (requestedServices.includes("rateLimit") && plan.services.rateLimit.supported) {

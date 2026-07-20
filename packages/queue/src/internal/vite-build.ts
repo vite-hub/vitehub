@@ -11,8 +11,9 @@ import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-cat
 
 import { normalizeQueueOptions } from "../config.ts"
 import { discoverQueueDefinitions } from "../discovery.ts"
-import { getCloudflareQueueBindingName, getCloudflareQueueName } from "../integrations/cloudflare.ts"
+import { getCloudflareQueueBindingName } from "../integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
+import { getCloudflareQueueName } from "./cloudflare-resource-name.ts"
 
 import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
@@ -161,7 +162,16 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
 }
 
 function createCloudflareQueueDefinitionNames(definitions: DiscoveredQueueDefinition[], namePrefix = ""): Record<string, string> {
-  return Object.fromEntries(definitions.map(definition => [getCloudflareQueueName(definition.name, namePrefix), definition.name]))
+  const names = new Map<string, DiscoveredQueueDefinition>()
+  for (const definition of definitions) {
+    const physicalName = getCloudflareQueueName(definition.name, namePrefix)
+    const existing = names.get(physicalName)
+    if (existing) {
+      throw new Error(`Queue names ${JSON.stringify(existing.name)} and ${JSON.stringify(definition.name)} collide after Cloudflare resource name derivation:\n  - ${existing.handler}\n  - ${definition.handler}\nResolved Queue name: ${physicalName}`)
+    }
+    names.set(physicalName, definition)
+  }
+  return Object.fromEntries([...names].map(([physicalName, definition]) => [physicalName, definition.name]))
 }
 
 export function createCloudflareQueueBindings(definitions: DiscoveredQueueDefinition[], namePrefix = ""): CloudflareQueueConfig["queues"] {
