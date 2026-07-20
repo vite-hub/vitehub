@@ -1,4 +1,3 @@
-import { resolveBox, trustedHost } from "@vite-hub/box"
 import { createError, defineEventHandler, getRouterParam } from "h3"
 import { lookup } from "mrmime"
 
@@ -309,40 +308,32 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
   const startSession = starter?.startSession.bind(starter)
   if (!startSession) throw new Error("Workspace Dev command requires a Workspace Session.")
   await materializeWorkspaceDevSources(workspace, input)
-  const ownedHost = input.host || typeof input.workspace !== "string"
-    ? undefined
-    : await (await resolveBox({ runtime: trustedHost() }, {})).open({ signal: input.abortSignal })
+  const session = await withWorkspaceDevProgress(input.onProgress, {
+    data: { paths: input.paths ?? null },
+    id: "workspace.dev.start-session",
+    label: "Starting workspace session",
+  }, async () => await startSession({ host: input.host, paths: input.paths }))
+  const execOptions = { abortSignal: input.abortSignal, timeout: input.timeout }
+  let result
   try {
-    const session = await withWorkspaceDevProgress(input.onProgress, {
-      data: { paths: input.paths ?? null },
-      id: "workspace.dev.start-session",
-      label: "Starting workspace session",
-    }, async () => await startSession({ host: input.host ?? ownedHost, paths: input.paths }))
-    const execOptions = { abortSignal: input.abortSignal, timeout: input.timeout }
-    let result
+    result = input.args
+      ? await session.exec(command, input.args, execOptions)
+      : await session.exec("sh", ["-lc", command], execOptions)
+    const diff = result.exitCode === 0 ? await session.diff() : undefined
+    if (diff?.entries.length) {
+      const commit = definition ? resolveWorkspaceAutoCommit(definition, diff) : undefined
+      if (!definition || !hasWorkspaceCommitRules(definition) || commit) await session.commit({ message: commit?.message || "workspace dev command" })
+    }
+  }
+  catch (error) {
     try {
-      result = input.args
-        ? await session.exec(command, input.args, execOptions)
-        : await session.exec("sh", ["-lc", command], execOptions)
-      const diff = result.exitCode === 0 ? await session.diff() : undefined
-      if (diff?.entries.length) {
-        const commit = definition ? resolveWorkspaceAutoCommit(definition, diff) : undefined
-        if (!definition || !hasWorkspaceCommitRules(definition) || commit) await session.commit({ message: commit?.message || "workspace dev command" })
-      }
+      await session.close()
     }
-    catch (error) {
-      try {
-        await session.close()
-      }
-      catch (closeError) {
-        throw new AggregateError([error, closeError], "[vitehub] Workspace Dev command failed and session cleanup also failed.")
-      }
-      throw error
+    catch (closeError) {
+      throw new AggregateError([error, closeError], "[vitehub] Workspace Dev command failed and session cleanup also failed.")
     }
-    await session.close()
-    return result
+    throw error
   }
-  finally {
-    await ownedHost?.close()
-  }
+  await session.close()
+  return result
 }

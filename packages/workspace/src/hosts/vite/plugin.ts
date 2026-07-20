@@ -6,6 +6,7 @@ import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { resolveBox, trustedHost } from "@vite-hub/box"
 
 import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, shouldBundleWorkspaceAssets } from "../../build/assets.ts"
 import { createWorkspaceRegistryContents, discoverViteWorkspaceDefinitions } from "../../build/discovery.ts"
@@ -377,7 +378,7 @@ function isWorkspaceDevRoute(req: IncomingMessage): boolean {
   return new URL(req.url || "/", "http://localhost").pathname === workspaceDevRoute
 }
 
-function streamWorkspaceDevCommand(input: Parameters<typeof runWorkspaceDevCommand>[0]): Response {
+function streamWorkspaceDevCommand(input: Parameters<typeof runWorkspaceDevCommand>[0], closeHost: () => Promise<void>): Response {
   const encoder = new TextEncoder()
   const stream = new ReadableStream({
     async start(controller) {
@@ -393,6 +394,7 @@ function streamWorkspaceDevCommand(input: Parameters<typeof runWorkspaceDevComma
         write({ error: error instanceof Error ? error.message : String(error), type: "error" })
       }
       finally {
+        await closeHost()
         controller.close()
       }
     },
@@ -446,18 +448,24 @@ async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMes
   const args = command.args as string[] | undefined
   const paths = command.paths as string[] | undefined
   const timeout = typeof command.timeout === "number" && Number.isFinite(command.timeout) ? command.timeout : undefined
+  const host = await (await resolveBox({ runtime: trustedHost() }, {})).open({ signal: abortSignal })
   const input = {
     abortSignal,
     ...(args ? { args } : {}),
     command: command.command,
+    host,
     ...(isRecord(definition) ? { definition: normalizeWorkspaceDefinition(command.workspace, definition as never) } : {}),
     ...(paths?.length ? { paths } : {}),
     ...(timeout ? { timeout } : {}),
     workspace: command.workspace,
   }
-  return acceptsWorkspaceDevStream(req)
-    ? streamWorkspaceDevCommand(input)
-    : Response.json(await runWorkspaceDevCommand(input))
+  if (acceptsWorkspaceDevStream(req)) return streamWorkspaceDevCommand(input, () => host.close())
+  try {
+    return Response.json(await runWorkspaceDevCommand(input))
+  }
+  finally {
+    await host.close()
+  }
 }
 
 function hasNitroPlugin(value: unknown): boolean {
