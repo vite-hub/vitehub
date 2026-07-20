@@ -3091,6 +3091,40 @@ describe("server helpers", () => {
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", expect.any(String), { markdown: "Final answer." })
   })
 
+  it("delivers unphased final output when commentary is configured", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        discord: discord({
+          adapter: () => adapter as never,
+          messages: { commentary: "message" },
+        }),
+      },
+      driver: { run: () => "Final answer." },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { id: 123, username: "maxi" },
+          message_id: 2013,
+          text: "describe this image",
+        },
+      }),
+      method: "POST",
+    }), "discord")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenCalledOnce()
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", expect.any(String), { markdown: "Final answer." })
+  })
+
   it("hides phased commentary when Channel streaming is disabled", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")

@@ -791,12 +791,26 @@ function streamAgentOutputToChatReplies(
   const final = createChatTextStream()
   let commentaryStarted = false
   let finalStarted = false
+  let explicitPhaseSeen = false
+  const unphasedText: string[] = []
+  const startFinal = () => {
+    if (finalStarted) return
+    finalStarted = true
+    commentary.close()
+    options.onFinal(final.stream)
+  }
   const completion = (async () => {
     try {
       const output = await result
       for await (const event of streamAgentOutputToEvents(output)) {
         if (event.type === "error") throw new Error(event.error)
         if (event.type !== "text-delta" || !event.text) continue
+        if (event.phase === undefined) {
+          if (!explicitPhaseSeen) unphasedText.push(event.text)
+          continue
+        }
+        explicitPhaseSeen = true
+        unphasedText.length = 0
         if (event.phase === "commentary" && !finalStarted) {
           if (options.commentary === "message" && !commentaryStarted) {
             commentaryStarted = true
@@ -806,12 +820,12 @@ function streamAgentOutputToChatReplies(
           continue
         }
         if (event.phase !== "final") continue
-        if (!finalStarted) {
-          finalStarted = true
-          commentary.close()
-          options.onFinal(final.stream)
-        }
+        startFinal()
         final.write(event.text)
+      }
+      if (!explicitPhaseSeen && unphasedText.length) {
+        startFinal()
+        for (const text of unphasedText) final.write(text)
       }
     }
     catch (error) {
