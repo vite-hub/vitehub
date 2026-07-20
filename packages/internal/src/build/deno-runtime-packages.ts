@@ -51,9 +51,7 @@ function collectBundledPackages(source: string): Map<string, string> {
 
 function collectImportedPackageNames(source: string): Set<string> {
   const names = new Set<string>()
-  const executableSource = source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^\s*\/\/.*$/gm, "")
+  const executableSource = maskInertImportText(source)
   const patterns = [
     /(?:^|;)\s*(?:import|export)\s*["']([^"']+)["']/gm,
     /(?:^|;)\s*(?:import|export)[^;\n]*?\bfrom\s*["']([^"']+)["']/gm,
@@ -67,6 +65,44 @@ function collectImportedPackageNames(source: string): Set<string> {
     }
   }
   return names
+}
+
+function maskInertImportText(source: string): string {
+  let output = ""
+  for (let index = 0; index < source.length;) {
+    const character = source[index]!
+    const next = source[index + 1]
+    if (character === "/" && next === "/") {
+      const end = source.indexOf("\n", index)
+      const length = (end === -1 ? source.length : end) - index
+      output += " ".repeat(length)
+      index += length
+      continue
+    }
+    if (character === "/" && next === "*") {
+      const closing = source.indexOf("*/", index + 2)
+      const length = (closing === -1 ? source.length : closing + 2) - index
+      output += source.slice(index, index + length).replace(/[^\n]/g, " ")
+      index += length
+      continue
+    }
+    if (character === '"' || character === "'" || character === "`") {
+      const prefix = output.slice(Math.max(0, output.length - 120))
+      const keep = character !== "`" && /(?:\b(?:from|import|export)|\b(?:import|require)\s*\()\s*$/.test(prefix)
+      let end = index + 1
+      while (end < source.length) {
+        if (source[end] === "\\") end += 2
+        else if (source[end++] === character) break
+      }
+      const literal = source.slice(index, end)
+      output += keep ? literal : literal.replace(/[^\n]/g, " ")
+      index = end
+      continue
+    }
+    output += character
+    index++
+  }
+  return output
 }
 
 export function collectDenoRuntimePackageNames(source: string): string[] {

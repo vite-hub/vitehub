@@ -33,6 +33,15 @@ describe("Deno deployment output", () => {
     expect(collectDenoRuntimePackageNames('// import("fake")\nimport "real"')).toEqual(["real"])
   })
 
+  it("ignores import-shaped strings and inline comments", () => {
+    expect(collectDenoRuntimePackageNames(`
+const requireText = 'require("missing-require")'
+const importText = \`import("missing-import")\`
+doThing() // import("missing-comment")
+import "real"
+`)).toEqual(["real"])
+  })
+
   it("stages reachable packages and their installed optional native dependencies", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-deno-output-"))
     const outputDir = join(rootDir, ".output")
