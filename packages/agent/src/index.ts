@@ -2419,11 +2419,10 @@ async function executeAgentInvocation<
             value: preserved,
           }
         }
-        const streamProperties = (["stream", "fullStream", "textStream"] as const)
-          .filter(property => isAsyncIterable((rendered as { fullStream?: unknown, stream?: unknown, textStream?: unknown })[property]))
+        const streamProperties = (["stream", "fullStream"] as const)
+          .filter(property => isAsyncIterable((rendered as { fullStream?: unknown, stream?: unknown })[property]))
         let finishTask: Promise<void> | undefined
-        const preserved = cloneWithPropertyDescriptors(rendered as object, Object.fromEntries(streamProperties.map((property) => {
-          const renderedStream = (rendered as { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown>, textStream?: AsyncIterable<unknown> })[property]!
+        const preserveStream = (renderedStream: AsyncIterable<unknown>) => {
           const streamed = withStreamedResult(renderedStream, rendered, driverUsageRecord)
           const value = withCapabilityCleanup(streamed.stream, (outcome) => {
             return finishTask ??= finishStreamAgentInvocation(invocation, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
@@ -2431,13 +2430,37 @@ async function executeAgentInvocation<
           const preservedStream = typeof (renderedStream as ReadableStream<unknown>).pipeThrough === "function"
             ? toReadableAsyncIterableStream(value)
             : value
+          return preservedStream
+        }
+        const descriptors: PropertyDescriptorMap = Object.fromEntries(streamProperties.map((property) => {
+          const renderedStream = (rendered as { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown> })[property]!
           return [property, {
             configurable: true,
             enumerable: true,
-            value: preservedStream,
+            value: preserveStream(renderedStream),
             writable: true,
           }]
-        })))
+        }))
+        let textStreamDescriptor: PropertyDescriptor | undefined
+        for (let owner: object | null = rendered as object; owner && !textStreamDescriptor; owner = Object.getPrototypeOf(owner))
+          textStreamDescriptor = Object.getOwnPropertyDescriptor(owner, "textStream")
+        if (textStreamDescriptor) {
+          let preservedTextStream: unknown
+          let initialized = false
+          descriptors.textStream = {
+            configurable: true,
+            enumerable: textStreamDescriptor.enumerable ?? false,
+            get() {
+              if (!initialized) {
+                const textStream = Reflect.get(rendered as object, "textStream")
+                preservedTextStream = isAsyncIterable(textStream) ? preserveStream(textStream) : textStream
+                initialized = true
+              }
+              return preservedTextStream
+            },
+          }
+        }
+        const preserved = cloneWithPropertyDescriptors(rendered as object, descriptors)
         return {
           deferFinish: true,
           finishResult: preserved,

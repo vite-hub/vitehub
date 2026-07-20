@@ -7638,6 +7638,43 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Title: Text fallback" })
   })
 
+  it("keeps attachment-only derived text streams lazy until consumption", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const textStream = vi.fn()
+    class StreamResult {
+      stream = new ReadableStream<unknown>({
+        start(controller) {
+          controller.enqueue({ text: "Primary reply", type: "text-delta" })
+          controller.enqueue({ type: "finish" })
+          controller.close()
+        },
+      })
+
+      get textStream() {
+        textStream()
+        return this.stream.pipeThrough(new TransformStream<unknown, string>())
+      }
+    }
+    const agent = defineAgent({
+      capabilities: [title({ execute: ({ text }) => `Title: ${text}` })],
+      driver: { run: () => new StreamResult() },
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+        role: "user",
+      })],
+    }) as StreamResult
+
+    expect(textStream).not.toHaveBeenCalled()
+    const events = []
+    for await (const event of result.stream) events.push(event)
+
+    expect(textStream).not.toHaveBeenCalled()
+    expect(events).toContainEqual({ data: { title: "Title: Primary reply", type: "title" }, type: "data" })
+  })
+
   it("preserves readable stream results when adding title data", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     class StreamResult {
