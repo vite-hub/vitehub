@@ -37,7 +37,6 @@ function resolveCloudflareSandboxVersion() {
 export type CloudflareSandboxEntrypointOptions = {
   binding?: string
   className?: string
-  dockerfileFragment?: string
   migrationTag?: string
   name?: string
 }
@@ -48,7 +47,6 @@ function resolveCloudflareSandboxEntrypointOptions(options: CloudflareSandboxEnt
   return {
     binding: options.binding || defaultCloudflareSandboxBinding,
     className: options.className || defaultCloudflareSandboxClassName,
-    dockerfileFragment: typeof options.dockerfileFragment === 'string' ? options.dockerfileFragment : undefined,
     migrationTag: options.migrationTag || defaultCloudflareSandboxMigrationTag,
     name: options.name || undefined,
   }
@@ -189,11 +187,11 @@ export function installCloudflareSandboxEntrypoint(target: MutableRollupTarget, 
   plugins.push(plugin)
 }
 
-export async function writeCloudflareSandboxDockerfile(serverDir: string, fragment = '') {
+export async function writeCloudflareSandboxDockerfile(serverDir: string) {
   const dockerfilePath = join(serverDir, 'Dockerfile')
   await writeFileIfChanged(
     dockerfilePath,
-    `FROM docker.io/cloudflare/sandbox:${resolveCloudflareSandboxVersion()}\n${fragment}`,
+    `FROM docker.io/cloudflare/sandbox:${resolveCloudflareSandboxVersion()}\n`,
   )
   return dockerfilePath
 }
@@ -214,20 +212,11 @@ export async function configureCloudflareSandboxNitro(
   const existingContainer = target.cloudflare?.wrangler?.containers
     ?.find(entry => entry.class_name === resolvedOptions.className)
   const existingImage = existingContainer?.image?.replace(/\\/g, '/')
-  if (typeof resolvedOptions.dockerfileFragment === 'string'
-    && typeof existingImage === 'string'
-    && !existingImage.endsWith('/.vitehub/sandbox/Dockerfile')) {
-    throw new Error('[vitehub] A colocated Cloudflare Dockerfile fragment cannot be combined with an application-owned Sandbox container image. Remove the fragment or the explicit image.')
-  }
-
   configureCloudflareSandbox(target, resolvedOptions)
   const container = target.cloudflare!.wrangler!.containers!
     .find(entry => entry.class_name === resolvedOptions.className)!
   if (typeof existingImage !== 'string' || existingImage.endsWith('/.vitehub/sandbox/Dockerfile')) {
-    const dockerfile = await writeCloudflareSandboxDockerfile(
-      resolve(rootDir, '.vitehub/sandbox'),
-      resolvedOptions.dockerfileFragment,
-    )
+    const dockerfile = await writeCloudflareSandboxDockerfile(resolve(rootDir, '.vitehub/sandbox'))
     container.image = relativeWranglerPath(serverDir, dockerfile)
     container.image_build_context = relativeWranglerPath(serverDir, rootDir)
   }

@@ -652,12 +652,15 @@ importers:
 
   packages/box:
     devDependencies:
-      '@ai-sdk/harness':
-        specifier: catalog:ai
-        version: 1.0.0(ws@8.21.1)(zod@4.4.3)
+      '@cloudflare/sandbox':
+        specifier: catalog:sandbox
+        version: 0.8.14
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.3
+      '@vercel/sandbox':
+        specifier: catalog:sandbox
+        version: 1.10.2
       publint:
         specifier: catalog:tooling
         version: 0.3.21
@@ -1036,6 +1039,18 @@ importers:
 
   packages/sandbox:
     dependencies:
+      '@cloudflare/sandbox':
+        specifier: catalog:sandbox
+        version: 0.8.14
+      '@vercel/sandbox':
+        specifier: catalog:sandbox
+        version: 1.10.2
+      '@vite-hub/box':
+        specifier: workspace:*
+        version: link:../box
+      '@vite-hub/workspace':
+        specifier: workspace:*
+        version: link:../workspace
       esbuild:
         specifier: catalog:tooling
         version: 0.28.1
@@ -1070,12 +1085,6 @@ importers:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@26.1.1)(@vitejs/devtools@0.1.19)(esbuild@0.28.1)(jiti@2.7.0)(publint@0.3.21)(terser@5.49.0)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
     devDependencies:
-      '@cloudflare/sandbox':
-        specifier: catalog:sandbox
-        version: 0.8.14
-      '@vercel/sandbox':
-        specifier: catalog:sandbox
-        version: 1.10.2
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
@@ -1366,6 +1375,9 @@ importers:
 
   packages/workspace:
     dependencies:
+      '@vite-hub/box':
+        specifier: workspace:*
+        version: link:../box
       '@vercel/nft':
         specifier: catalog:vercel
         version: 1.10.2(rollup@4.62.2)
@@ -1381,9 +1393,6 @@ importers:
       defu:
         specifier: catalog:unjs
         version: 6.1.7
-      effect:
-        specifier: catalog:effect
-        version: 4.0.0-beta.99
       exsolve:
         specifier: catalog:unjs
         version: 1.1.0
@@ -1418,9 +1427,6 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
-      '@vite-hub/sandbox':
-        specifier: workspace:*
-        version: link:../sandbox
       '@vite-hub/shell':
         specifier: workspace:*
         version: link:../shell

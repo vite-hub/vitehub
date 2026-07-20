@@ -414,18 +414,22 @@ function workspaceShellMetadataCommands(mode: AgentCapabilityMode, sourceRequest
 }
 
 function capabilityMetadataTool(capability: NormalizedCapability, options: { driverKind?: AgentDriverKind, sourceRequests?: boolean } = {}): AgentDevtoolsToolDefinition | undefined {
-  if (options.driverKind === "harness") return undefined
   if (capability.id === "workspace-shell") {
     const mode = normalizeMode(capability.mode, "Workspace Shell")
-    const trustedHostCommands = (capability.metadata as { commands?: unknown } | undefined)?.commands === "trusted-host"
+    const configuredCommands = (capability.metadata as { commands?: unknown } | undefined)?.commands
+    if (options.driverKind === "harness" && configuredCommands === undefined) return undefined
+    const allCommands = configuredCommands === "all"
+    const executableCommands = Array.isArray(configuredCommands)
+      ? configuredCommands.map(command => `workspace_exec (${command})`)
+      : allCommands ? ["workspace_exec (any Box executable)"] : []
     return {
       category: "workspace",
       commands: [
-        ...workspaceShellMetadataCommands(mode, options.sourceRequests),
-        ...(trustedHostCommands ? ["workspace_exec (any host executable)"] : []),
+        ...(options.driverKind === "harness" ? [] : workspaceShellMetadataCommands(mode, options.sourceRequests)),
+        ...executableCommands,
       ],
-      description: trustedHostCommands
-        ? `Run workspace ${mode === "write" ? "read and write" : "read"} operations and any executable with the trusted host service account's authority.`
+      description: allCommands
+        ? `Run workspace ${mode === "write" ? "read and write" : "read"} operations and any executable in the Box.`
         : mode === "write"
           ? "Run curated workspace read and write shell operations."
           : "Run curated workspace read shell operations.",
@@ -434,6 +438,7 @@ function capabilityMetadataTool(capability: NormalizedCapability, options: { dri
       status: "available",
     }
   }
+  if (options.driverKind === "harness") return undefined
   if (capability.id === "sandbox") {
     return {
       category: "execution",
@@ -1396,6 +1401,7 @@ export async function resolveAgentDevtoolsMetadata<
   const workspaceOptions = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
   const selection = await resolveMetadataCapabilitySelection(workspaceOptions, defaultsOverride)
   validateAgentCapabilityComposition(selection.capabilities, {
+    hasBox: Boolean(workspaceOptions.box),
     hasWorkspace: true,
     workspaceMode: workspaceModeFromOptions(workspaceOptions),
   })
@@ -1448,6 +1454,7 @@ export async function materializeAgentDevtoolsSourceMetadata<
   const workspaceOptions = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
   const selection = await resolveMetadataCapabilitySelection(workspaceOptions, options)
   validateAgentCapabilityComposition(selection.capabilities, {
+    hasBox: Boolean(workspaceOptions.box),
     hasWorkspace: true,
     workspaceMode: workspaceModeFromOptions(workspaceOptions),
   })

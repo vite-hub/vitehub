@@ -3,7 +3,7 @@ import { sleep } from '../internal/shared/utils'
 import { SandboxError } from '../sandbox/errors'
 import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script'
 
-import type { SandboxClient } from '../sandbox/types'
+import type { SandboxExecutionBox } from './execution-box'
 
 const MIN_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS = 20_000
 const DEFAULT_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS = 60_000
@@ -143,7 +143,7 @@ function resolveExecOutputRecoveryTimeout(timeout?: number) {
 }
 
 function createExecOutputFailure(
-  sandbox: SandboxClient,
+  sandbox: SandboxExecutionBox,
   outputPath: string,
   error: unknown,
   recoveryTimeout: number,
@@ -161,7 +161,7 @@ function createExecOutputFailure(
 }
 
 async function waitForExecOutput(
-  sandbox: SandboxClient,
+  sandbox: SandboxExecutionBox,
   outputPath: string,
   error: unknown,
   timeout: number | undefined,
@@ -194,7 +194,7 @@ async function waitForExecOutput(
 }
 
 async function recoverExecOutput(
-  sandbox: SandboxClient,
+  sandbox: SandboxExecutionBox,
   outputPath: string,
   error: unknown,
   timeout?: number,
@@ -214,7 +214,7 @@ async function recoverExecOutput(
 }
 
 async function waitForCloudflareOutput(
-  sandbox: SandboxClient,
+  sandbox: SandboxExecutionBox,
   outputPath: string,
   error: unknown,
   timeout?: number,
@@ -236,7 +236,7 @@ async function waitForCloudflareOutput(
 }
 
 export async function readExecOutputWithRecovery(
-  sandbox: SandboxClient,
+  sandbox: SandboxExecutionBox,
   outputPath: string,
   error: unknown,
   timeout?: number,

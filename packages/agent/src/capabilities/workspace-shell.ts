@@ -14,25 +14,19 @@ import type {
   AgentRuntimeConfig,
   AgentToolSet,
 } from "../types.ts"
-import type { WorkspaceDefinition, WorkspaceName } from "@vite-hub/workspace"
+import type { WorkspaceName } from "@vite-hub/workspace"
 
 export interface WorkspaceShellOptions {
-  commands?: string[] | "trusted-host"
+  commands?: string[] | "all"
   mode?: AgentCapabilityMode
   timeout?: number
-}
-
-function isTrustedHostRuntime(definition: WorkspaceDefinition | undefined): boolean {
-  const runtime = definition?.runtime
-  return runtime === "trusted-host"
-    || typeof runtime === "object" && runtime !== null && runtime.type === "trusted-host"
 }
 
 export function workspaceShell(options: WorkspaceShellOptions = {}): AgentCapabilityDefinition<AgentRuntimeConfig, WorkspaceName> {
   const mode = normalizeMode(options.mode, "Workspace Shell")
   const commands = options.commands === undefined
     ? undefined
-    : options.commands === "trusted-host"
+    : options.commands === "all"
       ? options.commands
       : validateWorkspaceCommands(options.commands)
   const timeout = normalizeWorkspaceCommandTimeout(options.timeout, "workspaceShell({ timeout })")
@@ -42,10 +36,7 @@ export function workspaceShell(options: WorkspaceShellOptions = {}): AgentCapabi
     metadata: commands ? { commands, mode, ...(timeout ? { timeout } : {}) } : undefined,
     mode,
     requires: [{ primitive: "workspace", workspace: { mode: commands ? "write" : mode, required: true } }],
-    tools: ({ workspace, workspaceDefinition }) => {
-      if (commands === "trusted-host" && !isTrustedHostRuntime(workspaceDefinition)) {
-        throw new Error("[vitehub] workspaceShell({ commands: \"trusted-host\" }) requires workspace.runtime: \"trusted-host\".")
-      }
+    tools: ({ workspace }) => {
       return {
         ...(mode === "write" && "write" in workspace.tools
           ? (workspace.tools as unknown as { write: () => AgentToolSet }).write()

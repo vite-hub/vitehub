@@ -9,7 +9,6 @@ const workspaceDefinitionKeys = new Set([
   "publish",
   "rootDir",
   "rules",
-  "runtime",
   "sourceRootDir",
   "sources",
   "store",

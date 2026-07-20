@@ -168,7 +168,6 @@ Source keys identify named origins inside the Workspace Source Map. A Source-Bac
 | `plugins` | `WorkspacePlugin[]` | Bundled rules and hooks. |
 | `loaders` | `WorkspaceLoader[]` | Build-time or runtime loaders. |
 | `publish` | `WorkspacePublisher[]` | Publication behavior after snapshots or sync. |
-| `runtime` | `WorkspaceRuntime` | Runtime for executable Workspace Sessions, including sandbox and explicitly trusted host execution. |
 
 Instruction text reads scalar bindings with `{{ workspace.<name> }}` and file-backed bindings with `@workspace.<name>`. Only keys declared in `bindings` are available; ViteHub does not expose arbitrary Workspace files to Instruction Composition. See [Agent instructions](/docs/agents/instructions#read-workspace-bindings).
 
@@ -374,33 +373,39 @@ Source Sync requires a Workspace Store with metadata support. Without `publishPa
 ## Sessions and Shell
 
 Use a Workspace Session when execution should operate on a materialized file tree and then produce a diff.
-`session.exec()` requires an executable Workspace runtime. Use `runtime: 'sandbox'` for hosted or untrusted execution, or `runtime: 'trusted-host'` for trusted local development and tests.
+`session.exec()` requires an open Box Session. Workspace owns materialization, diff, commit, and rollback; Box owns the execution runtime and lifecycle.
 
 ```ts [server/tasks/test-docs.ts]
+import { resolveBox, trustedHost } from '@vite-hub/box'
 import { useWorkspace } from '@vite-hub/workspace'
 
 export async function testDocs() {
-  const session = await useWorkspace('docs', { mode: 'write' }).startSession()
+  const box = await resolveBox({ runtime: trustedHost() }, undefined)
+  const host = await box.open()
+  const session = await useWorkspace('docs', { mode: 'write' }).startSession({ host })
 
-  await session.exec('pnpm', ['test'])
-  const diff = await session.diff()
-  await session.close()
-
-  return diff
+  try {
+    await session.exec('pnpm', ['test'])
+    return await session.diff()
+  }
+  finally {
+    await session.close()
+    await host.close()
+  }
 }
 ```
 
 ### Session method options
 
-`startSession({ paths })` limits materialization, reads, writes, diffs, and commits to the selected Workspace paths. Omit `paths`, pass an empty array, or include the root path to open the complete Workspace.
+`startSession({ host, paths, target })` composes Workspace state with an already-open Box Session. `host` is required for execution; `paths` limits materialization and commit scope; `target` defaults to `/workspace`. The caller owns the Box lifecycle, so closing the Workspace Session does not close its host. Integrations that already own a live materialized tree can set `attach: true`; the Session preserves pre-existing live edits, never rematerializes the whole tree, and rolls back only its own uncommitted changes on close.
 
 | Method | Options | Behavior |
 | --- | --- | --- |
 | `readFile`, `writeFile`, `mkdir`, `rm`, `list`, `glob`, `search` | Same file options as the Workspace filesystem | Operate inside the Session path scope. |
-| `exec(command, args?, options?)` | `abortSignal?`, `cwd?`, `env?`, `timeout?` | Runs through the configured executable Workspace runtime. Basic non-executable Sessions reject this method. |
+| `exec(command, args?, options?)` | `abortSignal?`, `cwd?`, `env?`, `timeout?` | Runs through the supplied Box Session, defaulting cwd to the Workspace target. Basic Sessions without a host reject this method. |
 | `diff()` | none | Returns changes inside the Session path scope. |
 | `commit(options?)` | `message?: string` | Writes Session changes back and snapshots them with an optional message. |
-| `close()` | none | Releases Session runtime resources. |
+| `close()` | none | Rolls an uncommitted host tree back to authoritative Workspace state and releases Session resources. |
 | `tools?.aiSdk()` | none | Returns runtime-provided AI SDK tools when the Session supports them. |
 
 ### Mount method options
@@ -416,9 +421,7 @@ The exported `Workspace` contract also exposes `mount()` for integrations that h
 
 The returned `WorkspaceMount` also exposes its `workspace`, resolved `mode`, and resolved `target`.
 
-Workspace owns the file tree and commit behavior. [Shell](/docs/server-primitives/shell) owns controlled command sessions, and [Sandbox](/docs/server-primitives/sandbox) owns isolated execution providers.
-
-`runtime: 'trusted-host'` runs commands on the host machine in a temporary materialized Workspace directory and is rejected when `NODE_ENV=production` unless configured as `{ type: 'trusted-host', allowProduction: true }`. Use it only for projects and Sources you trust.
+Workspace owns the file tree and commit behavior. Box owns execution and provider adapters. Sandbox composes both for discovered named work, while Agent Definitions compose them for harness execution.
 
 ### Run sessions from the CLI
 

@@ -1,6 +1,6 @@
 import type { Message, StreamEvent } from "./messages.ts"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
-import type { BoxDefinition, BoxRequirement, ResolvedBox } from "@vite-hub/box"
+import type { Box, BoxDefinition, BoxRequirement } from "@vite-hub/box"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { JSONSchema7 } from "json-schema"
 import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
@@ -1606,7 +1606,7 @@ export interface AgentAdapterRunContext<
   Name extends WorkspaceName = WorkspaceName,
 > {
   actor: AgentActor
-  box?: ResolvedBox
+  box?: Box
   close?: () => Promise<void>
   context: AgentInvocationContextStore
   devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
@@ -1627,6 +1627,7 @@ export interface AgentAdapterRunContext<
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>
   tools?: AgentToolSet
   workspace?: ReadonlyWorkspaceFacade<Name>
+  workspaceMaterializationSource?: ReadonlyWorkspaceFacade<Name>
   workspaceAutoCommit?: boolean | string
   workspaceDefinition?: WorkspaceDefinition
   workspaceInstructionBindings?: Record<string, unknown>

@@ -2469,7 +2469,7 @@ describe("agent message protocol", () => {
         cwd: ({ input }) => input.options?.workspace,
         runtime: {
           name: "test",
-          async resolve({ cwd, identity }) {
+          async prepare({ cwd, identity }) {
             return {
               cache: { state: "disposable" },
               environment: { env: {} },
@@ -2477,8 +2477,11 @@ describe("agent message protocol", () => {
               isolation: "none",
               requirements: [],
               runtime: "test",
-              workspace: { path: cwd, state: "authoritative" },
+              workspace: { path: cwd, state: "authoritative", workDir: "workspace" },
             }
+          },
+          async open() {
+            throw new Error("Box session is provided by the Harness test double")
           },
         },
       },

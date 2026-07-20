@@ -134,9 +134,39 @@ export interface WorkspaceSyncOptions {
 }
 
 export interface WorkspaceSessionOptions {
+  attach?: boolean
+  host?: WorkspaceSessionHost
   paths?: readonly string[]
-  runtime?: never
-  sandbox?: never
+  target?: string
+}
+
+export interface WorkspaceSessionHostFileEntry {
+  path: string
+  size?: number
+  type: "directory" | "file" | "symlink"
+}
+
+export interface WorkspaceSessionHostFiles {
+  exists(path: string): Promise<boolean>
+  list(path: string, options?: { recursive?: boolean }): Promise<readonly WorkspaceSessionHostFileEntry[]>
+  mkdir(path: string, options?: { recursive?: boolean }): Promise<void>
+  read(path: string): Promise<Uint8Array | null>
+  remove(path: string, options?: { recursive?: boolean }): Promise<void>
+  write(path: string, content: Uint8Array): Promise<void>
+}
+
+export interface WorkspaceSessionHost {
+  files: WorkspaceSessionHostFiles
+  exec(
+    command: string,
+    args?: readonly string[],
+    options?: {
+    cwd?: string
+    env?: Readonly<Record<string, string>>
+    signal?: AbortSignal
+    timeout?: number
+    },
+  ): Promise<{ code: number, stderr: string, stdout: string }>
 }
 
 export type WorkspaceMountMode = "read-only" | "read-write" | "copy-on-write"
@@ -595,7 +625,6 @@ export interface WorkspaceDefinition {
   commit?: boolean | string
   rootDir?: string
   sourceRootDir?: string
-  runtime?: WorkspaceRuntime
   store?: WorkspaceStoreOptions
   bindings?: Record<string, WorkspaceInstructionBinding>
   sources?: Record<string, WorkspaceSourceInput>
@@ -604,21 +633,6 @@ export interface WorkspaceDefinition {
   plugins?: WorkspacePlugin[]
   rules?: WorkspaceRules
   hooks?: WorkspaceHooks
-}
-
-export type WorkspaceRuntime =
-  | "sandbox"
-  | "trusted-host"
-  | WorkspaceSandboxRuntimeOptions
-  | WorkspaceTrustedHostRuntimeOptions
-
-export interface WorkspaceSandboxRuntimeOptions {
-  type: "sandbox"
-}
-
-export interface WorkspaceTrustedHostRuntimeOptions {
-  type: "trusted-host"
-  allowProduction?: boolean
 }
 
 export type WorkspaceDefinitionInput = Omit<WorkspaceDefinition, "name"> & {

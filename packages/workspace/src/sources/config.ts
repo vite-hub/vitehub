@@ -4,6 +4,7 @@ import { WorkspaceError } from "../core/errors.ts"
 import { decodeFile, normalizeSafeWorkspacePath } from "../core/path.ts"
 import { fetch as fetchSource } from "./fetch.ts"
 import { getLiveWorkspaceSourcePaths, markLiveWorkspaceSource } from "./live.ts"
+import { loadMcpResourcesSource } from "./mcp-resources-loader.ts"
 import {
   copyWorkspaceSourceRequestMetadata,
   assertWorkspaceSourceRequestDescriptorKey,
@@ -330,7 +331,7 @@ async function loadInferredWorkspaceSource(family: WorkspaceSourceFamily, input:
   if (family === "file") return (await import("./file.ts")).file(input as never)
   if (family === "github") return (await import("./github.ts")).github(input as never)
   if (family === "glob") return (await import("./glob.ts")).glob(input as never)
-  return (await import("./mcp-resources.ts")).mcpResources(input as never)
+  return await loadMcpResourcesSource(input)
 }
 
 function inferredSourceDefaults(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): Partial<WorkspaceSource> {

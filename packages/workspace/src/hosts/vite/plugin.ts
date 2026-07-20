@@ -377,7 +377,7 @@ function isWorkspaceDevRoute(req: IncomingMessage): boolean {
   return new URL(req.url || "/", "http://localhost").pathname === workspaceDevRoute
 }
 
-function streamWorkspaceDevCommand(input: Parameters<typeof runWorkspaceDevCommand>[0]): Response {
+function streamWorkspaceDevCommand(input: Parameters<typeof runWorkspaceDevCommand>[0], closeHost: () => Promise<void>): Response {
   const encoder = new TextEncoder()
   const stream = new ReadableStream({
     async start(controller) {
@@ -393,6 +393,7 @@ function streamWorkspaceDevCommand(input: Parameters<typeof runWorkspaceDevComma
         write({ error: error instanceof Error ? error.message : String(error), type: "error" })
       }
       finally {
+        await closeHost()
         controller.close()
       }
     },
@@ -446,18 +447,26 @@ async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMes
   const args = command.args as string[] | undefined
   const paths = command.paths as string[] | undefined
   const timeout = typeof command.timeout === "number" && Number.isFinite(command.timeout) ? command.timeout : undefined
+  // Keep the dev-only runtime out of provider output tracing.
+  const { resolveBox, trustedHost } = await import("@vite-hub/" + "box") as typeof import("@vite-hub/box")
+  const host = await (await resolveBox({ runtime: trustedHost() }, {})).open({ signal: abortSignal })
   const input = {
     abortSignal,
     ...(args ? { args } : {}),
     command: command.command,
+    host,
     ...(isRecord(definition) ? { definition: normalizeWorkspaceDefinition(command.workspace, definition as never) } : {}),
     ...(paths?.length ? { paths } : {}),
     ...(timeout ? { timeout } : {}),
     workspace: command.workspace,
   }
-  return acceptsWorkspaceDevStream(req)
-    ? streamWorkspaceDevCommand(input)
-    : Response.json(await runWorkspaceDevCommand(input))
+  if (acceptsWorkspaceDevStream(req)) return streamWorkspaceDevCommand(input, () => host.close())
+  try {
+    return Response.json(await runWorkspaceDevCommand(input))
+  }
+  finally {
+    await host.close()
+  }
 }
 
 function hasNitroPlugin(value: unknown): boolean {

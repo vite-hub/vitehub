@@ -271,7 +271,6 @@ export async function prepareSandboxRuntime(options: {
       scanRoots: [rootDir],
       serverImports: { presets: [] },
     },
-    !options.resolvedConfig,
   )
   const aliases = createGeneratedAliasMap(rootDir, plan)
   if (options.writeArtifacts === false) {

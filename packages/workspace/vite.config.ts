@@ -27,6 +27,7 @@ export default defineConfig({
       "src/nuxt.ts",
       "src/publish.ts",
       "src/runtime.ts",
+      "src/runtime/workspace.ts",
       "src/source-metadata.ts",
       "src/runtime/empty-assets-registry.ts",
       "src/runtime/empty-registry.ts",
@@ -47,6 +48,7 @@ export default defineConfig({
         "runtime/empty-assets-registry",
         "runtime/empty-registry",
         "runtime/state",
+        "runtime/workspace",
         "providers/cloudflare/artifacts-store",
         "providers/github/store",
         "providers/vercel/blob-store",
@@ -59,6 +61,7 @@ export default defineConfig({
         exports["./internal/runtime/hosted"] = "./dist/hosted.js";
         exports["./internal/runtime/hosted-vercel-blob"] = "./dist/hosted-vercel-blob.js";
         exports["./internal/runtime/state"] = "./dist/runtime/state.js";
+        exports["./internal/runtime/workspace"] = "./dist/runtime/workspace.js";
         exports["./internal/stores/cloudflare-artifacts"] =
           "./dist/providers/cloudflare/artifacts-store.js";
         exports["./internal/stores/github"] = "./dist/providers/github/store.js";

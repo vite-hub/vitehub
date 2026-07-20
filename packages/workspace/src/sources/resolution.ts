@@ -27,10 +27,10 @@ import type {
   WorkspaceEntry,
   WorkspaceFile,
   WorkspaceName,
-  WorkspaceRuntime,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
   WorkspaceStore,
+  WorkspaceSession,
   WorkspaceSessionOptions,
   WorkspaceWriteInput,
   WorkspaceSelectedScope,
@@ -226,21 +226,13 @@ function createWritableFacadeStore(workspace: WritableWorkspaceFacade): Workspac
   }
 }
 
-function workspaceRuntimeType(runtime: WorkspaceRuntime | undefined) {
-  return typeof runtime === "string" ? runtime : runtime?.type
-}
-
-async function startOverlayWorkspaceSession(definition: WorkspaceDefinition, workspace: Workspace, options?: WorkspaceSessionOptions) {
-  const runtime = workspaceRuntimeType(definition.runtime)
-  if (runtime === "sandbox") {
-    const { createSandboxWorkspaceSession } = await import("../session/sandbox.ts")
-    return await createSandboxWorkspaceSession(definition, workspace, options)
+async function startOverlayWorkspaceSession(_definition: WorkspaceDefinition, workspace: Workspace, options?: WorkspaceSessionOptions) {
+  const host = options?.host
+  if (host) {
+    const { createHostedWorkspaceSession } = await import("../session/host.ts")
+    return await createHostedWorkspaceSession(workspace, { ...options, host })
   }
-  if (runtime === "trusted-host") {
-    const { createTrustedHostWorkspaceSession } = await import("../session/trusted-host.ts")
-    return await createTrustedHostWorkspaceSession(definition, workspace, options)
-  }
-  return createBasicWorkspaceSession(workspace)
+  return await createBasicWorkspaceSession(workspace, options)
 }
 
 export async function resolveWorkspaceSources(
@@ -394,6 +386,24 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       }
     }
 
+    function withSessionSourceGuards(session: WorkspaceSession): WorkspaceSession {
+      return {
+        ...session,
+        async mkdir(path, options) {
+          await sourceView.assertWritable(path)
+          await session.mkdir(path, options)
+        },
+        async rm(path, options) {
+          await sourceView.assertWritable(path)
+          await session.rm(path, options)
+        },
+        async writeFile(path, content, options) {
+          await sourceView.assertWritable(path)
+          await session.writeFile(path, content, options)
+        },
+      }
+    }
+
     const writeFs: WritableWorkspaceFacade<Name>["fs"] = attachWorkspaceSourceRequestExecution({
       appendFile: async (path, content) => await appendWorkspaceFile(writeWorkspace, path, content),
       copyPath: async (from, to, options) => await copyWorkspacePath(writeWorkspace, from, to, options?.overwrite),
@@ -442,7 +452,17 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       rm: writeFs.rm,
       search: writeFs.search,
       snapshot: workspace.snapshot,
-      startSession: async options => await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options),
+      startSession: async (options) => {
+        const paths = options?.paths?.length ? options.paths : [""]
+        await Promise.all(paths.map(path => materializeSources({ path })))
+        const startBoxSession = (workspace as unknown as Record<symbol, unknown>)[Symbol.for("vitehub.workspace.start-box-session")]
+        const session = options?.host
+          ? await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options)
+          : typeof startBoxSession === "function"
+          ? await (startBoxSession as (target: Workspace, options?: WorkspaceSessionOptions) => Promise<WorkspaceSession>)(writeWorkspace, options)
+          : await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options)
+        return withSessionSourceGuards(session)
+      },
       stat: writeFs.stat,
       sync: async (options) => {
         const { syncWorkspaceSources } = await import("./sync.ts")

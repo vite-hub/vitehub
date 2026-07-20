@@ -113,6 +113,10 @@
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js"
     },
+    "./internal/runtime/workspace": {
+      "types": "./dist/runtime/workspace.d.ts",
+      "import": "./dist/runtime/workspace.js"
+    },
     "./internal/stores/cloudflare-artifacts": {
       "types": "./dist/providers/cloudflare/artifacts-store.d.ts",
       "import": "./dist/providers/cloudflare/artifacts-store.js"
@@ -133,12 +137,12 @@
     "test": "vp run -t @vite-hub/workspace#build && vp test"
   },
   "dependencies": {
+    "@vite-hub/box": "workspace:*",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",
-    "effect": "catalog:effect",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",
@@ -151,7 +155,6 @@
     "@vercel/blob": "catalog:storage",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
-    "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai",
     "ocache": "catalog:unjs",
@@ -164,16 +167,12 @@
   },
   "peerDependencies": {
     "@vercel/blob": "catalog:storage",
-    "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
     "@vercel/blob": {
-      "optional": true
-    },
-    "@vite-hub/sandbox": {
       "optional": true
     },
     "@vite-hub/shell": {

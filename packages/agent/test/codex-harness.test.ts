@@ -221,7 +221,7 @@ describe("codexDriver", () => {
     ] as (context: { box?: unknown }) => string
 
     expect(directory({})).toBe("tmp/harness/codex-home/skills")
-    expect(directory({ box: {} })).toBe("home/.codex/skills")
+    expect(directory({ box: {} })).toBe(".codex/skills")
   })
 
   it("uses Box-owned Codex Home without replacing its authentication state", async () => {

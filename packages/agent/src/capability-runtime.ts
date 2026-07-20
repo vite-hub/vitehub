@@ -319,7 +319,7 @@ function capabilityRequiresWorkspace(capability: AgentCapabilityDefinition): boo
 
 export function validateAgentCapabilityComposition(
   capabilities: readonly AgentCapabilityDefinition[],
-  options: { hasWorkspace: boolean, workspaceMode?: AgentCapabilityMode },
+  options: { hasBox?: boolean, hasWorkspace: boolean, workspaceMode?: AgentCapabilityMode },
 ): void {
   for (const capability of normalizeCapabilities(capabilities)) {
     if (capability.id === "sandbox") {
@@ -340,12 +340,18 @@ export function validateAgentCapabilityComposition(
       if (requiresWritableSession && workspaceMode !== "write") {
         throw new Error("[vitehub] workspaceShell({ commands }) requires workspace.mode: \"write\".")
       }
+      if (requiresWritableSession && !options.hasBox) {
+        throw new Error("[vitehub] workspaceShell({ commands }) requires defineAgent({ box }).")
+      }
       if (!requiresWritableSession && normalizeMode(capability.mode, "Workspace Shell") === "write" && workspaceMode !== "write") {
         throw new Error("[vitehub] workspaceShell({ mode: \"write\" }) requires workspace.mode: \"write\".")
       }
     }
     if (capability.bash?.length && workspaceMode !== "write") {
       throw new Error(`[vitehub] ${capability.id}() bash requires workspace.mode: "write".`)
+    }
+    if (capability.bash?.length && !options.hasBox) {
+      throw new Error(`[vitehub] ${capability.id}() bash requires defineAgent({ box }).`)
     }
   }
 }

@@ -569,6 +569,24 @@ function renderWorkspaceRuntimeModule(file: string, assetsRegistryFile: string) 
     "  }",
     "  return facade",
     "}",
+    "export const createWorkspace = definition => {",
+    "  const workspace = useWorkspace(definition.name, { mode: 'write' })",
+    "  workspace.startSession = async ({ host, target }) => {",
+    "    const entries = await workspace.fs.list('', { recursive: true })",
+    "    for (const entry of entries) {",
+    "      const path = `${target}/${entry.path}`",
+    "      if (entry.type === 'directory') await host.files.mkdir(path, { recursive: true })",
+    "      else {",
+    "        const parent = path.slice(0, path.lastIndexOf('/'))",
+    "        if (parent) await host.files.mkdir(parent, { recursive: true })",
+    "        const content = await workspace.fs.readFile(entry.path)",
+    "        await host.files.write(path, typeof content === 'string' ? new TextEncoder().encode(content) : content)",
+    "      }",
+    "    }",
+    "    return { async close() {} }",
+    "  }",
+    "  return workspace",
+    "}",
     `function createHostedSourceStub(kind, input) {`,
     `  return {`,
     `    fingerprint: { input, kind },`,
@@ -640,19 +658,15 @@ function renderSandboxRegistryModule(definitions: Array<{ name: string, file: st
 
 function renderSandboxProviderLoaderModule(file: string, provider: "cloudflare" | "vercel") {
   const runtimeProviderFile = resolvePackageRuntime(sandboxPackageDir, `runtime/providers/${provider}`)
-  const clientProviderFile = resolvePackageRuntime(sandboxPackageDir, `sandbox/providers/${provider}`)
-  const clientFactory = provider === "cloudflare" ? "createCloudflareSandboxClient" : "createVercelSandboxClient"
 
   return [
-    `import { resolveSandboxProvider } from ${JSON.stringify(createImportPath(file, runtimeProviderFile))}`,
-    `import { ${clientFactory} } from ${JSON.stringify(createImportPath(file, clientProviderFile))}`,
+    `import { resolveSandboxBox } from ${JSON.stringify(createImportPath(file, runtimeProviderFile))}`,
     "",
     "export async function loadSandboxRuntimeProvider(selectedProvider) {",
     `  if (selectedProvider !== ${JSON.stringify(provider)})`,
     "    throw new Error(`[vitehub] Unsupported sandbox provider for this hosted build: ${selectedProvider}`)",
     "  return {",
-    "    resolveSandboxProvider,",
-    `    createSandboxClient: ${clientFactory},`,
+    "    resolveSandboxBox,",
     "  }",
     "}",
     "",
@@ -754,6 +768,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     workspaceAssetsRegistryFile = resolve(options.rootDir, ".vitehub/vite-runtime/workspace/assets/registry.mjs")
     alias["#vitehub-workspace-assets-registry"] = workspaceAssetsRegistryFile
     alias["@vite-hub/workspace/internal/runtime/assets"] = workspaceAssetsRuntimeFile
+    alias["@vite-hub/workspace/internal/runtime/workspace"] = workspaceRuntimeFile
     alias["@vite-hub/workspace/runtime"] = workspaceStateRuntimeFile
     alias["@vite-hub/workspace/loader"] = resolve(workspacePackageDir, "src/loader.ts")
     alias["@vite-hub/workspace/publish"] = resolve(workspacePackageDir, "src/publish.ts")
@@ -1252,10 +1267,12 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
       "node:crypto",
       "node:fs",
       "node:fs/promises",
+      "node:os",
       "node:path",
       "node:path/posix",
       "node:stream",
       "node:url",
+      "node:util",
       "workflow",
       "workflow/api",
       "workflow/runtime",

@@ -106,9 +106,11 @@ export default defineConfig({
 
 Use named Workspace Source Binding helpers such as `file()` and `github()`. The lower-level Source registry lives in `@vite-hub/source`; install and import it directly only when you use that package's registry APIs.
 
-## Sandbox sessions
+## Box sessions
 
-Need the workspace to run generated code instead of only reading and writing files? Pair it with [`@vite-hub/sandbox`](../sandbox/README.md) so sessions can execute inside an isolated provider runtime.
+Workspace definitions are runtime-free. To run generated code, open a [`@vite-hub/box`](../box/README.md) session and pass it to `workspace.startSession({ host: boxSession })`. Workspace materializes files into the host and still owns diff, commit, and rollback; closing without commit restores the host tree from authoritative Workspace state. Box owns execution and the host lifecycle.
+
+Use `startSession({ attach: true, host })` only when another integration already owns the live materialized tree. Attached Sessions preserve that baseline without rematerializing the tree and roll back only their own uncommitted changes on close.
 
 Harness-backed Agents use the Workspace Package to prepare Harness Workspace Sessions for `defineAgent({ driver: { harness }, workspace })`. The Agent Package keeps the harness inside the Agent Driver boundary, Capabilities keep tools and Skills opt-in, and Workspace owns materializing the selected Workspace Scope plus write-mode sync back through Workspace rules.
 
