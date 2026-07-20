@@ -500,6 +500,39 @@ describe("Vite provider outputs", () => {
     await expect(execFileAsync(process.execPath, [runtimeProbe])).resolves.toMatchObject({ stderr: "", stdout: "" })
   })
 
+  it("copies the private Vercel Blob runtime into isolated Vercel output", { timeout: 15_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-vercel-blob-runtime-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist", "client"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
+
+    await generateProviderOutputs({
+      blob: {
+        access: "private",
+        driver: "vercel-blob",
+        token: "vercel_blob_rw_test",
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+      serverFunctionName: "__blob.func",
+    })
+
+    const runtimeModule = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
+    expect(runtimeModule).toContain("drivers/vercel-bundled")
+
+    const serverEntry = join(rootDir, ".vercel", "output", "functions", "__blob.func", "index.mjs")
+    await expect(import(`${pathToFileURL(serverEntry).href}?t=${Date.now()}`)).resolves.toHaveProperty("default")
+
+    const runtimeProbe = join(dirname(serverEntry), "runtime-probe.mjs")
+    await writeFile(runtimeProbe, [
+      `await import("files-sdk")`,
+      `await import("files-sdk/vercel-blob")`,
+      `await import("@vercel/blob")`,
+      "",
+    ].join("\n"), "utf8")
+    await expect(execFileAsync(process.execPath, [runtimeProbe])).resolves.toMatchObject({ stderr: "", stdout: "" })
+  })
+
   it("skips provider output for local fs stores", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-local-fs-")
     await mkdir(join(rootDir, "src"), { recursive: true })

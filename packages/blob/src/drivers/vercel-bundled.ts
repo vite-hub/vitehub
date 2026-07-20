@@ -17,3 +17,5 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
     Files,
   )
 }
+
+export { createBundledVercelBlobDriver as createDriver }

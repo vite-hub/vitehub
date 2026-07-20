@@ -91,6 +91,11 @@ const driverModules = {
   "vercel-blob": "drivers/vercel",
 } satisfies Record<NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], string>
 
+function getDriverModule(driver: NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], provider?: BlobProvider) {
+  if (driver === "vercel-blob" && provider === "vercel") return "drivers/vercel-bundled"
+  return driverModules[driver]
+}
+
 function isResolvedBlobStore(store: unknown): store is ResolvedBlobModuleOptions["store"] {
   if (!isPlainObject(store) || typeof store.driver !== "string" || !Object.hasOwn(driverModules, store.driver)) return false
   switch (store.driver) {
@@ -174,7 +179,7 @@ function renderProviderEntry(
     `import { setBlobRuntimeConfig, setBlobRuntimeStorage } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("runtime/state")))}`,
     `import { ${spec.factory} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
   ]
-  const driverModule = blobConfig ? driverModules[blobConfig.store.driver] : undefined
+  const driverModule = blobConfig ? getDriverModule(blobConfig.store.driver, spec.name) : undefined
   if (driverModule) {
     imports.push(`import { createBlobStorage } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("storage")))}`)
     imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(driverModule)))}`)
@@ -208,9 +213,9 @@ function renderProviderEntry(
   return lines.filter(Boolean).join("\n")
 }
 
-export function renderBlobRuntimeModule(file: string, blobConfig: false | ResolvedBlobModuleOptions) {
+export function renderBlobRuntimeModule(file: string, blobConfig: false | ResolvedBlobModuleOptions, provider?: BlobProvider) {
   const stores = blobConfig ? Object.values(blobConfig.stores || { default: blobConfig.store }) : []
-  const selectedDriverModules = [...new Set(stores.map(store => driverModules[store.driver]))]
+  const selectedDriverModules = [...new Set(stores.map(store => getDriverModule(store.driver, provider)))]
   const driverImports = Object.fromEntries(selectedDriverModules.map((driverModule, index) => [driverModule, `createDriver${index}`]))
   const imports = [
     `import { ensureBlob } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("ensure")))}`,
@@ -228,13 +233,14 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
     imports.push(`import { ${runtimeStoreResolvers.join(", ")} } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("config")))}`)
   }
 
-  const createDriverCases = Object.entries(driverModules).map(([driver, driverModule]) => {
-      const driverImport = driverImports[driverModule]
-      if (!driverImport) return undefined
-      const runtimeStoreResolver = getRuntimeBlobStoreResolver(driver)
-      const storeExpression = runtimeStoreResolver ? `${runtimeStoreResolver}(store, process.env)` : "store"
-      return `    case ${JSON.stringify(driver)}: return ${driverImport}(${storeExpression})`
-    }).filter(Boolean)
+  const createDriverCases = Object.keys(driverModules).map((driver) => {
+    const driverModule = getDriverModule(driver as keyof typeof driverModules, provider)
+    const driverImport = driverImports[driverModule]
+    if (!driverImport) return undefined
+    const runtimeStoreResolver = getRuntimeBlobStoreResolver(driver)
+    const storeExpression = runtimeStoreResolver ? `${runtimeStoreResolver}(store, process.env)` : "store"
+    return `    case ${JSON.stringify(driver)}: return ${driverImport}(${storeExpression})`
+  }).filter(Boolean)
 
   return [
     ...imports,
@@ -332,7 +338,7 @@ async function writeProviderEntries(rootDir: string, blob: BlobModuleOptions | R
     const runtimeModuleFile = resolve(generatedDir, `${spec.name}-runtime.mjs`)
     const blobConfig = resolveBlobConfig(blob, spec.hosting)
     await writeFile(entryFile, renderProviderEntry(spec, entryFile, userAppEntry, blobConfig), "utf8")
-    await writeFile(runtimeModuleFile, renderBlobRuntimeModule(runtimeModuleFile, blobConfig), "utf8")
+    await writeFile(runtimeModuleFile, renderBlobRuntimeModule(runtimeModuleFile, blobConfig, spec.name), "utf8")
     entryFiles[spec.name] = entryFile
     runtimeModuleFiles[spec.name] = runtimeModuleFile
   }
@@ -501,17 +507,29 @@ function hasCloudflareR2Store(blob: BlobModuleOptions | ResolvedBlobModuleOption
     .some(store => store.driver === "cloudflare-r2")
 }
 
+function hasVercelBlobStore(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined) {
+  const resolved = resolveBlobConfig(blob, "vercel")
+  return resolved !== false && Object.values(resolved.stores || { default: resolved.store })
+    .some(store => store.driver === "vercel-blob")
+}
+
 async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOptions) {
-  if (!hasCloudflareR2Store(options.blob)) return
+  const packages = new Set<string>()
+  if (hasVercelBlobStore(options.blob)) {
+    packages.add("files-sdk")
+    packages.add("@vercel/blob")
+  }
+  if (hasCloudflareR2Store(options.blob)) {
+    packages.add("files-sdk")
+    packages.add("@aws-sdk/client-s3")
+    packages.add("@aws-sdk/lib-storage")
+    packages.add("@aws-sdk/s3-presigned-post")
+    packages.add("@aws-sdk/s3-request-presigner")
+  }
+  if (!packages.size) return
 
   await copyVercelFunctionRuntimePackages({
-    packages: [
-      { name: "files-sdk", resolveFrom: resolve(packageDir, "package.json") },
-      { name: "@aws-sdk/client-s3", resolveFrom: resolve(packageDir, "package.json") },
-      { name: "@aws-sdk/lib-storage", resolveFrom: resolve(packageDir, "package.json") },
-      { name: "@aws-sdk/s3-presigned-post", resolveFrom: resolve(packageDir, "package.json") },
-      { name: "@aws-sdk/s3-request-presigner", resolveFrom: resolve(packageDir, "package.json") },
-    ],
+    packages: [...packages].map(name => ({ name, resolveFrom: resolve(packageDir, "package.json") })),
     rootDir: options.rootDir,
     serverFunctionName: options.serverFunctionName,
   })

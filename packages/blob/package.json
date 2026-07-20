@@ -68,15 +68,16 @@
     "test": "vp run -t @vite-hub/blob#build && vp test"
   },
   "dependencies": {
+    "@vercel/blob": "catalog:storage",
     "defu": "catalog:unjs",
     "esbuild": "catalog:esbuild-v27",
+    "files-sdk": "catalog:storage",
     "h3": "catalog:unjs",
     "pathe": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "files-sdk": "catalog:storage",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -89,7 +90,6 @@
     "@aws-sdk/lib-storage": "^3.700.0",
     "@aws-sdk/s3-presigned-post": "^3.700.0",
     "@aws-sdk/s3-request-presigner": "^3.700.0",
-    "files-sdk": "catalog:storage",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
@@ -103,9 +103,6 @@
       "optional": true
     },
     "@aws-sdk/s3-request-presigner": {
-      "optional": true
-    },
-    "files-sdk": {
       "optional": true
     },
     "vite": {
