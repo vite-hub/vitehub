@@ -4,7 +4,7 @@ import { createRuntimeWaitUntilController } from "@vite-hub/runtime"
 import { Chat, StreamingPlan, convertEmojiPlaceholders } from "chat"
 
 import { resolveAgentTriggerInvocation, resolveAgentTriggers, runAgent, runAgentInline, streamAgent, streamAgentTrigger } from "../index.ts"
-import { finalTextFromAgentOutput, streamAgentOutputToEvents } from "../agent-output.ts"
+import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
 import { RateLimitRejectedError } from "../capabilities/rate-limit.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "../chat-trigger.ts"
@@ -12,6 +12,7 @@ import { chatTriggerHistoryLimit, resolveChatTriggerHistory, uiMessagesToAgentMe
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
+import { finalChannelOutputContextKey } from "../internal/final-channel-output.ts"
 import { normalizeAgentInvokerProfiles, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
@@ -588,9 +589,6 @@ async function collectAgentOutput(result: unknown): Promise<string> {
     }
     return await result.text()
   }
-
-  const finalText = finalTextFromAgentOutput(result)
-  if (finalText !== undefined) return finalText.trim()
 
   let text = ""
   for await (const event of streamAgentOutputToEvents(result)) {
@@ -1751,6 +1749,7 @@ async function handleChatSdkMessage(
       context: {
         ...(invocation.input as AgentRunInput).context,
         [messageChannelStateContextKey]: state,
+        ...(options?.stream === false ? { [finalChannelOutputContextKey]: true } : {}),
       },
     }, invoker), chatFinish)
     if (options?.stream === false) {

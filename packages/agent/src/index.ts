@@ -11,7 +11,7 @@ import {
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
 import { createTraceEventLog, resolveRuntimeContext } from "@vite-hub/runtime"
-import { agentResultKind, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
+import { agentResultKind, finalTextFromAgentOutput, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import {
   finishMessageChannelTitleDelivery,
@@ -39,6 +39,7 @@ import {
   scheduledAgentNameContextKey,
   scheduledAgentTurnContextKey,
 } from "./internal/scheduled-turn.ts"
+import { finalChannelOutputContextKey } from "./internal/final-channel-output.ts"
 import {
   colocatedAgentSkillsContextKey,
   colocatedAgentSkillsSymbol,
@@ -2289,6 +2290,19 @@ async function executeAgentInvocation<
   }
   catch (error) {
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
+  }
+
+  if (options.kind === "run" && invocation.context.get<boolean>(finalChannelOutputContextKey) === true) {
+    const text = finalTextFromAgentOutput(result)
+    if (text !== undefined && result && typeof result === "object" && !(result instanceof Response)) {
+      result = cloneWithPropertyDescriptors(result, {
+        text: {
+          configurable: true,
+          enumerable: true,
+          value: text,
+        },
+      })
+    }
   }
 
   const outputExtensions = new Map<string, unknown>()
