@@ -7561,7 +7561,16 @@ describe("agent message protocol", () => {
 
   it("preserves stream result methods while deriving attachment-only titles", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
     class StreamResult {
+      stream = new ReadableStream<unknown>({
+        start(controller) {
+          controller.enqueue({ text: "Image description", type: "text-delta" })
+          controller.enqueue({ type: "finish" })
+          controller.close()
+        },
+      })
+
       fullStream = new ReadableStream<unknown>({
         start(controller) {
           controller.enqueue({ text: "Image description", type: "text-delta" })
@@ -7577,6 +7586,7 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       capabilities: [title({ execute: ({ text }) => `Title: ${text}` })],
       driver: { run: () => new StreamResult() },
+      hooks: { "agent:finish": finish },
     })
 
     const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -7588,11 +7598,13 @@ describe("agent message protocol", () => {
     const events = []
     expect(result.fullStream).toBeInstanceOf(ReadableStream)
     expect(result.fullStream.pipeThrough).toEqual(expect.any(Function))
+    expect(finish).not.toHaveBeenCalled()
     for await (const event of result.fullStream) events.push(event)
 
     expect(result).toBeInstanceOf(StreamResult)
     expect(result.toTextStreamResponse).toEqual(expect.any(Function))
     expect(events).toContainEqual({ data: { title: "Title: Image description", type: "title" }, type: "data" })
+    expect(finish).toHaveBeenCalledOnce()
   })
 
   it("preserves readable stream results when adding title data", async () => {

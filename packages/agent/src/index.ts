@@ -2421,19 +2421,19 @@ async function executeAgentInvocation<
         const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
           await finishStreamAgentInvocation(invocation, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
         }, { abortSignal: invocation.input.abortSignal })
-        const streamProperty = isAsyncIterable((rendered as { stream?: unknown }).stream) ? "stream" : "fullStream"
+        const streamProperties = (["stream", "fullStream"] as const)
+          .filter(property => isAsyncIterable((rendered as { fullStream?: unknown, stream?: unknown })[property]))
+        const streamProperty = streamProperties[0]!
         const renderedStream = (rendered as { fullStream?: unknown, stream?: unknown })[streamProperty]
         const preservedStream = typeof (renderedStream as ReadableStream<unknown>).pipeThrough === "function"
           ? toReadableAsyncIterableStream(value)
           : value
-        const preserved = cloneWithPropertyDescriptors(rendered as object, {
-          [streamProperty]: {
+        const preserved = cloneWithPropertyDescriptors(rendered as object, Object.fromEntries(streamProperties.map(property => [property, {
             configurable: true,
             enumerable: true,
             value: preservedStream,
             writable: true,
-          },
-        })
+          }])))
         return {
           deferFinish: true,
           finishResult: preserved,
