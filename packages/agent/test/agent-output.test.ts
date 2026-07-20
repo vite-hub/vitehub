@@ -21,16 +21,19 @@ describe("agent output helpers", () => {
       artifacts: [{ path: "result.txt", url: "https://example.com/result.txt" }],
       content: [{ text: "progress", type: "text" }],
       finishReason: "tool-calls",
+      usage: { inputTokens: 1 },
       warnings: ["warning"],
     }
-    const value = { raw, text: "" }
+    const value = { modelId: "rendered-model", raw, text: "" }
+    Object.assign(value, { warnings: ["rendered warning"] })
     Object.defineProperty(value, finalChannelOutputSelectedSymbol, { value: true })
     expect(toAgentRunResult(value)).toMatchObject({
       artifacts: raw.artifacts,
       finishReason: "tool-calls",
       raw,
       text: "",
-      warnings: ["warning"],
+      usageRecord: { model: { id: "rendered-model" }, usage: { inputTokens: 1 } },
+      warnings: ["rendered warning"],
     })
   })
 

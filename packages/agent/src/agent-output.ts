@@ -132,18 +132,19 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
   const selectedChannelOutput = Object.getOwnPropertyDescriptor(result, finalChannelOutputSelectedSymbol)?.value === true
   const raw = selectedChannelOutput ? ownValue(result, "raw") : value
   const normalized = selectedChannelOutput && isRecord(raw) ? raw : result
-  const usageRecord = isUsageRecord(ownValue(normalized, "usageRecord"))
-    ? withFallbackUsageMetadata(ownValue(normalized, "usageRecord") as AgentUsageRecord, normalized)
-    : usageRecordFromUsage(ownValue(normalized, "usage") ?? ownValue(normalized, "totalUsage"), normalized)
-  const artifacts = publishedDeliveryArtifactsFromUnknown(ownValue(normalized, "artifacts"))
+  const selectedValue = (key: string) => ownValue(result, key) ?? ownValue(normalized, key)
+  const usageRecord = isUsageRecord(selectedValue("usageRecord"))
+    ? withFallbackUsageMetadata(withFallbackUsageMetadata(selectedValue("usageRecord") as AgentUsageRecord, result), normalized)
+    : usageRecordFromUsage(selectedValue("usage") ?? selectedValue("totalUsage"), result, normalized)
+  const artifacts = publishedDeliveryArtifactsFromUnknown(selectedValue("artifacts"))
   return {
     ...(artifacts.length ? { artifacts } : {}),
-    finishReason: ownValue(normalized, "finishReason"),
+    finishReason: selectedValue("finishReason"),
     raw,
     text: selectedChannelOutput && typeof explicitText === "string" ? explicitText : textFromResult(result),
-    usage: ownValue(normalized, "usage") ?? usageRecord?.usage,
+    usage: selectedValue("usage") ?? usageRecord?.usage,
     usageRecord,
-    warnings: ownValue(normalized, "warnings"),
+    warnings: selectedValue("warnings"),
   }
 }
 

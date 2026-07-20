@@ -40,6 +40,7 @@ import {
   scheduledAgentTurnContextKey,
 } from "./internal/scheduled-turn.ts"
 import { finalChannelOutputContextKey, finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
+import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import {
   colocatedAgentSkillsContextKey,
   colocatedAgentSkillsSymbol,
@@ -2296,7 +2297,11 @@ async function executeAgentInvocation<
   if (options.kind === "run" && invocation.context.get<boolean>(finalChannelOutputContextKey) === true) {
     const text = finalTextFromAgentOutput(result)
     if (text !== undefined && !(result instanceof Response)) {
-      result = { raw: result, text }
+      const synthesizedRaw = typeof result === "object" && result !== null
+        && Object.getOwnPropertyDescriptor(result, synthesizedAgentOutputSymbol)?.value === true
+        ? Object.getOwnPropertyDescriptor(result, "raw")?.value
+        : undefined
+      result = { raw: synthesizedRaw ?? result, text }
       Object.defineProperty(result, finalChannelOutputSelectedSymbol, { enumerable: true, value: true })
     }
   }
