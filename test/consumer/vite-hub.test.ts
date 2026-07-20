@@ -26,7 +26,6 @@ const optionalPackages = [
   "@vercel/sandbox",
   "askweb",
   "evalite",
-  "files-sdk",
   "openworkflow",
   "vitest",
 ]

@@ -117,6 +117,7 @@ ignoreDependencies = [
   "@workflow/builders",
   "askweb",
   "esbuild",
+  "files-sdk",
   "publint",
   "workflow",
 ]

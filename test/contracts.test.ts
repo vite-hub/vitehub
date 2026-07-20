@@ -129,12 +129,14 @@ describe("package manifest contracts", () => {
 
   it("keeps the private Vercel Blob runtime owned by the blob package", () => {
     const manifest = readPackageManifest("blob")
+    const frameworkManifest = readPackageManifest("vite-hub")
 
     expect(manifest.dependencies?.["files-sdk"]).toBeUndefined()
     expect(manifest.peerDependencies?.["files-sdk"]).toEqual(expect.any(String))
     expect(manifest.peerDependenciesMeta?.["files-sdk"]?.optional).toBe(true)
     expect(manifest.devDependencies?.["files-sdk"]).toEqual(expect.any(String))
     expect(manifest.dependencies?.["@vercel/blob"]).toEqual(expect.any(String))
+    expect(frameworkManifest.dependencies?.["files-sdk"]).toEqual(expect.any(String))
   })
 })
 
