@@ -479,6 +479,16 @@ async function* streamChunksToEventsWithTextFallback(
   yield* terminalEvents
 }
 
+function hasPropertyGetter(value: object, key: PropertyKey): boolean {
+  let current: object | null = value
+  while (current) {
+    const descriptor = Object.getOwnPropertyDescriptor(current, key)
+    if (descriptor) return typeof descriptor.get === "function"
+    current = Object.getPrototypeOf(current) as object | null
+  }
+  return false
+}
+
 export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<StreamEvent> {
   if (typeof value === "string") {
     if (value) yield { text: value, type: "text-delta" }
@@ -494,9 +504,14 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   const result = value && typeof value === "object"
     ? value as { fullStream?: unknown, stream?: unknown, textStream?: unknown }
     : undefined
+  let textStreamRead = !result || !hasPropertyGetter(result, "textStream")
+  let textStreamCandidate = textStreamRead ? result?.textStream : undefined
   const getTextStream = () => {
-    const candidate = result?.textStream
-    return isAsyncIterable(candidate) ? candidate : undefined
+    if (!textStreamRead) {
+      textStreamCandidate = result?.textStream
+      textStreamRead = true
+    }
+    return isAsyncIterable(textStreamCandidate) ? textStreamCandidate : undefined
   }
   if (isAsyncIterable(result?.stream)) {
     yield* streamChunksToEventsWithTextFallback(result.stream, result, getTextStream)
