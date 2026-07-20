@@ -188,6 +188,25 @@ describe("agent output helpers", () => {
     })).toBe("Final answer.")
   })
 
+  it("selects final text from a later step text field", () => {
+    expect(finalTextFromAgentOutput({
+      steps: [
+        {
+          content: [
+            { text: "Checking.", type: "text" },
+            { toolCallId: "call-1", toolName: "search", type: "tool-call" },
+            { toolCallId: "call-1", toolName: "search", type: "tool-result" },
+          ],
+        },
+        {
+          content: [{ toolCallId: "call-2", toolName: "format", type: "tool-result" }],
+          text: "Final answer.",
+        },
+      ],
+      text: "Checking.Final answer.",
+    })).toBe("Final answer.")
+  })
+
   it("keeps wrapper output empty when raw output ends at a tool", () => {
     expect(finalTextFromAgentOutput({
       raw: {

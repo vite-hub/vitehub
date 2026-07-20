@@ -17,6 +17,11 @@ export function agentResultKind(result: unknown): string {
   return typeof result
 }
 
+export function hasTraceableStreamResult(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  return isAsyncIterable(value.fullStream) || isAsyncIterable(value.stream) || isAsyncIterable(value.textStream)
+}
+
 function textFromContent(content: unknown): string | undefined {
   if (!Array.isArray(content)) return
 
@@ -75,17 +80,25 @@ function finalTextFromContent(content: unknown): string | undefined {
   return boundary >= 0 ? textFromContent(content.slice(boundary + 1)) ?? "" : undefined
 }
 
+function contentFromSteps(steps: unknown[]): unknown[] {
+  return steps.flatMap((step) => {
+    if (!isRecord(step)) return []
+    const content = ownValue(step, "content")
+    const text = ownValue(step, "text")
+    if (!Array.isArray(content)) return typeof text === "string" && text ? [{ text, type: "text" }] : []
+    return typeof text === "string" && text && textFromContent(content) === undefined
+      ? [...content, { text, type: "text" }]
+      : content
+  })
+}
+
 function structuredTextFromResult(result: Record<string, unknown>): string | undefined {
   const content = textFromContent(ownValue(result, "content"))
   if (content !== undefined) return content
 
   const steps = ownValue(result, "steps")
   if (!Array.isArray(steps)) return
-  return textFromContent(steps.flatMap((step) => {
-    if (!step || typeof step !== "object") return []
-    const stepContent = ownValue(step as Record<string, unknown>, "content")
-    return Array.isArray(stepContent) ? stepContent : []
-  }))
+  return textFromContent(contentFromSteps(steps))
 }
 
 function finalTextFromStructuredResult(result: Record<string, unknown>): string | undefined {
@@ -94,11 +107,7 @@ function finalTextFromStructuredResult(result: Record<string, unknown>): string 
 
   const steps = ownValue(result, "steps")
   if (!Array.isArray(steps)) return
-  return finalTextFromContent(steps.flatMap((step) => {
-    if (!step || typeof step !== "object") return []
-    const stepContent = ownValue(step as Record<string, unknown>, "content")
-    return Array.isArray(stepContent) ? stepContent : []
-  }))
+  return finalTextFromContent(contentFromSteps(steps))
 }
 
 export function finalTextFromAgentOutput(value: unknown): string | undefined {

@@ -3234,6 +3234,36 @@ describe("server helpers", () => {
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", expect.any(String), { markdown: "Final answer." })
   })
 
+  it("preserves bare async iterables for final-only Channel delivery", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const stream = Object.assign((async function* () {
+      yield { text: "Final streamed answer.", type: "text-delta" }
+    })(), { text: "stale partial text" })
+    const agent = defineAgent({
+      channels: { discord: discord({ adapter: () => adapter as never }) },
+      driver: { run: () => stream },
+    })
+
+    const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { id: 123, username: "maxi" },
+          message_id: 2011,
+          text: "stream this",
+        },
+      }),
+      method: "POST",
+    }), "discord")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Final streamed answer." })
+  })
+
   it("scopes progressive delivery to the active Channel", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
