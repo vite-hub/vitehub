@@ -506,6 +506,8 @@ function withTitleReadableStreamParallel<T>(
           if (!next.value.done) {
             text += getText(next.value.value)
             if (deferredTitle && isTerminal(next.value.value)) {
+              reader?.releaseLock()
+              reader = undefined
               if (!text && fallback) {
                 for await (const value of fallback() ?? []) {
                   text += getText(value)
@@ -518,6 +520,10 @@ function withTitleReadableStreamParallel<T>(
               const resolvedTitle = await deferredTitle(text).catch(() => undefined)
               titlePending = false
               if (resolvedTitle) controller.enqueue(renderTitle(resolvedTitle))
+              controller.enqueue(next.value.value)
+              controller.close()
+              closed = true
+              return
             }
             controller.enqueue(next.value.value)
             return

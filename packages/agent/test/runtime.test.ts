@@ -7001,6 +7001,39 @@ describe("agent message protocol", () => {
     expect(events.at(-1)).toEqual({ type: "finish" })
   })
 
+  it("releases a finish-only stream before accessing its derived text stream", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    class StreamResult {
+      stream = new ReadableStream<unknown>({
+        start(controller) {
+          controller.enqueue({ type: "finish" })
+          controller.close()
+        },
+      })
+
+      get textStream() {
+        return this.stream.pipeThrough(new TransformStream<unknown, string>())
+      }
+    }
+    const execute = vi.fn(() => "Unused title")
+    const agent = defineAgent({
+      capabilities: [title({ execute })],
+      driver: { run: () => new StreamResult() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+        role: "user",
+      })],
+    }) as AsyncIterable<unknown>
+    const events = []
+    for await (const event of stream) events.push(event)
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(events).toEqual([{ type: "finish" }])
+  })
+
   it("defers runAgent response titles for stream results until consumption", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
