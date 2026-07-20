@@ -347,10 +347,24 @@ describe("cloudflare queue runtime", () => {
     }, {}, { waitUntil: vi.fn() })
 
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ payload: { id: 1 } }))
+    await worker.queue({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: { id: 2 }, id: "2", retry: vi.fn() }],
+      queue: "preview-welcome",
+      retryAll: vi.fn(),
+    }, {}, { waitUntil: vi.fn() })
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ payload: { id: 2 } }))
+
     await expect(worker.queue({
       ackAll: vi.fn(),
       messages: [],
       queue: "queue--77656c636f6d65",
+      retryAll: vi.fn(),
+    }, {}, { waitUntil: vi.fn() })).rejects.toThrow("is not mapped to a Queue Definition")
+    await expect(worker.queue({
+      ackAll: vi.fn(),
+      messages: [],
+      queue: "preview-welcome-0123456789abcdef0123456789abcdef",
       retryAll: vi.fn(),
     }, {}, { waitUntil: vi.fn() })).rejects.toThrow("is not mapped to a Queue Definition")
   })
