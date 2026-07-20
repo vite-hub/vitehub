@@ -706,6 +706,40 @@ describe("provider deployment outputs", () => {
     expect(existsSync(cloudflareDir)).toBe(false)
   })
 
+  it("resolves Vercel cleanup ownership after preceding provider writes", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultVercelOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const functionDir = join(createDefaultVercelOutputRoot(rootDir), "functions", "blob.func")
+    const providerWrite = writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "blob.mjs"),
+        bundleOptions: {},
+        function: { kind: "isolated", name: "blob.func" },
+      },
+    })
+    let observedFunction = false
+    const cleanup = writeProviderDeploymentOutputs({
+      cleanup: {
+        vercel: async () => {
+          observedFunction = existsSync(functionDir)
+          return [{ serverFunctionName: "blob.func" }]
+        },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    await Promise.all([providerWrite, cleanup])
+
+    expect(observedFunction).toBe(true)
+    expect(existsSync(functionDir)).toBe(false)
+  })
+
   it("rejects Cloudflare companion files that conflict with the bundle outfile", async () => {
     const rootDir = await createTempProject()
     const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")

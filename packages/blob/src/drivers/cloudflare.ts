@@ -1,53 +1,11 @@
-import { readEnv, trimmed } from "@vite-hub/internal/env"
-
-import { isMaskedBlobRuntimeValue } from "../config.ts"
 import { importOptionalPeer } from "../internal/optional-peer.ts"
-import { getActiveCloudflareBinding, getActiveCloudflareEnv } from "../runtime/state.ts"
+import { createDriver as createNativeDriver, getOptionalBucket } from "./cloudflare-native.ts"
+import { runtimeValue } from "./cloudflare-runtime.ts"
 import { createFilesSdkDriver } from "./files-sdk.ts"
 
-import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobSignedRequest, BlobSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 
 const s3PeerInstall = "files-sdk @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner"
-
-interface R2ObjectLike {
-  arrayBuffer?: () => Promise<ArrayBuffer>
-  body?: ReadableStream
-  customMetadata?: Record<string, string>
-  httpEtag?: string
-  httpMetadata?: { contentType?: string }
-  key: string
-  size?: number
-  uploaded?: Date
-}
-
-interface R2BucketLike {
-  delete(key: string): Promise<void>
-  get(key: string): Promise<R2ObjectLike | null>
-  head(key: string): Promise<R2ObjectLike | null>
-  list(options?: { cursor?: string, delimiter?: string, include?: string[], limit?: number, prefix?: string }): Promise<{ cursor?: string, delimitedPrefixes?: string[], objects: R2ObjectLike[], truncated?: boolean }>
-  put(key: string, value: BlobPutBody, options?: { customMetadata?: Record<string, string>, httpMetadata?: { contentType?: string } }): Promise<R2ObjectLike>
-}
-
-function getOptionalBucket(options: ResolvedCloudflareR2BlobStoreConfig): R2BucketLike | undefined {
-  return getActiveCloudflareBinding<R2BucketLike>(options.binding)
-    || (globalThis as any)[options.binding]
-}
-
-function getBucket(options: ResolvedCloudflareR2BlobStoreConfig): R2BucketLike {
-  const binding = getOptionalBucket(options)
-  if (!binding) {
-    throw new Error(`R2 binding "${options.binding}" not found`)
-  }
-
-  return binding
-}
-
-function runtimeValue(value: string | undefined, ...envNames: string[]): string | undefined {
-  const current = trimmed(value)
-  const env = getActiveCloudflareEnv() as Record<string, string | undefined> | undefined
-    || (typeof process === "undefined" ? {} : process.env)
-  return isMaskedBlobRuntimeValue(current) ? readEnv(env, ...envNames) : current
-}
 
 function createHttpDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig> {
   const bucketName = runtimeValue(options.bucketName, "BLOB_BUCKET_NAME", "CLOUDFLARE_R2_BUCKET_NAME", "R2_BUCKET_NAME")
@@ -107,77 +65,6 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
         ? new Set(["content-type"])
         : undefined,
     }),
-  }
-}
-
-function mapObject(object: R2ObjectLike): BlobObject {
-  const contentType = object.httpMetadata?.contentType
-  return {
-    contentType,
-    customMetadata: object.customMetadata || {},
-    httpEtag: object.httpEtag,
-    httpMetadata: contentType ? { contentType } : {},
-    pathname: object.key,
-    size: object.size,
-    uploadedAt: object.uploaded || new Date(),
-  }
-}
-
-async function readArrayBuffer(object: R2ObjectLike): Promise<ArrayBuffer> {
-  if (typeof object.arrayBuffer === "function") {
-    return await object.arrayBuffer()
-  }
-  if (object.body) {
-    return await new Response(object.body).arrayBuffer()
-  }
-  return new ArrayBuffer(0)
-}
-
-function createNativeDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig> {
-  return {
-    name: "cloudflare-r2",
-    options,
-    async delete(pathnames) {
-      await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(pathname => getBucket(options).delete(pathname)))
-    },
-    async get(pathname) {
-      const object = await getBucket(options).get(pathname)
-      if (!object) return null
-      const bytes = await readArrayBuffer(object)
-      return new Blob([bytes], { type: object.httpMetadata?.contentType || "" })
-    },
-    async getArrayBuffer(pathname) {
-      const object = await getBucket(options).get(pathname)
-      return object ? await readArrayBuffer(object) : null
-    },
-    async head(pathname) {
-      const object = await getBucket(options).head(pathname)
-      return object ? mapObject(object) : null
-    },
-    async list(listOptions: BlobListOptions = {}): Promise<BlobListResult> {
-      const result = await getBucket(options).list({
-        cursor: listOptions.cursor,
-        delimiter: listOptions.folded ? "/" : undefined,
-        include: ["customMetadata", "httpMetadata"],
-        limit: listOptions.limit ?? 1000,
-        prefix: listOptions.prefix,
-      })
-      return {
-        blobs: result.objects.map(mapObject),
-        cursor: result.truncated ? result.cursor : undefined,
-        folders: listOptions.folded ? result.delimitedPrefixes?.sort((left, right) => left.localeCompare(right)) : undefined,
-        hasMore: Boolean(result.truncated || result.cursor),
-      }
-    },
-    async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      const object = await getBucket(options).put(pathname, body, {
-        customMetadata: putOptions.customMetadata,
-        httpMetadata: {
-          contentType: putOptions.contentType || (body instanceof Blob ? body.type : undefined),
-        },
-      })
-      return mapObject(object)
-    },
   }
 }
 

@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { promisify } from "node:util"
 
 import { build as bundle } from "esbuild"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 
 import { BLOB_VIRTUAL_CONFIG_ID, hubBlob } from "../src/vite.ts"
@@ -18,6 +18,46 @@ function driverImports(source: string) {
 }
 
 describe("hubBlob", () => {
+  it("uses the bundled driver in the Nitro Vercel shared runtime", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-vercel-runtime-"))
+    try {
+      const plugin = hubBlob({ access: "private", driver: "vercel-blob" })
+      await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
+        build: { outDir: "dist" },
+        nitro: { preset: "vercel" },
+        plugins: [{ name: "nitro:main" }],
+        root,
+      } as never)
+
+      const runtime = await readFile(join(root, ".vitehub", "nitro", "blob", "runtime.mjs"), "utf8")
+      expect(runtime).toContain("/drivers/vercel-bundled")
+      expect(runtime).not.toContain('/drivers/vercel"')
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("uses the bundled driver when Vercel is detected from the environment", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-vercel-env-runtime-"))
+    vi.stubEnv("VERCEL", "1")
+    try {
+      const plugin = hubBlob({ access: "private", driver: "vercel-blob" })
+      await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
+        build: { outDir: "dist" },
+        plugins: [{ name: "nitro:main" }],
+        root,
+      } as never)
+
+      const runtime = await readFile(join(root, ".vitehub", "nitro", "blob", "runtime.mjs"), "utf8")
+      expect(runtime).toContain("/drivers/vercel-bundled")
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("resolves Blob config from the Vite layer", () => {
     const plugin = hubBlob({ driver: "fs", base: ".cache/blob" })
 

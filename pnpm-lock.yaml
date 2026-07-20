@@ -123,6 +123,9 @@ catalogs:
     '@vercel/blob':
       specifier: ^2.6.1
       version: 2.6.1
+    aws4fetch:
+      specifier: ^1.0.20
+      version: 1.0.20
     files-sdk:
       specifier: ^2.1.0
       version: 2.1.0
@@ -609,6 +612,9 @@ importers:
       '@vercel/blob':
         specifier: catalog:storage
         version: 2.6.1
+      aws4fetch:
+        specifier: catalog:storage
+        version: 1.0.20
       defu:
         specifier: catalog:unjs
         version: 6.1.7

@@ -1,10 +1,10 @@
 import { createBlobStorage } from "../storage.ts"
 import { resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../config.ts"
-import { createDriver as createCloudflareR2Driver } from "../drivers/cloudflare.ts"
+import { createDriver as createCloudflareR2NativeDriver, getOptionalBucket } from "../drivers/cloudflare-native.ts"
 
 import { getBlobRuntimeConfig, getNamedBlobRuntimeStorage, setNamedBlobRuntimeStorage } from "./state.ts"
 
-import type { BlobObject, BlobStorage, BlobStoreName, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobObject, BlobStorage, BlobStoreName, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 
 const driverModules = {
   akamai: "akamai",
@@ -29,9 +29,30 @@ const driverModules = {
 
 async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
   if (config.driver === "cloudflare-r2") {
-    return createCloudflareR2Driver(config)
+    const nativeDriver = createCloudflareR2NativeDriver(config)
+    let fallbackDriver: Promise<BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig>> | undefined
+    const activeDriver = async () => {
+      if (getOptionalBucket(config)) return nativeDriver
+      fallbackDriver ||= importRuntimeDriverModule(config)
+      return fallbackDriver
+    }
+    return {
+      name: config.driver,
+      options: config,
+      delete: async pathnames => (await activeDriver()).delete(pathnames),
+      get: async pathname => (await activeDriver()).get(pathname),
+      getArrayBuffer: async pathname => (await activeDriver()).getArrayBuffer(pathname),
+      head: async pathname => (await activeDriver()).head(pathname),
+      list: async options => (await activeDriver()).list(options),
+      put: async (pathname, body, options) => (await activeDriver()).put(pathname, body, options),
+      sign: (pathname, options) => nativeDriver.sign!(pathname, options),
+    } satisfies BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig>
   }
 
+  return importRuntimeDriverModule(config)
+}
+
+async function importRuntimeDriverModule(config: ResolvedBlobStoreConfig) {
   const isSourceRuntime = typeof import.meta !== "undefined"
     && typeof import.meta.url === "string"
     && import.meta.url.endsWith(".ts")
