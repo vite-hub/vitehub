@@ -39,6 +39,7 @@
     "./build/esbuild": "./dist/build/esbuild.js",
     "./build/client-output": "./dist/build/client-output.js",
     "./build/vercel-config": "./dist/build/vercel-config.js",
+    "./build/vercel-runtime-package-copy": "./dist/build/vercel-runtime-package-copy.js",
     "./build/vercel-runtime-packages": "./dist/build/vercel-runtime-packages.js",
     "./build/user-entry": "./dist/build/user-entry.js",
     "./build/vite": "./dist/build/vite.js",
