@@ -41,7 +41,7 @@ function collectBundledPackageNames(source: string): Set<string> {
 function collectBundledPackages(source: string): Map<string, string> {
   const packages = new Map<string, string>()
   for (const match of source.matchAll(
-    /((?:^|[/\\])node_modules[/\\](?:\.pnpm[/\\][^/\\]+[/\\]node_modules[/\\])?((?:@[^/\\]+[/\\])?[^/\\\s]+))/g,
+    /(node_modules[/\\](?:\.pnpm[/\\][^/\\]+[/\\]node_modules[/\\])?((?:@[^/\\]+[/\\])?[^/\\\s]+))/g,
   )) {
     const name = packageNameFromSpecifier(match[2]!.replaceAll("\\", "/"))
     if (name) packages.set(name, match[1]!)
