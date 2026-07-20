@@ -6841,6 +6841,32 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "response: A rainy street in Bangkok" })
   })
 
+  it("generates a title from a Response when user input has no text", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const execute = vi.fn(({ source, text }) => `${source}: ${text}`)
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [title({ execute })],
+      driver: { run: () => new Response("A rainy street in Bangkok") },
+      hooks: { "agent:finish": finish },
+    })
+
+    const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+        role: "user",
+      })],
+    }) as Response
+
+    await expect(response.text()).resolves.toBe("A rainy street in Bangkok")
+    expect(execute).toHaveBeenCalledOnce()
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
+      source: "response",
+      text: "A rainy street in Bangkok",
+    }))
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "response: A rainy street in Bangkok" })
+  })
+
   it("leaves the title unset when both user input and the final reply have no text", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const execute = vi.fn(() => "Unused title")

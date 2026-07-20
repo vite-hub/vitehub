@@ -737,9 +737,12 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
 
       invocationStarts.set(context.context, async () => {
         if (!firstUserMessage(context.input.messages())) return
+        if (!preparedTitleInput()) {
+          context.context.set(responseTitleFallbackContextKey, true)
+          return
+        }
         if (!shouldProvideTitleFinishExtension(context)) return
         if (context.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) return
-        if (!preparedTitleInput()) return
         const resolvedTitle = await getTitle()
         if (!resolvedTitle || !supportsTitleDelivery(context)) {
           await releaseChannelDeliveryAttempt()
@@ -803,7 +806,6 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         if (hasTitleApplied(result)) return result
         if (!firstUserMessage(context.input.messages())) return result
         const preparedInput = preparedTitleInput()
-        if (!preparedInput) context.context.set(responseTitleFallbackContextKey, true)
         if (isStreamTextResult(result)) {
           const toUIMessageStream = result.toUIMessageStream?.bind(result)
           if (result.stream || result.fullStream) {
