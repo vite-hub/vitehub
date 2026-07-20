@@ -22,7 +22,7 @@ function toBlobObject(blob: {
   }
 }
 
-export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriverAdapter<ResolvedVercelBlobStoreConfig> {
+export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreConfig): BlobDriverAdapter<ResolvedVercelBlobStoreConfig> {
   const auth = { token: options.token }
 
   return {
@@ -34,7 +34,8 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
     async get(pathname) {
       const result = await get(pathname, { ...auth, access: "private" })
       if (!result) return null
-      return await new Response(result.stream, { headers: { "content-type": result.blob.contentType } }).blob()
+      const headers = result.blob.contentType ? { "content-type": result.blob.contentType } : undefined
+      return await new Response(result.stream, { headers }).blob()
     },
     async getArrayBuffer(pathname) {
       const result = await get(pathname, { ...auth, access: "private" })
@@ -63,17 +64,35 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
       }
     },
     async put(pathname, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      const result = await put(pathname, body, {
+      const result = await put(pathname, body as Parameters<typeof put>[1], {
         ...auth,
         access: putOptions.access || options.access,
         addRandomSuffix: false,
         allowOverwrite: options.allowOverwrite ?? true,
         contentType: putOptions.contentType,
       })
+      const size = typeof body === "string"
+        ? new TextEncoder().encode(body).byteLength
+        : body instanceof Blob
+          ? body.size
+          : body instanceof ArrayBuffer || ArrayBuffer.isView(body)
+            ? body.byteLength
+            : Number(putOptions.contentLength) || 0
+      const contentType = result.contentType || putOptions.contentType
+      const httpMetadata: Record<string, string> = {}
+      if (contentType) httpMetadata.contentType = contentType
       return {
-        ...toBlobObject(result),
+        contentType,
         customMetadata: putOptions.customMetadata || {},
+        httpEtag: undefined,
+        httpMetadata,
+        pathname: result.pathname,
+        size,
+        uploadedAt: new Date(),
+        url: result.url,
       }
     },
   }
 }
+
+export { createBundledVercelBlobDriver as createDriver }
