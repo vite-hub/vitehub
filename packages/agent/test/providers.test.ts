@@ -4533,7 +4533,7 @@ describe("server helpers", () => {
               pullRequest: {
                 base: { ref: "main", repo: "acme/app", sha: "base-sha" },
                 head: { ref: "feature", repo: "acme/fork", sha: "head-sha" },
-              source: { ref: "head-sha", repo: "acme/app" },
+                source: { ref: "head-sha", repo: "acme/fork" },
               },
               trigger: {
                 deliveryId: "delivery-1",

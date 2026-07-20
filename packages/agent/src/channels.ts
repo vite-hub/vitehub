@@ -765,7 +765,7 @@ function githubPullRequestLabeledRunContext(
       source: {
         mount: options.sourceMount || event.repository.name,
         ref: event.head.sha,
-        repo: event.repository.fullName,
+        repo: event.head.repo,
       },
       ...(event.title ? { title: event.title } : {}),
     },
@@ -2131,7 +2131,7 @@ function githubPullRequestLabeledInvocation<TRuntimeConfig extends AgentRuntimeC
   if (payload.action !== "labeled") return options.ignored?.("not_labeled") || ignored("not_labeled")
   const event = githubPullRequestLabeledFromInput(input)
   if (!event) return options.ignored?.("invalid_payload") || ignored("invalid_payload")
-  if (event.label !== options.label) return options.ignored?.("wrong_label") || ignored("wrong_label")
+  if (event.label.toLowerCase() !== options.label.toLowerCase()) return options.ignored?.("wrong_label") || ignored("wrong_label")
   const senderAdmissionReason = githubSenderAdmissionReason(event.sender, options.allowedSenders)
   if (senderAdmissionReason) {
     return options.ignored?.(senderAdmissionReason) || ignored(senderAdmissionReason)
@@ -2208,7 +2208,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
               return labeled.ignored?.("not_labeled") || ignored("not_labeled")
             }
             const sender = existingPullRequest.trigger.sender
-            if (existingPullRequest.trigger.label.name !== labeled.label) {
+            if (existingPullRequest.trigger.label.name.toLowerCase() !== labeled.label.toLowerCase()) {
               return labeled.ignored?.("wrong_label") || ignored("wrong_label")
             }
             const senderAdmissionReason = githubSenderAdmissionReason(sender, labeled.allowedSenders)

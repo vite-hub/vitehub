@@ -433,7 +433,7 @@ describe("agent channels", () => {
         comment: { reply: false },
         labeled: {
           allowedSenders: [{ id: 1, login: "Mona" }],
-          label: "agent:ready",
+          label: "Agent:Ready",
         },
       },
     })
@@ -476,7 +476,7 @@ describe("agent channels", () => {
             head: { ref: "feature", repo: "acme/fork", sha: "head-sha" },
             labels: ["agent:ready", "bug"],
             number: 42,
-            source: { mount: "app", ref: "head-sha", repo: "acme/app" },
+            source: { mount: "app", ref: "head-sha", repo: "acme/fork" },
           },
           repository: { fullName: "acme/app", id: 1001, name: "app", nodeId: "repo-node", owner: "acme" },
           trigger: {
