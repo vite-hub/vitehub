@@ -333,6 +333,13 @@ export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
   input: AgentRunInput<CALL_OPTIONS>
   metadata?: Record<string, unknown>
   run?: AgentRunMetadata
+  webhook?: AgentWebhookInvocationOwnership
+}
+
+export interface AgentWebhookInvocationOwnership {
+  concurrencyKey?: string
+  concurrencyTtlMs?: number
+  deliveryId: string
 }
 
 export type AgentTriggerInvokeResult<CALL_OPTIONS = unknown> =
@@ -1298,6 +1305,19 @@ export interface AgentChatStateContext<TRuntimeConfig extends AgentRuntimeConfig
 
 export type AgentChatStateResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   MaybeResolvable<StateAdapter, AgentChatStateContext<TRuntimeConfig>>
+
+export interface AgentWebhookStateContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends AgentCallbackContext<TRuntimeConfig> {
+  webhook: {
+    agentName: string
+    channelId?: string
+    provider: string
+    stateKeyPrefix: string
+  }
+}
+
+export type AgentWebhookStateResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  MaybeResolvable<StateAdapter, AgentWebhookStateContext<TRuntimeConfig>>
 
 export type AgentChatMessage =
   | AdapterPostableMessage

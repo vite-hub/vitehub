@@ -38,6 +38,7 @@ import {
   validChatDevtoolsInvokerProfileId,
 } from "../chat/devtools-runtime.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
+import { loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { UIMessageLike } from "../chat-message-input.ts"
@@ -63,6 +64,7 @@ import type {
   AgentRuntimeName,
   AgentWaitUntil,
   AgentWebhookRegistrationDefinition,
+  AgentWebhookStateResolver,
   MaybePromise,
   MaybeResolvable,
   ResolvedAgentTriggerDefinition,
@@ -98,6 +100,7 @@ interface AgentRouteRuntimeOptions {
 export interface AgentChannelWebhookRouteOptions extends AgentRouteRuntimeOptions {
   agentName?: string
   state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
+  webhookState?: AgentWebhookStateResolver<ViteAgentRouteRuntimeConfig>
 }
 
 export interface AgentDiscordGatewayRouteOptions extends AgentRouteRuntimeOptions {
@@ -523,6 +526,85 @@ async function createAgentWebhookTriggerInput(request: Request, registration: Ag
           },
         }
       : {}),
+  }
+}
+
+const defaultWebhookConcurrencyTtlMs = 30_000
+async function resolveAgentWebhookState(
+  context: ViteAgentRouteRuntimeContext,
+  registration: AgentWebhookRegistrationDefinition,
+  handlerOptions: AgentChannelWebhookRouteOptions,
+): Promise<{ keyPrefix: string, state: StateAdapter } | undefined> {
+  const stateOption = handlerOptions.webhookState
+  if (!stateOption) return
+  const agentName = routeAgentIdentity(handlerOptions)?.name || "agent"
+  const origin = chatRegistrationOrigin(registration)
+  const registrationId = registration.id || registration.path || origin
+  const keyPrefix = `webhook:${agentName}:${origin}:${registrationId}:`
+  const state = await resolveMaybe(stateOption, {
+    ...context,
+    webhook: {
+      agentName,
+      ...(registration.channelId ? { channelId: registration.channelId } : {}),
+      provider: registration.provider,
+      stateKeyPrefix: keyPrefix,
+    },
+  } as never)
+  if (!state) return
+  await state.connect()
+  return { keyPrefix, state }
+}
+
+function webhookOwnershipKey(prefix: string, kind: "delivery" | "lease", value: string): string {
+  return `${prefix}${kind}:${value}`
+}
+
+function positiveWebhookDuration(value: number | undefined, fallback: number, name: string): number {
+  const duration = value ?? fallback
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new TypeError(`[vitehub] Webhook delivery ownership ${name} must be a positive finite number.`)
+  }
+  return duration
+}
+
+async function hasActiveWorkflowRuntime(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  context: ViteAgentRouteRuntimeContext,
+): Promise<boolean> {
+  if (!isRecord(agent) || !isRecord(agent.runtime) || agent.runtime.kind !== "workflow") return false
+  if (agent.runtime.discoveryDefault !== true) return true
+  if (!context.agentIdentity || Object.keys(context.capabilities || {}).length) return false
+  try {
+    return Boolean((await loadAgentWorkflowRuntimeStateModule()).getWorkflowRuntimeConfig())
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ERR_MODULE_NOT_FOUND") return false
+    throw error
+  }
+}
+
+function startWebhookLockHeartbeat(state: StateAdapter, lock: Lock, ttlMs: number, onLost: () => void): () => void {
+  const intervalMs = Math.max(1, Math.floor(ttlMs / 2))
+  let stopped = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const extend = async () => {
+    if (stopped) return
+    try {
+      if (!await state.extendLock(lock, ttlMs)) {
+        stopped = true
+        onLost()
+      }
+    }
+    catch {
+      stopped = true
+      onLost()
+    }
+    if (!stopped) timer = setTimeout(extend, intervalMs)
+  }
+  timer = setTimeout(extend, intervalMs)
+  return () => {
+    stopped = true
+    if (timer) clearTimeout(timer)
   }
 }
 
@@ -2506,6 +2588,56 @@ export function createChannelWebhookRouteHandler(
             await context.flushWaitUntil?.()
             return invocation.response
           }
+          if (invocation.webhook?.concurrencyKey !== undefined && await hasActiveWorkflowRuntime(agent, context)) {
+            return createJsonErrorResponse(503, "Webhook concurrency ownership requires inline Agent execution.")
+          }
+          const webhookState = invocation.webhook
+            ? await resolveAgentWebhookState(context, registration, handlerOptions)
+            : undefined
+          if (invocation.webhook && !webhookState) {
+            return createJsonErrorResponse(503, "Durable Agent state is required for webhook delivery ownership.")
+          }
+          let webhookLock: Lock | null = null
+          let deliveryClaimKey: string | undefined
+          let concurrencyTtlMs = defaultWebhookConcurrencyTtlMs
+          if (invocation.webhook && webhookState) {
+            const { concurrencyKey, deliveryId } = invocation.webhook
+            if (!deliveryId.trim()) {
+              return createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty deliveryId.")
+            }
+            if (concurrencyKey !== undefined && !concurrencyKey.trim()) {
+              return createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty concurrencyKey when configured.")
+            }
+            concurrencyTtlMs = positiveWebhookDuration(invocation.webhook.concurrencyTtlMs, defaultWebhookConcurrencyTtlMs, "concurrencyTtlMs")
+            deliveryClaimKey = webhookOwnershipKey(webhookState.keyPrefix, "delivery", deliveryId)
+            if (await webhookState.state.get(deliveryClaimKey) === true) {
+              return Response.json({ accepted: false, duplicate: true, ok: true })
+            }
+            if (concurrencyKey !== undefined) {
+              webhookLock = await webhookState.state.acquireLock(
+                webhookOwnershipKey(webhookState.keyPrefix, "lease", concurrencyKey),
+                concurrencyTtlMs,
+              )
+              if (!webhookLock) {
+                return Response.json({ accepted: false, busy: true, ok: true }, { status: 503 })
+              }
+            }
+            let claimed: boolean
+            try {
+              claimed = await webhookState.state.setIfNotExists(
+                deliveryClaimKey,
+                true,
+              )
+            }
+            catch (error) {
+              if (webhookLock) await webhookState.state.releaseLock(webhookLock)
+              throw error
+            }
+            if (!claimed) {
+              if (webhookLock) await webhookState.state.releaseLock(webhookLock)
+              return Response.json({ accepted: false, duplicate: true, ok: true })
+            }
+          }
           const runContext = createRuntimeContext(
             request,
             invocation.run,
@@ -2515,12 +2647,54 @@ export function createChannelWebhookRouteHandler(
             handlerOptions.capabilities,
             routeAgentIdentity(handlerOptions),
           )
-          context.waitUntil(runWithRuntimeCloudflareEnv(runContext, async () => {
-            const result = await runAgent(agent as never, runContext as never, invocation.input as never)
-            if (!isWorkflowRun(result) || result.status !== "queued") {
-              await runContext.flushWaitUntil?.()
-            }
-          }))
+          const ownershipAbort = webhookLock ? new AbortController() : undefined
+          let stopHeartbeat: (() => void) | undefined
+          if (webhookLock && webhookState && ownershipAbort) {
+            stopHeartbeat = startWebhookLockHeartbeat(webhookState.state, webhookLock, concurrencyTtlMs, () => {
+              ownershipAbort.abort(new Error("[vitehub] Webhook concurrency ownership was lost during Agent execution."))
+            })
+          }
+          let dispatch!: (accepted: boolean) => void
+          const dispatchGate = new Promise<boolean>(resolve => {
+            dispatch = resolve
+          })
+          const task = dispatchGate.then(async (accepted) => {
+            if (!accepted) return
+            await runWithRuntimeCloudflareEnv(runContext, async () => {
+              try {
+                const result = await runAgent(agent as never, runContext as never, {
+                  ...invocation.input,
+                  ...(ownershipAbort
+                    ? {
+                        abortSignal: invocation.input.abortSignal
+                          ? AbortSignal.any([invocation.input.abortSignal, ownershipAbort.signal])
+                          : ownershipAbort.signal,
+                      }
+                    : {}),
+                } as never)
+                if (!isWorkflowRun(result) || result.status !== "queued") {
+                  await runContext.flushWaitUntil?.()
+                }
+              }
+              finally {
+                stopHeartbeat?.()
+                if (webhookLock && webhookState) {
+                  await webhookState.state.releaseLock(webhookLock)
+                }
+              }
+            })
+          })
+          try {
+            context.waitUntil(task)
+            dispatch(true)
+          }
+          catch (error) {
+            dispatch(false)
+            stopHeartbeat?.()
+            if (webhookLock && webhookState) await webhookState.state.releaseLock(webhookLock)
+            if (deliveryClaimKey && webhookState) await webhookState.state.delete(deliveryClaimKey)
+            throw error
+          }
           return Response.json({ accepted: true, ok: true })
         }
         catch (error) {
