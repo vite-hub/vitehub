@@ -214,6 +214,26 @@ function assertTranscript(transcript: unknown, provider: string): asserts transc
   }
 }
 
+function normalizeTranscript(transcript: TranscriptionTranscript): TranscriptionTranscript {
+  return {
+    ...(transcript.language === undefined ? {} : { language: transcript.language }),
+    ...(transcript.languageConfidence === undefined ? {} : { languageConfidence: transcript.languageConfidence }),
+    text: transcript.text,
+    ...(transcript.words === undefined
+      ? {}
+      : {
+          words: transcript.words.map(word => ({
+            ...(word.channel === undefined ? {} : { channel: word.channel }),
+            ...(word.end === undefined ? {} : { end: word.end }),
+            ...(word.speaker === undefined ? {} : { speaker: word.speaker }),
+            ...(word.start === undefined ? {} : { start: word.start }),
+            text: word.text,
+            type: word.type,
+          })),
+        }),
+  }
+}
+
 function normalizeCompletion(completion: TranscriptionDriverCompletion, provider: string): TranscriptionCompletion {
   return inspectDriverResult(provider, () => {
     if (!completion || typeof completion !== "object") throw invalidPayload(provider)
@@ -239,7 +259,7 @@ function normalizeCompletion(completion: TranscriptionDriverCompletion, provider
         ...(completion.metadata ? { metadata: completion.metadata } : {}),
         provider,
         status: "completed",
-        transcript: completion.transcript,
+        transcript: normalizeTranscript(completion.transcript),
       }
     }
     throw invalidPayload(provider)

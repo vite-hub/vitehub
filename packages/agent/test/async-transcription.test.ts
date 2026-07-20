@@ -270,6 +270,24 @@ describe("elevenLabsScribe", () => {
     expect(JSON.stringify(completion)).not.toContain("private body")
   })
 
+  it("does not copy extra driver fields into public transcripts", async () => {
+    const driver = fixtureDriver({
+      receive: vi.fn(async () => ({
+        id: "operation-1",
+        status: "completed",
+        transcript: {
+          rawProviderBody: "private transcript body",
+          text: "Hello",
+          words: [{ rawProviderWord: "private word body", text: "Hello", type: "word" }],
+        },
+      } as never)),
+    })
+
+    const completion = await createTranscription({ driver }).receive({})
+    expect(completion).toMatchObject({ transcript: { text: "Hello", words: [{ text: "Hello", type: "word" }] } })
+    expect(JSON.stringify(completion)).not.toMatch(/private transcript body|private word body/)
+  })
+
   it("normalizes invalid ElevenLabs metadata serialization", async () => {
     const client = createTranscription({
       driver: elevenLabsScribe({ apiKey: "secret", fetch: vi.fn(), webhookId: "webhook-1" }),

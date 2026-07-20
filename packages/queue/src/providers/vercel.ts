@@ -58,7 +58,7 @@ function invalidVercelSendResponse(cause: unknown): never {
   })
 }
 
-function parseVercelMessageId(value: unknown): string {
+function parseVercelMessageId(value: unknown): string | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) invalidVercelSendResponse(value)
 
   let messageId: unknown
@@ -68,6 +68,7 @@ function parseVercelMessageId(value: unknown): string {
   catch (cause) {
     invalidVercelSendResponse(cause)
   }
+  if (messageId === undefined || messageId === null) return
   if (typeof messageId !== "string" || !messageId || messageId.length > 128 || messageId.trim() !== messageId) {
     invalidVercelSendResponse(value)
   }

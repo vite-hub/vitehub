@@ -527,9 +527,24 @@ describe("vercel provider", () => {
     expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private/)
   })
 
+  it.each([{}, { messageId: null }])("accepts a Vercel send response without a message id", async (response) => {
+    const client = await createVercelQueueClient({
+      client: {
+        handleCallback: vi.fn(() => async () => new Response("queued")),
+        send: vi.fn().mockResolvedValue(response),
+      },
+      provider: "vercel",
+      topic: "topic--77656c636f6d65",
+    })
+
+    await expect(client.send({ email: "ava@example.com" })).resolves.toEqual({
+      messageId: undefined,
+      status: "queued",
+    })
+  })
+
   it.each([
     [null, null],
-    [{ providerSecret: "missing-message-id" }, { providerSecret: "missing-message-id" }],
     [{ messageId: "" }, { messageId: "" }],
   ])("maps malformed Vercel send responses without exposing provider payloads", async (response, cause) => {
     const client = await createVercelQueueClient({
