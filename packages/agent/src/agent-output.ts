@@ -337,7 +337,7 @@ function optionalDurationMs(durationMs: number | undefined): { durationMs?: numb
 export function toAgentStreamEvent(
   chunk: unknown,
   toolNames?: Map<string, string>,
-  textPhases?: Map<string, AgentMessagePhase>,
+  textPhases?: Map<string, AgentMessagePhase | "hidden">,
 ): StreamEvent | undefined {
   if (typeof chunk === "string") {
     return { text: chunk, type: "text-delta" }
@@ -359,7 +359,7 @@ export function toAgentStreamEvent(
   if (type === "text-start") {
     if (textId) {
       textPhases?.delete(textId)
-      if (phase) textPhases?.set(textId, phase)
+      if (hasExplicitPhase) textPhases?.set(textId, phase ?? "hidden")
     }
     return undefined
   }
@@ -368,8 +368,10 @@ export function toAgentStreamEvent(
     return undefined
   }
   if (type === "text-delta" || type === "text") {
-    if (value.phase === "reasoning") return undefined
-    const textPhase = phase ?? (!hasExplicitPhase && textId ? textPhases?.get(textId) : undefined)
+    if (hasExplicitPhase && !phase) return undefined
+    const inheritedPhase = !hasExplicitPhase && textId ? textPhases?.get(textId) : undefined
+    if (inheritedPhase === "hidden") return undefined
+    const textPhase = phase ?? inheritedPhase
     return { id: textId, ...optionalMessageId(messageId), ...(textPhase ? { phase: textPhase } : {}), ...(typeof value.role === "string" ? { role: value.role as never } : {}), text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
   }
   if (type === "data" || type.startsWith("data-")) {
