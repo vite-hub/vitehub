@@ -194,7 +194,8 @@ process.exit(process.env.VITEHUB_DENO_ALWAYS_FAIL === "1" || attempts === 0 ? 1 
       await mkdir(join(output, "server"), { recursive: true })
       const nativeProbe = process.platform === "linux" && process.arch === "x64"
         ? `const require = createRequire(import.meta.url)
-require("@img/" + "sharp-linux-x64/sharp.node")
+const nativePath = require.resolve("@img/" + "sharp-linux-x64/sharp.node")
+if (!nativePath.endsWith("/sharp-linux-x64.node")) throw new Error("Sharp's x64 native package did not resolve from the output root")
 `
         : ""
       await writeFile(join(output, "server/index.ts"), `//#region ${sharpMarker}/lib/index.js
