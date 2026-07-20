@@ -22,6 +22,25 @@ const vercelBlobOutputMarker = ".vitehub-blob-output"
 const productName = "blob"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
+const filesSdkS3Peers = ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"]
+const filesSdkDriverPeers: Record<string, string[]> = {
+  akamai: filesSdkS3Peers,
+  azure: ["@azure/storage-blob"],
+  box: ["box-typescript-sdk-gen"],
+  "cloudflare-r2": filesSdkS3Peers,
+  "digitalocean-spaces": filesSdkS3Peers,
+  dropbox: ["dropbox"],
+  gcs: ["@google-cloud/storage"],
+  "google-drive": ["@googleapis/drive", "google-auth-library"],
+  hetzner: filesSdkS3Peers,
+  minio: filesSdkS3Peers,
+  "netlify-blobs": ["@netlify/blobs"],
+  onedrive: ["@azure/identity", "@microsoft/microsoft-graph-client"],
+  s3: filesSdkS3Peers,
+  storj: filesSdkS3Peers,
+  supabase: ["@supabase/storage-js"],
+  uploadthing: ["uploadthing"],
+}
 
 const BLOB_ENTRY_NAMES_DEFAULT = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
 const BLOB_ENTRY_NAMES_PRIORITIZED = ["server.blob.ts", "server.blob.mts", "server.blob.js", "server.blob.mjs", ...BLOB_ENTRY_NAMES_DEFAULT] as const
@@ -509,12 +528,6 @@ function shouldCreateProviderOutput(blob: BlobModuleOptions | ResolvedBlobModule
   return !hasExplicitFsStore(blob)
 }
 
-function hasCloudflareR2Store(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined) {
-  const resolved = resolveBlobConfig(blob, "vercel")
-  return resolved !== false && Object.values(resolved.stores || { default: resolved.store })
-    .some(store => store.driver === "cloudflare-r2")
-}
-
 function hasFilesSdkStore(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined) {
   const resolved = resolveBlobConfig(blob, "vercel")
   return resolved !== false && Object.values(resolved.stores || { default: resolved.store })
@@ -547,13 +560,21 @@ async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOpt
 
 function getVercelBlobRuntimePackages(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined): VercelFunctionRuntimePackage[] {
   const packages = new Set<string>()
+  const filesSdkPeers = new Set<string>()
   const resolved = resolveBlobConfig(blob, "vercel")
-  if (resolved !== false && Object.values(resolved.stores || { default: resolved.store }).some(store => store.driver === "vercel-blob")) packages.add("@vercel/blob")
+  const stores = resolved === false ? [] : Object.values(resolved.stores || { default: resolved.store })
+  if (stores.some(store => store.driver === "vercel-blob")) packages.add("@vercel/blob")
   if (hasFilesSdkStore(blob)) packages.add("files-sdk")
-  if (hasCloudflareR2Store(blob)) {
-    for (const name of ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"]) packages.add(name)
+  for (const store of stores) {
+    for (const name of filesSdkDriverPeers[store.driver] ?? []) {
+      packages.add(name)
+      filesSdkPeers.add(name)
+    }
   }
-  return [...packages].map(name => ({ name, resolveFrom: resolve(packageDir, "package.json") }))
+  return [...packages].map(name => ({
+    name,
+    resolveFrom: resolve(packageDir, filesSdkPeers.has(name) ? "node_modules/files-sdk/package.json" : "package.json"),
+  }))
 }
 
 function getVercelBlobOutputCleanup(options: GenerateProviderOutputsOptions) {

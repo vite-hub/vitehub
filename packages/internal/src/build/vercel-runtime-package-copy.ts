@@ -40,7 +40,7 @@ async function copyPackageDirectory(name: string, resolveFrom: string, outputNod
 }
 
 async function resolvePackageJson(name: string, fromDir: string): Promise<string> {
-  let current = fromDir
+  let current = await realpath(fromDir).catch(() => fromDir)
   while (current !== dirname(current)) {
     const candidate = join(current, "node_modules", ...name.split("/"), "package.json")
     try {
