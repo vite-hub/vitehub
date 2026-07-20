@@ -543,21 +543,22 @@ async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOpt
   }
 }
 
-async function getVercelBlobOutputNames(options: GenerateProviderOutputsOptions) {
-  const names = [...new Set([options.serverFunctionName ?? "__server.func", "__blob.func"])]
-  const owned: string[] = []
-  for (const name of names) {
-    try {
-      const outputRoot = resolve(options.rootDir, ".vercel/output/functions", name)
-      const [entry, marker] = await Promise.all([
-        readFile(resolve(outputRoot, "index.mjs")),
-        readFile(resolve(outputRoot, vercelBlobOutputMarker), "utf8"),
-      ])
-      if (createHash("sha256").update(entry).digest("hex") === marker) owned.push(name)
+function getVercelBlobOutputCleanup(options: GenerateProviderOutputsOptions) {
+  return async () => {
+    const cleanup: Array<{ serverFunctionName: string }> = []
+    for (const name of new Set([options.serverFunctionName, "__blob.func"].filter((name): name is string => Boolean(name && name !== "__server.func")))) {
+      try {
+        const outputRoot = resolve(options.rootDir, ".vercel/output/functions", name)
+        const [entry, marker] = await Promise.all([
+          readFile(resolve(outputRoot, "index.mjs")),
+          readFile(resolve(outputRoot, vercelBlobOutputMarker), "utf8"),
+        ])
+        if (createHash("sha256").update(entry).digest("hex") === marker) cleanup.push({ serverFunctionName: name })
+      }
+      catch {}
     }
-    catch {}
+    return cleanup
   }
-  return owned
 }
 
 function registerSupportedProviderRuntimeModules(
@@ -574,7 +575,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const localOnly = !shouldCreateProviderOutput(options.blob)
   const createCloudflare = !localOnly && !options.cloudflareOwnedByNitro
   const createVercel = !localOnly && !options.cloudflareOwnedByNitro
-  const cleanupVercel = options.cloudflareOwnedByNitro ? await getVercelBlobOutputNames(options) : []
+  const cleanupVercel = options.cloudflareOwnedByNitro ? getVercelBlobOutputCleanup(options) : undefined
   const hasCurrentCloudflareContribution = Boolean(createCloudflareR2Bindings(resolveBlobConfig(options.blob, "cloudflare"))?.length)
   if (options.cloudflareOwnedByNitro) {
     await writeProviderDeploymentOutputs({
@@ -583,10 +584,10 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
       rootDir: options.rootDir,
     })
   }
-  for (const serverFunctionName of cleanupVercel) {
+  if (cleanupVercel) {
     await writeProviderDeploymentOutputs({
       clientOutDir: options.clientOutDir,
-      cleanup: { vercel: { serverFunctionName } },
+      cleanup: { vercel: cleanupVercel },
       rootDir: options.rootDir,
     })
   }
