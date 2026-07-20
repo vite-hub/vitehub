@@ -454,7 +454,7 @@ describe("agent Vite plugin", () => {
       expect(wrapper).toContain("const viteHubChatStateOptions = {\"tablePrefix\":\"agent_state_\",\"url\":\"libsql://state.example.test\"}")
       expect(wrapper).not.toContain("build-token")
       expect(wrapper).toContain("function chatStateFromLibsql()")
-      expect(wrapper).toContain("handler(request, webhook, { agentIdentity: agentIdentities[agent], state: viteHubChatStateResolver, waitUntil })")
+      expect(wrapper).toContain("handler(request, webhook, { agentIdentity: agentIdentities[agent], state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil })")
       expect(wrapper).not.toContain("runtime: 'vite'")
       expect(wrapper).not.toContain("@vite-hub/schedule/runtime")
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith({
@@ -531,7 +531,7 @@ describe("agent Vite plugin", () => {
       })
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
-      expect(wrapper).toContain("handler(request, webhook, { agentIdentity: agentIdentities[agent], runtime: 'vite', state: viteHubChatStateResolver, waitUntil })")
+      expect(wrapper).toContain("handler(request, webhook, { agentIdentity: agentIdentities[agent], runtime: 'vite', state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil })")
       expect(wrapper).toContain("handler(request, { agentIdentity: agentIdentities[agent], runtime: 'vite', waitUntil })")
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith(expect.objectContaining({
         netlify: expect.objectContaining({
@@ -1296,7 +1296,7 @@ describe("agent Vite plugin", () => {
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN")
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_URL")
         expect(webhookRoute).toContain("function chatStateFromLibsql()")
-        expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, waitUntil: waitUntilFromEvent(event) })")
+        expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, waitUntil: waitUntilFromEvent(event) })")
       }
       finally {
         await rm(root, { force: true, recursive: true })
@@ -1318,7 +1318,7 @@ describe("agent Vite plugin", () => {
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
       expect(webhookRoute).not.toContain("runtime: 'vite'")
-      expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, waitUntil: waitUntilFromEvent(event) })")
+      expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, waitUntil: waitUntilFromEvent(event) })")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -4421,6 +4421,344 @@ describe("server helpers", () => {
     expect(rejected.status).toBe(401)
     await expect(rejected.json()).resolves.toEqual({ error: "[vitehub] Webhook secret verification failed." })
     expect(run).not.toHaveBeenCalled()
+  })
+
+  it("claims webhook deliveries and exact-context concurrency before running the agent", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-ownership-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const extendLock = vi.spyOn(state, "extendLock")
+    let releaseFirstRun!: () => void
+    const firstRun = new Promise<void>(resolve => {
+      releaseFirstRun = resolve
+    })
+    const run = vi.fn(async () => {
+      if (run.mock.calls.length === 1) await firstRun
+      return "accepted"
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => {
+                const deliveryId = (input as { github?: { deliveryId?: string } }).github?.deliveryId || ""
+                return {
+                  input: { prompt: "github delivery" },
+                  webhook: {
+                    concurrencyKey: "acme/app:42:head-sha",
+                    concurrencyTtlMs: 1_000,
+                    deliveryId,
+                  },
+                }
+              },
+            },
+          },
+          webhooks: { secretToken: "secret-token" },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntilTasks: Promise<unknown>[] = []
+    const webhookStateContexts: unknown[] = []
+    const request = (deliveryId: string) => {
+      const body = JSON.stringify({ action: "labeled" })
+      return new Request("https://example.com/api/github/webhook", {
+        body,
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": deliveryId,
+          "x-github-event": "pull_request",
+          "x-hub-signature-256": githubSignature("secret-token", body),
+        },
+        method: "POST",
+      })
+    }
+    const options = {
+      agentName: "review",
+      webhookState: (context: unknown) => {
+        webhookStateContexts.push(context)
+        return state
+      },
+      waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
+    }
+
+    try {
+      vi.useFakeTimers()
+      const accepted = await handler(request("delivery-1"), "github", options)
+      await expect(accepted.json()).resolves.toEqual({ accepted: true, ok: true })
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(500)
+
+      const duplicate = await handler(request("delivery-1"), "github", options)
+      await expect(duplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true })
+
+      const busy = await handler(request("delivery-2"), "github", options)
+      expect(busy.status).toBe(202)
+      await expect(busy.json()).resolves.toEqual({ accepted: false, busy: true, ok: true })
+      expect(extendLock).toHaveBeenCalled()
+      expect(run).toHaveBeenCalledOnce()
+
+      releaseFirstRun()
+      await Promise.all(waitUntilTasks.splice(0))
+
+      const busyReplay = await handler(request("delivery-2"), "github", options)
+      await expect(busyReplay.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true })
+
+      const rerun = await handler(request("delivery-3"), "github", options)
+      await expect(rerun.json()).resolves.toEqual({ accepted: true, ok: true })
+      await Promise.all(waitUntilTasks)
+      expect(run).toHaveBeenCalledTimes(2)
+      await expect(state.get("webhook:review:github:delivery:delivery-1")).resolves.toBe(true)
+      await expect(state.get("webhook:review:github:delivery:delivery-2")).resolves.toBe(true)
+      await expect(state.get("webhook:review:github:delivery:delivery-3")).resolves.toBe(true)
+      expect(webhookStateContexts[0]).toMatchObject({
+        webhook: {
+          agentName: "review",
+          channelId: "github",
+          provider: "github",
+          stateKeyPrefix: "webhook:review:github:",
+        },
+      })
+    }
+    finally {
+      releaseFirstRun()
+      await Promise.allSettled(waitUntilTasks)
+      vi.useRealTimers()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("aborts an inline webhook run when its ownership lease is lost", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-lost-lease-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const extendLock = vi.fn(async () => false)
+    const losingState = new Proxy(state, {
+      get(target, property) {
+        if (property === "extendLock") return extendLock
+        const value = Reflect.get(target, property)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    let abortSignal: AbortSignal | undefined
+    const run = vi.fn(async ({ input }: { input: { abortSignal?: AbortSignal } }) => {
+      if (run.mock.calls.length > 1) return "accepted"
+      abortSignal = input.abortSignal
+      if (!abortSignal?.aborted) {
+        await new Promise<void>(resolve => abortSignal?.addEventListener("abort", () => resolve(), { once: true }))
+      }
+      return "aborted"
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => ({
+                input: { prompt: "github delivery" },
+                webhook: {
+                  concurrencyKey: "acme/app:42:head-sha",
+                  concurrencyTtlMs: 1_000,
+                  deliveryId: (input as { github: { deliveryId: string } }).github.deliveryId,
+                },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntilTasks: Promise<unknown>[] = []
+    const request = (deliveryId: string) => new Request("https://example.com/api/github/webhook", {
+      body: JSON.stringify({ action: "labeled" }),
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": deliveryId,
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    })
+    const options = {
+      agentName: "review",
+      webhookState: losingState,
+      waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
+    }
+
+    try {
+      vi.useFakeTimers()
+      const accepted = await handler(request("delivery-1"), "github", options)
+      await expect(accepted.json()).resolves.toEqual({ accepted: true, ok: true })
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await vi.advanceTimersByTimeAsync(500)
+      await Promise.all(waitUntilTasks.splice(0))
+
+      expect(extendLock).toHaveBeenCalledOnce()
+      expect(abortSignal?.aborted).toBe(true)
+
+      const rerun = await handler(request("delivery-2"), "github", options)
+      await expect(rerun.json()).resolves.toEqual({ accepted: true, ok: true })
+      await Promise.all(waitUntilTasks)
+      expect(run).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      vi.useRealTimers()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("fails closed when webhook ownership has no durable state", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({
+                input: { prompt: "github delivery" },
+                webhook: { deliveryId: "delivery-1" },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+
+    const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/github/webhook", {
+      body: JSON.stringify({ action: "labeled" }),
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-1",
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    }), "github")
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toMatchObject({
+      message: "Durable Agent state is required for webhook delivery ownership.",
+      status: 503,
+    })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("fails closed before queueing workflow-backed webhook concurrency", async () => {
+    const { defineAgent, workflow } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({
+                input: { prompt: "github delivery" },
+                webhook: {
+                  concurrencyKey: "acme/app:42:head-sha",
+                  deliveryId: "delivery-1",
+                },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+      runtime: workflow("review"),
+    })
+
+    const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/github/webhook", {
+      body: JSON.stringify({ action: "labeled" }),
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-1",
+        "x-github-event": "pull_request",
+      },
+      method: "POST",
+    }), "github")
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toMatchObject({
+      message: "Webhook concurrency ownership requires inline Agent execution.",
+      status: 503,
+    })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("keeps capability-bound default Workflow webhook runs inline", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-inline-workflow-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const run = vi.fn(() => "accepted")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({
+                input: { prompt: "github delivery" },
+                webhook: {
+                  concurrencyKey: "acme/app:42:head-sha",
+                  deliveryId: "delivery-1",
+                },
+              }),
+            },
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    const waitUntilTasks: Promise<unknown>[] = []
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    try {
+      const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/github/webhook", {
+        body: JSON.stringify({ action: "labeled" }),
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": "delivery-1",
+          "x-github-event": "pull_request",
+        },
+        method: "POST",
+      }), "github", {
+        agentIdentity: { name: "review" },
+        capabilities: { kv: {} as never },
+        webhookState: state,
+        waitUntil: task => waitUntilTasks.push(task),
+      })
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ accepted: true, ok: true })
+      await Promise.all(waitUntilTasks)
+      expect(run).toHaveBeenCalledOnce()
+    }
+    finally {
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
   })
 
   it("does not route channel webhook arrays by unsuffixed channel id", async () => {

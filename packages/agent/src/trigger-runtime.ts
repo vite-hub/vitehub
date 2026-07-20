@@ -19,6 +19,7 @@ import type {
   AgentRuntimeConfig,
   AgentRuntimeContext,
   AgentTriggerRunInvokeResult,
+  AgentWebhookInvocationOwnership,
   AgentWebhookRegistrationDefinition,
   MaybePromise,
   MaybeResolvable,
@@ -199,6 +200,7 @@ export interface ResolvedAgentTriggerInvocation<
   metadata?: Record<string, unknown>
   run?: AgentRunMetadata
   trigger: ResolvedAgentTriggerDefinition<TRuntimeConfig, unknown, CALL_OPTIONS>
+  webhook?: AgentWebhookInvocationOwnership
 }
 
 export interface ResolvedAgentTriggerHandledInvocation<
@@ -436,6 +438,7 @@ export async function resolveAgentTriggerInvocation<
     metadata: runInvocation.metadata,
     run: runInvocation.run,
     trigger: trigger as never,
+    webhook: runInvocation.webhook,
   }
 }
 

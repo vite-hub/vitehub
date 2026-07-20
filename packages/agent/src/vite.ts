@@ -926,9 +926,9 @@ async function generateAgentWebhookRouteHandler(
   const webhookRoute = typeof options.webhookRoute === "string" ? options.webhookRoute : ""
   const webhookSelector = webhookRoute.includes("[webhook]") ? "getRouterParam(event, 'webhook')" : "''"
   const webhookStateOption = options.cloudflareState
-    ? "state: chatStateFromCloudflare(cloudflare), "
+    ? "state: chatStateFromCloudflare(cloudflare), webhookState: chatStateFromCloudflare(cloudflare), "
     : options.libsqlState
-      ? "state: viteHubChatStateResolver, "
+      ? "state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, "
       : ""
 
   return [
@@ -993,7 +993,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
     workspaceRuntimeImport: subpath(agentImportBase, "server/workspace"),
   })
   const webhookSelector = routeUsesParam(options.webhookRoute, "webhook") ? "netlifyParam(context, 'webhook')" : "''"
-  const webhookStateOption = options.libsqlState ? "state: viteHubChatStateResolver, " : ""
+  const webhookStateOption = options.libsqlState ? "state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, " : ""
 
   return [
     ...deploymentCatalog.imports,
