@@ -6867,6 +6867,31 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "response: A rainy street in Bangkok" })
   })
 
+  it("does not generate a fallback title from a binary Response", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const execute = vi.fn(() => "Unused title")
+    const finish = vi.fn()
+    const binary = new Response(new Uint8Array([0xff, 0xd8, 0xff]), {
+      headers: { "content-type": "image/jpeg" },
+    })
+    const agent = defineAgent({
+      capabilities: [title({ execute })],
+      driver: { run: () => binary },
+      hooks: { "agent:finish": finish },
+    })
+
+    const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+        role: "user",
+      })],
+    }) as Response
+
+    await expect(response.arrayBuffer()).resolves.toHaveProperty("byteLength", 3)
+    expect(execute).not.toHaveBeenCalled()
+    expect(finish.mock.calls[0]![0].result).toBe(binary)
+  })
+
   it("leaves the title unset when both user input and the final reply have no text", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const execute = vi.fn(() => "Unused title")

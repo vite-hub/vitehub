@@ -2241,7 +2241,13 @@ async function finalizeAgentInvocationResult<
   const shouldWrapOutput = shouldWrapInvocationOutput(context)
   try {
     if (result instanceof Response) {
-      const responseDecoder = context.context.get<boolean>(responseTitleFallbackContextKey) === true
+      const responseMediaType = result.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase()
+      const responseIsText = responseMediaType?.startsWith("text/")
+        || responseMediaType === "application/json"
+        || responseMediaType?.endsWith("+json")
+        || responseMediaType === "application/xml"
+        || responseMediaType?.endsWith("+xml")
+      const responseDecoder = context.context.get<boolean>(responseTitleFallbackContextKey) === true && responseIsText
         ? new TextDecoder()
         : undefined
       let responseText = ""
