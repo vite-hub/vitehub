@@ -56,6 +56,7 @@ catalogs:
     just-bash: ^3.1.0
     sh-syntax: 0.6.0
   storage:
+    "@netlify/blobs": ^10.7.5
     "@upstash/redis": ^1.38.0
     "@vercel/blob": ^2.6.1
     files-sdk: ^2.1.0
@@ -90,6 +91,7 @@ catalogs:
     h3: 2.0.1-rc.25
     jiti: ^2.7.0
     mlly: ^1.8.2
+    nitropack: ^2.13.4
     ocache: ^0.1.5
     ofetch: ^1.5.1
     pathe: ^2.0.3
