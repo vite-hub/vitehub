@@ -4755,6 +4755,29 @@ describe("server helpers", () => {
     expect(state.releaseLock).toHaveBeenCalledWith(lock)
   })
 
+  it("clears a delivered Title claim before marking a failed Channel", async () => {
+    const {
+      finishMessageChannelTitleDelivery,
+      resetMessageChannelTitleDelivery,
+    } = await import("../src/internal/channels.ts")
+    const lock = { expiresAt: Date.now() + 60_000, threadId: "title:pending", token: "lock" }
+    const state = {
+      delete: vi.fn(async () => undefined),
+      releaseLock: vi.fn(async () => undefined),
+      set: vi.fn(async () => undefined),
+    }
+    const attempt = {
+      claim: { lock, markerKey: "channel-title:thread:delivered", state },
+      deliver: true,
+    }
+
+    await finishMessageChannelTitleDelivery(attempt as never, true)
+    await resetMessageChannelTitleDelivery(attempt as never)
+
+    expect(state.set).toHaveBeenCalledWith("channel-title:thread:delivered", true)
+    expect(state.delete).toHaveBeenCalledWith("channel-title:thread:delivered")
+  })
+
   it("does not redeliver a Title when marker observation succeeds but lock release fails", async () => {
     const {
       claimMessageChannelTitleDelivery,

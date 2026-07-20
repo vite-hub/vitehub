@@ -7,6 +7,7 @@ import {
   finishMessageChannelTitleDelivery,
   messageChannelStateContextKey,
   messageChannelTitleDeliveredContextKey,
+  resetMessageChannelTitleDelivery,
 } from "../internal/channels.ts"
 import { getMessageText } from "../messages.ts"
 import { normalizeAgentDriver } from "../internal/agent-driver.ts"
@@ -573,6 +574,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         await finishMessageChannelTitleDelivery(await getChannelDeliveryAttempt(), false).catch(() => undefined)
       }
       let title: Promise<string | undefined> | undefined
+      let titleClaimed = false
       let titleSkipped = false
       const getTitle = () => {
         title ??= (async () => {
@@ -582,6 +584,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           const pendingAttempt = getChannelDeliveryAttempt()
           const attempt = pendingAttempt instanceof Promise ? await pendingAttempt : pendingAttempt
           if (!attempt.deliver) return
+          titleClaimed = true
           try {
             const resolvedTitle = await generateTitle(context, options as TitleOptions, {
               input: context.input.get(),
@@ -634,10 +637,13 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       const titleDeliveryEffect: AgentChannelDeliveryFinishEffectCallback = async (finish) => {
         if (Object.hasOwn(finish.event, "error")) {
           const resolvedTitle = await getTitle()
-          if (titleSkipped) return
+          if (!titleClaimed || titleSkipped) return
+          const attempt = await getChannelDeliveryAttempt()
+          await resetMessageChannelTitleDelivery(attempt).catch(() => undefined)
           const failureIntent = createMessageChannelTitleEffectIntent(
             errorTitle(resolvedTitle, options.maxLength ?? 80, options.fallback ?? "Untitled"),
             "always",
+            attempt,
           )
           if (!resolvedTitle || finish.context.get<boolean>(messageChannelTitleDeliveredContextKey) === true) {
             return failureIntent
@@ -645,8 +651,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           return [
             createMessageChannelTitleEffectIntent(
               resolvedTitle.trim(),
-              options.channelDelivery,
-              await getChannelDeliveryAttempt(),
+              "always",
             ),
             failureIntent,
           ]
