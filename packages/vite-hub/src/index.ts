@@ -189,6 +189,22 @@ function cloneRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
 }
 
+function deploymentNitroModule(plan: DeploymentPlan) {
+  return (nitro: {
+    hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
+    options: { output: { dir: string }, rootDir: string }
+  }) => {
+    nitro.hooks.hook("compiled", async () => {
+      const outputDir = nitro.options.output.dir
+      const rootDir = nitro.options.rootDir
+      if (plan.output.packaging === "deno-node-modules") {
+        await finalizeDenoDeploymentOutput({ outputDir, rootDir })
+      }
+      await finalizeDeploymentPlanOutput({ outputDir, plan, rootDir })
+    })
+  }
+}
+
 function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentService[], blobEnabled: boolean): Plugin[] {
   return [
     {
@@ -213,19 +229,10 @@ function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentSe
             throw new Error("[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with " + name + "=" + JSON.stringify(value) + ".")
           }
         }
-        const hooks = cloneRecord(nitro.hooks)
-        const compiled = hooks.compiled
-        if (compiled && typeof compiled !== "function") {
-          throw new TypeError("[vitehub] nitro.hooks.compiled must be a function.")
-        }
-        hooks.compiled = async (nitroContext: { options: { output: { dir: string }, rootDir: string } }) => {
-          if (typeof compiled === "function") await compiled(nitroContext)
-          if (plan.output.packaging === "deno-node-modules") {
-            await finalizeDenoDeploymentOutput({ outputDir: nitroContext.options.output.dir, rootDir: nitroContext.options.rootDir })
-          }
-          await finalizeDeploymentPlanOutput({ plan, rootDir: nitroContext.options.rootDir })
-        }
-        nitro.hooks = hooks
+        nitro.modules = [
+          ...(Array.isArray(nitro.modules) ? nitro.modules : []),
+          deploymentNitroModule(plan),
+        ]
         if (plan.output.packaging === "deno-node-modules") {
           nitro.commands = { ...cloneRecord(nitro.commands), deploy: "node ./deploy.mjs" }
         }
