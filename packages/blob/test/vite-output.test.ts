@@ -355,6 +355,32 @@ describe("Vite provider outputs", () => {
     await expect(readFile(functionFile, "utf8")).resolves.toBe("// shared server\n")
   })
 
+  it("copies Blob dependencies for sibling Vercel output during Cloudflare builds", { timeout: 30_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-shared-vercel-runtime-")
+    const functionDir = join(rootDir, ".vercel/output/functions/__server.func")
+    await mkdir(functionDir, { recursive: true })
+    await writeFile(join(functionDir, "index.mjs"), "// sibling server\n", "utf8")
+
+    await generateProviderOutputs({
+      blob: { bucketName: "assets", driver: "cloudflare-r2" },
+      clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
+      providerOutput: { runtimeModuleFilesByProduct: { database: { vercel: "database-runtime.mjs" } } },
+      rootDir,
+    })
+
+    const runtimeProbe = join(functionDir, "runtime-probe.mjs")
+    await writeFile(runtimeProbe, [
+      `await import("files-sdk/r2")`,
+      `await import("@aws-sdk/client-s3")`,
+      `await import("@aws-sdk/lib-storage")`,
+      `await import("@aws-sdk/s3-presigned-post")`,
+      `await import("@aws-sdk/s3-request-presigner")`,
+      "",
+    ].join("\n"), "utf8")
+    await expect(execFileAsync(process.execPath, [runtimeProbe])).resolves.toMatchObject({ stderr: "", stdout: "" })
+  })
+
   it("preserves the shared root Vercel output during Cloudflare builds", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-root-vercel-")
     const functionFile = join(rootDir, ".vercel/output/functions/__server.func/index.mjs")

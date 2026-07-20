@@ -514,6 +514,11 @@ function hasCloudflareR2Store(blob: BlobModuleOptions | ResolvedBlobModuleOption
     .some(store => store.driver === "cloudflare-r2")
 }
 
+function hasSiblingVercelRuntime(providerOutput: ComposedProviderOutput | undefined): boolean {
+  return Object.entries(providerOutput?.runtimeModuleFilesByProduct || {})
+    .some(([product, modules]) => product !== productName && Boolean(modules?.vercel))
+}
+
 async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOptions) {
   const packages = new Set<string>()
   const resolved = resolveBlobConfig(options.blob, "vercel")
@@ -535,8 +540,7 @@ async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOpt
     })
   }
   const isolated = Boolean(options.serverFunctionName && options.serverFunctionName !== "__server.func")
-  const shared = !isolated && Object.entries(options.providerOutput?.runtimeModuleFilesByProduct || {})
-    .some(([product, modules]) => product !== productName && modules?.vercel)
+  const shared = !isolated && hasSiblingVercelRuntime(options.providerOutput)
   if (!shared) {
     const outputName = options.serverFunctionName ?? "__server.func"
     const entry = await readFile(resolve(options.rootDir, ".vercel/output/functions", outputName, "index.mjs"))
@@ -593,7 +597,9 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     })
   }
   await writeProviderDeploymentOutputs({
-    afterWrite: createVercel ? () => copyVercelBlobRuntimePackages(options) : undefined,
+    afterWrite: createVercel || hasSiblingVercelRuntime(options.providerOutput)
+      ? () => copyVercelBlobRuntimePackages(options)
+      : undefined,
     clientOutDir: options.clientOutDir,
     cloudflare: createCloudflare ? createCloudflareOutput(options.blob, artifacts, options.providerOutput) : undefined,
     rootDir: options.rootDir,
