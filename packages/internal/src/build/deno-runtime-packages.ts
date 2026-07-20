@@ -38,6 +38,17 @@ function collectBundledPackageNames(source: string): Set<string> {
   return names
 }
 
+function collectBundledPackages(source: string): Map<string, string> {
+  const packages = new Map<string, string>()
+  for (const match of source.matchAll(
+    /((?:^|[/\\])node_modules[/\\](?:\.pnpm[/\\][^/\\]+[/\\]node_modules[/\\])?((?:@[^/\\]+[/\\])?[^/\\\s]+))/g,
+  )) {
+    const name = packageNameFromSpecifier(match[2]!.replaceAll("\\", "/"))
+    if (name) packages.set(name, match[1]!)
+  }
+  return packages
+}
+
 function collectImportedPackageNames(source: string): Set<string> {
   const names = new Set<string>()
   const executableSource = source
@@ -45,8 +56,8 @@ function collectImportedPackageNames(source: string): Set<string> {
     .replace(/^\s*\/\/.*$/gm, "")
   const patterns = [
     /(?:^|;)\s*(?:import|export)\s+(?:[^"']+\s+from\s+)?["']([^"']+)["']/gm,
-    /(?:^|;)\s*(?:const|let|var)\s+[^=]+?=\s*require\s*\(\s*["']([^"']+)["']\s*\)/gm,
-    /(?:^|;)\s*(?:await\s+)?import\s*\(\s*["']([^"']+)["']\s*\)/gm,
+    /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
+    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
   ]
   for (const pattern of patterns) {
     for (const match of executableSource.matchAll(pattern)) {
@@ -70,6 +81,7 @@ interface RuntimePackage {
   name: string
   onlyIfOptionalDependencies?: boolean
   optional?: boolean
+  packageJsonPath?: string
 }
 
 async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: string, packages: RuntimePackage[], rootDir: string }): Promise<void> {
@@ -81,7 +93,16 @@ async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: st
 }
 
 async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, fromDir: string, outputNodeModules: string, copied: Set<string>, options: RuntimePackage): Promise<void> {
-  const packageJsonPath = await resolvePackageJson(name, resolver, fromDir)
+  let packageJsonPath = options.packageJsonPath
+  if (packageJsonPath) {
+    try {
+      await access(packageJsonPath)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      packageJsonPath = undefined
+    }
+  }
+  packageJsonPath ??= await resolvePackageJson(name, resolver, fromDir)
   if (!packageJsonPath) {
     if (options.optional) return
     throw new Error("Could not resolve package.json for " + name + ".")
@@ -169,11 +190,11 @@ async function runtimeSourceFiles(serverDir: string): Promise<string[]> {
     .map((entry) => resolve(entry.parentPath, entry.name))
 }
 
-async function readRuntimePackages(serverDir: string): Promise<RuntimePackage[]> {
+async function readRuntimePackages(serverDir: string, rootDir: string): Promise<RuntimePackage[]> {
   const packages = new Map<string, RuntimePackage>()
   for (const file of await runtimeSourceFiles(serverDir)) {
     const source = await readFile(file, "utf8")
-    for (const name of collectBundledPackageNames(source)) {
+    for (const [name, packagePath] of collectBundledPackages(source)) {
       if (!packages.has(name)) {
         packages.set(name, {
           includeOptionalDependencies: true,
@@ -181,6 +202,7 @@ async function readRuntimePackages(serverDir: string): Promise<RuntimePackage[]>
           name,
           onlyIfOptionalDependencies: true,
           optional: true,
+          packageJsonPath: resolve(rootDir, packagePath.replace(/^[/\\]/, ""), "package.json"),
         })
       }
     }
@@ -228,7 +250,7 @@ export async function finalizeDenoDeploymentOutput(
 ): Promise<void> {
   const outputDir = resolve(options.rootDir, options.outputDir ?? ".output")
   const serverDir = join(outputDir, "server")
-  const packages = await readRuntimePackages(serverDir)
+  const packages = await readRuntimePackages(serverDir, options.rootDir)
 
   await copyRuntimePackagesToNodeModules({
     outputNodeModules: join(outputDir, "node_modules"),
