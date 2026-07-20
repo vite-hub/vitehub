@@ -164,7 +164,7 @@ Only HTTPS attachment URLs are forwarded as remote model input. ViteHub does not
 
 The byte limit checks a declared `size` before resolving provider data, then checks the resolved value using UTF-8 bytes for strings, `byteLength` for buffers and typed-array views, and `size` for Blobs. Invalid and non-HTTPS URLs are omitted from model input.
 
-Harness-backed Agents retain URL-bearing parts in their input, but a function callback cannot cross a serialized harness boundary. A private callback-only attachment needs a Capability that consumes it or an explicit future asset/persistence contract; ViteHub does not materialize it in `/tmp`. `serializeMessages()` similarly rejects unresolved attachment callbacks. The pure synchronous `toAiSdkModelMessages()` converter rejects callback- and Blob-only inputs; use the model-backed Agent Driver for its asynchronous invocation-time conversion, or provide an HTTPS URL.
+Harness-backed Agents retain URL-bearing parts in their input, but callbacks and binary objects cannot cross a serialized harness boundary. A private callback-only attachment needs a Capability that consumes it or an explicit future asset/persistence contract; ViteHub does not materialize it in `/tmp`. `serializeMessages()` rejects unresolved attachment callbacks and non-string binary data. The pure synchronous `toAiSdkModelMessages()` converter rejects callback- and Blob-only inputs; use the model-backed Agent Driver for its asynchronous invocation-time conversion, or provide an HTTPS URL.
 
 Text-like files keep the existing bounded prompt behavior: ViteHub decodes recognized text attachments up to 8 MiB and emits a text part instead of a duplicate file part. Other attachment normalization is inert.
 

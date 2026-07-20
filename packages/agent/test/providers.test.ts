@@ -3334,9 +3334,9 @@ describe("server helpers", () => {
           expect.objectContaining({
             fetchData: expect.any(Function),
             fetchMetadata: { fileId: "large-photo" },
-            mediaType: "application/octet-stream",
+            mediaType: "image/jpeg",
             size: 3,
-            type: "file",
+            type: "image",
           }),
         ],
       })],

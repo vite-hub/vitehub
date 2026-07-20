@@ -205,6 +205,11 @@ describe("agent transcription", () => {
       parts: [{ fetchData: () => new Uint8Array([1]), mediaType: "image/png", type: "image" }],
       role: "user",
     })])).toThrow("cannot serialize")
+
+    expect(() => serializeMessages([createMessage({
+      parts: [{ data: new Uint8Array([1]), mediaType: "image/png", type: "image" }],
+      role: "user",
+    })])).toThrow("cannot serialize binary data")
   })
 
   it("rejects invalid audio message parts", () => {

@@ -454,6 +454,9 @@ export function serializeMessages(messages: Message[]): string {
       if (isAttachmentPart(part) && typeof part.fetchData === "function") {
         throw new TypeError(`[vitehub:messages] serializeMessages() cannot serialize message[${messageIndex}].parts[${partIndex}].fetchData. Resolve or remove the attachment callback before serializing.`)
       }
+      if (isAttachmentPart(part) && part.data !== undefined && typeof part.data !== "string") {
+        throw new TypeError(`[vitehub:messages] serializeMessages() cannot serialize binary data in message[${messageIndex}].parts[${partIndex}]. Resolve it to a string or URL before serializing.`)
+      }
     }
   }
   return JSON.stringify({ messages, version: 1 } satisfies SerializedMessages)
