@@ -183,9 +183,11 @@ function normalizeSteps(steps: unknown): WorkflowRunStep[] {
   })
 }
 
-async function readRunIdentity(run: VercelRun): Promise<{ exists: boolean, workflowName: string }> {
-  const [exists, workflowName] = await Promise.all([run.exists, run.workflowName])
+async function readRunIdentity(run: VercelRun): Promise<{ exists: false } | { exists: true, workflowName: string }> {
+  const exists = await run.exists
   if (typeof exists !== "boolean") throw invalidVercelResult("existence state")
+  if (!exists) return { exists }
+  const workflowName = await run.workflowName
   if (typeof workflowName !== "string") throw invalidVercelResult("workflow name")
   return { exists, workflowName }
 }

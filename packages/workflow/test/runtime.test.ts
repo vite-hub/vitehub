@@ -1582,6 +1582,29 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("does not inspect unavailable properties on missing native Vercel runs", async () => {
+    const native = Object.assign(async () => "native", { workflowId: "durable-welcome" })
+    const run = {
+      exists: Promise.resolve(false),
+      get workflowName(): Promise<string> {
+        throw new Error("missing run has no workflow name")
+      },
+    } as VercelRun
+    setVercelWorkflowRuntimeLoader(async () => ({
+      getRun: () => run,
+      listSteps: vi.fn(),
+      resumeHook: vi.fn(),
+      start: vi.fn(),
+    }) as never)
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => "inline", options: { native } } }),
+    })
+
+    await expect(getWorkflowRun("welcome", "missing")).resolves.toEqual({ id: "missing", provider: "vercel", status: "unknown" })
+    await expect(cancelWorkflow("welcome", "missing")).resolves.toEqual({ id: "missing", provider: "vercel", status: "unknown" })
+  })
+
   it("narrows malformed and hostile Vercel results at the provider boundary", async () => {
     const native = Object.assign(async () => "native", { workflowId: "durable-welcome" })
     const createRun = (overrides: Record<string, unknown> = {}) => ({
