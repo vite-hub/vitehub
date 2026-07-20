@@ -2290,6 +2290,7 @@ async function executeAgentInvocation<
 
   if (options.kind === "run"
     && invocation.context.get<boolean>(finalChannelOutputContextKey) === true
+    && !isAsyncIterable(result)
     && !hasTraceableStreamResult(result)) {
     const text = finalTextFromAgentOutput(result)
     if (text !== undefined && !(result instanceof Response)) {
