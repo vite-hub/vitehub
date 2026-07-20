@@ -119,6 +119,7 @@
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {
+    "@netlify/blobs": "catalog:storage",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/blob": "workspace:*",

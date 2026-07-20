@@ -137,6 +137,7 @@ describe("package manifest contracts", () => {
     expect(manifest.devDependencies?.["files-sdk"]).toEqual(expect.any(String))
     expect(manifest.dependencies?.["@vercel/blob"]).toEqual(expect.any(String))
     expect(frameworkManifest.dependencies?.["files-sdk"]).toEqual(expect.any(String))
+    expect(frameworkManifest.dependencies?.["@netlify/blobs"]).toEqual(expect.any(String))
   })
 })
 

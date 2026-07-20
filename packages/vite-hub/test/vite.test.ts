@@ -449,7 +449,7 @@ describe("vitehub", () => {
       .find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     const hook = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
     await hook(config, { command: "build", mode: "production" })
-    expect((config.queue as { namePrefix: string }).namePrefix).toHaveLength(42)
+    expect((config.queue as { namePrefix: string }).namePrefix).toMatch(/^[a-f0-9]{8}-$/)
   })
 
   it("rejects unsupported capabilities and conflicting target selection", async () => {
