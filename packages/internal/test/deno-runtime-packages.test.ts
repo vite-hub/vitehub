@@ -82,7 +82,7 @@ describe("Deno deployment output", () => {
       readFile(join(outputDir, "deno.json"), "utf8").then(JSON.parse),
     ).resolves.toMatchObject({ nodeModulesDir: "manual" })
     const deployRunner = await readFile(join(outputDir, "deploy.mjs"), "utf8")
-    for (const text of ["DENO_DEPLOY_ORG", '["deploy", "create"', "--do-not-use-detected-build-config", "--allow-node-modules", "server/index.ts", '["deploy", ".", "--prod"', 'const common = ["--org", organization, "--app", app]', "mkdtemp", "finally"]) expect(deployRunner).toContain(text)
+    for (const text of ["DENO_DEPLOY_ORG", '["deploy", "create"', "--do-not-use-detected-build-config", "--allow-node-modules", "server/index.ts", '["deploy", ".", "--prod"', 'const common = ["--allow-node-modules", "--org", organization, "--app", app]', "mkdtemp", "finally"]) expect(deployRunner).toContain(text)
   })
 
   it("uses the pnpm package from a bundle marker", async () => {
@@ -189,10 +189,9 @@ process.exit(process.env.VITEHUB_DENO_ALWAYS_FAIL === "1" || attempts === 0 ? 1 
       expect(invocations).toHaveLength(2)
       expect(invocations[0]!.args.slice(0, 2)).toEqual(["deploy", "."])
       expect(invocations[1]!.args.slice(0, 3)).toEqual(["deploy", "create", "."])
-      expect(invocations[0]!.args).not.toContain("--allow-node-modules")
-      expect(invocations[1]!.args).toContain("--allow-node-modules")
       for (const invocation of invocations) {
         expect(relative(root, invocation.cwd).startsWith("..")).toBe(true)
+        expect(invocation.args).toContain("--allow-node-modules")
         expect(invocation).toMatchObject({ entry: true, libvips: true, sharp: true })
         expect(existsSync(invocation.cwd)).toBe(false)
       }
