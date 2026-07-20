@@ -1765,7 +1765,9 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
             headers,
             method: "DELETE",
           })
-          if (!response.ok && response.status !== 404) {
+          const body = response.status === 404 ? await response.json().catch(() => undefined) : undefined
+          const missingLabel = isRecord(body) && body.message === "Label does not exist"
+          if (!response.ok && !missingLabel) {
             throw new Error(`[vitehub] GitHub delivery effect failed with ${response.status}.`)
           }
         }

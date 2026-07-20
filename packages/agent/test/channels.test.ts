@@ -988,9 +988,12 @@ describe("agent channels", () => {
   it("surfaces GitHub pull request label API failures", async () => {
     const { github } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
-    const fetcher = vi.fn(async (url: string | URL | Request) => {
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       if (String(url).endsWith("/access_tokens")) {
         return Response.json({ token: "installation-token" })
+      }
+      if (init?.method === "DELETE") {
+        return Response.json({ message: "Not Found" }, { status: 404 })
       }
       return Response.json({ message: "unprocessable" }, { status: 422 })
     })
@@ -1030,6 +1033,32 @@ describe("agent channels", () => {
       runtime: "unknown",
       waitUntil: vi.fn(),
     } as never)).rejects.toThrow("GitHub delivery effect failed with 422")
+
+    await expect(labelsEffect({
+      channel,
+      effect: { kind: "labels", payload: { action: "remove", labels: ["agent:working"] } },
+      input: {
+        context: {
+          pullRequest: {
+            pullRequest: { number: 42 },
+            repository: { fullName: "vite-hub/vitehub", name: "vitehub", owner: "vite-hub" },
+            run: { runId: "run-1" },
+            trigger: {
+              action: "labeled",
+              deliveryId: "delivery-1",
+              event: "pull_request",
+              installationId: 456,
+              label: { name: "agent:ready" },
+              sender: { id: 1, login: "mona" },
+            },
+          },
+        },
+        prompt: "Maintain this pull request.",
+      },
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    } as never)).rejects.toThrow("GitHub delivery effect failed with 404")
   })
 
   it("uses admitted issue-comment context as the only GitHub label target", async () => {
