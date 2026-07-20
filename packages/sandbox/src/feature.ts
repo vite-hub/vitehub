@@ -1,4 +1,5 @@
-import { getHostingProvider, getSupportedHostingProvider } from '@vite-hub/internal/hosting'
+import { deploymentPresetFromNitro } from '@vite-hub/internal/deployment'
+import { getSupportedHostingProvider } from '@vite-hub/internal/hosting'
 import { createDiscoveredDefinitionCompiler, type DiscoveredDefinitionCompilerOptions } from './internal/shared/discovered-definition'
 import {
   toTemplateSafeName,
@@ -177,7 +178,7 @@ export function resolveSandboxFeatureConfig(sandboxConfig: AgentSandboxConfig, h
     } as AgentSandboxConfig
   }
 
-  const unsupportedHostedProvider = getHostingProvider(hosting)
+  const unsupportedHostedProvider = deploymentPresetFromNitro(hosting)
   if (unsupportedHostedProvider) {
     throw new TypeError('[vitehub] Sandbox hosting inference does not support ' + unsupportedHostedProvider + '. An explicit `sandbox.provider` is required.')
   }
