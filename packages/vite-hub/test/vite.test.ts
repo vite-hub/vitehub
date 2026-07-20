@@ -11,8 +11,8 @@ const integrationMocks = vi.hoisted(() => ({
   hubKv: vi.fn(() => ({ name: "@vite-hub/kv/vite" })),
   hubKvOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/kv/optional-peers" })),
   hubMarkdownTemplate: vi.fn(() => ({ name: "@vite-hub/markdown-template/vite" })),
-  resolveKVViteConfig: vi.fn((kv?: { driver?: string }) => ({
-    kv: { store: { driver: kv?.driver ?? "fs-lite" } },
+  resolveKVViteConfig: vi.fn((kv?: { driver?: string }, input?: { hosting?: string }) => ({
+    kv: { store: { driver: kv?.driver ?? (input?.hosting === "cloudflare-module" ? "cloudflare-kv-binding" : "fs-lite") } },
   })),
   hubQueue: vi.fn(() => ({ name: "@vite-hub/queue/vite" })),
   hubRateLimit: vi.fn(() => ({ name: "@vite-hub/rate-limit/vite" })),
@@ -142,7 +142,9 @@ describe("vitehub", () => {
       importBase: "vite-hub/_internal/blob",
     })
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith(undefined)
-    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined)
+    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith({
+      store: { driver: "cloudflare-kv-binding" },
+    })
     expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith({
       provider: "cloudflare",
       providerImportAliases: expect.any(Object),
@@ -428,6 +430,15 @@ describe("vitehub", () => {
     })
   })
 
+  it("limits generated Cloudflare queue prefixes", async () => {
+    const config = { root: "a".repeat(80) } as Record<string, unknown>
+    const plugin = vitehub({ preset: "cloudflare", queue: true })
+      .find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    const hook = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
+    await hook(config, { command: "build", mode: "production" })
+    expect((config.queue as { namePrefix: string }).namePrefix).toHaveLength(42)
+  })
+
   it("rejects unsupported capabilities and conflicting target selection", async () => {
     const unsupported = vitehub({ preset: "deno", queue: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     const unsupportedHook = unsupported.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
@@ -436,6 +447,7 @@ describe("vitehub", () => {
     const conflicting = vitehub({ preset: "vercel" }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     const conflictingHook = conflicting.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
     expect(() => conflictingHook({ nitro: { preset: "netlify" } }, { command: "build", mode: "production" })).toThrow("conflicts with nitro.preset")
+    expect(() => conflictingHook({ nitro: { preset: "vercel-edge" } }, { command: "build", mode: "production" })).toThrow("conflicts with nitro.preset")
   })
 
   it("can be used as one nested Vite plugin entry", () => {
