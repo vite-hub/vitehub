@@ -77,6 +77,7 @@ export function collectDenoRuntimePackageNames(source: string): string[] {
 }
 
 interface RuntimePackage {
+  hoistOptionalDependencies?: boolean
   includeOptionalDependencies?: boolean
   includePeerDependencies?: boolean
   name: string
@@ -134,7 +135,10 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
     }
   }
   for (const dependencyName of dependencyNames) {
-    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, join(targetDir, "node_modules"), copied, {
+    const dependencyNodeModules = options.hoistOptionalDependencies && packageJson.optionalDependencies?.[dependencyName]
+      ? outputNodeModules
+      : join(targetDir, "node_modules")
+    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, dependencyNodeModules, copied, {
       includeOptionalDependencies: options.includeOptionalDependencies,
       includePeerDependencies: options.includePeerDependencies,
       name: dependencyName,
@@ -196,29 +200,35 @@ async function readRuntimePackages(serverDir: string, rootDir: string): Promise<
   for (const file of await runtimeSourceFiles(serverDir)) {
     const source = await readFile(file, "utf8")
     for (const [name, packagePath] of collectBundledPackages(source)) {
+      packages.set(name, {
+        ...packages.get(name),
+        hoistOptionalDependencies: true,
+        includeOptionalDependencies: true,
+        includePeerDependencies: true,
+        name,
+        onlyIfOptionalDependencies: true,
+        optional: true,
+        packageJsonPath: resolve(rootDir, packagePath.replace(/^[/\\]/, ""), "package.json"),
+      })
+    }
+    for (const name of collectImportedPackageNames(source)) {
       if (!packages.has(name)) {
         packages.set(name, {
           includeOptionalDependencies: true,
           includePeerDependencies: true,
           name,
-          onlyIfOptionalDependencies: true,
-          optional: true,
-          packageJsonPath: resolve(rootDir, packagePath.replace(/^[/\\]/, ""), "package.json"),
         })
       }
-    }
-    for (const name of collectImportedPackageNames(source)) {
-      packages.set(name, {
-        includeOptionalDependencies: true,
-        includePeerDependencies: true,
-        name,
-      })
     }
   }
   return [...packages.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
 const denoDeployRunnerSource = `import { spawn } from "node:child_process"
+import { access, cp, mkdtemp, realpath, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { dirname, isAbsolute, join, relative, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 const organization = process.env.DENO_DEPLOY_ORG
 const app = process.env.DENO_DEPLOY_APP || process.env.VITEHUB_DEPLOYMENT_NAME
@@ -228,21 +238,68 @@ if (!organization || !app) {
   throw new Error("DENO_DEPLOY_ORG and DENO_DEPLOY_APP (or VITEHUB_DEPLOYMENT_NAME) are required.")
 }
 
-function run(args) {
+let activeChild
+
+function run(args, cwd) {
   return new Promise((resolve, reject) => {
-    const child = spawn("deno", args, { cwd: new URL(".", import.meta.url), stdio: "inherit" })
+    const child = spawn("deno", args, { cwd, stdio: "inherit" })
+    activeChild = child
     child.on("error", reject)
-    child.on("exit", (code, signal) => resolve({ code, signal }))
+    child.on("exit", (code, signal) => {
+      activeChild = undefined
+      resolve({ code, signal })
+    })
   })
 }
 
-const common = ["--org", organization, "--app", app]
-const deployment = await run(["deploy", ".", "--prod", ...common])
-if (deployment.code === 0) process.exit(0)
+async function enclosingGitRoot(path) {
+  let current = resolve(path)
+  while (true) {
+    try {
+      await access(join(current, ".git"))
+      return current
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error
+    }
+    const parent = dirname(current)
+    if (parent === current) return
+    current = parent
+  }
+}
 
-const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", "server/index.ts", "--working-directory", ".", "--region", region, "--allow-node-modules", ...common])
-if (creation.code !== 0) {
-  throw new Error("deno deploy/create exited with " + (creation.signal || "code " + creation.code))
+function contains(parent, child) {
+  const path = relative(parent, child)
+  return path === "" || (!path.startsWith("..") && !isAbsolute(path))
+}
+
+const sourceRoot = await realpath(fileURLToPath(new URL(".", import.meta.url)))
+const uploadRoot = await realpath(await mkdtemp(join(tmpdir(), "vitehub-deno-deploy-")))
+const signals = ["SIGINT", "SIGTERM"]
+const handleSignal = (signal) => {
+  activeChild?.kill(signal)
+  void rm(uploadRoot, { force: true, recursive: true }).finally(() => {
+    process.kill(process.pid, signal)
+  })
+}
+for (const signal of signals) process.once(signal, handleSignal)
+
+try {
+  if (contains(sourceRoot, uploadRoot) || await enclosingGitRoot(uploadRoot)) {
+    throw new Error("Deno deployment staging must be outside the generated output and any enclosing Git repository. Set TMPDIR to an external directory.")
+  }
+  await cp(sourceRoot, uploadRoot, { recursive: true })
+
+  const common = ["--allow-node-modules", "--org", organization, "--app", app]
+  const deployment = await run(["deploy", ".", "--prod", ...common], uploadRoot)
+  if (deployment.code !== 0) {
+    const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", "server/index.ts", "--working-directory", ".", "--region", region, ...common], uploadRoot)
+    if (creation.code !== 0) {
+      throw new Error("deno deploy/create exited with " + (creation.signal || "code " + creation.code))
+    }
+  }
+} finally {
+  for (const signal of signals) process.off(signal, handleSignal)
+  await rm(uploadRoot, { force: true, recursive: true })
 }
 `
 
