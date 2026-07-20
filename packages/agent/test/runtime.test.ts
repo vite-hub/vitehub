@@ -52,6 +52,56 @@ afterEach(() => {
   loadAiSdk.mockImplementation(async () => await import("ai"))
 })
 
+async function failedTitleInvocation(options: {
+  deliver?: (title: string) => Promise<void> | void
+  execute: () => string
+  fallback?: string
+  maxLength?: number
+  trigger?: string
+  when?: () => boolean
+}) {
+  const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+  const { defineChannel } = await import("../src/channels.ts")
+  const failure = new Error("driver failed")
+  const delivered: string[] = []
+  const titleEffect = vi.fn(async (context: { effect: { payload?: unknown } }) => {
+    const value = (context.effect.payload as { title: string }).title
+    await options.deliver?.(value)
+    delivered.push(value)
+  })
+  const agent = defineAgent({
+    capabilities: [title({
+      execute: options.execute,
+      ...(options.fallback === undefined ? {} : { fallback: options.fallback }),
+      ...(options.maxLength === undefined ? {} : { maxLength: options.maxLength }),
+      ...(options.trigger === undefined ? {} : { trigger: options.trigger }),
+      ...(options.when === undefined ? {} : { when: options.when }),
+    })],
+    channels: {
+      portal: defineChannel("portal", {
+        effects: { title: titleEffect as never },
+        messages: false,
+        triggers: {
+          message: {
+            invoke: context => ({
+              input: { messages: [createMessage({ role: "user", text: "prepare title" })] },
+              run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run", threadId: "thread-1" },
+            }),
+          },
+        },
+      }),
+    },
+    driver: { run: () => { throw failure } },
+  })
+
+  await expect(runAgentTrigger(agent, {
+    memo: vi.fn(),
+    runtime: "unknown" as const,
+    waitUntil: vi.fn(),
+  }, "portal.message", {})).rejects.toBe(failure)
+  return { delivered, titleEffect }
+}
+
 describe("agent message protocol", () => {
   it("normalizes undefined tool output to JSON null", () => {
     expect(toJsonCompatibleValue(undefined)).toBeNull()
@@ -3684,6 +3734,64 @@ describe("agent message protocol", () => {
     await Promise.all(waitUntilTasks)
     expect(execute).toHaveBeenCalledOnce()
     expect(titleEffect).toHaveBeenCalledTimes(2)
+  })
+
+  it("marks failed message Channel titles after applying the ordinary title", async () => {
+    const execute = vi.fn(() => "Useful existing title")
+    const { delivered } = await failedTitleInvocation({ execute })
+
+    expect(execute).toHaveBeenCalledOnce()
+    expect(delivered).toEqual([
+      "Useful existing title",
+      "ERROR: Useful existing title",
+    ])
+  })
+
+  it("retries the ordinary title before marking a failed message Channel", async () => {
+    const deliver = vi.fn()
+      .mockRejectedValueOnce(new Error("temporary title failure"))
+      .mockResolvedValue(undefined)
+    const { delivered, titleEffect } = await failedTitleInvocation({
+      deliver,
+      execute: () => "Useful existing title",
+    })
+
+    expect(titleEffect).toHaveBeenCalledTimes(3)
+    expect(delivered).toEqual([
+      "Useful existing title",
+      "ERROR: Useful existing title",
+    ])
+  })
+
+  it.each([
+    ["ERROR: ERROR: Existing title", 80, "ERROR: Existing title"],
+    ["Quarterly billing reconciliation", 20, "ERROR: Quarterly bil"],
+  ])("keeps failed title prefixes idempotent within maxLength", async (generatedTitle, maxLength, expectedTitle) => {
+    const { delivered } = await failedTitleInvocation({ execute: () => generatedTitle, maxLength })
+
+    expect(delivered.at(-1)).toBe(expectedTitle)
+    expect(delivered.at(-1)?.length).toBeLessThanOrEqual(maxLength)
+    expect(delivered.at(-1)?.match(/ERROR:/g)).toHaveLength(1)
+  })
+
+  it("uses the configured fallback when failed title generation produced no title", async () => {
+    const execute = vi.fn(() => { throw new Error("title failed") })
+    const { delivered } = await failedTitleInvocation({ execute, fallback: "Untitled" })
+
+    expect(execute).toHaveBeenCalledOnce()
+    expect(delivered).toEqual(["ERROR: Untitled"])
+  })
+
+  it.each([
+    ["trigger", { trigger: "schedule.tick" }],
+    ["when", { when: () => false }],
+  ])("does not mark failed titles skipped by the %s filter", async (_filter, options) => {
+    const execute = vi.fn(() => "Skipped title")
+    const { delivered, titleEffect } = await failedTitleInvocation({ execute, ...options })
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(titleEffect).not.toHaveBeenCalled()
+    expect(delivered).toEqual([])
   })
 
   it("retries title delivery at finish when any early delivery handler fails", async () => {
