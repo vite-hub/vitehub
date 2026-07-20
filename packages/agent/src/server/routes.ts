@@ -802,7 +802,14 @@ function streamAgentOutputToChatReplies(
   const completion = (async () => {
     try {
       const output = await result
-      for await (const event of streamAgentOutputToEvents(output)) {
+      const events = output instanceof Response
+        ? (async function* () {
+            for await (const text of streamAgentOutputToChatText(Promise.resolve(output))) {
+              yield { text, type: "text-delta" as const }
+            }
+          })()
+        : streamAgentOutputToEvents(output)
+      for await (const event of events) {
         if (event.type === "error") throw new Error(event.error)
         if (event.type !== "text-delta" || !event.text) continue
         if (event.phase === undefined) {
@@ -1875,7 +1882,7 @@ async function handleChatSdkMessage(
     const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, invocation.input as AgentRunInput, invocation.run, messageContext)
     if (!invoker) return
 
-    const streamsPhasedReplies = options?.stream !== false || options?.commentary !== undefined
+    const streamsPhasedReplies = options?.stream !== false || options?.commentary === "message"
     typing = streamsPhasedReplies ? startChatTypingRefresh(thread, context) : undefined
     run = invocation.run
     const runContext = {
