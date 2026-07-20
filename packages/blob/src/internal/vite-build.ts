@@ -580,6 +580,8 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const localOnly = !shouldCreateProviderOutput(options.blob)
   const createCloudflare = !localOnly && !options.cloudflareOwnedByNitro
   const createVercel = !localOnly && !options.cloudflareOwnedByNitro
+  const stageSharedVercelRuntime = (!options.serverFunctionName || options.serverFunctionName === "__server.func")
+    && hasSiblingVercelRuntime(options.providerOutput)
   const cleanupVercel = options.cloudflareOwnedByNitro ? getVercelBlobOutputCleanup(options) : undefined
   const hasCurrentCloudflareContribution = Boolean(createCloudflareR2Bindings(resolveBlobConfig(options.blob, "cloudflare"))?.length)
   if (options.cloudflareOwnedByNitro) {
@@ -597,7 +599,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     })
   }
   await writeProviderDeploymentOutputs({
-    afterWrite: createVercel || hasSiblingVercelRuntime(options.providerOutput)
+    afterWrite: createVercel || stageSharedVercelRuntime
       ? () => copyVercelBlobRuntimePackages(options)
       : undefined,
     clientOutDir: options.clientOutDir,
