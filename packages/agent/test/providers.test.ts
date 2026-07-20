@@ -4506,16 +4506,12 @@ describe("server helpers", () => {
       releaseFirstRun()
       await Promise.all(waitUntilTasks.splice(0))
 
-      const busyReplay = await handler(request("delivery-2"), "github", options)
-      await expect(busyReplay.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true })
-
-      const rerun = await handler(request("delivery-3"), "github", options)
+      const rerun = await handler(request("delivery-2"), "github", options)
       await expect(rerun.json()).resolves.toEqual({ accepted: true, ok: true })
       await Promise.all(waitUntilTasks)
       expect(run).toHaveBeenCalledTimes(2)
       await expect(state.get("webhook:review:github:delivery:delivery-1")).resolves.toBe(true)
       await expect(state.get("webhook:review:github:delivery:delivery-2")).resolves.toBe(true)
-      await expect(state.get("webhook:review:github:delivery:delivery-3")).resolves.toBe(true)
       expect(webhookStateContexts[0]).toMatchObject({
         webhook: {
           agentName: "review",
