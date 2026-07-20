@@ -507,16 +507,10 @@ function hasCloudflareR2Store(blob: BlobModuleOptions | ResolvedBlobModuleOption
     .some(store => store.driver === "cloudflare-r2")
 }
 
-function hasVercelBlobStore(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined) {
-  const resolved = resolveBlobConfig(blob, "vercel")
-  return resolved !== false && Object.values(resolved.stores || { default: resolved.store })
-    .some(store => store.driver === "vercel-blob")
-}
-
 async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOptions) {
   const packages = new Set<string>()
-  if (hasVercelBlobStore(options.blob)) {
-    packages.add("files-sdk")
+  const resolved = resolveBlobConfig(options.blob, "vercel")
+  if (resolved !== false && Object.values(resolved.stores || { default: resolved.store }).some(store => store.driver === "vercel-blob")) {
     packages.add("@vercel/blob")
   }
   if (hasCloudflareR2Store(options.blob)) {

@@ -524,12 +524,7 @@ describe("Vite provider outputs", () => {
     await expect(import(`${pathToFileURL(serverEntry).href}?t=${Date.now()}`)).resolves.toHaveProperty("default")
 
     const runtimeProbe = join(dirname(serverEntry), "runtime-probe.mjs")
-    await writeFile(runtimeProbe, [
-      `await import("files-sdk")`,
-      `await import("files-sdk/vercel-blob")`,
-      `await import("@vercel/blob")`,
-      "",
-    ].join("\n"), "utf8")
+    await writeFile(runtimeProbe, `await import("@vercel/blob")\n`, "utf8")
     await expect(execFileAsync(process.execPath, [runtimeProbe])).resolves.toMatchObject({ stderr: "", stdout: "" })
   })
 

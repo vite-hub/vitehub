@@ -30,8 +30,6 @@ const optionalPackages = [
   "openworkflow",
   "vitest",
 ]
-const privateVercelBlobRuntimePackages = ["@vercel/blob", "files-sdk"]
-const privateVercelBlobFunction = "__server.func"
 
 interface PackageManifest {
   bin?: Record<string, string>
@@ -200,9 +198,6 @@ function workspaceConfig(specs: Record<string, string>) {
     "allowBuilds:",
     "  esbuild: true",
     "  msgpackr-extract: false",
-    "peerDependencyRules:",
-    "  allowedVersions:",
-    "    \"files-sdk>h3\": \"2.0.1-rc.25\"",
     "overrides:",
     ...overrides,
     "",
@@ -292,10 +287,6 @@ function isOptionalPackageSpecifier(specifier: string) {
   return optionalPackages.some(name => specifier === name || specifier.startsWith(`${name}/`))
 }
 
-function isPrivateVercelBlobRuntimeSpecifier(specifier: string) {
-  return privateVercelBlobRuntimePackages.some(name => specifier === name || specifier.startsWith(`${name}/`))
-}
-
 async function resolveEsmSpecifiers(entries: Array<{ parent: string, specifier: string }>) {
   const script = [
     "const entries = JSON.parse(process.argv[1])",
@@ -322,7 +313,7 @@ async function assertVercelRuntimeImportsResolveInside(
 ) {
   const runtimeImports = Object.entries(sources).flatMap(([file, source]) =>
     importSpecifierOccurrences(source)
-      .filter(({ specifier }) => specifier.startsWith("@vite-hub/") || isPrivateVercelBlobRuntimeSpecifier(specifier))
+      .filter(({ specifier }) => specifier.startsWith("@vite-hub/"))
       .map(occurrence => ({ file, ...occurrence })),
   ).map((occurrence) => {
     const functionSegment = occurrence.file.split("/").findIndex(segment => segment.endsWith(".func"))
@@ -431,11 +422,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const vercelImports = Object.entries(vercelSources).flatMap(([file, source]) =>
         importSpecifierOccurrences(source).map(occurrence => ({ file, ...occurrence })),
       )
-      const vercelUnexpectedOptionalImports = vercelImports.filter(({ file, specifier }) =>
-        isOptionalPackageSpecifier(specifier)
-        && !(file.startsWith(`${privateVercelBlobFunction}/`) && isPrivateVercelBlobRuntimeSpecifier(specifier)),
-      )
-      expect(vercelUnexpectedOptionalImports, "Vercel functions must only ship host-required provider packages").toEqual([])
+      const vercelOptionalImports = vercelImports.filter(({ specifier }) => isOptionalPackageSpecifier(specifier))
+      expect(vercelOptionalImports, "Vercel functions must not ship opt-in packages").toEqual([])
 
       await assertVercelRuntimeImportsResolveInside(
         vercelFunctionsRoot,

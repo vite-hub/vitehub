@@ -100,23 +100,13 @@ describe("private Vercel Blob consumer runtime", () => {
           "utf8",
         )
 
-        await run("pnpm", ["install", "--prod", "--no-hoist"], appDir)
+        await run("pnpm", ["install", "--prod", "--no-hoist", "--strict-peer-dependencies"], appDir)
 
         const consumerManifest = JSON.parse(
           await readFile(join(appDir, "package.json"), "utf8"),
         ) as { dependencies: Record<string, string> }
         expect(consumerManifest.dependencies).not.toHaveProperty("files-sdk")
         expect(consumerManifest.dependencies).not.toHaveProperty("@vercel/blob")
-
-        const resolveProbe = [
-          `const blob = import.meta.resolve("@vite-hub/blob/package.json")`,
-          `for (const specifier of ["files-sdk", "@vercel/blob"]) import.meta.resolve(specifier, blob)`,
-        ].join("\n")
-        await run(
-          "node",
-          ["--experimental-import-meta-resolve", "--input-type=module", "--eval", resolveProbe],
-          appDir,
-        )
         await run("pnpm", ["run", "build"], appDir)
 
         const runtimeModule = await readFile(
@@ -124,24 +114,6 @@ describe("private Vercel Blob consumer runtime", () => {
           "utf8",
         )
         expect(runtimeModule).toContain("drivers/vercel-bundled")
-        await expect(
-          readFile(
-            join(
-              appDir,
-              ".vercel/output/functions/__server.func/node_modules/files-sdk/package.json",
-            ),
-            "utf8",
-          ),
-        ).resolves.toContain('"name": "files-sdk"')
-        await expect(
-          readFile(
-            join(
-              appDir,
-              ".vercel/output/functions/__server.func/node_modules/@vercel/blob/package.json",
-            ),
-            "utf8",
-          ),
-        ).resolves.toContain('"name": "@vercel/blob"')
         await probePrivateVercelFunction(appDir)
       } finally {
         await rm(root, { force: true, recursive: true })
