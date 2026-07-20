@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs"
 import { execFile as execFileCallback } from "node:child_process"
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { delimiter, dirname, join, relative, resolve } from "node:path"
@@ -113,6 +113,25 @@ import "plain"
     await finalizeDenoDeploymentOutput({ rootDir: root })
 
     await expect(readFile(join(root, ".output/node_modules/plain/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1" })
+  })
+
+  it("copies pnpm-style dependency symlinks through the dependency walker", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-cycle-"))
+    const plainDir = join(root, "node_modules/plain")
+    const dependencyDir = join(root, "node_modules/dependency")
+    await writeJson(join(root, "package.json"), {})
+    await writeJson(join(plainDir, "package.json"), { dependencies: { dependency: "1" }, name: "plain", version: "1" })
+    await writeJson(join(dependencyDir, "package.json"), { dependencies: { plain: "1" }, name: "dependency", version: "1" })
+    await mkdir(join(plainDir, "node_modules"), { recursive: true })
+    await mkdir(join(dependencyDir, "node_modules"), { recursive: true })
+    await symlink(dependencyDir, join(plainDir, "node_modules/dependency"), "dir")
+    await symlink(plainDir, join(dependencyDir, "node_modules/plain"), "dir")
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.ts"), 'import "plain"\n')
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    await expect(readFile(join(root, ".output/node_modules/plain/node_modules/dependency/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1" })
   })
 
   it("does not demote imports found before bundle markers", async () => {
