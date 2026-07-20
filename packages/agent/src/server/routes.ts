@@ -2625,28 +2625,29 @@ export function createChannelWebhookRouteHandler(
             }
             concurrencyTtlMs = positiveWebhookDuration(invocation.webhook.concurrencyTtlMs, defaultWebhookConcurrencyTtlMs, "concurrencyTtlMs")
             deliveryClaimKey = webhookOwnershipKey(webhookState.keyPrefix, "delivery", deliveryId)
-            const claimed = await webhookState.state.setIfNotExists(
-              deliveryClaimKey,
-              true,
-            )
-            if (!claimed) {
-              return Response.json({ accepted: false, duplicate: true, ok: true })
-            }
             if (concurrencyKey !== undefined) {
-              try {
-                webhookLock = await webhookState.state.acquireLock(
-                  webhookOwnershipKey(webhookState.keyPrefix, "lease", concurrencyKey),
-                  concurrencyTtlMs,
-                )
-              }
-              catch (error) {
-                await webhookState.state.delete(deliveryClaimKey)
-                throw error
-              }
+              webhookLock = await webhookState.state.acquireLock(
+                webhookOwnershipKey(webhookState.keyPrefix, "lease", concurrencyKey),
+                concurrencyTtlMs,
+              )
               if (!webhookLock) {
-                await webhookState.state.delete(deliveryClaimKey)
                 return Response.json({ accepted: false, busy: true, ok: true }, { status: 503 })
               }
+            }
+            let claimed: boolean
+            try {
+              claimed = await webhookState.state.setIfNotExists(
+                deliveryClaimKey,
+                true,
+              )
+            }
+            catch (error) {
+              if (webhookLock) await webhookState.state.releaseLock(webhookLock)
+              throw error
+            }
+            if (!claimed) {
+              if (webhookLock) await webhookState.state.releaseLock(webhookLock)
+              return Response.json({ accepted: false, duplicate: true, ok: true })
             }
           }
           const runContext = createRuntimeContext(

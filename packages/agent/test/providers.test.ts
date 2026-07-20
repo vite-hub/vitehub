@@ -4494,8 +4494,9 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
       await vi.advanceTimersByTimeAsync(500)
 
-      const duplicate = await handler(request("delivery-1"), "github", options)
-      await expect(duplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true })
+      const concurrentDuplicate = await handler(request("delivery-1"), "github", options)
+      expect(concurrentDuplicate.status).toBe(503)
+      await expect(concurrentDuplicate.json()).resolves.toEqual({ accepted: false, busy: true, ok: true })
 
       const busy = await handler(request("delivery-2"), "github", options)
       expect(busy.status).toBe(503)
@@ -4505,6 +4506,9 @@ describe("server helpers", () => {
 
       releaseFirstRun()
       await Promise.all(waitUntilTasks.splice(0))
+
+      const duplicate = await handler(request("delivery-1"), "github", options)
+      await expect(duplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true })
 
       const rerun = await handler(request("delivery-2"), "github", options)
       await expect(rerun.json()).resolves.toEqual({ accepted: true, ok: true })
