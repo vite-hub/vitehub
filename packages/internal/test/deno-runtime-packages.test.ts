@@ -192,9 +192,16 @@ process.exit(process.env.VITEHUB_DENO_ALWAYS_FAIL === "1" || attempts === 0 ? 1 
     const sharpMarker = relative(workspaceRoot, dirname(sharpPackageJson)).replaceAll("\\", "/")
     try {
       await mkdir(join(output, "server"), { recursive: true })
+      const nativeProbe = process.platform === "linux" && process.arch === "x64"
+        ? `const require = createRequire(import.meta.url)
+require("@img/" + "sharp-linux-x64/sharp.node")
+`
+        : ""
       await writeFile(join(output, "server/index.ts"), `//#region ${sharpMarker}/lib/index.js
+import { createRequire } from "node:module"
 import sharp from "../node_modules/sharp/lib/index.js"
 
+${nativeProbe}
 const png = await sharp({ create: { width: 1, height: 1, channels: 4, background: "#123456" } }).png().toBuffer()
 if (png[0] !== 0x89 || png[1] !== 0x50 || png[2] !== 0x4e || png[3] !== 0x47) throw new Error("Sharp did not produce a PNG")
 `, "utf8")
