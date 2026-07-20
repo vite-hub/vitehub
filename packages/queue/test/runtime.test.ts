@@ -333,6 +333,9 @@ describe("cloudflare queue runtime", () => {
     const worker = createQueueCloudflareWorker({
       queue: { namePrefix: "preview-", provider: "cloudflare" },
       registry: {
+        abcdefghijklmnop: async () => ({
+          default: { handler },
+        }),
         welcome: async () => ({
           default: { handler },
         }),
@@ -350,10 +353,18 @@ describe("cloudflare queue runtime", () => {
     await worker.queue({
       ackAll: vi.fn(),
       messages: [{ ack: vi.fn(), attempts: 1, body: { id: 2 }, id: "2", retry: vi.fn() }],
-      queue: "preview-welcome",
+      queue: "preview-queue--6162636465666768696a6b6c6d6e6f70",
       retryAll: vi.fn(),
     }, {}, { waitUntil: vi.fn() })
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ payload: { id: 2 } }))
+
+    await worker.queue({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: { id: 3 }, id: "3", retry: vi.fn() }],
+      queue: "preview-welcome",
+      retryAll: vi.fn(),
+    }, {}, { waitUntil: vi.fn() })
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ payload: { id: 3 } }))
 
     await expect(worker.queue({
       ackAll: vi.fn(),

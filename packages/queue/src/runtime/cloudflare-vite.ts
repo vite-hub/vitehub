@@ -55,6 +55,7 @@ export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOption
         const definitionName = definitions
           ? definitions[batch.queue]
           : /-[0-9a-f]{32}$/.test(batch.queue)
+            && !/(?:^|-)queue--(?:[0-9a-f]{2})+$/i.test(batch.queue)
             || (queueConfig.namePrefix && !batch.queue.startsWith(queueConfig.namePrefix))
             ? undefined
             : getCloudflareQueueDefinitionName(batch.queue, queueConfig.namePrefix)
