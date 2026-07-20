@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { getTranscriptionResults, transcribe } from "../src/capabilities.ts"
+import { getTranscriptionResults, title, transcribe } from "../src/capabilities.ts"
 import { audioBytes, audioExtensionFor } from "../src/capabilities/transcribe.ts"
 import { createMessage, defineAgent, runAgent, serializeMessages } from "../src/index.ts"
 
@@ -276,6 +276,61 @@ describe("agent transcription", () => {
       stem: expect.any(String),
       transcript: "voice transcript",
     }])
+  })
+
+  it("generates titles from prepared audio transcripts", async () => {
+    const executeTitle = vi.fn(({ text }) => `Title: ${text}`)
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [
+        title({ execute: executeTitle }),
+        transcribe({ execute: vi.fn(async () => "voice transcript") }),
+      ],
+      driver: { run: () => ({ text: "agent reply" }) },
+      hooks: {
+        "agent:finish": finish,
+      },
+    })
+
+    await runAgent(agent, runtime(), {
+      messages: [createMessage({
+        parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio" }],
+        role: "user",
+      })],
+    })
+
+    expect(executeTitle).toHaveBeenCalledWith(expect.objectContaining({
+      source: "input",
+      text: "voice transcript",
+    }))
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Title: voice transcript" })
+  })
+
+  it("combines authored text and audio transcripts before generating a title", async () => {
+    const executeTitle = vi.fn(({ text }) => `Title: ${text}`)
+    const agent = defineAgent({
+      capabilities: [
+        title({ execute: executeTitle }),
+        transcribe({ execute: vi.fn(async () => "voice transcript") }),
+      ],
+      driver: { run: () => ({ text: "agent reply" }) },
+      hooks: {
+        "agent:finish": vi.fn(),
+      },
+    })
+
+    await runAgent(agent, runtime(), {
+      messages: [createMessage({
+        parts: ["authored context", { data: "AAAA", mediaType: "audio/wav", type: "audio" }],
+        role: "user",
+      })],
+    })
+
+    expect(executeTitle).toHaveBeenCalledOnce()
+    expect(executeTitle).toHaveBeenCalledWith(expect.objectContaining({
+      source: "input",
+      text: "authored context\nvoice transcript",
+    }))
   })
 
   it("supports AI SDK v6 experimental_transcribe export", async () => {

@@ -421,9 +421,10 @@ describe("agent public types", () => {
         title({
           channelDelivery: "once-per-thread",
           model: () => ({}),
-          template({ fallback, maxLength, text, trigger }) {
+          template({ fallback, maxLength, source, text, trigger }) {
             expectTypeOf(fallback).toEqualTypeOf<string>()
             expectTypeOf(maxLength).toEqualTypeOf<number>()
+            expectTypeOf(source).toEqualTypeOf<"input" | "response">()
             expectTypeOf(text).toEqualTypeOf<string>()
             expectTypeOf(trigger).toEqualTypeOf<string | undefined>()
             return text
