@@ -2974,6 +2974,7 @@ describe("agent message protocol", () => {
   it("preserves remote attachment parts without invoking provider callbacks", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
     const fetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
+    const staleFetchData = vi.fn(async () => new Uint8Array([7, 8, 9]))
 
     expect(toAiSdkModelMessages([
       createMessage({
@@ -3056,6 +3057,10 @@ describe("agent message protocol", () => {
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       messages: [
         createMessage({
+          parts: [{ fetchData: staleFetchData, mediaType: "application/pdf", type: "file" }],
+          role: "user",
+        }),
+        createMessage({
           parts: [{ fetchData: ignoredAssistantFetchData, mediaType: "image/png", size: 3, type: "image" }],
           role: "assistant",
         }),
@@ -3066,6 +3071,7 @@ describe("agent message protocol", () => {
       ],
     })).resolves.toMatchObject({ text: "ok" })
     expect(fetchData).toHaveBeenCalledOnce()
+    expect(staleFetchData).not.toHaveBeenCalled()
     expect(ignoredAssistantFetchData).not.toHaveBeenCalled()
     expect(generate).toHaveBeenCalledWith(expect.objectContaining({
       messages: [{
@@ -3103,6 +3109,20 @@ describe("agent message protocol", () => {
       })],
     })).rejects.toThrow("exceeds maxBytes")
     expect(oversizedFetchData).not.toHaveBeenCalled()
+
+    const firstAggregateFetch = vi.fn(async () => new Uint8Array([1, 2]))
+    const secondAggregateFetch = vi.fn(async () => new Uint8Array([3, 4]))
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [
+          { fetchData: firstAggregateFetch, mediaType: "application/pdf", size: 2, type: "file" },
+          { fetchData: secondAggregateFetch, mediaType: "application/pdf", size: 2, type: "file" },
+        ],
+        role: "user",
+      })],
+    })).rejects.toThrow("exceeds maxBytes")
+    expect(firstAggregateFetch).toHaveBeenCalledOnce()
+    expect(secondAggregateFetch).not.toHaveBeenCalled()
 
     const emptyFetchData = vi.fn(async () => "")
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {

@@ -326,28 +326,53 @@ function assertAttachmentWithinLimit(part: AttachmentPart, byteLength: number | 
   }
 }
 
-async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number): Promise<AttachmentPart> {
+async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number): Promise<{ byteLength: number, part: AttachmentPart }> {
   assertAttachmentWithinLimit(part, part.size, maxBytes)
   const resolved = typeof part.fetchData === "function" ? await part.fetchData() : part.data
   if (typeof part.fetchData === "function" && !isAttachmentData(resolved)) {
     throw new TypeError(`[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.`)
   }
-  if (!resolved) return part
-  assertAttachmentWithinLimit(part, attachmentDataByteLength(resolved), maxBytes)
+  if (!resolved) return { byteLength: part.size ?? 0, part }
+  const byteLength = attachmentDataByteLength(resolved) ?? 0
+  assertAttachmentWithinLimit(part, byteLength, maxBytes)
   const data = resolved instanceof Blob ? await resolved.arrayBuffer() : resolved
   const { fetchData: _fetchData, ...rest } = part
-  return { ...rest, data }
+  return { byteLength, part: { ...rest, data } }
 }
 
 async function resolveModelAttachments(messages: Message[], options: AiSdkAttachmentOptions | undefined): Promise<Message[]> {
   const maxBytes = aiSdkAttachmentMaxBytes(options)
-  return await Promise.all(messages.map(async (message) => {
-    if (message.role !== "user") return message
-    return {
-      ...message,
-      parts: await Promise.all(message.parts.map(part => isAttachmentPart(part) ? resolveModelAttachmentPart(part, maxBytes) : part)),
+  const currentUserIndex = messages.findLastIndex(message => message.role === "user")
+  let remainingBytes = maxBytes
+  const resolvedMessages: Message[] = []
+  for (const [messageIndex, message] of messages.entries()) {
+    if (message.role !== "user") {
+      resolvedMessages.push(message)
+      continue
     }
-  }))
+    const parts: MessagePart[] = []
+    for (const part of message.parts) {
+      if (!isAttachmentPart(part)) {
+        parts.push(part)
+        continue
+      }
+      if (messageIndex !== currentUserIndex) {
+        const { fetchData: _fetchData, ...reference } = part
+        if (reference.data || reference.url) {
+          const byteLength = attachmentDataByteLength(reference.data) ?? reference.size ?? 0
+          assertAttachmentWithinLimit(reference, byteLength, remainingBytes)
+          remainingBytes -= byteLength
+          parts.push(reference)
+        }
+        continue
+      }
+      const resolved = await resolveModelAttachmentPart(part, remainingBytes)
+      remainingBytes -= resolved.byteLength
+      parts.push(resolved.part)
+    }
+    resolvedMessages.push({ ...message, parts })
+  }
+  return resolvedMessages
 }
 
 async function getCallInput(context: AgentAdapterRunContext, attachments?: AiSdkAttachmentOptions) {

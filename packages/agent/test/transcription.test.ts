@@ -222,6 +222,11 @@ describe("agent transcription", () => {
       parts: [{ mediaType: "application/octet-stream", type: "image", url: "https://example.com/image" }],
       role: "user",
     })).toThrow("image/* mediaType")
+
+    expect(() => createMessage({
+      parts: [{ data: new Uint8Array(), mediaType: "audio/wav", type: "audio" }],
+      role: "user",
+    })).toThrow("requires data, fetchData, or url")
   })
 
   it("transcribes audio input with custom execution before agent execution", async () => {
@@ -256,6 +261,9 @@ describe("agent transcription", () => {
     expect(execute).toHaveBeenCalledWith({
       audio: { data: "AAAA", mediaType: "audio/wav", type: "audio" },
     })
+    expect(finish.mock.calls[0]![0].input.messages.at(-1)?.parts).toEqual([
+      { text: "voice transcript", type: "text" },
+    ])
     expect(finish.mock.calls[0]![0].extensions.get("transcribe")).toEqual([{
       createdAt: expect.any(String),
       date: expect.any(String),

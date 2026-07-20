@@ -42,7 +42,7 @@ export default defineAgent({
 ## Runtime behavior
 
 `transcribe()` runs before model execution.
-It enforces the configured maximum audio size, resolves audio data from direct data, `fetchData`, or URL, and appends transcript text to the user message.
+It enforces the configured maximum audio size, resolves audio data from direct data, `fetchData`, or URL, and replaces the consumed audio parts with transcript text in the user message.
 
 When artifacts are enabled, it writes sanitized transcript and optional audio files to the Agent's writable Workspace and exposes results as a finish extension.
 

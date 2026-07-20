@@ -1304,7 +1304,7 @@ function attachmentPartFromAttachment(attachment: Attachment, index: number): At
     : undefined
   const type = attachment.type === "audio" || mediaType?.startsWith("audio/")
     ? "audio"
-    : attachment.type === "image" || mediaType?.startsWith("image/")
+    : mediaType?.startsWith("image/")
       ? "image"
       : "file"
   const data = isAttachmentData(attachment.data) ? attachment.data : undefined
@@ -1325,7 +1325,7 @@ function attachmentPartFromAttachment(attachment: Attachment, index: number): At
     fetchData,
     fetchMetadata: attachment.fetchMetadata,
     id: `attachment-${index + 1}`,
-    mediaType: mediaType ?? (type === "audio" ? "audio/ogg" : type === "image" ? "image/*" : "application/octet-stream"),
+    mediaType: mediaType ?? (type === "audio" ? "audio/ogg" : "application/octet-stream"),
     name: attachment.name,
     size: attachment.size,
     type,

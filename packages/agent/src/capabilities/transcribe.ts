@@ -524,7 +524,10 @@ export function transcribe(options: TranscribeOptions): AgentCapabilityDefinitio
         results.push(...messageResults)
         const text = transcripts.filter(Boolean).join("\n")
         const separator = text && message.parts.some(part => part.type === "text" && part.text.length > 0) ? "\n" : ""
-        messages.push(appendMessageText(message, `${separator}${text}`))
+        messages.push(appendMessageText({
+          ...message,
+          parts: message.parts.filter(part => !isAudioPart(part)),
+        }, `${separator}${text}`))
       }
       context.input.setMessages(messages)
       appendTranscriptionResults(context.context, results)

@@ -120,7 +120,11 @@ export type MessagePart =
 export function isAttachmentData(value: unknown): value is AttachmentData {
   return typeof value === "string"
     ? value.length > 0
-    : value instanceof ArrayBuffer || value instanceof Blob || value instanceof Uint8Array
+    : value instanceof ArrayBuffer
+      ? value.byteLength > 0
+      : value instanceof Blob
+        ? value.size > 0
+        : value instanceof Uint8Array && value.byteLength > 0
 }
 
 export function isAttachmentPart(value: unknown): value is AttachmentPart {
