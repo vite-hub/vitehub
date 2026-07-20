@@ -3,6 +3,9 @@ import { ViteHubError } from "@vite-hub/runtime"
 import type { ViteHubErrorDetails } from "@vite-hub/runtime"
 
 const workflowErrorMessages = {
+  OPENWORKFLOW_BACKEND_CLOSE_FAILED: "OpenWorkflow backend cleanup failed.",
+  OPENWORKFLOW_RUNTIME_RESET: "OpenWorkflow runtime was reset while it was being acquired.",
+  OPENWORKFLOW_WORKER_STOP_FAILED: "OpenWorkflow worker stop failed.",
   VERCEL_WORKFLOW_SDK_LOAD_FAILED: "Vercel Workflow DevKit load failed. Install the optional workflow peer dependency.",
   WORKFLOW_DEFINITION_NOT_FOUND: "Workflow definition was not found.",
   WORKFLOW_DISABLED: "Workflow is disabled.",
@@ -66,8 +69,13 @@ type VercelSdkDetails = {
   provider: "vercel"
 }
 
+type OpenWorkflowDetails = {
+  provider: "openworkflow"
+}
+
 export type WorkflowErrorDetails<TCode extends WorkflowErrorCode = WorkflowErrorCode> =
-  TCode extends "VERCEL_WORKFLOW_SDK_LOAD_FAILED" ? VercelSdkDetails
+  TCode extends "OPENWORKFLOW_BACKEND_CLOSE_FAILED" | "OPENWORKFLOW_RUNTIME_RESET" | "OPENWORKFLOW_WORKER_STOP_FAILED" ? OpenWorkflowDetails
+    : TCode extends "VERCEL_WORKFLOW_SDK_LOAD_FAILED" ? VercelSdkDetails
     : TCode extends "WORKFLOW_DEFINITION_NOT_FOUND" ? WorkflowNameDetails
       : TCode extends "WORKFLOW_DISABLED" ? never
         : TCode extends "WORKFLOW_NATIVE_ENTRY_INVALID" | "WORKFLOW_NATIVE_ENTRY_REQUIRED" | "WORKFLOW_RUN_ID_UNSUPPORTED" ? VercelWorkflowDetails
@@ -164,6 +172,10 @@ function safeWorkflowErrorDetails(code: WorkflowErrorCode, details: unknown): Vi
   const status = safeNumberProperty(details, "status", value => Number.isInteger(value) && value >= 400 && value <= 599)
 
   switch (code) {
+    case "OPENWORKFLOW_BACKEND_CLOSE_FAILED":
+    case "OPENWORKFLOW_RUNTIME_RESET":
+    case "OPENWORKFLOW_WORKER_STOP_FAILED":
+      return provider === "openworkflow" ? { provider } : undefined
     case "VERCEL_WORKFLOW_SDK_LOAD_FAILED":
       return provider === "vercel" ? { provider } : undefined
     case "WORKFLOW_DEFINITION_NOT_FOUND":

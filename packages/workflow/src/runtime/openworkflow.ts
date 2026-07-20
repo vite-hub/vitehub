@@ -167,9 +167,9 @@ export async function getOpenWorkflowRuntime(config: ResolvedWorkflowOptions): P
   }
   const resolved = await runtime
   if (cache !== runtimes) {
-    throw new WorkflowError("OpenWorkflow runtime was reset while it was being acquired.", {
+    throw new WorkflowError({
       code: "OPENWORKFLOW_RUNTIME_RESET",
-      provider: "openworkflow",
+      details: { provider: "openworkflow" },
     })
   }
   return resolved
@@ -318,10 +318,10 @@ export async function resetOpenWorkflowRuntime(): Promise<void> {
     : [])
   const stopped = await Promise.allSettled(fulfilled.map(runtime => Promise.resolve().then(() => runtime.backend.stop())))
   const failures = stopped.flatMap(entry => entry.status === "rejected"
-    ? [new WorkflowError("OpenWorkflow backend cleanup failed.", {
+    ? [new WorkflowError({
         cause: entry.reason,
         code: "OPENWORKFLOW_BACKEND_CLOSE_FAILED",
-        provider: "openworkflow",
+        details: { provider: "openworkflow" },
       })]
     : [])
   if (failures.length === 1) throw failures[0]

@@ -743,7 +743,11 @@ describe("workflow runtime", () => {
     }
     openWorkflowMock.connect.mockRejectedValueOnce(failure)
 
-    await expect(getOpenWorkflowRuntime(config)).rejects.toBe(failure)
+    await expect(getOpenWorkflowRuntime(config)).rejects.toMatchObject({
+      cause: failure,
+      code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+      details: { operation: "connect", provider: "openworkflow" },
+    })
     await expect(getOpenWorkflowRuntime(config)).resolves.toBeDefined()
     expect(openWorkflowMock.connect).toHaveBeenCalledTimes(2)
   })
@@ -795,7 +799,7 @@ describe("workflow runtime", () => {
     expect(singleFailure).toMatchObject({
       cause: singleCause,
       code: "OPENWORKFLOW_BACKEND_CLOSE_FAILED",
-      provider: "openworkflow",
+      details: { provider: "openworkflow" },
     })
     expect(singleStop).toHaveBeenCalledOnce()
   })
@@ -824,7 +828,7 @@ describe("workflow runtime", () => {
 
     await expect(oldRuntime).rejects.toMatchObject({
       code: "OPENWORKFLOW_RUNTIME_RESET",
-      provider: "openworkflow",
+      details: { provider: "openworkflow" },
     })
     await expect(resetting).resolves.toBeUndefined()
     await expect(newRuntime).resolves.toBeDefined()
@@ -1183,7 +1187,7 @@ describe("workflow runtime", () => {
     await expect(firstStop).rejects.toMatchObject({
       cause,
       code: "OPENWORKFLOW_WORKER_STOP_FAILED",
-      provider: "openworkflow",
+      details: { provider: "openworkflow" },
     })
     await expect(secondStop).rejects.toMatchObject({ cause })
     expect(stop).toHaveBeenCalledOnce()
@@ -1221,7 +1225,7 @@ describe("workflow runtime", () => {
       expect(onError).toHaveBeenCalledWith(expect.objectContaining({
         cause,
         code: "OPENWORKFLOW_WORKER_STOP_FAILED",
-        provider: "openworkflow",
+        details: { provider: "openworkflow" },
       }))
     })
     expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(WorkflowError)
