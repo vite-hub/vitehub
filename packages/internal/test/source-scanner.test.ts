@@ -202,6 +202,19 @@ describe("source scanner", () => {
     expect(readObjectProperty(call!.argument, "value")).toBe(`"real"`)
   })
 
+  it("does not repeatedly rescan control-flow regex literals inside template expressions", () => {
+    const checks = Array.from({ length: 12 }, (_, index) => `if (ready${index}) /\\}/.test("}")`).join("; ")
+    const call = findDefaultExportCall([
+      `export default defineThing({`,
+      `  handler: () => \`${"${"}(() => { ${checks} })()}\` ,`,
+      `  value: "real",`,
+      `})`,
+    ].join("\n"), ["defineThing"])
+
+    expect(call).toMatchObject({ name: "defineThing" })
+    expect(readObjectProperty(call!.argument, "value")).toBe(`"real"`)
+  })
+
   it("finds default-exported definition calls", () => {
     const call = findDefaultExportCall([
       `const ignored = defineThing({ value: "ignored" })`,
