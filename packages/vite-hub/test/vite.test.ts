@@ -400,6 +400,15 @@ describe("vitehub", () => {
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(expect.objectContaining({ driver }))
   })
 
+  it("preserves a configured Netlify Blob store name", () => {
+    integrationMocks.hubBlob.mockClear()
+    vitehub({ preset: "netlify", blob: { name: "assets" } })
+    expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(expect.objectContaining({
+      driver: "netlify-blobs",
+      name: "assets",
+    }))
+  })
+
   it("omits unsupported implicit Blob wiring and its facade alias for Deno", () => {
     integrationMocks.hubBlob.mockClear()
     expect(pluginNames(vitehub({ preset: "deno" }))).not.toContain("@vite-hub/blob/vite")

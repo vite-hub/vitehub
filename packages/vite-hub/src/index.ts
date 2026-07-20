@@ -311,7 +311,7 @@ function presetBlobOptions(plan: DeploymentPlan, options: BlobModuleOptions | un
       driver: "cloudflare-r2",
     }
     case "fs": return { ...configured, driver: "fs" }
-    case "netlify-blobs": return { ...configured, driver: "netlify-blobs", name: "vitehub-blob" }
+    case "netlify-blobs": return { name: "vitehub-blob", ...configured, driver: "netlify-blobs" }
     case "vercel-blob": return { ...configured, driver: "vercel-blob" }
     default: throw new Error("[vitehub] Missing Blob adapter for deployment preset " + JSON.stringify(plan.preset) + ".")
   }
