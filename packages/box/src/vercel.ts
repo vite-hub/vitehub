@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { posix } from "node:path";
 
+import type * as VercelSandbox from "@vercel/sandbox";
+
 import type { BoxFileEntry, BoxRuntime } from "./index.ts";
 import {
   collectProcessOutput,
@@ -138,7 +140,7 @@ export function vercelBox(options: VercelBoxOptions = {}): BoxRuntime {
 
 async function loadVercelSandbox() {
   try {
-    const { Sandbox } = await import("@vercel/" + "sandbox") as typeof import("@vercel/sandbox");
+    const { Sandbox } = await import("@vercel/" + "sandbox") as typeof VercelSandbox;
     return async (options: VercelSandboxCreateOptions) =>
       await Sandbox.create(options as Parameters<typeof Sandbox.create>[0]) as unknown as VercelSandboxInstance;
   } catch (error) {

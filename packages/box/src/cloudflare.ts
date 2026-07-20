@@ -1,6 +1,8 @@
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 
+import type * as CloudflareSandbox from "@cloudflare/sandbox";
+
 import type { BoxFileEntry, BoxRuntime } from "./index.ts";
 import {
   openRemoteBox,
@@ -113,7 +115,7 @@ export function cloudflareBox(options: CloudflareBoxOptions): BoxRuntime {
 
 async function loadCloudflareSandbox() {
   try {
-    const { getSandbox } = await import("@cloudflare/" + "sandbox") as typeof import("@cloudflare/sandbox");
+    const { getSandbox } = await import("@cloudflare/" + "sandbox") as typeof CloudflareSandbox;
     return getSandbox as unknown as NonNullable<CloudflareBoxOptions["getSandbox"]>;
   } catch (error) {
     throw new Error(
