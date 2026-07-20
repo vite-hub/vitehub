@@ -10,7 +10,30 @@ import { resolve } from "pathe"
 import { runProvision } from "./provision.ts"
 
 import type { InlineConfig, ResolvedConfig } from "vite"
-import type { ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliSpawn, ViteHubCliSpawnOptions } from "@vite-hub/internal/cli"
+import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
+
+interface ViteHubCliSpawnResult {
+  exitCode: number | null
+  signal?: NodeJS.Signals | null
+}
+
+interface ViteHubCliSpawnOptions {
+  cwd?: string
+  env?: NodeJS.ProcessEnv
+  stderr?: "inherit" | "pipe"
+  stdout?: "inherit" | "pipe"
+}
+
+type ViteHubCliSpawn = (
+  command: string,
+  args: string[],
+  options?: ViteHubCliSpawnOptions,
+) => Promise<ViteHubCliSpawnResult>
+
+interface ViteHubCliStreams {
+  stderr: { write: (chunk: string | Uint8Array) => unknown }
+  stdout: { write: (chunk: string | Uint8Array) => unknown }
+}
 
 export interface RunViteHubCliOptions {
   args?: string[]
@@ -18,8 +41,8 @@ export interface RunViteHubCliOptions {
   env?: NodeJS.ProcessEnv
   loadConfig?: (rootDir: string) => Promise<Pick<ResolvedConfig, "plugins" | "root">>
   spawn?: ViteHubCliSpawn
-  stderr?: ViteHubCliContext["stderr"]
-  stdout?: ViteHubCliContext["stdout"]
+  stderr?: ViteHubCliStreams["stderr"]
+  stdout?: ViteHubCliStreams["stdout"]
 }
 
 function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnOptions = {}) {

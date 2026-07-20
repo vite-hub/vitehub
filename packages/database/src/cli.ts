@@ -2,12 +2,33 @@ import { delimiter, join } from "node:path"
 
 import type { DBModulePublicOptions } from "./types.ts"
 import type { ResolvedDBViteConfig } from "./types.ts"
-import type { ViteHubCliContext, ViteHubCliContributor } from "@vite-hub/internal/cli"
+import type { ViteHubCliContributor as SharedViteHubCliContributor } from "@vite-hub/internal/cli"
 
 import { isAbsolute, relative } from "pathe"
 
 type ResolvedDBViteConfigProvider = () => MaybePromise<ResolvedDBViteConfig | undefined>
 type MaybePromise<T> = Promise<T> | T
+
+interface ViteHubCliContext {
+  env?: NodeJS.ProcessEnv
+  rootDir: string
+  spawn: (command: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv, stderr?: "inherit" | "pipe", stdout?: "inherit" | "pipe" }) => Promise<{ exitCode: number | null }>
+  stderr: { write: (chunk: string | Uint8Array) => unknown }
+  stdout: { write: (chunk: string | Uint8Array) => unknown }
+}
+
+interface ViteHubCliContributor {
+  namespaces: Array<{
+    description?: string
+    features: Array<{
+      description?: string
+      name: string
+      run: (args: string[], context: ViteHubCliContext) => Promise<number | void> | number | void
+      usage?: string
+    }>
+    name: string
+  }>
+}
 
 function writeGenerateUsage(context: ViteHubCliContext): void {
   context.stdout.write([
@@ -125,5 +146,5 @@ export function createDbCliContributor(
       features,
       name: "db",
     }],
-  }
+  } satisfies SharedViteHubCliContributor
 }
