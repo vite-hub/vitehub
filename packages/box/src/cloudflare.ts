@@ -314,7 +314,9 @@ async function abortable<T>(
   signal.throwIfAborted();
   return await new Promise<T>((resolve, reject) => {
     const onAbort = () => {
-      void abort().finally(() => reject(signal.reason));
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason);
+      void abort().catch(() => undefined);
     };
     signal.addEventListener("abort", onAbort, { once: true });
     void operation.then(

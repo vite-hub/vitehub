@@ -74,7 +74,7 @@ type HarnessFileSandbox = {
 }
 
 type HarnessGlobalSkillsSandbox = {
-  run(options: { abortSignal?: AbortSignal, command: string, workingDirectory?: string }): PromiseLike<{ exitCode: number, stderr?: string }>
+  run(options: { abortSignal?: AbortSignal, command: string, workingDirectory?: string }): PromiseLike<{ exitCode: number, stderr?: string, stdout?: string }>
 }
 
 type HarnessAgentConstructor = new (settings: Record<string, unknown>) => HarnessAgentLike
@@ -759,7 +759,7 @@ async function prepareHarnessGlobalSkills(
     abortSignal,
     paths: resolved.paths,
     session: session as never,
-    sessionWorkDir: stagingDirectory,
+    sessionWorkDir: workingDirectory ? posix.join(workingDirectory, stagingDirectory) : stagingDirectory,
   })
   const install = await (session as HarnessGlobalSkillsSandbox).run({
     abortSignal,
@@ -1059,8 +1059,17 @@ export function createHarnessAgentAdapter<
     let globalSkillsSession: { close: (error?: unknown) => MaybePromise<void> } | undefined
     const colocatedSkillsWorkspace = await resolveHarnessColocatedSkills(context)
     const resolved = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal, globalSkillsDirectory, globalSkillsWorkspace, sessionPrepare) => {
-      const globalSkillsWorkingDirectory =
-        context.box?.plan.runtime === "trusted-host" && !context.box.plan.workspace.path ? "." : undefined
+      let globalSkillsWorkingDirectory: string | undefined
+      if (context.box && isHarnessRelativeDirectory(globalSkillsDirectory)) {
+        const home = await (session as HarnessGlobalSkillsSandbox).run({
+          abortSignal,
+          command: `printf '%s' "$HOME"`,
+        })
+        globalSkillsWorkingDirectory = home.stdout
+        if (home.exitCode !== 0 || !globalSkillsWorkingDirectory || !posix.isAbsolute(globalSkillsWorkingDirectory)) {
+          throw new Error(`[vitehub] Failed to resolve the Box Home directory: ${home.stderr || "sandbox command failed"}`)
+        }
+      }
       const harnessInstructions = context.workspace ? await resolveHarnessInstructions(context) : undefined
       try {
         if (context.workspace) {

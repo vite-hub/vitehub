@@ -84,7 +84,7 @@ function createViteHubCodex(settings: CodexHarnessSettings, preferOpenAI: boolea
   return {
     ...harness,
     [harnessGlobalSkillsDirectory]: (context: { box?: unknown }) => context.box
-      ? "home/.codex/skills"
+      ? ".codex/skills"
       : "tmp/harness/codex-home/skills",
     [harnessSessionPrepare]: async (session: object) => {
       await prepareCodexHome(session)

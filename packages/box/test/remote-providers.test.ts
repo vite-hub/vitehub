@@ -38,6 +38,23 @@ describe("remote Box providers", () => {
     await session.close();
   });
 
+  it("rejects Cloudflare cancellation without waiting for cleanup", async () => {
+    let finishCleanup!: () => void;
+    const cleanup = new Promise<void>((resolve) => { finishCleanup = resolve; });
+    const stub = cloudflareStub(async () => await new Promise<never>(() => {}));
+    stub.destroy = async () => await cleanup;
+    const box = await resolveBox({ runtime: cloudflareBox({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
+    const session = await box.open();
+    const controller = new AbortController();
+
+    const result = session.exec("probe", [], { signal: controller.signal });
+    controller.abort(new Error("cancel exec"));
+
+    await expect(result).rejects.toThrow("cancel exec");
+    finishCleanup();
+    await session.close();
+  });
+
   it("passes cancellation through Vercel provisioning", async () => {
     const controller = new AbortController();
     let received: AbortSignal | undefined;
