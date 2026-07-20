@@ -7574,6 +7574,7 @@ describe("agent message protocol", () => {
       fullStream = new ReadableStream<unknown>({
         start(controller) {
           controller.enqueue({ text: "Image description", type: "text-delta" })
+          controller.enqueue({ data: "full-only", type: "data" })
           controller.enqueue({ type: "finish" })
           controller.close()
         },
@@ -7604,7 +7605,37 @@ describe("agent message protocol", () => {
     expect(result).toBeInstanceOf(StreamResult)
     expect(result.toTextStreamResponse).toEqual(expect.any(Function))
     expect(events).toContainEqual({ data: { title: "Title: Image description", type: "title" }, type: "data" })
+    expect(events).toContainEqual({ data: "full-only", type: "data" })
     expect(finish).toHaveBeenCalledOnce()
+  })
+
+  it("finishes attachment-only stream results through textStream consumption", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [title({ execute: ({ text }) => `Title: ${text}` })],
+      driver: { run: () => ({
+        stream: (async function* () {
+          yield { type: "finish" }
+        })(),
+        textStream: (async function* () {
+          yield "Text fallback"
+        })(),
+      }) },
+      hooks: { "agent:finish": finish },
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+        role: "user",
+      })],
+    }) as { textStream: AsyncIterable<string> }
+    expect(finish).not.toHaveBeenCalled()
+    for await (const _text of result.textStream) {}
+
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Title: Text fallback" })
   })
 
   it("preserves readable stream results when adding title data", async () => {

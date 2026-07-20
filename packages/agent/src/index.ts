@@ -2417,23 +2417,25 @@ async function executeAgentInvocation<
             value: preserved,
           }
         }
-        const streamed = withStreamedResult(streamAgentOutputToEvents(rendered), rendered, driverUsageRecord)
-        const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
-          await finishStreamAgentInvocation(invocation, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
-        }, { abortSignal: invocation.input.abortSignal })
-        const streamProperties = (["stream", "fullStream"] as const)
-          .filter(property => isAsyncIterable((rendered as { fullStream?: unknown, stream?: unknown })[property]))
-        const streamProperty = streamProperties[0]!
-        const renderedStream = (rendered as { fullStream?: unknown, stream?: unknown })[streamProperty]
-        const preservedStream = typeof (renderedStream as ReadableStream<unknown>).pipeThrough === "function"
-          ? toReadableAsyncIterableStream(value)
-          : value
-        const preserved = cloneWithPropertyDescriptors(rendered as object, Object.fromEntries(streamProperties.map(property => [property, {
+        const streamProperties = (["stream", "fullStream", "textStream"] as const)
+          .filter(property => isAsyncIterable((rendered as { fullStream?: unknown, stream?: unknown, textStream?: unknown })[property]))
+        let finishTask: Promise<void> | undefined
+        const preserved = cloneWithPropertyDescriptors(rendered as object, Object.fromEntries(streamProperties.map((property) => {
+          const renderedStream = (rendered as { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown>, textStream?: AsyncIterable<unknown> })[property]!
+          const streamed = withStreamedResult(renderedStream, rendered, driverUsageRecord)
+          const value = withCapabilityCleanup(streamed.stream, (outcome) => {
+            return finishTask ??= finishStreamAgentInvocation(invocation, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+          }, { abortSignal: invocation.input.abortSignal })
+          const preservedStream = typeof (renderedStream as ReadableStream<unknown>).pipeThrough === "function"
+            ? toReadableAsyncIterableStream(value)
+            : value
+          return [property, {
             configurable: true,
             enumerable: true,
             value: preservedStream,
             writable: true,
-          }])))
+          }]
+        })))
         return {
           deferFinish: true,
           finishResult: preserved,
