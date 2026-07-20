@@ -117,7 +117,7 @@ describe("landing page", () => {
     expect(reducedMotion).toContain("animation: none;");
     expect(reducedMotion).not.toMatch(/animation:[^;]*infinite/);
     expect(installCommand).toContain(
-      `:class="activeTab === 'package' ? 'w-[17.25rem]' : 'w-0'"`,
+      `:class="activeTab === 'package' ? 'w-[16.5rem]' : 'w-0'"`,
     );
     expect(installCommand).toContain("transition: none;");
   });

@@ -3,9 +3,12 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { installOptions } from "./content";
 
 const commandTabs = [
-  installOptions.skill,
   {
-    label: "App package",
+    ...installOptions.skill,
+    label: "For Agents",
+  },
+  {
+    label: "For humans",
     value: "package",
     icon: "i-lucide-package",
   },
@@ -103,7 +106,7 @@ onBeforeUnmount(() => {
 
       <div
         class="relative h-10 shrink-0"
-        :class="activeTab === 'package' ? 'w-[17.25rem]' : 'w-0'"
+        :class="activeTab === 'package' ? 'w-[16.5rem]' : 'w-0'"
         role="group"
         aria-label="Package manager"
         :aria-hidden="activeTab !== 'package'"
@@ -120,23 +123,24 @@ onBeforeUnmount(() => {
             :tabindex="activeTab === 'package' ? 0 : -1"
             :aria-pressed="activePackageManager === option.value"
             :aria-label="option.label"
-            class="relative inline-flex h-8 w-16 items-center overflow-hidden rounded-full font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            class="relative inline-flex h-8 items-center justify-center gap-1.5 overflow-hidden rounded-full font-medium transition-[width,color,background-color,padding] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none"
             :class="
               activePackageManager === option.value
-                ? 'bg-default text-highlighted ring-1 ring-accented'
-                : 'text-muted grayscale hover:text-default'
+                ? 'w-[7.75rem] bg-default px-3 text-highlighted ring-1 ring-accented'
+                : 'w-10 px-0 text-muted grayscale hover:text-default'
             "
             @click="activePackageManager = option.value"
           >
             <UIcon
               :name="option.icon"
-              class="package-manager-icon absolute left-1/2 size-3.5 shrink-0"
-              :class="activePackageManager === option.value ? 'package-manager-icon-selected' : ''"
+              class="size-3.5 shrink-0"
               aria-hidden="true"
             />
             <span
-              class="package-manager-label absolute left-[1.875rem] whitespace-nowrap text-xs"
-              :class="activePackageManager === option.value ? 'opacity-100' : 'opacity-0'"
+              class="package-manager-label max-w-0 overflow-hidden whitespace-nowrap text-sm opacity-0"
+              :class="
+                activePackageManager === option.value ? 'max-w-16 opacity-100' : ''
+              "
               aria-hidden="true"
             >
               {{ option.label }}
@@ -204,17 +208,10 @@ onBeforeUnmount(() => {
   transform: translateY(0.25rem);
 }
 
-.package-manager-icon {
-  transform: translateX(-50%);
-  transition: transform 220ms cubic-bezier(0.23, 1, 0.32, 1);
-}
-
-.package-manager-icon-selected {
-  transform: translateX(calc(-50% - 1rem));
-}
-
 .package-manager-label {
-  transition: opacity 220ms cubic-bezier(0.23, 1, 0.32, 1);
+  transition:
+    max-width 220ms cubic-bezier(0.23, 1, 0.32, 1),
+    opacity 220ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .command-swap-enter-active,
@@ -255,12 +252,8 @@ onBeforeUnmount(() => {
     transition-delay: 0s;
   }
 
-  .package-manager-icon {
-    transition: none;
-  }
-
   .package-manager-label {
-    transition: opacity 200ms cubic-bezier(0.23, 1, 0.32, 1);
+    transition: none;
   }
 
   .command-swap-enter-active,
