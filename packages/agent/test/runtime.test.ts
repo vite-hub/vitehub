@@ -7770,6 +7770,54 @@ describe("agent message protocol", () => {
     await expect(consumption).resolves.toBeUndefined()
   })
 
+  it("cancels response-title fallback streams when the client disconnects", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    let fallbackPullStarted!: () => void
+    const fallbackStarted = new Promise<void>((resolve) => {
+      fallbackPullStarted = resolve
+    })
+    class StreamResult {
+      fullStream = new ReadableStream<unknown>({
+        start(controller) {
+          controller.enqueue({ type: "finish" })
+          controller.close()
+        },
+      })
+
+      fallback = new ReadableStream<string>({
+        pull() {
+          fallbackPullStarted()
+          return new Promise<void>(() => {})
+        },
+      }, { highWaterMark: 0 })
+
+      get textStream() {
+        return this.fallback
+      }
+    }
+    const agent = defineAgent({
+      capabilities: [title({ execute: () => "Image title" })],
+      driver: { run: () => new StreamResult() },
+    })
+
+    const result = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+        role: "user",
+      })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const reader = result.getReader()
+    const read = reader.read()
+    await fallbackStarted
+
+    const cancellation = await Promise.race([
+      reader.cancel("client disconnected").then(() => "cancelled"),
+      new Promise(resolve => setTimeout(() => resolve("timeout"), 50)),
+    ])
+    await expect(read).resolves.toEqual(expect.objectContaining({ done: false }))
+    expect(cancellation).toBe("cancelled")
+  })
+
   it("preserves text stream result metadata when adding title data", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()

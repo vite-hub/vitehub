@@ -59,6 +59,17 @@ function fallbackBranch<T>(value: AsyncIterable<T> & ReadableStream<T>): StreamF
   return fallback
 }
 
+function lazyFallback<T>(getValue: () => AsyncIterable<T> | undefined): StreamFallback<T> {
+  let value: AsyncIterable<T> | undefined
+  const fallback: StreamFallback<T> = () => (value ??= getValue())
+  fallback.cancel = () => {
+    if (value && typeof (value as ReadableStream<T>).cancel === "function") {
+      void (value as ReadableStream<T>).cancel().catch(() => undefined)
+    }
+  }
+  return fallback
+}
+
 function cancelFallback<T>(fallback: StreamFallback<T> | undefined): void {
   fallback?.cancel?.()
 }
@@ -433,6 +444,7 @@ function withTitleParallel<T>(
       }
     }
     finally {
+      cancelFallback(fallback)
       await iterator.return?.()
     }
   })()
@@ -448,6 +460,7 @@ function withTitleReadableStreamParallel<T>(
   fallback?: StreamFallback<T>,
 ): AsyncIterable<T> & ReadableStream<T> {
   let reader: ReadableStreamDefaultReader<T> | undefined
+  let fallbackIterator: AsyncIterator<T> | undefined
   let cancelled = false
   let closed = false
   let streamNext: ReturnType<ReadableStreamDefaultReader<T>["read"]> | undefined
@@ -467,6 +480,8 @@ function withTitleReadableStreamParallel<T>(
   return markTitleApplied(withAsyncIterator(new ReadableStream<T>({
     async cancel(reason) {
       cancelled = true
+      cancelFallback(fallback)
+      void fallbackIterator?.return?.().catch(() => undefined)
       try {
         if (reader) {
           await reader.cancel(reason)
@@ -509,10 +524,15 @@ function withTitleReadableStreamParallel<T>(
               reader?.releaseLock()
               reader = undefined
               if (!text && fallback) {
-                for await (const value of fallback() ?? []) {
+                fallbackIterator = fallback()?.[Symbol.asyncIterator]()
+                while (fallbackIterator) {
+                  const nextFallback = await fallbackIterator.next()
+                  if (nextFallback.done || cancelled) break
+                  const value = nextFallback.value
                   text += getText(value)
                   controller.enqueue(value)
                 }
+                fallbackIterator = undefined
               }
               else if (text) {
                 cancelFallback(fallback)
@@ -531,10 +551,15 @@ function withTitleReadableStreamParallel<T>(
           }
           if (titlePending) {
             if (!titleNext && !text && fallback) {
-              for await (const value of fallback() ?? []) {
+              fallbackIterator = fallback()?.[Symbol.asyncIterator]()
+              while (fallbackIterator) {
+                const nextFallback = await fallbackIterator.next()
+                if (nextFallback.done || cancelled) break
+                const value = nextFallback.value
                 text += getText(value)
                 controller.enqueue(value)
               }
+              fallbackIterator = undefined
             }
             else if (!titleNext && text) {
               cancelFallback(fallback)
@@ -826,7 +851,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
             const responseFallback = !preparedInput
               ? fallbackBranches
                 ? fallbackBranch(withAsyncIterator(fallbackBranches[0]))
-                : () => result.textStream
+                : lazyFallback(() => result.textStream)
               : undefined
             const outputTextStream = fallbackBranches ? withAsyncIterator(fallbackBranches[1]) : undefined
             const titleStream = stream ? withTitleFullStream(stream, title, responseFallback) : undefined
