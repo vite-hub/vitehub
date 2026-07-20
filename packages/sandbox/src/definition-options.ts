@@ -93,6 +93,10 @@ export async function extractSandboxDefinitionOptions(file: string): Promise<San
   let hasRun = false
   for (const property of input.properties) {
     const key = propertyName(property)
+    if (key === 'run' && ts.isShorthandPropertyAssignment(property)) {
+      hasRun = true
+      continue
+    }
     if (!key || (!ts.isPropertyAssignment(property) && !ts.isMethodDeclaration(property)))
       throw new Error(`[vitehub] ${sandboxDefinitionSyntax} requires explicit object properties.`)
     if (key === 'run') {

@@ -30,7 +30,6 @@ import type {
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
   WorkspaceStore,
-  WorkspaceSession,
   WorkspaceSessionOptions,
   WorkspaceWriteInput,
   WorkspaceSelectedScope,
@@ -386,31 +385,6 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       }
     }
 
-    function withSessionWritePolicy(session: WorkspaceSession): WorkspaceSession {
-      return {
-        ...session,
-        async mkdir(path, options) {
-          await writeWithPolicy({ operation: "mkdir", path }, async input => await session.mkdir(input.path, options))
-        },
-        async rm(path, options) {
-          await writeWithPolicy({ operation: "rm", path }, async input => await session.rm(input.path, options))
-        },
-        async writeFile(path, content, options) {
-          await writeWithPolicy({
-            content,
-            mediaType: options?.mediaType,
-            metadata: options?.metadata,
-            operation: "writeFile",
-            path,
-          }, async input => await session.writeFile(input.path, input.content ?? content, {
-            ...options,
-            mediaType: input.mediaType,
-            metadata: input.metadata,
-          }))
-        },
-      }
-    }
-
     const writeFs: WritableWorkspaceFacade<Name>["fs"] = attachWorkspaceSourceRequestExecution({
       appendFile: async (path, content) => await appendWorkspaceFile(writeWorkspace, path, content),
       copyPath: async (from, to, options) => await copyWorkspacePath(writeWorkspace, from, to, options?.overwrite),
@@ -462,7 +436,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       startSession: async (options) => {
         const paths = options?.paths?.length ? options.paths : [""]
         await Promise.all(paths.map(path => materializeSources({ path })))
-        return withSessionWritePolicy(await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options))
+        return await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options)
       },
       stat: writeFs.stat,
       sync: async (options) => {

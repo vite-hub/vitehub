@@ -241,8 +241,7 @@ function createVercelSession(
         return;
       }
       if (recursive) {
-        const result = await run({ abortSignal, command: `mkdir -p -- ${shellQuote(path)}` });
-        if (result.exitCode !== 0) throw new Error(result.stderr);
+        await instance.mkDir(path, { signal: abortSignal });
         return;
       }
       await instance.mkDir(path, { signal: abortSignal });

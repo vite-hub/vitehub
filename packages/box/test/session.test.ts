@@ -55,6 +55,10 @@ describe("BoxSession", () => {
         session.exec(process.execPath, ["-e", "setTimeout(() => {}, 10_000)"], { timeout: 20 }),
       ).rejects.toThrow();
 
+      await expect(
+        session.exec("sh", ["-c", `trap '' TERM; sleep 600`], { timeout: 20 }),
+      ).rejects.toThrow();
+
       const controller = new AbortController();
       controller.abort(new Error("cancelled"));
       await expect(session.exec("true", [], { signal: controller.signal })).rejects.toThrow(

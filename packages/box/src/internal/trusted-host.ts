@@ -873,15 +873,19 @@ function processHandle(
   abortSignal: AbortSignal | undefined,
 ) {
   let abortReason: unknown;
+  let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
   const abort = () => {
     abortReason = abortSignal?.reason || new Error("Box command aborted.");
     signalProcessTree(child, "SIGTERM");
+    forceKillTimer = setTimeout(() => signalProcessTree(child, "SIGKILL"), 250);
+    forceKillTimer.unref?.();
   };
   abortSignal?.addEventListener("abort", abort, { once: true });
   const wait = new Promise<{ exitCode: number }>((resolvePromise, reject) => {
     child.once("error", reject);
     child.once("close", (code) => {
       abortSignal?.removeEventListener("abort", abort);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
       if (abortReason) reject(abortReason);
       else resolvePromise({ exitCode: code ?? 1 });
     });

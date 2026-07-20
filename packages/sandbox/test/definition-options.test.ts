@@ -46,6 +46,11 @@ describe("extractSandboxDefinitionOptions", () => {
     await expect(extractSandboxDefinitionOptions(file)).resolves.toEqual({ timeout: 1000 })
   })
 
+  it("supports a shorthand run handler", async () => {
+    const file = await writeDefinition(`const run = async () => null\nexport default defineSandbox({ run, timeout: 1000 })`)
+    await expect(extractSandboxDefinitionOptions(file)).resolves.toEqual({ timeout: 1000 })
+  })
+
   it("requires one direct object literal", async () => {
     const file = await writeDefinition([
       `import { defineSandbox } from "@vite-hub/sandbox"`,

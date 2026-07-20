@@ -1652,7 +1652,7 @@ async function createAgentInvocationContext<
       workspaceAutoCommit,
       workspaceDefinition: activeWorkspaceDefinition,
       workspaceInstructionBindings,
-      workspaceMaterializationSource: box ? baseWorkspace : undefined,
+      workspaceMaterializationSource: box ? activeWorkspace : undefined,
       workspaceMaterializationPaths: capabilities.workspaceMaterializationPaths,
       workspaceMode,
     }

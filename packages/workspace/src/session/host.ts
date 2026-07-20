@@ -202,7 +202,7 @@ async function resetHostWorkspaceRoot(host: WorkspaceSessionHost, root: string) 
 }
 
 function normalizeSessionPaths(options?: WorkspaceSessionOptions): string[] | undefined {
-  const paths = [...new Set((options?.paths || []).map(path => normalizeSafeWorkspacePath(path, { allowEmpty: true })))]
+  const paths = [...new Set((options?.paths || []).map(path => normalizeSafeWorkspacePath(path, { allowEmpty: true, allowReserved: true })))]
   if (!paths.length || paths.includes("")) return undefined
   return paths.sort((left, right) => left.length - right.length || left.localeCompare(right))
 }
