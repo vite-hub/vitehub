@@ -38,12 +38,12 @@ describe("built-in deployment plans", () => {
       'The "deno" preset cannot provide sandbox',
     )
   })
-  it("recognizes all built-in presets through legacy hosting detection", () => {
+  it("keeps legacy hosting detection limited to hosted providers", () => {
     expect(
       ["cloudflare-module", "netlify", "vercel", "deno-deploy", "node-server"].map(
         getHostingProvider,
       ),
-    ).toEqual(["cloudflare", "netlify", "vercel", "deno", "node"])
+    ).toEqual(["cloudflare", "netlify", "vercel", undefined, undefined])
   })
   it("normalizes only the five built-in preset families", () => {
     expect(deploymentPresetFromNitro("cloudflare_module")).toBe("cloudflare")
