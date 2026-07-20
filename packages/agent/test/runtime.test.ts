@@ -7845,6 +7845,7 @@ describe("agent message protocol", () => {
         return new ReadableStream<unknown>({
           start(controller) {
             controller.enqueue({ delta: "Image description", id: "text-1", type: "text-delta" })
+            controller.enqueue({ type: "usage", usageRecord: { usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } } })
             controller.enqueue({ finishReason: "stop", type: "finish" })
             controller.close()
           },
@@ -7871,6 +7872,7 @@ describe("agent message protocol", () => {
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
       extensions: expect.objectContaining({ get: expect.any(Function) }),
       text: "Image description",
+      usage: expect.objectContaining({ usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } }),
     }))
     expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Title: Image description" })
   })

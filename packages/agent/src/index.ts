@@ -11,7 +11,7 @@ import {
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
 import { createTraceEventLog, resolveRuntimeContext } from "@vite-hub/runtime"
-import { agentResultKind, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
+import { agentResultKind, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import {
   finishMessageChannelTitleDelivery,
@@ -2402,14 +2402,20 @@ async function executeAgentInvocation<
           const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
           let finishTask: Promise<void> | undefined
           let streamedText = ""
+          let streamedUsageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
           const preserved = cloneWithPropertyDescriptors(rendered, {
             toUIMessageStream: {
               configurable: true,
               enumerable: false,
               value: (...args: unknown[]) => withReadableStreamCleanup(
                 normalizeUiMessageStream(toUIMessageStream.apply(rendered, args)),
-                outcome => (finishTask ??= finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedText(rendered, streamedText), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)),
-                { onChunk: chunk => streamedText += uiMessageTextDelta(chunk) || "" },
+                outcome => (finishTask ??= finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedTextAndUsage(rendered, streamedText, streamedUsageRecord, driverUsageRecord), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)),
+                {
+                  onChunk(chunk) {
+                    streamedText += uiMessageTextDelta(chunk) || ""
+                    streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord
+                  },
+                },
               ),
             },
           })
