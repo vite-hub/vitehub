@@ -2625,6 +2625,9 @@ export function createChannelWebhookRouteHandler(
             }
             concurrencyTtlMs = positiveWebhookDuration(invocation.webhook.concurrencyTtlMs, defaultWebhookConcurrencyTtlMs, "concurrencyTtlMs")
             deliveryClaimKey = webhookOwnershipKey(webhookState.keyPrefix, "delivery", deliveryId)
+            if (await webhookState.state.get(deliveryClaimKey) === true) {
+              return Response.json({ accepted: false, duplicate: true, ok: true })
+            }
             if (concurrencyKey !== undefined) {
               webhookLock = await webhookState.state.acquireLock(
                 webhookOwnershipKey(webhookState.keyPrefix, "lease", concurrencyKey),

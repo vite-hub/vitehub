@@ -4495,8 +4495,7 @@ describe("server helpers", () => {
       await vi.advanceTimersByTimeAsync(500)
 
       const concurrentDuplicate = await handler(request("delivery-1"), "github", options)
-      expect(concurrentDuplicate.status).toBe(503)
-      await expect(concurrentDuplicate.json()).resolves.toEqual({ accepted: false, busy: true, ok: true })
+      await expect(concurrentDuplicate.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: true })
 
       const busy = await handler(request("delivery-2"), "github", options)
       expect(busy.status).toBe(503)
