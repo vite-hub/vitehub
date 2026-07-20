@@ -7000,6 +7000,7 @@ describe("agent message protocol", () => {
     for await (const _event of stream) {}
 
     expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "response: Deferred reply" })
+    expect(finish.mock.calls[0]![0].result.text).toBe("Deferred reply")
   })
 
   it("keeps plain stream titles per invocation with once-per-thread Channel delivery", async () => {

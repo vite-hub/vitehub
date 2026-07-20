@@ -2400,13 +2400,13 @@ async function executeAgentInvocation<
         && (isAsyncIterable((rendered as { stream?: unknown }).stream) || isAsyncIterable((rendered as { fullStream?: unknown }).fullStream))
         && shouldWrapInvocationOutput(invocation)) {
         const streamed = withStreamedResult(streamAgentOutputToEvents(rendered), rendered, driverUsageRecord)
-        let value: object
-        const stream = withCapabilityCleanup(streamed.stream, async (outcome) => {
-          await finishStreamAgentInvocation(invocation, lifecycle, value, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
-        }, { abortSignal: invocation.input.abortSignal })
         const primaryStream = (rendered as { fullStream?: unknown, stream?: unknown }).stream
           ?? (rendered as { fullStream?: unknown }).fullStream
         const preserveResult = primaryStream instanceof ReadableStream || Object.getPrototypeOf(rendered) !== Object.prototype
+        let value: object
+        const stream = withCapabilityCleanup(streamed.stream, async (outcome) => {
+          await finishStreamAgentInvocation(invocation, lifecycle, preserveResult ? value : streamed.finishResult(), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+        }, { abortSignal: invocation.input.abortSignal })
         const outputStream = primaryStream instanceof ReadableStream ? toLazyReadableStream(stream) : stream
         value = preserveResult ? cloneWithPropertyDescriptors(rendered as object, {
           [isAsyncIterable((rendered as { stream?: unknown }).stream) ? "stream" : "fullStream"]: {
