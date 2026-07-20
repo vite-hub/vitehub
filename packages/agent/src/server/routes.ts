@@ -590,6 +590,12 @@ async function collectAgentOutput(result: unknown): Promise<string> {
     return await result.text()
   }
 
+  if (result && typeof result === "object") {
+    const descriptor = Object.getOwnPropertyDescriptor(result, "text")
+    const text = descriptor && "value" in descriptor ? descriptor.value : undefined
+    if (typeof text === "string") return text.trim()
+  }
+
   let text = ""
   for await (const event of streamAgentOutputToEvents(result)) {
     if (event.type === "text-delta") {

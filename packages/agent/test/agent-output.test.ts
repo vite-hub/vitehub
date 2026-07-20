@@ -14,6 +14,10 @@ describe("agent output helpers", () => {
     expect(toAgentRunResult(42)).toEqual({ raw: 42, text: undefined })
   })
 
+  it("preserves an explicit empty text result", () => {
+    expect(toAgentRunResult({ content: [{ text: "progress", type: "text" }], text: "" }).text).toBe("")
+  })
+
   it("normalizes model output objects into Agent run results", () => {
     const value = { finishReason: "stop", text: "ok", usage: { inputTokens: 1 }, warnings: [] }
 

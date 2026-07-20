@@ -123,6 +123,7 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
   }
 
   const result = value as Record<string, unknown>
+  const explicitText = ownValue(result, "text")
   const usageRecord = isUsageRecord(ownValue(result, "usageRecord"))
     ? withFallbackUsageMetadata(ownValue(result, "usageRecord") as AgentUsageRecord, result)
     : usageRecordFromUsage(ownValue(result, "usage") ?? ownValue(result, "totalUsage"), result)
@@ -131,7 +132,7 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
     ...(artifacts.length ? { artifacts } : {}),
     finishReason: ownValue(result, "finishReason"),
     raw: value,
-    text: textFromResult(result),
+    text: typeof explicitText === "string" ? explicitText : textFromResult(result),
     usage: ownValue(result, "usage") ?? usageRecord?.usage,
     usageRecord,
     warnings: ownValue(result, "warnings"),
