@@ -4510,14 +4510,14 @@ describe("server helpers", () => {
       await expect(rerun.json()).resolves.toEqual({ accepted: true, ok: true })
       await Promise.all(waitUntilTasks)
       expect(run).toHaveBeenCalledTimes(2)
-      await expect(state.get("webhook:review:github:delivery:delivery-1")).resolves.toBe(true)
-      await expect(state.get("webhook:review:github:delivery:delivery-2")).resolves.toBe(true)
+      await expect(state.get("webhook:review:github:github:delivery:delivery-1")).resolves.toBe(true)
+      await expect(state.get("webhook:review:github:github:delivery:delivery-2")).resolves.toBe(true)
       expect(webhookStateContexts[0]).toMatchObject({
         webhook: {
           agentName: "review",
           channelId: "github",
           provider: "github",
-          stateKeyPrefix: "webhook:review:github:",
+          stateKeyPrefix: "webhook:review:github:github:",
         },
       })
     }
@@ -4782,6 +4782,58 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(404)
     await expect(response.json()).resolves.toMatchObject({ message: "Unknown ViteHub agent webhook.", status: 404 })
+  })
+
+  it("isolates delivery claims between webhook registrations", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-registration-ownership-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const run = vi.fn(() => "accepted")
+    const agent = defineAgent({
+      channels: {
+        support: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({
+                input: { prompt: "handle delivery" },
+                webhook: { deliveryId: "shared-delivery" },
+              }),
+            },
+          },
+          webhooks: [
+            { id: "primary", path: "/api/support/primary", secretToken: false },
+            { id: "fallback", path: "/api/support/fallback", secretToken: false },
+          ],
+        }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntilTasks: Promise<unknown>[] = []
+    const options = {
+      agentName: "support",
+      webhookState: state,
+      waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
+    }
+
+    try {
+      const primary = await handler(new Request("https://example.com/webhook", { method: "POST" }), "primary", options)
+      const fallback = await handler(new Request("https://example.com/webhook", { method: "POST" }), "fallback", options)
+
+      await expect(primary.json()).resolves.toEqual({ accepted: true, ok: true })
+      await expect(fallback.json()).resolves.toEqual({ accepted: true, ok: true })
+      await Promise.all(waitUntilTasks)
+      expect(run).toHaveBeenCalledTimes(2)
+      await expect(state.get("webhook:support:support:primary:delivery:shared-delivery")).resolves.toBe(true)
+      await expect(state.get("webhook:support:support:fallback:delivery:shared-delivery")).resolves.toBe(true)
+    }
+    finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
   })
 
   it("does not route ambiguous provider webhook selectors", async () => {

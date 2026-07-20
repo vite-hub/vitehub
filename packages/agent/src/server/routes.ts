@@ -538,7 +538,8 @@ async function resolveAgentWebhookState(
   if (!stateOption) return
   const agentName = routeAgentIdentity(handlerOptions)?.name || "agent"
   const origin = chatRegistrationOrigin(registration)
-  const keyPrefix = `webhook:${agentName}:${origin}:`
+  const registrationId = registration.id || registration.path || origin
+  const keyPrefix = `webhook:${agentName}:${origin}:${registrationId}:`
   const state = await resolveMaybe(stateOption, {
     ...context,
     webhook: {
