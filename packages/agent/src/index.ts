@@ -2294,15 +2294,9 @@ async function executeAgentInvocation<
 
   if (options.kind === "run" && invocation.context.get<boolean>(finalChannelOutputContextKey) === true) {
     const text = finalTextFromAgentOutput(result)
-    if (text !== undefined && result && typeof result === "object" && !(result instanceof Response)) {
-      result = cloneWithPropertyDescriptors(result, {
-        text: {
-          configurable: true,
-          enumerable: true,
-          value: text,
-        },
-      })
-      if (text === "") Object.defineProperty(result, finalChannelOutputSelectedSymbol, { value: true })
+    if (text !== undefined && !(result instanceof Response)) {
+      result = { raw: result, text }
+      Object.defineProperty(result, finalChannelOutputSelectedSymbol, { enumerable: true, value: true })
     }
   }
 

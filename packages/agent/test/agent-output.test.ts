@@ -16,9 +16,10 @@ describe("agent output helpers", () => {
   })
 
   it("preserves empty text selected for a final-only Channel", () => {
-    const value = { content: [{ text: "progress", type: "text" }], text: "" }
+    const raw = { content: [{ text: "progress", type: "text" }] }
+    const value = { raw, text: "" }
     Object.defineProperty(value, finalChannelOutputSelectedSymbol, { value: true })
-    expect(toAgentRunResult(value).text).toBe("")
+    expect(toAgentRunResult(value)).toMatchObject({ raw, text: "" })
   })
 
   it("normalizes model output objects into Agent run results", () => {
@@ -181,6 +182,17 @@ describe("agent output helpers", () => {
           { toolCallId: "call-1", toolName: "workspace", type: "tool-result" },
         ],
       },
+      text: "Synthesized workspace answer.",
+    })).toBe("Synthesized workspace answer.")
+  })
+
+  it("falls back to direct final text when structured output ends at a tool", () => {
+    expect(finalTextFromAgentOutput({
+      content: [
+        { text: "Checking the workspace.", type: "text" },
+        { toolCallId: "call-1", toolName: "workspace", type: "tool-call" },
+        { toolCallId: "call-1", toolName: "workspace", type: "tool-result" },
+      ],
       text: "Synthesized workspace answer.",
     })).toBe("Synthesized workspace answer.")
   })

@@ -115,7 +115,12 @@ export function finalTextFromAgentOutput(value: unknown): string | undefined {
     if (final === "") return textFromResult(value) ?? final
   }
 
-  return finalTextFromStructuredResult(value) ?? textFromResult(value)
+  const final = finalTextFromStructuredResult(value)
+  if (final !== "") return final ?? textFromResult(value)
+
+  const text = textFromResult(value)
+  const structuredText = structuredTextFromResult(value)
+  return text && structuredText !== text ? text : final
 }
 
 export function toAgentRunResult(value: unknown): AgentRunResult {
@@ -125,7 +130,8 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
 
   const result = value as Record<string, unknown>
   const explicitText = ownValue(result, "text")
-  const preserveEmptyText = Object.getOwnPropertyDescriptor(result, finalChannelOutputSelectedSymbol)?.value === true
+  const selectedChannelOutput = Object.getOwnPropertyDescriptor(result, finalChannelOutputSelectedSymbol)?.value === true
+  const raw = selectedChannelOutput ? ownValue(result, "raw") : value
   const usageRecord = isUsageRecord(ownValue(result, "usageRecord"))
     ? withFallbackUsageMetadata(ownValue(result, "usageRecord") as AgentUsageRecord, result)
     : usageRecordFromUsage(ownValue(result, "usage") ?? ownValue(result, "totalUsage"), result)
@@ -133,8 +139,8 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
   return {
     ...(artifacts.length ? { artifacts } : {}),
     finishReason: ownValue(result, "finishReason"),
-    raw: value,
-    text: preserveEmptyText && typeof explicitText === "string" ? explicitText : textFromResult(result),
+    raw,
+    text: selectedChannelOutput && typeof explicitText === "string" ? explicitText : textFromResult(result),
     usage: ownValue(result, "usage") ?? usageRecord?.usage,
     usageRecord,
     warnings: ownValue(result, "warnings"),
