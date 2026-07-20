@@ -215,6 +215,18 @@ describe("source scanner", () => {
     expect(readObjectProperty(call!.argument, "value")).toBe(`"real"`)
   })
 
+  it("shares regex classifications while matching nested template conditions", () => {
+    const call = findDefaultExportCall([
+      `export default defineThing({`,
+      "  handler: () => `${(() => { if (`${(() => { if (inner) /\\}/.test(\"}\") })()}`) /\\}/.test(\"}\") })()}` ,",
+      `  value: "real",`,
+      `})`,
+    ].join("\n"), ["defineThing"])
+
+    expect(call).toMatchObject({ name: "defineThing" })
+    expect(readObjectProperty(call!.argument, "value")).toBe(`"real"`)
+  })
+
   it("finds default-exported definition calls", () => {
     const call = findDefaultExportCall([
       `const ignored = defineThing({ value: "ignored" })`,

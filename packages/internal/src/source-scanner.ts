@@ -160,7 +160,7 @@ function isControlFlowRegexStart(source: string, index: number, controlFlowRegex
 
     for (let current = closeParen; current >= 0; current--) {
       if (source[current] !== "(") continue
-      if (findMatching(source, current, "(", ")") !== closeParen) continue
+      if (findMatching(source, current, "(", ")", controlFlowRegexes) !== closeParen) continue
       const head = source.slice(0, current).replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, " ")
       const result = /(?:^|[^\w$])(?:catch|for|if|while|with)\s*$/.test(head)
       controlFlowRegexes.set(index, result)
@@ -306,14 +306,14 @@ function isMemberAccessName(source: string, index: number) {
   return previousNonWhitespace(source, index) === "."
 }
 
-export function findMatching(source: string, index: number, open: string, close: string): number | undefined {
+export function findMatching(source: string, index: number, open: string, close: string, controlFlowRegexes = new Map<number, boolean | undefined>()): number | undefined {
   let depth = 0
   let previousSignificant = ""
   for (let current = index; current < source.length; current++) {
     const char = source[current]
     const next = source[current + 1]
     if (isQuote(char)) {
-      current = skipQuoted(source, current) - 1
+      current = skipQuoted(source, current, controlFlowRegexes) - 1
       previousSignificant = "literal"
       continue
     }
@@ -325,7 +325,7 @@ export function findMatching(source: string, index: number, open: string, close:
       current = skipBlockComment(source, current) - 1
       continue
     }
-    if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, current))) {
+    if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, current, controlFlowRegexes))) {
       current = skipRegexLiteral(source, current) - 1
       previousSignificant = "/"
       continue
