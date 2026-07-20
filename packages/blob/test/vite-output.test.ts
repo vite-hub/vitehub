@@ -297,6 +297,7 @@ describe("Vite provider outputs", () => {
       blob: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
       clientOutDir: "dist",
       cloudflareOwnedByNitro: true,
+      providerOutput: { runtimeModuleFilesByProduct: { queue: { vercel: "unused" } } },
       rootDir,
       serverFunctionName: "__blob.func",
     } as const

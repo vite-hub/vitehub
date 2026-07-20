@@ -534,7 +534,8 @@ async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOpt
       serverFunctionName: options.serverFunctionName,
     })
   }
-  const shared = Object.entries(options.providerOutput?.runtimeModuleFilesByProduct || {})
+  const isolated = Boolean(options.serverFunctionName && options.serverFunctionName !== "__server.func")
+  const shared = !isolated && Object.entries(options.providerOutput?.runtimeModuleFilesByProduct || {})
     .some(([product, modules]) => product !== productName && modules?.vercel)
   if (!shared) {
     const outputName = options.serverFunctionName ?? "__server.func"
