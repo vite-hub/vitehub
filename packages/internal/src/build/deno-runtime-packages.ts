@@ -292,11 +292,14 @@ try {
   await cp(sourceRoot, uploadRoot, { recursive: true })
 
   const common = ["--org", organization, "--app", app]
-  const deployment = await run(["deploy", ".", "--prod", ...common], uploadRoot)
-  if (deployment.code !== 0) {
-    const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--allow-node-modules", "--entrypoint", "server/index.ts", "--working-directory", ".", "--region", region, ...common], uploadRoot)
-    if (creation.code !== 0) {
-      throw new Error("deno deploy/create exited with " + (creation.signal || "code " + creation.code))
+  const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--allow-node-modules", "--entrypoint", "server/index.ts", "--working-directory", ".", "--region", region, ...common], uploadRoot)
+  if (creation.code !== 0) {
+    if (process.env.DENO_DEPLOY_NODE_MODULES_ENABLED !== "1") {
+      throw new Error("Deno Deploy could not create the app with node_modules uploads enabled. If this app already exists with that policy enabled, set DENO_DEPLOY_NODE_MODULES_ENABLED=1 before redeploying.")
+    }
+    const deployment = await run(["deploy", ".", "--prod", ...common], uploadRoot)
+    if (deployment.code !== 0) {
+      throw new Error("deno deploy exited with " + (deployment.signal || "code " + deployment.code))
     }
   }
 } finally {
