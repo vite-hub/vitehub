@@ -2825,6 +2825,19 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenCalledTimes(1)
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "echo: hello" })
     expect(invokerResolve).toHaveBeenCalledOnce()
+    expect(invokerResolve).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({
+        context: expect.objectContaining({
+          channel: expect.objectContaining({
+            message: expect.objectContaining({ id: "7", text: "hello" }),
+          }),
+          chat: expect.objectContaining({
+            message: expect.objectContaining({ id: "7", text: "hello" }),
+          }),
+        }),
+        messages: [expect.objectContaining({ role: "user" })],
+      }),
+    }))
     expect(admitChat).toHaveBeenCalledWith(expect.objectContaining({
       invoker: expect.objectContaining({
         id: "customer:acme",
@@ -3648,6 +3661,33 @@ describe("server helpers", () => {
         })],
       }))
 
+      document = {
+        file_name: "denied.txt",
+        mime_type: "text/plain",
+        url: "https://cdn.example/denied.txt",
+      }
+      messageId = "msg-denied"
+      admitChat.mockClear()
+      admitChat.mockReturnValueOnce(false)
+      fetch.mockClear()
+      run.mockClear()
+
+      const deniedResponse = await webhookHandler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord-events", {
+        body: JSON.stringify({
+          message: {
+            chat: { id: "support" },
+            document,
+            from: { id: "42", username: "maxi" },
+            message_id: messageId,
+          },
+        }),
+        method: "POST",
+      }), "discord-events")
+      expect(deniedResponse.status).toBe(200)
+      expect(admitChat).toHaveBeenCalledOnce()
+      expect(fetch).not.toHaveBeenCalled()
+      expect(run).not.toHaveBeenCalled()
+
       fetch.mockResolvedValueOnce(new Response("too large", {
         headers: { "content-length": String(8 * 1024 * 1024 + 1), "content-type": "text/plain" },
       }))
@@ -3664,7 +3704,7 @@ describe("server helpers", () => {
         webhookUrl: webhook => `https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`,
       })).rejects.toThrow("[vitehub] Chat text attachment exceeds 8388608 bytes.")
       expect(fetch).toHaveBeenCalledWith("https://cdn.example/large.log")
-      expect(admitChat).not.toHaveBeenCalled()
+      expect(admitChat).toHaveBeenCalledOnce()
       expect(run).not.toHaveBeenCalled()
     }
     finally {

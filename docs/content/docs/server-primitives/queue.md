@@ -387,7 +387,7 @@ When migrating from the first structured Queue error contract, add `custom: true
 | `QUEUE_PROVIDER_RESPONSE_INVALID` | A successful Vercel send returned a missing or malformed `messageId`. |
 | `CLOUDFLARE_BINDING_RESOLUTION_REQUIRED` | A direct Cloudflare client was created without a concrete binding. |
 | `CLOUDFLARE_BINDING_INVALID` | The Cloudflare binding does not expose `send()` and `sendBatch()`. |
-| `CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS` | Cloudflare received unsupported enqueue options such as `idempotencyKey` or `retentionSeconds`. |
+| `CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS` | Cloudflare received unsupported enqueue options: `idempotencyKey`, `region`, or `retentionSeconds`. |
 | `VERCEL_QUEUE_SDK_LOAD_FAILED` | `@vercel/queue` could not be loaded. |
 | `VERCEL_QUEUE_SDK_INVALID` | `@vercel/queue` did not expose the expected client API. |
 | `VERCEL_QUEUE_REGION_REQUIRED` | Vercel region could not be resolved for the installed SDK shape. |

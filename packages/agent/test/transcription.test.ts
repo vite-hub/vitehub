@@ -80,6 +80,56 @@ describe("agent transcription", () => {
     }, { maxBytes: 3 })).rejects.toThrow("exceeds maxBytes")
   })
 
+  it("cancels oversized and erroring audio responses and releases readers", async () => {
+    const headerCancel = vi.fn()
+    const headerOversized = new ReadableStream<Uint8Array>({ cancel: headerCancel })
+    const cancel = vi.fn()
+    const oversized = new ReadableStream<Uint8Array>({
+      cancel,
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2]))
+        controller.enqueue(new Uint8Array([3, 4]))
+      },
+    })
+    const readError = new Error("audio stream failed")
+    const erroring = new ReadableStream<Uint8Array>({
+      pull() {
+        throw readError
+      },
+    })
+    const successful = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2]))
+        controller.enqueue(new Uint8Array([3]))
+        controller.close()
+      },
+    })
+    const fetch = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(headerOversized, { headers: { "content-length": "4" } }))
+      .mockResolvedValueOnce(new Response(oversized))
+      .mockResolvedValueOnce(new Response(erroring))
+      .mockResolvedValueOnce(new Response(successful))
+    const audio = { mediaType: "audio/ogg", type: "audio" as const, url: "https://example.com/audio.ogg" }
+
+    try {
+      await expect(audioBytes(audio, { maxBytes: 3 })).rejects.toThrow("exceeds maxBytes")
+      expect(headerCancel).toHaveBeenCalledOnce()
+
+      await expect(audioBytes(audio, { maxBytes: 3 })).rejects.toThrow("exceeds maxBytes")
+      expect(cancel).toHaveBeenCalledOnce()
+      expect(oversized.locked).toBe(false)
+
+      await expect(audioBytes(audio, { maxBytes: 3 })).rejects.toBe(readError)
+      expect(erroring.locked).toBe(false)
+
+      await expect(audioBytes(audio, { maxBytes: 3 })).resolves.toEqual(new Uint8Array([1, 2, 3]))
+      expect(successful.locked).toBe(false)
+    }
+    finally {
+      fetch.mockRestore()
+    }
+  })
+
   it("reuses lazy audio bytes between transcription and audio artifacts", async () => {
     const fetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
     const capability = transcribe({
