@@ -305,7 +305,11 @@ function presetBlobOptions(plan: DeploymentPlan, options: BlobModuleOptions | un
   if (hasExplicitBlobStore(options)) return options as BlobModuleOptions
   const configured = options && typeof options === "object" ? options : {}
   switch (plan.services.blob.supported && plan.services.blob.adapter) {
-    case "cloudflare-r2": return { ...configured, driver: "cloudflare-r2" }
+    case "cloudflare-r2": return {
+      bucketName: process.env.BLOB_BUCKET_NAME || process.env.CLOUDFLARE_R2_BUCKET_NAME || process.env.R2_BUCKET_NAME || "vitehub-blob",
+      ...configured,
+      driver: "cloudflare-r2",
+    }
     case "fs": return { ...configured, driver: "fs" }
     case "netlify-blobs": return { ...configured, driver: "netlify-blobs", name: "vitehub-blob" }
     case "vercel-blob": return { ...configured, driver: "vercel-blob" }
