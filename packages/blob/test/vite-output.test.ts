@@ -313,7 +313,7 @@ describe("Vite provider outputs", () => {
     expect(legacyWorker).toContain("setBlobRuntimeConfig(")
     expect(legacyWorker).toContain("R2 binding")
     await writeFile(join(cloudflareOutput, "index.js"), legacyWorker, "utf8")
-    await generateProviderOutputs(options)
+    await generateProviderOutputs({ ...options, serverFunctionName: undefined })
 
     expect(existsSync(join(cloudflareOutput, "index.js"))).toBe(false)
     await expect(readFile(join(cloudflareOutput, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({

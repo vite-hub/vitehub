@@ -536,14 +536,17 @@ async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOpt
   await writeFile(resolve(options.rootDir, ".vercel/output/functions", options.serverFunctionName ?? "__server.func", vercelBlobOutputMarker), "", "utf8")
 }
 
-async function hasVercelBlobOutput(options: GenerateProviderOutputsOptions) {
-  try {
-    await access(resolve(options.rootDir, ".vercel/output/functions", options.serverFunctionName ?? "__server.func", vercelBlobOutputMarker))
-    return true
+async function getVercelBlobOutputNames(options: GenerateProviderOutputsOptions) {
+  const names = [...new Set([options.serverFunctionName ?? "__server.func", "__blob.func"])]
+  const owned: string[] = []
+  for (const name of names) {
+    try {
+      await access(resolve(options.rootDir, ".vercel/output/functions", name, vercelBlobOutputMarker))
+      owned.push(name)
+    }
+    catch {}
   }
-  catch {
-    return false
-  }
+  return owned
 }
 
 function registerSupportedProviderRuntimeModules(
@@ -560,7 +563,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const localOnly = !shouldCreateProviderOutput(options.blob)
   const createCloudflare = !localOnly && !options.cloudflareOwnedByNitro
   const createVercel = !localOnly && !options.cloudflareOwnedByNitro
-  const cleanupVercel = options.cloudflareOwnedByNitro && await hasVercelBlobOutput(options)
+  const cleanupVercel = options.cloudflareOwnedByNitro ? await getVercelBlobOutputNames(options) : []
   const hasCurrentCloudflareContribution = Boolean(createCloudflareR2Bindings(resolveBlobConfig(options.blob, "cloudflare"))?.length)
   if (options.cloudflareOwnedByNitro) {
     await writeProviderDeploymentOutputs({
@@ -569,11 +572,17 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
       rootDir: options.rootDir,
     })
   }
+  for (const serverFunctionName of cleanupVercel) {
+    await writeProviderDeploymentOutputs({
+      clientOutDir: options.clientOutDir,
+      cleanup: { vercel: { serverFunctionName } },
+      rootDir: options.rootDir,
+    })
+  }
   await writeProviderDeploymentOutputs({
     afterWrite: createVercel ? () => copyVercelBlobRuntimePackages(options) : undefined,
     clientOutDir: options.clientOutDir,
     cloudflare: createCloudflare ? createCloudflareOutput(options.blob, artifacts, options.providerOutput) : undefined,
-    cleanup: cleanupVercel ? { vercel: { serverFunctionName: options.serverFunctionName ?? "__server.func" } } : undefined,
     rootDir: options.rootDir,
     vercel: createVercel ? createVercelOutput(artifacts, options.providerOutput, options.serverFunctionName) : undefined,
   })
