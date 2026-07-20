@@ -140,7 +140,8 @@ export function vercelBox(options: VercelBoxOptions = {}): BoxRuntime {
 
 async function loadVercelSandbox() {
   try {
-    const { Sandbox } = await import("@vercel/" + "sandbox") as typeof VercelSandbox;
+    const provider = ["@vercel", "sandbox"].join("/");
+    const { Sandbox } = await import(provider) as typeof VercelSandbox;
     return async (options: VercelSandboxCreateOptions) =>
       await Sandbox.create(options as Parameters<typeof Sandbox.create>[0]) as unknown as VercelSandboxInstance;
   } catch (error) {

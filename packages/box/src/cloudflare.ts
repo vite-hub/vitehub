@@ -115,7 +115,8 @@ export function cloudflareBox(options: CloudflareBoxOptions): BoxRuntime {
 
 async function loadCloudflareSandbox() {
   try {
-    const { getSandbox } = await import("@cloudflare/" + "sandbox") as typeof CloudflareSandbox;
+    const provider = ["@cloudflare", "sandbox"].join("/");
+    const { getSandbox } = await import(provider) as typeof CloudflareSandbox;
     return getSandbox as unknown as NonNullable<CloudflareBoxOptions["getSandbox"]>;
   } catch (error) {
     throw new Error(
