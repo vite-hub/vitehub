@@ -1,3 +1,5 @@
+import { deploymentPresetFromNitro } from "./deployment.ts"
+
 export type HostingProvider = 'cloudflare' | 'netlify' | 'vercel'
 
 export interface HostingDetectionTarget {
@@ -17,17 +19,10 @@ export function detectHosting(target: HostingDetectionTarget) {
 }
 
 export function getHostingProvider(hosting?: string | null): HostingProvider | undefined {
-  const normalized = normalizeHosting(hosting)
+  const preset = deploymentPresetFromNitro(hosting)
+  if (preset === 'cloudflare' || preset === 'netlify' || preset === 'vercel')
+    return preset
 
-  if (!normalized)
-    return undefined
-
-  if (normalized.startsWith('cloudflare'))
-    return 'cloudflare'
-  if (normalized.startsWith('vercel'))
-    return 'vercel'
-  if (normalized.startsWith('netlify'))
-    return 'netlify'
   return undefined
 }
 

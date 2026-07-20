@@ -440,7 +440,7 @@ function resolveAgentHosting(config: unknown): "cloudflare" | "netlify" | "verce
   ]
   for (const value of values) {
     const provider = getHostingProvider(value)
-    if (provider) return provider
+    if (provider === "cloudflare" || provider === "netlify" || provider === "vercel") return provider
   }
 
   if (process.env.CLOUDFLARE_WORKER || process.env.CF_PAGES) return "cloudflare"

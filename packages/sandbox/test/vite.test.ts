@@ -839,6 +839,11 @@ describe("hubSandbox", () => {
     expect(configEnvironment("client", { consumer: "client" })).toBeUndefined()
   })
 
+  it.each(["deno-deploy", "netlify", "node-server"])("rejects implicit Sandbox providers for %s hosting", async (hosting) => {
+    const { resolveSandboxFeatureConfig } = await import("../src/feature.ts")
+    expect(() => resolveSandboxFeatureConfig({}, hosting)).toThrow("does not support " + (hosting === "deno-deploy" ? "deno" : hosting === "node-server" ? "node" : "netlify"))
+  })
+
   it("keeps the runtime provider loader available when provider is inferred later", async () => {
     const { createSandboxFeaturePlan } = await import("../src/feature.ts")
     const plan = await createSandboxFeaturePlan({}, [], {

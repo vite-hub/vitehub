@@ -40,6 +40,7 @@ export type BlobVitePlugin = Plugin & BlobProvisionContributingPlugin & { api: B
 
 type InternalBlobModuleOptions = BlobModuleOptions & {
   importBase?: string
+  nitroOwned?: boolean
 }
 
 const mergeNoExternal = createNoExternalMerger(blobPackageName)
@@ -200,7 +201,9 @@ async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConf
 }
 
 export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
-  const importBase = (options as InternalBlobModuleOptions | undefined)?.importBase ?? blobPackageName
+  const internalOptions = options as InternalBlobModuleOptions | undefined
+  const importBase = internalOptions?.importBase ?? blobPackageName
+  const nitroOwned = internalOptions?.nitroOwned === true
   let blob: BlobModuleOptions | undefined = options
   let clientOutDir = "dist"
   let command: "build" | "serve" = "serve"
@@ -227,7 +230,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       command = env.command
       blob = config.blob ?? blob
       const configuredNitro = (config as { nitro?: unknown }).nitro
-      cloudflareOwnedByNitro = hasNitroVitePluginOption(config.plugins) && isNitroCloudflareHost(configuredNitro)
+      cloudflareOwnedByNitro = (nitroOwned || hasNitroVitePluginOption(config.plugins)) && isNitroCloudflareHost(configuredNitro)
       const blobConfig = resolveBlobViteConfig(blob, cloudflareOwnedByNitro ? { hosting: "cloudflare" } : undefined)
       const nitro = mergeNitroBlobConfig(
         configuredNitro,
@@ -243,7 +246,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       rootDir = config.root
       blob = config.blob ?? blob
       const configuredNitro = (config as { nitro?: unknown }).nitro
-      cloudflareOwnedByNitro = hasNitroVitePlugin(config) && isNitroCloudflareHost(configuredNitro)
+      cloudflareOwnedByNitro = (nitroOwned || hasNitroVitePlugin(config)) && isNitroCloudflareHost(configuredNitro)
       const blobConfig = resolveBlobViteConfig(blob, cloudflareOwnedByNitro ? { hosting: "cloudflare" } : undefined)
       const nitro = mergeNitroBlobConfig(
         configuredNitro,

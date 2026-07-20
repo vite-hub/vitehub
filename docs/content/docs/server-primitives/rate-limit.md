@@ -18,7 +18,7 @@ import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ rateLimit: true })],
+  plugins: [vitehub({ preset: "node", rateLimit: true })],
 })
 ```
 

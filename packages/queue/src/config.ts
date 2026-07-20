@@ -19,8 +19,8 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
     throw new TypeError(`Unknown \`queue.provider\`: ${JSON.stringify(provider)}. Expected "cloudflare" or "vercel".`)
   }
 
-  if (typeof provider === "undefined" && hosting.includes("netlify")) {
-    throw new TypeError("`queue.provider` cannot be inferred for Netlify hosting. Set `queue.provider` explicitly or disable `queue`.")
+  if (typeof provider === "undefined" && hosting && !hosting.includes("cloudflare") && !hosting.includes("vercel")) {
+    throw new TypeError("`queue.provider` cannot be inferred for " + hosting + " hosting. Disable `queue` or select the Cloudflare or Vercel deployment preset.")
   }
 
   const resolved = provider || (hosting.includes("cloudflare") ? "cloudflare" : "vercel")

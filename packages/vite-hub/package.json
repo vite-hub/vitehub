@@ -120,6 +120,7 @@
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {
+    "@netlify/blobs": "catalog:storage",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/blob": "workspace:*",
@@ -144,10 +145,12 @@
     "@workflow/builders": "catalog:workflow",
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
+    "files-sdk": "catalog:storage",
     "workflow": "catalog:workflow"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

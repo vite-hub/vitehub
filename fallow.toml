@@ -111,12 +111,14 @@ ignoreDependencies = [
   "@vercel/queue",
   "chat-state-cloudflare-do",
   # Package builds and generated provider output reference these without source imports.
+  "@netlify/blobs",
   "@vercel/functions",
   "@vercel/nft",
   "@vitejs/devtools-kit",
   "@workflow/builders",
   "askweb",
   "esbuild",
+  "files-sdk",
   "publint",
   "workflow",
 ]

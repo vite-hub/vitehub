@@ -11,8 +11,8 @@ const integrationMocks = vi.hoisted(() => ({
   hubKv: vi.fn(() => ({ name: "@vite-hub/kv/vite" })),
   hubKvOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/kv/optional-peers" })),
   hubMarkdownTemplate: vi.fn(() => ({ name: "@vite-hub/markdown-template/vite" })),
-  resolveKVViteConfig: vi.fn((kv?: { driver?: string }) => ({
-    kv: { store: { driver: kv?.driver ?? "fs-lite" } },
+  resolveKVViteConfig: vi.fn((kv?: { driver?: string }, input?: { hosting?: string }) => ({
+    kv: { store: { driver: kv?.driver ?? (input?.hosting === "cloudflare-module" ? "cloudflare-kv-binding" : "fs-lite") } },
   })),
   hubQueue: vi.fn(() => ({ name: "@vite-hub/queue/vite" })),
   hubRateLimit: vi.fn(() => ({ name: "@vite-hub/rate-limit/vite" })),
@@ -62,7 +62,7 @@ function dependencyResolver() {
   return resolver.resolveId
 }
 
-function dependencyPlugin(options: Parameters<typeof vitehub>[0] = {}): Plugin {
+function dependencyPlugin(options: Parameters<typeof vitehub>[0] = { preset: "node" }): Plugin {
   const plugin = vitehub(options).find(candidate => (candidate as Plugin).name === "vite-hub/dependencies") as Plugin | undefined
   if (!plugin) throw new TypeError("Expected the framework dependency resolver.")
   return plugin
@@ -70,11 +70,12 @@ function dependencyPlugin(options: Parameters<typeof vitehub>[0] = {}): Plugin {
 
 describe("vitehub", () => {
   it("keeps coherent defaults and opt-in integrations", () => {
-    expect(pluginNames(vitehub())).toEqual([
+    expect(pluginNames(vitehub({ preset: "node" }))).toEqual([
+      "vite-hub/deployment-preset",
+      "vite-hub/deployment-output",
       "vite-hub/dependencies",
       "@vite-hub/markdown-template/vite",
       "@vite-hub/env/vite",
-      "@vite-hub/sandbox/vite",
       "@vite-hub/agent/vite",
       "@vite-hub/database/vite",
       "@vite-hub/blob/vite",
@@ -84,7 +85,9 @@ describe("vitehub", () => {
       "@vite-hub/devtools",
     ])
 
-    expect(pluginNames(vitehub({ auth: true, email: true, kv: true, rateLimit: true, sandbox: true, schedule: true }))).toEqual([
+    expect(pluginNames(vitehub({ preset: "cloudflare", auth: true, email: true, kv: true, rateLimit: true, sandbox: true, schedule: true }))).toEqual([
+      "vite-hub/deployment-preset",
+      "vite-hub/deployment-output",
       "vite-hub/dependencies",
       "@vite-hub/markdown-template/vite",
       "@vite-hub/env/vite",
@@ -101,9 +104,9 @@ describe("vitehub", () => {
       "@vite-hub/workspace/vite",
       "@vite-hub/devtools",
     ])
-    expect(pluginNames(vitehub({ sandbox: false }))).not.toContain("@vite-hub/sandbox/vite")
+    expect(pluginNames(vitehub({ preset: "node", sandbox: false }))).not.toContain("@vite-hub/sandbox/vite")
 
-    vitehub({ schedule: true })
+    vitehub({ preset: "node", schedule: true })
 
     expect(integrationMocks.hubMarkdownTemplate).toHaveBeenLastCalledWith({
       runtimeImport: "vite-hub/_internal/markdown-template",
@@ -125,25 +128,24 @@ describe("vitehub", () => {
       scheduleRuntimeImport: "vite-hub/_internal/schedule/runtime",
       workflowImportBase: "vite-hub/_internal/workflow",
       workspaceDependencyRuntimeImports: {
-        sandbox: "vite-hub/sandbox",
-        sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
         shellWorkspace: "vite-hub/shell/workspace",
       },
       workspaceImportBase: "vite-hub/_internal/workspace",
     })
     expect(integrationMocks.hubAgent).toHaveBeenCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
-      sandbox: "vite-hub/sandbox",
-        sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
         shellWorkspace: "vite-hub/shell/workspace",
       },
     }))
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith({
+      driver: "fs",
       importBase: "vite-hub/_internal/blob",
+      nitroOwned: true,
     })
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith(undefined)
-    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined)
+    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith({ driver: "cloudflare-kv-binding" })
     expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith({
+      provider: "cloudflare",
       providerImportAliases: expect.any(Object),
       providerImportSpecifier: "vite-hub/sandbox",
     })
@@ -161,35 +163,33 @@ describe("vitehub", () => {
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
       },
       workspaceDependencyRuntimeImports: {
-        sandbox: "vite-hub/sandbox",
-        sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
         shellWorkspace: "vite-hub/shell/workspace",
       },
       workspaceImportBase: "vite-hub/_internal/workspace",
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
-      sandbox: "vite-hub/sandbox",
-        sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
         shellWorkspace: "vite-hub/shell/workspace",
       },
     }))
     expect(integrationMocks.hubWorkspace).toHaveBeenLastCalledWith({
+      hosting: "node-server",
       importBase: "vite-hub/_internal/workspace",
     })
 
     integrationMocks.hubQueue.mockClear()
-    expect(pluginNames(vitehub({ queue: true }))).toContain("@vite-hub/queue/vite")
-    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({})
-    expect(pluginNames(vitehub({ queue: { provider: "cloudflare" } }))).toContain("@vite-hub/queue/vite")
+    expect(pluginNames(vitehub({ preset: "vercel", queue: true }))).toContain("@vite-hub/queue/vite")
+    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "vercel" })
+    expect(pluginNames(vitehub({ preset: "cloudflare", queue: true }))).toContain("@vite-hub/queue/vite")
     expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "cloudflare" })
 
     integrationMocks.hubRateLimit.mockClear()
-    expect(pluginNames(vitehub({ rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
+    expect(pluginNames(vitehub({ preset: "node", rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/rate-limit",
+      provider: "memory",
     })
-    expect(pluginNames(vitehub({ rateLimit: { provider: "cloudflare" } }))).toContain("@vite-hub/rate-limit/vite")
+    expect(pluginNames(vitehub({ preset: "cloudflare", rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/rate-limit",
       provider: "cloudflare",
@@ -197,7 +197,7 @@ describe("vitehub", () => {
   })
 
   it("uses framework subpaths in generated Env modules", () => {
-    vitehub()
+    vitehub({ preset: "node" })
 
     expect(integrationMocks.hubEnv).toHaveBeenLastCalledWith({
       runtimeImports: {
@@ -207,6 +207,7 @@ describe("vitehub", () => {
     })
 
     vitehub({
+      preset: "node",
       env: {
         diagnostics: "trace",
         runtimeImports: { server: "#app/env/server" },
@@ -223,7 +224,7 @@ describe("vitehub", () => {
   })
 
   it("keeps Sandbox loaders aligned with preset enablement", () => {
-    vitehub()
+    vitehub({ preset: "cloudflare", sandbox: true })
 
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
@@ -240,7 +241,7 @@ describe("vitehub", () => {
       },
     }))
 
-    vitehub({ sandbox: false })
+    vitehub({ preset: "node" })
 
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
@@ -307,7 +308,7 @@ describe("vitehub", () => {
   })
 
   it("resolves provider facades after framework aliasing", async () => {
-    const plugin = dependencyPlugin({ sandbox: true })
+    const plugin = dependencyPlugin({ preset: "vercel", sandbox: true })
     const config = plugin.config as unknown as (config: object) => { resolve: { alias: Record<string, string> } }
     const frameworkSandboxFacade = config({}).resolve.alias["vite-hub/sandbox"]
     const sandboxCall = integrationMocks.hubSandbox.mock.calls.at(-1) as unknown as [{ providerImportAliases: Record<string, string> }]
@@ -344,14 +345,14 @@ describe("vitehub", () => {
   })
 
   it("passes the unused Upstash fallback only to provider bundlers", () => {
-    vitehub()
+    vitehub({ preset: "node" })
     const defaultCall = integrationMocks.hubAgent.mock.calls.at(-1) as unknown as [{ providerImportAliases: Record<string, string> }]
     const defaultAliases = defaultCall[0].providerImportAliases
     expect(defaultAliases).toEqual({
       "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
     })
 
-    const upstashPlugins = vitehub({ kv: true })
+    const upstashPlugins = vitehub({ preset: "node", kv: true })
     const upstashCall = integrationMocks.hubAgent.mock.calls.at(-1) as unknown as [{ providerImportAliases: Record<string, string> }]
     const upstashAliases = upstashCall[0].providerImportAliases
     const dependency = upstashPlugins.find(candidate => (candidate as Plugin).name === "vite-hub/dependencies") as Plugin
@@ -363,8 +364,120 @@ describe("vitehub", () => {
     expect(workflowCall[0].providerImportAliases).toBe(upstashAliases)
   })
 
+  it.each([
+    ["cloudflare", "cloudflare-module"],
+    ["netlify", "netlify"],
+    ["vercel", "vercel"],
+    ["deno", "deno-deploy"],
+    ["node", "node-server"],
+  ] as const)("maps the %s deployment plan to Nitro %s", async (preset, nitroPreset) => {
+    const config = {} as Record<string, unknown>
+    const plugin = vitehub({ preset }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    const hook = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
+    await hook(config, { command: "build", mode: "production" })
+    expect(config.nitro).toMatchObject({ preset: nitroPreset })
+    if (preset === "deno") {
+      expect(config.nitro).toMatchObject({ commands: { deploy: "node ./deploy.mjs" }, modules: [expect.any(Function)] })
+    }
+  })
+
+  it("composes deployment output through a Nitro module", async () => {
+    const config = { nitro: { modules: ["existing-module"] } } as Record<string, unknown>
+    const plugin = vitehub({ preset: "node" }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    const hook = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
+    await hook(config, { command: "build", mode: "production" })
+    expect(config.nitro).toMatchObject({ modules: ["existing-module", expect.any(Function)] })
+  })
+
+  it.each([
+    ["cloudflare", "cloudflare-r2"],
+    ["netlify", "netlify-blobs"],
+    ["node", "fs"],
+    ["vercel", "vercel-blob"],
+  ] as const)("wires the %s Blob adapter from the deployment plan", (preset, driver) => {
+    integrationMocks.hubBlob.mockClear()
+    vitehub({ preset })
+    expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(expect.objectContaining({ driver }))
+  })
+
+  it("preserves a configured Netlify Blob store name", () => {
+    integrationMocks.hubBlob.mockClear()
+    vitehub({ preset: "netlify", blob: { name: "assets" } })
+    expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(expect.objectContaining({
+      driver: "netlify-blobs",
+      name: "assets",
+    }))
+  })
+
+  it("omits unsupported implicit Blob wiring and its facade alias for Deno", () => {
+    integrationMocks.hubBlob.mockClear()
+    expect(pluginNames(vitehub({ preset: "deno" }))).not.toContain("@vite-hub/blob/vite")
+    expect(integrationMocks.hubBlob).not.toHaveBeenCalled()
+    const deployment = vitehub({ preset: "deno" }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    const resolveId = deployment.resolveId as unknown as (source: string, importer?: string) => void
+    expect(() => resolveId("vite-hub/blob", "/app/server/api.ts")).toThrow("cannot provide blob")
+    expect(() => resolveId(fileURLToPath(import.meta.resolve("vite-hub/blob")), "/app/server/api.ts")).toThrow("cannot provide blob")
+    expect(() => resolveId("vite-hub/blob/content-type", "/app/server/api.ts")).not.toThrow()
+
+    const dependency = dependencyPlugin({ preset: "deno" })
+    const config = (dependency.config as () => { resolve: { alias: Record<string, string> } })()
+    expect(config.resolve.alias["vite-hub/blob"]).toBeUndefined()
+    expect(config.resolve.alias["vite-hub/blob/content-type"]).toEqual(expect.any(String))
+    const resolveDependency = dependency.resolveId as unknown as (source: string, importer?: string) => void
+    expect(() => resolveDependency("@vite-hub/blob", "/app/.vitehub/agents.mjs")).toThrow("Blob is unavailable")
+  })
+
+  it("allows the Agent Blob Capability fallback with an explicit Deno Blob store", () => {
+    const dependency = dependencyPlugin({ preset: "deno", blob: { driver: "fs" } })
+    const resolveDependency = dependency.resolveId as unknown as (source: string, importer?: string) => unknown
+    expect(resolveDependency("@vite-hub/blob", "/app/.vitehub/agents.mjs")).toEqual(expect.any(String))
+  })
+
+  it("wires supported Sandbox adapters from the deployment plan", () => {
+    vitehub({ preset: "cloudflare", sandbox: true })
+    expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "cloudflare" }))
+    vitehub({ preset: "vercel", sandbox: true })
+    expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "vercel" }))
+  })
+
+  it("scopes generated resource names to the Vite project root", async () => {
+    const config = { root: "apps/api" } as Record<string, unknown>
+    const plugin = vitehub({ preset: "cloudflare", queue: true, rateLimit: true, sandbox: true })
+      .find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    const hook = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
+    await hook(config, { command: "build", mode: "production" })
+    expect(config).toMatchObject({
+      queue: { namePrefix: "api-", provider: "cloudflare" },
+      rateLimit: { namespace: "api", provider: "cloudflare" },
+      sandbox: { name: "api-sandbox", provider: "cloudflare" },
+    })
+  })
+
+  it("limits generated Cloudflare queue prefixes", async () => {
+    const config = { root: "a".repeat(80) } as Record<string, unknown>
+    const plugin = vitehub({ preset: "cloudflare", queue: true })
+      .find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    const hook = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
+    await hook(config, { command: "build", mode: "production" })
+    expect((config.queue as { namePrefix: string }).namePrefix).toMatch(/^[a-f0-9]{8}-$/)
+  })
+
+  it("rejects unsupported capabilities and conflicting target selection", async () => {
+    expect(() => vitehub({ preset: "deno", schedule: true })).toThrow("cannot provide Schedule")
+    expect(() => vitehub({ preset: "deno", agent: { runtime: "deno" } })).toThrow("cannot deploy the Agent Deno runtime")
+
+    const unsupported = vitehub({ preset: "deno", queue: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    const unsupportedHook = unsupported.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
+    expect(() => unsupportedHook({}, { command: "build", mode: "production" })).toThrow("cannot provide queue")
+
+    const conflicting = vitehub({ preset: "vercel" }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    const conflictingHook = conflicting.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
+    expect(() => conflictingHook({ nitro: { preset: "netlify" } }, { command: "build", mode: "production" })).toThrow("conflicts with nitro.preset")
+    expect(() => conflictingHook({ nitro: { preset: "vercel-edge" } }, { command: "build", mode: "production" })).toThrow("conflicts with nitro.preset")
+  })
+
   it("can be used as one nested Vite plugin entry", () => {
-    const plugins: PluginOption[] = [vitehub()]
+    const plugins: PluginOption[] = [vitehub({ preset: "node" })]
     expect(plugins).toHaveLength(1)
   })
 })
