@@ -40,6 +40,59 @@ describe("Rate Limit declarations", () => {
     expect(extractRateLimitDeclarations("/project/search.ts", source)).toMatchObject([{ name: "search" }])
   })
 
+  it("collects guards through scoped dynamic imports", () => {
+    const source = [
+      "export async function upload(event) {",
+      '  const { requireRateLimit: requireUploadLimit } = await import("vite-hub/rate-limit")',
+      '  await requireUploadLimit(event, "image-upload", { failure: "deny", limit: 5, window: "1m" })',
+      "}",
+      "export async function search(event) {",
+      '  const rateLimit = await import("@vite-hub/rate-limit")',
+      '  await rateLimit.requireRateLimit(event, "search", { limit: 10, window: "10s" })',
+      "}",
+    ].join("\n")
+
+    expect(extractRateLimitDeclarations("/project/limits.ts", source)).toMatchObject([
+      { name: "image-upload", policy: { failure: "deny", limit: 5, window: "1m" } },
+      { name: "search", policy: { limit: 10, window: "10s" } },
+    ])
+  })
+
+  it("collects dynamic guards from closures declared before the import", () => {
+    const source = [
+      "export async function upload(event) {",
+      "  async function guard() {",
+      '    await requireRateLimit(event, "image-upload", { limit: 5, window: "1m" })',
+      "  }",
+      '  const { requireRateLimit } = await import("vite-hub/rate-limit")',
+      "  await guard()",
+      "}",
+    ].join("\n")
+
+    expect(extractRateLimitDeclarations("/project/limits.ts", source)).toMatchObject([
+      { name: "image-upload", policy: { limit: 5, window: "1m" } },
+    ])
+  })
+
+  it("ignores unrelated dynamic imports and shadowed dynamic bindings", () => {
+    const source = [
+      "export async function upload(event) {",
+      '  const { requireRateLimit } = await import("other-package")',
+      '  await requireRateLimit(event, "unrelated", { limit: 1, window: "1m" })',
+      "}",
+      "export async function search(event) {",
+      '  const { requireRateLimit } = await import("vite-hub/rate-limit")',
+      "  function local(requireRateLimit) {",
+      '    return requireRateLimit(event, "shadowed", { limit: 1, window: "1m" })',
+      "  }",
+      '  await requireRateLimit(event, "search", { limit: 2, window: "10s" })',
+      "  return local",
+      "}",
+    ].join("\n")
+
+    expect(extractRateLimitDeclarations("/project/limits.ts", source)).toMatchObject([{ name: "search" }])
+  })
+
   it("collects guards from JSX and TSX modules", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-jsx-"))
     roots.push(root)

@@ -1,15 +1,24 @@
 import { existsSync } from "node:fs"
 import { execFile as execFileCallback } from "node:child_process"
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { delimiter, dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { build, copyPublicAssets, createNitro, prepare, prerender } from "nitropack/core"
+import {
+  build as buildNitro3,
+  copyPublicAssets as copyNitro3PublicAssets,
+  createNitro as createNitro3,
+  prepare as prepareNitro3,
+  prerender as prerenderNitro3,
+} from "nitro/builder"
 import { resolveConfig } from "vite"
 import { vitehub } from "vite-hub"
 import { expect, it } from "vitest"
+
+import { getCloudflareRateLimitBindingName } from "../../packages/rate-limit/src/integrations/cloudflare.ts"
 
 const execFile = promisify(execFileCallback)
 
@@ -67,6 +76,88 @@ it("preserves Nitro Netlify output when emitting the ViteHub deployment manifest
     }
   }
 })
+
+it("emits dynamically imported Rate Limits in Nitro Cloudflare output", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-cloudflare-rate-limit-output-"))
+  const manualRateLimit = { name: "MANUAL", namespace_id: "9", simple: { limit: 1, period: 10 } }
+  let nitro: Awaited<ReturnType<typeof createNitro3>> | undefined
+  try {
+    await symlink(join(import.meta.dirname, "../../node_modules"), join(root, "node_modules"), "dir")
+    await mkdir(join(root, "server/api"), { recursive: true })
+    await writeFile(join(root, "server/api/upload.get.ts"), [
+      "export default defineEventHandler(async (event) => {",
+      '  const { requireRateLimit } = await import("vite-hub/rate-limit")',
+      '  await requireRateLimit(event, "image-upload", { failure: "deny", limit: 5, window: "1m" })',
+      "  return { ok: true }",
+      "})",
+      "",
+    ].join("\n"), "utf8")
+    const config = await resolveConfig({
+      nitro: {
+        cloudflare: {
+          wrangler: {
+            name: "vitehub-rate-limit-consumer",
+            ratelimits: [manualRateLimit],
+          },
+        },
+        compatibilityDate: "2026-07-20",
+        serverDir: true,
+      },
+      plugins: [vitehub({
+        preset: "cloudflare",
+        agent: false,
+        blob: false,
+        database: false,
+        devtools: false,
+        env: false,
+        kv: false,
+        queue: false,
+        rateLimit: true,
+        sandbox: false,
+        workflow: false,
+        workspace: false,
+      })],
+      root,
+    }, "build")
+    const nitroConfig = (config as typeof config & { nitro?: Parameters<typeof createNitro3>[0] }).nitro
+    expect(nitroConfig).toBeDefined()
+
+    nitro = await createNitro3({ ...nitroConfig, dev: false, rootDir: root })
+    await prepareNitro3(nitro)
+    await copyNitro3PublicAssets(nitro)
+    await prerenderNitro3(nitro)
+    await buildNitro3(nitro)
+
+    const bindingName = getCloudflareRateLimitBindingName("image-upload")
+    await expect(readFile(join(root, ".vitehub/rate-limit/manifest.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
+      rateLimits: [{ name: "image-upload", provider: "cloudflare" }],
+    })
+    await expect(readFile(join(root, ".output/server/wrangler.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
+      ratelimits: [
+        manualRateLimit,
+        {
+          name: bindingName,
+          namespace_id: expect.stringMatching(/^\d+$/),
+          simple: { limit: 5, period: 60 },
+        },
+      ],
+    })
+
+    const serverRoot = join(root, ".output/server")
+    const runtime = (await readdir(serverRoot, { recursive: true }))
+      .filter(file => file.endsWith(".mjs"))
+      .map(file => readFile(join(serverRoot, file), "utf8"))
+    const emittedSource = (await Promise.all(runtime)).join("\n")
+    expect(emittedSource).toContain('requireRateLimit(event, "image-upload"')
+    expect(emittedSource).toContain('bindingPrefix = "RATE_LIMIT"')
+  } finally {
+    try {
+      await nitro?.close()
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }
+}, 30_000)
 
 it.skipIf(process.platform !== "linux" || process.arch !== "x64")("uploads and executes native packages when updating an existing Deno app", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-deno-native-update-"))
