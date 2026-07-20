@@ -25,6 +25,25 @@ function toBlobObject(blob: {
 export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreConfig): BlobDriverAdapter<ResolvedVercelBlobStoreConfig> {
   const auth = { token: options.token }
 
+  async function read(pathname: string) {
+    if (options.access === "private") {
+      const result = await get(pathname, { ...auth, access: "private" })
+      return result ? new Response(result.stream, { headers: result.blob.contentType ? { "content-type": result.blob.contentType } : undefined }) : null
+    }
+
+    try {
+      const metadata = await head(pathname, auth)
+      const response = await fetch(metadata.url)
+      if (response.status === 404) return null
+      if (!response.ok) throw new Error(`Vercel Blob read failed: ${response.status} ${response.statusText}`)
+      return response
+    }
+    catch (error) {
+      if (error instanceof Error && /not found/i.test(`${error.name} ${error.message}`)) return null
+      throw error
+    }
+  }
+
   return {
     name: options.driver,
     options,
@@ -32,14 +51,10 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
       await del(pathnames, auth)
     },
     async get(pathname) {
-      const result = await get(pathname, { ...auth, access: "private" })
-      if (!result) return null
-      const headers = result.blob.contentType ? { "content-type": result.blob.contentType } : undefined
-      return await new Response(result.stream, { headers }).blob()
+      return await (await read(pathname))?.blob() || null
     },
     async getArrayBuffer(pathname) {
-      const result = await get(pathname, { ...auth, access: "private" })
-      return result ? await new Response(result.stream).arrayBuffer() : null
+      return await (await read(pathname))?.arrayBuffer() || null
     },
     async head(pathname) {
       try {
@@ -51,6 +66,21 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
       }
     },
     async list(listOptions = {}) {
+      if (listOptions.folded) {
+        const result = await list({
+          ...auth,
+          cursor: listOptions.cursor,
+          limit: listOptions.limit,
+          mode: "folded",
+          prefix: listOptions.prefix,
+        })
+        return {
+          blobs: result.blobs.map(toBlobObject),
+          cursor: result.cursor,
+          folders: result.folders,
+          hasMore: result.hasMore,
+        }
+      }
       const result = await list({
         ...auth,
         cursor: listOptions.cursor,

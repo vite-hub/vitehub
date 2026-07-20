@@ -56,6 +56,8 @@ const filesSdkMock = vi.hoisted(() => ({
   minio: vi.fn((options: unknown) => ({ options, provider: "minio" })),
 }))
 
+vi.mock("@vercel/blob", () => vercelBlobMock)
+
 vi.mock("files-sdk", () => ({
   Files: class {
     adapter: { options?: { access?: "private" | "public", token?: string }, provider?: string }
