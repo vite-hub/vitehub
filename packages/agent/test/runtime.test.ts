@@ -3057,6 +3057,7 @@ describe("agent message protocol", () => {
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       messages: [
         createMessage({
+          id: "historical-attachment",
           parts: [{ fetchData: staleFetchData, mediaType: "application/pdf", type: "file" }],
           role: "user",
         }),
@@ -3065,10 +3066,12 @@ describe("agent message protocol", () => {
           role: "assistant",
         }),
         createMessage({
+          id: "current-attachment",
           parts: [{ fetchData, mediaType: "image/png", size: 3, type: "image", url: "https://cdn.example.com/photo.png" }],
           role: "user",
         }),
       ],
+      context: { channel: { message: { id: "current-attachment" } } },
     })).resolves.toMatchObject({ text: "ok" })
     expect(fetchData).toHaveBeenCalledOnce()
     expect(staleFetchData).not.toHaveBeenCalled()
@@ -3079,6 +3082,20 @@ describe("agent message protocol", () => {
         role: "user",
       }],
     }))
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      context: { channel: { message: { id: "current-text" } } },
+      messages: [
+        createMessage({
+          id: "historical-blob",
+          parts: [{ data: new Blob([new Uint8Array([1, 2, 3])]), mediaType: "application/pdf", type: "file" }],
+          role: "user",
+        }),
+        createMessage({ id: "current-text", role: "user", text: "continue" }),
+      ],
+    })
+    const historyCall = generate.mock.calls.at(-1)?.[0] as { messages?: Array<{ content?: Array<{ data?: unknown }> }> }
+    expect(historyCall.messages?.[0]?.content?.[0]?.data).toBeInstanceOf(ArrayBuffer)
 
     const blobAgent = defineAgent({
       driver: {

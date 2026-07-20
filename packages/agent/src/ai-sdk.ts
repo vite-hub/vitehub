@@ -340,12 +340,23 @@ async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number
   return { byteLength, part: { ...rest, data } }
 }
 
-async function resolveModelAttachments(messages: Message[], options: AiSdkAttachmentOptions | undefined): Promise<Message[]> {
+function channelCurrentMessageId(context: AgentAdapterRunContext): string | undefined {
+  const inputContext = context.input.context
+  if (!inputContext || typeof inputContext !== "object") return
+  const channel = "channel" in inputContext && inputContext.channel && typeof inputContext.channel === "object"
+    ? inputContext.channel as Record<string, unknown>
+    : undefined
+  const message = channel?.message && typeof channel.message === "object"
+    ? channel.message as Record<string, unknown>
+    : undefined
+  return typeof message?.id === "string" && message.id ? message.id : undefined
+}
+
+async function resolveModelAttachments(messages: Message[], options: AiSdkAttachmentOptions | undefined, currentMessageId?: string): Promise<Message[]> {
   const maxBytes = aiSdkAttachmentMaxBytes(options)
-  const currentUserIndex = messages.findLastIndex(message => message.role === "user")
   let remainingBytes = maxBytes
   const resolvedMessages: Message[] = []
-  for (const [messageIndex, message] of messages.entries()) {
+  for (const message of messages) {
     if (message.role !== "user") {
       resolvedMessages.push(message)
       continue
@@ -356,13 +367,12 @@ async function resolveModelAttachments(messages: Message[], options: AiSdkAttach
         parts.push(part)
         continue
       }
-      if (messageIndex !== currentUserIndex) {
+      if (currentMessageId && message.id !== currentMessageId) {
         const { fetchData: _fetchData, ...reference } = part
         if (reference.data || reference.url) {
-          const byteLength = attachmentDataByteLength(reference.data) ?? reference.size ?? 0
-          assertAttachmentWithinLimit(reference, byteLength, remainingBytes)
-          remainingBytes -= byteLength
-          parts.push(reference)
+          const resolved = await resolveModelAttachmentPart(reference, remainingBytes)
+          remainingBytes -= resolved.byteLength
+          parts.push(resolved.part)
         }
         continue
       }
@@ -385,7 +395,7 @@ async function getCallInput(context: AgentAdapterRunContext, attachments?: AiSdk
   if (context.messages.length) {
     return {
       ...base,
-      messages: toAiSdkModelMessages(await resolveModelAttachments(context.messages, attachments)),
+      messages: toAiSdkModelMessages(await resolveModelAttachments(context.messages, attachments, channelCurrentMessageId(context))),
     }
   }
   if (context.prompt) {
