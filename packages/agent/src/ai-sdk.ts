@@ -340,7 +340,7 @@ async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number
   return { byteLength, part: { ...rest, data } }
 }
 
-function channelCurrentMessageId(context: AgentAdapterRunContext): string | undefined {
+function channelCurrentMessageId(context: AgentAdapterRunContext): string | null | undefined {
   const inputContext = context.input.context
   if (!inputContext || typeof inputContext !== "object") return
   const channel = "channel" in inputContext && inputContext.channel && typeof inputContext.channel === "object"
@@ -349,14 +349,17 @@ function channelCurrentMessageId(context: AgentAdapterRunContext): string | unde
   const message = channel?.message && typeof channel.message === "object"
     ? channel.message as Record<string, unknown>
     : undefined
-  return typeof message?.id === "string" && message.id ? message.id : undefined
+  return typeof message?.id === "string" && message.id ? message.id : null
 }
 
-async function resolveModelAttachments(messages: Message[], options: AiSdkAttachmentOptions | undefined, currentMessageId?: string): Promise<Message[]> {
+async function resolveModelAttachments(messages: Message[], options: AiSdkAttachmentOptions | undefined, currentMessageId?: string | null): Promise<Message[]> {
   const maxBytes = aiSdkAttachmentMaxBytes(options)
   let remainingBytes = maxBytes
   const resolvedMessages: Message[] = []
-  for (const message of messages) {
+  const currentMessageIndex = currentMessageId === null
+    ? messages.findLastIndex(message => message.role === "user")
+    : undefined
+  for (const [messageIndex, message] of messages.entries()) {
     if (message.role !== "user") {
       resolvedMessages.push(message)
       continue
@@ -367,7 +370,9 @@ async function resolveModelAttachments(messages: Message[], options: AiSdkAttach
         parts.push(part)
         continue
       }
-      if (currentMessageId && message.id !== currentMessageId) {
+      const isHistoricalChannelMessage = currentMessageId !== undefined
+        && (currentMessageId === null ? messageIndex !== currentMessageIndex : message.id !== currentMessageId)
+      if (isHistoricalChannelMessage) {
         const { fetchData: _fetchData, ...reference } = part
         if (reference.data || reference.url) {
           const resolved = await resolveModelAttachmentPart(reference, remainingBytes)

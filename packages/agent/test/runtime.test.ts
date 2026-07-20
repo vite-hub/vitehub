@@ -3083,6 +3083,18 @@ describe("agent message protocol", () => {
       }],
     }))
 
+    const currentIdlessFetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
+    const staleIdlessFetchData = vi.fn(async () => new Uint8Array([4, 5, 6]))
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      context: { channel: { message: { text: "" } } },
+      messages: [
+        createMessage({ parts: [{ fetchData: staleIdlessFetchData, mediaType: "application/pdf", type: "file" }], role: "user" }),
+        createMessage({ parts: [{ fetchData: currentIdlessFetchData, mediaType: "image/png", type: "image" }], role: "user" }),
+      ],
+    })
+    expect(staleIdlessFetchData).not.toHaveBeenCalled()
+    expect(currentIdlessFetchData).toHaveBeenCalledOnce()
+
     await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       context: { channel: { message: { id: "current-text", text: "continue" } } },
       messages: [
