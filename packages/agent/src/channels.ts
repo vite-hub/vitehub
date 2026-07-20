@@ -24,6 +24,7 @@ import type {
   AgentChannelDeliveryEffectContext,
   AgentChannelDeliveryEffectIntent,
   AgentChannelDeliveryEffects,
+  AgentChannelDeliveryLabelsPayload,
   AgentChannelDeliveryFinishEffect,
   AgentChannelDeliveryFinishEffectContext,
   AgentChannelWebhookRegistrationDefinition,
@@ -65,6 +66,7 @@ export type {
   AgentChannelDeliveryEffectPayload,
   AgentChannelDeliveryEffectKind,
   AgentChannelDeliveryEffects,
+  AgentChannelDeliveryLabelsPayload,
   AgentChannelDeliveryFinishEffect,
   AgentChannelDeliveryFinishEffectCallback,
   AgentChannelDeliveryFinishEffectResult,
@@ -194,6 +196,8 @@ export interface GitHubSender {
   nodeId?: string
   type?: string
 }
+
+export type GitHubPullRequestLabelsEffectPayload = AgentChannelDeliveryLabelsPayload
 
 export interface GitHubPullRequestCommand {
   action: "created"
@@ -998,6 +1002,42 @@ function githubCommandFromEffect<TRuntimeConfig extends AgentRuntimeConfig>(
     ))
 }
 
+interface GitHubPullRequestEffectTarget {
+  installationId?: number
+  issueNumber: number
+  owner: string
+  repo: string
+}
+
+function githubPullRequestTargetFromEffect<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+): GitHubPullRequestEffectTarget | undefined {
+  const inputContext = isRecord(context.input.context) ? context.input.context : undefined
+  const command = githubCommandFromUnknown(inputContext?.github)
+  if (command) {
+    return {
+      ...(command.installationId ? { installationId: command.installationId } : {}),
+      issueNumber: command.issueNumber,
+      owner: command.owner,
+      repo: command.repo,
+    }
+  }
+  const pullRequest = githubPullRequestRunContextFromUnknown(context.input.context)
+  if (!pullRequest) return
+  const [fallbackOwner, fallbackRepo] = pullRequest.repository.fullName.split("/")
+  const owner = maybeString(pullRequest.repository.owner) || fallbackOwner
+  const repo = maybeString(pullRequest.repository.name) || fallbackRepo
+  const issueNumber = githubPositiveInteger(pullRequest.pullRequest.number)
+  const installationId = githubPositiveInteger(pullRequest.trigger.installationId)
+  if (!owner || !repo || !issueNumber) return
+  return {
+    ...(installationId ? { installationId } : {}),
+    issueNumber,
+    owner,
+    repo,
+  }
+}
+
 async function resolveEffectOption<T, TRuntimeConfig extends AgentRuntimeConfig>(
   value: MaybeResolvable<T, AgentChannelDeliveryEffectContext<TRuntimeConfig>>,
   context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
@@ -1128,7 +1168,7 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
   const env = await githubEnv(context)
   const appId = requiredString(await githubAppSetting(options, env, "appId", "appId", context), "appId")
   const installationId = installation
-    ?? ("effect" in context ? githubCommandFromEffect(context as AgentChannelDeliveryEffectContext<TRuntimeConfig>)?.installationId : undefined)
+    ?? ("effect" in context ? githubPullRequestTargetFromEffect(context as AgentChannelDeliveryEffectContext<TRuntimeConfig>)?.installationId : undefined)
     ?? requiredNumber(await githubAppSetting(options, env, "installationId", "appInstallationId", context), "installationId")
   const apiBaseUrl = options.apiBaseUrl || "https://api.github.com"
   const cacheKey = `${apiBaseUrl}:${appId}:${installationId}`
@@ -1664,6 +1704,17 @@ function statusPayload<TRuntimeConfig extends AgentRuntimeConfig>(
   }
 }
 
+function githubLabelsEffectPayload(value: unknown): GitHubPullRequestLabelsEffectPayload {
+  if (!isRecord(value) || (value.action !== "add" && value.action !== "remove" && value.action !== "replace") || !Array.isArray(value.labels)) {
+    throw new TypeError("[vitehub] GitHub labels effect requires an add, remove, or replace action and a labels array.")
+  }
+  const labels = [...new Set(value.labels.map(label => typeof label === "string" ? label : ""))]
+  if (labels.some(label => !label.trim())) {
+    throw new TypeError("[vitehub] GitHub labels effect labels must be non-empty strings.")
+  }
+  return { action: value.action, labels }
+}
+
 async function githubPullRequestSha(
   fetcher: typeof fetch,
   command: GitHubPullRequestCommand,
@@ -1695,6 +1746,30 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
   options: GitHubPullRequestEffectsOptions<TRuntimeConfig>,
 ): AgentChannelDeliveryEffects<TRuntimeConfig> {
   return {
+    async labels(context) {
+      const target = githubPullRequestTargetFromEffect(context)
+      if (!target) return
+      const payload = githubLabelsEffectPayload(context.effect.payload)
+      if (payload.action !== "replace" && !payload.labels.length) return
+      const fetcher = options.fetch || fetch
+      const token = await resolveEffectOption(options.token, context)
+      const headers = githubApiHeaders(token, options.userAgent)
+      const url = `${options.apiBaseUrl || "https://api.github.com"}/repos/${target.owner}/${target.repo}/issues/${target.issueNumber}/labels`
+      if (payload.action === "remove") {
+        for (const label of payload.labels) {
+          await githubApi(fetcher, `${url}/${encodeURIComponent(label)}`, {
+            headers,
+            method: "DELETE",
+          })
+        }
+        return
+      }
+      await githubApi(fetcher, url, {
+        body: JSON.stringify({ labels: payload.labels }),
+        headers,
+        method: payload.action === "add" ? "POST" : "PUT",
+      })
+    },
     async reaction(context) {
       const command = githubCommandFromEffect(context)
       if (!command?.commentId) return

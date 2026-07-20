@@ -195,7 +195,7 @@ export interface AgentRunMetadata<TOrigin extends string = string> {
   threadId?: string
 }
 
-export type AgentChannelDeliveryEffectKind = "reaction" | "reply" | "status" | (string & {})
+export type AgentChannelDeliveryEffectKind = "labels" | "reaction" | "reply" | "status" | (string & {})
 
 export type AgentDeliveryArtifactPlacement = "inline" | "attachment" | "link"
 
@@ -244,6 +244,11 @@ export interface AgentChannelDeliveryReactionPayload {
 
 export type AgentChannelDeliveryReactionInput = string | AgentChannelDeliveryReactionPayload
 
+export interface AgentChannelDeliveryLabelsPayload {
+  action: "add" | "remove" | "replace"
+  labels: readonly string[]
+}
+
 export type AgentChannelDeliveryStatusState = "error" | "failure" | "pending" | "success" | (string & {})
 
 export interface AgentChannelDeliveryStatusPayload {
@@ -257,7 +262,8 @@ export interface AgentChannelDeliveryStatusPayload {
 export type AgentChannelDeliveryStatusInput = AgentChannelDeliveryStatusState | AgentChannelDeliveryStatusPayload
 
 export type AgentChannelDeliveryEffectPayload<TKind extends AgentChannelDeliveryEffectKind> =
-  TKind extends "reaction" ? AgentChannelDeliveryReactionInput
+  TKind extends "labels" ? AgentChannelDeliveryLabelsPayload
+    : TKind extends "reaction" ? AgentChannelDeliveryReactionInput
     : TKind extends "reply" ? AgentChannelDeliveryReplyInput
       : TKind extends "status" ? AgentChannelDeliveryStatusInput
         : unknown
