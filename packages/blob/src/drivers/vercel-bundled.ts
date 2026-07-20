@@ -26,14 +26,17 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
   const auth = { token: options.token }
 
   async function read(pathname: string) {
+    const abortSignal = options.downloadTimeoutMs && options.downloadTimeoutMs > 0
+      ? AbortSignal.timeout(options.downloadTimeoutMs)
+      : undefined
     if (options.access === "private") {
-      const result = await get(pathname, { ...auth, access: "private" })
+      const result = await get(pathname, { ...auth, abortSignal, access: "private" })
       return result ? new Response(result.stream, { headers: result.blob.contentType ? { "content-type": result.blob.contentType } : undefined }) : null
     }
 
     try {
-      const metadata = await head(pathname, auth)
-      const response = await fetch(metadata.url)
+      const metadata = await head(pathname, { ...auth, abortSignal })
+      const response = await fetch(metadata.url, { signal: abortSignal })
       if (response.status === 404) return null
       if (!response.ok) throw new Error(`Vercel Blob read failed: ${response.status} ${response.statusText}`)
       return response
