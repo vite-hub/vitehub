@@ -361,6 +361,43 @@ describe("Vite provider outputs", () => {
     await expect(readFile(functionFile, "utf8")).resolves.toContain("createBlobVercelServer")
   })
 
+  it("preserves composed Vercel routes and symlinks after a sequential Cloudflare build", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-composed-vercel-")
+    const outputRoot = join(rootDir, ".vercel/output")
+    const serverFunction = join(outputRoot, "functions/__server.func/index.mjs")
+    const blobFunction = join(outputRoot, "functions/__blob.func/index.mjs")
+    const providerOutput = { runtimeModuleFilesByProduct: { facade: { vercel: "/facade-runtime.mjs" } } } satisfies ComposedProviderOutput
+    await mkdir(dirname(serverFunction), { recursive: true })
+    await writeFile(serverFunction, "// shared facade server\n", "utf8")
+    await writeFile(join(outputRoot, "config.json"), JSON.stringify({ routes: [{ src: "/(.*)", dest: "/__server" }] }), "utf8")
+    await mkdir(join(outputRoot, "functions/api"), { recursive: true })
+    await mkdir(join(outputRoot, "i"), { recursive: true })
+    await symlink("../__server.func", join(outputRoot, "functions/api/images.func"), "dir")
+    await symlink("../functions/__server.func", join(outputRoot, "i/[...].func"), "dir")
+
+    await generateProviderOutputs({
+      blob: { driver: "vercel-blob" },
+      clientOutDir: "dist",
+      providerOutput,
+      rootDir,
+      serverFunctionName: "__blob.func",
+    })
+    await generateProviderOutputs({
+      blob: { driver: "vercel-blob" },
+      clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
+      providerOutput,
+      rootDir,
+      serverFunctionName: "__blob.func",
+    })
+
+    await expect(readFile(serverFunction, "utf8")).resolves.toBe("// shared facade server\n")
+    expect(existsSync(blobFunction)).toBe(false)
+    expect(existsSync(join(outputRoot, "functions/api/images.func/index.mjs"))).toBe(true)
+    expect(existsSync(join(outputRoot, "i/[...].func/index.mjs"))).toBe(true)
+    await expect(readFile(join(outputRoot, "config.json"), "utf8")).resolves.toContain("__server")
+  })
+
   it("cleans legacy standalone workers without R2 runtime code when Nitro takes ownership", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-nitro-non-r2-")
     const cloudflareOutput = join(rootDir, "dist", toSafeAppName(rootDir))
