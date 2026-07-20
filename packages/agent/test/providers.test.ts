@@ -1557,6 +1557,7 @@ describe("agent Vite plugin", () => {
   it("publishes only required root runtime peers", async () => {
     const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
       dependencies?: Record<string, string>
+      devDependencies?: Record<string, string>
       peerDependencies?: Record<string, string>
       peerDependenciesMeta?: Record<string, unknown>
     }
