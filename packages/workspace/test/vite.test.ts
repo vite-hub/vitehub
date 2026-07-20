@@ -616,6 +616,21 @@ describe("hubWorkspace", () => {
     expect(pluginSource).not.toContain("@vite-hub/workspace")
   })
 
+  it("uses the facade hosting hint for workspace defaults", async () => {
+    const root = await createViteRoot()
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ hosting: "cloudflare-module" } as never)
+    const config = plugin.config as (
+      config: { nitro?: Record<string, unknown>, root: string },
+      env: { command: "build", mode: string },
+    ) => Promise<unknown>
+
+    await config({ nitro: {}, root }, { command: "build", mode: "production" })
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain('"provider": "memory"')
+  })
+
   it("keeps Vite workspace names relative to nested Vite roots while writing project state", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-suffix-root-"))
     tempDirs.push(root)

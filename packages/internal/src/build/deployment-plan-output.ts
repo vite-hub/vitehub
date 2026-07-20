@@ -7,6 +7,7 @@ interface FinalizeDeploymentPlanOutputOptions {
   outputDir?: string
   plan: DeploymentPlan
   rootDir: string
+  services?: Record<string, unknown>
 }
 
 export async function finalizeDeploymentPlanOutput(options: FinalizeDeploymentPlanOutputOptions): Promise<void> {
@@ -31,7 +32,7 @@ export async function finalizeDeploymentPlanOutput(options: FinalizeDeploymentPl
     },
     preset: options.plan.preset,
     runtime: options.plan.runtime,
-    services: options.plan.services,
+    services: options.services ?? options.plan.services,
   }
   const manifestPath = resolve(outputRoot, "deployment.json")
   await mkdir(dirname(manifestPath), { recursive: true })
