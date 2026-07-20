@@ -13,6 +13,7 @@ import { getMessageText } from "../messages.ts"
 import { normalizeAgentDriver } from "../internal/agent-driver.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { toReadableAsyncIterableStream, withAsyncIterator } from "../internal/stream-result.ts"
+import { responseTitleFallbackContextKey } from "../internal/final-channel-output.ts"
 
 import type {
   AgentAdapterRunContext,
@@ -802,6 +803,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         if (hasTitleApplied(result)) return result
         if (!firstUserMessage(context.input.messages())) return result
         const preparedInput = preparedTitleInput()
+        if (!preparedInput) context.context.set(responseTitleFallbackContextKey, true)
         if (isStreamTextResult(result)) {
           const toUIMessageStream = result.toUIMessageStream?.bind(result)
           if (result.stream || result.fullStream) {
