@@ -1,7 +1,7 @@
 import agentRegistry from "#vitehub/agent/registry"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
-import { cloneWithPropertyDescriptors } from "./internal/stream-result.ts"
+import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
 import { AgentOutputValidationError, validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { agentErrorDetails, agentErrorMessage } from "./agent-error.ts"
@@ -2422,11 +2422,15 @@ async function executeAgentInvocation<
           await finishStreamAgentInvocation(invocation, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
         }, { abortSignal: invocation.input.abortSignal })
         const streamProperty = isAsyncIterable((rendered as { stream?: unknown }).stream) ? "stream" : "fullStream"
+        const renderedStream = (rendered as { fullStream?: unknown, stream?: unknown })[streamProperty]
+        const preservedStream = typeof (renderedStream as ReadableStream<unknown>).pipeThrough === "function"
+          ? toReadableAsyncIterableStream(value)
+          : value
         const preserved = cloneWithPropertyDescriptors(rendered as object, {
           [streamProperty]: {
             configurable: true,
             enumerable: true,
-            value,
+            value: preservedStream,
             writable: true,
           },
         })

@@ -7562,9 +7562,13 @@ describe("agent message protocol", () => {
   it("preserves stream result methods while deriving attachment-only titles", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     class StreamResult {
-      fullStream = (async function* () {
-        yield { text: "Image description", type: "text-delta" }
-      })()
+      fullStream = new ReadableStream<unknown>({
+        start(controller) {
+          controller.enqueue({ text: "Image description", type: "text-delta" })
+          controller.enqueue({ type: "finish" })
+          controller.close()
+        },
+      })
 
       toTextStreamResponse() {
         return new Response("native")
@@ -7582,6 +7586,8 @@ describe("agent message protocol", () => {
       })],
     }) as StreamResult
     const events = []
+    expect(result.fullStream).toBeInstanceOf(ReadableStream)
+    expect(result.fullStream.pipeThrough).toEqual(expect.any(Function))
     for await (const event of result.fullStream) events.push(event)
 
     expect(result).toBeInstanceOf(StreamResult)
