@@ -9,7 +9,8 @@ export {
   type QueueProviderOperation,
 } from "./errors.ts"
 export { createCloudflareQueueBatchHandler } from "./providers/cloudflare.ts"
-export { getCloudflareQueueBindingName, getCloudflareQueueDefinitionName, getCloudflareQueueName } from "./integrations/cloudflare.ts"
+export { getCloudflareQueueBindingName, getCloudflareQueueDefinitionName } from "./integrations/cloudflare.ts"
+export { getCloudflareQueueName } from "./internal/cloudflare-resource-name.ts"
 export { getVercelQueueTopicName } from "./integrations/vercel.ts"
 export { createQueueClient, deferQueue, getQueue, runQueue } from "./runtime/client.ts"
 export { createQueueCloudflareWorker } from "./runtime/cloudflare-vite.ts"

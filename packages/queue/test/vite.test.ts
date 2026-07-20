@@ -93,6 +93,28 @@ describe("hubQueue", () => {
     expect(nitroPlugin).toContain("createQueueCloudflareWorker({ definitions: queueDefinitions")
   })
 
+  it("maps the long Drop deployment to its existing legacy Queue", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-legacy-"))
+    roots.push(root)
+    await writeFile(join(root, "image-optimization.queue.ts"), "export default { handler: async () => undefined }\n")
+
+    const namePrefix = "vitehub-drop-pm-20260719-"
+    const plugin = hubQueue({ namePrefix, provider: "cloudflare" })
+    const userConfig = { nitro: { preset: "cloudflare_module" }, root }
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(userConfig)
+    expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.queues", {
+      consumers: [{ queue: "vitehub-drop-pm-20260719-image-optimization" }],
+      producers: [{ binding: "QUEUE_696D6167652D6F7074696D697A6174696F6E", queue: "vitehub-drop-pm-20260719-image-optimization" }],
+    })
+
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      ...userConfig,
+      queue: { namePrefix, provider: "cloudflare" },
+    } as never)
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain('"vitehub-drop-pm-20260719-image-optimization": "image-optimization"')
+  })
+
   it("provisions inferred Cloudflare queues with the configured prefix in plain Vite builds", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-provision-prefix-"))
     roots.push(root)
@@ -118,16 +140,16 @@ describe("hubQueue", () => {
     expect(actions[0]!.name).toBe("preview-queue--77656c636f6d65")
   })
 
-  it("accepts Cloudflare physical queue names at the provider limit", async () => {
+  it("bounds Cloudflare physical queue names at the provider limit", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-prefix-limit-"))
     roots.push(root)
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
 
-    const validConfig = hubQueue({ namePrefix: "x".repeat(42), provider: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => void
-    expect(() => validConfig({ nitro: { preset: "cloudflare_module" }, root })).not.toThrow()
-
-    const invalidConfig = hubQueue({ namePrefix: "x".repeat(43), provider: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => void
-    expect(() => invalidConfig({ nitro: { preset: "cloudflare_module" }, root })).toThrow("must be at most 63 characters")
+    const config = { nitro: { preset: "cloudflare_module" }, root }
+    const pluginConfig = hubQueue({ namePrefix: "x".repeat(80), provider: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => void
+    expect(() => pluginConfig(config)).not.toThrow()
+    const queue = ((config.nitro as Record<string, unknown>).cloudflare as { wrangler: { queues: { producers: Array<{ queue: string }> } } }).wrangler.queues.producers[0]!.queue
+    expect(queue).toHaveLength(63)
   })
 
   it("rejects invalid Cloudflare queue prefixes during configuration", async () => {
