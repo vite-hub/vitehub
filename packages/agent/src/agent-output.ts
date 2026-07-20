@@ -62,6 +62,43 @@ function textFromResult(result: Record<string, unknown>): string | undefined {
   }
 }
 
+function finalTextFromContent(content: unknown): string | undefined {
+  if (!Array.isArray(content)) return
+
+  const boundary = content.findLastIndex((part) => {
+    if (!part || typeof part !== "object") return false
+    const type = ownValue(part as Record<string, unknown>, "type")
+    return typeof type === "string" && type.startsWith("tool-")
+  })
+  return boundary >= 0 ? textFromContent(content.slice(boundary + 1)) ?? "" : undefined
+}
+
+function finalTextFromStructuredResult(result: Record<string, unknown>): string | undefined {
+  const content = finalTextFromContent(ownValue(result, "content"))
+  if (content !== undefined) return content
+
+  const steps = ownValue(result, "steps")
+  if (!Array.isArray(steps)) return
+  return finalTextFromContent(steps.flatMap((step) => {
+    if (!step || typeof step !== "object") return []
+    const stepContent = ownValue(step as Record<string, unknown>, "content")
+    return Array.isArray(stepContent) ? stepContent : []
+  }))
+}
+
+export function finalTextFromAgentOutput(value: unknown): string | undefined {
+  if (typeof value === "string") return value
+  if (!isRecord(value)) return
+
+  const raw = ownValue(value, "raw")
+  if (isRecord(raw)) {
+    const final = finalTextFromStructuredResult(raw)
+    if (final !== undefined) return final
+  }
+
+  return finalTextFromStructuredResult(value) ?? textFromResult(value)
+}
+
 export function toAgentRunResult(value: unknown): AgentRunResult {
   if (typeof value !== "object" || value === null) {
     return { raw: value, text: typeof value === "string" ? value : undefined }

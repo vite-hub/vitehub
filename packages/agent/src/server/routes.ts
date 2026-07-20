@@ -4,7 +4,7 @@ import { createRuntimeWaitUntilController } from "@vite-hub/runtime"
 import { Chat, StreamingPlan, convertEmojiPlaceholders } from "chat"
 
 import { resolveAgentTriggerInvocation, resolveAgentTriggers, runAgent, runAgentInline, streamAgent, streamAgentTrigger } from "../index.ts"
-import { streamAgentOutputToEvents } from "../agent-output.ts"
+import { finalTextFromAgentOutput, streamAgentOutputToEvents } from "../agent-output.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
 import { RateLimitRejectedError } from "../capabilities/rate-limit.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "../chat-trigger.ts"
@@ -588,6 +588,9 @@ async function collectAgentOutput(result: unknown): Promise<string> {
     }
     return await result.text()
   }
+
+  const finalText = finalTextFromAgentOutput(result)
+  if (finalText !== undefined) return finalText.trim()
 
   let text = ""
   for await (const event of streamAgentOutputToEvents(result)) {
