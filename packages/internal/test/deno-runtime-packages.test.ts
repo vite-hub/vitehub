@@ -82,7 +82,7 @@ describe("Deno deployment output", () => {
       readFile(join(outputDir, "deno.json"), "utf8").then(JSON.parse),
     ).resolves.toMatchObject({ nodeModulesDir: "manual" })
     const deployRunner = await readFile(join(outputDir, "deploy.mjs"), "utf8")
-    for (const text of ["DENO_DEPLOY_ORG", '["deploy", "create"', "--do-not-use-detected-build-config", "--allow-node-modules", "server/index.ts", '["deploy", ".", "--prod"', 'const common = ["--org", organization, "--app", app]', "mkdtemp", "finally"]) expect(deployRunner).toContain(text)
+    for (const text of ["DENO_DEPLOY_ORG", "DENO_DEPLOY_NODE_MODULES_ENABLED", '["deploy", "create"', "--do-not-use-detected-build-config", "--allow-node-modules", "server/index.ts", '["deploy", ".", "--prod"', 'const common = ["--org", organization, "--app", app]', "mkdtemp", "finally"]) expect(deployRunner).toContain(text)
   })
 
   it("uses the pnpm package from a bundle marker", async () => {
@@ -177,7 +177,9 @@ process.exit(process.env.VITEHUB_DENO_ALWAYS_FAIL === "1" || attempts === 0 ? 1 
         PATH: `${bin}${delimiter}${process.env.PATH || ""}`,
         VITEHUB_DENO_INVOCATIONS: invocationsFile,
       }
-      await execFile(process.execPath, [join(output, "deploy.mjs")], { env })
+      await execFile(process.execPath, [join(output, "deploy.mjs")], {
+        env: { ...env, DENO_DEPLOY_NODE_MODULES_ENABLED: "1" },
+      })
 
       const invocations = (await readFile(invocationsFile, "utf8")).trim().split("\n").map(line => JSON.parse(line) as {
         args: string[]
@@ -187,10 +189,10 @@ process.exit(process.env.VITEHUB_DENO_ALWAYS_FAIL === "1" || attempts === 0 ? 1 
         sharp: boolean
       })
       expect(invocations).toHaveLength(2)
-      expect(invocations[0]!.args.slice(0, 2)).toEqual(["deploy", "."])
-      expect(invocations[1]!.args.slice(0, 3)).toEqual(["deploy", "create", "."])
-      expect(invocations[0]!.args).not.toContain("--allow-node-modules")
-      expect(invocations[1]!.args).toContain("--allow-node-modules")
+      expect(invocations[0]!.args.slice(0, 3)).toEqual(["deploy", "create", "."])
+      expect(invocations[1]!.args.slice(0, 2)).toEqual(["deploy", "."])
+      expect(invocations[0]!.args).toContain("--allow-node-modules")
+      expect(invocations[1]!.args).not.toContain("--allow-node-modules")
       for (const invocation of invocations) {
         expect(relative(root, invocation.cwd).startsWith("..")).toBe(true)
         expect(invocation).toMatchObject({ entry: true, libvips: true, sharp: true })
@@ -205,7 +207,9 @@ process.exit(process.env.VITEHUB_DENO_ALWAYS_FAIL === "1" || attempts === 0 ? 1 
           VITEHUB_DENO_INVOCATIONS: failedInvocationsFile,
         },
       })).rejects.toThrow()
-      const failedStage = JSON.parse((await readFile(failedInvocationsFile, "utf8")).split("\n")[0]!) as { cwd: string }
+      const failedInvocations = (await readFile(failedInvocationsFile, "utf8")).trim().split("\n")
+      expect(failedInvocations).toHaveLength(1)
+      const failedStage = JSON.parse(failedInvocations[0]!) as { cwd: string }
       expect(existsSync(failedStage.cwd)).toBe(false)
     } finally {
       await rm(root, { force: true, recursive: true })
