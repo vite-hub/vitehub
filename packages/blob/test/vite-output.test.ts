@@ -326,12 +326,14 @@ describe("Vite provider outputs", () => {
   it("preserves Vercel functions not owned by Blob during Cloudflare builds", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-shared-vercel-")
     const functionFile = join(rootDir, ".vercel/output/functions/__server.func/index.mjs")
-    await mkdir(dirname(functionFile), { recursive: true })
-    await writeFile(functionFile, "// database server\n", "utf8")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await writeFile(join(rootDir, "src/server.ts"), "export default async () => new Response('ok')\n", "utf8")
+    await generateProviderOutputs({ blob: { driver: "vercel-blob" }, clientOutDir: "dist", rootDir })
+    await writeFile(functionFile, "// shared server\n", "utf8")
 
     await generateProviderOutputs({ blob: { driver: "vercel-blob" }, clientOutDir: "dist", cloudflareOwnedByNitro: true, rootDir })
 
-    await expect(readFile(functionFile, "utf8")).resolves.toBe("// database server\n")
+    await expect(readFile(functionFile, "utf8")).resolves.toBe("// shared server\n")
   })
 
   it("cleans legacy standalone workers without R2 runtime code when Nitro takes ownership", { timeout: 30_000 }, async () => {

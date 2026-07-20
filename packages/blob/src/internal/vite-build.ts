@@ -533,11 +533,13 @@ async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOpt
       serverFunctionName: options.serverFunctionName,
     })
   }
-  await writeFile(resolve(options.rootDir, ".vercel/output/functions", options.serverFunctionName ?? "__server.func", vercelBlobOutputMarker), "", "utf8")
+  if (options.serverFunctionName && options.serverFunctionName !== "__server.func") {
+    await writeFile(resolve(options.rootDir, ".vercel/output/functions", options.serverFunctionName, vercelBlobOutputMarker), "", "utf8")
+  }
 }
 
 async function getVercelBlobOutputNames(options: GenerateProviderOutputsOptions) {
-  const names = [...new Set([options.serverFunctionName ?? "__server.func", "__blob.func"])]
+  const names = [...new Set([options.serverFunctionName, "__blob.func"].filter((name): name is string => Boolean(name && name !== "__server.func")))]
   const owned: string[] = []
   for (const name of names) {
     try {
