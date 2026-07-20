@@ -196,7 +196,7 @@ function normalizeNitroPreset(value: string): string {
   return value.trim().toLowerCase().replaceAll("_", "-")
 }
 
-function deploymentNitroModule(plan: DeploymentPlan) {
+function deploymentNitroModule(plan: DeploymentPlan, services: Record<string, unknown>) {
   return (nitro: {
     hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
     options: { output: { dir: string }, rootDir: string }
@@ -207,12 +207,12 @@ function deploymentNitroModule(plan: DeploymentPlan) {
       if (plan.output.packaging === "deno-node-modules") {
         await finalizeDenoDeploymentOutput({ outputDir, rootDir })
       }
-      await finalizeDeploymentPlanOutput({ outputDir, plan, rootDir })
+      await finalizeDeploymentPlanOutput({ outputDir, plan, rootDir, services })
     })
   }
 }
 
-function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentService[], blobEnabled: boolean): Plugin[] {
+function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentService[], blobEnabled: boolean, services: Record<string, unknown>): Plugin[] {
   return [
     {
       name: "vite-hub/deployment-preset",
@@ -264,7 +264,7 @@ function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentSe
         }
         nitro.modules = [
           ...(Array.isArray(nitro.modules) ? nitro.modules : []),
-          deploymentNitroModule(plan),
+          deploymentNitroModule(plan, services),
         ]
         if (plan.output.packaging === "deno-node-modules") {
           nitro.commands = { ...cloneRecord(nitro.commands), deploy: "node ./deploy.mjs" }
@@ -307,6 +307,9 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.schedule && plan.preset === "deno") {
     throw new Error("[vitehub] The \"deno\" preset cannot provide Schedule because its generated cron output is not part of the deployed Nitro entrypoint. Disable Schedule or compose an explicit Deno scheduling integration.")
   }
+  if (options.agent && options.agent.runtime === "deno" && plan.preset === "deno") {
+    throw new Error("[vitehub] The \"deno\" preset cannot deploy the Agent Deno runtime because its generated server is outside the deployed Nitro entrypoint. Use the preset's Nitro runtime or compose an explicit Deno Agent deployment.")
+  }
   const sandboxEnabled = options.sandbox === true && plan.services.sandbox.supported
   const blobEnabled = options.blob !== false && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
   const plugins: unknown[] = []
@@ -315,7 +318,10 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.queue) requestedServices.push("queue")
   if (options.rateLimit) requestedServices.push("rateLimit")
   if (options.sandbox) requestedServices.push("sandbox")
-  plugins.push(...deploymentPlugins(plan, requestedServices, blobEnabled))
+  const manifestServices = hasExplicitBlobStore(options.blob)
+    ? { ...plan.services, blob: { configured: true, supported: true } }
+    : plan.services
+  plugins.push(...deploymentPlugins(plan, requestedServices, blobEnabled, manifestServices))
   const providerImportAliases: Record<string, string> = {}
   const configuredKV = options.kv && options.kv !== true ? options.kv : undefined
   const presetKV = options.kv ? resolveKVViteConfig(configuredKV, { hosting: plan.nitroPreset }).kv : false
@@ -414,6 +420,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.workspace !== false) {
     plugins.push(hubWorkspace({
       ...options.workspace,
+      hosting: plan.nitroPreset,
       importBase: `${generatedImportBase}/workspace`,
     } as WorkspaceModuleOptions))
   }

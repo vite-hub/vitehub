@@ -172,6 +172,7 @@ describe("vitehub", () => {
       },
     }))
     expect(integrationMocks.hubWorkspace).toHaveBeenLastCalledWith({
+      hosting: "node-server",
       importBase: "vite-hub/_internal/workspace",
     })
 
@@ -439,6 +440,7 @@ describe("vitehub", () => {
 
   it("rejects unsupported capabilities and conflicting target selection", async () => {
     expect(() => vitehub({ preset: "deno", schedule: true })).toThrow("cannot provide Schedule")
+    expect(() => vitehub({ preset: "deno", agent: { runtime: "deno" } })).toThrow("cannot deploy the Agent Deno runtime")
 
     const unsupported = vitehub({ preset: "deno", queue: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     const unsupportedHook = unsupported.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void

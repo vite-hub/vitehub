@@ -637,17 +637,20 @@ interface WorkspaceCliContributingPlugin {
 export type WorkspaceVitePlugin = Plugin & WorkspaceCliContributingPlugin & { api: WorkspaceVitePluginAPI }
 
 interface InternalWorkspaceModuleOptions extends WorkspaceModuleOptions {
+  hosting?: string
   importBase?: string
 }
 
 function stripWorkspaceInternalOptions(options: false | WorkspaceModuleOptions | undefined): false | WorkspaceModuleOptions | undefined {
-  if (!options || !Object.hasOwn(options, "importBase")) return options
+  if (!options || (!Object.hasOwn(options, "hosting") && !Object.hasOwn(options, "importBase"))) return options
   const publicOptions = { ...options } as InternalWorkspaceModuleOptions
+  delete publicOptions.hosting
   delete publicOptions.importBase
   return publicOptions
 }
 
 export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlugin {
+  const hosting = (options as InternalWorkspaceModuleOptions | undefined)?.hosting
   const importBase = (options as InternalWorkspaceModuleOptions | undefined)?.importBase ?? WORKSPACE_PACKAGE_NAME
   const publicOptions = stripWorkspaceInternalOptions(options)
   let resolved: ResolvedConfig | undefined
@@ -696,7 +699,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       const normalized = normalizeWorkspaceOptions(workspaceOptions, {
         dev: env?.command !== "build",
         env: process.env,
-        hosting: process.env.VITEHUB_HOSTING,
+        hosting: hosting ?? process.env.VITEHUB_HOSTING,
         rootDir: roots.projectRoot,
       })
       const viteConfig: ViteConfigWithWorkspaceNitro = {

@@ -49,6 +49,8 @@ vitehub({
 
 Selecting an unsupported opt-in capability fails the build with the preset policy. You can instead configure an explicit Blob driver through `blob` or compose an owner package directly when the application provides its own portable implementation.
 
+The Deno preset uses Nitro's Deno entrypoint, so it rejects Schedule and `agent.runtime: "deno"`; those owner-package outputs require an explicit deployment integration.
+
 The Deno preset emits `.output/deno.json`, stages emitted runtime packages and installed optional native dependencies under `.output/node_modules`, and writes `.output/deploy.mjs`, a non-interactive create-or-update runner used by the `node ./deploy.mjs` command in `.output/nitro.json`; set `DENO_DEPLOY_ORG` plus `DENO_DEPLOY_APP` or `VITEHUB_DEPLOYMENT_NAME` before deployment. The Node preset emits a plain Node server artifact suitable for a VPS or container image; Docker is not a hosting preset.
 
 ## Use feature APIs

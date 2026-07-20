@@ -16,7 +16,7 @@ Provider Selection belongs in Integration Options when it changes generated outp
 | --- | --- | --- | --- |
 | `vite-hub` | `ViteHubOptions` | `vitehub({ preset })` in Vite `plugins` | Composes Agent, Database, DevTools, Env, Workflow, and Workspace unless a key is `false`; includes Blob when the preset supplies a built-in store. Auth, Email, KV, Queue, Rate Limit, Sandbox, and Schedule are enabled with `true`. |
 
-Unsupported requested capabilities fail before a production build can silently select a weaker provider. The `node` preset intentionally exposes its filesystem Blob store as single-host and its memory Rate Limiter as single-process. The `deno` preset rejects Schedule because Schedule's generated cron output is not part of its deployed Nitro entrypoint. Deno output includes runtime package staging, a validated deployment manifest, and a non-interactive create-or-update runner.
+Unsupported requested capabilities fail before a production build can silently select a weaker provider. The `node` preset intentionally exposes its filesystem Blob store as single-host and its memory Rate Limiter as single-process. The `deno` preset rejects Schedule and `agent.runtime: "deno"` because those generated servers are not part of its deployed Nitro entrypoint. Deno output includes runtime package staging, a validated deployment manifest, and a non-interactive create-or-update runner.
 
 Direct `hubX()` integration functions remain available from their independent
 `@vite-hub/*/vite` owner-package paths.
