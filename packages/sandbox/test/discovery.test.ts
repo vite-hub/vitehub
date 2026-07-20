@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-discovery"
 import { discoverSandboxDefinitions, discoverServerSandboxDefinitions } from "../src/discovery.ts"
+import { resolveSandboxProject } from "../src/project.ts"
 
 const tempDirs: string[] = []
 
@@ -65,6 +66,23 @@ describe("discoverServerSandboxDefinitions", () => {
       "billing",
       "content/summary",
     ])
+  })
+
+  it("uses a nested package folder for the Definition name and project root", async () => {
+    const rootDir = await createTempDir("vitehub-sandbox-package-discovery-")
+    const packageDir = join(rootDir, "server", "sandboxes", "tools", "image-optimizer")
+    await mkdir(packageDir, { recursive: true })
+    await writeFile(join(rootDir, "package.json"), JSON.stringify({ packageManager: "yarn@1.22.22", private: true }), "utf8")
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({ packageManager: "npm@11", private: true }), "utf8")
+    await writeFile(join(packageDir, "index.ts"), "export default null\n", "utf8")
+
+    const definitions = discoverSandboxDefinitions({ rootDir })
+    expect(definitions).toHaveLength(1)
+    expect(definitions[0]?.name).toBe("tools/image-optimizer")
+
+    const project = await resolveSandboxProject(definitions[0]!.handler, rootDir)
+    expect(project.packagePath).toBe(".")
+    expect(project.install.command).toBe("npm")
   })
 
   it("rejects duplicate sandbox names across server scan dirs", async () => {

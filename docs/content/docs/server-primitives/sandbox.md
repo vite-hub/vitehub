@@ -26,13 +26,13 @@ export default defineConfig({
 
 Every discovered Definition belongs to a real package project. ViteHub never writes a manifest into your repository, so create the smallest valid one when the package has no dependencies:
 
-```json [sandboxes/release-notes/package.json]
+```json [server/sandboxes/release-notes/package.json]
 {
   "private": true
 }
 ```
 
-```ts [sandboxes/release-notes/release-notes.sandbox.ts]
+```ts [server/sandboxes/release-notes/index.ts]
 import { defineSandbox } from '@vite-hub/sandbox'
 
 export default defineSandbox({
@@ -61,33 +61,35 @@ Sandbox and Agent use the same Box Interface. Workspace never selects Cloudflare
 
 ## Package projects
 
-ViteHub walks from the `*.sandbox.ts` file to the Vite root and selects the nearest `package.json`. Missing manifests fail the build with the searched boundary. Multiple Definitions can share one package project, while nested folders can own independent manifests.
+Under `server/sandboxes`, use one folder per package project with a `package.json` and `index.ts`. The folder path supplies the Definition name. ViteHub walks from the Definition file to the Vite root and selects the nearest `package.json`. Missing manifests fail the build with the searched boundary, while nested folders can own independent manifests.
 
 ```text
-sandboxes/
+server/sandboxes/
 ├── image/
 │   ├── package.json
-│   └── optimize.sandbox.ts
+│   └── index.ts
 └── metadata/
     ├── package.json
-    └── extract.sandbox.ts
+    └── index.ts
 ```
+
+For free-form Definitions outside `server/sandboxes`, use the `<path>.sandbox.ts` suffix convention. Those Definitions also use their nearest `package.json`, so several files can share one package project.
 
 Package-manager selection uses the manifest's `packageManager` field, then a lockfile at that package root, then npm. A nested independent package never inherits an unrelated ancestor lockfile. Lockfiles enable frozen installation. ViteHub installs the project inside the Box before the Definition launches, and dependency trees never enter Workspace commits.
 
 ViteHub also understands a standard pnpm Workspace without adding ViteHub-specific workspace configuration:
 
 ```text
-sandboxes/
+server/sandboxes/
 ├── package.json
 ├── pnpm-lock.yaml
 ├── pnpm-workspace.yaml
 └── image/
     ├── package.json
-    └── optimize.sandbox.ts
+    └── index.ts
 ```
 
-Installation runs at the pnpm Workspace root and the Definition runs from `sandboxes/image`. ViteHub carries every local package in the transitive `workspace:*` dependency closure, then pnpm remains responsible for installation and linking semantics. Other Workspace packages stay outside the runtime project.
+Installation runs at the pnpm Workspace root and the Definition runs from `server/sandboxes/image`. ViteHub carries every local package in the transitive `workspace:*` dependency closure, then pnpm remains responsible for installation and linking semantics. Other Workspace packages stay outside the runtime project.
 
 ## Definition Interface
 
