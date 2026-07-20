@@ -200,14 +200,15 @@ async function readRuntimePackages(serverDir: string, rootDir: string): Promise<
   for (const file of await runtimeSourceFiles(serverDir)) {
     const source = await readFile(file, "utf8")
     for (const [name, packagePath] of collectBundledPackages(source)) {
+      const existing = packages.get(name)
       packages.set(name, {
-        ...packages.get(name),
+        ...existing,
         hoistOptionalDependencies: true,
         includeOptionalDependencies: true,
         includePeerDependencies: true,
         name,
-        onlyIfOptionalDependencies: true,
-        optional: true,
+        onlyIfOptionalDependencies: existing?.onlyIfOptionalDependencies ?? true,
+        optional: existing?.optional ?? true,
         packageJsonPath: resolve(rootDir, packagePath.replace(/^[/\\]/, ""), "package.json"),
       })
     }
