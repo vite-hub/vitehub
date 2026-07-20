@@ -1,4 +1,4 @@
-import { basename } from "node:path"
+import { basename, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import frameworkPackageManifest from "../package.json" with { type: "json" }
@@ -177,8 +177,8 @@ export interface ViteHubOptions {
   workspace?: false | WorkspaceModuleOptions
 }
 
-function deploymentName(): string {
-  return (process.env.VITEHUB_DEPLOYMENT_NAME || basename(process.cwd()))
+function deploymentName(root?: string): string {
+  return (process.env.VITEHUB_DEPLOYMENT_NAME || basename(resolve(process.cwd(), root || ".")))
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
@@ -218,6 +218,28 @@ function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentSe
       },
       config(config) {
         for (const service of requestedServices) assertDeploymentService(plan, service)
+        const name = deploymentName(typeof config.root === "string" ? config.root : undefined)
+        if (requestedServices.includes("queue") && plan.services.queue.supported) {
+          ;(config as { queue?: unknown }).queue = {
+            ...cloneRecord((config as { queue?: unknown }).queue),
+            provider: plan.services.queue.adapter,
+            ...(plan.services.queue.adapter === "cloudflare" ? { namePrefix: name + "-" } : {}),
+          }
+        }
+        if (requestedServices.includes("rateLimit") && plan.services.rateLimit.supported) {
+          ;(config as { rateLimit?: unknown }).rateLimit = {
+            ...cloneRecord((config as { rateLimit?: unknown }).rateLimit),
+            namespace: name,
+            provider: plan.services.rateLimit.adapter,
+          }
+        }
+        if (requestedServices.includes("sandbox") && plan.services.sandbox.supported) {
+          ;(config as { sandbox?: unknown }).sandbox = {
+            ...cloneRecord((config as { sandbox?: unknown }).sandbox),
+            ...(plan.services.sandbox.adapter === "cloudflare" ? { name: name + "-sandbox" } : {}),
+            provider: plan.services.sandbox.adapter,
+          }
+        }
         const nitro = cloneRecord((config as { nitro?: unknown }).nitro)
         const configuredPreset = typeof nitro.preset === "string" ? nitro.preset : undefined
         if (configuredPreset && deploymentPresetFromNitro(configuredPreset) !== plan.preset) {
@@ -309,7 +331,6 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     const sandboxPolicy = plan.services.sandbox
     plugins.push(hubSandbox({
       ...(sandboxPolicy.supported ? { provider: sandboxPolicy.adapter } : {}),
-      ...(sandboxPolicy.supported && sandboxPolicy.adapter === "cloudflare" ? { name: deploymentName() + "-sandbox" } : {}),
       providerImportAliases,
       providerImportSpecifier: "vite-hub/sandbox",
     } as SandboxPublicOptions))
@@ -344,13 +365,11 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.queue && plan.services.queue.supported) {
     plugins.push(hubQueue({
       provider: plan.services.queue.adapter,
-      ...(plan.services.queue.adapter === "cloudflare" ? { namePrefix: deploymentName() + "-" } : {}),
     }))
   }
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit
     plugins.push(hubRateLimit({
-      namespace: deploymentName(),
       provider: rateLimitPolicy.supported ? rateLimitPolicy.adapter : "memory",
       importBase: `${generatedImportBase}/rate-limit`,
     } as RateLimitModuleOptions))
