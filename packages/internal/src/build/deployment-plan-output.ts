@@ -1,5 +1,5 @@
 import { access, mkdir, writeFile } from "node:fs/promises"
-import { dirname, relative, resolve } from "node:path"
+import { basename, dirname, relative, resolve } from "node:path"
 
 import type { DeploymentPlan } from "../deployment.ts"
 
@@ -10,7 +10,10 @@ interface FinalizeDeploymentPlanOutputOptions {
 }
 
 export async function finalizeDeploymentPlanOutput(options: FinalizeDeploymentPlanOutputOptions): Promise<void> {
-  const outputRoot = resolve(options.rootDir, options.outputDir ?? options.plan.output.directory)
+  const nitroOutputRoot = resolve(options.rootDir, options.outputDir ?? options.plan.output.directory)
+  const outputRoot = options.plan.preset === "netlify" && basename(nitroOutputRoot) === "functions-internal"
+    ? dirname(nitroOutputRoot)
+    : nitroOutputRoot
   const entry = options.plan.output.entry ? resolve(outputRoot, options.plan.output.entry) : undefined
   if (entry) {
     try {

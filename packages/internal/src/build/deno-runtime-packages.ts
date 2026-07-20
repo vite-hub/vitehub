@@ -202,25 +202,22 @@ if (!organization || !app) {
   throw new Error("DENO_DEPLOY_ORG and DENO_DEPLOY_APP (or VITEHUB_DEPLOYMENT_NAME) are required.")
 }
 
-function run(args, stdio = "inherit") {
+function run(args) {
   return new Promise((resolve, reject) => {
-    const child = spawn("deno", args, { cwd: new URL(".", import.meta.url), stdio })
+    const child = spawn("deno", args, { cwd: new URL(".", import.meta.url), stdio: "inherit" })
     child.on("error", reject)
     child.on("exit", (code, signal) => resolve({ code, signal }))
   })
 }
 
-const lookup = await run(["deploy", "apps", "get", "--org", organization, "--app", app, "--json", "--non-interactive"], "ignore")
-if (lookup.code !== 0 && lookup.code !== 4) {
-  throw new Error("deno app lookup exited with " + (lookup.signal || "code " + lookup.code))
-}
+const common = ["--org", organization, "--app", app, "--allow-node-modules"]
+const deployment = await run(["deploy", ".", ...common])
+if (deployment.code === 0) process.exit(0)
 
-const common = ["--org", organization, "--app", app, "--allow-node-modules", "--json", "--non-interactive"]
-const args = lookup.code === 0
-  ? ["deploy", ".", ...common]
-  : ["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", "server/index.ts", "--working-directory", ".", "--region", region, ...common]
-const result = await run(args)
-if (result.code !== 0) throw new Error("deno deploy exited with " + (result.signal || "code " + result.code))
+const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", "server/index.ts", "--working-directory", ".", "--region", region, ...common])
+if (creation.code !== 0) {
+  throw new Error("deno deploy/create exited with " + (creation.signal || "code " + creation.code))
+}
 `
 
 export async function finalizeDenoDeploymentOutput(

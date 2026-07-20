@@ -62,7 +62,7 @@ describe("Deno deployment output", () => {
     ).resolves.toMatchObject({ nodeModulesDir: "manual" })
     const deployRunner = await readFile(join(outputDir, "deploy.mjs"), "utf8")
     expect(deployRunner).toContain("DENO_DEPLOY_ORG")
-    expect(deployRunner).toContain("--non-interactive")
+    expect(deployRunner).toContain('["deploy", "create"')
     expect(deployRunner).toContain("--do-not-use-detected-build-config")
     expect(deployRunner).toContain("server/index.ts")
   })

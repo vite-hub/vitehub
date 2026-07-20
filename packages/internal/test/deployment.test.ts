@@ -76,4 +76,17 @@ describe("built-in deployment plans", () => {
     const manifest = JSON.parse(await readFile(resolve(outputDir, "deployment.json"), "utf8"))
     expect(manifest.output).toEqual({ ...plan.output, directory: "custom-output" })
   })
+  it("uses Netlify's deployment root above its Nitro output directory", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-plan-netlify-output-"))
+    const outputDir = resolve(rootDir, "custom-netlify", "functions-internal")
+    const plan = resolveDeploymentPlan("netlify")
+    const entry = resolve(rootDir, "custom-netlify", plan.output.entry!)
+    await mkdir(dirname(entry), { recursive: true })
+    await writeFile(entry, "export {}\n", "utf8")
+
+    await finalizeDeploymentPlanOutput({ outputDir, plan, rootDir })
+
+    const manifest = JSON.parse(await readFile(resolve(rootDir, "custom-netlify", "deployment.json"), "utf8"))
+    expect(manifest.output.directory).toBe("custom-netlify")
+  })
 })
