@@ -6975,6 +6975,33 @@ describe("agent message protocol", () => {
     expect(events.at(-1)).toEqual({ type: "finish" })
   })
 
+  it("defers runAgent response titles for stream results until consumption", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [title({ execute: ({ source, text }) => `${source}: ${text}` })],
+      driver: { run: () => ({
+        stream: (async function* () {
+          yield { text: "Deferred reply", type: "text-delta" }
+          yield { type: "finish" }
+        })(),
+      }) },
+      hooks: { "agent:finish": finish },
+    })
+
+    const stream = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+        role: "user",
+      })],
+    }) as AsyncIterable<unknown>
+
+    expect(finish).not.toHaveBeenCalled()
+    for await (const _event of stream) {}
+
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "response: Deferred reply" })
+  })
+
   it("keeps plain stream titles per invocation with once-per-thread Channel delivery", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const execute = vi.fn(({ text }) => `Title: ${text}`)

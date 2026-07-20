@@ -2370,6 +2370,17 @@ async function executeAgentInvocation<
       const rendered = options.renderOutput
         ? renderedResult ? result : await applyOutputRenderers(result, invocation.outputRenderers, invocation.outputExtensionProviders, outputExtensions)
         : result
+      if (options.renderOutput && !invocation.output && hasTraceableStreamResult(rendered) && shouldWrapInvocationOutput(invocation)) {
+        const streamed = withStreamedResult(streamAgentOutputToEvents(rendered), rendered, driverUsageRecord)
+        const value = withCapabilityCleanup(streamed.stream, async (outcome) => {
+          await finishStreamAgentInvocation(invocation, lifecycle, streamed.finishResult(), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
+        }, { abortSignal: invocation.input.abortSignal })
+        return {
+          deferFinish: true,
+          finishResult: rendered,
+          value,
+        }
+      }
       const final = options.renderOutput ? await applyFinalOutputRenderers(rendered, invocation, outputExtensions) : rendered
       const structuredFinal = options.renderOutput && invocation.output ? await materializeAgentStructuredOutput(final, invocation.input.abortSignal) : final
       const structuredUsageRecord = options.renderOutput && invocation.output
