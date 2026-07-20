@@ -519,6 +519,7 @@ function withTitleReadableStreamParallel<T>(
               }
               const resolvedTitle = await deferredTitle(text).catch(() => undefined)
               titlePending = false
+              if (cancelled) return
               if (resolvedTitle) controller.enqueue(renderTitle(resolvedTitle))
               controller.enqueue(next.value.value)
               controller.close()

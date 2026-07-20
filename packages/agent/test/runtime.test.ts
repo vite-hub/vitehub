@@ -7725,6 +7725,51 @@ describe("agent message protocol", () => {
     expect(cancel).toHaveBeenCalledWith("client disconnected")
   })
 
+  it("cancels response-title streams while title generation is pending", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    let titleStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      titleStarted = resolve
+    })
+    let resolveTitle!: (title: string) => void
+    const pendingTitle = new Promise<string>((resolve) => {
+      resolveTitle = resolve
+    })
+    class StreamResult {
+      stream = new ReadableStream<unknown>({
+        start(controller) {
+          controller.enqueue({ text: "Image description", type: "text-delta" })
+          controller.enqueue({ type: "finish" })
+          controller.close()
+        },
+      })
+    }
+    const agent = defineAgent({
+      capabilities: [title({ execute: () => {
+        titleStarted()
+        return pendingTitle
+      } })],
+      driver: { run: () => new StreamResult() },
+    })
+
+    const result = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+        role: "user",
+      })],
+    }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const reader = result.getReader()
+    const consumption = (async () => {
+      while (!(await reader.read()).done) {}
+    })()
+    await started
+    const cancellation = reader.cancel("client disconnected")
+    resolveTitle("Image title")
+
+    await expect(cancellation).resolves.toBeUndefined()
+    await expect(consumption).resolves.toBeUndefined()
+  })
+
   it("preserves text stream result metadata when adding title data", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
