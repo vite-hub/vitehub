@@ -929,6 +929,9 @@ importers:
 
   packages/queue:
     dependencies:
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       '@vercel/queue':
         specifier: catalog:vercel
         version: 0.0.0-alpha.40
@@ -1287,6 +1290,9 @@ importers:
       '@vercel/functions':
         specifier: catalog:vercel
         version: 3.7.5(@aws-sdk/credential-provider-web-identity@3.972.65)(ws@8.21.1)
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database

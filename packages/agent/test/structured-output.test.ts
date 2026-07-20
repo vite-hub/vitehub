@@ -63,17 +63,97 @@ describe("Agent structured output", () => {
   })
 
   it("reports malformed JSON with a stable ViteHub-owned error", async () => {
+    expect(() => new AgentOutputValidationError("CUSTOM" as never)).toThrow(TypeError)
     const agent = defineAgent({
       driver: { run: () => "not json" },
       output: { schema: summarySchema() },
       runtime: false,
     })
 
-    await expect(runAgentInline(agent, runtime(), {})).rejects.toMatchObject({
-      code: "invalid-json",
+    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, cause => cause as AgentOutputValidationError)
+    expect(error).toMatchObject({
+      code: "AGENT_OUTPUT_INVALID_JSON",
       message: "[vitehub] Agent output is not valid JSON.",
       name: "AgentOutputValidationError",
     } satisfies Partial<AgentOutputValidationError>)
+    expect(error?.cause).toBeInstanceOf(SyntaxError)
+    expect(error?.toJSON()).toEqual({
+      code: "AGENT_OUTPUT_INVALID_JSON",
+      message: "[vitehub] Agent output is not valid JSON.",
+      retryable: false,
+    })
+  })
+
+  it("handles hostile output-error constructor options", () => {
+    const secret = "https://user:token@example.com/private"
+    const options = new Proxy({}, {
+      get() {
+        throw new Error(secret)
+      },
+    })
+    const error = new AgentOutputValidationError("AGENT_OUTPUT_INVALID_JSON", options as never)
+
+    expect(error.toJSON()).toEqual({
+      code: "AGENT_OUTPUT_INVALID_JSON",
+      message: "[vitehub] Agent output is not valid JSON.",
+      retryable: false,
+    })
+    expect(JSON.stringify(error)).not.toContain(secret)
+  })
+
+  it("preserves custom schema failures exactly", async () => {
+    const cause = new Error("private validator failure")
+    const agent = defineAgent({
+      driver: { run: () => ({ summary: "Decisions", title: "Weekly sync" }) },
+      output: {
+        schema: {
+          "~standard": {
+            validate: () => Promise.reject(cause),
+            vendor: "vitehub-test",
+            version: 1,
+          },
+        },
+      },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime(), {})).rejects.toBe(cause)
+  })
+
+  it("normalizes unreadable model results", async () => {
+    const cause = new Error("private model getter")
+    const result = new Proxy({}, { has: () => { throw cause } })
+    const agent = defineAgent({
+      driver: { run: () => result },
+      output: { schema: summarySchema() },
+      runtime: false,
+    })
+
+    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, error => error as AgentOutputValidationError)
+    expect(error).toMatchObject({ cause, code: "AGENT_OUTPUT_INVALID_JSON" })
+    expect(JSON.stringify(error)).not.toContain("private model getter")
+  })
+
+  it("normalizes unreadable schema issues after validation returns", async () => {
+    const cause = new Error("private issue getter")
+    const issue = Object.defineProperty({}, "path", { get: () => { throw cause } })
+    const agent = defineAgent({
+      driver: { run: () => "{}" },
+      output: {
+        schema: {
+          "~standard": {
+            validate: () => ({ issues: [issue as never] }),
+            vendor: "vitehub-test",
+            version: 1,
+          },
+        },
+      },
+      runtime: false,
+    })
+
+    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, error => error as AgentOutputValidationError)
+    expect(error).toMatchObject({ cause, code: "AGENT_OUTPUT_SCHEMA_INVALID" })
+    expect(JSON.stringify(error)).not.toContain("private issue getter")
   })
 
   it("validates materialized objects whose schema includes a text field", async () => {
@@ -295,11 +375,14 @@ describe("Agent structured output", () => {
       runtime: false,
     })
 
-    await expect(runAgentInline(agent, runtime(), {})).rejects.toMatchObject({
-      code: "schema-validation",
-      message: "[vitehub] Agent output failed schema validation: title: Expected summary and title strings.",
+    const error = await runAgentInline(agent, runtime(), {}).then(() => undefined, cause => cause as AgentOutputValidationError)
+    expect(error).toMatchObject({
+      code: "AGENT_OUTPUT_SCHEMA_INVALID",
+      message: "[vitehub] Agent output failed schema validation.",
       name: "AgentOutputValidationError",
     } satisfies Partial<AgentOutputValidationError>)
+    expect((error as AgentOutputValidationError).cause).toMatchObject({ message: "title: Expected summary and title strings" })
+    expect(JSON.stringify(error)).not.toContain("Expected summary")
   })
 
   it("preserves untyped Agent results", async () => {

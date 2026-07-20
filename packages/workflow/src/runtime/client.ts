@@ -4,6 +4,7 @@ import { normalizeWorkflowOptions } from "../config.ts"
 import { WorkflowError } from "../errors.ts"
 
 import { getWorkflowRuntimeAdapter } from "./adapters.ts"
+import { safeWorkflowName } from "./provider-operation.ts"
 import { getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefinition, registerInlineWorkflowDefinition, runWithWorkflowRuntimeEvent } from "./state.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDeferOptions, WorkflowDefinition, WorkflowHandle, WorkflowHandler, WorkflowRun, WorkflowRunIdValue, WorkflowSignalResult, WorkflowStartOptions } from "../types.ts"
@@ -20,10 +21,9 @@ function getActiveWorkflowConfig(): false | ResolvedWorkflowOptions {
 async function loadRequiredWorkflowDefinition(name: string) {
   const definition = await loadWorkflowDefinition(name)
   if (!definition) {
-    throw new WorkflowError(`Unknown workflow definition: ${name}`, {
+    throw new WorkflowError({
       code: "WORKFLOW_DEFINITION_NOT_FOUND",
-      details: { name },
-      httpStatus: 404,
+      details: safeWorkflowName(name) ? { name } : undefined,
     })
   }
   return definition
@@ -167,9 +167,8 @@ export async function runWorkflow<TPayload = unknown, TResult = unknown>(
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const config = getActiveWorkflowConfig()
   if (config === false) {
-    throw new WorkflowError("Workflow is disabled.", {
+    throw new WorkflowError({
       code: "WORKFLOW_DISABLED",
-      httpStatus: 400,
     })
   }
 
@@ -188,9 +187,8 @@ export async function runWorkflow<TPayload = unknown, TResult = unknown>(
 export async function getWorkflowRun<TPayload = unknown, TResult = unknown>(name: string, id: string): Promise<WorkflowRun<TPayload, TResult>> {
   const config = getActiveWorkflowConfig()
   if (config === false) {
-    throw new WorkflowError("Workflow is disabled.", {
+    throw new WorkflowError({
       code: "WORKFLOW_DISABLED",
-      httpStatus: 400,
     })
   }
 
@@ -204,9 +202,8 @@ export async function getWorkflowRun<TPayload = unknown, TResult = unknown>(name
 export async function cancelWorkflow<TPayload = unknown, TResult = unknown>(name: string, id: string): Promise<WorkflowRun<TPayload, TResult>> {
   const config = getActiveWorkflowConfig()
   if (config === false) {
-    throw new WorkflowError("Workflow is disabled.", {
+    throw new WorkflowError({
       code: "WORKFLOW_DISABLED",
-      httpStatus: 400,
     })
   }
 
@@ -224,9 +221,8 @@ export async function resumeWorkflowSignal<TPayload = unknown>(token: string, pa
   }
   const config = getActiveWorkflowConfig()
   if (config === false) {
-    throw new WorkflowError("Workflow is disabled.", {
+    throw new WorkflowError({
       code: "WORKFLOW_DISABLED",
-      httpStatus: 400,
     })
   }
   return await getWorkflowRuntimeAdapter(config).resume(token, payload)

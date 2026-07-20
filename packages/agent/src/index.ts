@@ -353,6 +353,7 @@ export type {
 } from "./types.ts"
 
 export { AgentOutputValidationError }
+export type { AgentOutputValidationErrorCode, AgentOutputValidationErrorOptions } from "./internal/agent-structured-output.ts"
 
 export {
   createAgentDevtoolsMetadata,

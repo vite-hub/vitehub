@@ -2,6 +2,7 @@ import { expectTypeOf, it } from "vitest"
 import type { Plugin } from "vite"
 
 import { defineQueue } from "../src/definition.ts"
+import { QueueError, type QueueErrorCode, type QueueErrorOptions } from "../src/errors.ts"
 import { hubQueue } from "../src/vite.ts"
 
 it("returns a vite plugin", () => {
@@ -17,4 +18,48 @@ it("infers queue payload types", () => {
     metadata?: unknown
     payload: { email: string }
   }]>()
+})
+
+it("types structured Queue errors", () => {
+  const options = {
+    code: "INVALID_PAYLOAD",
+    custom: true,
+    details: { field: "email" },
+    message: "Invalid payload.",
+    retryable: false,
+  } satisfies QueueErrorOptions<"INVALID_PAYLOAD">
+  const error = new QueueError<"INVALID_PAYLOAD">(options)
+
+  expectTypeOf(error.code).toEqualTypeOf<"INVALID_PAYLOAD">()
+  expectTypeOf(error.retryable).toEqualTypeOf<boolean | undefined>()
+  expectTypeOf<QueueErrorCode>().toEqualTypeOf<
+    | "CLOUDFLARE_BINDING_INVALID"
+    | "CLOUDFLARE_BINDING_RESOLUTION_REQUIRED"
+    | "CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS"
+    | "QUEUE_DEFINITION_LOAD_FAILED"
+    | "QUEUE_DEFINITION_NOT_FOUND"
+    | "QUEUE_DISABLED"
+    | "QUEUE_PROVIDER_OPERATION_FAILED"
+    | "QUEUE_PROVIDER_RESPONSE_INVALID"
+    | "VERCEL_PROVIDER_EXPECTED"
+    | "VERCEL_QUEUE_REGION_REQUIRED"
+    | "VERCEL_QUEUE_SDK_INVALID"
+    | "VERCEL_QUEUE_SDK_LOAD_FAILED"
+    | "VERCEL_TOPIC_RESOLUTION_REQUIRED"
+    | "VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS"
+  >()
+
+  // @ts-expect-error Custom codes require an explicit QueueError generic.
+  new QueueError({ code: "INVALID_PAYLOAD", message: "Invalid payload." })
+  new QueueError({
+    code: "QUEUE_PROVIDER_OPERATION_FAILED",
+    // @ts-expect-error Built-in provider operations use the observed operation union.
+    details: { operation: "cancel", provider: "vercel" },
+  })
+  // @ts-expect-error QUEUE_DISABLED does not publish arbitrary details.
+  new QueueError({ code: "QUEUE_DISABLED", details: { queue: "private" } })
+  // @ts-expect-error Built-in retry policy is owned by ViteHub.
+  new QueueError({ code: "QUEUE_DISABLED", retryable: false })
+  // @ts-expect-error The legacy message-first constructor was removed.
+  new QueueError("Provider failed.")
 })

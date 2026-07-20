@@ -48,6 +48,7 @@
   },
   "dependencies": {
     "@vercel/functions": "catalog:vercel",
+    "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",

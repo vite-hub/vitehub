@@ -2,10 +2,11 @@ import { waitUntil as vercelWaitUntil } from "@vercel/functions"
 import { getRequestHeaders, getRequestURL, readRawBody } from "h3"
 
 import { QueueError } from "../errors.ts"
+import { isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
 
 import { getQueue } from "./client.ts"
 
-import type { QueueDefinition } from "../types.ts"
+import type { QueueDefinition, VercelQueueCallbackOptions } from "../types.ts"
 
 export const hostedVercelWaitUntil: typeof vercelWaitUntil = vercelWaitUntil
 
@@ -38,15 +39,39 @@ function createVercelJobHandler(definition: QueueDefinition) {
   }
 }
 
+function createVercelCallbackOptions(name: string, options: VercelQueueCallbackOptions | undefined): VercelQueueCallbackOptions {
+  const retry = options?.retry
+  return {
+    ...options,
+    retry(error, metadata) {
+      const meta = metadata as { deliveryCount?: number, messageId?: string } | undefined
+      reportQueueDeliveryError(error, {
+        attempts: typeof meta?.deliveryCount === "number" ? meta.deliveryCount : 1,
+        id: typeof meta?.messageId === "string" ? meta.messageId : "vercel-message",
+        provider: "vercel",
+        queue: name,
+      })
+
+      const directive = retry?.(error, metadata)
+      if (directive !== undefined) {
+        return directive
+      }
+
+      if (isNonRetryableQueueError(error)) {
+        return { acknowledge: true }
+      }
+    },
+  }
+}
+
 export async function handleHostedVercelQueueCallback(event: { method?: string, request?: Request }, name: string, definition: QueueDefinition): Promise<unknown> {
   const queue = await getQueue(name)
   if (queue.provider !== "vercel") {
-    throw new QueueError(`Queue "${name}" resolved to provider "${queue.provider}", expected "vercel".`, {
+    throw new QueueError<"VERCEL_PROVIDER_EXPECTED">({
       code: "VERCEL_PROVIDER_EXPECTED",
-      httpStatus: 400,
-      provider: queue.provider,
+      details: { provider: queue.provider },
     })
   }
 
-  return await queue.callback(createVercelJobHandler(definition), definition.options?.callbackOptions)(await toRequest(event))
+  return await queue.callback(createVercelJobHandler(definition), createVercelCallbackOptions(name, definition.options?.callbackOptions))(await toRequest(event))
 }
