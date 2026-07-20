@@ -43,9 +43,57 @@ it("keeps Effect out of published Agent declarations", async () => {
       .map(path => readFile(new URL(path, dist), "utf8")),
   )
 
-  expect(declarations.some(containsForbiddenPublicReference)).toBe(false)
-  expect(declarations.join("\n")).toMatch(/interface AgentInvocationStreamErrorEvent/)
-  expect(declarations.join("\n")).toMatch(/details\?: AgentPublicErrorDetails/)
+  const output = declarations.join("\n")
+  expect(containsForbiddenPublicReference(output)).toBe(false)
+  expect(output).toContain("class AgentOutputValidationError extends ViteHubError")
+  expect(output).toContain("class TranscriptionError extends ViteHubError")
+})
+
+it("keeps built Agent error constructors safe for hostile options", async () => {
+  const { AgentOutputValidationError } = await import("../dist/index.js")
+  const { TranscriptionError } = await import("../dist/capabilities.js")
+  const secret = "https://user:token@example.com/private"
+  const options = new Proxy({}, {
+    get() {
+      throw new Error(secret)
+    },
+  })
+
+  const transcription = new TranscriptionError("TRANSCRIPTION_PROVIDER_FAILED", options)
+  const output = new AgentOutputValidationError("AGENT_OUTPUT_INVALID_JSON", options)
+  expect(JSON.stringify(transcription)).not.toContain(secret)
+  expect(JSON.stringify(output)).not.toContain(secret)
+})
+
+it("pins Effect to the Agent implementation dependency without leaking runtime failures", async () => {
+  const dist = new URL("../dist/", import.meta.url)
+  const javascript = (await Promise.all(
+    (await readdir(dist, { recursive: true }))
+      .filter(path => /\.[cm]?js$/.test(path))
+      .map(path => readFile(new URL(path, dist), "utf8")),
+  )).join("\n")
+  const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as Record<string, Record<string, unknown> | undefined>
+
+  expect(javascript).not.toContain("FiberFailure")
+  expect(manifest.dependencies?.effect).toBe("catalog:effect")
+  expect(manifest.devDependencies?.effect).toBeUndefined()
+  expect(manifest.optionalDependencies?.effect).toBeUndefined()
+  expect(manifest.peerDependencies?.effect).toBeUndefined()
+  expect(JSON.stringify(manifest.exports)).not.toContain("effect")
+})
+
+it("publishes additive Agent Invocation Stream error metadata", async () => {
+  const dist = new URL("../dist/", import.meta.url)
+  const declaration = (await Promise.all(
+    (await readdir(dist, { recursive: true }))
+      .filter(path => path.endsWith(".d.ts"))
+      .map(path => readFile(new URL(path, dist), "utf8")),
+  )).join("\n")
+
+  expect(declaration).toMatch(/interface AgentInvocationStreamErrorEvent/)
+  expect(declaration).toMatch(/code\?:/)
+  expect(declaration).toMatch(/details\?: AgentPublicErrorDetails/)
+  expect(declaration).toMatch(/requestId\?: string/)
 })
 
 it("keeps Effect out of provider and browser bundle graphs", async () => {
