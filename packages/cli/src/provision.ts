@@ -1,6 +1,7 @@
 import { mergeProvisionState, writeProvisionState } from "@vite-hub/internal/provision-state"
 import { resolveCloudflareProvisionConfig, resolveVercelProvisionConfig } from "@vite-hub/internal/provision"
 
+import type { ViteHubCliContext } from "@vite-hub/internal/cli"
 import type {
   ProvisionAction,
   ProvisionContext,
@@ -9,13 +10,7 @@ import type {
   ProvisionStep,
 } from "@vite-hub/internal/provision"
 
-interface ProvisionFeatureContext {
-  cwd: string
-  env: NodeJS.ProcessEnv
-  rootDir: string
-  stderr: { write: (chunk: string | Uint8Array) => unknown }
-  stdout: { write: (chunk: string | Uint8Array) => unknown }
-}
+type ProvisionFeatureContext = Pick<ViteHubCliContext, "env" | "rootDir" | "stderr" | "stdout">
 
 interface ProvisionFeatureOptions {
   collectSteps: () => Promise<ProvisionStep[]>
