@@ -7,7 +7,7 @@ interface FinalizeDeploymentPlanOutputOptions {
   outputDir?: string
   plan: DeploymentPlan
   rootDir: string
-  services?: Record<string, unknown>
+  services?: object
 }
 
 export async function finalizeDeploymentPlanOutput(options: FinalizeDeploymentPlanOutputOptions): Promise<void> {

@@ -196,7 +196,7 @@ function normalizeNitroPreset(value: string): string {
   return value.trim().toLowerCase().replaceAll("_", "-")
 }
 
-function deploymentNitroModule(plan: DeploymentPlan, services: Record<string, unknown>) {
+function deploymentNitroModule(plan: DeploymentPlan, services: object) {
   return (nitro: {
     hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
     options: { output: { dir: string }, rootDir: string }
@@ -212,7 +212,7 @@ function deploymentNitroModule(plan: DeploymentPlan, services: Record<string, un
   }
 }
 
-function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentService[], blobEnabled: boolean, services: Record<string, unknown>): Plugin[] {
+function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentService[], blobEnabled: boolean, services: object): Plugin[] {
   return [
     {
       name: "vite-hub/deployment-preset",
