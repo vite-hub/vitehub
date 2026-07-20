@@ -167,7 +167,7 @@ describe("hosted Blob consumer runtime", () => {
         await run("node", ["--input-type=module", "--eval", cloudflareSignProbe], appDir)
         await expect(
           readFile(join(appDir, ".vercel/output/functions/__server.func/index.mjs"), "utf8"),
-        ).rejects.toMatchObject({ code: "ENOENT" })
+        ).resolves.toContain("createBlobVercelServer")
       } finally {
         await rm(root, { force: true, recursive: true })
       }
