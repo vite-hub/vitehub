@@ -10,7 +10,8 @@ import { configureCloudflareKV } from "../../../packages/kv/src/integrations/clo
 import { normalizeKVOptions } from "../../../packages/kv/src/config.ts"
 import { normalizeQueueOptions } from "../../../packages/queue/src/config.ts"
 import { discoverQueueDefinitions } from "../../../packages/queue/src/discovery.ts"
-import { getCloudflareQueueBindingName, getCloudflareQueueName } from "../../../packages/queue/src/integrations/cloudflare.ts"
+import { getCloudflareQueueBindingName } from "../../../packages/queue/src/integrations/cloudflare.ts"
+import { getCloudflareQueueName } from "../../../packages/queue/src/internal/cloudflare-resource-name.ts"
 import { getVercelQueueTopicName } from "../../../packages/queue/src/integrations/vercel.ts"
 import { discoverScheduleDefinitions } from "../../../packages/schedule/src/discovery.ts"
 import { getVercelSchedulePath } from "../../../packages/schedule/src/integrations/vercel.ts"
@@ -865,6 +866,8 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
   const cloudflareEnv = resolve(packagesDir, "internal/src/runtime/cloudflare-env.ts")
   const workspaceProvider = options.workspace && options.workspace.store.provider
   const workspaceRuntimeState = artifacts.alias["@vite-hub/workspace/runtime"] || resolve(workspacePackageDir, "src/runtime/state.ts")
+  const queueNamePrefix = options.queue ? options.queue.namePrefix : ""
+  const queueDefinitionNames = Object.fromEntries(artifacts.queueDefinitions.map(definition => [getCloudflareQueueName(definition.name, queueNamePrefix), definition.name]))
 
   const imports = [
     `import { H3, toWebHandler } from "h3"`,
@@ -872,7 +875,6 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     `import { clearActiveCloudflareEnv, createCloudflareRuntimeEvent, runWithActiveCloudflareEnv, setActiveCloudflareEnv } from ${JSON.stringify(createImportPath(file, cloudflareEnv))}`,
     `import app from ${JSON.stringify(createImportPath(file, appEntry))}`,
     `import { createCloudflareQueueBatchHandler } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/providers/cloudflare.ts")))}`,
-    `import { getCloudflareQueueDefinitionName } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/integrations/cloudflare.ts")))}`,
     `import { createQueueJob } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/cloudflare-shared.ts")))}`,
     `import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/state.ts")))}`,
     `import { executeStaticSchedule } from ${JSON.stringify(createImportPath(file, resolve(schedulePackageDir, "src/runtime/execute.ts")))}`,
@@ -925,6 +927,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     ...imports,
     "",
     `const queueConfig = ${JSON.stringify(options.queue || false, null, 2)}`,
+    `const queueDefinitionNames = ${JSON.stringify(queueDefinitionNames, null, 2)}`,
     `const workflowConfig = ${JSON.stringify(options.workflow || false, null, 2)}`,
     `const blobConfig = ${JSON.stringify(options.blob || false, null, 2)}`,
     `const sandboxConfig = ${JSON.stringify(artifacts.sandboxConfig || false, null, 2)}`,
@@ -975,7 +978,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     "    if (queueConfig === false || queueConfig?.provider !== 'cloudflare') return",
     "    setActiveCloudflareEnv(env)",
     "    try {",
-    "      const definition = await loadQueueDefinition(getCloudflareQueueDefinitionName(batch.queue))",
+    "      const definition = await loadQueueDefinition(queueDefinitionNames[batch.queue])",
     "      if (!definition) return",
     "      const runtimeEvent = createCloudflareRuntimeEvent(env, context)",
     "      await createCloudflareQueueBatchHandler({",
@@ -1189,13 +1192,13 @@ function sanitizeVercelConsumerName(functionPath: string) {
   return result
 }
 
-function createCloudflareQueueBindings(definitions: Array<{ name: string }>) {
+function createCloudflareQueueBindings(definitions: Array<{ name: string }>, namePrefix = "") {
   if (!definitions.length) return undefined
   return {
-    consumers: definitions.map(definition => ({ queue: getCloudflareQueueName(definition.name) })),
+    consumers: definitions.map(definition => ({ queue: getCloudflareQueueName(definition.name, namePrefix) })),
     producers: definitions.map(definition => ({
       binding: getCloudflareQueueBindingName(definition.name),
-      queue: getCloudflareQueueName(definition.name),
+      queue: getCloudflareQueueName(definition.name, namePrefix),
     })),
   }
 }
@@ -1282,7 +1285,7 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
   })
 
   const d1Databases = createCloudflareD1Bindings(options.rootDir, options.db)
-  const queueBindings = createCloudflareQueueBindings(artifacts.queueDefinitions)
+  const queueBindings = createCloudflareQueueBindings(artifacts.queueDefinitions, options.queue ? options.queue.namePrefix : "")
   const r2Buckets = createCloudflareR2Bindings(options.blob)
 
   const wranglerConfig: CloudflareWranglerConfig = {

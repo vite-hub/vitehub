@@ -333,6 +333,9 @@ describe("cloudflare queue runtime", () => {
     const worker = createQueueCloudflareWorker({
       queue: { namePrefix: "preview-", provider: "cloudflare" },
       registry: {
+        abcdefghijklmnop: async () => ({
+          default: { handler },
+        }),
         welcome: async () => ({
           default: { handler },
         }),
@@ -347,12 +350,53 @@ describe("cloudflare queue runtime", () => {
     }, {}, { waitUntil: vi.fn() })
 
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ payload: { id: 1 } }))
+    await worker.queue({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: { id: 2 }, id: "2", retry: vi.fn() }],
+      queue: "preview-queue--6162636465666768696a6b6c6d6e6f70",
+      retryAll: vi.fn(),
+    }, {}, { waitUntil: vi.fn() })
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ payload: { id: 2 } }))
+
+    await worker.queue({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: { id: 3 }, id: "3", retry: vi.fn() }],
+      queue: "preview-welcome",
+      retryAll: vi.fn(),
+    }, {}, { waitUntil: vi.fn() })
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ payload: { id: 3 } }))
+
     await expect(worker.queue({
       ackAll: vi.fn(),
       messages: [],
       queue: "queue--77656c636f6d65",
       retryAll: vi.fn(),
     }, {}, { waitUntil: vi.fn() })).rejects.toThrow("is not mapped to a Queue Definition")
+    await expect(worker.queue({
+      ackAll: vi.fn(),
+      messages: [],
+      queue: "preview-welcome-0123456789abcdef0123456789abcdef",
+      retryAll: vi.fn(),
+    }, {}, { waitUntil: vi.fn() })).rejects.toThrow("is not mapped to a Queue Definition")
+  })
+
+  it("derives bounded physical names from manual worker registries", async () => {
+    const handler = vi.fn(async () => {})
+    const worker = createQueueCloudflareWorker({
+      queue: { namePrefix: `${"deployment".repeat(8)}-`, provider: "cloudflare" },
+      registry: {
+        "images/nested/optimization-aaaaaaaa": async () => ({ default: { handler } }),
+      },
+    })
+
+    await worker.queue({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: { id: 1 }, id: "1", retry: vi.fn() }],
+      queue: "deploymentdeploymentdeployment-f537f0129ff2b8673b34a44f70a00fad",
+      retryAll: vi.fn(),
+    }, {}, { waitUntil: vi.fn() })
+
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ payload: { id: 1 } }))
   })
 
   it("rejects unknown physical and logical Cloudflare queue mappings", async () => {
