@@ -61,7 +61,15 @@ import "real-package"`)).toEqual(["real-package"])
 
     expect(existsSync(join(outputDir, "node_modules", "sharp", "package.json"))).toBe(true)
     expect(
-      existsSync(join(outputDir, "node_modules", "@img", "sharp-linux-x64", "package.json")),
+      existsSync(join(
+        outputDir,
+        "node_modules",
+        "sharp",
+        "node_modules",
+        "@img",
+        "sharp-linux-x64",
+        "package.json",
+      )),
     ).toBe(true)
     await expect(
       readFile(join(outputDir, "deno.json"), "utf8").then(JSON.parse),
