@@ -68,7 +68,7 @@ it("preserves Nitro Netlify output when emitting the ViteHub deployment manifest
   }
 })
 
-it("uploads and executes native packages when updating an existing Deno app", async () => {
+it.skipIf(process.platform !== "linux" || process.arch !== "x64")("uploads and executes native packages when updating an existing Deno app", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-deno-native-update-"))
   const workspaceRoot = resolve(import.meta.dirname, "../..")
   const require = createRequire(join(workspaceRoot, "packages/internal/package.json"))
