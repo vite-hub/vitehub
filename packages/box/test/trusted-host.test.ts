@@ -32,6 +32,23 @@ describe("trustedHost", () => {
     }
   });
 
+  it("reports dangling symlinks as existing files", async () => {
+    const box = await resolveBox({ runtime: trustedHost() }, {});
+    const session = await box.open();
+
+    try {
+      await symlink("missing.txt", join(session.cwd, "dangling.txt"));
+
+      await expect(session.files.exists("workspace/dangling.txt")).resolves.toBe(true);
+      await expect(session.files.list("workspace")).resolves.toContainEqual({
+        path: "workspace/dangling.txt",
+        type: "symlink",
+      });
+    } finally {
+      await session.close();
+    }
+  });
+
   it("materializes a relative workspace from the process directory", async () => {
     const root = await temporaryRoot();
     const workspace = join(root, "workspace");

@@ -22,7 +22,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
-import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { promisify } from "node:util";
 
@@ -410,7 +410,7 @@ async function createTrustedHostSession(options: {
       return `${protocol}://127.0.0.1:${port}`;
     },
     async existsFile({ path }: { path: string }) {
-      return await stat(resolveSessionPath(options.root, path)).then(
+      return await lstat(resolveSessionPath(options.root, path)).then(
         () => true,
         (error: NodeJS.ErrnoException) => {
           if (error.code === "ENOENT") return false;
@@ -433,7 +433,7 @@ async function createTrustedHostSession(options: {
       async function visit(directory: string, logicalDirectory: string) {
         for (const entry of await readdir(directory, { withFileTypes: true })) {
           const physicalPath = join(directory, entry.name);
-          const logicalPath = join(logicalDirectory, entry.name);
+          const logicalPath = posix.join(logicalDirectory, entry.name);
           const item = await lstat(physicalPath);
           entries.push({
             path: logicalPath,
