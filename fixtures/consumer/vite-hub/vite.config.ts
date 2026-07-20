@@ -6,8 +6,9 @@ export default defineConfig({
     outDir: "dist/client",
   },
   plugins: [vitehub({
+    preset: "node",
     auth: true,
-    rateLimit: { provider: "memory" },
+    rateLimit: true,
     schedule: true,
     workspace: process.env.VITEHUB_CONSUMER_DISABLE_WORKSPACE === "1" ? false : undefined,
   })],

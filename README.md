@@ -50,7 +50,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [
-    vitehub(),
+    vitehub({ preset: "node" }),
   ],
 });
 ```

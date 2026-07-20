@@ -18,7 +18,7 @@ describe("Rate Limit documentation", () => {
   it("teaches the canonical first success and owner-package escape hatch", () => {
     const primitive = read("server-primitives/rate-limit.md")
 
-    expect(primitive).toContain("vitehub({ rateLimit: true })")
+    expect(primitive).toContain('vitehub({ preset: "node", rateLimit: true })')
     expect(primitive).toContain("import { requireRateLimit } from 'vite-hub/rate-limit'")
     expect(primitive).toContain("server/api/image-upload.post.ts")
     expect(primitive).toContain("await requireRateLimit(event, 'image-upload'")
