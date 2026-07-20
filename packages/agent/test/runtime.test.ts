@@ -6913,7 +6913,12 @@ describe("agent message protocol", () => {
       capabilities: [title({ execute })],
       driver: { run: () => ({
         stream: (async function* () {})(),
-        textStream: (async function* () { yield "Fallback reply" })(),
+        textStream: new ReadableStream<string>({
+          start(controller) {
+            controller.enqueue("Fallback reply")
+            controller.close()
+          },
+        }),
       }) },
     })
 
