@@ -1705,6 +1705,8 @@ describe("agent message protocol", () => {
         }),
         createMessage({ id: "user-2", parts: [{ data: { scope: "kiwi-714" }, type: "data" }], role: "user" }),
         createMessage({ id: "user-3", parts: [{ error: "prior lookup warning", type: "error" }], role: "user" }),
+        createMessage({ id: "user-provider-only", parts: [{ fetchData: () => new Uint8Array([1]), mediaType: "application/pdf", type: "file" }], role: "user" }),
+        createMessage({ id: "user-url", parts: [{ fetchData: () => new Uint8Array([1]), mediaType: "application/pdf", type: "file", url: "https://cdn.example.com/report.pdf" }], role: "user" }),
         createMessage({ id: "user-4", role: "user", text: "What marker?" }),
       ],
     })).resolves.toMatchObject({ text: "ok" })
@@ -1721,6 +1723,7 @@ describe("agent message protocol", () => {
         "Assistant: Tool confirmed marker.",
         "User: {\"scope\":\"kiwi-714\"}",
         "User: prior lookup warning",
+        "User: [{\"data\":\"https://cdn.example.com/report.pdf\",\"mediaType\":\"application/pdf\",\"type\":\"file\"}]",
         "User: What marker?",
         "",
         "Respond to the latest user message.",
