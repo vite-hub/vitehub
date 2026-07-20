@@ -28,6 +28,36 @@ Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`
 
 Adapter-backed Channels deliver only the completed response by default. Set top-level `defineAgent({ messages: { stream: true } })` to opt every adapter Channel into draft and edit updates, or set `messages.stream` on an individual Channel to control progressive delivery for that destination. Web Chat routes return streaming HTTP responses independently of adapter delivery settings.
 
+## Deliver public commentary
+
+Adapter-backed Channels hide commentary by default. Set `messages.commentary` to `message` when an explicitly phased Agent stream should publish commentary as one best-effort progress message and deliver the final response as a separate message.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
+import { discord } from '@vite-hub/agent/channels'
+
+export default defineAgent({
+  channels: {
+    discord: discord({
+      adapter: {
+        botToken: process.env.DISCORD_BOT_TOKEN,
+        publicKey: process.env.DISCORD_PUBLIC_KEY,
+      },
+      messages: { commentary: 'message' },
+    }),
+  },
+  driver: createAgentDriver(),
+})
+```
+
+ViteHub publishes only text that the Agent stream explicitly marks as `commentary`. It never treats reasoning, unphased text, tool position, timing, or prose as public commentary. The adapter can update one progress message, use native activity, or omit progress when the platform cannot render it; a progress delivery failure does not block the final response.
+
+Set `commentary: 'hidden'` to keep the same phase separation without publishing progress. The existing explicit `messages.stream: true` option retains its publish-all-text behavior for integrations that intentionally depend on unphased streaming.
+
+::note
+The built-in Codex and Claude Code Harness V1 bridges do not currently preserve commentary and final phases. The `message` policy produces public progress only for custom or future Agent Drivers that emit those phases explicitly.
+::
+
 ## Scope capabilities to a Channel
 
 Put a Capability on a Channel when only invocations from that Channel should receive the ability. Agent-level Capabilities remain active for every invocation; ViteHub appends the active Channel's Capabilities when `run.channelId` or the Agent Trigger identifies that Channel.
