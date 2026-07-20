@@ -61,7 +61,7 @@ import {
 } from "./capability-runtime.ts"
 import type { AgentCapabilityRegistries, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
-import { finalizeUiMessageStreamOutput, isUIMessageStreamResult, normalizeUiMessageStream, withReadableStreamCleanup } from "./stream-output.ts"
+import { finalizeUiMessageStreamOutput, isUIMessageStreamResult, normalizeUiMessageStream, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -2401,13 +2401,15 @@ async function executeAgentInvocation<
           && !isAsyncIterable((rendered as { fullStream?: unknown }).fullStream)) {
           const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
           let finishTask: Promise<void> | undefined
+          let streamedText = ""
           const preserved = cloneWithPropertyDescriptors(rendered, {
             toUIMessageStream: {
               configurable: true,
               enumerable: false,
               value: (...args: unknown[]) => withReadableStreamCleanup(
                 normalizeUiMessageStream(toUIMessageStream.apply(rendered, args)),
-                outcome => (finishTask ??= finishStreamAgentInvocation(invocation, lifecycle, rendered, finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)),
+                outcome => (finishTask ??= finishStreamAgentInvocation(invocation, lifecycle, resultWithStreamedText(rendered, streamedText), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)),
+                { onChunk: chunk => streamedText += uiMessageTextDelta(chunk) || "" },
               ),
             },
           })

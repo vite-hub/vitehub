@@ -461,6 +461,7 @@ function withTitleReadableStreamParallel<T>(
 ): AsyncIterable<T> & ReadableStream<T> {
   let reader: ReadableStreamDefaultReader<T> | undefined
   let fallbackIterator: AsyncIterator<T> | undefined
+  let fallbackTerminal: { emit: boolean, value?: T } | undefined
   let cancelled = false
   let closed = false
   let streamNext: ReturnType<ReadableStreamDefaultReader<T>["read"]> | undefined
@@ -500,6 +501,26 @@ function withTitleReadableStreamParallel<T>(
       streamNext ??= reader.read()
       try {
         while (!cancelled) {
+          if (fallbackIterator && fallbackTerminal) {
+            const nextFallback = await fallbackIterator.next()
+            if (!nextFallback.done) {
+              text += getText(nextFallback.value)
+              controller.enqueue(nextFallback.value)
+              return
+            }
+            fallbackIterator = undefined
+            const resolvedTitle = await deferredTitle!(text).catch(() => undefined)
+            titlePending = false
+            if (cancelled) return
+            if (resolvedTitle) controller.enqueue(renderTitle(resolvedTitle))
+            if (fallbackTerminal.emit) controller.enqueue(fallbackTerminal.value as T)
+            fallbackTerminal = undefined
+            controller.close()
+            closed = true
+            return
+          }
+          reader ??= result.getReader()
+          streamNext ??= reader.read()
           const next = titlePending && titleNext
             ? await Promise.race([
                 streamNext.then(value => ({ type: "stream" as const, value })),
@@ -525,14 +546,10 @@ function withTitleReadableStreamParallel<T>(
               reader = undefined
               if (!text && fallback) {
                 fallbackIterator = fallback()?.[Symbol.asyncIterator]()
-                while (fallbackIterator) {
-                  const nextFallback = await fallbackIterator.next()
-                  if (nextFallback.done || cancelled) break
-                  const value = nextFallback.value
-                  text += getText(value)
-                  controller.enqueue(value)
+                if (fallbackIterator) {
+                  fallbackTerminal = { emit: true, value: next.value.value }
+                  continue
                 }
-                fallbackIterator = undefined
               }
               else if (text) {
                 cancelFallback(fallback)
@@ -552,14 +569,10 @@ function withTitleReadableStreamParallel<T>(
           if (titlePending) {
             if (!titleNext && !text && fallback) {
               fallbackIterator = fallback()?.[Symbol.asyncIterator]()
-              while (fallbackIterator) {
-                const nextFallback = await fallbackIterator.next()
-                if (nextFallback.done || cancelled) break
-                const value = nextFallback.value
-                text += getText(value)
-                controller.enqueue(value)
+              if (fallbackIterator) {
+                fallbackTerminal = { emit: false }
+                continue
               }
-              fallbackIterator = undefined
             }
             else if (!titleNext && text) {
               cancelFallback(fallback)

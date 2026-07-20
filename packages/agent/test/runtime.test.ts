@@ -7804,6 +7804,7 @@ describe("agent message protocol", () => {
     expect(result.metadata).toBe("preserved")
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({
       extensions: expect.objectContaining({ get: expect.any(Function) }),
+      text: "Image description",
     }))
     expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Title: Image description" })
   })

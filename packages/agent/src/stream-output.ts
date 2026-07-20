@@ -150,7 +150,7 @@ function streamEventType(event: unknown): string | undefined {
     : undefined
 }
 
-function uiMessageTextDelta(event: unknown): string | undefined {
+export function uiMessageTextDelta(event: unknown): string | undefined {
   const type = streamEventType(event)
   if (type !== "text" && type !== "text-delta") return
   const text = (event as { delta?: unknown, text?: unknown, textDelta?: unknown }).text
