@@ -11,7 +11,7 @@ import { getProviderRuntimeModule, type ComposedProviderOutput } from "@vite-hub
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 
 import { normalizeBlobOptions } from "../src/config.ts"
-import { generateProviderOutputs, prepareProviderOutputs } from "../src/internal/vite-build.ts"
+import { generateProviderOutputs, prepareProviderOutputs, renderBlobRuntimeModule } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -130,6 +130,18 @@ afterEach(() => {
 })
 
 describe("Vite provider outputs", () => {
+  it("stages the bundled Vercel driver in the Nitro shared runtime", () => {
+    const source = renderBlobRuntimeModule(
+      "/tmp/.vitehub/nitro/blob/runtime.mjs",
+      normalizeBlobOptions({ driver: "vercel-blob", access: "private" }, { hosting: "vercel" })!,
+      "vercel",
+    )
+
+    expect(source).toContain("/drivers/vercel-bundled")
+    expect(source).not.toContain("/drivers/vercel\"")
+    expect(source).not.toContain("files-sdk")
+  })
+
   it("rejects malformed resolved Blob config before rendering provider entries", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-invalid-resolved-config-")
 
