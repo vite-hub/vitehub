@@ -392,6 +392,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     plugins.push(hubBlob({
       ...presetBlobOptions(plan, options.blob),
       importBase: `${generatedImportBase}/blob`,
+      nitroOwned: true,
     } as unknown as BlobModuleOptions))
   }
   if (options.email) plugins.push(hubEmail(options.email === true ? undefined : options.email))

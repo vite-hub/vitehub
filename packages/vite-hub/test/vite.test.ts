@@ -140,6 +140,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith({
       driver: "fs",
       importBase: "vite-hub/_internal/blob",
+      nitroOwned: true,
     })
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubKv).toHaveBeenLastCalledWith({ driver: "cloudflare-kv-binding" })

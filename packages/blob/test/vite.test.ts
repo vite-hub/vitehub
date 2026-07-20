@@ -359,6 +359,18 @@ describe("hubBlob", () => {
     expect(resolved).not.toHaveProperty("nitro.cloudflare.wrangler.observability")
   })
 
+  it("lets a facade declare Nitro ownership without a separate Nitro Vite plugin", () => {
+    const plugin = hubBlob({ driver: "cloudflare-r2", nitroOwned: true } as never)
+    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
+    const userConfig = { nitro: { preset: "cloudflare-module" } }
+
+    config(userConfig, { command: "build" })
+
+    expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.r2_buckets", [
+      { binding: "BLOB", bucket_name: "vitehub-blob" },
+    ])
+  })
+
   it("uses Cloudflare defaults for the Nitro runtime when hosting is inferred", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-inferred-cloudflare-"))
     const previousBucket = process.env.BLOB_BUCKET_NAME

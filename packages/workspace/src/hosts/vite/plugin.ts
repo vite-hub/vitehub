@@ -702,7 +702,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         hosting: hosting ?? process.env.VITEHUB_HOSTING,
         rootDir: roots.projectRoot,
       })
-      const runtimeOptions = hosting && normalized
+      const runtimeOptions = hosting && normalized && normalized.store.provider !== "local"
         ? { ...(workspaceOptions || {}), store: workspaceOptions && workspaceOptions.store ? workspaceOptions.store : normalized.store }
         : workspaceOptions
       const viteConfig: ViteConfigWithWorkspaceNitro = {
