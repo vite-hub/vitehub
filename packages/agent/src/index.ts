@@ -40,6 +40,7 @@ import {
   scheduledAgentTurnContextKey,
 } from "./internal/scheduled-turn.ts"
 import { finalChannelOutputContextKey, finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
+import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import {
   colocatedAgentSkillsContextKey,
   colocatedAgentSkillsSymbol,
@@ -2294,10 +2295,15 @@ async function executeAgentInvocation<
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
   }
 
-  if (invocation.context.get<boolean>(finalChannelOutputContextKey) === true) {
+  if (invocation.context.get<boolean>(finalChannelOutputContextKey) === true
+    && !hasTraceableStreamResult(result)) {
     const text = finalTextFromAgentOutput(result)
     if (text !== undefined && !(result instanceof Response)) {
-      result = { raw: result, text }
+      const synthesizedRaw = typeof result === "object" && result !== null
+        && Object.getOwnPropertyDescriptor(result, synthesizedAgentOutputSymbol)?.value === true
+        ? Object.getOwnPropertyDescriptor(result, "raw")?.value
+        : undefined
+      result = { raw: synthesizedRaw ?? result, text }
       Object.defineProperty(result, finalChannelOutputSelectedSymbol, { enumerable: true, value: true })
     }
   }

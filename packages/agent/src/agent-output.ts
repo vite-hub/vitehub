@@ -3,6 +3,7 @@ import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
 import { readAgentUsageMetadata } from "./internal/agent-usage-metadata.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
+import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 
 import type { AgentMessagePhase, StreamEvent } from "./messages.ts"
 import type { AgentRunMetadata, AgentRunResult, AgentUsage, AgentUsageRecord } from "./types.ts"
@@ -106,13 +107,11 @@ export function finalTextFromAgentOutput(value: unknown): string | undefined {
 
   const raw = ownValue(value, "raw")
   if (isRecord(raw)) {
-    const text = textFromResult(value)
-    const structuredText = structuredTextFromResult(raw)
-    if (text && structuredText !== undefined && text !== structuredText) return text
-
     const final = finalTextFromStructuredResult(raw)
-    if (final) return final
-    if (final === "") return text === structuredText ? final : text ?? final
+    if (final === "" && Object.getOwnPropertyDescriptor(value, synthesizedAgentOutputSymbol)?.value === true) {
+      return textFromResult(value) ?? final
+    }
+    return final ?? textFromResult(value)
   }
 
   const final = finalTextFromStructuredResult(value)
@@ -132,18 +131,20 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
   const explicitText = ownValue(result, "text")
   const selectedChannelOutput = Object.getOwnPropertyDescriptor(result, finalChannelOutputSelectedSymbol)?.value === true
   const raw = selectedChannelOutput ? ownValue(result, "raw") : value
-  const usageRecord = isUsageRecord(ownValue(result, "usageRecord"))
-    ? withFallbackUsageMetadata(ownValue(result, "usageRecord") as AgentUsageRecord, result)
-    : usageRecordFromUsage(ownValue(result, "usage") ?? ownValue(result, "totalUsage"), result)
-  const artifacts = publishedDeliveryArtifactsFromUnknown(ownValue(result, "artifacts"))
+  const normalized = selectedChannelOutput && isRecord(raw) ? raw : result
+  const selectedValue = (key: string) => ownValue(result, key) ?? ownValue(normalized, key)
+  const usageRecord = isUsageRecord(selectedValue("usageRecord"))
+    ? withFallbackUsageMetadata(withFallbackUsageMetadata(selectedValue("usageRecord") as AgentUsageRecord, result), normalized)
+    : usageRecordFromUsage(selectedValue("usage") ?? selectedValue("totalUsage"), result, normalized)
+  const artifacts = publishedDeliveryArtifactsFromUnknown(selectedValue("artifacts"))
   return {
     ...(artifacts.length ? { artifacts } : {}),
-    finishReason: ownValue(result, "finishReason"),
+    finishReason: selectedValue("finishReason"),
     raw,
     text: selectedChannelOutput && typeof explicitText === "string" ? explicitText : textFromResult(result),
-    usage: ownValue(result, "usage") ?? usageRecord?.usage,
+    usage: selectedValue("usage") ?? usageRecord?.usage,
     usageRecord,
-    warnings: ownValue(result, "warnings"),
+    warnings: selectedValue("warnings"),
   }
 }
 
