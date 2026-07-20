@@ -362,6 +362,7 @@ describe("Vite provider outputs", () => {
     await writeFile(join(rootDir, "dist", "index.html"), "<!doctype html><title>vitehub</title>\n", "utf8")
 
     await generateProviderOutputs({ clientOutDir: "dist", queue: { provider: "vercel" }, rootDir })
+    await rm(join(rootDir, ".vitehub", "queue", "vercel-output.json"))
 
     await generateProviderOutputs({
       clientOutDir: "dist",
