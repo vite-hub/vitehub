@@ -275,7 +275,7 @@ describe("Vite provider outputs", () => {
     expect(existsSync(join(outputRoot, "functions", "__blob.func", "index.mjs"))).toBe(true)
   })
 
-  it("leaves provider output to Nitro for Cloudflare builds", { timeout: 45_000 }, async () => {
+  it("leaves Cloudflare Worker output to Nitro while retaining Vercel output", { timeout: 45_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-nitro-cloudflare-")
     const cloudflareOutput = join(rootDir, "dist", toSafeAppName(rootDir))
     await mkdir(join(rootDir, "src"), { recursive: true })
@@ -320,7 +320,7 @@ describe("Vite provider outputs", () => {
       triggers: { crons: ["0 0 * * *"] },
     })
     expect(existsSync(join(rootDir, ".vercel", "output", "static", toSafeAppName(rootDir), "index.js"))).toBe(false)
-    expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__blob.func", "index.mjs"))).toBe(false)
+    expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__blob.func", "index.mjs"))).toBe(true)
   })
 
   it("cleans legacy standalone workers without R2 runtime code when Nitro takes ownership", { timeout: 30_000 }, async () => {
@@ -462,8 +462,8 @@ describe("Vite provider outputs", () => {
     })
 
     const cloudflareWorker = await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "index.js"), "utf8")
-    expect(cloudflareWorker).not.toContain("files-sdk")
-    expect(cloudflareWorker).not.toContain("@aws-sdk/")
+    expect(cloudflareWorker).toContain("\"files-sdk\"")
+    expect(cloudflareWorker).toContain("files-sdk/r2")
   })
 
   it("copies Cloudflare R2 runtime packages into isolated Vercel output", { timeout: 15_000 }, async () => {
@@ -589,7 +589,7 @@ describe("Vite provider outputs", () => {
     expect(stdout.trim()).toBe("ok")
   })
 
-  it("statically reaches only the native Cloudflare R2 driver from bundled SSR output", async () => {
+  it("statically reaches the Cloudflare R2 driver from bundled SSR output", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-bundled-r2-")
     const entryFile = join(rootDir, "entry.ts")
     const bundleFile = join(rootDir, "worker.mjs")
@@ -617,8 +617,6 @@ describe("Vite provider outputs", () => {
     expect(bundled).not.toContain("@vite-hub/blob/drivers/cloudflare")
     expect(bundled).toContain("config.driver === \"cloudflare-r2\"")
     expect(bundled).toContain("R2 binding")
-    expect(bundled).not.toContain("files-sdk")
-    expect(bundled).not.toContain("@aws-sdk/")
   })
 
   it("rehydrates masked Vercel tokens from generated runtime output", async () => {

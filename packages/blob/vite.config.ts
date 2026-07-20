@@ -18,7 +18,6 @@ export default defineConfig({
       "src/drivers/azure.ts",
       "src/drivers/box.ts",
       "src/drivers/cloudflare.ts",
-      "src/drivers/cloudflare-native.ts",
       "src/drivers/digitalocean-spaces.ts",
       "src/drivers/dropbox.ts",
       "src/drivers/files.ts",

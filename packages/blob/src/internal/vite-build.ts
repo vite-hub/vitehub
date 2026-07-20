@@ -92,7 +92,6 @@ const driverModules = {
 } satisfies Record<NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], string>
 
 function getDriverModule(driver: NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], provider?: BlobProvider) {
-  if (driver === "cloudflare-r2" && provider === "cloudflare") return "drivers/cloudflare-native"
   if (driver === "vercel-blob" && provider === "vercel") return "drivers/vercel-bundled"
   return driverModules[driver]
 }
@@ -543,7 +542,6 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.blob)
   const localOnly = !shouldCreateProviderOutput(options.blob)
   const createCloudflare = !localOnly && !options.cloudflareOwnedByNitro
-  const createVercel = !localOnly && !options.cloudflareOwnedByNitro
   const hasCurrentCloudflareContribution = Boolean(createCloudflareR2Bindings(resolveBlobConfig(options.blob, "cloudflare"))?.length)
   if (options.cloudflareOwnedByNitro) {
     await writeProviderDeploymentOutputs({
@@ -553,14 +551,11 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     })
   }
   await writeProviderDeploymentOutputs({
-    afterWrite: createVercel ? () => copyVercelBlobRuntimePackages(options) : undefined,
+    afterWrite: localOnly ? undefined : () => copyVercelBlobRuntimePackages(options),
     clientOutDir: options.clientOutDir,
     cloudflare: createCloudflare ? createCloudflareOutput(options.blob, artifacts, options.providerOutput) : undefined,
-    cleanup: options.cloudflareOwnedByNitro
-      ? { vercel: { serverFunctionName: options.serverFunctionName ?? "__server.func" } }
-      : undefined,
     rootDir: options.rootDir,
-    vercel: createVercel ? createVercelOutput(artifacts, options.providerOutput, options.serverFunctionName) : undefined,
+    vercel: localOnly ? undefined : createVercelOutput(artifacts, options.providerOutput, options.serverFunctionName),
   })
   if (createCloudflare) {
     const r2Buckets = createCloudflareR2Bindings(resolveBlobConfig(options.blob, "cloudflare"))

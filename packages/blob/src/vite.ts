@@ -189,7 +189,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
 async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName): Promise<void> {
   const runtimeFile = resolve(root, generatedNitroBlobRuntime)
   await Promise.all([
-    writeFileIfChanged(runtimeFile, renderBlobRuntimeModule(runtimeFile, blob, cloudflare ? "cloudflare" : undefined)),
+    writeFileIfChanged(runtimeFile, renderBlobRuntimeModule(runtimeFile, blob)),
     writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase)),
     writeFileIfChanged(resolve(root, generatedNitroBlobMiddleware), renderNitroBlobMiddleware(importBase)),
   ])
