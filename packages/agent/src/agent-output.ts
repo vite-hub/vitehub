@@ -437,11 +437,11 @@ async function* streamChunksToEvents(chunks: AsyncIterable<unknown>, usageSource
 async function* streamChunksToEventsWithTextFallback(
   chunks: AsyncIterable<unknown>,
   usageSource: unknown,
-  textStream: AsyncIterable<unknown>,
+  getTextStream: () => AsyncIterable<unknown> | undefined,
 ): AsyncIterable<StreamEvent> {
   let hasText = false
   const terminalEvents: StreamEvent[] = []
-  const textIterator = textStream[Symbol.asyncIterator]()
+  let textIterator: AsyncIterator<unknown> | undefined
   let textIteratorClosed = false
   try {
     for await (const event of streamChunksToEvents(chunks, usageSource)) {
@@ -453,6 +453,11 @@ async function* streamChunksToEventsWithTextFallback(
       yield event
     }
     if (!hasText) {
+      textIterator = getTextStream()?.[Symbol.asyncIterator]()
+      if (!textIterator) {
+        yield* terminalEvents
+        return
+      }
       for (;;) {
         const result = await textIterator.next()
         if (result.done) {
@@ -467,7 +472,7 @@ async function* streamChunksToEventsWithTextFallback(
     }
   }
   finally {
-    if (!textIteratorClosed) {
+    if (textIterator && !textIteratorClosed) {
       await textIterator.return?.()
     }
   }
@@ -489,20 +494,20 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   const result = value && typeof value === "object"
     ? value as { fullStream?: unknown, stream?: unknown, textStream?: unknown }
     : undefined
-  const textStream = isAsyncIterable(result?.textStream) ? result.textStream : undefined
+  const getTextStream = () => {
+    const candidate = result?.textStream
+    return isAsyncIterable(candidate) ? candidate : undefined
+  }
   if (isAsyncIterable(result?.stream)) {
-    yield* (textStream
-      ? streamChunksToEventsWithTextFallback(result.stream, result, textStream)
-      : streamChunksToEvents(result.stream, result))
+    yield* streamChunksToEventsWithTextFallback(result.stream, result, getTextStream)
     return
   }
   const fullStream = result?.fullStream
   if (isAsyncIterable(fullStream)) {
-    yield* (textStream
-      ? streamChunksToEventsWithTextFallback(fullStream, result, textStream)
-      : streamChunksToEvents(fullStream, result))
+    yield* streamChunksToEventsWithTextFallback(fullStream, result, getTextStream)
     return
   }
+  const textStream = getTextStream()
   if (textStream) {
     for await (const text of textStream) {
       if (typeof text === "string" && text) {

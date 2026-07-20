@@ -6939,6 +6939,42 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("does not access a derived text stream when the primary reply has text", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const textStream = vi.fn()
+    class StreamResult {
+      stream = new ReadableStream<unknown>({
+        start(controller) {
+          controller.enqueue({ text: "Primary reply", type: "text-delta" })
+          controller.enqueue({ type: "finish" })
+          controller.close()
+        },
+      })
+
+      get textStream() {
+        textStream()
+        return this.stream.pipeThrough(new TransformStream<unknown, string>())
+      }
+    }
+    const agent = defineAgent({
+      capabilities: [title({ execute: ({ text }) => `Title: ${text}` })],
+      driver: { run: () => new StreamResult() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+        role: "user",
+      })],
+    }) as AsyncIterable<unknown>
+    const events = []
+    for await (const event of stream) events.push(event)
+
+    expect(textStream).not.toHaveBeenCalled()
+    expect(events).toContainEqual({ data: { title: "Title: Primary reply", type: "title" }, id: undefined, type: "data" })
+    expect(events.at(-1)).toEqual({ type: "finish" })
+  })
+
   it("keeps plain stream titles per invocation with once-per-thread Channel delivery", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const execute = vi.fn(({ text }) => `Title: ${text}`)
