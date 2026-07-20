@@ -573,6 +573,7 @@ function getVercelBlobRuntimePackages(blob: BlobModuleOptions | ResolvedBlobModu
   }
   return [...packages].map(name => ({
     name,
+    optional: filesSdkPeers.has(name),
     resolveFrom: resolve(packageDir, filesSdkPeers.has(name) ? "node_modules/files-sdk/package.json" : "package.json"),
   }))
 }

@@ -16,7 +16,12 @@ export async function copyVercelFunctionRuntimePackageDirectories(options: {
   const outputNodeModules = resolve(functionDir, "node_modules")
   const copied = new Set<string>()
   for (const runtimePackage of options.packages) {
-    await copyPackageDirectory(runtimePackage.name, runtimePackage.resolveFrom ?? join(options.rootDir, "package.json"), outputNodeModules, copied)
+    try {
+      await copyPackageDirectory(runtimePackage.name, runtimePackage.resolveFrom ?? join(options.rootDir, "package.json"), outputNodeModules, copied)
+    }
+    catch (error) {
+      if (!runtimePackage.optional || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
   }
 }
 
@@ -52,5 +57,7 @@ async function resolvePackageJson(name: string, fromDir: string): Promise<string
     }
     current = dirname(current)
   }
-  throw new Error(`Could not resolve package.json for ${name}.`)
+  const error = new Error(`Could not resolve package.json for ${name}.`) as NodeJS.ErrnoException
+  error.code = "ENOENT"
+  throw error
 }
