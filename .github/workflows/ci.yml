@@ -18,6 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.9.3
 
       - name: Fallow dead-code
         shell: bash
