@@ -12,7 +12,7 @@ export function getCloudflareQueueBindingName(name: string): string {
 export function getCloudflareQueueDefinitionName(name: string, namePrefix = ""): string {
   const encodedName = namePrefix && name.startsWith(namePrefix) ? name.slice(namePrefix.length) : name
   if (!encodedCloudflareQueueNamePattern.test(encodedName)) {
-    return name
+    return encodedName
   }
 
   return decodeQueueNameHex(encodedName.slice(cloudflareQueueNamePrefix.length)) || name
