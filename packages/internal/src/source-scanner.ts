@@ -14,9 +14,9 @@ function isQuote(char: string | undefined) {
   return char === "\"" || char === "'" || char === "`"
 }
 
-function skipQuoted(source: string, index: number) {
+function skipQuoted(source: string, index: number, activeControlFlowRegexes = new Set<number>()) {
   const quote = source[index]
-  if (quote === "`") return skipTemplateLiteral(source, index)
+  if (quote === "`") return skipTemplateLiteral(source, index, activeControlFlowRegexes)
   index += 1
   while (index < source.length) {
     if (source[index] === "\\") {
@@ -31,7 +31,7 @@ function skipQuoted(source: string, index: number) {
   return index
 }
 
-function skipTemplateLiteral(source: string, index: number): number {
+function skipTemplateLiteral(source: string, index: number, activeControlFlowRegexes: Set<number>): number {
   index += 1
   let expressionDepth = 0
   let previousSignificant = ""
@@ -54,12 +54,12 @@ function skipTemplateLiteral(source: string, index: number): number {
       continue
     }
     if (char === "\"" || char === "'") {
-      index = skipQuoted(source, index)
+      index = skipQuoted(source, index, activeControlFlowRegexes)
       previousSignificant = "literal"
       continue
     }
     if (char === "`") {
-      index = skipTemplateLiteral(source, index)
+      index = skipTemplateLiteral(source, index, activeControlFlowRegexes)
       previousSignificant = "literal"
       continue
     }
@@ -71,7 +71,7 @@ function skipTemplateLiteral(source: string, index: number): number {
       index = skipBlockComment(source, index)
       continue
     }
-    if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, index))) {
+    if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, index, activeControlFlowRegexes))) {
       index = skipRegexLiteral(source, index)
       previousSignificant = "/"
       continue
@@ -104,12 +104,12 @@ function isRegexLiteralStart(previousSignificant: string) {
   return !token || /[({[=,:!&|?;>+\-*%^~]/.test(token) || /\b(?:await|case|delete|do|else|in|instanceof|return|throw|typeof|void|yield)$/.test(token)
 }
 
-function findLineCommentStart(source: string, start: number, end: number) {
+function findLineCommentStart(source: string, start: number, end: number, activeControlFlowRegexes: Set<number>) {
   for (let index = start; index <= end;) {
     const char = source[index]
     const next = source[index + 1]
     if (isQuote(char)) {
-      index = skipQuoted(source, index)
+      index = skipQuoted(source, index, activeControlFlowRegexes)
       continue
     }
     if (char === "/" && next === "*") {
@@ -122,7 +122,7 @@ function findLineCommentStart(source: string, start: number, end: number) {
   return -1
 }
 
-function previousCodeIndex(source: string, index: number) {
+function previousCodeIndex(source: string, index: number, activeControlFlowRegexes: Set<number>) {
   let current = index
   while (current >= 0) {
     while (/\s/.test(source[current] ?? "")) current--
@@ -133,7 +133,7 @@ function previousCodeIndex(source: string, index: number) {
       continue
     }
     const lineStart = source.lastIndexOf("\n", current) + 1
-    const lineComment = findLineCommentStart(source, lineStart, current)
+    const lineComment = findLineCommentStart(source, lineStart, current, activeControlFlowRegexes)
     if (lineComment !== -1 && lineComment <= current) {
       current = lineStart - 1
       continue
@@ -143,18 +143,26 @@ function previousCodeIndex(source: string, index: number) {
   return current
 }
 
-function isControlFlowRegexStart(source: string, index: number) {
-  const closeParen = previousCodeIndex(source, index - 1)
-  if (source[closeParen] !== ")") return false
+function isControlFlowRegexStart(source: string, index: number, activeControlFlowRegexes = new Set<number>()) {
+  // A template rescan can revisit the slash whose classification initiated it; treating that candidate as a regex breaks the cycle without changing the outer classification.
+  if (activeControlFlowRegexes.has(index)) return true
+  activeControlFlowRegexes.add(index)
+  try {
+    const closeParen = previousCodeIndex(source, index - 1, activeControlFlowRegexes)
+    if (source[closeParen] !== ")") return false
 
-  for (let current = closeParen; current >= 0; current--) {
-    if (source[current] !== "(") continue
-    if (findMatching(source, current, "(", ")") !== closeParen) continue
-    const head = source.slice(0, current).replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, " ")
-    return /(?:^|[^\w$])(?:catch|for|if|while|with)\s*$/.test(head)
+    for (let current = closeParen; current >= 0; current--) {
+      if (source[current] !== "(") continue
+      if (findMatching(source, current, "(", ")") !== closeParen) continue
+      const head = source.slice(0, current).replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, " ")
+      return /(?:^|[^\w$])(?:catch|for|if|while|with)\s*$/.test(head)
+    }
+
+    return false
   }
-
-  return false
+  finally {
+    activeControlFlowRegexes.delete(index)
+  }
 }
 
 function skipRegexLiteral(source: string, index: number) {
