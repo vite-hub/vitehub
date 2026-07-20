@@ -8,7 +8,7 @@ import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
 import { RateLimitRejectedError } from "../capabilities/rate-limit.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "../chat-trigger.ts"
-import { chatTriggerHistoryLimit, resolveChatTriggerHistory, resolveChatTriggerInvoker, uiMessagesToAgentMessages } from "../chat-message-input.ts"
+import { chatTriggerHistoryLimit, createChatMessageTriggerInput, resolveChatTriggerHistory, uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
@@ -1411,6 +1411,17 @@ async function chatSdkMessageToUiMessage(
   }
 }
 
+function chatAuthorizationUiMessage(thread: Thread, message: ChatSdkMessage, messageContext?: MessageContext): UIMessageLike {
+  const metadata = chatMessageMetadata(thread, message, messageContext)
+  return {
+    createdAt: isoDate(message.metadata.dateSent),
+    id: message.id,
+    ...(metadata ? { metadata } : {}),
+    parts: message.text ? [{ id: "text-0", text: message.text, type: "text" }] : [],
+    role: message.author.isMe ? "assistant" : "user",
+  }
+}
+
 interface ChatThreadHistoryCache {
   getMessages(threadId: string, limit?: number): Promise<ChatSdkMessage[]>
 }
@@ -1725,12 +1736,8 @@ async function handleChatSdkMessage(
         return capability.chatAttachments?.audio === true || metadata?.chatAttachments?.audio === true
       }),
     }
-    input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, [], messageContext, registration.channelId)
-    const authorizationInvoker = resolveChatTriggerInvoker(input)
-    const authorizationInput: AgentRunInput = {
-      context: authorizationInvoker ? { invoker: authorizationInvoker } : {},
-      messages: [],
-    }
+    input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, [chatAuthorizationUiMessage(thread, message, messageContext)], messageContext, registration.channelId)
+    const authorizationInput = createChatMessageTriggerInput(options || {}, input).input
     const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
     if (!invoker) return
 

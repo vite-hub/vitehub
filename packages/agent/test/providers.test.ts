@@ -2825,6 +2825,19 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenCalledTimes(1)
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "echo: hello" })
     expect(invokerResolve).toHaveBeenCalledOnce()
+    expect(invokerResolve).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({
+        context: expect.objectContaining({
+          channel: expect.objectContaining({
+            message: expect.objectContaining({ id: "7", text: "hello" }),
+          }),
+          chat: expect.objectContaining({
+            message: expect.objectContaining({ id: "7", text: "hello" }),
+          }),
+        }),
+        messages: [expect.objectContaining({ role: "user" })],
+      }),
+    }))
     expect(admitChat).toHaveBeenCalledWith(expect.objectContaining({
       invoker: expect.objectContaining({
         id: "customer:acme",
