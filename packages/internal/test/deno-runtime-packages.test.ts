@@ -205,6 +205,7 @@ import sharp from "../node_modules/sharp/lib/index.js"
 ${nativeProbe}
 const png = await sharp({ create: { width: 1, height: 1, channels: 4, background: "#123456" } }).png().toBuffer()
 if (png[0] !== 0x89 || png[1] !== 0x50 || png[2] !== 0x4e || png[3] !== 0x47) throw new Error("Sharp did not produce a PNG")
+process.exit(0)
 `, "utf8")
       await finalizeDenoDeploymentOutput({ outputDir: output, rootDir: workspaceRoot })
 
