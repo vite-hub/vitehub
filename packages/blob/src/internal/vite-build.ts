@@ -6,6 +6,7 @@ import { createDefaultCloudflareOutputRoot, getProviderRuntimeModule, registerPr
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
+import { isPlainObject } from "@vite-hub/internal/object"
 
 import { normalizeBlobOptions } from "../config.ts"
 
@@ -90,6 +91,31 @@ const driverModules = {
   "vercel-blob": "drivers/vercel",
 } satisfies Record<NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], string>
 
+function isResolvedBlobStore(store: unknown): store is ResolvedBlobModuleOptions["store"] {
+  if (!isPlainObject(store) || typeof store.driver !== "string" || !Object.hasOwn(driverModules, store.driver)) return false
+  switch (store.driver) {
+    case "cloudflare-r2":
+      return typeof store.binding === "string"
+    case "fs":
+      return typeof store.base === "string"
+    case "minio":
+      return typeof store.bucket === "string"
+        && typeof store.endpoint === "string"
+        && typeof store.forcePathStyle === "boolean"
+        && typeof store.region === "string"
+    case "vercel-blob":
+      return (store.access === "private" || store.access === "public") && typeof store.token === "string"
+    default:
+      return true
+  }
+}
+
+function isResolvedBlobConfig(blob: object): blob is ResolvedBlobModuleOptions {
+  if (!("store" in blob) || !isResolvedBlobStore(blob.store)) return false
+  if (!("stores" in blob) || typeof blob.stores === "undefined") return true
+  return isPlainObject(blob.stores) && Object.values(blob.stores).every(isResolvedBlobStore)
+}
+
 function getRuntimeBlobStoreResolver(driver: string | undefined) {
   switch (driver) {
     case "minio":
@@ -129,9 +155,13 @@ function resolveBlobConfig(
   blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined,
   hosting: string,
 ): false | ResolvedBlobModuleOptions {
-  return blob && typeof blob === "object" && "store" in blob
-    ? blob
-    : normalizeBlobOptions(blob, { hosting }) || false
+  if (blob && typeof blob === "object" && "store" in blob) {
+    if (!isResolvedBlobConfig(blob)) {
+      throw new TypeError("`blob.store` must contain a fully resolved Blob store with a supported `driver`.")
+    }
+    return blob
+  }
+  return normalizeBlobOptions(blob, { hosting }) || false
 }
 
 function renderProviderEntry(
