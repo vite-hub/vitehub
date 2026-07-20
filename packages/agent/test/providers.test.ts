@@ -2967,6 +2967,7 @@ describe("server helpers", () => {
       },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntilTasks: Promise<unknown>[] = []
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
       body: JSON.stringify({
@@ -2979,9 +2980,10 @@ describe("server helpers", () => {
         },
       }),
       method: "POST",
-    }), "discord")
+    }), "discord", { waitUntil: task => waitUntilTasks.push(task) })
 
     expect(response.status).toBe(200)
+    await Promise.all(waitUntilTasks)
     expect(agent.chat).toMatchObject({ stream: false })
     expect(adapter.postMessage).toHaveBeenCalledOnce()
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "The image shows a dental X-ray." })
@@ -3050,6 +3052,7 @@ describe("server helpers", () => {
       },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntilTasks: Promise<unknown>[] = []
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
       body: JSON.stringify({
@@ -3062,9 +3065,10 @@ describe("server helpers", () => {
         },
       }),
       method: "POST",
-    }), "discord")
+    }), "discord", { waitUntil: task => waitUntilTasks.push(task) })
 
     expect(response.status).toBe(200)
+    await Promise.all(waitUntilTasks)
     expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "...")
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "...")
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Checking the image." })
