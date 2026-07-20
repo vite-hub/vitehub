@@ -4,12 +4,13 @@ import { realpathSync } from "node:fs"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 
-import { collectViteHubProvisionSteps } from "@vite-hub/internal/cli"
+import { collectViteHubCliNamespaces, collectViteHubProvisionSteps } from "@vite-hub/internal/cli"
 import { resolve } from "pathe"
 
 import { runProvision } from "./provision.ts"
 
 import type { InlineConfig, ResolvedConfig } from "vite"
+import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
 
 interface ViteHubCliSpawnResult {
   exitCode: number | null
@@ -29,40 +30,9 @@ type ViteHubCliSpawn = (
   options?: ViteHubCliSpawnOptions,
 ) => Promise<ViteHubCliSpawnResult>
 
-interface ViteHubCliContext {
-  cwd: string
-  env: NodeJS.ProcessEnv
-  rootDir: string
-  spawn: ViteHubCliSpawn
+interface ViteHubCliStreams {
   stderr: { write: (chunk: string | Uint8Array) => unknown }
   stdout: { write: (chunk: string | Uint8Array) => unknown }
-}
-
-interface ViteHubCliFeature {
-  description?: string
-  name: string
-  run: (args: string[], context: ViteHubCliContext) => Promise<number | void> | number | void
-  usage?: string
-}
-
-interface ViteHubCliCommandNamespace {
-  description?: string
-  features: ViteHubCliFeature[]
-  name: string
-}
-
-interface ViteHubCliContributor {
-  namespaces: ViteHubCliCommandNamespace[]
-}
-
-type ViteHubCliContributorFactory = () => ViteHubCliContributor | undefined | Promise<ViteHubCliContributor | undefined>
-
-interface ViteHubCliPluginMetadata {
-  cli?: ViteHubCliContributor | ViteHubCliContributorFactory
-}
-
-interface ViteHubCliContributingPlugin {
-  vitehub?: ViteHubCliPluginMetadata
 }
 
 export interface RunViteHubCliOptions {
@@ -71,8 +41,8 @@ export interface RunViteHubCliOptions {
   env?: NodeJS.ProcessEnv
   loadConfig?: (rootDir: string) => Promise<Pick<ResolvedConfig, "plugins" | "root">>
   spawn?: ViteHubCliSpawn
-  stderr?: ViteHubCliContext["stderr"]
-  stdout?: ViteHubCliContext["stdout"]
+  stderr?: ViteHubCliStreams["stderr"]
+  stdout?: ViteHubCliStreams["stdout"]
 }
 
 function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnOptions = {}) {
@@ -96,37 +66,6 @@ async function loadViteConfig(rootDir: string): Promise<Pick<ResolvedConfig, "pl
   const { resolveConfig } = await import("vite")
   const inlineConfig: InlineConfig = { root: rootDir }
   return await resolveConfig(inlineConfig, "serve", "development")
-}
-
-async function resolveContributor(value: ViteHubCliPluginMetadata["cli"]): Promise<ViteHubCliContributor | undefined> {
-  return typeof value === "function" ? await value() : value
-}
-
-async function collectViteHubCliNamespaces(plugins: readonly unknown[]): Promise<ViteHubCliCommandNamespace[]> {
-  const namespaces = new Map<string, ViteHubCliCommandNamespace>()
-
-  for (const plugin of plugins) {
-    if (!plugin || typeof plugin !== "object") continue
-    const metadata = (plugin as ViteHubCliContributingPlugin).vitehub
-    const contributor = await resolveContributor(metadata?.cli)
-    if (!contributor) continue
-
-    for (const namespace of contributor.namespaces) {
-      const existing = namespaces.get(namespace.name)
-      if (!existing) {
-        namespaces.set(namespace.name, { ...namespace, features: [...namespace.features] })
-        continue
-      }
-
-      const features = new Map(existing.features.map(feature => [feature.name, feature]))
-      for (const feature of namespace.features) {
-        features.set(feature.name, feature)
-      }
-      existing.features = [...features.values()]
-    }
-  }
-
-  return [...namespaces.values()]
 }
 
 // Built-in namespace that orchestrates package-contributed Provision Steps.

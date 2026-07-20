@@ -2,8 +2,12 @@ import { delimiter, join } from "node:path"
 
 import type { DBModulePublicOptions } from "./types.ts"
 import type { ResolvedDBViteConfig } from "./types.ts"
+import type { ViteHubCliContributor as SharedViteHubCliContributor } from "@vite-hub/internal/cli"
 
 import { isAbsolute, relative } from "pathe"
+
+type ResolvedDBViteConfigProvider = () => MaybePromise<ResolvedDBViteConfig | undefined>
+type MaybePromise<T> = Promise<T> | T
 
 interface ViteHubCliContext {
   env?: NodeJS.ProcessEnv
@@ -25,9 +29,6 @@ interface ViteHubCliContributor {
     name: string
   }>
 }
-
-type ResolvedDBViteConfigProvider = () => MaybePromise<ResolvedDBViteConfig | undefined>
-type MaybePromise<T> = Promise<T> | T
 
 function writeGenerateUsage(context: ViteHubCliContext): void {
   context.stdout.write([
@@ -145,5 +146,5 @@ export function createDbCliContributor(
       features,
       name: "db",
     }],
-  }
+  } satisfies SharedViteHubCliContributor
 }
