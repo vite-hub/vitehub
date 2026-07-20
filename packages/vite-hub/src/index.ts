@@ -125,6 +125,7 @@ function configureProviderOptionalImportAliases(
 function frameworkDependencyResolver(
   options: ViteHubOptions,
   providerImportAliases: Record<string, string>,
+  presetKVOptions?: KVModuleOptions,
 ): Plugin {
   return {
     name: "vite-hub/dependencies",
@@ -140,7 +141,7 @@ function frameworkDependencyResolver(
       configureProviderOptionalImportAliases(
         providerImportAliases,
         options,
-        (config as typeof config & { kv?: KVModuleOptions }).kv,
+        (config as typeof config & { kv?: KVModuleOptions }).kv ?? presetKVOptions,
       )
     },
     resolveId(id, importer) {
@@ -319,7 +320,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   configureProviderOptionalImportAliases(providerImportAliases, options, presetKVOptions || undefined)
   const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(sandboxEnabled)
 
-  plugins.push(frameworkDependencyResolver(options, providerImportAliases))
+  plugins.push(frameworkDependencyResolver(options, providerImportAliases, presetKVOptions || undefined))
   plugins.push(hubMarkdownTemplate({ runtimeImport: `${generatedImportBase}/markdown-template` }))
 
   if (options.env !== false) {
