@@ -2,7 +2,12 @@ import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/c
 
 import { normalizeQueueOptions } from "../config.ts"
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { QueueError } from "../errors.ts"
+import {
+  isQueueBoundaryIdentity,
+  normalizePublicQueueIdentifier,
+  QueueError,
+  runQueueProviderOperation,
+} from "../errors.ts"
 import { getCloudflareQueueBindingName } from "../integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 
@@ -10,12 +15,27 @@ import { getQueueClientCache, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQ
 
 import type { CloudflareQueueClient, CloudflareQueueProviderOptions, QueueClient, QueueEnqueueInput, QueueProviderOptions, QueueSendResult, ResolvedQueueOptions, VercelQueueProviderOptions } from "../types.ts"
 
-function createQueueDefinitionNotFoundError(name: string): QueueError {
-  return new QueueError(`Unknown queue definition: ${name}. Queue Runtime Registry is installed by generated Provider Output; direct Node scripts cannot discover Queue Definitions by themselves.`, {
+function createQueueDefinitionNotFoundError(name: string): QueueError<"QUEUE_DEFINITION_NOT_FOUND"> {
+  const queue = normalizePublicQueueIdentifier(name)
+  return new QueueError<"QUEUE_DEFINITION_NOT_FOUND">({
     code: "QUEUE_DEFINITION_NOT_FOUND",
-    details: { name },
-    httpStatus: 404,
+    details: queue ? { queue } : undefined,
   })
+}
+
+async function loadNamedQueueDefinition(name: string) {
+  try {
+    return await loadQueueDefinition(name)
+  }
+  catch (cause) {
+    if (isQueueBoundaryIdentity(cause)) throw cause
+    const queue = normalizePublicQueueIdentifier(name)
+    throw new QueueError<"QUEUE_DEFINITION_LOAD_FAILED">({
+      cause,
+      code: "QUEUE_DEFINITION_LOAD_FAILED",
+      details: queue ? { queue } : undefined,
+    })
+  }
 }
 
 function resolveCloudflareBinding(binding: string | CloudflareQueueClient["binding"] | undefined, name: string) {
@@ -72,29 +92,17 @@ function hasRequestScopedVercelRegion(config: ResolvedQueueOptions): boolean {
 async function createNamedQueueClient(name: string): Promise<QueueClient> {
   const config = getActiveQueueConfig()
   if (config === false) {
-    throw new QueueError("Queue is disabled.", {
+    throw new QueueError<"QUEUE_DISABLED">({
       code: "QUEUE_DISABLED",
-      httpStatus: 400,
     })
   }
 
   const provider = toProviderOptions(name, config)
-  try {
-    return await createQueueClient(provider)
-  } catch (error) {
-    if (error instanceof QueueError) {
-      throw error
-    }
-
-    throw new QueueError(error instanceof Error ? error.message : String(error), {
-      cause: error,
-      provider: provider.provider,
-    })
-  }
+  return await runQueueProviderOperation(provider.provider, "create-client", () => createQueueClient(provider))
 }
 
 export async function getQueue(name: string): Promise<QueueClient> {
-  const definition = await loadQueueDefinition(name)
+  const definition = await loadNamedQueueDefinition(name)
   if (!definition) {
     throw createQueueDefinitionNotFoundError(name)
   }
@@ -121,11 +129,6 @@ export async function getQueue(name: string): Promise<QueueClient> {
 }
 
 export async function runQueue<TPayload = unknown>(name: string, input: QueueEnqueueInput<TPayload>): Promise<QueueSendResult> {
-  const definition = await loadQueueDefinition(name)
-  if (!definition) {
-    throw createQueueDefinitionNotFoundError(name)
-  }
-
   const normalized = normalizeQueueEnqueueInput(input)
   const queue = await getQueue(name)
   return await queue.send({
@@ -141,7 +144,7 @@ export function deferQueue<TPayload = unknown>(name: string, input: QueueEnqueue
   const handleError = async (error: unknown) => {
     console.error(`[vitehub] Deferred queue dispatch failed for "${name}"`, error)
     try {
-      await (await loadQueueDefinition(name))?.options?.onDispatchError?.(error, { name })
+      await (await loadNamedQueueDefinition(name))?.options?.onDispatchError?.(error, { name })
     } catch (hookError) {
       console.error(`[vitehub] onDispatchError hook failed for "${name}"`, hookError)
     }

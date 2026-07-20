@@ -26,6 +26,7 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./internal/composition": "./dist/internal/composition.js",
     "./internal/vite": "./dist/internal/vite.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"

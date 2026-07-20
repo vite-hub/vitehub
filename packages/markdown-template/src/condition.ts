@@ -9,14 +9,18 @@ const templatePathSource = String.raw`[A-Za-z_$][\w$-]*(?:\.[A-Za-z_$][\w$-]*)*`
 export function evaluateCondition(
   expression: string,
   data: Record<string, unknown>,
+  validatePath?: (path: string) => boolean,
 ): boolean {
-  const parser = createConditionParser(tokenizeCondition(expression), expression, data)
+  const parser = createConditionParser(tokenizeCondition(expression, validatePath), expression, data)
   const value = parser.parseOr()
   parser.done()
   return Boolean(value)
 }
 
-function tokenizeCondition(expression: string): ConditionToken[] {
+function tokenizeCondition(
+  expression: string,
+  validatePath?: (path: string) => boolean,
+): ConditionToken[] {
   const tokens: ConditionToken[] = []
   for (let index = 0; index < expression.length;) {
     const rest = expression.slice(index)
@@ -50,7 +54,9 @@ function tokenizeCondition(expression: string): ConditionToken[] {
     }
     const path = rest.match(new RegExp(`^${templatePathSource}`))
     if (path) {
-      if (/^\s*\(/.test(rest.slice(path[0].length))) throw unsafeConditionError(expression)
+      if (/^\s*\(/.test(rest.slice(path[0].length)) || (validatePath && !validatePath(path[0]))) {
+        throw unsafeConditionError(expression)
+      }
       tokens.push({ path: path[0], type: "path" })
       index += path[0].length
       continue

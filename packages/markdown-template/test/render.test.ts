@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 
+import {
+  renderMarkdownTemplateInternal,
+  resolveMarkdownTemplateImports,
+} from "../src/internal/composition.ts"
 import { renderMarkdownTemplate } from "../src/index.ts"
 
 describe("renderMarkdownTemplate", () => {
@@ -303,6 +307,28 @@ describe("renderMarkdownTemplate", () => {
     expect(resolveImport).toHaveBeenNthCalledWith(2, "./policy.md", "/nested.md")
   })
 
+  it("resolves imports without evaluating the template", async () => {
+    await expect(resolveMarkdownTemplateImports([
+      "Hello {{ name }}.",
+      "@workspace.policy",
+      "@mention",
+    ].join("\n"), {
+      resolveBareImport: async specifier => specifier === "workspace.policy"
+        ? { id: specifier, template: "::if{enabled}\nPolicy\n::" }
+        : undefined,
+    })).resolves.toBe([
+      "Hello {{ name }}.",
+      "::if{condition=\"enabled\"}",
+      "Policy",
+      "::",
+      "@mention",
+    ].join("\n"))
+
+    await expect(resolveMarkdownTemplateImports("@./policy.md", {
+      resolveImport: async () => ({ id: "/policy.md", template: "::if{enabled}\nPolicy" }),
+    })).rejects.toThrow("missing a closing")
+  })
+
   it("leaves relative-looking text literal when no resolver is provided", async () => {
     await expect(renderMarkdownTemplate("Read @./policy.md")).resolves.toBe("Read @./policy.md")
   })
@@ -343,6 +369,10 @@ describe("renderMarkdownTemplate", () => {
     })).resolves.toBe("Yes")
     await expect(renderMarkdownTemplate("::if{process.exit()}\nNo\n::"))
       .rejects.toThrow("Unsafe Markdown template condition")
+    await expect(renderMarkdownTemplateInternal("::if{private.enabled}\nNo\n::", {
+      data: { private: { enabled: true } },
+      validateConditionPath: path => path.startsWith("public."),
+    })).rejects.toThrow("Unsafe Markdown template condition")
     await expect(renderMarkdownTemplate("::if{enabled}\nYes"))
       .rejects.toThrow("missing a closing")
     await expect(renderMarkdownTemplate("::if{enabled}\nYes\n::else{condition=\"admin\"}\nNo\n::"))

@@ -111,10 +111,10 @@ export async function startOpenWorkflowWorker(options: StartOpenWorkflowWorkerOp
     stopTask ??= Promise.resolve()
       .then(() => originalStop())
       .catch((cause) => {
-        throw new WorkflowError("OpenWorkflow worker stop failed.", {
+        throw new WorkflowError({
           cause,
           code: "OPENWORKFLOW_WORKER_STOP_FAILED",
-          provider: "openworkflow",
+          details: { provider: "openworkflow" },
         })
       })
     return stopTask
