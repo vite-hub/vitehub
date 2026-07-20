@@ -805,7 +805,7 @@ function streamAgentOutputToChatReplies(
       const events = output instanceof Response
         ? (async function* () {
             for await (const text of streamAgentOutputToChatText(Promise.resolve(output))) {
-              yield { text, type: "text-delta" as const }
+              yield { phase: undefined, text, type: "text-delta" as const }
             }
           })()
         : streamAgentOutputToEvents(output)
