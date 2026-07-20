@@ -2405,6 +2405,13 @@ async function executeAgentInvocation<
         const preserveResult = primaryStream instanceof ReadableStream || Object.getPrototypeOf(rendered) !== Object.prototype
         let value: object
         const stream = withCapabilityCleanup(streamed.stream, async (outcome) => {
+          if (preserveResult) {
+            Object.defineProperty(value, "text", {
+              configurable: true,
+              enumerable: true,
+              value: streamed.text(),
+            })
+          }
           await finishStreamAgentInvocation(invocation, lifecycle, preserveResult ? value : streamed.finishResult(), finishOutcomeFromCleanup(outcome), runFailureMessage, outputExtensions)
         }, { abortSignal: invocation.input.abortSignal })
         const outputStream = primaryStream instanceof ReadableStream ? toLazyReadableStream(stream) : stream
