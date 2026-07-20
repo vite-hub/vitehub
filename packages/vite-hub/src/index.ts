@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import { basename, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -195,11 +194,6 @@ function deploymentName(root?: string): string {
     .slice(0, 48) || "vitehub"
 }
 
-function cloudflareQueuePrefix(name: string): string {
-  if (name.length <= 16) return name + "-"
-  return createHash("sha256").update(name).digest("hex").slice(0, 8) + "-"
-}
-
 function cloneRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
 }
@@ -242,7 +236,7 @@ function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentSe
           ;(config as { queue?: unknown }).queue = {
             ...cloneRecord((config as { queue?: unknown }).queue),
             provider: plan.services.queue.adapter,
-            ...(plan.services.queue.adapter === "cloudflare" ? { namePrefix: cloudflareQueuePrefix(name) } : {}),
+            ...(plan.services.queue.adapter === "cloudflare" ? { namePrefix: `${name}-` } : {}),
           }
         }
         if (requestedServices.includes("rateLimit") && plan.services.rateLimit.supported) {
