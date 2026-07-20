@@ -320,7 +320,7 @@ describe("Vite provider outputs", () => {
       triggers: { crons: ["0 0 * * *"] },
     })
     expect(existsSync(join(rootDir, ".vercel", "output", "static", toSafeAppName(rootDir), "index.js"))).toBe(false)
-    expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__blob.func", "index.mjs"))).toBe(false)
+    expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__blob.func", "index.mjs"))).toBe(true)
   })
 
   it("cleans legacy standalone workers without R2 runtime code when Nitro takes ownership", { timeout: 30_000 }, async () => {

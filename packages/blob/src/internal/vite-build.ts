@@ -560,9 +560,6 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     afterWrite: createVercel ? () => copyVercelBlobRuntimePackages(options) : undefined,
     clientOutDir: options.clientOutDir,
     cloudflare: createCloudflare ? createCloudflareOutput(options.blob, artifacts, options.providerOutput) : undefined,
-    cleanup: options.cloudflareOwnedByNitro
-      ? { vercel: { serverFunctionName: options.serverFunctionName ?? "__server.func" } }
-      : undefined,
     rootDir: options.rootDir,
     vercel: createVercel ? createVercelOutput(artifacts, options.providerOutput, options.serverFunctionName) : undefined,
   })
