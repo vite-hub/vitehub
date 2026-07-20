@@ -2241,14 +2241,18 @@ async function finalizeAgentInvocationResult<
   const shouldWrapOutput = shouldWrapInvocationOutput(context)
   try {
     if (result instanceof Response) {
-      const responseText = context.context.get<boolean>(responseTitleFallbackContextKey) === true
-        ? result.clone().text()
+      const responseDecoder = context.context.get<boolean>(responseTitleFallbackContextKey) === true
+        ? new TextDecoder()
         : undefined
+      let responseText = ""
       const response = shouldWrapOutput ? await withResponseCleanup(result, async (outcome) => {
+        responseText += responseDecoder?.decode() ?? ""
         const finishResult = responseText && !outcome.failed
-          ? { raw: result, text: await responseText }
+          ? { raw: result, text: responseText }
           : result
         await lifecycle.finish(finishOutcomeFromCleanup(outcome, finishResult))
+      }, {
+        onChunk: chunk => responseText += responseDecoder?.decode(chunk, { stream: true }) ?? "",
       }) : result
       return response
     }

@@ -1443,7 +1443,11 @@ export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
   })()
 }
 
-export function withResponseCleanup(response: Response, close: (outcome: CapabilityCleanupOutcome) => Promise<void>): Response | Promise<Response> {
+export function withResponseCleanup(
+  response: Response,
+  close: (outcome: CapabilityCleanupOutcome) => Promise<void>,
+  options: { onChunk?: (chunk: Uint8Array) => void } = {},
+): Response | Promise<Response> {
   if (!response.body) {
     return close({ failed: false }).then(() => response)
   }
@@ -1476,6 +1480,7 @@ export function withResponseCleanup(response: Response, close: (outcome: Capabil
           controller.close()
           return
         }
+        options.onChunk?.(result.value)
         controller.enqueue(result.value)
       }
       catch (error) {
