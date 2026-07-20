@@ -147,7 +147,7 @@ export default defineAgent({
 })
 ```
 
-Model-backed Agents pass inline data and HTTPS references as typed model input. For the current user turn, the model driver prefers an attachment's adapter-owned `fetchData` callback immediately before invocation. Historical callbacks are not replayed; history retains only serializable data and URL references. The driver resolves attachments sequentially and checks both the declared and resolved byte size against one invocation-wide budget. The default limit is 25 MiB; change the real resource policy with `driver.execution.attachments.maxBytes`.
+Model-backed Agents pass inline data and HTTPS references as typed model input. For the current Channel turn, the model driver prefers an attachment's adapter-owned `fetchData` callback immediately before invocation. Channel history callbacks are not replayed; history retains only serializable data and URL references. The driver resolves attachments sequentially and checks both the declared and resolved byte size against one invocation-wide budget. The default limit is 25 MiB; change the real resource policy with `driver.execution.attachments.maxBytes`.
 
 ```ts [server/agents/vision.ts]
 export default defineAgent({
