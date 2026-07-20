@@ -1,5 +1,5 @@
 import { deploymentPresetFromNitro } from '@vite-hub/internal/deployment'
-import { getSupportedHostingProvider } from '@vite-hub/internal/hosting'
+import { getHostingProvider, getSupportedHostingProvider } from '@vite-hub/internal/hosting'
 import { createDiscoveredDefinitionCompiler, type DiscoveredDefinitionCompilerOptions } from './internal/shared/discovered-definition'
 import {
   toTemplateSafeName,
