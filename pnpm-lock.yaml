@@ -929,12 +929,12 @@ importers:
 
   packages/queue:
     dependencies:
-      '@vite-hub/runtime':
-        specifier: workspace:*
-        version: link:../runtime
       '@vercel/queue':
         specifier: catalog:vercel
         version: 0.0.0-alpha.40
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       defu:
         specifier: catalog:unjs
         version: 6.1.7
@@ -1272,6 +1272,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.3
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
       publint:
         specifier: catalog:tooling
         version: 0.3.21
@@ -1290,12 +1293,12 @@ importers:
       '@vercel/functions':
         specifier: catalog:vercel
         version: 3.7.5(@aws-sdk/credential-provider-web-identity@3.972.65)(ws@8.21.1)
-      '@vite-hub/runtime':
-        specifier: workspace:*
-        version: link:../runtime
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       '@workflow/builders':
         specifier: catalog:workflow
         version: 4.0.5(@opentelemetry/api@1.9.1)(@swc/helpers@0.5.23)(ws@8.21.1)

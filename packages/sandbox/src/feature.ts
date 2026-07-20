@@ -178,8 +178,8 @@ export function resolveSandboxFeatureConfig(sandboxConfig: AgentSandboxConfig, h
   }
 
   const unsupportedHostedProvider = getHostingProvider(hosting)
-  if (unsupportedHostedProvider === 'netlify') {
-    throw new TypeError('[vitehub] Sandbox hosting inference does not support Netlify. An explicit `sandbox.provider` is required.')
+  if (unsupportedHostedProvider) {
+    throw new TypeError('[vitehub] Sandbox hosting inference does not support ' + unsupportedHostedProvider + '. An explicit `sandbox.provider` is required.')
   }
 
   return config

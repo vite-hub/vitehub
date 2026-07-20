@@ -39,7 +39,7 @@ import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ email: true })],
+  plugins: [vitehub({ preset: "node", email: true })],
 })
 ```
 
@@ -104,7 +104,7 @@ The SMTP server supplies `id`. Confirm delivery in the recipient inbox or the pr
 
 | Surface | Use it when |
 | --- | --- |
-| `email.send(message)` | A Vite app discovers one Email Definition through `vitehub({ email: true })`. |
+| `email.send(message)` | A Vite app discovers one Email Definition through `vitehub({ preset: "node", email: true })`. |
 | `createEmail({ driver })` | A server integration creates and owns the driver explicitly. Vite discovery is not required. |
 | `createTestEmail()` | A test needs production message validation and deterministic in-memory capture without delivery. |
 
@@ -341,7 +341,7 @@ import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ email: true })],
+  plugins: [vitehub({ preset: "node", email: true })],
 })
 ```
 
@@ -355,7 +355,7 @@ Only one Email Definition is allowed. The integration binds it through an intern
 
 ### `No Email Definition was discovered`
 
-Verify that `vitehub({ email: true })` is registered and that exactly one `server/email.ts` or `server.email.ts` exists below the detected project root. Applications using the owner integration directly can register `hubEmail()` instead. If the Vite root is nested, register `vitehub({ email: { projectRoot } })` explicitly. Restart the development server, then call `email.send()` again.
+Verify that `vitehub({ preset: "node", email: true })` is registered and that exactly one `server/email.ts` or `server.email.ts` exists below the detected project root. Applications using the owner integration directly can register `hubEmail()` instead. If the Vite root is nested, register `vitehub({ preset: "node", email: { projectRoot } })` explicitly. Restart the development server, then call `email.send()` again.
 
 ### `Only one Email Definition is allowed`
 
