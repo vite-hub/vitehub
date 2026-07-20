@@ -133,6 +133,7 @@
     "test": "vp run -t @vite-hub/workspace#build && vp test"
   },
   "dependencies": {
+    "@vite-hub/box": "workspace:*",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",

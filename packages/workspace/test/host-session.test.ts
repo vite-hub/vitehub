@@ -278,6 +278,14 @@ describe("workspace host sessions", () => {
     await session.close()
   })
 
+  it("rejects execution directories outside the Workspace target", async () => {
+    const session = await workspace().startSession({ host: memoryHost() })
+
+    await expect(session.exec("write", ["result.txt", "nope"], { cwd: "/tmp" }))
+      .rejects.toThrow("Workspace exec cwd must stay inside /workspace")
+    await session.close()
+  })
+
   it("resolves glob patterns from the requested working directory", async () => {
     const docs = workspace()
     await docs.writeFile("src/index.ts", "export {}")

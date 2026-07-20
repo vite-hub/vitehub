@@ -38,6 +38,14 @@ function toHostPath(root: string, path = "") {
   return normalized ? posix.join(root, normalized) : root
 }
 
+function toHostCwd(root: string, cwd: string | undefined) {
+  if (cwd === undefined) return root
+  if (!posix.isAbsolute(cwd)) return toHostPath(root, cwd)
+  const normalized = posix.normalize(cwd)
+  if (normalized === root || normalized.startsWith(`${root}/`)) return normalized
+  throw new WorkspaceError(`[vitehub] Workspace exec cwd must stay inside ${root}: ${cwd}.`)
+}
+
 function fromHostPath(root: string, path: string) {
   const normalizedRoot = root.replace(/\/+$/, "")
   const normalizedPath = posix.resolve(root, path).replace(/\/+$/, "")
@@ -408,11 +416,7 @@ export async function createHostedWorkspaceSession(
     async exec(command, args = [], execOptions = {}) {
       assertOpen()
       const result = await host.exec(command, args, {
-        cwd: execOptions.cwd === undefined
-          ? root
-          : posix.isAbsolute(execOptions.cwd)
-            ? execOptions.cwd
-            : toHostPath(root, execOptions.cwd),
+        cwd: toHostCwd(root, execOptions.cwd),
         env: execOptions.env,
         signal: execOptions.abortSignal,
         timeout: execOptions.timeout,

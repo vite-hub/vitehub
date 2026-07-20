@@ -1351,6 +1351,9 @@ importers:
 
   packages/workspace:
     dependencies:
+      '@vite-hub/box':
+        specifier: workspace:*
+        version: link:../box
       '@vercel/nft':
         specifier: catalog:vercel
         version: 1.10.2(rollup@4.62.2)
