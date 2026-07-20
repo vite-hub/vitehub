@@ -2940,6 +2940,129 @@ describe("server helpers", () => {
     await expect(streamResponse.text()).resolves.toContain("final answer")
   })
 
+  it("posts only the final Discord reply without a progress edit after harness tool events", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        discord: discord({ adapter: () => adapter as never }),
+      },
+      driver: {
+        run: () => ({
+          raw: {
+            steps: [
+              {
+                content: [
+                  { text: "I'll inspect the image.", type: "text" },
+                  { text: "private reasoning", type: "reasoning" },
+                  { input: { path: "image.png" }, toolCallId: "call-1", toolName: "view_image", type: "tool-call" },
+                  { output: { ok: true }, toolCallId: "call-1", toolName: "view_image", type: "tool-result" },
+                ],
+              },
+              {
+                content: [
+                  { text: "I'll verify one detail.", type: "text" },
+                  { input: { query: "detail" }, toolCallId: "call-2", toolName: "search", type: "tool-call" },
+                  { output: { ok: true }, toolCallId: "call-2", toolName: "search", type: "tool-result" },
+                ],
+              },
+              {
+                content: [
+                  { text: "The image shows a dental X-ray.", type: "text" },
+                ],
+              },
+            ],
+          },
+          text: "I'll inspect the image.I'll verify one detail.The image shows a dental X-ray.",
+        }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { id: 123, username: "maxi" },
+          message_id: 2009,
+          text: "describe this image",
+        },
+      }),
+      method: "POST",
+    }), "discord")
+
+    expect(response.status).toBe(200)
+    expect(agent.chat).toMatchObject({ stream: false })
+    expect(adapter.postMessage).toHaveBeenCalledOnce()
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "The image shows a dental X-ray." })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+  })
+
+  it("preserves traceable stream results for final-only Channel delivery", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: { discord: discord({ adapter: () => adapter as never }) },
+      driver: {
+        run: () => ({
+          text: "stale partial text",
+          textStream: (async function* () { yield "Final streamed answer." })(),
+        }),
+      },
+    })
+
+    const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { id: 123, username: "maxi" },
+          message_id: 2010,
+          text: "stream this",
+        },
+      }),
+      method: "POST",
+    }), "discord")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Final streamed answer." })
+  })
+
+  it("preserves bare async iterables for final-only Channel delivery", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const stream = Object.assign((async function* () {
+      yield { text: "Final streamed answer.", type: "text-delta" }
+    })(), { text: "stale partial text" })
+    const agent = defineAgent({
+      channels: { discord: discord({ adapter: () => adapter as never }) },
+      driver: { run: () => stream },
+    })
+
+    const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { id: 123, username: "maxi" },
+          message_id: 2011,
+          text: "stream this",
+        },
+      }),
+      method: "POST",
+    }), "discord")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Final streamed answer." })
+  })
+
   it("scopes progressive delivery to the active Channel", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")

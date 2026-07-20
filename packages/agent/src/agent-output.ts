@@ -2,6 +2,8 @@ import { ApprovalRequiredError } from "@vite-hub/runtime"
 import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
 import { readAgentUsageMetadata } from "./internal/agent-usage-metadata.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
+import { finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
+import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 
 import type { StreamEvent } from "./messages.ts"
 import type { AgentRunMetadata, AgentRunResult, AgentUsage, AgentUsageRecord } from "./types.ts"
@@ -13,6 +15,11 @@ export function agentResultKind(result: unknown): string {
   if (isAsyncIterable(result)) return "stream"
   if (Array.isArray(result)) return "array"
   return typeof result
+}
+
+export function hasTraceableStreamResult(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  return isAsyncIterable(value.fullStream) || isAsyncIterable(value.stream) || isAsyncIterable(value.textStream)
 }
 
 function textFromContent(content: unknown): string | undefined {
@@ -62,24 +69,91 @@ function textFromResult(result: Record<string, unknown>): string | undefined {
   }
 }
 
+function finalTextFromContent(content: unknown): string | undefined {
+  if (!Array.isArray(content)) return
+
+  const boundary = content.findLastIndex((part) => {
+    if (!part || typeof part !== "object") return false
+    const type = ownValue(part as Record<string, unknown>, "type")
+    return typeof type === "string" && type.startsWith("tool-")
+  })
+  return boundary >= 0 ? textFromContent(content.slice(boundary + 1)) ?? "" : undefined
+}
+
+function contentFromSteps(steps: unknown[]): unknown[] {
+  return steps.flatMap((step) => {
+    if (!isRecord(step)) return []
+    const content = ownValue(step, "content")
+    const text = ownValue(step, "text")
+    if (!Array.isArray(content)) return typeof text === "string" && text ? [{ text, type: "text" }] : []
+    return typeof text === "string" && text && textFromContent(content) === undefined
+      ? [...content, { text, type: "text" }]
+      : content
+  })
+}
+
+function structuredTextFromResult(result: Record<string, unknown>): string | undefined {
+  const content = textFromContent(ownValue(result, "content"))
+  if (content !== undefined) return content
+
+  const steps = ownValue(result, "steps")
+  if (!Array.isArray(steps)) return
+  return textFromContent(contentFromSteps(steps))
+}
+
+function finalTextFromStructuredResult(result: Record<string, unknown>): string | undefined {
+  const content = finalTextFromContent(ownValue(result, "content"))
+  if (content !== undefined) return content
+
+  const steps = ownValue(result, "steps")
+  if (!Array.isArray(steps)) return
+  return finalTextFromContent(contentFromSteps(steps))
+}
+
+export function finalTextFromAgentOutput(value: unknown): string | undefined {
+  if (typeof value === "string") return value
+  if (!isRecord(value)) return
+
+  const raw = ownValue(value, "raw")
+  if (isRecord(raw)) {
+    const final = finalTextFromStructuredResult(raw)
+    if (final === "" && Object.getOwnPropertyDescriptor(value, synthesizedAgentOutputSymbol)?.value === true) {
+      return textFromResult(value) ?? final
+    }
+    return final ?? textFromResult(value)
+  }
+
+  const final = finalTextFromStructuredResult(value)
+  if (final !== "") return final ?? textFromResult(value)
+
+  const text = textFromResult(value)
+  const structuredText = structuredTextFromResult(value)
+  return text && structuredText !== text ? text : final
+}
+
 export function toAgentRunResult(value: unknown): AgentRunResult {
   if (typeof value !== "object" || value === null) {
     return { raw: value, text: typeof value === "string" ? value : undefined }
   }
 
   const result = value as Record<string, unknown>
-  const usageRecord = isUsageRecord(ownValue(result, "usageRecord"))
-    ? withFallbackUsageMetadata(ownValue(result, "usageRecord") as AgentUsageRecord, result)
-    : usageRecordFromUsage(ownValue(result, "usage") ?? ownValue(result, "totalUsage"), result)
-  const artifacts = publishedDeliveryArtifactsFromUnknown(ownValue(result, "artifacts"))
+  const explicitText = ownValue(result, "text")
+  const selectedChannelOutput = Object.getOwnPropertyDescriptor(result, finalChannelOutputSelectedSymbol)?.value === true
+  const raw = selectedChannelOutput ? ownValue(result, "raw") : value
+  const normalized = selectedChannelOutput && isRecord(raw) ? raw : result
+  const selectedValue = (key: string) => ownValue(result, key) ?? ownValue(normalized, key)
+  const usageRecord = isUsageRecord(selectedValue("usageRecord"))
+    ? withFallbackUsageMetadata(withFallbackUsageMetadata(selectedValue("usageRecord") as AgentUsageRecord, result), normalized)
+    : usageRecordFromUsage(selectedValue("usage") ?? selectedValue("totalUsage"), result, normalized)
+  const artifacts = publishedDeliveryArtifactsFromUnknown(selectedValue("artifacts"))
   return {
     ...(artifacts.length ? { artifacts } : {}),
-    finishReason: ownValue(result, "finishReason"),
-    raw: value,
-    text: textFromResult(result),
-    usage: ownValue(result, "usage") ?? usageRecord?.usage,
+    finishReason: selectedValue("finishReason"),
+    raw,
+    text: selectedChannelOutput && typeof explicitText === "string" ? explicitText : textFromResult(result),
+    usage: selectedValue("usage") ?? usageRecord?.usage,
     usageRecord,
-    warnings: ownValue(result, "warnings"),
+    warnings: selectedValue("warnings"),
   }
 }
 

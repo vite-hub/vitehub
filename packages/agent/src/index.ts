@@ -11,7 +11,7 @@ import {
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
 import { createTraceEventLog, resolveRuntimeContext } from "@vite-hub/runtime"
-import { agentResultKind, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
+import { agentResultKind, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
 import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import {
   finishMessageChannelTitleDelivery,
@@ -39,6 +39,8 @@ import {
   scheduledAgentNameContextKey,
   scheduledAgentTurnContextKey,
 } from "./internal/scheduled-turn.ts"
+import { finalChannelOutputContextKey, finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
+import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import {
   colocatedAgentSkillsContextKey,
   colocatedAgentSkillsSymbol,
@@ -1679,12 +1681,6 @@ function maybeTraceAgentStream<
   return context.runtimeContext.traceLog ? traceAgentStreamEvents(stream, toTraceContext(context)) : stream
 }
 
-function hasTraceableStreamResult(value: unknown): boolean {
-  if (typeof value !== "object" || value === null) return false
-  const result = value as { fullStream?: unknown, stream?: unknown, textStream?: unknown }
-  return isAsyncIterable(result.fullStream) || isAsyncIterable(result.stream) || isAsyncIterable(result.textStream)
-}
-
 function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream: T, result: unknown): T {
   if (typeof stream !== "object" || stream === null || typeof result !== "object" || result === null) return stream
   Object.defineProperties(stream, Object.fromEntries(["usage", "usageRecord"].map(key => [key, {
@@ -2290,6 +2286,21 @@ async function executeAgentInvocation<
   }
   catch (error) {
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
+  }
+
+  if (options.kind === "run"
+    && invocation.context.get<boolean>(finalChannelOutputContextKey) === true
+    && !isAsyncIterable(result)
+    && !hasTraceableStreamResult(result)) {
+    const text = finalTextFromAgentOutput(result)
+    if (text !== undefined && !(result instanceof Response)) {
+      const synthesizedRaw = typeof result === "object" && result !== null
+        && Object.getOwnPropertyDescriptor(result, synthesizedAgentOutputSymbol)?.value === true
+        ? Object.getOwnPropertyDescriptor(result, "raw")?.value
+        : undefined
+      result = { raw: synthesizedRaw ?? result, text }
+      Object.defineProperty(result, finalChannelOutputSelectedSymbol, { enumerable: true, value: true })
+    }
   }
 
   const outputExtensions = new Map<string, unknown>()

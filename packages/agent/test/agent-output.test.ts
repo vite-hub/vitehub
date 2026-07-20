@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest"
 
 import { applyStreamEvent } from "../src/messages.ts"
+import { finalChannelOutputSelectedSymbol } from "../src/internal/final-channel-output.ts"
+import { synthesizedAgentOutputSymbol } from "../src/internal/synthesized-agent-output.ts"
 import {
+  finalTextFromAgentOutput,
   streamAgentOutputToEvents,
   toAgentRunResult,
   toAgentStreamEvent,
@@ -11,6 +14,27 @@ describe("agent output helpers", () => {
   it("normalizes primitive values into Agent run results", () => {
     expect(toAgentRunResult("ok")).toEqual({ raw: "ok", text: "ok" })
     expect(toAgentRunResult(42)).toEqual({ raw: 42, text: undefined })
+  })
+
+  it("preserves raw metadata with text selected for a final-only Channel", () => {
+    const raw = {
+      artifacts: [{ path: "result.txt", url: "https://example.com/result.txt" }],
+      content: [{ text: "progress", type: "text" }],
+      finishReason: "tool-calls",
+      usage: { inputTokens: 1 },
+      warnings: ["warning"],
+    }
+    const value = { modelId: "rendered-model", raw, text: "" }
+    Object.assign(value, { warnings: ["rendered warning"] })
+    Object.defineProperty(value, finalChannelOutputSelectedSymbol, { value: true })
+    expect(toAgentRunResult(value)).toMatchObject({
+      artifacts: raw.artifacts,
+      finishReason: "tool-calls",
+      raw,
+      text: "",
+      usageRecord: { model: { id: "rendered-model" }, usage: { inputTokens: 1 } },
+      warnings: ["rendered warning"],
+    })
   })
 
   it("normalizes model output objects into Agent run results", () => {
@@ -119,6 +143,144 @@ describe("agent output helpers", () => {
     }
 
     expect(toAgentRunResult(value).text).toBe("final result")
+  })
+
+  it("selects final assistant text after harness tool boundaries", () => {
+    const raw = {
+      steps: [{
+        content: [
+          { text: "I'll inspect the image.", type: "text" },
+          { input: { path: "image.png" }, toolCallId: "call-1", toolName: "view_image", type: "tool-call" },
+          { output: { ok: true }, toolCallId: "call-1", toolName: "view_image", type: "tool-result" },
+          { text: "The image shows ", type: "text" },
+          { textDelta: "a dental X-ray.", type: "text-delta" },
+        ],
+      }],
+    }
+
+    expect(finalTextFromAgentOutput({ raw, text: "I'll inspect the image.The image shows a dental X-ray." }))
+      .toBe("The image shows a dental X-ray.")
+  })
+
+  it("keeps only text after the last of multiple harness tools", () => {
+    expect(finalTextFromAgentOutput({
+      steps: [
+        {
+          content: [
+            { text: "First check.", type: "text" },
+            { toolCallId: "call-1", toolName: "search", type: "tool-call" },
+            { toolCallId: "call-1", toolName: "search", type: "tool-result" },
+          ],
+        },
+        {
+          content: [
+            { text: "Second check.", type: "text" },
+            { toolCallId: "call-2", toolName: "read", type: "tool-call" },
+            { toolCallId: "call-2", toolName: "read", type: "tool-result" },
+          ],
+        },
+        {
+          content: [
+            { text: "Final answer.", type: "text" },
+          ],
+        },
+      ],
+    })).toBe("Final answer.")
+  })
+
+  it("selects final text from a later step text field", () => {
+    expect(finalTextFromAgentOutput({
+      steps: [
+        {
+          content: [
+            { text: "Checking.", type: "text" },
+            { toolCallId: "call-1", toolName: "search", type: "tool-call" },
+            { toolCallId: "call-1", toolName: "search", type: "tool-result" },
+          ],
+        },
+        {
+          content: [{ toolCallId: "call-2", toolName: "format", type: "tool-result" }],
+          text: "Final answer.",
+        },
+      ],
+      text: "Checking.Final answer.",
+    })).toBe("Final answer.")
+  })
+
+  it("keeps wrapper output empty when raw output ends at a tool", () => {
+    expect(finalTextFromAgentOutput({
+      raw: {
+        content: [
+          { text: "Checking the workspace.", type: "text" },
+          { toolCallId: "call-1", toolName: "workspace", type: "tool-call" },
+          { toolCallId: "call-1", toolName: "workspace", type: "tool-result" },
+        ],
+      },
+      text: "Synthesized workspace answer.",
+    })).toBe("")
+  })
+
+  it("preserves marked synthesized output when raw output ends at a tool", () => {
+    const value = {
+      raw: {
+        content: [
+          { text: "Checking the workspace.", type: "text" },
+          { toolCallId: "call-1", toolName: "workspace", type: "tool-call" },
+          { toolCallId: "call-1", toolName: "workspace", type: "tool-result" },
+        ],
+      },
+      text: "Synthesized workspace answer.",
+    }
+    Object.defineProperty(value, synthesizedAgentOutputSymbol, { value: true })
+
+    expect(finalTextFromAgentOutput(value)).toBe("Synthesized workspace answer.")
+  })
+
+  it("does not restore aggregate commentary when raw output ends at a tool", () => {
+    expect(finalTextFromAgentOutput({
+      raw: {
+        content: [
+          { text: "Checking the workspace.", type: "text" },
+          { toolCallId: "call-1", toolName: "workspace", type: "tool-call" },
+          { toolCallId: "call-1", toolName: "workspace", type: "tool-result" },
+        ],
+      },
+      text: "Checking the workspace.",
+    })).toBe("")
+  })
+
+  it("falls back to direct final text when structured output ends at a tool", () => {
+    expect(finalTextFromAgentOutput({
+      content: [
+        { text: "Checking the workspace.", type: "text" },
+        { toolCallId: "call-1", toolName: "workspace", type: "tool-call" },
+        { toolCallId: "call-1", toolName: "workspace", type: "tool-result" },
+      ],
+      text: "Synthesized workspace answer.",
+    })).toBe("Synthesized workspace answer.")
+  })
+
+  it("selects raw final text before output rendering", () => {
+    const raw = {
+      content: [
+        { text: "I'll inspect it.", type: "text" },
+        { toolCallId: "call-1", toolName: "inspect", type: "tool-call" },
+        { toolCallId: "call-1", toolName: "inspect", type: "tool-result" },
+        { text: "unsafe <answer>", type: "text" },
+      ],
+    }
+
+    expect(finalTextFromAgentOutput({ raw, text: "Rendered &lt;answer&gt;" }))
+      .toBe("unsafe <answer>")
+  })
+
+  it("preserves normal assistant text when no tool runs", () => {
+    expect(finalTextFromAgentOutput({
+      content: [
+        { text: "Normal ", type: "text" },
+        { textDelta: "answer.", type: "text-delta" },
+      ],
+    })).toBe("Normal answer.")
   })
 
   it("tracks tool names across stream events", () => {
