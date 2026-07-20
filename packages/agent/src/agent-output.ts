@@ -17,6 +17,11 @@ export function agentResultKind(result: unknown): string {
   return typeof result
 }
 
+export function hasTraceableStreamResult(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  return isAsyncIterable(value.fullStream) || isAsyncIterable(value.stream) || isAsyncIterable(value.textStream)
+}
+
 function textFromContent(content: unknown): string | undefined {
   if (!Array.isArray(content)) return
 
