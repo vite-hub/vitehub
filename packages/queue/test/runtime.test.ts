@@ -380,6 +380,25 @@ describe("cloudflare queue runtime", () => {
     }, {}, { waitUntil: vi.fn() })).rejects.toThrow("is not mapped to a Queue Definition")
   })
 
+  it("derives bounded physical names from manual worker registries", async () => {
+    const handler = vi.fn(async () => {})
+    const worker = createQueueCloudflareWorker({
+      queue: { namePrefix: `${"deployment".repeat(8)}-`, provider: "cloudflare" },
+      registry: {
+        "images/nested/optimization-aaaaaaaa": async () => ({ default: { handler } }),
+      },
+    })
+
+    await worker.queue({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: { id: 1 }, id: "1", retry: vi.fn() }],
+      queue: "deploymentdeploymentdeployment-f537f0129ff2b8673b34a44f70a00fad",
+      retryAll: vi.fn(),
+    }, {}, { waitUntil: vi.fn() })
+
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ payload: { id: 1 } }))
+  })
+
   it("rejects unknown physical and logical Cloudflare queue mappings", async () => {
     const worker = createQueueCloudflareWorker({
       definitions: { "preview-queue--77656c636f6d65": "missing" },
