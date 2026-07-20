@@ -55,7 +55,8 @@ function collectImportedPackageNames(source: string): Set<string> {
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^\s*\/\/.*$/gm, "")
   const patterns = [
-    /(?:^|;)\s*(?:import|export)\s+(?:[^"']+\s+from\s+)?["']([^"']+)["']/gm,
+    /(?:^|;)\s*(?:import|export)\s*["']([^"']+)["']/gm,
+    /(?:^|;)\s*(?:import|export)[^;\n]*?\bfrom\s*["']([^"']+)["']/gm,
     /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
     /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
   ]
