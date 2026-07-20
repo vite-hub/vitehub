@@ -384,6 +384,9 @@ describe("Vite provider outputs", () => {
     const functionsRoot = join(rootDir, ".vercel", "output", "functions")
     expect(existsSync(join(functionsRoot, "__server.func"))).toBe(true)
 
+    const nitroServer = "export default { nitro: true }\n"
+    await writeFile(join(functionsRoot, "__server.func", "index.mjs"), nitroServer, "utf8")
+
     await generateProviderOutputs({
       clientOutDir: "dist",
       cloudflareOwnedByNitro: true,
@@ -391,7 +394,7 @@ describe("Vite provider outputs", () => {
       rootDir,
       serverFunctionName: "__queue.func",
     })
-    expect(existsSync(join(functionsRoot, "__server.func"))).toBe(false)
+    await expect(readFile(join(functionsRoot, "__server.func", "index.mjs"), "utf8")).resolves.toBe(nitroServer)
     expect(existsSync(join(functionsRoot, "__queue.func"))).toBe(true)
 
     await mkdir(join(functionsRoot, "__server.func"), { recursive: true })

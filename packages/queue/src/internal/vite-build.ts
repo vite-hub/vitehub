@@ -1,3 +1,4 @@
+import { hash } from "node:crypto"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
@@ -409,15 +410,33 @@ function createVercelOutput(artifacts: GeneratedQueueArtifacts, serverFunctionNa
   }
 }
 
-async function readVercelQueueFunctionName(rootDir: string): Promise<string | undefined> {
+interface VercelQueueOutputState {
+  digest: string
+  serverFunctionName: string
+}
+
+async function readVercelQueueOutputState(rootDir: string): Promise<VercelQueueOutputState | undefined> {
   try {
-    const state = JSON.parse(await readFile(resolve(rootDir, vercelQueueOutputState), "utf8")) as { serverFunctionName?: unknown }
+    const state = JSON.parse(await readFile(resolve(rootDir, vercelQueueOutputState), "utf8")) as Partial<VercelQueueOutputState>
     return typeof state.serverFunctionName === "string" && /^[^/\\]+\.func$/.test(state.serverFunctionName)
-      ? state.serverFunctionName
+      && typeof state.digest === "string" && /^[0-9a-f]{64}$/.test(state.digest)
+      ? { digest: state.digest, serverFunctionName: state.serverFunctionName }
       : undefined
   }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+    throw error
+  }
+}
+
+async function isVercelQueueFunctionOwned(rootDir: string, state: VercelQueueOutputState | undefined): Promise<boolean> {
+  if (!state) return false
+  try {
+    const contents = await readFile(resolve(createDefaultVercelOutputRoot(rootDir), "functions", state.serverFunctionName, "index.mjs"))
+    return hash("sha256", contents, "hex") === state.digest
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false
     throw error
   }
 }
@@ -473,7 +492,8 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const createCloudflare = !options.cloudflareOwnedByNitro && usesCloudflare
   const createVercel = shouldCreateVercelOutput(options.queue)
   const vercelFunctionName = options.serverFunctionName ?? "__server.func"
-  const previousVercelFunctionName = await readVercelQueueFunctionName(options.rootDir)
+  const previousVercelOutput = await readVercelQueueOutputState(options.rootDir)
+  const previousVercelFunctionOwned = await isVercelQueueFunctionOwned(options.rootDir, previousVercelOutput)
   if (!createCloudflare) {
     await writeProviderDeploymentOutputs({
       clientOutDir: options.clientOutDir,
@@ -485,23 +505,27 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
       rootDir: options.rootDir,
     })
   }
-  if (createVercel && previousVercelFunctionName && previousVercelFunctionName !== vercelFunctionName) {
-    await rm(resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", previousVercelFunctionName), { force: true, recursive: true })
+  if (createVercel && previousVercelFunctionOwned && previousVercelOutput && previousVercelOutput.serverFunctionName !== vercelFunctionName) {
+    await rm(resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", previousVercelOutput.serverFunctionName), { force: true, recursive: true })
   }
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
     cloudflare: createCloudflare ? createCloudflareOutput(artifacts, cloudflareNamePrefix) : undefined,
     cleanup: {
       vercel: {
-        serverFunctionName: previousVercelFunctionName,
+        serverFunctionName: previousVercelFunctionOwned ? previousVercelOutput?.serverFunctionName : undefined,
       },
     },
     rootDir: options.rootDir,
     vercel: createVercel ? createVercelOutput(artifacts, options.serverFunctionName) : undefined,
   })
   if (createVercel) {
+    const contents = await readFile(resolve(createDefaultVercelOutputRoot(options.rootDir), "functions", vercelFunctionName, "index.mjs"))
     await mkdir(dirname(resolve(options.rootDir, vercelQueueOutputState)), { recursive: true })
-    await writeFile(resolve(options.rootDir, vercelQueueOutputState), `${JSON.stringify({ serverFunctionName: vercelFunctionName }, null, 2)}\n`, "utf8")
+    await writeFile(resolve(options.rootDir, vercelQueueOutputState), `${JSON.stringify({
+      digest: hash("sha256", contents, "hex"),
+      serverFunctionName: vercelFunctionName,
+    }, null, 2)}\n`, "utf8")
   }
   else {
     await rm(resolve(options.rootDir, vercelQueueOutputState), { force: true })
