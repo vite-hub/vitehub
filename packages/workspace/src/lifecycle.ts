@@ -4,8 +4,9 @@ import { files as filesLoader } from "./loaders/files.ts"
 import { normalizeWorkspacePath } from "./core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, type ResolvedWorkspaceSource } from "./sources/config.ts"
 import { createWorkspaceStoreFromProvider } from "./storage/provider.ts"
+import { createCurrentSnapshotFromStore } from "./storage/utils.ts"
 
-import type { LoaderContext, WorkspaceAssets, WorkspaceDefinition, WorkspaceLoaderSource, WorkspaceSnapshot, WorkspaceStore } from "./core/types.ts"
+import type { LoaderContext, WorkspaceAssets, WorkspaceDefinition, WorkspaceLoaderSource, WorkspacePublishOptions, WorkspaceSnapshot, WorkspaceStore } from "./core/types.ts"
 
 const buildSourcesMetaKey = "workspace:build-sources"
 
@@ -18,9 +19,17 @@ export function createWorkspaceStore(definition: WorkspaceDefinition): Workspace
   return createWorkspaceStoreFromProvider(definition)
 }
 
-export async function publishWorkspaceSnapshot(definition: WorkspaceDefinition, store: WorkspaceStore, snapshot: WorkspaceSnapshot): Promise<void> {
+export async function publishWorkspace(definition: WorkspaceDefinition, store: WorkspaceStore, options: WorkspacePublishOptions = {}): Promise<void> {
+  if (!definition.publish?.length) return
+
+  const snapshot = await createCurrentSnapshotFromStore(store, options.name)
+  await publishWorkspaceSnapshot(definition, store, snapshot, false)
+}
+
+export async function publishWorkspaceSnapshot(definition: WorkspaceDefinition, store: WorkspaceStore, snapshot: WorkspaceSnapshot, durable = true): Promise<void> {
   for (const publisher of definition.publish || []) {
     await publisher.publish({
+      durable,
       workspace: definition,
       store,
       rootDir: definition.rootDir || process.cwd(),

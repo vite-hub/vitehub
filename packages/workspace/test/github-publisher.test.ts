@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createWorkspace } from "../src/core/workspace.ts"
 import { github } from "../src/publish.ts"
+import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
+import { workspaceStoreTarget } from "../src/storage/target.ts"
+import { createCurrentSnapshotFromStore } from "../src/storage/utils.ts"
 
 const requests: Array<{ body?: unknown, headers: Headers, method: string, path: string }> = []
 let refSha = "base-sha"
@@ -336,6 +339,105 @@ describe("GitHub workspace publisher", () => {
     await workspace.snapshot({ name: "unchanged" })
 
     expect(requests.filter(request => request.method !== "GET")).toEqual([])
+  })
+
+  it("keeps direct publication content-addressed", async () => {
+    const workspace = createWorkspace({
+      name: "docs",
+      store: { provider: "memory" },
+      publish: [github({
+        branch: "feature/audio",
+        repo: "onmax/repo",
+        root: "workspace/root",
+        token: "token",
+      })],
+    })
+
+    await workspace.writeFile("inbox/audio.md", "hola", { mediaType: "text/markdown" })
+    await workspace.publish({ name: "initial publish" })
+    requests.length = 0
+
+    await workspace.publish({ name: "unchanged publish" })
+
+    expect(requests.filter(request => request.method !== "GET")).toEqual([])
+  })
+
+  it("rejects direct publication to the active GitHub Store branch", async () => {
+    const workspace = createWorkspace({
+      name: "docs",
+      store: {
+        provider: "github",
+        branch: "feature/audio",
+        repository: "onmax/repo",
+        root: "workspace/store",
+        token: "token",
+      },
+      publish: [github({
+        branch: "feature/audio",
+        repository: "onmax/repo",
+        root: "workspace/publisher",
+        token: "token",
+      })],
+    })
+
+    await expect(workspace.snapshot()).resolves.toMatchObject({ id: expect.any(String) })
+    await expect(workspace.publish()).rejects.toThrow(
+      "GitHub publisher cannot publish to onmax/repo@feature/audio while it backs the active GitHub Workspace Store",
+    )
+    expect(requests.filter(request => request.method !== "GET")).toEqual([])
+  })
+
+  it("uses the loaded GitHub Store target when dynamic options change", async () => {
+    let storeBranch = "feature/audio"
+    const workspace = createWorkspace({
+      name: "docs",
+      store: {
+        provider: "github",
+        branch: () => storeBranch,
+        repository: "onmax/repo",
+        token: "token",
+      },
+      publish: [github({
+        branch: "feature/audio",
+        repository: "onmax/repo",
+        token: "token",
+      })],
+    })
+
+    storeBranch = "other"
+
+    await expect(workspace.publish()).rejects.toThrow(
+      "GitHub publisher cannot publish to onmax/repo@feature/audio while it backs the active GitHub Workspace Store",
+    )
+    expect(requests.filter(request => request.method !== "GET")).toEqual([])
+  })
+
+  it("does not fall back to GitHub config when the live Store uses another provider", async () => {
+    const store = createMemoryWorkspaceStore() as ReturnType<typeof createMemoryWorkspaceStore> & {
+      [workspaceStoreTarget]: () => { provider: string }
+    }
+    store[workspaceStoreTarget] = () => ({ provider: "custom" })
+    const publisher = github({
+      branch: "feature/audio",
+      repository: "onmax/repo",
+      token: "token",
+    })
+
+    await expect(publisher.publish({
+      durable: false,
+      rootDir: process.cwd(),
+      snapshot: await createCurrentSnapshotFromStore(store),
+      store,
+      workspace: {
+        name: "docs",
+        store: {
+          provider: "github",
+          branch: "feature/audio",
+          repository: "onmax/repo",
+          token: "token",
+        },
+      },
+    })).resolves.toBeUndefined()
   })
 
   it("skips empty snapshots with no remote files", async () => {

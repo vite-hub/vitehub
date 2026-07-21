@@ -2,6 +2,7 @@ import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 import { createWorkspaceSourceView } from "../sources/view.ts"
 import { createWorkspaceStoreFromProvider } from "../storage/provider.ts"
+import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
 import { getCachedWorkspaceStore } from "./workspace-cache.ts"
 import type {
   Workspace,
@@ -65,6 +66,10 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
     async rm(path, options) {
       await files.rm(path, options)
     },
+    async publish(options) {
+      const { publishWorkspace } = await import("../lifecycle.ts")
+      await publishWorkspace(definition, store, options)
+    },
     async snapshot(options) {
       const snapshot = await store.snapshot(options)
       const { publishWorkspaceSnapshot } = await import("../lifecycle.ts")
@@ -101,6 +106,8 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
       }
     },
   }
+
+  forwardWorkspaceStoreTarget(store, workspace)
 
   ;(workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition = async () => {
     const { syncWorkspaceDefinition } = await import("../lifecycle.ts")

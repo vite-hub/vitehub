@@ -51,6 +51,12 @@ class GitHubRequestError extends WorkspaceError {
   }
 }
 
+export interface GitHubWorkspaceStoreTarget {
+  provider: "github";
+  branch: string;
+  repository: string;
+}
+
 export function processEnv(
   env: Record<string, string | undefined>,
   ...keys: string[]

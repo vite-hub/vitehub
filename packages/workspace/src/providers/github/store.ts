@@ -9,6 +9,7 @@ import {
   normalizeWorkspacePath,
 } from "../../core/path.ts";
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts";
+import { workspaceStoreTarget } from "../../storage/target.ts";
 import {
   commitGitHubChanges,
   createGitHubBlob,
@@ -127,6 +128,10 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     this.#branch = resolveGitHubBranchOption(options);
     this.#root = resolveGitHubRootOption(options, workspaceName);
     this.#token = requireGitHubOption("store", "a token", resolveGitHubTokenOption(options));
+  }
+
+  [workspaceStoreTarget]() {
+    return { provider: "github" as const, branch: this.#branch, repository: this.#repository };
   }
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {

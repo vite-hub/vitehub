@@ -5,6 +5,7 @@ import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
+import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
 import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources, workspaceSourceRequestDescriptorPath } from "./config.ts"
 import { markLiveWorkspaceSource } from "./live.ts"
 import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "./request-execution.ts"
@@ -168,7 +169,7 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
 function createWritableFacadeStore(workspace: WritableWorkspaceFacade): WorkspaceStore {
   const meta = new Map<string, unknown>()
   const metadata = workspace as WritableWorkspaceFacade & WorkspaceMetadataTarget
-  return {
+  const store: WorkspaceStore = {
     async readFile(path) {
       try {
         const stat = await workspace.fs.stat(path as never)
@@ -224,6 +225,8 @@ function createWritableFacadeStore(workspace: WritableWorkspaceFacade): Workspac
       meta.set(key, value)
     },
   }
+  forwardWorkspaceStoreTarget(workspace, store)
+  return store
 }
 
 async function startOverlayWorkspaceSession(_definition: WorkspaceDefinition, workspace: Workspace, options?: WorkspaceSessionOptions) {
@@ -448,6 +451,11 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       list: writeFs.list,
       materializeSources,
       mkdir: writeFs.mkdir,
+      publish: async (options) => {
+        const { publishWorkspace } = await import("../lifecycle.ts")
+        const resolvedStore = createWritableFacadeStore({ ...workspace, fs: writeFs })
+        await publishWorkspace(resolvedDefinition, resolvedStore, options)
+      },
       readFile: writeFs.readFile,
       rm: writeFs.rm,
       search: writeFs.search,
@@ -510,6 +518,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       diff: writeWorkspace.diff,
       fs: writeFs,
       materializeSources,
+      publish: writeWorkspace.publish,
       snapshot: writeWorkspace.snapshot,
       startSession: writeWorkspace.startSession,
       sync: writeWorkspace.sync,
