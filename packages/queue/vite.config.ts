@@ -11,6 +11,7 @@ export default defineConfig({
     },
     entry: [
       "src/index.ts",
+      "src/nuxt.ts",
       "src/vite.ts",
       "src/runtime/cloudflare-vite.ts",
       "src/runtime/hosted.ts",
