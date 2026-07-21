@@ -117,7 +117,6 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
   let validatesNitroDefinitions = false
 
   return {
-    enforce: "post",
     name: "@vite-hub/queue/vite",
     vitehub: {
       cli: async () => {
