@@ -996,6 +996,7 @@ describe("hubSandbox", () => {
       vitehub: { sandbox: { timeout: 30_000 } },
     }))
     await writeFile(definition, "export default { ok: true }\n")
+    await writeFile(join(projectDir, "prompt.md"), "initial prompt")
 
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox({ provider: "vercel" })
@@ -1027,6 +1028,11 @@ describe("hubSandbox", () => {
       const generated = await readFile(definitionArtifact, "utf8")
       return JSON.parse(generated.slice("export default ".length)).options?.timeout
     }
+    const readPrompt = async () => {
+      const generated = await readFile(definitionArtifact, "utf8")
+      const prompt = JSON.parse(generated.slice("export default ".length)).bundle.project.files["prompt.md"]
+      return Buffer.from(prompt.contents, prompt.encoding).toString()
+    }
 
     await expect(readTimeout()).resolves.toBe(30_000)
     await writeFile(manifest, JSON.stringify({
@@ -1050,6 +1056,19 @@ describe("hubSandbox", () => {
 
     expect(invalidated).toEqual(expect.arrayContaining([sandboxAlias, registryAlias, definitionArtifact]))
     await expect(readTimeout()).resolves.toBe(60_000)
+
+    const prompt = join(projectDir, "prompt.md")
+    await writeFile(prompt, "updated prompt")
+    await handleHotUpdate({
+      file: prompt,
+      server: {
+        moduleGraph: {
+          getModuleById: () => undefined,
+          invalidateModule: () => {},
+        },
+      },
+    })
+    await expect(readPrompt()).resolves.toBe("updated prompt")
   })
 
   it("discovers a Sandbox when its package manifest is added during development", async () => {

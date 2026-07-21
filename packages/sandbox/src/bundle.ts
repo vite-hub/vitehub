@@ -8,13 +8,17 @@ import type { SandboxProject } from './project'
 
 const SHIM_NAMESPACE = 'vitehub-sandbox-runtime-shim'
 
-function validatePackageModuleSpecifiers(project: SandboxProject) {
-  const packagePrefix = project.packagePath === '.' ? '' : `${project.packagePath}/`
-  for (const [path, file] of Object.entries(project.files)) {
-    if (!path.startsWith(packagePrefix)
-      || !/\.(?:c|m)?[jt]sx?$/.test(path)
-      || /\.d\.(?:c|m)?tsx?$/.test(path))
+function validatePackageModuleSpecifiers(project: SandboxProject, entry: string) {
+  const pending = [entry]
+  const visited = new Set<string>()
+  while (pending.length) {
+    const path = pending.shift()!
+    if (visited.has(path))
       continue
+    visited.add(path)
+    const file = project.files[path]
+    if (!file)
+      throw new Error(`[vitehub] Sandbox package entry is missing from project files: ${entry}`)
     const source = Buffer.from(file.contents, file.encoding).toString()
     for (const specifier of findRuntimeRelativeModuleSpecifiers(source, path)) {
       const target = normalize(join(dirname(path), specifier.replace(/[?#].*$/, '')))
@@ -23,6 +27,8 @@ function validatePackageModuleSpecifiers(project: SandboxProject) {
           `[vitehub] Sandbox package module "${path}" imports "${specifier}", which is not an executable package file. Use an explicit extension that resolves to a package file.`,
         )
       }
+      if (/\.(?:c|m)?[jt]sx?$/.test(target) && !/\.d\.(?:c|m)?tsx?$/.test(target))
+        pending.push(target)
     }
   }
 }
@@ -37,10 +43,11 @@ export async function bundleSandboxDefinition(
   } = {},
 ): Promise<SandboxDefinitionBundle> {
   if (options.execution === 'module' && options.project) {
-    validatePackageModuleSpecifiers(options.project)
     const prefix = options.project.packagePath === '.' ? '' : `${options.project.packagePath}/`
+    const entry = `${prefix}${basename(file)}`
+    validatePackageModuleSpecifiers(options.project, entry)
     return {
-      entry: `${prefix}${basename(file)}`,
+      entry,
       execution: 'module',
       modules: {},
       project: options.project,

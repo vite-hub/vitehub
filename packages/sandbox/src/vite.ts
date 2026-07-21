@@ -66,6 +66,14 @@ function isSandboxProjectManifestUpdate(
   return /(?:^|\/)(?:src\/)?server\/sandboxes\//.test(path)
 }
 
+function isSandboxProjectFileUpdate(file: string, rootDir: string | undefined) {
+  if (!isLocalSourceFile(file, rootDir))
+    return false
+  const path = normalize(relative(rootDir!, file))
+  return /(?:^|\/)(?:src\/)?server\/sandboxes\//.test(path)
+    || /^(?:pnpm-workspace\.yaml|pnpm-lock\.yaml|package-lock\.json|yarn\.lock|bun\.lock)$/.test(path)
+}
+
 function isSandboxDefinitionUpdate(
   file: string,
   definitions: DiscoveredSandboxDefinition[],
@@ -78,6 +86,8 @@ function isSandboxDefinitionUpdate(
   if (generatedFiles.some(file => normalize(file) === changedFile))
     return false
   if (isSandboxProjectManifestUpdate(changedFile, rootDir))
+    return true
+  if (isSandboxProjectFileUpdate(changedFile, rootDir))
     return true
   if (!isSandboxSourceFile(changedFile))
     return false

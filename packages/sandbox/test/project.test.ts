@@ -42,6 +42,7 @@ describe("resolveSandboxProject", () => {
     const entry = join(root, "index.ts")
     await writeFile(join(root, "package.json"), JSON.stringify({ private: true }))
     await writeFile(join(root, "helper.ts"), "export const ok = true\n")
+    await writeFile(join(root, "unused.ts"), "export { missing } from './missing'\n")
     await writeFile(entry, "import { ok } from './helper'\nexport default { ok }\n")
 
     const project = await resolveSandboxProject(entry, root)
@@ -50,6 +51,21 @@ describe("resolveSandboxProject", () => {
       execution: "module",
       project,
     })).rejects.toThrow('imports "./helper", which is not an executable package file')
+  })
+
+  it("ignores invalid imports outside the executable package graph", async () => {
+    const root = await createRoot()
+    const entry = join(root, "index.ts")
+    await writeFile(join(root, "package.json"), JSON.stringify({ private: true }))
+    await writeFile(join(root, "unused.ts"), "export { missing } from './missing'\n")
+    await writeFile(entry, "export default { ok: true }\n")
+
+    const project = await resolveSandboxProject(entry, root)
+
+    await expect(bundleSandboxDefinition(await readFile(entry, "utf8"), entry, {
+      execution: "module",
+      project,
+    })).resolves.toMatchObject({ entry: "index.ts", execution: "module" })
   })
 
   it.each([
