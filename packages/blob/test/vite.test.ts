@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { build as bundle } from "esbuild"
@@ -12,6 +12,7 @@ import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 import { BLOB_VIRTUAL_CONFIG_ID, hubBlob } from "../src/vite.ts"
 
 const execFileAsync = promisify(execFile)
+const workspaceRoot = resolve(import.meta.dirname, "../../..")
 
 function driverImports(source: string) {
   return source.match(/from\s+["'][^"']+\/drivers\/[^"']+["']/g) || []
@@ -437,10 +438,31 @@ describe("hubBlob", () => {
       expect(nitroPlugin).not.toContain("hooks.hook('request'")
       const middleware = await readFile(join(root, ".vitehub", "nitro", "blob", "middleware.ts"), "utf8")
       expect(middleware).toContain("defineMiddleware((event) =>")
+      expect(middleware).toContain("const target = event as unknown as CloudflareEvent")
       expect(middleware).toContain("setActiveCloudflareEnv(env)")
-      expect(middleware).toContain("event.context?._platform?.cloudflare?.env")
-      expect(middleware).toContain("event.node?.req?.runtime?.cloudflare?.env ?? vitehubEnv")
+      expect(middleware).toContain("target.context?._platform?.cloudflare?.env")
+      expect(middleware).toContain("target.node?.req?.runtime?.cloudflare?.env ?? (vitehubEnv as unknown as CloudflareEnv)")
       expect(middleware).not.toContain("next")
+
+      await symlink(join(workspaceRoot, "node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "runtime-types.d.ts"), [
+        "declare module 'cloudflare:workers' {",
+        "  export const env: unknown",
+        "}",
+        "",
+      ].join("\n"))
+      await writeFile(join(root, "tsconfig.json"), `${JSON.stringify({
+        compilerOptions: {
+          module: "Preserve",
+          moduleResolution: "Bundler",
+          noEmit: true,
+          skipLibCheck: true,
+          strict: true,
+          types: [],
+        },
+        files: ["runtime-types.d.ts", ".vitehub/nitro/blob/middleware.ts"],
+      }, null, 2)}\n`)
+      await execFileAsync(process.execPath, [join(workspaceRoot, "node_modules/typescript/bin/tsc"), "-p", root], { cwd: root })
     }
     finally {
       if (typeof previousBucket === "undefined") delete process.env.BLOB_BUCKET_NAME
