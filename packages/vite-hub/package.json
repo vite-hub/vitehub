@@ -120,7 +120,17 @@
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "catalog:storage",
+    "@aws-sdk/lib-storage": "catalog:storage",
+    "@aws-sdk/s3-presigned-post": "catalog:storage",
+    "@aws-sdk/s3-request-presigner": "catalog:storage",
+    "@azure/identity": "catalog:storage",
+    "@azure/storage-blob": "catalog:storage",
+    "@google-cloud/storage": "catalog:storage",
+    "@googleapis/drive": "catalog:storage",
+    "@microsoft/microsoft-graph-client": "catalog:storage",
     "@netlify/blobs": "catalog:storage",
+    "@supabase/storage-js": "catalog:storage",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/blob": "workspace:*",
@@ -143,9 +153,13 @@
     "@vite-hub/workspace": "workspace:*",
     "@vitejs/devtools-kit": "catalog:vite",
     "@workflow/builders": "catalog:workflow",
+    "box-typescript-sdk-gen": "catalog:storage",
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
+    "dropbox": "catalog:storage",
     "files-sdk": "catalog:storage",
+    "google-auth-library": "catalog:storage",
+    "uploadthing": "catalog:storage",
     "workflow": "catalog:workflow"
   },
   "devDependencies": {

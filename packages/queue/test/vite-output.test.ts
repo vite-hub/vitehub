@@ -364,7 +364,7 @@ describe("Vite provider outputs", () => {
     expect(vercelServerContents).not.toContain("globalThis.__vitehubVercelQueue =")
   })
 
-  it("closes composed Blob runtimes inside isolated Vercel queue functions", { timeout: 30_000 }, async () => {
+  it("closes composed Blob runtimes inside isolated Vercel queue functions", { timeout: 90_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-vercel-blob-runtime-")
     const standaloneDir = await mkdtemp(join(tmpdir(), "vitehub-queue-vercel-blob-standalone-"))
     tempDirs.push(standaloneDir)
@@ -381,6 +381,12 @@ describe("Vite provider outputs", () => {
       "try { await blob.get('queued-object') } catch (error) {",
       "  if (error && typeof error === 'object' && 'code' in error && error.code === 'ERR_MODULE_NOT_FOUND') throw error",
       "}",
+      "let gcsError",
+      "try { await blob.store('backup').list() } catch (error) {",
+      "  if (error && typeof error === 'object' && 'code' in error && error.code === 'ERR_MODULE_NOT_FOUND') throw error",
+      "  gcsError = error instanceof Error ? error.message : String(error)",
+      "}",
+      "if (!gcsError?.includes('missing bucket')) throw new Error(`Expected the GCS driver to load before validation, received: ${gcsError}`)",
       "globalThis.__vitehubQueueBlobRuntimeLoaded = true",
       "export default { handler: async () => undefined }",
       "",
@@ -398,7 +404,7 @@ describe("Vite provider outputs", () => {
             driver: "cloudflare-r2",
             secretAccessKey: "test-secret-key",
           },
-          backup: { bucket: "test-gcs-bucket", driver: "gcs" },
+          backup: { bucket: "", driver: "gcs" },
         },
       },
       build: {
@@ -433,6 +439,7 @@ describe("Vite provider outputs", () => {
       expect(existsSync(join(functionDir, "node_modules", "files-sdk", "package.json"))).toBe(true)
       expect(existsSync(join(functionDir, "node_modules", "@aws-sdk", "client-s3", "package.json"))).toBe(true)
       expect(existsSync(join(functionDir, "node_modules", "@google-cloud", "storage", "package.json"))).toBe(true)
+      expect(existsSync(join(functionDir, "node_modules", "@azure", "storage-blob", "package.json"))).toBe(false)
     }
 
     await cp(callbackFunctionDir, standaloneDir, { recursive: true })

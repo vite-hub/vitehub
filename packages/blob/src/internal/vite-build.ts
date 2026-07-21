@@ -11,7 +11,7 @@ import { isPlainObject } from "@vite-hub/internal/object"
 
 import { normalizeBlobOptions } from "../config.ts"
 
-import type { BlobModuleOptions, ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { BlobDriver, BlobModuleOptions, ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ComposedProviderOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
 
@@ -22,14 +22,15 @@ const vercelBlobOutputMarker = ".vitehub-blob-output"
 const productName = "blob"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
-const filesSdkS3Peers = ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"]
-const filesSdkDriverPeers: Record<string, string[]> = {
+const filesSdkS3Peers = ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"] as const
+const filesSdkDriverPeers = {
   akamai: filesSdkS3Peers,
   azure: ["@azure/storage-blob"],
   box: ["box-typescript-sdk-gen"],
   "cloudflare-r2": filesSdkS3Peers,
   "digitalocean-spaces": filesSdkS3Peers,
   dropbox: ["dropbox"],
+  fs: [],
   gcs: ["@google-cloud/storage"],
   "google-drive": ["@googleapis/drive", "google-auth-library"],
   hetzner: filesSdkS3Peers,
@@ -40,7 +41,8 @@ const filesSdkDriverPeers: Record<string, string[]> = {
   storj: filesSdkS3Peers,
   supabase: ["@supabase/storage-js"],
   uploadthing: ["uploadthing"],
-}
+  "vercel-blob": [],
+} satisfies Record<BlobDriver, readonly string[]>
 
 const BLOB_ENTRY_NAMES_DEFAULT = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
 const BLOB_ENTRY_NAMES_PRIORITIZED = ["server.blob.ts", "server.blob.mts", "server.blob.js", "server.blob.mjs", ...BLOB_ENTRY_NAMES_DEFAULT] as const
