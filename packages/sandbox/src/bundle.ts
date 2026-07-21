@@ -11,7 +11,9 @@ const SHIM_NAMESPACE = 'vitehub-sandbox-runtime-shim'
 function validatePackageModuleSpecifiers(project: SandboxProject) {
   const packagePrefix = project.packagePath === '.' ? '' : `${project.packagePath}/`
   for (const [path, file] of Object.entries(project.files)) {
-    if (!path.startsWith(packagePrefix) || !/\.(?:c|m)?[jt]sx?$/.test(path))
+    if (!path.startsWith(packagePrefix)
+      || !/\.(?:c|m)?[jt]sx?$/.test(path)
+      || /\.d\.(?:c|m)?tsx?$/.test(path))
       continue
     const source = Buffer.from(file.contents, file.encoding).toString()
     for (const specifier of findRuntimeRelativeModuleSpecifiers(source, path)) {

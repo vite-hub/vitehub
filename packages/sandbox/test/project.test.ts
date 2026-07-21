@@ -150,6 +150,7 @@ describe("resolveSandboxProject", () => {
       "export const asset = await readFile(new URL('./prompt.md', import.meta.url), 'utf8')",
       "",
     ].join("\n"))
+    await writeFile(join(sandbox, "lib/helper.d.ts"), "export { Missing } from './missing'\n")
     await writeFile(join(first, "package.json"), JSON.stringify({ dependencies: { "@fixture/second": "workspace:*" }, exports: "./index.js", name: "@fixture/first", type: "module" }))
     await writeFile(join(first, "index.js"), "export { value } from '@fixture/second'\n")
     await writeFile(join(second, "package.json"), JSON.stringify({ exports: "./index.js", name: "@fixture/second", type: "module" }))
