@@ -236,6 +236,30 @@ describe("workspace public API", () => {
     expect(publish).toHaveBeenCalledOnce()
   })
 
+  it("waits for in-flight definition sync before publishing", async () => {
+    let markSyncStarted!: () => void
+    const syncStarted = new Promise<void>((resolve) => { markSyncStarted = resolve })
+    let finishSync!: () => void
+    const syncing = new Promise<void>((resolve) => { finishSync = resolve })
+    const publish = vi.fn(async () => {})
+    registerWorkspace("publish-after-sync", defineWorkspace({
+      loaders: [{ name: "sync-probe", async load() { markSyncStarted(); await syncing } }],
+      publish: [{ name: "test", publish }],
+      store: { provider: "memory" },
+    }))
+
+    const workspace = useWorkspace("publish-after-sync", { mode: "write" })
+    const read = workspace.fs.exists("README.md")
+    await syncStarted
+    const publication = workspace.publish()
+    await Promise.resolve()
+    expect(publish).not.toHaveBeenCalled()
+
+    finishSync()
+    await Promise.all([read, publication])
+    expect(publish).toHaveBeenCalledTimes(2)
+  })
+
   it("serves allowlisted workspace files as H3-compatible responses", async () => {
     registerWorkspace("files", defineWorkspace({
       store: { provider: "memory" },

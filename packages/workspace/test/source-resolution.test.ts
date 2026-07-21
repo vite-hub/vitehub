@@ -27,6 +27,7 @@ import {
 import { createWorkspace } from "../src/core/workspace.ts"
 import { github as githubPublisher } from "../src/publish.ts"
 import { getWorkspaceSourceRequestDescriptor, isWorkspaceSourceRequestOnly, normalizeWorkspaceSources } from "../src/sources/config.ts"
+import { workspaceStoreTarget } from "../src/storage/target.ts"
 
 const invocation = {
   context: {
@@ -1100,19 +1101,15 @@ describe("Workspace Source Resolution", () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
-      store: {
-        provider: "github",
-        branch: "main",
-        repository: "onmax/repo",
-        token: "token",
-      },
       publish: [githubPublisher({
         branch: "main",
         repository: "onmax/repo",
         token: "token",
       })],
     }
-    const { workspace } = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, {
+    const facade = writableFacade(base) as WritableWorkspaceFacade & { [workspaceStoreTarget]: () => unknown }
+    facade[workspaceStoreTarget] = () => ({ provider: "github", branch: "main", repository: "onmax/repo" })
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade, definition, {
       invocation,
       overlay: true,
     })

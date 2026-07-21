@@ -51,9 +51,8 @@ class GitHubRequestError extends WorkspaceError {
   }
 }
 
-export const githubWorkspaceStoreTarget = Symbol.for("vitehub.workspace.githubStoreTarget");
-
 export interface GitHubWorkspaceStoreTarget {
+  provider: "github";
   branch: string;
   repository: string;
 }

@@ -3,7 +3,6 @@ import { normalizeWorkspacePath } from "../core/path.ts"
 import {
   commitGitHubChanges,
   createGitHubFileUpdate,
-  githubWorkspaceStoreTarget,
   isWorkspaceFileEntry,
   readGitHubBranchState,
   requireGitHubOption,
@@ -14,6 +13,7 @@ import {
   resolveGitHubTokenOption,
   type GitHubWorkspaceStoreTarget,
 } from "../providers/github/shared.ts"
+import { resolveWorkspaceStoreTarget } from "../storage/target.ts"
 
 import type {
   GitHubWorkspaceOption,
@@ -45,15 +45,14 @@ function resolveMessage(options: GitHubPublisherOptions, ctx: PublishContext): s
     || "chore: update workspace snapshot"
 }
 
-function resolveActiveGitHubStoreTarget(ctx: PublishContext): GitHubWorkspaceStoreTarget | undefined {
+async function resolveActiveGitHubStoreTarget(ctx: PublishContext): Promise<GitHubWorkspaceStoreTarget | undefined> {
   const configuredStore = ctx.workspace.store
   if (configuredStore && "provider" in configuredStore && configuredStore.provider === "github") {
     const repository = resolveGitHubRepositoryOption(configuredStore)
-    if (repository) return { branch: resolveGitHubBranchOption(configuredStore), repository }
+    if (repository) return { provider: "github", branch: resolveGitHubBranchOption(configuredStore), repository }
   }
-  return (ctx.store as unknown as {
-    [githubWorkspaceStoreTarget]?: () => GitHubWorkspaceStoreTarget
-  })[githubWorkspaceStoreTarget]?.()
+  const target = await resolveWorkspaceStoreTarget(ctx.store)
+  return target?.provider === "github" ? target as GitHubWorkspaceStoreTarget : undefined
 }
 
 async function readFiles(ctx: PublishContext, root: string): Promise<GitHubPublisherFile[]> {
@@ -78,7 +77,7 @@ export function github(options: GitHubPublisherOptions = {}): WorkspacePublisher
       const branch = resolveGitHubBranchOption(options)
       const root = resolveGitHubRootOption(options, ctx.workspace.name)
       const token = requireGitHubOption("publisher", "a token", resolveGitHubTokenOption(options))
-      const storeTarget = resolveActiveGitHubStoreTarget(ctx)
+      const storeTarget = await resolveActiveGitHubStoreTarget(ctx)
       if (!ctx.durable && storeTarget?.repository === repository && storeTarget.branch === branch) {
         throw new WorkspaceError(
           `[vitehub] GitHub publisher cannot publish to ${repository}@${branch} while it backs the active GitHub Workspace Store. Use workspace.snapshot() for that branch or configure the publisher to use a different repository or branch.`,

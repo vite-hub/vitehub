@@ -9,12 +9,12 @@ import {
   normalizeWorkspacePath,
 } from "../../core/path.ts";
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts";
+import { workspaceStoreTarget } from "../../storage/target.ts";
 import {
   commitGitHubChanges,
   createGitHubBlob,
   createGitHubFileUpdate,
   gitBlobSha,
-  githubWorkspaceStoreTarget,
   joinGitPath,
   readGitHubBlob,
   readGitHubBranchState,
@@ -130,8 +130,8 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     this.#token = requireGitHubOption("store", "a token", resolveGitHubTokenOption(options));
   }
 
-  [githubWorkspaceStoreTarget]() {
-    return { branch: this.#branch, repository: this.#repository };
+  [workspaceStoreTarget]() {
+    return { provider: "github" as const, branch: this.#branch, repository: this.#repository };
   }
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {

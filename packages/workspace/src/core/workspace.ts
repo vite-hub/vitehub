@@ -2,6 +2,7 @@ import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 import { createWorkspaceSourceView } from "../sources/view.ts"
 import { createWorkspaceStoreFromProvider } from "../storage/provider.ts"
+import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
 import { getCachedWorkspaceStore } from "./workspace-cache.ts"
 import type {
   Workspace,
@@ -105,6 +106,8 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
       }
     },
   }
+
+  forwardWorkspaceStoreTarget(store, workspace)
 
   ;(workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition = async () => {
     const { syncWorkspaceDefinition } = await import("../lifecycle.ts")

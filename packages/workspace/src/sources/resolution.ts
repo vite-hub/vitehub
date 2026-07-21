@@ -5,6 +5,7 @@ import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
+import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
 import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources, workspaceSourceRequestDescriptorPath } from "./config.ts"
 import { markLiveWorkspaceSource } from "./live.ts"
 import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "./request-execution.ts"
@@ -168,7 +169,7 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
 function createWritableFacadeStore(workspace: WritableWorkspaceFacade): WorkspaceStore {
   const meta = new Map<string, unknown>()
   const metadata = workspace as WritableWorkspaceFacade & WorkspaceMetadataTarget
-  return {
+  const store: WorkspaceStore = {
     async readFile(path) {
       try {
         const stat = await workspace.fs.stat(path as never)
@@ -224,6 +225,8 @@ function createWritableFacadeStore(workspace: WritableWorkspaceFacade): Workspac
       meta.set(key, value)
     },
   }
+  forwardWorkspaceStoreTarget(workspace, store)
+  return store
 }
 
 async function startOverlayWorkspaceSession(_definition: WorkspaceDefinition, workspace: Workspace, options?: WorkspaceSessionOptions) {
