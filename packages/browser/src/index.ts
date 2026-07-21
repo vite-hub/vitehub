@@ -44,19 +44,15 @@ export type {
   BrowserSessionInfo,
   BrowserSessionRef,
   BrowserSessionState,
-  BrowserState,
   CreateBrowserOptions,
 } from "./types.ts"
 
 const defaultFeatures: BrowserFeatures = {
-  artifacts: false,
   liveHandoff: false,
-  stateExport: false,
-  stateImport: false,
 }
 
 interface HandoffRecord<TConnection> {
-  audience?: string
+  audience: string
   expiresAt: number
   features: BrowserFeatures
   lease?: Lease
@@ -74,6 +70,12 @@ function randomId(prefix: string): string {
 function timestamp(value: Date | string | undefined): string | undefined {
   if (!value) return
   return value instanceof Date ? value.toISOString() : value
+}
+
+function assertAudience(value: unknown): asserts value is string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new TypeError("[vitehub:browser] Browser handoff audience must be a non-empty string.")
+  }
 }
 
 function mergedFeatures(
@@ -185,6 +187,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
     if (options?.mode !== "live") {
       throw new TypeError('[vitehub:browser] handoff({ mode }) currently requires "live".')
     }
+    assertAudience(options.audience)
     if (!this.features.liveHandoff || !this.lastControllerSupportsHandoff) {
       throw new BrowserLiveHandoffUnsupportedError(this.owner.provider.name, this.controller)
     }
@@ -199,7 +202,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
     })
     this.state = "handed-off"
     await this.owner.emit("browser.session.handoff", this, {
-      audience: options.audience,
+      "browser.handoff.audience_bound": true,
       expiresAt: ref.expiresAt,
     })
     return ref
@@ -295,13 +298,14 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
     if (typeof record.timer === "object" && "unref" in record.timer) record.timer.unref()
     this.handoffs.set(id, record)
     return Object.freeze({
-      ...(input.audience ? { audience: input.audience } : {}),
+      audience: input.audience,
       expiresAt: new Date(expiresAt).toISOString(),
       id,
     })
   }
 
-  async claim(ref: BrowserSessionRef, options: BrowserClaimOptions = {}): Promise<BrowserSession<TConnection>> {
+  async claim(ref: BrowserSessionRef, options: BrowserClaimOptions): Promise<BrowserSession<TConnection>> {
+    assertAudience(options?.audience)
     const record = this.handoffs.get(ref?.id)
     if (!record) throw new BrowserSessionRefError("unknown")
     this.handoffs.delete(ref.id)
@@ -321,7 +325,7 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
       record.lease,
       { claimed: true, publicId: record.publicId },
     )
-    await this.emit("browser.session.claim", session, { audience: options.audience })
+    await this.emit("browser.session.claim", session, { "browser.handoff.audience_bound": true })
     return session
   }
 }

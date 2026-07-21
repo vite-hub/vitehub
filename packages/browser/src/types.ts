@@ -5,10 +5,7 @@ import type {
 } from "@vite-hub/runtime"
 
 export interface BrowserFeatures {
-  artifacts: boolean
   liveHandoff: boolean
-  stateExport: boolean
-  stateImport: boolean
 }
 
 export type BrowserIsolation = "process" | "provider" | "trusted-host"
@@ -21,7 +18,6 @@ export interface BrowserProviderInfo {
 
 export interface BrowserProviderOpenOptions {
   idleTimeoutMs?: number
-  state?: BrowserState
 }
 
 export interface BrowserProviderSession<TConnection = unknown> {
@@ -58,11 +54,6 @@ export interface BrowserController<TClient, TConnection = unknown> {
   name: string
 }
 
-export interface BrowserState<T = unknown> {
-  data: T
-  mediaType: string
-}
-
 export type BrowserSessionState = "closed" | "controlled" | "handed-off" | "released"
 
 export interface BrowserSessionInfo {
@@ -74,19 +65,19 @@ export interface BrowserSessionInfo {
 }
 
 export interface BrowserSessionRef {
-  readonly audience?: string
+  readonly audience: string
   readonly expiresAt: string
   readonly id: string
 }
 
 export interface BrowserHandoffOptions {
-  audience?: string
+  audience: string
   mode: "live"
   ttl?: number
 }
 
 export interface BrowserClaimOptions {
-  audience?: string
+  audience: string
 }
 
 export interface BrowserSession<TConnection = unknown> {
@@ -101,7 +92,7 @@ export interface BrowserSession<TConnection = unknown> {
 }
 
 export interface BrowserClient<TConnection = unknown> {
-  claim(ref: BrowserSessionRef, options?: BrowserClaimOptions): Promise<BrowserSession<TConnection>>
+  claim(ref: BrowserSessionRef, options: BrowserClaimOptions): Promise<BrowserSession<TConnection>>
   open(options?: BrowserProviderOpenOptions): Promise<BrowserSession<TConnection>>
   withSession<TResult>(
     run: (session: BrowserSession<TConnection>) => MaybePromise<TResult>,

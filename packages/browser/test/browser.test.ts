@@ -24,10 +24,7 @@ function fixture(options: { controllerHandoff?: boolean, controllerPreserves?: b
   }
   const provider: BrowserProvider<TestConnection> = {
     features: {
-      artifacts: false,
       liveHandoff: options.providerHandoff ?? true,
-      stateExport: false,
-      stateImport: false,
     },
     isolation: "provider",
     name: "fixture",
@@ -108,21 +105,21 @@ describe("Browser Sessions", () => {
     const providerFixture = fixture({ providerHandoff: false })
     const providerBrowser = createBrowser({ provider: providerFixture.provider })
     const providerSession = await providerBrowser.open()
-    await expect(providerSession.handoff({ mode: "live" })).rejects.toBeInstanceOf(BrowserLiveHandoffUnsupportedError)
+    await expect(providerSession.handoff({ audience: "run-1", mode: "live" })).rejects.toBeInstanceOf(BrowserLiveHandoffUnsupportedError)
     await providerSession.close()
 
     const releaseFixture = fixture({ controllerPreserves: false })
     const releaseBrowser = createBrowser({ provider: releaseFixture.provider })
     const releaseSession = await releaseBrowser.open()
     await releaseSession.use(releaseFixture.controller, () => undefined)
-    await expect(releaseSession.handoff({ mode: "live" })).rejects.toBeInstanceOf(BrowserLiveHandoffUnsupportedError)
+    await expect(releaseSession.handoff({ audience: "run-1", mode: "live" })).rejects.toBeInstanceOf(BrowserLiveHandoffUnsupportedError)
     await releaseSession.close()
 
     const controllerFixture = fixture({ controllerHandoff: false })
     const controllerBrowser = createBrowser({ provider: controllerFixture.provider })
     const prepared = await controllerBrowser.open()
-    const ref = await prepared.handoff({ mode: "live" })
-    const claimed = await controllerBrowser.claim(ref)
+    const ref = await prepared.handoff({ audience: "run-1", mode: "live" })
+    const claimed = await controllerBrowser.claim(ref, { audience: "run-1" })
     await expect(claimed.use(controllerFixture.controller, () => undefined)).rejects.toBeInstanceOf(BrowserLiveHandoffUnsupportedError)
     await claimed.close()
   })
@@ -153,10 +150,10 @@ describe("Browser Sessions", () => {
     const transferredBrowser = createBrowser({ provider: transferred.provider })
     let ref: BrowserSessionRef | undefined
     await transferredBrowser.withSession(async (session) => {
-      ref = await session.handoff({ mode: "live" })
+      ref = await session.handoff({ audience: "run-1", mode: "live" })
     })
     expect(transferred.close).not.toHaveBeenCalled()
-    const claimed = await transferredBrowser.claim(ref!)
+    const claimed = await transferredBrowser.claim(ref!, { audience: "run-1" })
     await claimed.close()
   })
 
@@ -165,16 +162,23 @@ describe("Browser Sessions", () => {
     const trace = vi.fn()
     const browser = createBrowser({ provider, trace })
 
-    await browser.withSession(session => session.use(controller, () => undefined))
+    const session = await browser.open()
+    await session.use(controller, () => undefined)
+    const ref = await session.handoff({ audience: "sensitive-user-identifier", mode: "live" })
+    const claimed = await browser.claim(ref, { audience: "sensitive-user-identifier" })
+    await claimed.close()
 
     expect(trace.mock.calls.map(([event]) => event.name)).toEqual([
       "browser.session.acquire",
       "browser.controller.attach",
       "browser.controller.detach",
+      "browser.session.handoff",
+      "browser.session.claim",
       "browser.session.close",
     ])
     const serialized = JSON.stringify(trace.mock.calls)
     expect(serialized).not.toContain("secretEndpoint")
     expect(serialized).not.toContain("provider-secret-session-id")
+    expect(serialized).not.toContain("sensitive-user-identifier")
   })
 })

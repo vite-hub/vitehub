@@ -38,7 +38,7 @@ describe("playwright controller", () => {
 
     const attached = await controller.attach(connection, {
       provider: {
-        features: { artifacts: false, liveHandoff: true, stateExport: false, stateImport: false },
+        features: { liveHandoff: true },
         isolation: "trusted-host",
         name: "local",
       },
@@ -76,7 +76,7 @@ describe("playwright controller", () => {
 
     const attached = await controller.attach(connection, {
       provider: {
-        features: { artifacts: false, liveHandoff: true, stateExport: false, stateImport: false },
+        features: { liveHandoff: true },
         isolation: "provider",
         name: "cloudflare",
       },

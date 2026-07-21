@@ -47,10 +47,7 @@ export function cloudflareBrowser(options: CloudflareBrowserOptions = {}): Brows
   const bindingOption = options.binding ?? "BROWSER"
   return {
     features: {
-      artifacts: false,
       liveHandoff: true,
-      stateExport: false,
-      stateImport: false,
     },
     isolation: "provider",
     name: "cloudflare",

@@ -22,7 +22,7 @@ describe("published Browser types", () => {
   it("returns opaque refs and a Vite plugin", async () => {
     const browser = createBrowser({ provider: cloudflareBrowser() })
     const session = await browser.open()
-    expectTypeOf(session.handoff({ mode: "live" })).resolves.toEqualTypeOf<BrowserSessionRef>()
+    expectTypeOf(session.handoff({ audience: "run-1", mode: "live" })).resolves.toEqualTypeOf<BrowserSessionRef>()
     expectTypeOf(hubBrowser()).toMatchTypeOf<ReturnType<typeof hubBrowser>>()
   })
 })

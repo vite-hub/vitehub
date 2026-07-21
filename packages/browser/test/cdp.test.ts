@@ -28,7 +28,7 @@ describe("cdp controller", () => {
       sessionId: "provider-secret",
     }, {
       provider: {
-        features: { artifacts: false, liveHandoff: true, stateExport: false, stateImport: false },
+        features: { liveHandoff: true },
         isolation: "provider",
         name: "cloudflare",
       },

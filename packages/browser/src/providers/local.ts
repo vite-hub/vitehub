@@ -75,10 +75,7 @@ export function localBrowser(options: LocalBrowserOptions): BrowserProvider<CDPB
   const startupTimeout = options.startupTimeout ?? 15_000
   return {
     features: {
-      artifacts: false,
       liveHandoff: true,
-      stateExport: false,
-      stateImport: false,
     },
     isolation: "trusted-host",
     name: "local",
