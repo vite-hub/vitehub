@@ -895,6 +895,23 @@ describe("hubWorkspace", () => {
     expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv)")
   })
 
+  it("preserves env-resolved Definition bindings in the Vite-generated registry", async () => {
+    vi.stubEnv("WORKSPACE_ARTIFACTS_BINDING", "ENV_ARTIFACTS")
+    const root = await createViteRoot()
+    await writeFile(join(root, "src", "docs.workspace.ts"), "export default { store: { provider: 'cloudflare-artifacts' } }\n")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const config = plugin.config as (
+      config: { plugins?: unknown[], root: string },
+      env: { command: "build", mode: string },
+    ) => Promise<unknown>
+
+    await config({ plugins: [{ name: "nitro:main" }], root }, { command: "build", mode: "production" })
+
+    const registry = await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")
+    expect(registry).toContain('store: {"binding":"ENV_ARTIFACTS"')
+  })
+
   it("does not discover Nitro workspaces when workspace is disabled", async () => {
     const root = await createViteRoot()
     const { createWorkspaceNitroConfig } = await import("../src/vite.ts")

@@ -826,13 +826,15 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       const definitions = normalized ? discoverDefinitions(roots) : []
       if (normalized && shouldInstallNitroWorkspacePlugin(config, runtimeOptions, normalized, definitions)) {
         const runtimeConfig = shouldConfigureRuntime(runtimeOptions, normalized) ? normalized : false
+        const definitionOverrides = new Map<string, ResolvedWorkspaceModuleOptions>()
         const artifacts = await resolveCloudflareArtifactsConfigs(normalized, definitions, roots.projectRoot, {
           aliases: config.resolve?.alias ? workspaceDefinitionLoaderAliases(config.resolve.alias) : undefined,
           artifactsOnly: true,
           hosting,
+          definitionOverrides,
         })
         const usesCloudflareArtifacts = artifacts.length > 0
-        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareArtifacts, importBase)
+        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareArtifacts, importBase, definitionOverrides)
         const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
         for (const artifactConfig of artifacts) configureCloudflareArtifacts(nitro, artifactConfig)
         if (usesCloudflareArtifacts) configureCloudflareArtifactsNitroRuntime(nitro)
