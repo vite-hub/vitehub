@@ -69,6 +69,9 @@ describe("defineWorkspaceCollectionHandler", () => {
     expect(body.items).toHaveLength(2)
     expect(body.total).toBe(2)
     expect(body.facets).toEqual({ category: [{ count: 2, value: "guide" }] })
+
+    const facets = await (await app.request("/items?limit=1")).json() as WorkspaceCollectionPage<Record<string, unknown>>
+    expect(facets.facets.category).toHaveLength(2)
   })
 
   it("preserves commas in filter values", async () => {
@@ -83,10 +86,26 @@ describe("defineWorkspaceCollectionHandler", () => {
     expect(body.items).toEqual([{ category: "Doe, Jane", slug: "comma", title: "Comma" }])
   })
 
+  it("filters empty values out of band from scalar values", async () => {
+    const { app, workspace } = await createApp("collection-handler-empty")
+    await workspace.fs.writeFile("data/items.json", JSON.stringify([
+      ...records,
+      { slug: "empty", title: "Empty" },
+      { category: "__empty__", slug: "literal", title: "Literal" },
+    ]))
+
+    const empty = await (await app.request("/items?empty.category=true")).json() as WorkspaceCollectionPage<Record<string, unknown>>
+    expect(empty.items).toEqual([{ slug: "empty", title: "Empty" }])
+    const literal = await (await app.request("/items?filter.category=__empty__")).json() as WorkspaceCollectionPage<Record<string, unknown>>
+    expect(literal.items).toEqual([{ category: "__empty__", slug: "literal", title: "Literal" }])
+  })
+
   it("rejects disallowed query fields, filters, and limits", async () => {
     const { app } = await createApp("collection-handler-policy")
 
     expect((await app.request("/items?filter.secret=one")).status).toBe(400)
+    expect((await app.request("/items?empty.secret=true")).status).toBe(400)
+    expect((await app.request("/items?empty.category=false")).status).toBe(400)
     expect((await app.request("/items?sort=secret")).status).toBe(400)
     expect((await app.request("/items?limit=0")).status).toBe(400)
     expect((await app.request("/items?limit=1.5")).status).toBe(400)

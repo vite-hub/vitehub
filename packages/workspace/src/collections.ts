@@ -3,7 +3,13 @@ import { useWorkspace } from "./core/use.ts"
 import type { ReadonlyWorkspaceFacade } from "./core/use.ts"
 import type { WorkspaceName } from "./core/types.ts"
 
-export const workspaceCollectionEmpty = "__empty__"
+export interface WorkspaceCollectionEmptyFilter {
+  empty: true
+}
+
+export const workspaceCollectionEmpty: WorkspaceCollectionEmptyFilter = Object.freeze({ empty: true })
+
+export type WorkspaceCollectionFilter = string | string[] | WorkspaceCollectionEmptyFilter
 
 export interface WorkspaceCollectionSort {
   direction?: "asc" | "desc"
@@ -13,7 +19,7 @@ export interface WorkspaceCollectionSort {
 export interface WorkspaceCollectionQuery {
   cursor?: string
   facets?: string[]
-  filters?: Record<string, string | string[] | undefined>
+  filters?: Record<string, WorkspaceCollectionFilter | undefined>
   limit?: number
   search?: string
   searchFields?: string[]
@@ -107,13 +113,14 @@ function scalarValues(value: unknown): string[] {
   return [String(value)]
 }
 
-function matchesFilter(value: unknown, expected: string | string[] | undefined): boolean {
+function matchesFilter(value: unknown, expected: WorkspaceCollectionFilter | undefined): boolean {
   const values = scalarValues(value).map(item => item.toLocaleLowerCase())
+  if (typeof expected === "object" && !Array.isArray(expected)) return expected.empty && values.length === 0
   const candidates = (Array.isArray(expected) ? expected : [expected])
     .filter((item): item is string => item !== undefined && item !== "")
     .map(item => item.toLocaleLowerCase())
   if (!candidates.length) return true
-  return candidates.some(candidate => candidate === workspaceCollectionEmpty ? values.length === 0 : values.includes(candidate))
+  return candidates.some(candidate => values.includes(candidate))
 }
 
 function project<T>(item: unknown, select: string[] | undefined): T {
@@ -141,9 +148,11 @@ async function readCollection<Name extends WorkspaceName>(options: WorkspaceColl
 
 function normalizedFilters(filters: WorkspaceCollectionQuery["filters"]): Record<string, string[]> {
   return Object.fromEntries(Object.entries(filters || {})
-    .filter((entry): entry is [string, string | string[]] => entry[1] !== undefined)
+    .filter((entry): entry is [string, WorkspaceCollectionFilter] => entry[1] !== undefined)
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([field, value]) => [field, (Array.isArray(value) ? value : [value]).map(item => String(item).toLocaleLowerCase()).sort()]))
+    .map(([field, value]) => [field, typeof value === "object" && !Array.isArray(value)
+      ? ["empty"]
+      : (Array.isArray(value) ? value : [value]).map(item => item.toLocaleLowerCase()).sort()]))
 }
 
 async function queryDigest(query: WorkspaceCollectionQuery, limit: number): Promise<string> {
@@ -212,7 +221,7 @@ function filterItems(items: unknown[], query: WorkspaceCollectionQuery): unknown
   return filtered
 }
 
-function buildFacets(items: unknown[], fields: string[] | undefined): Record<string, WorkspaceCollectionFacetValue[]> {
+function buildFacets(items: unknown[], fields: string[] | undefined, maxValues: number): Record<string, WorkspaceCollectionFacetValue[]> {
   return Object.fromEntries((fields || []).map((field) => {
     const counts = new Map<string, number>()
     for (const item of items) {
@@ -222,6 +231,7 @@ function buildFacets(items: unknown[], fields: string[] | undefined): Record<str
     }
     const values = [...counts].map(([value, count]) => ({ count, value }))
       .sort((left, right) => right.count - left.count || left.value.localeCompare(right.value))
+      .slice(0, maxValues)
     return [field, values]
   }))
 }
@@ -240,7 +250,7 @@ export async function queryWorkspaceCollection<T = Record<string, unknown>, Name
   const nextOffset = offset + items.length
   return {
     digest: collection.digest,
-    facets: buildFacets(filtered, query.facets),
+    facets: buildFacets(filtered, query.facets, options.maxLimit ?? defaultMaxLimit),
     items,
     nextCursor: nextOffset < filtered.length ? encodeCursor({ digest: collection.digest, offset: nextOffset, query: signature }) : null,
     total: filtered.length,

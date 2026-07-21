@@ -77,10 +77,11 @@ describe("Workspace Collections", () => {
     const bounded = await queryWorkspaceCollection({
       maxLimit: 2,
       path: "data/items.json",
-      query: { limit: 500 },
+      query: { facets: ["category"], limit: 500 },
       workspace: "collection-bounds",
     })
     expect(bounded.items).toHaveLength(2)
+    expect(bounded.facets.category).toHaveLength(2)
     expect(bounded.nextCursor).toEqual(expect.any(String))
   })
 

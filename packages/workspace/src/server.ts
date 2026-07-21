@@ -1,7 +1,7 @@
 import { createError, defineEventHandler, getQuery, getRouterParam } from "h3"
 import { lookup } from "mrmime"
 
-import { getWorkspaceCollectionItem, queryWorkspaceCollection, WorkspaceCollectionCursorError } from "./collections.ts"
+import { getWorkspaceCollectionItem, queryWorkspaceCollection, WorkspaceCollectionCursorError, workspaceCollectionEmpty } from "./collections.ts"
 import { WorkspaceNotFoundError, WorkspacePathError } from "./core/errors.ts"
 import { matchesAny, normalizeSafeWorkspacePath } from "./core/path.ts"
 import { resolveWorkspaceAutoCommit } from "./core/rules.ts"
@@ -209,9 +209,15 @@ function collectionFilters(query: Record<string, string | string[]>, allowed: st
   const filters: NonNullable<WorkspaceCollectionQuery["filters"]> = {}
   const allowedFields = new Set(allowed || [])
   for (const [key, value] of Object.entries(query)) {
-    if (!key.startsWith("filter.")) continue
-    const field = key.slice("filter.".length)
+    if (!key.startsWith("filter.") && !key.startsWith("empty.")) continue
+    const empty = key.startsWith("empty.")
+    const field = key.slice(empty ? "empty.".length : "filter.".length)
     if (!allowedFields.has(field)) throw new WorkspaceCollectionRequestError(`Workspace collection filter "${field}" is not allowed.`)
+    if (empty) {
+      if (value !== "true") throw new WorkspaceCollectionRequestError(`Workspace collection empty filter "${field}" must be true.`)
+      filters[field] = workspaceCollectionEmpty
+      continue
+    }
     const values = (Array.isArray(value) ? value : [value]).map(item => item.trim()).filter(Boolean)
     if (values.length) filters[field] = values
   }
@@ -223,7 +229,7 @@ function parseWorkspaceCollectionQuery(
   options: WorkspaceCollectionHandlerOptions,
 ): { itemValue?: string, page: WorkspaceCollectionQuery } {
   for (const key of Object.keys(query)) {
-    if (!["cursor", "limit", "search", "value"].includes(key) && !key.startsWith("filter.")) {
+    if (!["cursor", "limit", "search", "value"].includes(key) && !key.startsWith("filter.") && !key.startsWith("empty.")) {
       throw new WorkspaceCollectionRequestError(`Workspace collection query parameter "${key}" is not allowed.`)
     }
   }
