@@ -103,11 +103,15 @@ export interface CloudflareQueueConfig {
   }
 }
 
-function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registryFile: string, userAppEntry: string | undefined, queueConfig: unknown, preloadVercelQueue = false, queueDefinitions?: Record<string, string>) {
+function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registryFile: string, userAppEntry: string | undefined, queueConfig: NormalizedQueueOptions, preloadVercelQueue = false, queueDefinitions?: Record<string, string>) {
+  const vercelRuntime = spec.name === "vercel" && queueConfig !== false && queueConfig.provider === "vercel"
   const imports = [
     `import { ${spec.factory} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
     `import queueRegistry from ${JSON.stringify(`./${generatedRegistryFileName}`)}`,
   ]
+  if (vercelRuntime) {
+    imports.push("import { createVercelQueueRuntimeClient } from '@vite-hub/queue/internal/runtime/vercel-client'")
+  }
   if (preloadVercelQueue) {
     imports.unshift("import * as __vitehubVercelQueue from '@vercel/queue'")
   }
@@ -124,6 +128,7 @@ function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registr
     "",
     `export default ${spec.factory}({`,
     userAppEntry ? "  app: queueApp," : "",
+    vercelRuntime ? "  createClient: createVercelQueueRuntimeClient," : "",
     queueDefinitions ? "  definitions: queueDefinitions," : "",
     "  queue: queueConfig,",
     "  registry: queueRegistry,",
@@ -195,13 +200,21 @@ export function createCloudflareQueueBindings(definitions: DiscoveredQueueDefini
 
 function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig: NormalizedQueueOptions, hasDefinitions: boolean, cloudflareQueues: boolean, queueDefinitions: Record<string, string>) {
   const cloudflareRuntime = queueConfig !== false && queueConfig.provider === "cloudflare"
+  const vercelRuntime = queueConfig !== false && queueConfig.provider === "vercel"
   const cloudflare = cloudflareQueues && cloudflareRuntime
-  const vercel = hasDefinitions && queueConfig !== false && queueConfig.provider === "vercel"
+  const vercel = hasDefinitions && vercelRuntime
+  const runtimeClientFactory = cloudflareRuntime
+    ? "createCloudflareQueueRuntimeClient"
+    : vercelRuntime
+      ? "createVercelQueueRuntimeClient"
+      : undefined
   return [
     "import { definePlugin } from 'nitro'",
     ...(vercel ? ["import * as __vitehubVercelQueue from '@vercel/queue'"] : []),
     ...(cloudflareRuntime ? ["import { env as vitehubEnv, waitUntil as vitehubWaitUntil } from 'cloudflare:workers'"] : []),
     ...(cloudflare ? ["import { createQueueCloudflareWorker } from '@vite-hub/queue/runtime/cloudflare-vite'"] : []),
+    ...(cloudflareRuntime ? ["import { createCloudflareQueueRuntimeClient } from '@vite-hub/queue/internal/runtime/cloudflare-client'"] : []),
+    ...(vercelRuntime ? ["import { createVercelQueueRuntimeClient } from '@vite-hub/queue/internal/runtime/vercel-client'"] : []),
     "import { setQueueRuntimeConfig, setQueueRuntimeEventDefaults, setQueueRuntimeRegistry } from '@vite-hub/queue/runtime/state'",
     `import queueRegistry from ${JSON.stringify(createImportPath(pluginFile, registryFile))}`,
     "",
@@ -210,7 +223,7 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
     ...(cloudflare ? [`const queueDefinitions = ${JSON.stringify(queueDefinitions, null, 2)}`, "const queueWorker = createQueueCloudflareWorker({ definitions: queueDefinitions, queue: queueConfig, registry: queueRegistry })"] : []),
     "",
     `export default definePlugin((${cloudflare ? "nitro" : ""}) => {`,
-    "  setQueueRuntimeConfig(queueConfig)",
+    `  setQueueRuntimeConfig(queueConfig${runtimeClientFactory ? `, ${runtimeClientFactory}` : ""})`,
     "  setQueueRuntimeRegistry(queueRegistry)",
     ...(cloudflareRuntime ? ["  setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })"] : []),
     ...(cloudflare ? ["  nitro.hooks.hook('cloudflare:queue', ({ batch, context, env }) => queueWorker.queue(batch, env, context))"] : []),
@@ -387,13 +400,14 @@ function createVercelQueueWrapperContents(file: string, registryFile: string, na
     "import * as __vitehubVercelQueue from '@vercel/queue'",
     "import { H3 } from 'h3'",
     "import { toNodeHandler } from 'h3/node'",
+    "import { createVercelQueueRuntimeClient } from '@vite-hub/queue/internal/runtime/vercel-client'",
     `import { handleHostedVercelQueueCallback, hostedVercelWaitUntil } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/hosted")))}`,
     `import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
     `import queueRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     "",
     "globalThis.__vitehubVercelQueue = __vitehubVercelQueue",
     "",
-    `setQueueRuntimeConfig(${JSON.stringify(queueConfig, null, 2)})`,
+    `setQueueRuntimeConfig(${JSON.stringify(queueConfig, null, 2)}, createVercelQueueRuntimeClient)`,
     "setQueueRuntimeRegistry(queueRegistry)",
     "",
     "const app = new H3()",

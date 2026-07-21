@@ -2,23 +2,31 @@ import { AsyncLocalStorage } from "node:async_hooks"
 
 import { getCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
-import type { QueueDefinition, QueueDefinitionRegistry, ResolvedQueueOptions } from "../types.ts"
+import type { QueueClient, QueueDefinition, QueueDefinitionRegistry, QueueProviderOptions, ResolvedQueueOptions } from "../types.ts"
+
+export type QueueRuntimeClientFactory = (options: QueueProviderOptions) => QueueClient | Promise<QueueClient>
 
 let runtimeConfig: false | ResolvedQueueOptions | undefined
+let runtimeClientFactory: QueueRuntimeClientFactory | undefined
 let registryOverride: QueueDefinitionRegistry | undefined
 
 const queueEventStorage = new AsyncLocalStorage<unknown>()
 let queueEventDefaults: unknown
 const queueClientCache = new Map<string, Promise<unknown>>()
 
-export function setQueueRuntimeConfig(config: false | ResolvedQueueOptions | undefined): void {
+export function setQueueRuntimeConfig(config: false | ResolvedQueueOptions | undefined, createClient?: QueueRuntimeClientFactory): void {
   runtimeConfig = config
+  runtimeClientFactory = createClient
   if (typeof config === "undefined") queueEventDefaults = undefined
   queueClientCache.clear()
 }
 
 export function getQueueRuntimeConfig(): false | ResolvedQueueOptions | undefined {
   return runtimeConfig
+}
+
+export function getQueueRuntimeClientFactory(): QueueRuntimeClientFactory | undefined {
+  return runtimeClientFactory
 }
 
 export function runWithQueueRuntimeEvent<T>(event: unknown, callback: () => T): T {

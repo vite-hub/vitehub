@@ -13,9 +13,11 @@ export default defineConfig({
       "src/index.ts",
       "src/nuxt.ts",
       "src/vite.ts",
+      "src/internal/runtime/cloudflare-client.ts",
       "src/runtime/cloudflare-vite.ts",
       "src/runtime/hosted.ts",
       "src/runtime/state.ts",
+      "src/internal/runtime/vercel-client.ts",
       "src/runtime/vercel-vite.ts",
     ],
     exports: {

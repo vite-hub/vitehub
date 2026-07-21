@@ -280,7 +280,8 @@ function renderQueueRuntimeModule(file: string) {
     `export { defineQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/definition.ts")))}`,
     `export { createQueueMessageId } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/enqueue.ts")))}`,
     `export { QueueError } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/errors.ts")))}`,
-    `export { createQueueClient, deferQueue, getQueue, runQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/client.ts")))}`,
+    `export { deferQueue, getQueue, runQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/client.ts")))}`,
+    `export { createQueueClient } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/create-client.ts")))}`,
     "",
   ].join("\n")
 }
