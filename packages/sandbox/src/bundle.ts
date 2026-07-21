@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { basename } from 'pathe'
 import { bundleDiscoveredDefinitionModuleGraph } from './internal/shared/discovered-definition'
 import type { SandboxDefinitionBundle } from './module-types'
 import type { SandboxProject } from './project'
@@ -14,6 +15,16 @@ export async function bundleSandboxDefinition(
     project?: SandboxProject
   } = {},
 ): Promise<SandboxDefinitionBundle> {
+  if (options.execution === 'module' && options.project) {
+    const prefix = options.project.packagePath === '.' ? '' : `${options.project.packagePath}/`
+    return {
+      entry: `${prefix}${basename(file)}`,
+      execution: 'module',
+      modules: {},
+      project: options.project,
+    }
+  }
+
   const bundle = await bundleDiscoveredDefinitionModuleGraph({
     alias: options.alias,
     filename: file,
@@ -79,34 +90,20 @@ export async function bundleSandboxDefinition(
     }
   }
 
-  const packagePrefix = options.project.packagePath === '.'
-    ? ''
-    : `${options.project.packagePath}/`
-  const definitionPrefix = `${packagePrefix}.vitehub-sandbox`
-  const isPackageEntry = options.execution === 'module'
-  const entry = isPackageEntry
-    ? `${packagePrefix}.vitehub-sandbox-entry.mjs`
-    : `${definitionPrefix}/${bundle.entry}`
-  const modules = isPackageEntry
-    ? Object.fromEntries(Object.entries(bundle.modules).map(([path, contents]) => [
-        path === bundle.entry
-          ? entry
-          : `${packagePrefix}.vitehub-sandbox-chunks/${path.replace(/^chunks\//, '')}`,
-        path === bundle.entry
-          ? contents.replaceAll('./chunks/', './.vitehub-sandbox-chunks/')
-          : contents,
-      ]))
-    : {
-        [`${definitionPrefix}/package.json`]: JSON.stringify({ private: true, type: 'module' }),
-        ...Object.fromEntries(
-          Object.entries(bundle.modules).map(([path, contents]) => [`${definitionPrefix}/${path}`, contents]),
-        ),
-      }
+  const prefix = options.project.packagePath === '.'
+    ? '.vitehub-sandbox'
+    : `${options.project.packagePath}/.vitehub-sandbox`
+  const modules = {
+    [`${prefix}/package.json`]: JSON.stringify({ private: true, type: 'module' }),
+    ...Object.fromEntries(
+      Object.entries(bundle.modules).map(([path, contents]) => [`${prefix}/${path}`, contents]),
+    ),
+  }
   const digest = createHash('sha256')
     .update(JSON.stringify({ modules, packagePath: options.project.packagePath, project: options.project.digest }))
     .digest('hex')
   return {
-    entry,
+    entry: `${prefix}/${bundle.entry}`,
     ...(options.execution ? { execution: options.execution } : {}),
     modules,
     project: { ...options.project, digest },

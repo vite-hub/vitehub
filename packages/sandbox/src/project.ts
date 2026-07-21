@@ -149,6 +149,12 @@ function parsePnpmWorkspacePackages(source: string) {
   let packagesIndent: number | undefined
   for (const line of source.split(/\r?\n/)) {
     if (packagesIndent === undefined) {
+      const inline = /^\s*packages\s*:\s*\[(.*)\]\s*(?:#.*)?$/.exec(line)
+      if (inline) {
+        return inline[1].split(',')
+          .map(value => value.trim().replace(/^(['"])(.*)\1$/, '$2'))
+          .filter(Boolean)
+      }
       const match = /^(\s*)packages\s*:\s*(?:#.*)?$/.exec(line)
       if (match) packagesIndent = match[1].length
       continue
