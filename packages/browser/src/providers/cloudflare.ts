@@ -12,7 +12,7 @@ interface CloudflareBrowserHandle {
 }
 
 export interface CloudflarePlaywrightDriver {
-  acquire(binding: unknown): Promise<{ sessionId: string }>
+  acquire(binding: unknown, options?: { keep_alive?: number }): Promise<{ sessionId: string }>
   connect(binding: unknown, sessionId: string): Promise<CloudflareBrowserHandle>
 }
 
@@ -51,7 +51,7 @@ export function cloudflareBrowser(options: CloudflareBrowserOptions = {}): Brows
     },
     isolation: "provider",
     name: "cloudflare",
-    async open() {
+    async open(openOptions = {}) {
       const binding = typeof bindingOption === "string"
         ? await options.resolveBinding?.(bindingOption) ?? await runtimeBinding(bindingOption)
         : bindingOption
@@ -61,7 +61,9 @@ export function cloudflareBrowser(options: CloudflareBrowserOptions = {}): Brows
       const driver = options.driver || await loadDriver()
       let acquired: { sessionId: string }
       try {
-        acquired = await driver.acquire(binding)
+        acquired = openOptions.idleTimeoutMs
+          ? await driver.acquire(binding, { keep_alive: openOptions.idleTimeoutMs })
+          : await driver.acquire(binding)
       }
       catch (error) {
         throw new BrowserProviderError("cloudflare", "acquire a Browser Run session", { cause: error })
@@ -74,8 +76,9 @@ export function cloudflareBrowser(options: CloudflareBrowserOptions = {}): Brows
           let browser: CloudflareBrowserHandle | undefined
           let cdp: Awaited<ReturnType<CloudflareBrowserHandle["newBrowserCDPSession"]>> | undefined
           try {
-            browser = await driver.connect(binding, acquired.sessionId)
-            cdp = await browser.newBrowserCDPSession()
+            const connected = await driver.connect(binding, acquired.sessionId)
+            browser = connected
+            cdp = await connected.newBrowserCDPSession()
             await cdp.send("Browser.close")
           }
           catch (error) {

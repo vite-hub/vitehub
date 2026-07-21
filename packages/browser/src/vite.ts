@@ -33,10 +33,21 @@ function cloneRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
 }
 
+function mergeNitroExternal(value: unknown, addition: string): unknown {
+  if (typeof value === "undefined") return [addition]
+  if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
+  if (typeof value === "string" || value instanceof RegExp) return [value, addition]
+  if (typeof value === "function") {
+    return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
+  }
+  return value
+}
+
 function configureNitroBrowser(value: unknown, options: Required<BrowserModuleOptions>, enabled: boolean): Record<string, unknown> {
   const nitro = cloneRecord(value)
   const cloudflare = cloneRecord(nitro.cloudflare)
   const wrangler = cloneRecord(cloudflare.wrangler)
+  const rollupConfig = cloneRecord(nitro.rollupConfig)
   if (!enabled) {
     delete wrangler.browser
     return { ...nitro, cloudflare: { ...cloudflare, wrangler } }
@@ -53,6 +64,7 @@ function configureNitroBrowser(value: unknown, options: Required<BrowserModuleOp
         compatibility_flags: flags,
       },
     },
+    rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") },
   }
 }
 

@@ -48,4 +48,17 @@ describe("cloudflareBrowser", () => {
     expect(driver.acquire).toHaveBeenCalledWith(binding)
     await session.close()
   })
+
+  it("passes the requested idle timeout to Browser Run", async () => {
+    const binding = { fetch: vi.fn() }
+    const driver = {
+      acquire: vi.fn(async () => ({ sessionId: "cf-session" })),
+      connect: vi.fn(),
+    }
+    const provider = cloudflareBrowser({ binding, driver })
+
+    await provider.open({ idleTimeoutMs: 120_000 })
+
+    expect(driver.acquire).toHaveBeenCalledWith(binding, { keep_alive: 120_000 })
+  })
 })

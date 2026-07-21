@@ -17,6 +17,7 @@ describe("hubBrowser", () => {
     const config: Record<string, unknown> = {
       nitro: {
         cloudflare: { wrangler: { compatibility_flags: ["existing"] } },
+        rollupConfig: { external: ["existing-module"] },
       },
     }
     const plugin = hubBrowser({ binding: "MY_BROWSER" })
@@ -25,6 +26,7 @@ describe("hubBrowser", () => {
 
     expect(config).toHaveProperty("nitro.cloudflare.wrangler.browser", { binding: "MY_BROWSER" })
     expect(config).toHaveProperty("nitro.cloudflare.wrangler.compatibility_flags", ["existing", "nodejs_compat"])
+    expect(config).toHaveProperty("nitro.rollupConfig.external", ["existing-module", "cloudflare:workers"])
   })
 
   it("writes and cleans owned standalone Provider Output", async () => {
