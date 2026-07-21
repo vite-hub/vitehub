@@ -92,12 +92,15 @@ describe("defineWorkspaceCollectionHandler", () => {
       ...records,
       { slug: "empty", title: "Empty" },
       { category: "__empty__", slug: "literal", title: "Literal" },
+      { category: "", slug: "blank", title: "Blank" },
     ]))
 
     const empty = await (await app.request("/items?empty.category=true")).json() as WorkspaceCollectionPage<Record<string, unknown>>
     expect(empty.items).toEqual([{ slug: "empty", title: "Empty" }])
     const literal = await (await app.request("/items?filter.category=__empty__")).json() as WorkspaceCollectionPage<Record<string, unknown>>
     expect(literal.items).toEqual([{ category: "__empty__", slug: "literal", title: "Literal" }])
+    const blank = await (await app.request("/items?filter.category=")).json() as WorkspaceCollectionPage<Record<string, unknown>>
+    expect(blank.items).toEqual([{ category: "", slug: "blank", title: "Blank" }])
   })
 
   it("rejects disallowed query fields, filters, and limits", async () => {

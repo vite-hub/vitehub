@@ -161,6 +161,25 @@ describe("Workspace Collections", () => {
     })).resolves.toMatchObject({ items: [{ slug: "gamma" }] })
   })
 
+  it("distinguishes empty operators from literal filter values in cursors", async () => {
+    await createCollection("collection-empty-cursors", [
+      { category: "empty", slug: "literal" },
+      { category: "empty", slug: "literal-2" },
+      { slug: "missing" },
+    ])
+    const first = await queryWorkspaceCollection({
+      path: "data/items.json",
+      query: { filters: { category: "empty" }, limit: 1 },
+      workspace: "collection-empty-cursors",
+    })
+
+    await expect(queryWorkspaceCollection({
+      path: "data/items.json",
+      query: { cursor: first.nextCursor!, filters: { category: workspaceCollectionEmpty }, limit: 1 },
+      workspace: "collection-empty-cursors",
+    })).rejects.toMatchObject({ reason: "stale" })
+  })
+
   it("computes a content digest when Workspace stat has none", async () => {
     let content = JSON.stringify(records.slice(0, 2))
     const workspace = {

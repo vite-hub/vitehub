@@ -34,6 +34,18 @@ async function settle() {
 }
 
 describe("Workspace Collection Vue composables", () => {
+  it("defers default relative requests during server setup", async () => {
+    const scope = effectScope()
+    let collection!: UseWorkspaceCollectionReturn<{ id: number }>
+    scope.run(() => {
+      collection = useWorkspaceCollection("/api/items")
+    })
+    await settle()
+    expect(collection.pending.value).toBe(false)
+    expect(collection.error.value).toBeNull()
+    scope.stop()
+  })
+
   it("fetches the first page separately and appends cursor pages", async () => {
     const { calls, request } = controlledRequester()
     const scope = effectScope()

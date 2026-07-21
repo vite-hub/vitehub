@@ -109,6 +109,7 @@ export default defineWorkspaceCollectionHandler({
 ```
 
 Nuxt auto-imports the Vue composables when this module is installed. Plain Vue apps can import them directly from `@vite-hub/workspace/collections/client`.
+Default immediate requests start during browser setup so relative endpoints do not escape Nuxt's server request context. Inject `request` and call `refresh()` when an application needs SSR loading.
 
 ```ts
 const articles = useWorkspaceCollection("/api/articles", {

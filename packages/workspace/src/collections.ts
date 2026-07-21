@@ -117,7 +117,7 @@ function matchesFilter(value: unknown, expected: WorkspaceCollectionFilter | und
   const values = scalarValues(value).map(item => item.toLocaleLowerCase())
   if (typeof expected === "object" && !Array.isArray(expected)) return expected.empty && values.length === 0
   const candidates = (Array.isArray(expected) ? expected : [expected])
-    .filter((item): item is string => item !== undefined && item !== "")
+    .filter((item): item is string => item !== undefined)
     .map(item => item.toLocaleLowerCase())
   if (!candidates.length) return true
   return candidates.some(candidate => values.includes(candidate))
@@ -151,8 +151,8 @@ function normalizedFilters(filters: WorkspaceCollectionQuery["filters"]): Record
     .filter((entry): entry is [string, WorkspaceCollectionFilter] => entry[1] !== undefined)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([field, value]) => [field, typeof value === "object" && !Array.isArray(value)
-      ? ["empty"]
-      : (Array.isArray(value) ? value : [value]).map(item => item.toLocaleLowerCase()).sort()]))
+      ? ["operator:empty"]
+      : (Array.isArray(value) ? value : [value]).map(item => `value:${item.toLocaleLowerCase()}`).sort()]))
 }
 
 async function queryDigest(query: WorkspaceCollectionQuery, limit: number): Promise<string> {

@@ -218,8 +218,8 @@ function collectionFilters(query: Record<string, string | string[]>, allowed: st
       filters[field] = workspaceCollectionEmpty
       continue
     }
-    const values = (Array.isArray(value) ? value : [value]).map(item => item.trim()).filter(Boolean)
-    if (values.length) filters[field] = values
+    const values = (Array.isArray(value) ? value : [value]).map(item => item.trim())
+    filters[field] = values
   }
   return filters
 }

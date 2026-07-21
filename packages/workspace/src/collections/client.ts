@@ -110,7 +110,7 @@ export function useWorkspaceCollection<T = Record<string, unknown>>(
   const stop = watch(
     () => options.query ? toValue(options.query) : undefined,
     () => { void load(true) },
-    { deep: true, immediate: options.immediate !== false },
+    { deep: true, immediate: options.immediate !== false && (options.request !== undefined || "window" in globalThis) },
   )
   onScopeDispose(() => {
     stop()
@@ -179,7 +179,9 @@ export function useWorkspaceCollectionItem<T = Record<string, unknown>>(
     }
   }
 
-  const stop = watch(() => toValue(value), () => { void refresh() }, { immediate: options.immediate !== false })
+  const stop = watch(() => toValue(value), () => { void refresh() }, {
+    immediate: options.immediate !== false && (options.request !== undefined || "window" in globalThis),
+  })
   onScopeDispose(() => {
     stop()
     active?.abort()
