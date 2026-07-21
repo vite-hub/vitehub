@@ -77,8 +77,10 @@ function runtimeWorkspaceDependencyNames(manifest: PackageRuntimeManifest) {
 }
 
 function runtimeExportTargets(value: unknown, patternMatch?: string): string[] {
-  if (typeof value === 'string')
-    return [patternMatch === undefined ? value : value.replaceAll('*', patternMatch)]
+  if (typeof value === 'string') {
+    const target = patternMatch === undefined ? value : value.replaceAll('*', patternMatch)
+    return target.startsWith('./') ? [target] : []
+  }
   if (Array.isArray(value)) {
     for (const target of value) {
       const targets = runtimeExportTargets(target, patternMatch)
