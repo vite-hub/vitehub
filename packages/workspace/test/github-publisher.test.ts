@@ -63,6 +63,13 @@ beforeEach(() => {
     if (url.pathname === "/repos/onmax/repo/git/ref/heads/main") return jsonResponse({ object: { sha: refSha } })
     if (url.pathname === "/repos/onmax/repo/git/ref/heads/feature/audio") return jsonResponse({ object: { sha: refSha } })
     if (url.pathname.startsWith("/repos/onmax/repo/git/commits/")) return jsonResponse({ tree: { sha: remoteTreeSha } })
+    if (url.pathname.startsWith("/repos/onmax/repo/contents/")) {
+      const path = decodeURIComponent(url.pathname.slice("/repos/onmax/repo/contents/".length))
+      const entry = remoteTree.find(item => item.path === path)
+      return entry
+        ? jsonResponse({ ...entry, type: "file" })
+        : new Response("missing file", { status: 404, statusText: "Not Found" })
+    }
     if (url.pathname === "/repos/onmax/repo/git/trees/base-tree" && method === "GET") return jsonResponse({ tree: remoteTree })
     if (url.pathname.startsWith("/repos/onmax/repo/git/trees/tree-sha-") && method === "GET") return jsonResponse({ tree: remoteTree })
     if (url.pathname === "/repos/onmax/repo/git/blobs" && method === "POST" && body?.content) {
@@ -264,6 +271,29 @@ describe("GitHub workspace publisher", () => {
         type: "blob",
       }],
     })
+  })
+
+  it("checks only workspace paths when untracked deletion is disabled", async () => {
+    remoteTree = [{ path: "workspace/root/inbox/audio.md", sha: textSha("hola"), type: "blob" }]
+
+    const workspace = createWorkspace({
+      name: "docs",
+      store: { provider: "memory" },
+      publish: [github({
+        branch: "feature/audio",
+        deleteUntracked: false,
+        repo: "onmax/repo",
+        root: "workspace/root",
+        token: "token",
+      })],
+    })
+
+    await workspace.writeFile("inbox/audio.md", "hola", { mediaType: "text/markdown" })
+    await workspace.snapshot()
+
+    expect(requests.map(request => request.path)).toContain("/repos/onmax/repo/contents/workspace/root/inbox/audio.md")
+    expect(requests.some(request => request.path.endsWith("/git/trees/base-tree"))).toBe(false)
+    expect(requests.filter(request => request.method !== "GET")).toEqual([])
   })
 
   it("skips publishing when deletion is disabled and only remote files are untracked", async () => {

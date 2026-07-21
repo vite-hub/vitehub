@@ -69,7 +69,14 @@ export function github(options: GitHubPublisherOptions = {}): WorkspacePublisher
       const files = await readFiles(ctx, root)
       const nextPaths = new Set(files.map(file => file.path))
 
-      const remote = await readGitHubBranchState({ branch, kind: "publisher", repository, root, token })
+      const remote = await readGitHubBranchState({
+        branch,
+        kind: "publisher",
+        paths: options.deleteUntracked === false ? files.map(file => file.path) : undefined,
+        repository,
+        root,
+        token,
+      })
       const changedFiles = files.filter(file => remote.files.get(file.path)?.sha !== file.gitSha)
       const deletePaths = options.deleteUntracked === false
         ? []

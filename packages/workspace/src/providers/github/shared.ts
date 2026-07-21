@@ -279,6 +279,7 @@ export function findGitHubRemoteFiles(
 export async function readGitHubBranchState(input: {
   branch: string;
   kind: "publisher" | "store";
+  paths?: string[];
   repository: string;
   root: string;
   token: string;
@@ -312,6 +313,32 @@ export async function readGitHubBranchState(input: {
     input.token,
     `/repos/${owner}/${repo}/git/commits/${ref.object.sha}`,
   );
+  if (input.paths) {
+    const entries = await Promise.all(input.paths.map(async (path) => {
+      const fullPath = joinGitPath(input.root, path);
+      const encodedPath = fullPath.split("/").map(encodeURIComponent).join("/");
+      try {
+        return await requestGitHubJson<GitHubTreeEntry>(
+          input.repository,
+          input.token,
+          `/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(ref.object.sha)}`,
+        );
+      }
+      catch (error) {
+        if (error instanceof GitHubRequestError && error.status === 404) return undefined;
+        throw error;
+      }
+    }));
+    return {
+      branchExists,
+      files: new Map(input.paths.flatMap((path, index) => {
+        const entry = entries[index];
+        return entry?.type === "file" && entry.sha ? [[path, entry] as const] : [];
+      })),
+      refSha: ref.object.sha,
+      treeSha: current.tree.sha,
+    };
+  }
   const tree = await requestGitHubJson<GitHubTreeResponse>(
     input.repository,
     input.token,
