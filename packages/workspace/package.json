@@ -52,6 +52,14 @@
       "types": "./dist/cloudflare.d.ts",
       "import": "./dist/cloudflare.js"
     },
+    "./collections": {
+      "types": "./dist/collections.d.ts",
+      "import": "./dist/collections.js"
+    },
+    "./collections/client": {
+      "types": "./dist/collections/client.d.ts",
+      "import": "./dist/collections/client.js"
+    },
     "./loader": {
       "types": "./dist/loader.d.ts",
       "import": "./dist/loader.js"
@@ -148,7 +156,8 @@
     "isomorphic-git": "catalog:workspace",
     "jiti": "catalog:unjs",
     "minimatch": "catalog:workspace",
-    "mrmime": "catalog:workspace"
+    "mrmime": "catalog:workspace",
+    "ofetch": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
@@ -158,18 +167,19 @@
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai",
     "ocache": "catalog:unjs",
-    "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "vue": "catalog:ui"
   },
   "peerDependencies": {
     "@vercel/blob": "catalog:storage",
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai-compat",
-    "vite": "catalog:vite-compat"
+    "vite": "catalog:vite-compat",
+    "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
     "@vercel/blob": {
@@ -179,6 +189,9 @@
       "optional": true
     },
     "vite": {
+      "optional": true
+    },
+    "vue": {
       "optional": true
     }
   },

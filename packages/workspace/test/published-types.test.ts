@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { copyFile, cp, mkdir, mkdtemp, rm } from "node:fs/promises"
+import { copyFile, cp, mkdir, mkdtemp, rm, symlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -13,7 +13,7 @@ const runtimeRoot = resolve(packageRoot, "../runtime")
 const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(packageRoot, "../../node_modules/typescript/bin/tsc")
 
-it("publishes Workspace errors through the shared contract", async () => {
+it("publishes Workspace types through the package contract", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-types-"))
 
   try {
@@ -24,6 +24,7 @@ it("publishes Workspace errors through the shared contract", async () => {
       await copyFile(join(source, "package.json"), join(installedPackageRoot, "package.json"))
       await cp(join(source, "dist"), join(installedPackageRoot, "dist"), { recursive: true })
     }
+    await symlink(resolve(packageRoot, "node_modules/vue"), join(root, "node_modules/vue"), "junction")
 
     await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root])
   }
