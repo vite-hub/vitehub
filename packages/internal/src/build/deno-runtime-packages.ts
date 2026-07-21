@@ -200,7 +200,7 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
       ? outputNodeModules
       : join(targetDir, "node_modules")
     await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, dependencyNodeModules, copied, staged, {
-      hoistOptionalDependencies: options.hoistOptionalDependencies,
+      hoistOptionalDependencies: options.hoistOptionalDependencies && Boolean(packageJson.optionalDependencies?.[dependencyName]),
       includeOptionalDependencies: options.includeOptionalDependencies,
       includePeerDependencies: options.includePeerDependencies,
       name: dependencyName,

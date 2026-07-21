@@ -64,6 +64,7 @@ import "real"
     await writeRuntimePackage(root, "runtime-root", {
       dependencies: {
         "native-duplicate-darwin": "9.9.9",
+        "regular-parent": "9.9.9",
       },
       optionalDependencies: {
         "native-any": "9.9.9",
@@ -82,6 +83,8 @@ import "real"
       },
     })
     await writeRuntimePackage(root, "required-darwin", { cpu: ["x64"], os: ["darwin"] })
+    await writeRuntimePackage(root, "regular-parent", { optionalDependencies: { "regular-native": "9.9.9" } })
+    await writeRuntimePackage(root, "regular-native", { cpu: ["x64"], os: ["linux"] })
     await writeRuntimePackage(root, "native-any", { os: ["any"] })
     await writeRuntimePackage(root, "native-duplicate-darwin", { cpu: ["x64"], os: ["darwin"] })
     await writeRuntimePackage(root, "native-lib-linux-arm64", { cpu: ["arm64"], libc: ["glibc"], os: ["linux"] })
@@ -138,6 +141,8 @@ import "real"
     ]) expect(existsSync(join(outputNodeModules, name, "package.json"))).toBe(false)
     expect(existsSync(join(outputNodeModules, "native-linux-x64/node_modules/native-lib-linux-x64"))).toBe(false)
     expect(existsSync(join(outputNodeModules, "native-linux-arm64/node_modules/native-lib-linux-arm64"))).toBe(false)
+    expect(existsSync(join(outputNodeModules, "runtime-root/node_modules/regular-parent/node_modules/regular-native/package.json"))).toBe(true)
+    expect(existsSync(join(outputNodeModules, "runtime-root/node_modules/regular-native"))).toBe(false)
   })
 
   it("stages reachable packages and their installed optional native dependencies", async () => {
