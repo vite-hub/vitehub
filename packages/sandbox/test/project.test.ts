@@ -37,6 +37,21 @@ describe("resolveSandboxProject", () => {
     expect(project.options).toEqual({ timeout: 60_000 })
   })
 
+  it("rejects package imports that Node cannot resolve directly", async () => {
+    const root = await createRoot()
+    const entry = join(root, "index.ts")
+    await writeFile(join(root, "package.json"), JSON.stringify({ private: true }))
+    await writeFile(join(root, "helper.ts"), "export const ok = true\n")
+    await writeFile(entry, "import { ok } from './helper'\nexport default { ok }\n")
+
+    const project = await resolveSandboxProject(entry, root)
+
+    await expect(bundleSandboxDefinition(await readFile(entry, "utf8"), entry, {
+      execution: "module",
+      project,
+    })).rejects.toThrow('imports "./helper", which is not an executable package file')
+  })
+
   it.each([
     [{ timeout: 0 }, "positive integer"],
     [{ timeout: 1.5 }, "positive integer"],

@@ -295,7 +295,7 @@ describe("hubSandbox", () => {
     }))
     await writeFile(join(packageRoot, "helper.ts"), `export const ok = true\n`)
     await writeFile(join(packageRoot, "index.ts"), [
-      `import { ok } from "./helper"`,
+      `import { ok } from "./helper.ts"`,
       `export type SandboxPayload = { value: string }`,
       `await Promise.resolve()`,
       `export default { ok }`,

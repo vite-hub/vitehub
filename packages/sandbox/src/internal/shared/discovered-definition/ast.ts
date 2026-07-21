@@ -56,6 +56,35 @@ export function hasExportedType(source: string, id: string, name: string) {
   })
 }
 
+export function findRuntimeRelativeModuleSpecifiers(source: string, id: string) {
+  const sourceFile = createSourceFile(id, source)
+  const specifiers: string[] = []
+
+  function addSpecifier(node: ts.Expression | undefined) {
+    if (node && typescript.isStringLiteralLike(node) && /^\.\.?\//.test(node.text))
+      specifiers.push(node.text)
+  }
+
+  function visit(node: ts.Node) {
+    if (typescript.isImportDeclaration(node)) {
+      if (!node.importClause?.isTypeOnly)
+        addSpecifier(node.moduleSpecifier)
+    }
+    else if (typescript.isExportDeclaration(node)) {
+      if (!node.isTypeOnly)
+        addSpecifier(node.moduleSpecifier)
+    }
+    else if (typescript.isCallExpression(node)
+      && node.expression.kind === typescript.SyntaxKind.ImportKeyword) {
+      addSpecifier(node.arguments[0])
+    }
+    typescript.forEachChild(node, visit)
+  }
+
+  visit(sourceFile)
+  return specifiers
+}
+
 function collectExplicitImportNames(sourceFile: ts.SourceFile) {
   const names = new Set<string>()
 

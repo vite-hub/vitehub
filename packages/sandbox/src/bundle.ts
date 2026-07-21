@@ -1,10 +1,29 @@
 import { createHash } from 'node:crypto'
 import { basename } from 'pathe'
+import { dirname, join, normalize } from 'node:path/posix'
 import { bundleDiscoveredDefinitionModuleGraph } from './internal/shared/discovered-definition'
+import { findRuntimeRelativeModuleSpecifiers } from './internal/shared/discovered-definition/ast'
 import type { SandboxDefinitionBundle } from './module-types'
 import type { SandboxProject } from './project'
 
 const SHIM_NAMESPACE = 'vitehub-sandbox-runtime-shim'
+
+function validatePackageModuleSpecifiers(project: SandboxProject) {
+  const packagePrefix = project.packagePath === '.' ? '' : `${project.packagePath}/`
+  for (const [path, file] of Object.entries(project.files)) {
+    if (!path.startsWith(packagePrefix) || !/\.(?:c|m)?[jt]sx?$/.test(path))
+      continue
+    const source = Buffer.from(file.contents, file.encoding).toString()
+    for (const specifier of findRuntimeRelativeModuleSpecifiers(source, path)) {
+      const target = normalize(join(dirname(path), specifier.replace(/[?#].*$/, '')))
+      if (!Object.hasOwn(project.files, target)) {
+        throw new Error(
+          `[vitehub] Sandbox package module "${path}" imports "${specifier}", which is not an executable package file. Use an explicit extension that resolves to a package file.`,
+        )
+      }
+    }
+  }
+}
 
 export async function bundleSandboxDefinition(
   source: string,
@@ -16,6 +35,7 @@ export async function bundleSandboxDefinition(
   } = {},
 ): Promise<SandboxDefinitionBundle> {
   if (options.execution === 'module' && options.project) {
+    validatePackageModuleSpecifiers(options.project)
     const prefix = options.project.packagePath === '.' ? '' : `${options.project.packagePath}/`
     return {
       entry: `${prefix}${basename(file)}`,
