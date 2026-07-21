@@ -331,6 +331,7 @@ describe("hubSandbox", () => {
     await writeFile(join(rootDir, "src/server.ts"), `export const ready = true\n`)
     await writeFile(join(packageRoot, "package.json"), JSON.stringify({
       private: true,
+      type: "module",
       vitehub: { sandbox: { timeout: 30_000 } },
     }))
     await writeFile(join(packageRoot, "helper.ts"), `export const ok = true\n`)
@@ -1085,6 +1086,7 @@ describe("hubSandbox", () => {
     await mkdir(projectDir, { recursive: true })
     await writeFile(manifest, JSON.stringify({
       private: true,
+      type: "module",
       vitehub: { sandbox: { timeout: 30_000 } },
     }))
     await writeFile(definition, "export default { ok: true }\n")
@@ -1129,6 +1131,7 @@ describe("hubSandbox", () => {
     await expect(readTimeout()).resolves.toBe(30_000)
     await writeFile(manifest, JSON.stringify({
       private: true,
+      type: "module",
       vitehub: { sandbox: { timeout: 60_000 } },
     }))
     await handleHotUpdate({
@@ -1180,7 +1183,7 @@ describe("hubSandbox", () => {
 
     const registry = join(rootDir, ".vitehub/sandbox/runtime/sandbox-registry.mjs")
     await expect(readFile(registry, "utf8")).resolves.not.toContain('"example"')
-    await writeFile(manifest, JSON.stringify({ private: true }))
+    await writeFile(manifest, JSON.stringify({ private: true, type: "module" }))
 
     const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
       file: string

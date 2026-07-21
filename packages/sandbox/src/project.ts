@@ -144,7 +144,7 @@ function parseSandboxProjectOptions(manifest: PackageManifest, path: string): Sa
   return { timeout }
 }
 
-function parsePnpmWorkspacePackages(source: string) {
+export function parsePnpmWorkspacePackages(source: string) {
   const patterns: string[] = []
   let packagesIndent: number | undefined
   for (const line of source.split(/\r?\n/)) {
@@ -170,7 +170,7 @@ function parsePnpmWorkspacePackages(source: string) {
   return patterns
 }
 
-function isWorkspacePackage(path: string, patterns: readonly string[]) {
+export function isWorkspacePackage(path: string, patterns: readonly string[]) {
   const included = patterns.filter(pattern => !pattern.startsWith('!')).some(pattern => matchesGlob(path, pattern))
   return included && !patterns.filter(pattern => pattern.startsWith('!')).some(pattern => matchesGlob(path, pattern.slice(1)))
 }

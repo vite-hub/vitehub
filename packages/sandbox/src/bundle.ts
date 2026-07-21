@@ -1,42 +1,11 @@
 import { createHash } from 'node:crypto'
 import { basename } from 'pathe'
-import { dirname, join, normalize } from 'node:path/posix'
+import { prepareExecutablePackageProject } from './internal/package-entry'
 import { bundleDiscoveredDefinitionModuleGraph } from './internal/shared/discovered-definition'
-import { findRuntimeRelativeModuleSpecifiers } from './internal/shared/discovered-definition/ast'
 import type { SandboxDefinitionBundle } from './module-types'
 import type { SandboxProject } from './project'
 
 const SHIM_NAMESPACE = 'vitehub-sandbox-runtime-shim'
-
-function validatePackageModuleSpecifiers(project: SandboxProject, entry: string) {
-  const pending = [entry]
-  const visited = new Set<string>()
-  while (pending.length) {
-    const path = pending.shift()!
-    if (visited.has(path))
-      continue
-    visited.add(path)
-    const file = project.files[path]
-    if (!file)
-      throw new Error(`[vitehub] Sandbox package entry is missing from project files: ${entry}`)
-    const source = Buffer.from(file.contents, file.encoding).toString()
-    for (const specifier of findRuntimeRelativeModuleSpecifiers(source, path)) {
-      const target = normalize(join(dirname(path), specifier.replace(/[?#].*$/, '')))
-      if (!Object.hasOwn(project.files, target)) {
-        throw new Error(
-          `[vitehub] Sandbox package module "${path}" imports "${specifier}", which is not an executable package file. Use an explicit extension that resolves to a package file.`,
-        )
-      }
-      if (/\.[cm]?[jt]sx$/.test(target)) {
-        throw new Error(
-          `[vitehub] Sandbox package module "${path}" imports "${specifier}", but Node cannot execute JSX package files directly. Use a JavaScript or type-strippable TypeScript module.`,
-        )
-      }
-      if (/\.(?:c|m)?[jt]sx?$/.test(target) && !/\.d\.(?:c|m)?tsx?$/.test(target))
-        pending.push(target)
-    }
-  }
-}
 
 export async function bundleSandboxDefinition(
   source: string,
@@ -50,12 +19,12 @@ export async function bundleSandboxDefinition(
   if (options.execution === 'module' && options.project) {
     const prefix = options.project.packagePath === '.' ? '' : `${options.project.packagePath}/`
     const entry = `${prefix}${basename(file)}`
-    validatePackageModuleSpecifiers(options.project, entry)
+    const executable = prepareExecutablePackageProject(options.project, entry)
     return {
-      entry,
+      entry: executable.entry,
       execution: 'module',
       modules: {},
-      project: options.project,
+      project: executable.project,
     }
   }
 
