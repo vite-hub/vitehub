@@ -20,6 +20,7 @@ type PackageRuntimeManifest = {
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
   exports?: unknown
+  imports?: unknown
   main?: unknown
   name?: unknown
   optionalDependencies?: Record<string, string>
@@ -81,14 +82,18 @@ function declaredWorkspaceDependencyNames(manifest: PackageRuntimeManifest) {
   ]
 }
 
-function runtimeExportTargets(value: unknown, patternMatch?: string): string[] {
+function runtimeExportTargets(
+  value: unknown,
+  patternMatch?: string,
+  allowPackageTarget = false,
+): string[] {
   if (typeof value === 'string') {
     const target = patternMatch === undefined ? value : value.replaceAll('*', patternMatch)
-    return target.startsWith('./') ? [target] : []
+    return target.startsWith('./') || allowPackageTarget ? [target] : []
   }
   if (Array.isArray(value)) {
     for (const target of value) {
-      const targets = runtimeExportTargets(target, patternMatch)
+      const targets = runtimeExportTargets(target, patternMatch, allowPackageTarget)
       if (targets.length) return targets
     }
     return []
@@ -96,7 +101,7 @@ function runtimeExportTargets(value: unknown, patternMatch?: string): string[] {
   if (!value || typeof value !== 'object') return []
   for (const [condition, target] of Object.entries(value)) {
     if (runtimeExportConditions.has(condition)) {
-      const targets = runtimeExportTargets(target, patternMatch)
+      const targets = runtimeExportTargets(target, patternMatch, allowPackageTarget)
       if (targets.length) return targets
     }
   }
@@ -151,6 +156,34 @@ function runtimeTargetsForPackageSpecifier(
   return typeof manifest.main === 'string' ? [manifest.main] : ['./index.js']
 }
 
+function runtimeTargetsForPackageImport(manifest: PackageRuntimeManifest, specifier: string) {
+  if (!manifest.imports || typeof manifest.imports !== 'object' || Array.isArray(manifest.imports)) {
+    return []
+  }
+  const entries = manifest.imports as Record<string, unknown>
+  let selected = entries[specifier]
+  let patternMatch: string | undefined
+  if (selected === undefined) {
+    const pattern = Object.keys(entries)
+      .filter((key) => {
+        const star = key.indexOf('*')
+        if (star === -1) return false
+        return specifier.startsWith(key.slice(0, star))
+          && specifier.endsWith(key.slice(star + 1))
+      })
+      .sort((left, right) => {
+        const leftStar = left.indexOf('*')
+        const rightStar = right.indexOf('*')
+        return rightStar - leftStar || right.length - left.length
+      })[0]
+    if (!pattern) return []
+    const star = pattern.indexOf('*')
+    patternMatch = specifier.slice(star, specifier.length - (pattern.length - star - 1))
+    selected = entries[pattern]
+  }
+  return runtimeExportTargets(selected, patternMatch, true)
+}
+
 function isTypeScriptRuntimeTarget(path: string) {
   const target = path.replace(/[?#].*$/, '')
   return /\.[cm]?tsx?$/.test(target) && !/\.d\.[cm]?ts$/.test(target)
@@ -159,6 +192,7 @@ function isTypeScriptRuntimeTarget(path: string) {
 function validateWorkspaceJavaScriptGraph(
   project: SandboxProject,
   packageName: string,
+  manifest: PackageRuntimeManifest,
   manifestPath: string,
   targets: string[],
 ) {
@@ -173,6 +207,22 @@ function validateWorkspaceJavaScriptGraph(
     visited.add(path)
     const source = projectFileSource(project, path)
     for (const specifier of findRuntimeModuleSpecifiers(source, path)) {
+      if (specifier.startsWith('#')) {
+        for (const aliasTarget of runtimeTargetsForPackageImport(manifest, specifier)) {
+          if (!/^\.\.?\//.test(aliasTarget)) {
+            runtimePackages.add(aliasTarget)
+            continue
+          }
+          const target = normalize(join(dirname(manifestPath), aliasTarget.replace(/[?#].*$/, '')))
+          if (isTypeScriptRuntimeTarget(target)) {
+            throw new Error(
+              `[vitehub] Sandbox workspace dependency "${packageName}" exposes TypeScript runtime target "${aliasTarget}" through package import "${specifier}". Build dependencies to JavaScript before Sandbox execution.`,
+            )
+          }
+          if (/\.(?:js|mjs)$/.test(target)) pending.push(target)
+        }
+        continue
+      }
       if (!/^\.\.?\//.test(specifier)) {
         if (!specifier.startsWith('node:')) runtimePackages.add(specifier)
         continue
@@ -243,6 +293,7 @@ function validateWorkspaceRuntimeExports(
     const runtimePackageEdges = validateWorkspaceJavaScriptGraph(
       project,
       packageName,
+      dependency.manifest,
       dependency.path,
       targets,
     )
