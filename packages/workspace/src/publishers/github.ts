@@ -79,6 +79,7 @@ export function github(options: GitHubPublisherOptions = {}): WorkspacePublisher
       await commitGitHubChanges({
         baseTreeSha: remote.treeSha,
         branch,
+        branchExists: remote.branchExists,
         deletePaths,
         files: changedFiles,
         kind: "publisher",

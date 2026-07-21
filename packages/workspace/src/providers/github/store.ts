@@ -292,6 +292,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     const commit = await commitGitHubChanges({
       baseTreeSha: this.#baselineTreeSha,
       branch: this.#branch,
+      branchExists: remote.branchExists,
       deletePaths,
       files,
       message: options.name || "chore: update workspace snapshot",
