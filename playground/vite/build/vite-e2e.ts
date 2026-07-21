@@ -17,7 +17,7 @@ import { discoverScheduleDefinitions } from "../../../packages/schedule/src/disc
 import { getVercelSchedulePath } from "../../../packages/schedule/src/integrations/vercel.ts"
 import { readDefinitionCrons } from "../../../packages/schedule/src/internal/provider-output.ts"
 import { defaultCloudflareSandboxBinding, defaultCloudflareSandboxClassName, defaultCloudflareSandboxMigrationTag, configureCloudflareSandbox, writeCloudflareSandboxDockerfile } from "../../../packages/sandbox/src/cloudflare.ts"
-import { extractSandboxDefinitionOptions } from "../../../packages/sandbox/src/definition-options.ts"
+import { resolveSandboxProjectOptions } from "../../../packages/sandbox/src/project.ts"
 import { discoverServerSandboxDefinitions } from "../../../packages/sandbox/src/discovery.ts"
 import { bundleSandboxDefinition } from "../../../packages/sandbox/src/bundle.ts"
 import { resolveSandboxFeatureConfig } from "../../../packages/sandbox/src/feature.ts"
@@ -806,7 +806,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
       const file = resolve(generatedDir, "runtime", "sandbox-definitions", `${toSandboxArtifactName(definition.name)}.mjs`)
       const [source, definitionOptions] = await Promise.all([
         readFile(definition._meta.sourcePath, "utf8"),
-        extractSandboxDefinitionOptions(definition.handler),
+        resolveSandboxProjectOptions(definition.handler, options.rootDir),
       ])
       const bundle = await bundleSandboxDefinition(source, definition._meta.sourcePath)
       await mkdir(dirname(file), { recursive: true })

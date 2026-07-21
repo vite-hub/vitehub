@@ -39,7 +39,7 @@ describe("discoverServerSandboxDefinitions", () => {
     ])
   })
 
-  it("does not discover server sandbox files through suffix scanning", async () => {
+  it("requires an index entry for canonical package projects", async () => {
     const rootDir = await createTempDir("vitehub-sandbox-vite-server-suffix-")
     await mkdir(join(rootDir, "server", "sandboxes"), { recursive: true })
     await mkdir(join(rootDir, "src", "server", "sandboxes"), { recursive: true })
@@ -49,18 +49,16 @@ describe("discoverServerSandboxDefinitions", () => {
     expect(discoverSandboxDefinitions({ rootDir }).map(definition => ({
       name: definition.name,
       source: definition.source,
-    }))).toEqual([
-      { name: "release-notes", source: "server-sandboxes" },
-    ])
+    }))).toEqual([])
   })
 
   it("discovers sandbox names from server/sandboxes directories", async () => {
     const scanDir = await createTempDir("vitehub-sandbox-server-discovery-")
-    await mkdir(join(scanDir, "sandboxes", "content"), { recursive: true })
+    await mkdir(join(scanDir, "sandboxes", "content", "summary"), { recursive: true })
     await mkdir(join(scanDir, "sandboxes", "billing"), { recursive: true })
-    await writeFile(join(scanDir, "sandboxes", "content", "summary.ts"), "export default null\n", "utf8")
+    await writeFile(join(scanDir, "sandboxes", "content", "summary", "index.ts"), "export default null\n", "utf8")
     await writeFile(join(scanDir, "sandboxes", "billing", "index.ts"), "export default null\n", "utf8")
-    await writeFile(join(scanDir, "sandboxes", "ignored.d.ts"), "export type Ignored = string\n", "utf8")
+    await writeFile(join(scanDir, "sandboxes", "ignored.ts"), "export default null\n", "utf8")
 
     expect(discoverServerSandboxDefinitions([scanDir]).map(definition => definition.name)).toEqual([
       "billing",
@@ -88,10 +86,10 @@ describe("discoverServerSandboxDefinitions", () => {
   it("rejects duplicate sandbox names across server scan dirs", async () => {
     const firstScanDir = await createTempDir("vitehub-sandbox-server-first-")
     const secondScanDir = await createTempDir("vitehub-sandbox-server-second-")
-    await mkdir(join(firstScanDir, "sandboxes"), { recursive: true })
-    await mkdir(join(secondScanDir, "sandboxes"), { recursive: true })
-    await writeFile(join(firstScanDir, "sandboxes", "release-notes.ts"), "export default null\n", "utf8")
-    await writeFile(join(secondScanDir, "sandboxes", "release-notes.ts"), "export default null\n", "utf8")
+    await mkdir(join(firstScanDir, "sandboxes", "release-notes"), { recursive: true })
+    await mkdir(join(secondScanDir, "sandboxes", "release-notes"), { recursive: true })
+    await writeFile(join(firstScanDir, "sandboxes", "release-notes", "index.ts"), "export default null\n", "utf8")
+    await writeFile(join(secondScanDir, "sandboxes", "release-notes", "index.ts"), "export default null\n", "utf8")
 
     expect(() => discoverServerSandboxDefinitions([firstScanDir, secondScanDir])).toThrow(/Duplicate sandbox name/)
   })

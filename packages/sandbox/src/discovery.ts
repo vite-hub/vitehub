@@ -7,7 +7,7 @@ import {
   normalizeSuffixDefinitionName,
   resolveDefinitionScanRoots,
 } from '@vite-hub/internal/definition-catalog'
-import { relative, resolve } from 'pathe'
+import { basename, relative, resolve } from 'pathe'
 import type { ScannedDefinition } from './internal/shared/feature-definitions'
 
 export interface DiscoveredSandboxDefinition extends ScannedDefinition {
@@ -40,6 +40,8 @@ function normalizeSuffixSandboxName(rootDir: string, file: string) {
 }
 
 function normalizeDirectorySandboxName(directory: string, file: string) {
+  if (!/^index\.(?:c|m)?[jt]sx?$/i.test(basename(file)))
+    return undefined
   return normalizePathDefinitionName(directory, file).replace(/\.sandbox$/, '')
 }
 

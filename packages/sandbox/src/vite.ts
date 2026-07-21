@@ -1,6 +1,6 @@
 import { createNoExternalMerger, hasNitroVitePlugin, isServerEnvironment } from '@vite-hub/internal/build/vite'
 import { getHostingProvider } from '@vite-hub/internal/hosting'
-import { normalize, relative } from 'pathe'
+import { basename, dirname, normalize, relative } from 'pathe'
 
 import { configureCloudflareSandboxNitro } from './cloudflare'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
@@ -56,6 +56,17 @@ function isLocalSourceFile(file: string, rootDir: string | undefined) {
     && !path.startsWith('.vitehub/')
 }
 
+function isSandboxProjectManifestUpdate(
+  file: string,
+  definitions: DiscoveredSandboxDefinition[],
+  rootDir: string | undefined,
+) {
+  if (basename(file) !== 'package.json' || !isLocalSourceFile(file, rootDir))
+    return false
+  const packageRoot = dirname(file)
+  return definitions.some(definition => isLocalSourceFile(definition.handler, packageRoot))
+}
+
 function isSandboxDefinitionUpdate(
   file: string,
   definitions: DiscoveredSandboxDefinition[],
@@ -67,6 +78,8 @@ function isSandboxDefinitionUpdate(
     return true
   if (generatedFiles.some(file => normalize(file) === changedFile))
     return false
+  if (isSandboxProjectManifestUpdate(changedFile, definitions, rootDir))
+    return true
   if (!isSandboxSourceFile(changedFile))
     return false
   return /\.sandbox\.(?:c|m)?[jt]s$/i.test(changedFile)

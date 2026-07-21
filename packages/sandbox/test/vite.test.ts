@@ -131,10 +131,9 @@ describe("hubSandbox", () => {
 
   it("does not discover conflicting Definitions when Sandbox is disabled", async () => {
     const rootDir = await createViteRoot()
-    await mkdir(join(rootDir, "server/sandboxes/tools"), { recursive: true })
-    await writeFile(join(rootDir, "server/sandboxes/tools/release-notes.ts"), [
-      `import { defineSandbox } from "@vite-hub/sandbox"`,
-      `export default defineSandbox({ run: async () => ({ ok: true }) })`,
+    await mkdir(join(rootDir, "server/sandboxes/tools/release-notes"), { recursive: true })
+    await writeFile(join(rootDir, "server/sandboxes/tools/release-notes/index.ts"), [
+      `export default async function run() { return { ok: true } }`,
       ``,
     ].join("\n"))
     const { hubSandbox } = await import("../src/vite.ts")
@@ -287,12 +286,15 @@ describe("hubSandbox", () => {
   it("builds a configuration-free Definition for a Cloudflare Nitro host", async () => {
     const rootDir = await createViteRoot()
     await rm(join(rootDir, "src/tools/release-notes.sandbox.ts"))
-    await mkdir(join(rootDir, "server/sandboxes"), { recursive: true })
+    await mkdir(join(rootDir, "server/sandboxes/example"), { recursive: true })
+    await writeFile(join(rootDir, "server/sandboxes/example/package.json"), JSON.stringify({
+      private: true,
+      vitehub: { timeout: 30_000 },
+    }))
     await writeFile(join(rootDir, "src/server.ts"), `export const ready = true\n`)
-    await writeFile(join(rootDir, "server/sandboxes/example.ts"), [
-      `import { defineSandbox } from "@vite-hub/sandbox"`,
+    await writeFile(join(rootDir, "server/sandboxes/example/index.ts"), [
       ``,
-      `export default defineSandbox({ run: async () => ({ ok: true }) })`,
+      `export default async function run() { return { ok: true } }`,
       ``,
     ].join("\n"))
     const { hubSandbox } = await import("../src/vite.ts")
@@ -317,9 +319,14 @@ describe("hubSandbox", () => {
       root: rootDir,
     } as never)
 
+    const generatedDefinition = await readFile(
+      join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/example.mjs"),
+      "utf8",
+    )
     expect(resolvedNitro.cloudflare.wrangler.containers).toMatchObject([{ class_name: "Sandbox" }])
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-registry.mjs"), "utf8")).resolves.toContain('"example"')
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-provider-loader.mjs"), "utf8")).resolves.toContain("resolveSandboxBox")
+    expect(JSON.parse(generatedDefinition.slice("export default ".length)).options).toEqual({ timeout: 30_000 })
   })
 
   it("keeps Cloudflare output inert without Sandbox definitions", async () => {
@@ -968,6 +975,74 @@ describe("hubSandbox", () => {
 
     expect(invalidated).toEqual(expect.arrayContaining([sandboxAlias, registryAlias, definitionArtifact]))
     await expect(readFile(definitionArtifact, "utf8")).resolves.toContain("updated")
+  })
+
+  it("refreshes generated options when a Sandbox project manifest changes", async () => {
+    const rootDir = await createViteRoot()
+    const projectDir = join(rootDir, "server/sandboxes/example")
+    const manifest = join(projectDir, "package.json")
+    const definition = join(projectDir, "index.ts")
+    await rm(join(rootDir, "src/tools/release-notes.sandbox.ts"))
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(manifest, JSON.stringify({
+      private: true,
+      vitehub: { timeout: 30_000 },
+    }))
+    await writeFile(definition, "export default async function run() { return { ok: true } }\n")
+
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({
+      root: rootDir,
+    }, {
+      command: "serve",
+      mode: "development",
+    })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const configEnvironment = plugin.configEnvironment as (name: string, environment: { consumer: "client" | "server" }) => unknown
+    const sandboxAlias = readAlias((configEnvironment("ssr", { consumer: "server" }) as { resolve: { alias: AliasOptions } }).resolve.alias, "@vite-hub/sandbox")!
+    const registryAlias = join(rootDir, ".vitehub/sandbox/runtime/sandbox-registry.mjs")
+    const definitionArtifact = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/example.mjs")
+    const invalidated: string[] = []
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: {
+        moduleGraph: {
+          getModuleById: (id: string) => { id: string } | undefined
+          invalidateModule: (module: { id: string }) => void
+        }
+      }
+    }) => Promise<void>
+    const readTimeout = async () => {
+      const generated = await readFile(definitionArtifact, "utf8")
+      return JSON.parse(generated.slice("export default ".length)).options?.timeout
+    }
+
+    await expect(readTimeout()).resolves.toBe(30_000)
+    await writeFile(manifest, JSON.stringify({
+      private: true,
+      vitehub: { timeout: 60_000 },
+    }))
+    await handleHotUpdate({
+      file: manifest,
+      server: {
+        moduleGraph: {
+          getModuleById(id) {
+            if ([sandboxAlias, registryAlias, definitionArtifact].includes(id))
+              return { id }
+          },
+          invalidateModule(module) {
+            invalidated.push(module.id)
+          },
+        },
+      },
+    })
+
+    expect(invalidated).toEqual(expect.arrayContaining([sandboxAlias, registryAlias, definitionArtifact]))
+    await expect(readTimeout()).resolves.toBe(60_000)
   })
 
   it("refreshes generated artifacts when imported local modules change", async () => {

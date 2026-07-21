@@ -70,6 +70,10 @@ export interface SandboxDefinitionOptions {
   env?: Record<string, string>
 }
 
+export interface SandboxProjectOptions {
+  timeout?: number
+}
+
 export interface SandboxDefinitionInput<TPayload = unknown, TResult = unknown>
   extends SandboxDefinitionOptions {
   run: SandboxDefinitionHandler<TPayload, TResult>

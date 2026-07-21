@@ -28,19 +28,17 @@ Every discovered Definition belongs to a real package project. ViteHub never wri
 
 ```json [server/sandboxes/release-notes/package.json]
 {
-  "private": true
+  "private": true,
+  "vitehub": {
+    "timeout": 30000
+  }
 }
 ```
 
 ```ts [server/sandboxes/release-notes/index.ts]
-import { defineSandbox } from '@vite-hub/sandbox'
-
-export default defineSandbox({
-  timeout: 30_000,
-  async run(payload: { notes?: string } = {}) {
-    return { text: payload.notes?.toUpperCase() || 'No notes' }
-  },
-})
+export default async function run(payload: { notes?: string } = {}) {
+  return { text: payload.notes?.toUpperCase() || 'No notes' }
+}
 ```
 
 ```ts [server/api/release-notes.post.ts]
@@ -61,7 +59,9 @@ Sandbox and Agent use the same Box Interface. Workspace never selects Cloudflare
 
 ## Package projects
 
-Under `server/sandboxes`, use one folder per package project with a `package.json` and `index.ts`. The folder path supplies the Definition name. ViteHub walks from the Definition file to the Vite root and selects the nearest `package.json`. Missing manifests fail the build with the searched boundary, while nested folders can own independent manifests.
+Under `server/sandboxes`, use one folder per package project with a `package.json` and `index.ts`. The folder path supplies the Definition name, and `index.ts` directly default-exports the async payload handler. It does not import or call `defineSandbox`.
+
+ViteHub walks from the entry file to the Vite root and selects the nearest `package.json`. Missing manifests fail the build with the searched boundary, while nested folders can own independent manifests.
 
 ```text
 server/sandboxes/
@@ -72,8 +72,6 @@ server/sandboxes/
     ├── package.json
     └── index.ts
 ```
-
-For free-form Definitions outside `server/sandboxes`, use the `<path>.sandbox.ts` suffix convention. Those Definitions also use their nearest `package.json`, so several files can share one package project.
 
 Package-manager selection uses the manifest's `packageManager` field, then a lockfile at that package root, then npm. A nested independent package never inherits an unrelated ancestor lockfile. Lockfiles enable frozen installation. ViteHub installs the project inside the Box before the Definition launches, and dependency trees never enter Workspace commits.
 
@@ -91,11 +89,28 @@ server/sandboxes/
 
 Installation runs at the pnpm Workspace root and the Definition runs from `server/sandboxes/image`. ViteHub carries every local package in the transitive `workspace:*` dependency closure, then pnpm remains responsible for installation and linking semantics. Other Workspace packages stay outside the runtime project.
 
-## Definition Interface
+### Static project policy
 
-`defineSandbox()` accepts one object. `run` is required; `timeout` and `env` are portable options.
+The optional `vitehub` object in the nearest `package.json` stores statically inspectable, provider-neutral project policy. It currently accepts only `timeout`, a positive wall-clock limit in milliseconds:
 
-```ts
+```json [package.json]
+{
+  "private": true,
+  "vitehub": {
+    "timeout": 60000
+  }
+}
+```
+
+ViteHub validates this object during generation without importing project code. Unknown keys, invalid types, and non-positive values fail with the manifest path and field. Keep provider selection, regions, credentials, resource names, container images, and secrets in application or host configuration.
+
+## Free-form Definitions
+
+For Definitions outside `server/sandboxes`, use the `<path>.sandbox.ts` suffix convention and `defineSandbox`. These files use their nearest package project, so several free-form Definitions can share one manifest. `run` is required; `timeout` and `env` remain portable free-form options.
+
+```ts [src/image.sandbox.ts]
+import { defineSandbox } from '@vite-hub/sandbox'
+
 export default defineSandbox({
   env: { MODE: 'thumbnail' },
   timeout: 60_000,
@@ -105,7 +120,7 @@ export default defineSandbox({
 })
 ```
 
-The guest handler gets normal JavaScript, package imports, `process.cwd()`, environment variables, and a filesystem. It does not receive Box or Workspace control objects.
+Both entry forms receive the Sandbox Payload as their first argument and optional invocation context as their second argument. The handler gets normal JavaScript, package imports, `process.cwd()`, environment variables, and a filesystem. It does not receive Box or Workspace control objects.
 
 ## Box adapters and images
 
@@ -115,30 +130,32 @@ Provider selection and full image overrides are application or host configuratio
 
 ## Breaking migration
 
+Move canonical Definitions into a package folder and export the handler directly:
+
 ```ts
 // Before
-export default defineSandbox(run, {
-  runtime: { command: 'node' },
-  timeout: 30_000,
+export default defineSandbox({
+  async run(payload) {
+    return optimize(payload)
+  },
 })
 
 // Now
-export default defineSandbox({
-  run,
-  timeout: 30_000,
-})
+export default async function run(payload) {
+  return optimize(payload)
+}
 ```
 
-- Add a real `package.json` at the nearest intended package root.
-- Move provider choice, custom images, and complete Dockerfiles into Box or host configuration.
-- Remove `runtime.command`, `runtime.args`, and `defineDockerfileFragment`; the prepared package runtime launches Definitions consistently.
-- Supply a Box when opening an executable Workspace session instead of setting `WorkspaceDefinition.runtime`.
+- Rename `server/sandboxes/<name>.ts` to `server/sandboxes/<name>/index.ts`.
+- Add a real `package.json` at the nearest intended package root and move `timeout` to `package.json.vitehub.timeout`.
+- Remove the `defineSandbox` import and wrapper from canonical package projects.
+- Keep `defineSandbox` only in free-form `<path>.sandbox.ts` files outside `server/sandboxes`.
 
 ## Public imports
 
 | Import | Use |
 | --- | --- |
-| `defineSandbox` from `@vite-hub/sandbox` | Declare portable named work. |
+| `defineSandbox` from `@vite-hub/sandbox` | Declare a free-form suffix Definition outside `server/sandboxes`. |
 | `runSandbox` from `@vite-hub/sandbox` | Invoke a discovered Definition. |
 | `hubSandbox` from `@vite-hub/sandbox/vite` | Register discovery, types, preparation, and provider output. |
 

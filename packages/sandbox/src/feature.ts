@@ -16,7 +16,7 @@ import {
 import { extractSandboxDefinitionOptions } from './definition-options'
 import { getSandboxFeatureProvider } from './module-types'
 import type { AgentSandboxConfig, SandboxDefinitionOptions } from './module-types'
-import { resolveSandboxProject, type SandboxProject } from './project'
+import { resolveSandboxProject, resolveSandboxProjectOptions, type SandboxProject } from './project'
 import { createSandboxTypeTemplateContents } from './type-template'
 
 export const sandboxRuntimeDependencies = [
@@ -67,7 +67,7 @@ export function createSandboxManifest(aliasPath: string, typeTemplate: string): 
     alias: '@vite-hub/sandbox',
     aliasPath,
     imports: [
-      { name: 'defineSandbox', from: '@vite-hub/sandbox', meta: { description: 'Define a named sandbox resource.' } },
+      { name: 'defineSandbox', from: '@vite-hub/sandbox', meta: { description: 'Define a free-form sandbox resource.' } },
       { name: 'readValidatedPayload', as: 'readValidatedSandboxPayload', from: '@vite-hub/sandbox', meta: { description: 'Validate sandbox payload input before execution.' } },
       { name: 'runSandbox', from: '@vite-hub/sandbox', meta: { description: 'Run a named sandbox definition.' } },
       { name: 'SandboxDefinition', as: 'SandboxDefinition', from: '@vite-hub/sandbox', type: true },
@@ -78,6 +78,9 @@ export function createSandboxManifest(aliasPath: string, typeTemplate: string): 
       contents: typeTemplate,
     },
   }
+}
+type SandboxScannedDefinition = ScannedDefinition & {
+  source?: 'server-sandboxes' | 'vite-suffix'
 }
 
 type SandboxDefinitionMetadata = {
@@ -104,11 +107,14 @@ function normalizeSandboxDefinitionOptions(name: string, options: SandboxDefinit
   }
 }
 
-async function loadSandboxDefinitionMetadata(definitions: ScannedDefinition[], rootDir: string) {
+async function loadSandboxDefinitionMetadata(definitions: SandboxScannedDefinition[], rootDir: string) {
   return await Promise.all(definitions.map(async (definition) => {
+    const options = definition.source === 'server-sandboxes'
+      ? await resolveSandboxProjectOptions(definition.handler, rootDir)
+      : await extractSandboxDefinitionOptions(definition.handler)
     return {
       name: definition.name,
-      options: normalizeSandboxDefinitionOptions(definition.name, await extractSandboxDefinitionOptions(definition.handler)),
+      options: normalizeSandboxDefinitionOptions(definition.name, options),
       project: await resolveSandboxProject(definition.handler, rootDir),
     } satisfies SandboxDefinitionMetadata
   }))
@@ -172,7 +178,7 @@ export function resolveSandboxFeatureConfig(sandboxConfig: AgentSandboxConfig, h
 
 export async function createSandboxFeaturePlan(
   sandboxConfig: AgentSandboxConfig,
-  definitions: ScannedDefinition[],
+  definitions: SandboxScannedDefinition[],
   paths: {
     aliasPath: string
   },

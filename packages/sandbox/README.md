@@ -4,27 +4,38 @@
 
 ```ts
 // server/sandboxes/release-notes/index.ts
+export default async function run(payload: { notes?: string } = {}) {
+  return { summary: payload.notes?.split("\n")[0] ?? "" }
+}
+```
+
+The folder supplies the Definition name, so canonical package projects do not import `defineSandbox`. The nearest `package.json` supplies dependencies and optional static project policy:
+
+```json
+{
+  "private": true,
+  "vitehub": {
+    "timeout": 30000
+  }
+}
+```
+
+`vitehub.timeout` is a positive wall-clock limit in milliseconds. ViteHub validates package metadata without importing the project entry. Provider selection, credentials, resources, and secrets remain in application or host configuration.
+
+ViteHub resolves the nearest `package.json` without walking above the Vite root. It uses the manifest's `packageManager`, then a lockfile at that package root, then npm. A matching `pnpm-workspace.yaml` selects pnpm, moves preparation to the pnpm Workspace root, and carries the transitive `workspace:*` dependency closure into the Box while the Definition still runs from its package directory.
+
+Use `defineSandbox` only for free-form `<path>.sandbox.ts` Definitions outside `server/sandboxes`:
+
+```ts
 import { defineSandbox } from "@vite-hub/sandbox"
 
 export default defineSandbox({
   timeout: 30_000,
-  async run(payload: { notes?: string } = {}) {
-    return { summary: payload.notes?.split("\n")[0] ?? "" }
+  async run() {
+    return { ready: true }
   },
 })
 ```
-
-The folder supplies the Definition name, and the Definition must belong to a real package project. For this example, add `server/sandboxes/release-notes/package.json`:
-
-```json
-{
-  "private": true
-}
-```
-
-ViteHub resolves the nearest `package.json` without walking above the Vite root. It uses the manifest's `packageManager`, then a lockfile at that package root, then npm. A matching `pnpm-workspace.yaml` selects pnpm, moves preparation to the pnpm Workspace root, and carries the transitive `workspace:*` dependency closure into the Box while the Definition still runs from its package directory.
-
-Use `<path>.sandbox.ts` for free-form Definitions outside `server/sandboxes`.
 
 ```ts
 import { runSandbox } from "@vite-hub/sandbox"
