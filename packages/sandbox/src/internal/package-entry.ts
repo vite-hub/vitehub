@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { dirname, join, normalize } from 'node:path/posix'
 import {
-  findCommonJSModuleSpecifiers,
+  findCommonJSImportEqualsSpecifiers,
+  findExecutableCommonJSModuleSpecifiers,
   findRuntimeModuleSpecifiers,
   hasNonLiteralDynamicImport,
   rewriteRuntimeRelativeModuleSpecifiers,
@@ -333,6 +334,30 @@ function isUnsupportedExternalModuleSpecifier(specifier: string) {
   )
 }
 
+function throwCommonJSSyntax(
+  path: string,
+  commonJS: ReturnType<typeof findExecutableCommonJSModuleSpecifiers>[number],
+): never {
+  const syntax = {
+    'exports-assignment': 'exports assignment',
+    'exports-reference': 'exports reference',
+    'import-equals': 'import = require()',
+    'module-exports-assignment': 'module.exports assignment',
+    'module-reference': 'module reference',
+    require: 'require()',
+    'require-property': commonJS.specifier
+      ? `require.${commonJS.specifier}`
+      : 'require property access',
+  }[commonJS.syntax]
+  const target =
+    commonJS.specifier && commonJS.syntax !== 'require-property'
+      ? ` for "${commonJS.specifier}"`
+      : ''
+  throw new Error(
+    `[vitehub] Sandbox package module "${path}" uses CommonJS ${syntax}${target}. Canonical Sandbox package entrypoints are ESM; use import or export syntax.`,
+  )
+}
+
 function validatePackageModuleSpecifiers(
   project: SandboxProject,
   entry: string,
@@ -351,27 +376,9 @@ function validatePackageModuleSpecifiers(
         `[vitehub] Sandbox package module "${path}" uses a non-literal dynamic import. Canonical Sandbox package entrypoints require literal import() specifiers.`,
       )
     }
-    const commonJS = findCommonJSModuleSpecifiers(source, path)[0]
-    if (commonJS) {
-      const syntax = {
-        'exports-assignment': 'exports assignment',
-        'exports-reference': 'exports reference',
-        'import-equals': 'import = require()',
-        'module-exports-assignment': 'module.exports assignment',
-        'module-reference': 'module reference',
-        require: 'require()',
-        'require-property': commonJS.specifier
-          ? `require.${commonJS.specifier}`
-          : 'require property access',
-      }[commonJS.syntax]
-      const target =
-        commonJS.specifier && commonJS.syntax !== 'require-property'
-          ? ` for "${commonJS.specifier}"`
-          : ''
-      throw new Error(
-        `[vitehub] Sandbox package module "${path}" uses CommonJS ${syntax}${target}. Canonical Sandbox package entrypoints are ESM; use import or export syntax.`,
-      )
-    }
+    const importEquals = findCommonJSImportEqualsSpecifiers(source, path)[0]
+    if (importEquals)
+      throwCommonJSSyntax(path, importEquals)
     const moduleSpecifiers = findRuntimeModuleSpecifiers(source, path)
     for (const specifier of moduleSpecifiers) {
       if (specifier.startsWith('#')) {
@@ -440,6 +447,8 @@ export function prepareExecutablePackageProject(project: SandboxProject, entry: 
     declaredWorkspaceDependencyNames(manifest),
   )
   const generatedFiles: SandboxProject['files'] = {}
+  const executableSources = new Map<string, string>()
+  const originalPaths = new Map<string, string>()
   const files = { ...project.files }
 
   for (const path of modulePaths) {
@@ -457,17 +466,28 @@ export function prepareExecutablePackageProject(project: SandboxProject, entry: 
           `[vitehub] Sandbox package module "${path}" conflicts with generated executable "${executablePath}". Rename the existing file.`,
         )
       }
+      const executableSource = transpilePackageModule(rewritten, path)
+      executableSources.set(executablePath, executableSource)
+      originalPaths.set(executablePath, path)
       generatedFiles[executablePath] = {
-        contents: Buffer.from(transpilePackageModule(rewritten, path)).toString('base64'),
+        contents: Buffer.from(executableSource).toString('base64'),
         encoding: 'base64',
       }
-    } else if (rewritten !== source) {
-      generatedFiles[path] = {
-        ...file,
-        contents: Buffer.from(rewritten).toString('base64'),
+    } else {
+      executableSources.set(path, rewritten)
+      originalPaths.set(path, path)
+      if (rewritten !== source) {
+        generatedFiles[path] = {
+          ...file,
+          contents: Buffer.from(rewritten).toString('base64'),
+        }
       }
     }
   }
+
+  const commonJS = findExecutableCommonJSModuleSpecifiers(executableSources)[0]
+  if (commonJS)
+    throwCommonJSSyntax(originalPaths.get(commonJS.path) || commonJS.path, commonJS)
 
   if (!Object.keys(generatedFiles).length) return { entry, project }
 

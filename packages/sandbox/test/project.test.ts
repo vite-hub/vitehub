@@ -74,6 +74,17 @@ describe("resolveSandboxProject", () => {
     ["declare const module: { exports: unknown }\nObject.assign(module.exports, { helper: true })\n", "module reference"],
     ["declare function require(id: string): unknown\nexport default require('helper')\n", "require()"],
     ["import helper = require('./helper.js')\nexport default helper\n", "import = require()"],
+    ["for (const require of []) void require\nexport default require('helper')\n", "require()"],
+    ["for (const key in {}) { const exports = key; void exports }\nexport default exports\n", "exports reference"],
+    ["for (let module = 0; module < 1; module++) {}\nexport default module\n", "module reference"],
+    ["switch (true) { case true: { const exports = true; void exports; break } }\nexport default exports\n", "exports reference"],
+    ["class Value { static { var require = (value: string) => value; require('ok') } }\nexport default require('helper')\n", "require()"],
+    ["export default { module }\n", "module reference"],
+    ["export { module as value }\n", "module reference"],
+    ["const Value = class module { static self = module }\nexport default module\n", "module reference"],
+    ["const { value = module } = {}\nexport default value\n", "module reference"],
+    ["const [value = exports] = []\nexport default value\n", "exports reference"],
+    ["const { value: { nested = module } = {} } = {}\nexport default nested\n", "module reference"],
   ])("rejects CommonJS package syntax", async (contents, syntax) => {
     const root = await createRoot()
     const entry = join(root, "index.ts")
@@ -118,6 +129,76 @@ describe("resolveSandboxProject", () => {
       "export default { module: kind, exports: value } satisfies SandboxPayload",
       "",
     ].join("\n"))
+    const project = await resolveSandboxProject(entry, root)
+    await expect(bundleSandboxDefinition(await readFile(entry, "utf8"), entry, {
+      execution: "module",
+      project,
+    })).resolves.toMatchObject({ entry: "index.ts.mjs" })
+  })
+
+  it.each([
+    [
+      "class expression self binding",
+      "const Value = class module { static self = module }\nexport default Value\n",
+    ],
+    [
+      "enum runtime binding",
+      "enum module { value = 'esm' }\nexport default module.value\n",
+    ],
+    [
+      "namespace runtime binding",
+      "namespace module { export const value = 'esm' }\nexport default module.value\n",
+    ],
+    [
+      "erased type export",
+      "type module = string\nexport type { module }\nexport default true\n",
+    ],
+    [
+      "erased inline type export",
+      "type module = string\nexport { type module }\nexport default true\n",
+    ],
+    [
+      "runtime import alias",
+      "import { module as value } from './source.js'\nexport default value\n",
+    ],
+    [
+      "runtime re-export alias",
+      "export { module as value } from './source.js'\nexport default true\n",
+    ],
+    [
+      "exported name alias",
+      "const value = true\nexport { value as module }\nexport default value\n",
+    ],
+    [
+      "destructuring property names",
+      "const { module: value, exports: other } = { module: true, exports: true }\nexport default value && other\n",
+    ],
+    [
+      "statement labels",
+      "module: { break module }\nexport default true\n",
+    ],
+    [
+      "loop-local binding",
+      "for (const require of ['ok']) require.toUpperCase()\nexport default true\n",
+    ],
+    [
+      "switch-local binding",
+      "switch (true) { case true: { const exports = true; void exports; break } }\nexport default true\n",
+    ],
+    [
+      "class static block binding",
+      "class Value { static { var require = (value: string) => value; require('ok') } }\nexport default Value\n",
+    ],
+    [
+      "delayed destructuring self-capture",
+      "const { module = () => module } = {}\nexport default module()\n",
+    ],
+  ])("allows %s in emitted package modules", async (_name, contents) => {
+    const root = await createRoot()
+    const entry = join(root, "index.ts")
+    await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }))
+    await writeFile(join(root, "source.js"), "export const module = 'esm'\n")
+    await writeFile(entry, contents)
     const project = await resolveSandboxProject(entry, root)
     await expect(bundleSandboxDefinition(await readFile(entry, "utf8"), entry, {
       execution: "module",
