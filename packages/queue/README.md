@@ -81,6 +81,14 @@ Custom application codes use an explicit generic and `custom: true`, while ViteH
 
 Use `hubQueue()` in Vite to discover `server/queues/<name>.ts` and `src/<name>.queue.ts`. The handler name comes from the file path, while provider output maps it to [Cloudflare Queues](https://developers.cloudflare.com/queues/) or [Vercel Queues](https://vercel.com/docs/queues).
 
+In Nuxt, install the Queue module instead. It installs the same Vite integration and merges the generated runtime files and provider bindings into Nitro configuration:
+
+```ts
+export default defineNuxtConfig({
+  modules: [["@vite-hub/queue/nuxt", { provider: "cloudflare" }]],
+})
+```
+
 Run `vite build` to emit Queue Provider Output. Cloudflare output is written under `dist/**/wrangler.json`; Vercel output is written under `.vercel/output/functions/api/vitehub/queues/vercel/**`.
 
 Learn more at [vitehub.dev](https://vitehub.dev).
