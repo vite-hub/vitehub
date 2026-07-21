@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "forceConsistentCasingInFileNames": true,
+    "rootDir": "..",
+    "baseUrl": "../..",
+    "paths": {
+      "@vite-hub/internal/*": ["packages/internal/src/*.ts"],
+      "@vite-hub/runtime": ["packages/runtime/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "test/**/*.ts", "test/**/*.test-d.ts"],
+  "exclude": ["dist", "node_modules"]
+}

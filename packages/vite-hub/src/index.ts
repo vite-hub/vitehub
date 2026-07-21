@@ -6,6 +6,7 @@ import frameworkPackageManifest from "../package.json" with { type: "json" }
 import { hubAgent } from "@vite-hub/agent/vite"
 import { hubAuth } from "@vite-hub/auth/vite"
 import { hubBlob } from "@vite-hub/blob/vite"
+import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubDb } from "@vite-hub/database/vite"
 import { hubDevtools } from "@vite-hub/devtools"
 import { hubEmail } from "@vite-hub/email/vite"
@@ -25,6 +26,7 @@ import { assertDeploymentService, deploymentPresetFromNitro, resolveDeploymentPl
 import type { AgentModuleOptions } from "@vite-hub/agent"
 import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { BlobModuleOptions } from "@vite-hub/blob"
+import type { BrowserModuleOptions } from "@vite-hub/browser/vite"
 import type { DBModulePublicOptions } from "@vite-hub/database"
 import type { HubDevtoolsOptions } from "@vite-hub/devtools"
 import type { EmailVitePluginOptions } from "@vite-hub/email/vite"
@@ -45,6 +47,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/agent": true,
   "@vite-hub/auth": true,
   "@vite-hub/blob": true,
+  "@vite-hub/browser": true,
   "@vite-hub/box": true,
   "@vite-hub/cli": false,
   "@vite-hub/database": true,
@@ -172,6 +175,7 @@ export interface ViteHubOptions {
   agent?: false | AgentModuleOptions
   auth?: true | AuthModuleOptions
   blob?: false | BlobModuleOptions
+  browser?: boolean | BrowserModuleOptions
   database?: false | DBModulePublicOptions
   devtools?: false | HubDevtoolsOptions
   email?: boolean | EmailVitePluginOptions
@@ -329,6 +333,9 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.agent && options.agent.runtime === "deno" && plan.preset === "deno") {
     throw new Error("[vitehub] The \"deno\" preset cannot deploy the Agent Deno runtime because its generated server is outside the deployed Nitro entrypoint. Use the preset's Nitro runtime or compose an explicit Deno Agent deployment.")
   }
+  if (options.browser && plan.preset !== "cloudflare") {
+    throw new Error("[vitehub] Browser currently requires the Cloudflare deployment preset.")
+  }
   const sandboxEnabled = options.sandbox === true && plan.services.sandbox.supported
   const blobEnabled = options.blob !== false && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
   const plugins: unknown[] = []
@@ -394,6 +401,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       workspaceImportBase: `${generatedImportBase}/workspace`,
     } as AgentModuleOptions))
   }
+  if (options.browser) plugins.push(hubBrowser(options.browser === true ? undefined : options.browser))
   if (options.database !== false) plugins.push(hubDb(options.database))
   if (blobEnabled) {
     plugins.push(hubBlob({
