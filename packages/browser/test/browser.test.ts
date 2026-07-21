@@ -203,4 +203,36 @@ describe("Browser Sessions", () => {
     await expect(browser.open()).rejects.toBe(traceError)
     expect(close).toHaveBeenCalledOnce()
   })
+
+  it("restores session ownership when handoff tracing fails", async () => {
+    const { close, provider } = fixture()
+    const traceError = new Error("trace unavailable")
+    const trace = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(traceError)
+    const browser = createBrowser({ provider, trace })
+    const session = await browser.open()
+
+    await expect(session.handoff({ audience: "run-1", mode: "live" })).rejects.toBe(traceError)
+    expect(session.inspect().state).toBe("released")
+
+    await session.close()
+    expect(close).toHaveBeenCalledOnce()
+  })
+
+  it("closes a claimed session when tracing fails", async () => {
+    const { close, provider } = fixture()
+    const traceError = new Error("trace unavailable")
+    const trace = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(traceError)
+    const browser = createBrowser({ provider, trace })
+    const session = await browser.open()
+    const ref = await session.handoff({ audience: "run-1", mode: "live" })
+
+    await expect(browser.claim(ref, { audience: "run-1" })).rejects.toBe(traceError)
+    expect(close).toHaveBeenCalledOnce()
+    await expect(browser.claim(ref, { audience: "run-1" })).rejects.toBeInstanceOf(BrowserSessionRefError)
+  })
 })

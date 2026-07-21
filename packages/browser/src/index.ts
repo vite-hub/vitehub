@@ -201,10 +201,16 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
       ttl: options.ttl,
     })
     this.state = "handed-off"
-    await this.owner.emit("browser.session.handoff", this, {
-      "browser.handoff.audience_bound": true,
-      expiresAt: ref.expiresAt,
-    })
+    try {
+      await this.owner.emit("browser.session.handoff", this, {
+        "browser.handoff.audience_bound": true,
+        expiresAt: ref.expiresAt,
+      })
+    }
+    catch (error) {
+      if (this.owner.cancelHandoff(ref)) this.state = "released"
+      throw error
+    }
     return ref
   }
 
@@ -318,6 +324,14 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
     })
   }
 
+  cancelHandoff(ref: BrowserSessionRef): boolean {
+    const record = this.handoffs.get(ref.id)
+    if (!record) return false
+    this.handoffs.delete(ref.id)
+    clearTimeout(record.timer)
+    return true
+  }
+
   async claim(ref: BrowserSessionRef, options: BrowserClaimOptions): Promise<BrowserSession<TConnection>> {
     assertAudience(options?.audience)
     const record = this.handoffs.get(ref?.id)
@@ -339,7 +353,21 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
       record.lease,
       { claimed: true, publicId: record.publicId },
     )
-    await this.emit("browser.session.claim", session, { "browser.handoff.audience_bound": true })
+    try {
+      await this.emit("browser.session.claim", session, { "browser.handoff.audience_bound": true })
+    }
+    catch (error) {
+      try {
+        await releaseResource(record)
+      }
+      catch (closeError) {
+        throw new AggregateError(
+          [error, closeError],
+          "[vitehub:browser] Browser Session tracing failed and cleanup also failed.",
+        )
+      }
+      throw error
+    }
     return session
   }
 }
