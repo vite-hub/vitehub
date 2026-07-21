@@ -1,6 +1,5 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, extname, isAbsolute, relative, resolve } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "@vite-hub/internal/build/cloudflare"
 import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
@@ -68,6 +67,71 @@ async function readSourceModule(file: string): Promise<{ file: string, source: s
 }
 
 type SourceModuleResolver = (id: string, importer: string) => Promise<string | undefined>
+
+interface BabelNode {
+  expression?: BabelNode
+  key?: { name?: unknown, type?: string, value?: unknown }
+  type?: string
+  value?: BabelNode | unknown
+}
+
+interface BabelObjectPropertyPath {
+  node: BabelNode
+  parentPath?: BabelObjectPropertyPath
+}
+
+function babelPropertyName(path: BabelObjectPropertyPath): unknown {
+  return path.node.key?.name ?? path.node.key?.value
+}
+
+function babelStringValue(node: BabelNode | undefined): unknown {
+  if (node?.type === "StringLiteral") return node.value
+  if (node?.type === "TSAsExpression" || node?.type === "TSSatisfiesExpression" || node?.type === "TSTypeAssertion") {
+    return babelStringValue(node.expression)
+  }
+}
+
+function isExportedWorkspaceStoreProperty(path: BabelObjectPropertyPath): boolean {
+  let exported = false
+  let store = false
+  for (let current = path.parentPath; current; current = current.parentPath) {
+    if (current.node.type === "ObjectProperty" && babelPropertyName(current) === "store") store = true
+    if (current.node.type === "ExportDefaultDeclaration") exported = true
+  }
+  return exported && store
+}
+
+async function sourceModuleDeclaresCloudflareArtifacts(
+  file: string,
+  loader: ReturnType<typeof createWorkspaceDefinitionLoader>,
+): Promise<boolean> {
+  const loaded = await readSourceModule(file)
+  if (!loaded) return false
+  let declaresCloudflareArtifacts = false
+  loader.transform({
+    filename: loaded.file,
+    jsx: /x$/.test(extname(loaded.file)),
+    source: loaded.source,
+    ts: /\.[cm]?tsx?$/.test(loaded.file),
+    babel: {
+      plugins: [() => ({
+        visitor: {
+          ObjectProperty(path: BabelObjectPropertyPath) {
+            const value = path.node.value as BabelNode | undefined
+            if (
+              babelPropertyName(path) === "provider"
+              && babelStringValue(value) === "cloudflare-artifacts"
+              && isExportedWorkspaceStoreProperty(path)
+            ) {
+              declaresCloudflareArtifacts = true
+            }
+          },
+        },
+      })],
+    },
+  })
+  return declaresCloudflareArtifacts
+}
 
 async function sourceModuleUsesCloudflareArtifacts(
   file: string,
@@ -187,19 +251,8 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   definitionOverrides?: Map<string, ResolvedWorkspaceModuleOptions>,
 ): Promise<ResolvedWorkspaceModuleOptions[]> {
   const loader = createWorkspaceDefinitionLoader(rootDir, aliases)
-  const resolveSourceModule = resolveModule || (async (id: string, importer: string) => {
-    try {
-      return fileURLToPath(loader.esmResolve(id, pathToFileURL(importer).href))
-    }
-    catch {
-      return undefined
-    }
-  })
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
-    const declaresCloudflareArtifacts = inspection?.artifactsOnly
-      ? await sourceModuleUsesCloudflareArtifacts(definition.path, resolveSourceModule)
-      : false
     const bundlesAssets = shouldBundleWorkspaceAssets(options.assets, definition.name)
     let loaded: WorkspaceDefinitionInput
     try {
@@ -207,7 +260,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
     }
     catch (error) {
       if (inspection?.artifactsOnly) {
-        if (declaresCloudflareArtifacts) throw error
+        if (await sourceModuleDeclaresCloudflareArtifacts(definition.path, loader)) throw error
         continue
       }
       if (bundlesAssets || await sourceModuleUsesCloudflareArtifacts(definition.path, resolveModule)) throw error

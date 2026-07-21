@@ -159,6 +159,39 @@ describe("Workspace Nuxt module", () => {
     await expect(nitroConfigHook({})).resolves.toBeUndefined()
   })
 
+  it("ignores non-runtime Artifact provider references in Workspace Definitions", async () => {
+    const { nitroConfigHook, root } = await createNuxtHook()
+    const definitionRoot = join(root, "server", "workspaces")
+    await mkdir(definitionRoot, { recursive: true })
+    await writeFile(join(definitionRoot, "typed.ts"), [
+      "type ArtifactStore = {",
+      "  provider: 'cloudflare-artifacts'",
+      "}",
+      "interface NestedStore { store: { provider: 'cloudflare-artifacts' } }",
+      "// provider: 'cloudflare-artifacts'",
+      "const example = \"provider: 'cloudflare-artifacts'\"",
+      "const unrelated = { provider: 'cloudflare-artifacts' }",
+      "import { workspaceRoot } from '#imports'",
+      "export default { root: workspaceRoot, example, unrelated, store: { provider: 'memory' } } satisfies NestedStore | { store: ArtifactStore | { provider: 'memory' } }",
+      "",
+    ].join("\n"))
+
+    await expect(nitroConfigHook({})).resolves.toBeUndefined()
+  })
+
+  it("surfaces unresolved runtime Artifact Workspace Definitions", async () => {
+    const { nitroConfigHook, root } = await createNuxtHook()
+    const definitionRoot = join(root, "server", "workspaces")
+    await mkdir(definitionRoot, { recursive: true })
+    await writeFile(join(definitionRoot, "artifacts.ts"), [
+      "import { workspaceRoot } from '#imports'",
+      "export default { root: workspaceRoot, store: { provider: 'cloudflare-artifacts' as const } }",
+      "",
+    ].join("\n"))
+
+    await expect(nitroConfigHook({})).rejects.toThrow("Cannot find module '#imports'")
+  })
+
   it("registers a Definition binding configured through a Nuxt alias", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-nuxt-alias-"))
     tempDirs.push(root)
