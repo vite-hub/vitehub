@@ -390,7 +390,55 @@ describe("Vite provider outputs", () => {
     await expect(readFile(functionFile, "utf8")).resolves.toBe("// shared server\n")
   })
 
-  it("copies Blob dependencies for sibling Vercel output during Cloudflare builds", { timeout: 30_000 }, async () => {
+  it("does not register Blob Vercel runtime or packages when Nitro owns Cloudflare output", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-nitro-cloudflare-registry-")
+    const providerOutput: ComposedProviderOutput = {
+      runtimeModuleFilesByProduct: { database: { vercel: "database-runtime.mjs" } },
+      vercelRuntimePackagesByProduct: { blob: [{ name: "stale-package", resolveFrom: rootDir }] },
+    }
+    const blob = { bucketName: "assets", driver: "cloudflare-r2" as const }
+
+    const artifacts = await prepareProviderOutputs({
+      blob,
+      cloudflareOwnedByNitro: true,
+      providerOutput,
+      rootDir,
+    })
+    expect(providerOutput.vercelRuntimePackagesByProduct?.blob).toBeUndefined()
+    expect(getProviderRuntimeModule(providerOutput, "blob", "cloudflare")).toBeDefined()
+    expect(getProviderRuntimeModule(providerOutput, "blob", "vercel")).toBeUndefined()
+    expect(getProviderRuntimeModule(providerOutput, "database", "vercel")).toBe("database-runtime.mjs")
+
+    await generateProviderOutputs({
+      artifacts,
+      blob,
+      clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
+      providerOutput,
+      rootDir,
+    })
+    expect(providerOutput.vercelRuntimePackagesByProduct?.blob).toBeUndefined()
+  })
+
+  it("does not copy Blob dependencies when Nitro owns Cloudflare output", { timeout: 30_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-nitro-cloudflare-packages-")
+    const functionDir = join(rootDir, ".vercel/output/functions/__server.func")
+    await mkdir(functionDir, { recursive: true })
+    await writeFile(join(functionDir, "index.mjs"), "export default 'sibling'\n", "utf8")
+
+    await generateProviderOutputs({
+      blob: { bucketName: "assets", driver: "cloudflare-r2" },
+      clientOutDir: "dist",
+      cloudflareOwnedByNitro: true,
+      providerOutput: { runtimeModuleFilesByProduct: { database: { vercel: "database-runtime.mjs" } } },
+      rootDir,
+    })
+
+    expect(existsSync(join(functionDir, "node_modules/files-sdk"))).toBe(false)
+    expect(existsSync(join(functionDir, "node_modules/@aws-sdk/client-s3"))).toBe(false)
+  })
+
+  it("copies Blob dependencies for sibling Vercel output", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-shared-vercel-runtime-")
     const functionDir = join(rootDir, ".vercel/output/functions/__server.func")
     const siblingEntry = join(rootDir, "sibling.mjs")
@@ -399,7 +447,6 @@ describe("Vite provider outputs", () => {
     await generateProviderOutputs({
       blob: { bucketName: "assets", driver: "cloudflare-r2" },
       clientOutDir: "dist",
-      cloudflareOwnedByNitro: true,
       providerOutput: { runtimeModuleFilesByProduct: { database: { vercel: "database-runtime.mjs" } } },
       rootDir,
     })

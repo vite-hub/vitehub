@@ -601,18 +601,30 @@ function registerSupportedProviderRuntimeModules(
   providerOutput: ComposedProviderOutput | undefined,
   artifacts: GeneratedBlobArtifacts,
   blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined,
+  cloudflareOwnedByNitro = false,
 ): void {
-  registerProviderRuntimeModules(providerOutput, productName, shouldCreateProviderOutput(blob) ? artifacts.runtimeModuleFiles : {})
-  registerVercelRuntimePackages(providerOutput, productName, shouldCreateProviderOutput(blob) ? getVercelBlobRuntimePackages(blob) : [])
+  const runtimeModuleFiles: Record<string, string> = shouldCreateProviderOutput(blob)
+    ? cloudflareOwnedByNitro
+      ? { cloudflare: artifacts.runtimeModuleFiles.cloudflare }
+      : artifacts.runtimeModuleFiles
+    : {}
+  registerProviderRuntimeModules(providerOutput, productName, runtimeModuleFiles)
+  if (cloudflareOwnedByNitro) {
+    if (providerOutput?.vercelRuntimePackagesByProduct) delete providerOutput.vercelRuntimePackagesByProduct[productName]
+  }
+  else {
+    registerVercelRuntimePackages(providerOutput, productName, shouldCreateProviderOutput(blob) ? getVercelBlobRuntimePackages(blob) : [])
+  }
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedBlobArtifacts> {
   const artifacts = options.artifacts ?? await prepareProviderOutputs(options)
-  registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.blob)
+  registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.blob, options.cloudflareOwnedByNitro)
   const localOnly = !shouldCreateProviderOutput(options.blob)
   const createCloudflare = !localOnly && !options.cloudflareOwnedByNitro
   const createVercel = !localOnly && !options.cloudflareOwnedByNitro
-  const stageSharedVercelRuntime = (!options.serverFunctionName || options.serverFunctionName === "__server.func")
+  const stageSharedVercelRuntime = !options.cloudflareOwnedByNitro
+    && (!options.serverFunctionName || options.serverFunctionName === "__server.func")
     && hasSiblingVercelRuntime(options.providerOutput)
   const cleanupVercel = options.cloudflareOwnedByNitro ? getVercelBlobOutputCleanup(options) : undefined
   const hasCurrentCloudflareContribution = Boolean(createCloudflareR2Bindings(resolveBlobConfig(options.blob, "cloudflare"))?.length)
@@ -650,8 +662,8 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   return artifacts
 }
 
-export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "blob" | "providerOutput" | "rootDir">): Promise<GeneratedBlobArtifacts> {
+export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "blob" | "cloudflareOwnedByNitro" | "providerOutput" | "rootDir">): Promise<GeneratedBlobArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.blob)
-  registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.blob)
+  registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.blob, options.cloudflareOwnedByNitro)
   return artifacts
 }
