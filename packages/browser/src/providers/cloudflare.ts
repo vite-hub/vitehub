@@ -72,7 +72,6 @@ export function cloudflareBrowser(options: CloudflareBrowserOptions = {}): Brows
       return {
         async close() {
           if (closed) return
-          closed = true
           let browser: CloudflareBrowserHandle | undefined
           let cdp: Awaited<ReturnType<CloudflareBrowserHandle["newBrowserCDPSession"]>> | undefined
           try {
@@ -80,6 +79,7 @@ export function cloudflareBrowser(options: CloudflareBrowserOptions = {}): Brows
             browser = connected
             cdp = await connected.newBrowserCDPSession()
             await cdp.send("Browser.close")
+            closed = true
           }
           catch (error) {
             throw new BrowserProviderError("cloudflare", "terminate a Browser Run session", { cause: error })

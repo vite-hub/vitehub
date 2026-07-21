@@ -90,4 +90,20 @@ describe("playwright controller", () => {
     await attached.release()
     expect(browser.close).toHaveBeenCalledOnce()
   })
+
+  it("closes the connection when controller setup fails", async () => {
+    const { browser, context } = fakeBrowser()
+    context.newCDPSession.mockRejectedValueOnce(new Error("target lookup failed"))
+    const controller = playwright({ chromium: { connectOverCDP: vi.fn(async () => browser) } as never })
+
+    await expect(controller.attach({
+      endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
+      kind: "cdp",
+    }, {
+      provider: { features: { liveHandoff: true }, isolation: "trusted-host", name: "local" },
+      sessionId: "safe-id",
+    })).rejects.toThrow("target lookup failed")
+
+    expect(browser.close).toHaveBeenCalledOnce()
+  })
 })

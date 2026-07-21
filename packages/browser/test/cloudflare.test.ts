@@ -61,4 +61,24 @@ describe("cloudflareBrowser", () => {
 
     expect(driver.acquire).toHaveBeenCalledWith(binding, { keep_alive: 120_000 })
   })
+
+  it("retries provider termination after a transient connection failure", async () => {
+    const send = vi.fn()
+    const driver = {
+      acquire: vi.fn(async () => ({ sessionId: "cf-session" })),
+      connect: vi.fn()
+        .mockRejectedValueOnce(new Error("temporary connection failure"))
+        .mockResolvedValue({
+          close: vi.fn(),
+          newBrowserCDPSession: async () => ({ detach: vi.fn(), send }),
+        }),
+    }
+    const session = await cloudflareBrowser({ binding: { fetch: vi.fn() }, driver }).open()
+
+    await expect(session.close()).rejects.toThrow("terminate a Browser Run session")
+    await session.close()
+
+    expect(driver.connect).toHaveBeenCalledTimes(2)
+    expect(send).toHaveBeenCalledWith("Browser.close")
+  })
 })

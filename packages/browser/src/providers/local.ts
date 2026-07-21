@@ -31,27 +31,38 @@ async function openPort(): Promise<number> {
 }
 
 async function waitForEndpoint(port: number, child: ChildProcess, timeout: number): Promise<string> {
-  const startedAt = Date.now()
-  let lastError: unknown
-  while (Date.now() - startedAt < timeout) {
-    if (child.exitCode !== null || child.signalCode !== null) {
-      throw new BrowserProviderError("local", "start Chromium", {
-        cause: new Error(`Chromium exited before its CDP endpoint was ready (${child.exitCode ?? child.signalCode}).`),
-      })
-    }
-    try {
-      const response = await fetch(`http://127.0.0.1:${port}/json/version`)
-      if (response.ok) {
-        const value = await response.json() as { webSocketDebuggerUrl?: unknown }
-        if (typeof value.webSocketDebuggerUrl === "string") return value.webSocketDebuggerUrl
+  let rejectSpawn!: (error: unknown) => void
+  const spawnError = new Promise<never>((_resolve, reject) => { rejectSpawn = reject })
+  const onError = (error: Error) => rejectSpawn(error)
+  child.once("error", onError)
+  try {
+    return await Promise.race([spawnError, (async () => {
+      const startedAt = Date.now()
+      let lastError: unknown
+      while (Date.now() - startedAt < timeout) {
+        if (child.exitCode !== null || child.signalCode !== null) {
+          throw new BrowserProviderError("local", "start Chromium", {
+            cause: new Error(`Chromium exited before its CDP endpoint was ready (${child.exitCode ?? child.signalCode}).`),
+          })
+        }
+        try {
+          const response = await fetch(`http://127.0.0.1:${port}/json/version`)
+          if (response.ok) {
+            const value = await response.json() as { webSocketDebuggerUrl?: unknown }
+            if (typeof value.webSocketDebuggerUrl === "string") return value.webSocketDebuggerUrl
+          }
+        }
+        catch (error) {
+          lastError = error
+        }
+        await new Promise(resolve => setTimeout(resolve, 50))
       }
-    }
-    catch (error) {
-      lastError = error
-    }
-    await new Promise(resolve => setTimeout(resolve, 50))
+      throw new BrowserProviderError("local", "start Chromium", { cause: lastError })
+    })()])
   }
-  throw new BrowserProviderError("local", "start Chromium", { cause: lastError })
+  finally {
+    child.off("error", onError)
+  }
 }
 
 async function stopProcess(child: ChildProcess): Promise<void> {

@@ -212,9 +212,9 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
     if (this.state === "closed") return
     if (this.state === "handed-off") throw new BrowserSessionStateError("close", this.state)
     if (this.state === "controlled") throw new BrowserSessionStateError("close", this.state)
-    this.state = "closed"
     try {
       await releaseResource({ lease: this.lease, providerSession: this.providerSession })
+      this.state = "closed"
     }
     finally {
       await this.owner.emit("browser.session.close", this)

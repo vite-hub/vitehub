@@ -73,20 +73,26 @@ export function playwright(options: PlaywrightControllerOptions = {}): BrowserCo
         : await (options.chromium || await loadChromium()).connectOverCDP(connection.endpoint, {
             ...(connection.headers ? { headers: connection.headers } : {}),
           })
-      const contexts = browser.contexts()
-      const preferred = await preferredPage(contexts, connection.preferredTargetId)
-      const context = preferred?.context || contexts.find(value => value.pages().length > 0) || contexts[0] || await browser.newContext()
-      const page = preferred?.page || context.pages()[0] || await context.newPage()
-      connection.preferredTargetId ||= await targetId(context, page)
-      let released = false
-      return {
-        client: { browser, context, page },
-        preservesSessionOnRelease: false,
-        async release() {
-          if (released) return
-          released = true
-          await browser.close()
-        },
+      try {
+        const contexts = browser.contexts()
+        const preferred = await preferredPage(contexts, connection.preferredTargetId)
+        const context = preferred?.context || contexts.find(value => value.pages().length > 0) || contexts[0] || await browser.newContext()
+        const page = preferred?.page || context.pages()[0] || await context.newPage()
+        connection.preferredTargetId ||= await targetId(context, page)
+        let released = false
+        return {
+          client: { browser, context, page },
+          preservesSessionOnRelease: false,
+          async release() {
+            if (released) return
+            released = true
+            await browser.close()
+          },
+        }
+      }
+      catch (error) {
+        await browser.close().catch(() => {})
+        throw error
       }
     },
   }

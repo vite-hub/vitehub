@@ -61,6 +61,19 @@ describe("Browser Sessions", () => {
     expect(session.inspect().state).toBe("closed")
   })
 
+  it("keeps failed session cleanup retryable", async () => {
+    const { close, provider } = fixture()
+    close.mockRejectedValueOnce(new Error("temporary close failure"))
+    const session = await createBrowser({ provider }).open()
+
+    await expect(session.close()).rejects.toThrow("temporary close failure")
+    expect(session.inspect().state).toBe("released")
+
+    await session.close()
+    expect(close).toHaveBeenCalledTimes(2)
+    expect(session.inspect().state).toBe("closed")
+  })
+
   it("transfers one exact live session through an opaque one-time reference", async () => {
     const { close, controller, provider } = fixture()
     const browser = createBrowser({ policy: { handoffTtl: 5_000 }, provider })
