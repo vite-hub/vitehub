@@ -804,6 +804,25 @@ describe("provider deployment outputs", () => {
     expect(existsSync(join(serverDir, "node_modules", "optional-peer", "package.json"))).toBe(false)
   })
 
+  it("preserves nested dependency versions in copied Vercel runtime packages", async () => {
+    const rootDir = await createTempProject()
+    const { createDefaultVercelOutputRoot } = await import("../src/build/deployment-output.ts")
+    const { copyVercelFunctionRuntimePackageDirectories } = await import("../src/build/vercel-runtime-package-copy.ts")
+    const serverDir = join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func")
+    const firstDir = await writePackage(rootDir, "first-runtime", { dependencies: { shared: "1.0.0" } })
+    await writePackage(rootDir, "shared", { version: "2.0.0" })
+    await writePackage(firstDir, "shared", { version: "1.0.0" })
+    await mkdir(serverDir, { recursive: true })
+
+    await copyVercelFunctionRuntimePackageDirectories({
+      packages: [{ name: "first-runtime" }, { name: "shared" }],
+      rootDir,
+    })
+
+    await expect(readFile(join(serverDir, "node_modules", "first-runtime", "node_modules", "shared", "package.json"), "utf8").then(JSON.parse)).resolves.toHaveProperty("version", "1.0.0")
+    await expect(readFile(join(serverDir, "node_modules", "shared", "package.json"), "utf8").then(JSON.parse)).resolves.toHaveProperty("version", "2.0.0")
+  })
+
   it("resolves import-only Vercel runtime packages from an explicit package location", async () => {
     const rootDir = await createTempProject()
     const packageRoot = await createTempProject()

@@ -412,7 +412,7 @@ describe("Vite provider outputs", () => {
       configFile: false,
       logLevel: "silent",
       nitro: { preset: "vercel" },
-      plugins: [hubBlob(), hubQueue()],
+      plugins: [hubQueue(), hubBlob()],
       queue: { provider: "vercel" },
       root: rootDir,
     } as never)
