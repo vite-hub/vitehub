@@ -1,5 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, extname, isAbsolute, relative, resolve } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "@vite-hub/internal/build/cloudflare"
 import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
@@ -179,16 +180,33 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   options: ResolvedWorkspaceModuleOptions,
   resolveModule?: SourceModuleResolver,
   aliases?: Record<string, string>,
+  inspection?: { artifactsOnly?: boolean },
+  resolution?: { env?: Record<string, string | undefined>, hosting?: string },
 ): Promise<ResolvedWorkspaceModuleOptions[]> {
   const loader = createWorkspaceDefinitionLoader(rootDir, aliases)
+  const resolveSourceModule = resolveModule || (async (id: string, importer: string) => {
+    try {
+      return fileURLToPath(loader.esmResolve(id, pathToFileURL(importer).href))
+    }
+    catch {
+      return undefined
+    }
+  })
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
+    const declaresCloudflareArtifacts = inspection?.artifactsOnly
+      ? await sourceModuleUsesCloudflareArtifacts(definition.path, resolveSourceModule)
+      : false
     const bundlesAssets = shouldBundleWorkspaceAssets(options.assets, definition.name)
     let loaded: WorkspaceDefinitionInput
     try {
       loaded = await loadDiscoveredWorkspaceDefinition(loader, definition)
     }
     catch (error) {
+      if (inspection?.artifactsOnly) {
+        if (declaresCloudflareArtifacts) throw error
+        continue
+      }
       if (bundlesAssets || await sourceModuleUsesCloudflareArtifacts(definition.path, resolveModule)) throw error
       continue
     }
@@ -196,13 +214,39 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
     if (!workspace.store || "readFile" in workspace.store) continue
     const config = normalizeWorkspaceOptions({ store: workspace.store }, {
       dev: false,
-      env: process.env,
-      hosting: process.env.VITEHUB_HOSTING,
+      env: resolution?.env || process.env,
+      hosting: resolution?.hosting ?? process.env.VITEHUB_HOSTING,
       rootDir: workspace.rootDir || rootDir,
     })
     if (config && config.store.provider === "cloudflare-artifacts") configs.push(config)
   }
   return configs
+}
+
+async function resolveCloudflareArtifactsConfigs(
+  config: ResolvedWorkspaceModuleOptions,
+  definitions: DiscoveredWorkspaceDefinition[],
+  rootDir: string,
+  options: {
+    aliases?: Record<string, string>
+    artifactsOnly?: boolean
+    env?: Record<string, string | undefined>
+    hosting?: string
+    resolveModule?: SourceModuleResolver
+  } = {},
+): Promise<ResolvedWorkspaceModuleOptions[]> {
+  return [
+    ...(config.store.provider === "cloudflare-artifacts" ? [config] : []),
+    ...await resolveDefinitionCloudflareArtifactsConfigs(
+      definitions,
+      rootDir,
+      config,
+      options.resolveModule,
+      options.aliases,
+      { artifactsOnly: options.artifactsOnly },
+      { env: options.env, hosting: options.hosting },
+    ),
+  ]
 }
 
 async function writeCloudflareArtifactsProviderOutput(
@@ -213,10 +257,7 @@ async function writeCloudflareArtifactsProviderOutput(
   aliases?: Record<string, string>,
 ): Promise<void> {
   const configs = config
-    ? [
-        ...(config.store.provider === "cloudflare-artifacts" ? [config] : []),
-        ...await resolveDefinitionCloudflareArtifactsConfigs(definitions, rootDir, config, resolveModule, aliases),
-      ]
+    ? await resolveCloudflareArtifactsConfigs(config, definitions, rootDir, { aliases, resolveModule })
     : []
   const requestedConfig = createCloudflareArtifactsWranglerConfig(configs)
   const [configuredArtifacts, previousBindings] = await Promise.all([
@@ -244,6 +285,7 @@ async function writeCloudflareArtifactsProviderOutput(
 }
 
 export interface WorkspaceNitroConfigOptions {
+  aliases?: Record<string, string>
   command?: "build" | "serve"
   env?: Record<string, string | undefined>
   hosting?: string
@@ -253,7 +295,16 @@ export interface WorkspaceNitroConfigOptions {
 }
 
 export type NitroConfig = {
+  cloudflare?: {
+    wrangler?: {
+      artifacts?: Array<{ binding: string, namespace: string }>
+      compatibility_flags?: string[]
+    } & Record<string, unknown>
+  } & Record<string, unknown>
   plugins?: unknown[]
+  rollupConfig?: {
+    external?: unknown
+  } & Record<string, unknown>
 } & Record<string, unknown>
 
 type ViteConfigWithWorkspaceNitro = Omit<UserConfig, "plugins"> & {
@@ -500,6 +551,26 @@ function mergeNitroWorkspaceConfig(value: unknown): NitroConfig {
   return { ...nitro, plugins }
 }
 
+function mergeNitroExternal(value: unknown, addition: string): unknown {
+  if (typeof value === "undefined") return [addition]
+  if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
+  if (typeof value === "string" || value instanceof RegExp) return [value, addition]
+  if (typeof value === "function") {
+    return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
+  }
+  return value
+}
+
+function configureCloudflareArtifactsNitroRuntime(nitro: NitroConfig): void {
+  nitro.cloudflare ??= {}
+  nitro.cloudflare.wrangler ??= {}
+  const compatibilityFlags = nitro.cloudflare.wrangler.compatibility_flags || []
+  if (!compatibilityFlags.includes("nodejs_compat")) compatibilityFlags.push("nodejs_compat")
+  nitro.cloudflare.wrangler.compatibility_flags = compatibilityFlags
+  const rollupConfig = isRecord(nitro.rollupConfig) ? { ...nitro.rollupConfig } : {}
+  nitro.rollupConfig = { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") }
+}
+
 function moduleImportSpecifier(fromFile: string, targetFile: string): string {
   const specifier = relative(dirname(fromFile), targetFile).replace(/\\/g, "/")
   return specifier.startsWith(".") ? specifier : `./${specifier}`
@@ -544,6 +615,7 @@ function renderNitroWorkspacePlugin(
   config: false | ResolvedWorkspaceModuleOptions,
   registryImport: string,
   installHostedRuntime: boolean,
+  cloudflareArtifacts: boolean,
   importBase = WORKSPACE_PACKAGE_NAME,
 ): string {
   const hostedRuntimeImport = `${importBase}/internal/runtime/hosted`
@@ -566,6 +638,12 @@ function renderNitroWorkspacePlugin(
         ...(installHostedRuntime ? [`import { installHostedVercelBlobWorkspaceRuntime } from '${hostedVercelBlobRuntimeImport}'`] : []),
         `import { ${config ? "setWorkspaceRuntimeConfig, " : ""}setWorkspaceRuntimeRegistry } from '${runtimeImport}'`,
       ]
+  if (cloudflareArtifacts) {
+    runtimeImports.unshift(
+      "import { env as vitehubEnv } from 'cloudflare:workers'",
+      `import { setActiveCloudflareEnv } from '${importBase}/internal/runtime/state'`,
+    )
+  }
   const runtimeSetup = hostedConfig
     ? [
         `  ${isVercelBlobStore ? "configureHostedVercelBlobWorkspaceRuntime" : "configureHostedWorkspaceRuntime"}(${renderRuntimeValue({ root: hostedConfig.root, store: hostedConfig.store })})`,
@@ -582,6 +660,7 @@ function renderNitroWorkspacePlugin(
     `import registry from ${JSON.stringify(registryImport)}`,
     "",
     "export default function vitehubWorkspacePlugin() {",
+    ...(cloudflareArtifacts ? ["  setActiveCloudflareEnv(vitehubEnv)"] : []),
     "  setWorkspaceRuntimeRegistry(registry)",
     ...runtimeSetup,
     "}",
@@ -594,6 +673,7 @@ async function writeNitroWorkspacePlugin(
   config: false | ResolvedWorkspaceModuleOptions,
   options: false | WorkspaceModuleOptions | undefined,
   definitions: DiscoveredWorkspaceDefinition[],
+  cloudflareArtifacts = false,
   importBase = WORKSPACE_PACKAGE_NAME,
 ): Promise<void> {
   const pluginFile = resolve(root, generatedNitroWorkspacePlugin)
@@ -610,6 +690,7 @@ async function writeNitroWorkspacePlugin(
       runtimeConfig,
       moduleImportSpecifier(pluginFile, registryFile),
       definitions.length > 0 && !(runtimeConfig && isHostedWorkspaceStore(runtimeConfig.store)),
+      cloudflareArtifacts,
       importBase,
     ),
     "utf8",
@@ -630,9 +711,18 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
   const definitions = discoverDefinitions(roots)
   if (!isHostedWorkspaceStore(normalized.store) && !hasExplicitWorkspaceRuntimeOptions(workspaceOptions) && definitions.length === 0) return null
 
+  const cloudflareArtifactsConfigs = await resolveCloudflareArtifactsConfigs(normalized, definitions, roots.projectRoot, {
+    aliases: options.aliases,
+    artifactsOnly: true,
+    env: options.env,
+    hosting: options.hosting,
+  })
   const runtimeConfig = shouldConfigureRuntime(workspaceOptions, normalized) ? normalized : false
-  await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions)
-  return mergeNitroWorkspaceConfig(options.nitro)
+  await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions, cloudflareArtifactsConfigs.length > 0)
+  const nitro = mergeNitroWorkspaceConfig(options.nitro)
+  for (const config of cloudflareArtifactsConfigs) configureCloudflareArtifacts(nitro, config)
+  if (cloudflareArtifactsConfigs.length > 0) configureCloudflareArtifactsNitroRuntime(nitro)
+  return nitro
 }
 
 export interface WorkspaceVitePluginAPI {
@@ -724,8 +814,16 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       const definitions = normalized ? discoverDefinitions(roots) : []
       if (normalized && shouldInstallNitroWorkspacePlugin(config, runtimeOptions, normalized, definitions)) {
         const runtimeConfig = shouldConfigureRuntime(runtimeOptions, normalized) ? normalized : false
-        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, importBase)
+        const artifacts = await resolveCloudflareArtifactsConfigs(normalized, definitions, roots.projectRoot, {
+          aliases: config.resolve?.alias && !Array.isArray(config.resolve.alias) ? config.resolve.alias as Record<string, string> : undefined,
+          artifactsOnly: true,
+          hosting,
+        })
+        const usesCloudflareArtifacts = artifacts.length > 0
+        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareArtifacts, importBase)
         const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
+        for (const artifactConfig of artifacts) configureCloudflareArtifacts(nitro, artifactConfig)
+        if (usesCloudflareArtifacts) configureCloudflareArtifactsNitroRuntime(nitro)
         ;(config as ViteConfigWithWorkspaceNitro).nitro = nitro
         viteConfig.nitro = nitro
       }
