@@ -274,6 +274,14 @@ function deploymentPlugins(plan: DeploymentPlan, requestedServices: DeploymentSe
         ]
         if (plan.output.packaging === "deno-node-modules") {
           nitro.commands = { ...cloneRecord(nitro.commands), deploy: "node ./deploy.mjs" }
+          const rollupConfig = cloneRecord(nitro.rollupConfig)
+          nitro.rollupConfig = {
+            ...rollupConfig,
+            output: {
+              ...cloneRecord(rollupConfig.output),
+              entryFileNames: "index.mjs",
+            },
+          }
         }
         ;(config as { nitro?: unknown }).nitro = { ...nitro, preset: plan.nitroPreset }
       },
