@@ -13,7 +13,7 @@ import type ts from 'typescript'
 
 const require = createRequire(import.meta.url)
 const typescript = require('typescript') as typeof import('typescript')
-const runtimeExportConditions = new Set(['default', 'import', 'node', 'node-addons'])
+const runtimeExportConditions = new Set(['default', 'import', 'module-sync', 'node', 'node-addons'])
 
 type PackageRuntimeManifest = {
   dependencies?: Record<string, string>
@@ -69,6 +69,22 @@ function runtimeWorkspaceDependencyNames(manifest: PackageRuntimeManifest) {
   return [
     ...new Set(
       sections
+        .flatMap((section) => Object.entries(section || {}))
+        .filter(([, specifier]) => specifier.startsWith('workspace:'))
+        .map(([name]) => name),
+    ),
+  ]
+}
+
+function declaredWorkspaceDependencyNames(manifest: PackageRuntimeManifest) {
+  return [
+    ...new Set(
+      [
+        manifest.dependencies,
+        manifest.devDependencies,
+        manifest.optionalDependencies,
+        manifest.peerDependencies,
+      ]
         .flatMap((section) => Object.entries(section || {}))
         .filter(([, specifier]) => specifier.startsWith('workspace:'))
         .map(([name]) => name),
@@ -387,7 +403,7 @@ export function prepareExecutablePackageProject(project: SandboxProject, entry: 
   validateWorkspaceRuntimeExports(
     project,
     runtimePackages,
-    runtimeWorkspaceDependencyNames(manifest),
+    declaredWorkspaceDependencyNames(manifest),
   )
   const generatedFiles: SandboxProject['files'] = {}
   const files = { ...project.files }
