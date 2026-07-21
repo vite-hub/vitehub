@@ -8,6 +8,7 @@ import { cleanProviderOutputConfig, stringifyProviderOutputConfig, writeProvider
 import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
 
 import type { ProviderOutputConfigOwnership } from "./provider-output-config.ts"
+import type { VercelFunctionRuntimePackage } from "./vercel-runtime-packages.ts"
 
 export { createDefaultCloudflareOutputRoot } from "./cloudflare.ts"
 export { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput } from "./cloudflare-provider-output.ts"
@@ -102,15 +103,17 @@ const providerDeploymentOutputWrites = new Map<string, Promise<void>>()
 
 export interface ComposedProviderOutput {
   runtimeModuleFilesByProduct: Record<string, Record<string, string> | undefined>
+  vercelRuntimePackagesByProduct?: Record<string, VercelFunctionRuntimePackage[] | undefined>
 }
 
 export function useComposedProviderOutput(config: object): ComposedProviderOutput {
   const owner = config as Record<symbol, ComposedProviderOutput | undefined>
-  return owner[composedProviderOutputKey] ??= { runtimeModuleFilesByProduct: {} }
+  return owner[composedProviderOutputKey] ??= { runtimeModuleFilesByProduct: {}, vercelRuntimePackagesByProduct: {} }
 }
 
 export function resetComposedProviderOutput(composed: ComposedProviderOutput | undefined): void {
   if (composed) composed.runtimeModuleFilesByProduct = {}
+  if (composed) composed.vercelRuntimePackagesByProduct = {}
 }
 
 export function registerProviderRuntimeModules(composed: ComposedProviderOutput | undefined, product: string, runtimeModuleFiles: Record<string, string>): void {
@@ -119,6 +122,14 @@ export function registerProviderRuntimeModules(composed: ComposedProviderOutput 
 
 export function getProviderRuntimeModule(composed: ComposedProviderOutput | undefined, product: string, provider: string): string | undefined {
   return composed?.runtimeModuleFilesByProduct[product]?.[provider]
+}
+
+export function registerVercelRuntimePackages(composed: ComposedProviderOutput | undefined, product: string, packages: VercelFunctionRuntimePackage[]): void {
+  if (composed) (composed.vercelRuntimePackagesByProduct ??= {})[product] = packages
+}
+
+export function getVercelRuntimePackages(composed: ComposedProviderOutput | undefined, product: string): VercelFunctionRuntimePackage[] {
+  return composed?.vercelRuntimePackagesByProduct?.[product] ?? []
 }
 
 interface ResolvedClientOutput {

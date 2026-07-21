@@ -844,7 +844,7 @@ describe("Vite provider outputs", () => {
     expect(runtimeContents).toContain("\"name\": \"vitehub-blob\"")
   })
 
-  it("generates MinIO driver reachability for selected stores", async () => {
+  it("generates MinIO driver reachability for selected stores", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-minio-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })

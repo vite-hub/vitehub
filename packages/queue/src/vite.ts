@@ -1,5 +1,5 @@
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput, shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
+import { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, hasNitroVitePlugin, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 
@@ -10,6 +10,7 @@ import { createQueueProvisionStep } from "./provision.ts"
 
 import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
+import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
 
 interface QueueProvisionContributingPlugin {
@@ -112,9 +113,11 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
   let configuredDefinitions: DiscoveredQueueDefinition[] = []
   let nitroOwnsCloudflareWorker = false
   let nitroQueue: QueueModuleOptions | undefined = queue
+  let providerOutput: ComposedProviderOutput | undefined
   let validatesNitroDefinitions = false
 
   return {
+    enforce: "post",
     name: "@vite-hub/queue/vite",
     vitehub: {
       cli: async () => {
@@ -144,6 +147,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       configuredDefinitions = discoverQueueDefinitions({ rootDir: config.root })
       const nitro = mergeNitroConfig(config, configuredNitro, queue, config.root, configuredDefinitions)
       ;(config as { nitro?: unknown }).nitro = nitro
+      providerOutput = useComposedProviderOutput(config)
       hosting = resolveQueueHosting(queue, nitro)
       cloudflareQueues = supportsCloudflareQueues(nitro)
       const nitroHosting = resolveNitroHosting(nitro)
@@ -180,6 +184,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         clientOutDir: resolved.build.outDir,
         cloudflareOwnedByNitro: nitroOwnsCloudflareWorker,
         definitions,
+        providerOutput,
         queue: queue ?? (resolveNitroHosting(cloneNitroConfig((resolved as { nitro?: unknown }).nitro))
           ? { provider: (hosting === "cloudflare" ? "cloudflare" : "vercel") satisfies QueueProvider }
           : undefined),

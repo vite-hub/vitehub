@@ -274,6 +274,14 @@ async function assertEffectMsgpackFallback(appDir: string) {
   })
 }
 
+async function assertBlobDriverPackagesOwned(appDir: string) {
+  const script = [
+    "const viteHub = import.meta.resolve(\"vite-hub/package.json\")",
+    "for (const specifier of [\"files-sdk\", \"@google-cloud/storage\"]) import.meta.resolve(specifier, viteHub)",
+  ].join("\n")
+  await run("node", ["--experimental-import-meta-resolve", "--input-type=module", "--eval", script], appDir)
+}
+
 function importSpecifierOccurrences(source: string) {
   const pattern = /\b(?:from\s*|import\s*(?:\(\s*)?|require\s*\(\s*)["']([^"']+)["']/g
   return [...source.matchAll(pattern)].map(match => ({
@@ -373,6 +381,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         "let resolved = false; try { import.meta.resolve('@vite-hub/agent'); resolved = true } catch {} if (resolved) throw new Error('owner package resolved from the consumer root')",
       ], appDir)
       await assertOptionalPackagesUnreachable(appDir)
+      await assertBlobDriverPackagesOwned(appDir)
       await assertEffectMsgpackFallback(appDir)
 
       await run("pnpm", ["run", "typecheck"], appDir)

@@ -3,7 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "pathe"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
-import { createDefaultCloudflareOutputRoot, getProviderRuntimeModule, registerProviderRuntimeModules, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, getProviderRuntimeModule, registerProviderRuntimeModules, registerVercelRuntimePackages, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
@@ -11,8 +11,9 @@ import { isPlainObject } from "@vite-hub/internal/object"
 
 import { normalizeBlobOptions } from "../config.ts"
 
-import type { BlobModuleOptions, ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { BlobDriver, BlobModuleOptions, ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ComposedProviderOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
 
 export const blobPackageName = "@vite-hub/blob"
 const cloudflareBlobWorkerMarker = "vitehub-blob-worker"
@@ -21,6 +22,27 @@ const vercelBlobOutputMarker = ".vitehub-blob-output"
 const productName = "blob"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
+const filesSdkS3Peers = ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"] as const
+const filesSdkDriverPeers = {
+  akamai: filesSdkS3Peers,
+  azure: ["@azure/storage-blob"],
+  box: ["box-typescript-sdk-gen"],
+  "cloudflare-r2": filesSdkS3Peers,
+  "digitalocean-spaces": filesSdkS3Peers,
+  dropbox: ["dropbox"],
+  fs: [],
+  gcs: ["@google-cloud/storage"],
+  "google-drive": ["@googleapis/drive", "google-auth-library"],
+  hetzner: filesSdkS3Peers,
+  minio: filesSdkS3Peers,
+  "netlify-blobs": ["@netlify/blobs"],
+  onedrive: ["@azure/identity", "@microsoft/microsoft-graph-client"],
+  s3: filesSdkS3Peers,
+  storj: filesSdkS3Peers,
+  supabase: ["@supabase/storage-js"],
+  uploadthing: ["uploadthing"],
+  "vercel-blob": [],
+} satisfies Record<BlobDriver, readonly string[]>
 
 const BLOB_ENTRY_NAMES_DEFAULT = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
 const BLOB_ENTRY_NAMES_PRIORITIZED = ["server.blob.ts", "server.blob.mts", "server.blob.js", "server.blob.mjs", ...BLOB_ENTRY_NAMES_DEFAULT] as const
@@ -508,10 +530,10 @@ function shouldCreateProviderOutput(blob: BlobModuleOptions | ResolvedBlobModule
   return !hasExplicitFsStore(blob)
 }
 
-function hasCloudflareR2Store(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined) {
+function hasFilesSdkStore(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined) {
   const resolved = resolveBlobConfig(blob, "vercel")
   return resolved !== false && Object.values(resolved.stores || { default: resolved.store })
-    .some(store => store.driver === "cloudflare-r2")
+    .some(store => store.driver !== "fs" && store.driver !== "vercel-blob")
 }
 
 function hasSiblingVercelRuntime(providerOutput: ComposedProviderOutput | undefined): boolean {
@@ -520,25 +542,14 @@ function hasSiblingVercelRuntime(providerOutput: ComposedProviderOutput | undefi
 }
 
 async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOptions) {
-  const packages = new Set<string>()
+  const packages = getVercelBlobRuntimePackages(options.blob)
   const isolated = Boolean(options.serverFunctionName && options.serverFunctionName !== "__server.func")
   const shared = !isolated && hasSiblingVercelRuntime(options.providerOutput)
   const outputName = options.serverFunctionName ?? "__server.func"
-  const resolved = resolveBlobConfig(options.blob, "vercel")
-  if (resolved !== false && Object.values(resolved.stores || { default: resolved.store }).some(store => store.driver === "vercel-blob")) {
-    packages.add("@vercel/blob")
-  }
-  if (hasCloudflareR2Store(options.blob)) {
-    packages.add("files-sdk")
-    packages.add("@aws-sdk/client-s3")
-    packages.add("@aws-sdk/lib-storage")
-    packages.add("@aws-sdk/s3-presigned-post")
-    packages.add("@aws-sdk/s3-request-presigner")
-  }
-  if (packages.size) {
+  if (packages.length) {
     if (shared) await mkdir(resolve(options.rootDir, ".vercel/output/functions", outputName), { recursive: true })
     await copyVercelFunctionRuntimePackages({
-      packages: [...packages].map(name => ({ name, resolveFrom: resolve(packageDir, "package.json") })),
+      packages,
       rootDir: options.rootDir,
       serverFunctionName: options.serverFunctionName,
     })
@@ -547,6 +558,25 @@ async function copyVercelBlobRuntimePackages(options: GenerateProviderOutputsOpt
     const entry = await readFile(resolve(options.rootDir, ".vercel/output/functions", outputName, "index.mjs"))
     await writeFile(resolve(options.rootDir, ".vercel/output/functions", outputName, vercelBlobOutputMarker), createHash("sha256").update(entry).digest("hex"), "utf8")
   }
+}
+
+function getVercelBlobRuntimePackages(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined): VercelFunctionRuntimePackage[] {
+  const packages = new Set<string>()
+  const filesSdkPeers = new Set<string>()
+  const resolved = resolveBlobConfig(blob, "vercel")
+  const stores = resolved === false ? [] : Object.values(resolved.stores || { default: resolved.store })
+  if (stores.some(store => store.driver === "vercel-blob")) packages.add("@vercel/blob")
+  if (hasFilesSdkStore(blob)) packages.add("files-sdk")
+  for (const store of stores) {
+    for (const name of filesSdkDriverPeers[store.driver] ?? []) {
+      packages.add(name)
+      filesSdkPeers.add(name)
+    }
+  }
+  return [...packages].map(name => ({
+    name,
+    resolveFrom: resolve(packageDir, filesSdkPeers.has(name) ? "node_modules/files-sdk/package.json" : "package.json"),
+  }))
 }
 
 function getVercelBlobOutputCleanup(options: GenerateProviderOutputsOptions) {
@@ -573,6 +603,7 @@ function registerSupportedProviderRuntimeModules(
   blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined,
 ): void {
   registerProviderRuntimeModules(providerOutput, productName, shouldCreateProviderOutput(blob) ? artifacts.runtimeModuleFiles : {})
+  registerVercelRuntimePackages(providerOutput, productName, shouldCreateProviderOutput(blob) ? getVercelBlobRuntimePackages(blob) : [])
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedBlobArtifacts> {
