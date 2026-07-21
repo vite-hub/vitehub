@@ -56,33 +56,320 @@ export function hasExportedType(source: string, id: string, name: string) {
   })
 }
 
-export function findRuntimeRelativeModuleSpecifiers(source: string, id: string) {
+function collectRuntimeModuleSpecifiers(source: string, id: string) {
   const sourceFile = createSourceFile(id, source)
-  const specifiers: string[] = []
+  const specifiers: Array<{ node: ts.StringLiteralLike, specifier: string }> = []
+  let hasNonLiteralDynamicImport = false
 
   function addSpecifier(node: ts.Expression | undefined) {
-    if (node && typescript.isStringLiteralLike(node) && /^\.\.?\//.test(node.text))
-      specifiers.push(node.text)
+    if (node && typescript.isStringLiteralLike(node))
+      specifiers.push({ node, specifier: node.text })
   }
 
   function visit(node: ts.Node) {
     if (typescript.isImportDeclaration(node)) {
-      if (!node.importClause?.isTypeOnly)
+      const clause = node.importClause
+      const bindings = clause?.namedBindings
+      const hasRuntimeBinding = !clause
+        || (!clause.isTypeOnly && (
+          Boolean(clause.name)
+          || !bindings
+          || typescript.isNamespaceImport(bindings)
+          || bindings.elements.length === 0
+          || bindings.elements.some(element => !element.isTypeOnly)
+        ))
+      if (hasRuntimeBinding)
         addSpecifier(node.moduleSpecifier)
     }
     else if (typescript.isExportDeclaration(node)) {
-      if (!node.isTypeOnly)
+      const clause = node.exportClause
+      const hasRuntimeExport = !node.isTypeOnly && (
+        !clause
+        || typescript.isNamespaceExport(clause)
+        || clause.elements.length === 0
+        || clause.elements.some(element => !element.isTypeOnly)
+      )
+      if (hasRuntimeExport)
         addSpecifier(node.moduleSpecifier)
     }
     else if (typescript.isCallExpression(node)
       && node.expression.kind === typescript.SyntaxKind.ImportKeyword) {
-      addSpecifier(node.arguments[0])
+      const argument = node.arguments[0]
+      if (argument && typescript.isStringLiteralLike(argument))
+        addSpecifier(argument)
+      else
+        hasNonLiteralDynamicImport = true
+    }
+    typescript.forEachChild(node, visit)
+  }
+
+  visit(sourceFile)
+  return { hasNonLiteralDynamicImport, sourceFile, specifiers }
+}
+
+export function findRuntimeModuleSpecifiers(source: string, id: string) {
+  return collectRuntimeModuleSpecifiers(source, id).specifiers.map(entry => entry.specifier)
+}
+
+export function findRuntimeRelativeModuleSpecifiers(source: string, id: string) {
+  return findRuntimeModuleSpecifiers(source, id).filter(specifier => /^\.\.?\//.test(specifier))
+}
+
+export function hasNonLiteralDynamicImport(source: string, id: string) {
+  return collectRuntimeModuleSpecifiers(source, id).hasNonLiteralDynamicImport
+}
+
+function propertyAccessRoot(expression: ts.Expression) {
+  const properties: string[] = []
+  let current = expression
+  while (typescript.isPropertyAccessExpression(current) || typescript.isElementAccessExpression(current)) {
+    if (typescript.isPropertyAccessExpression(current)) {
+      properties.unshift(current.name.text)
+      current = current.expression
+      continue
+    }
+    const argument = current.argumentExpression
+    properties.unshift(argument && typescript.isStringLiteralLike(argument) ? argument.text : '*')
+    current = current.expression
+  }
+  return { current, properties }
+}
+
+type CommonJSModuleSpecifier = {
+  path: string
+  specifier?: string
+  syntax:
+    | 'exports-assignment'
+    | 'exports-reference'
+    | 'import-equals'
+    | 'module-exports-assignment'
+    | 'module-reference'
+    | 'require'
+    | 'require-property'
+}
+
+export function findCommonJSImportEqualsSpecifiers(source: string, id: string) {
+  const sourceFile = createSourceFile(id, source)
+  const specifiers: CommonJSModuleSpecifier[] = []
+
+  function visit(node: ts.Node) {
+    if (
+      typescript.isImportEqualsDeclaration(node) &&
+      !node.isTypeOnly &&
+      typescript.isExternalModuleReference(node.moduleReference)
+    ) {
+      const expression = node.moduleReference.expression
+      specifiers.push({
+        path: id,
+        specifier:
+          expression && typescript.isStringLiteralLike(expression) ? expression.text : undefined,
+        syntax: 'import-equals',
+      })
     }
     typescript.forEachChild(node, visit)
   }
 
   visit(sourceFile)
   return specifiers
+}
+
+function isExecutableIdentifierReference(node: ts.Identifier) {
+  const parent = node.parent
+  if (
+    typescript.isImportClause(parent) ||
+    typescript.isImportSpecifier(parent) ||
+    typescript.isNamespaceImport(parent) ||
+    typescript.isNamespaceExport(parent)
+  )
+    return false
+  if (typescript.isExportSpecifier(parent)) {
+    const declaration = parent.parent.parent
+    if (declaration.moduleSpecifier) return false
+    return parent.propertyName ? parent.propertyName === node : parent.name === node
+  }
+  if (
+    typescript.isBindingElement(parent)
+    && (parent.name === node || parent.propertyName === node)
+  )
+    return false
+  if (typescript.isPropertyAccessExpression(parent) && parent.name === node) return false
+  if (
+    typescript.isLabeledStatement(parent) ||
+    typescript.isBreakStatement(parent) ||
+    typescript.isContinueStatement(parent)
+  )
+    return false
+  const namedParent = parent as ts.Node & { name?: ts.Node }
+  if (!typescript.isShorthandPropertyAssignment(parent) && namedParent.name === node) return false
+  const propertyParent = parent as ts.Node & { propertyName?: ts.Node }
+  return propertyParent.propertyName !== node
+}
+
+export function findExecutableCommonJSModuleSpecifiers(sources: ReadonlyMap<string, string>) {
+  const executableSources = new Map(
+    [...sources].map(([path, source]) => [`/${path.replace(/^[/]+/, '')}`, source]),
+  )
+  const options: ts.CompilerOptions = {
+    allowJs: true,
+    checkJs: false,
+    module: typescript.ModuleKind.ESNext,
+    moduleDetection: typescript.ModuleDetectionKind.Force,
+    noLib: true,
+    noResolve: true,
+    target: typescript.ScriptTarget.ES2022,
+    types: [],
+  }
+  const sourceFiles = new Map<string, ts.SourceFile>()
+  const host: ts.CompilerHost = {
+    fileExists: (fileName) => executableSources.has(fileName),
+    getCanonicalFileName: (fileName) => fileName,
+    getCurrentDirectory: () => '/',
+    getDefaultLibFileName: () => '',
+    getNewLine: () => '\n',
+    getSourceFile(fileName, languageVersion) {
+      const source = executableSources.get(fileName)
+      if (source === undefined) return undefined
+      let sourceFile = sourceFiles.get(fileName)
+      if (!sourceFile) {
+        sourceFile = typescript.createSourceFile(
+          fileName,
+          source,
+          languageVersion,
+          true,
+          typescript.ScriptKind.JS,
+        )
+        sourceFiles.set(fileName, sourceFile)
+      }
+      return sourceFile
+    },
+    readFile: (fileName) => executableSources.get(fileName),
+    useCaseSensitiveFileNames: () => true,
+    writeFile: () => {},
+  }
+  const program = typescript.createProgram({
+    host,
+    options,
+    rootNames: [...executableSources.keys()],
+  })
+  const checker = program.getTypeChecker()
+  const specifiers: CommonJSModuleSpecifier[] = []
+
+  function isRuntimeBindingDeclaration(node: ts.Declaration) {
+    return (
+      typescript.isBindingElement(node) ||
+      typescript.isClassDeclaration(node) ||
+      typescript.isClassExpression(node) ||
+      typescript.isFunctionDeclaration(node) ||
+      typescript.isFunctionExpression(node) ||
+      typescript.isImportClause(node) ||
+      typescript.isImportSpecifier(node) ||
+      typescript.isNamespaceImport(node) ||
+      typescript.isParameter(node) ||
+      typescript.isVariableDeclaration(node)
+    )
+  }
+
+  function isBound(node: ts.Identifier) {
+    const symbol = typescript.isShorthandPropertyAssignment(node.parent)
+      ? checker.getShorthandAssignmentValueSymbol(node.parent)
+      : checker.getSymbolAtLocation(node)
+    return symbol?.declarations?.some(isRuntimeBindingDeclaration) ?? false
+  }
+
+  function visit(sourceFile: ts.SourceFile, node: ts.Node) {
+    if (
+      typescript.isCallExpression(node) &&
+      typescript.isIdentifier(node.expression) &&
+      node.expression.text === 'require' &&
+      !isBound(node.expression)
+    ) {
+      const argument = node.arguments[0]
+      specifiers.push({
+        path: sourceFile.fileName.slice(1),
+        specifier: argument && typescript.isStringLiteralLike(argument) ? argument.text : undefined,
+        syntax: 'require',
+      })
+    } else if (
+      typescript.isPropertyAccessExpression(node) ||
+      typescript.isElementAccessExpression(node)
+    ) {
+      const { current, properties } = propertyAccessRoot(node)
+      if (typescript.isIdentifier(current) && current.text === 'require' && !isBound(current)) {
+        specifiers.push({
+          path: sourceFile.fileName.slice(1),
+          specifier: properties.join('.'),
+          syntax: 'require-property',
+        })
+      }
+    } else if (
+      typescript.isBinaryExpression(node) &&
+      node.operatorToken.kind >= typescript.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= typescript.SyntaxKind.LastAssignment
+    ) {
+      const { current, properties } = propertyAccessRoot(node.left)
+      if (
+        typescript.isIdentifier(current) &&
+        current.text === 'module' &&
+        !isBound(current) &&
+        properties[0] === 'exports'
+      ) {
+        specifiers.push({
+          path: sourceFile.fileName.slice(1),
+          syntax: 'module-exports-assignment',
+        })
+      } else if (
+        typescript.isIdentifier(current) &&
+        current.text === 'exports' &&
+        !isBound(current) &&
+        properties.length
+      ) {
+        specifiers.push({ path: sourceFile.fileName.slice(1), syntax: 'exports-assignment' })
+      }
+    } else if (
+      typescript.isIdentifier(node) &&
+      (node.text === 'module' || node.text === 'exports') &&
+      isExecutableIdentifierReference(node) &&
+      !isBound(node)
+    ) {
+      specifiers.push({
+        path: sourceFile.fileName.slice(1),
+        syntax: node.text === 'module' ? 'module-reference' : 'exports-reference',
+      })
+    }
+    typescript.forEachChild(node, (child) => visit(sourceFile, child))
+  }
+
+  for (const sourceFile of program.getSourceFiles()) visit(sourceFile, sourceFile)
+  return specifiers
+}
+
+export function rewriteRuntimeRelativeModuleSpecifiers(
+  source: string,
+  id: string,
+  rewrite: (specifier: string) => string,
+) {
+  const { sourceFile, specifiers } = collectRuntimeModuleSpecifiers(source, id)
+  const edits: Array<{ end: number, replacement: string, start: number }> = []
+
+  for (const { node, specifier } of specifiers) {
+    if (!/^\.\.?\//.test(specifier))
+      continue
+    const replacement = rewrite(specifier)
+    if (replacement !== specifier) {
+      edits.push({
+        start: node.getStart(sourceFile),
+        end: node.getEnd(),
+        replacement: JSON.stringify(replacement),
+      })
+    }
+  }
+
+  return edits
+    .sort((left, right) => right.start - left.start)
+    .reduce(
+      (contents, edit) => `${contents.slice(0, edit.start)}${edit.replacement}${contents.slice(edit.end)}`,
+      source,
+    )
 }
 
 function collectExplicitImportNames(sourceFile: ts.SourceFile) {

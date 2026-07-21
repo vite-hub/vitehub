@@ -35,6 +35,8 @@ ViteHub passes `{ payload, context }` through `process.argv[2]`, awaits the modu
 
 ViteHub uses the manifest's `packageManager`, then a lockfile at that package root, then npm. A matching `pnpm-workspace.yaml` selects pnpm, moves preparation to the pnpm workspace root, and carries the transitive `workspace:*` dependency closure into the Box while the entrypoint still runs from its package directory.
 
+Package entrypoints are ESM projects. Keep `"type": "module"`, use explicit relative ESM imports for local `.ts` and `.mts` source, and depend on packages that expose runtime-ready JavaScript. ViteHub compiles the reachable local TypeScript graph without bundling package dependencies or moving relative assets. It rejects CommonJS/CTS, package import aliases and self-references for local source, imports that escape the selected package, and workspace dependencies that expose TypeScript runtime entries.
+
 Use `<path>.sandbox.ts` with `defineSandbox()` for free-form Definitions outside `server/sandboxes`.
 
 ```ts
