@@ -36,6 +36,55 @@ function createSourceFile(id: string, source: string) {
   return typescript.createSourceFile(id, source, typescript.ScriptTarget.Latest, true, getScriptKind(id))
 }
 
+function hasModifier(node: ts.Node, kind: ts.SyntaxKind) {
+  return typescript.canHaveModifiers(node)
+    && (typescript.getModifiers(node)?.some(modifier => modifier.kind === kind) ?? false)
+}
+
+export function hasExportedType(source: string, id: string, name: string) {
+  const sourceFile = createSourceFile(id, source)
+  return sourceFile.statements.some((statement) => {
+    if (
+      (typescript.isInterfaceDeclaration(statement) || typescript.isTypeAliasDeclaration(statement))
+      && statement.name.text === name
+    ) {
+      return hasModifier(statement, typescript.SyntaxKind.ExportKeyword)
+    }
+    if (!typescript.isExportDeclaration(statement) || !statement.exportClause || !typescript.isNamedExports(statement.exportClause))
+      return false
+    return statement.exportClause.elements.some(element => element.name.text === name && (statement.isTypeOnly || element.isTypeOnly))
+  })
+}
+
+export function findRuntimeRelativeModuleSpecifiers(source: string, id: string) {
+  const sourceFile = createSourceFile(id, source)
+  const specifiers: string[] = []
+
+  function addSpecifier(node: ts.Expression | undefined) {
+    if (node && typescript.isStringLiteralLike(node) && /^\.\.?\//.test(node.text))
+      specifiers.push(node.text)
+  }
+
+  function visit(node: ts.Node) {
+    if (typescript.isImportDeclaration(node)) {
+      if (!node.importClause?.isTypeOnly)
+        addSpecifier(node.moduleSpecifier)
+    }
+    else if (typescript.isExportDeclaration(node)) {
+      if (!node.isTypeOnly)
+        addSpecifier(node.moduleSpecifier)
+    }
+    else if (typescript.isCallExpression(node)
+      && node.expression.kind === typescript.SyntaxKind.ImportKeyword) {
+      addSpecifier(node.arguments[0])
+    }
+    typescript.forEachChild(node, visit)
+  }
+
+  visit(sourceFile)
+  return specifiers
+}
+
 function collectExplicitImportNames(sourceFile: ts.SourceFile) {
   const names = new Set<string>()
 

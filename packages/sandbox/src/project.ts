@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { glob, readFile, realpath, stat } from 'node:fs/promises'
 import { dirname, matchesGlob, relative, resolve } from 'node:path'
+import type { SandboxProjectOptions } from './module-types'
 
 export type SandboxPackageManager = 'bun' | 'npm' | 'pnpm' | 'yarn'
 
@@ -18,6 +19,7 @@ export interface SandboxProject {
     command: SandboxPackageManager
     cwd: string
   }
+  options?: SandboxProjectOptions
   packagePath: string
 }
 
@@ -28,7 +30,10 @@ type PackageManifest = {
   optionalDependencies?: Record<string, string>
   packageManager?: unknown
   peerDependencies?: Record<string, string>
+  vitehub?: unknown
 }
+
+const maxTimeout = 2_147_483_647
 
 const lockfiles: Array<{ file: string, manager: SandboxPackageManager }> = [
   { file: 'pnpm-lock.yaml', manager: 'pnpm' },
@@ -104,11 +109,52 @@ function parseManifest(source: string, path: string): PackageManifest {
   }
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function parseSandboxProjectOptions(manifest: PackageManifest, path: string): SandboxProjectOptions | undefined {
+  if (typeof manifest.vitehub === 'undefined')
+    return undefined
+  if (!isPlainObject(manifest.vitehub))
+    throw new Error(`[vitehub] Sandbox package manifest "vitehub" must be an object: ${path}`)
+
+  const sandbox = manifest.vitehub.sandbox
+  if (typeof sandbox === 'undefined')
+    return undefined
+  if (!isPlainObject(sandbox))
+    throw new Error(`[vitehub] Sandbox package manifest "vitehub.sandbox" must be an object: ${path}`)
+
+  const unsupported = Object.keys(sandbox).filter(key => key !== 'timeout')
+  if (unsupported.length) {
+    throw new Error(
+      `[vitehub] Sandbox package manifest "vitehub.sandbox" has unsupported keys: ${unsupported.join(', ')}.`,
+    )
+  }
+
+  const timeout = sandbox.timeout
+  if (typeof timeout === 'undefined')
+    return undefined
+  if (typeof timeout !== 'number' || !Number.isInteger(timeout) || timeout <= 0 || timeout > maxTimeout) {
+    throw new Error(
+      `[vitehub] Sandbox package manifest "vitehub.sandbox.timeout" must be a positive integer no greater than ${maxTimeout}.`,
+    )
+  }
+
+  return { timeout }
+}
+
 function parsePnpmWorkspacePackages(source: string) {
   const patterns: string[] = []
   let packagesIndent: number | undefined
   for (const line of source.split(/\r?\n/)) {
     if (packagesIndent === undefined) {
+      const inline = /^\s*packages\s*:\s*\[(.*)\]\s*(?:#.*)?$/.exec(line)
+      if (inline) {
+        return inline[1].split(',')
+          .map(value => value.trim().replace(/^(['"])(.*)\1$/, '$2'))
+          .filter(Boolean)
+      }
       const match = /^(\s*)packages\s*:\s*(?:#.*)?$/.exec(line)
       if (match) packagesIndent = match[1].length
       continue
@@ -191,7 +237,11 @@ async function addPnpmWorkspaceDependencies(
   }
 }
 
-export async function resolveSandboxProject(definitionFile: string, scanRoot: string): Promise<SandboxProject> {
+export async function resolveSandboxProject(
+  definitionFile: string,
+  scanRoot: string,
+  options: { readSandboxOptions?: boolean } = {},
+): Promise<SandboxProject> {
   const root = await realpath(resolve(scanRoot))
   const definition = await realpath(resolve(definitionFile))
   if (!isInside(root, definition))
@@ -207,6 +257,9 @@ export async function resolveSandboxProject(definitionFile: string, scanRoot: st
   const manifestPath = resolve(packageRoot, 'package.json')
   const manifestSource = await readFile(manifestPath, 'utf8')
   const manifest = parseManifest(manifestSource, manifestPath)
+  const sandboxOptions = options.readSandboxOptions
+    ? parseSandboxProjectOptions(manifest, manifestPath)
+    : undefined
   const declaredManager = packageManagerFromField(manifest.packageManager)
   const declaredMajor = packageManagerMajor(manifest.packageManager)
   const workspace = declaredManager && declaredManager !== 'pnpm'
@@ -241,6 +294,7 @@ export async function resolveSandboxProject(definitionFile: string, scanRoot: st
       command: manager,
       cwd: '.',
     },
+    ...(sandboxOptions ? { options: sandboxOptions } : {}),
     packagePath,
   }
 }

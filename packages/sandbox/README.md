@@ -4,27 +4,38 @@
 
 ```ts
 // server/sandboxes/release-notes/index.ts
-import { defineSandbox } from "@vite-hub/sandbox"
+import { readFile } from "node:fs/promises"
 
-export default defineSandbox({
-  timeout: 30_000,
-  async run(payload: { notes?: string } = {}) {
-    return { summary: payload.notes?.split("\n")[0] ?? "" }
-  },
-})
+export interface SandboxPayload {
+  notes?: string
+}
+
+const { payload } = JSON.parse(await readFile(process.argv[2], "utf8")) as {
+  payload?: SandboxPayload
+}
+
+export default { summary: payload?.notes?.split("\n")[0] ?? "" }
 ```
 
-The folder supplies the Definition name, and the Definition must belong to a real package project. For this example, add `server/sandboxes/release-notes/package.json`:
+The folder supplies the Definition name, and the adjacent manifest owns portable lifecycle metadata:
 
 ```json
 {
-  "private": true
+  "private": true,
+  "type": "module",
+  "vitehub": {
+    "sandbox": {
+      "timeout": 30000
+    }
+  }
 }
 ```
 
-ViteHub resolves the nearest `package.json` without walking above the Vite root. It uses the manifest's `packageManager`, then a lockfile at that package root, then npm. A matching `pnpm-workspace.yaml` selects pnpm, moves preparation to the pnpm Workspace root, and carries the transitive `workspace:*` dependency closure into the Box while the Definition still runs from its package directory.
+ViteHub passes `{ payload, context }` through `process.argv[2]`, awaits the module's top-level execution, and returns its default export. Exporting `SandboxPayload` gives `runSandbox()` a typed payload; otherwise the payload is `unknown`. The entrypoint needs no `@vite-hub/sandbox` runtime dependency.
 
-Use `<path>.sandbox.ts` for free-form Definitions outside `server/sandboxes`.
+ViteHub uses the manifest's `packageManager`, then a lockfile at that package root, then npm. A matching `pnpm-workspace.yaml` selects pnpm, moves preparation to the pnpm Workspace root, and carries the transitive `workspace:*` dependency closure into the Box while the entrypoint still runs from its package directory.
+
+Use `<path>.sandbox.ts` with `defineSandbox()` for free-form Definitions outside `server/sandboxes`.
 
 ```ts
 import { runSandbox } from "@vite-hub/sandbox"

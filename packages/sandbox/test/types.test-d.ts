@@ -11,6 +11,19 @@ import {
 } from "../src/index.ts"
 import { hubSandbox } from "../src/vite.ts"
 
+declare module "#vitehub-sandbox-registry" {
+  interface SandboxDefinitionModules {
+    "package-entry": {
+      payload: { value: string }
+      result: { length: number }
+    }
+    "unknown-package-entry": {
+      payload: unknown
+      result: string
+    }
+  }
+}
+
 describe("types", () => {
   it("augments Vite user config with sandbox options", () => {
     const config: UserConfig = {
@@ -31,6 +44,8 @@ describe("types", () => {
 
     expectTypeOf(definition).toMatchTypeOf<SandboxDefinition<{ value: string } | undefined, { value: string }>>()
     expectTypeOf(runSandbox("release-notes", { value: "ok" })).resolves.toMatchTypeOf<SandboxRunResult>()
+    expectTypeOf(runSandbox("package-entry", { value: "ok" })).resolves.toEqualTypeOf<SandboxRunResult<{ length: number }>>()
+    expectTypeOf(runSandbox("unknown-package-entry", { anything: true })).resolves.toEqualTypeOf<SandboxRunResult<string>>()
   })
 
   it("returns a Vite plugin", () => {

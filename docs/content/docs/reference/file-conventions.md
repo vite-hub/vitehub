@@ -27,7 +27,9 @@ Rate Limit deliberately has no file convention. Call `requireRateLimit(event, id
 
 ## Export shape
 
-First-class discovered definition files default-export the package-owned Definition Boundary Helper. This keeps Build-Extracted Definition Options limited to the direct discovered default export.
+Most discovered Definition files default-export the package-owned Definition Boundary Helper. This keeps Build-Extracted Definition Options limited to the direct discovered default export.
+
+Canonical Sandbox package projects are the exception: `server/sandboxes/<path>/index.ts` runs as top-level ESM and default-exports its result. The folder supplies the Definition identity, and optional static wall-clock policy comes from the adjacent `package.json` under `vitehub.sandbox.timeout`. Free-form `<path>.sandbox.ts` files still default-export `defineSandbox(...)`.
 
 ```ts [server/queues/welcome-email.ts]
 import { defineQueue } from '@vite-hub/queue'

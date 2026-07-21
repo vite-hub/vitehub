@@ -165,7 +165,10 @@ const sandboxRuntime = createResourceRuntime({
         && definition.bundle.entry.length > 0
         && !!definition.bundle.modules
         && typeof definition.bundle.modules === 'object'
-        && Object.keys(definition.bundle.modules).length > 0
+        && (Object.hasOwn(definition.bundle.modules, definition.bundle.entry)
+          || (!!definition.bundle.project?.files
+            && typeof definition.bundle.project.files === 'object'
+            && Object.hasOwn(definition.bundle.project.files, definition.bundle.entry)))
     },
   },
   port: sandboxPort,

@@ -23,6 +23,84 @@ afterEach(async () => {
 })
 
 describe("resolveSandboxProject", () => {
+  it("reads timeout from package metadata for executable entries", async () => {
+    const root = await createRoot()
+    const entry = join(root, "index.ts")
+    await writeFile(join(root, "package.json"), JSON.stringify({
+      private: true,
+      vitehub: { sandbox: { timeout: 60_000 } },
+    }))
+    await writeFile(entry, "export default null")
+
+    const project = await resolveSandboxProject(entry, root, { readSandboxOptions: true })
+
+    expect(project.options).toEqual({ timeout: 60_000 })
+  })
+
+  it("rejects package imports that Node cannot resolve directly", async () => {
+    const root = await createRoot()
+    const entry = join(root, "index.ts")
+    await writeFile(join(root, "package.json"), JSON.stringify({ private: true }))
+    await writeFile(join(root, "helper.ts"), "export const ok = true\n")
+    await writeFile(join(root, "unused.ts"), "export { missing } from './missing'\n")
+    await writeFile(entry, "import { ok } from './helper'\nexport default { ok }\n")
+
+    const project = await resolveSandboxProject(entry, root)
+
+    await expect(bundleSandboxDefinition(await readFile(entry, "utf8"), entry, {
+      execution: "module",
+      project,
+    })).rejects.toThrow('imports "./helper", which is not an executable package file')
+  })
+
+  it.each(["jsx", "tsx"])("rejects package %s imports that Node cannot execute directly", async (extension) => {
+    const root = await createRoot()
+    const entry = join(root, "index.ts")
+    await writeFile(join(root, "package.json"), JSON.stringify({ private: true }))
+    await writeFile(join(root, `helper.${extension}`), "export const element = <div />\n")
+    await writeFile(entry, `import { element } from './helper.${extension}'\nexport default element\n`)
+
+    const project = await resolveSandboxProject(entry, root)
+
+    await expect(bundleSandboxDefinition(await readFile(entry, "utf8"), entry, {
+      execution: "module",
+      project,
+    })).rejects.toThrow(`imports "./helper.${extension}", but Node cannot execute JSX package files directly`)
+  })
+
+  it("ignores invalid imports outside the executable package graph", async () => {
+    const root = await createRoot()
+    const entry = join(root, "index.ts")
+    await writeFile(join(root, "package.json"), JSON.stringify({ private: true }))
+    await writeFile(join(root, "unused.ts"), "export { missing } from './missing'\n")
+    await writeFile(entry, "export default { ok: true }\n")
+
+    const project = await resolveSandboxProject(entry, root)
+
+    await expect(bundleSandboxDefinition(await readFile(entry, "utf8"), entry, {
+      execution: "module",
+      project,
+    })).resolves.toMatchObject({ entry: "index.ts", execution: "module" })
+  })
+
+  it.each([
+    [{ timeout: 0 }, "positive integer"],
+    [{ timeout: 1.5 }, "positive integer"],
+    [{ timeout: 2_147_483_648 }, "positive integer"],
+    [{ env: { MODE: "test" } }, "unsupported keys: env"],
+  ])("rejects invalid package Sandbox metadata", async (sandboxOptions, message) => {
+    const root = await createRoot()
+    const entry = join(root, "index.ts")
+    await writeFile(join(root, "package.json"), JSON.stringify({
+      private: true,
+      vitehub: { sandbox: sandboxOptions },
+    }))
+    await writeFile(entry, "export default null")
+
+    await expect(resolveSandboxProject(entry, root, { readSandboxOptions: true }))
+      .rejects.toThrow(message)
+  })
+
   it("resolves independent nearest package roots", async () => {
     const root = await createRoot()
     const first = join(root, "sandboxes/first")
@@ -73,7 +151,7 @@ describe("resolveSandboxProject", () => {
     const first = join(root, "packages/first")
     const second = join(root, "packages/second")
     await Promise.all([mkdir(sandbox, { recursive: true }), mkdir(first, { recursive: true }), mkdir(second, { recursive: true })])
-    await writeFile(join(root, "pnpm-workspace.yaml"), "packages:\n  - sandboxes/*\n  - packages/*\n")
+    await writeFile(join(root, "pnpm-workspace.yaml"), "packages: ['sandboxes/*', 'packages/*']\n")
     await writeFile(join(sandbox, "package.json"), JSON.stringify({ dependencies: { "@fixture/first": "workspace:*" }, private: true }))
     await writeFile(join(first, "package.json"), JSON.stringify({ dependencies: { "@fixture/second": "workspace:^" }, name: "@fixture/first", type: "module" }))
     await writeFile(join(first, "index.js"), "export { value } from '@fixture/second'\n")
@@ -96,15 +174,35 @@ describe("resolveSandboxProject", () => {
     await Promise.all([mkdir(sandbox, { recursive: true }), mkdir(first, { recursive: true }), mkdir(second, { recursive: true })])
     await writeFile(join(root, "pnpm-workspace.yaml"), "packages:\n  - sandboxes/*\n  - packages/*\n")
     await writeFile(join(sandbox, "package.json"), JSON.stringify({ dependencies: { "@fixture/first": "workspace:*" }, private: true }))
+    await mkdir(join(sandbox, "lib"))
+    await writeFile(join(sandbox, "lib/prompt.md"), "relative helper asset")
+    await writeFile(join(sandbox, "lib/helper.ts"), [
+      "import { readFile } from 'node:fs/promises'",
+      "export const asset = await readFile(new URL('./prompt.md', import.meta.url), 'utf8')",
+      "",
+    ].join("\n"))
+    await writeFile(join(sandbox, "lib/helper.d.ts"), "export { Missing } from './missing'\n")
     await writeFile(join(first, "package.json"), JSON.stringify({ dependencies: { "@fixture/second": "workspace:*" }, exports: "./index.js", name: "@fixture/first", type: "module" }))
     await writeFile(join(first, "index.js"), "export { value } from '@fixture/second'\n")
     await writeFile(join(second, "package.json"), JSON.stringify({ exports: "./index.js", name: "@fixture/second", type: "module" }))
     await writeFile(join(second, "index.js"), "export const value = 42\n")
-    const definitionFile = join(sandbox, "run.sandbox.ts")
-    await writeFile(definitionFile, "import { defineSandbox } from '@vite-hub/sandbox'\nimport { value } from '@fixture/first'\nexport default defineSandbox({ run() { return value } })\n")
+    const definitionFile = join(sandbox, "index.ts")
+    await writeFile(definitionFile, [
+      "import { readFile } from 'node:fs/promises'",
+      "import { value } from '@fixture/first'",
+      "import { asset } from './lib/helper.ts'",
+      "const { payload, context } = JSON.parse(await readFile(process.argv[2], 'utf8'))",
+      "await Promise.resolve()",
+      "export default { asset, context, payload, value }",
+      "",
+    ].join("\n"))
 
     const project = await resolveSandboxProject(definitionFile, root)
-    const bundle = await bundleSandboxDefinition(await readFile(definitionFile, "utf8"), definitionFile, { project })
+    expect(project.files).toHaveProperty("sandboxes/image/lib/prompt.md")
+    const bundle = await bundleSandboxDefinition(await readFile(definitionFile, "utf8"), definitionFile, {
+      execution: "module",
+      project,
+    })
     const box = await resolveBox({ runtime: trustedHost() }, {}, { requires: ["node", "pnpm"] })
     const session = await box.open()
     try {
@@ -118,7 +216,19 @@ describe("resolveSandboxProject", () => {
         cwd: options?.cwd && physical(options.cwd),
       })
       execution.writeFile = async (path, contents) => await writeFile(path, contents.replaceAll('/tmp/vitehub-sandbox', `${root}/tmp/vitehub-sandbox`))
-      await expect(executeSandboxDefinition(execution, "workspace-dependency", undefined, bundle)).resolves.toBe(42)
+      await expect(executeSandboxDefinition(
+        execution,
+        "workspace-dependency",
+        undefined,
+        bundle,
+        { requested: true },
+        { requestId: "test" },
+      )).resolves.toEqual({
+        asset: "relative helper asset",
+        context: { requestId: "test" },
+        payload: { requested: true },
+        value: 42,
+      })
     }
     finally {
       await session.close()

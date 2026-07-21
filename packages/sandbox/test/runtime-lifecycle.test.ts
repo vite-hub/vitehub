@@ -197,4 +197,40 @@ describe("Sandbox runtime lifecycle", () => {
       { requires: ["node", "pnpm"] },
     )
   })
+
+  it("accepts package entries stored in project files", async () => {
+    const packageDefinition = {
+      bundle: {
+        entry: "sandboxes/example/index.ts",
+        execution: "module" as const,
+        modules: {},
+        project: {
+          digest: "a".repeat(64),
+          files: {
+            "sandboxes/example/index.ts": {
+              contents: Buffer.from("export default { ok: true }").toString("base64"),
+              encoding: "base64" as const,
+            },
+          },
+          install: { args: ["install"], command: "npm" as const, cwd: "." },
+          packagePath: "sandboxes/example",
+        },
+      },
+    }
+    setSandboxRuntimeConfig({ provider: "vercel" })
+    setSandboxRuntimeRegistry({ example: packageDefinition })
+    runtimeMocks.executeSandboxDefinition.mockResolvedValue({ ok: true })
+
+    const result = await runSandboxRuntime("example")
+
+    expect(result.isOk()).toBe(true)
+    expect(runtimeMocks.executeSandboxDefinition).toHaveBeenCalledWith(
+      expect.anything(),
+      "example",
+      undefined,
+      packageDefinition.bundle,
+      undefined,
+      undefined,
+    )
+  })
 })

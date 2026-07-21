@@ -45,6 +45,7 @@ export type AgentSandboxConfig =
 
 export interface SandboxDefinitionBundle {
   entry: string
+  execution?: 'definition' | 'module'
   modules: Record<string, string>
   project?: SandboxProject
 }
@@ -68,6 +69,10 @@ type SandboxDefinitionResult<THandler extends (...args: any[]) => any>
 export interface SandboxDefinitionOptions {
   timeout?: number
   env?: Record<string, string>
+}
+
+export interface SandboxProjectOptions {
+  timeout?: number
 }
 
 export interface SandboxDefinitionInput<TPayload = unknown, TResult = unknown>
