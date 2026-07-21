@@ -54,6 +54,9 @@ jobs:
 
       - run: vp run --filter vitehub-docs test
       - run: vp run docs:build
+      - name: Verify Worker bundle
+        working-directory: docs
+        run: vp dlx "wrangler@4.112.0" deploy --dry-run --config .output/server/wrangler.json
 
   consumer:
     name: consumer
