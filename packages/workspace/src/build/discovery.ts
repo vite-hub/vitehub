@@ -157,25 +157,28 @@ export function discoverViteWorkspaceDefinitions(rootDir: string, options: { ser
   )
 }
 
-function createWorkspaceRegistryEntry(definition: DiscoveredWorkspaceDefinition, importExpression: string): string {
+function createWorkspaceRegistryEntry(definition: DiscoveredWorkspaceDefinition, importExpression: string, override?: { store: unknown }): string {
+  const defaultValue = [
+    "...mod.default",
+    ...(definition.sourceRootDir ? [`sourceRootDir: mod.default.sourceRootDir ?? ${JSON.stringify(definition.sourceRootDir)}`] : []),
+    ...(override ? [`store: ${JSON.stringify(override.store)}`] : []),
+  ].join(", ")
   return [
     `  ${JSON.stringify(definition.name)}: async () => {`,
     `    const mod = await ${importExpression}`,
-    definition.sourceRootDir
-      ? `    return { ...mod, default: { ...mod.default, sourceRootDir: mod.default.sourceRootDir ?? ${JSON.stringify(definition.sourceRootDir)} } }`
-      : "    return mod",
+    definition.sourceRootDir || override ? `    return { ...mod, default: { ${defaultValue} } }` : "    return mod",
     "  },",
   ].join("\n")
 }
 
-export function createWorkspaceRegistryContents(registryFile: string, definitions: DiscoveredWorkspaceDefinition[]): string {
+export function createWorkspaceRegistryContents(registryFile: string, definitions: DiscoveredWorkspaceDefinition[], overrides?: Map<string, { store: unknown }>): string {
   const importExpression = (file: string) => {
     const importPath = relative(resolve(registryFile, ".."), file)
     return `import(${JSON.stringify(importPath.startsWith(".") ? importPath : `./${importPath}`)})`
   }
   return [
     "const registry = {",
-    ...definitions.map(definition => createWorkspaceRegistryEntry(definition, importExpression(definition.handler))),
+    ...definitions.map(definition => createWorkspaceRegistryEntry(definition, importExpression(definition.handler), overrides?.get(definition.name))),
     "}",
     "export default registry",
     "",

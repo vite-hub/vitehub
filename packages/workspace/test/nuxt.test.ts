@@ -128,6 +128,8 @@ describe("Workspace Nuxt module", () => {
     })).resolves.toMatchObject({
       cloudflare: { wrangler: { artifacts: [{ binding: "ENV_ARTIFACTS", namespace: "environment" }] } },
     })
+    const registry = await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")
+    expect(registry).toContain('store: {"binding":"ENV_ARTIFACTS","namespace":"environment","provider":"cloudflare-artifacts"')
   })
 
   it("does not load non-Artifact Workspace Definitions before Nuxt aliases are available", async () => {
@@ -148,7 +150,7 @@ describe("Workspace Nuxt module", () => {
     await mkdir(definitionRoot, { recursive: true })
     await writeFile(join(definitionRoot, "artifact-options.ts"), "export type ArtifactOptions = { provider: 'cloudflare-artifacts' }\n")
     await writeFile(join(definitionRoot, "typed.ts"), [
-      "import type { ArtifactOptions } from './artifact-options'",
+      "import { type ArtifactOptions } from './artifact-options'",
       "import { workspaceRoot } from '#imports'",
       "export default { root: workspaceRoot, store: { provider: 'memory' } } satisfies { store: ArtifactOptions | { provider: 'memory' } }",
       "",
