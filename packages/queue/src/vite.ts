@@ -14,14 +14,32 @@ import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment
 import type { Plugin, ResolvedConfig } from "vite"
 
 interface QueueProvisionContributingPlugin {
-  vitehub?: { cli?: () => Promise<ViteHubCliContributor> }
+  vitehub?: {
+    cli?: () => Promise<ViteHubCliContributor>
+    queue?: {
+      createNitroConfig: (options: QueueNitroConfigOptions) => Promise<Record<string, unknown>>
+    }
+  }
 }
 
 export type QueueVitePlugin = Plugin & QueueProvisionContributingPlugin
 
+export interface QueueNitroConfigOptions {
+  nitro: Record<string, unknown>
+  root: string
+}
+
 export { createCloudflareQueueConfig, type CloudflareQueueConfig, type CloudflareQueueConfigOptions } from "./internal/vite-build.ts"
 
 const mergeNoExternal = createNoExternalMerger(queuePackageName)
+
+export async function createQueueNitroConfig(plugin: QueueVitePlugin, options: QueueNitroConfigOptions): Promise<Record<string, unknown>> {
+  const createNitroConfig = plugin.vitehub?.queue?.createNitroConfig
+  if (!createNitroConfig) {
+    throw new Error("The existing @vite-hub/queue/vite plugin does not expose Queue Nitro configuration.")
+  }
+  return createNitroConfig(options)
+}
 
 function cloneNitroConfig(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
@@ -130,6 +148,18 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
             },
           )],
         }
+      },
+      queue: {
+        async createNitroConfig({ nitro, root }) {
+          const config = { nitro }
+          const definitions = discoverQueueDefinitions({ rootDir: root })
+          const configuredNitro = mergeNitroConfig(config, nitro, queue, root, definitions)
+          const hosting = resolveQueueHosting(queue, configuredNitro)
+          const nitroHosting = resolveNitroHosting(configuredNitro)
+          const nitroQueue = queue !== false && queue?.provider && nitroHosting && queue.provider !== nitroHosting ? false : queue
+          await writeQueueNitroIntegration(root, nitroQueue, hosting, supportsCloudflareQueues(configuredNitro), definitions)
+          return configuredNitro
+        },
       },
     },
     config(config) {
