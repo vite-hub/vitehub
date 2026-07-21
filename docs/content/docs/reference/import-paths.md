@@ -30,6 +30,9 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
 | `vite-hub/blob` | Blob Runtime Helpers and Blob Store access. |
 | `vite-hub/blob/content-type` | Detect common image and PDF signatures from leading bytes before upload. |
+| `vite-hub/browser` | Browser Session lifecycle, feature negotiation, inspection, and live handoff. |
+| `vite-hub/browser/controllers/cdp` and `vite-hub/browser/controllers/playwright` | Raw CDP and Playwright Browser Session controllers. |
+| `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Cloudflare Browser Run and local Chromium providers. |
 | `vite-hub/box` | Box Definitions and trusted-host execution contracts. |
 | `vite-hub/box/cloudflare`, `vite-hub/box/crabbox`, and `vite-hub/box/vercel` | Cloudflare, Crabbox, and Vercel Box runtimes. |
 | `vite-hub/database` and `vite-hub/database/drizzle` | Database Definitions and generated Drizzle access. |
@@ -80,6 +83,9 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/auth/server` | Auth Package | Better Auth runtime creation, request handlers, and session access for manual host integration. |
 | `@vite-hub/blob` | Blob Package | Blob Runtime Helpers and Blob Store access. |
 | `@vite-hub/blob/content-type` | Blob Package | Detect common image and PDF signatures from leading bytes before upload. |
+| `@vite-hub/browser` | Browser Package | Browser Session lifecycle, feature negotiation, inspection, and live handoff. |
+| `@vite-hub/browser/controllers/cdp` and `@vite-hub/browser/controllers/playwright` | Browser Package | Raw CDP and Playwright Browser Session controllers. |
+| `@vite-hub/browser/providers/cloudflare` and `@vite-hub/browser/providers/local` | Browser Package | Cloudflare Browser Run and local Chromium providers. |
 | `@vite-hub/box` | Box Package | Box Definitions, sessions, and trusted-host execution. |
 | `@vite-hub/box/cloudflare`, `@vite-hub/box/crabbox`, and `@vite-hub/box/vercel` | Box Package | Cloudflare, Crabbox, and Vercel Box runtimes. |
 | `@vite-hub/email` | Email Package | Email Definition, explicit clients, portable types, and normalized errors. |
@@ -115,6 +121,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/agent/vite` | Register the Agent Vite Integration. |
 | `@vite-hub/auth/vite` | Register the Auth Vite Integration. |
 | `@vite-hub/blob/vite` | Register the Blob Vite Integration. |
+| `@vite-hub/browser/vite` | Register Cloudflare Browser Run Provider Output. |
 | `@vite-hub/database/vite` | Register the Database Vite Integration. |
 | `@vite-hub/email/vite` | Register singleton Email Definition discovery and runtime binding. |
 | `@vite-hub/env/vite` | Register the Env Vite Integration and `env()` declaration helper. |
