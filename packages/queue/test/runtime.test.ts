@@ -11,9 +11,12 @@ import { createVercelQueueClient } from "../src/providers/vercel.ts"
 import { handleHostedVercelQueueCallback } from "../src/runtime/hosted.ts"
 import { runQueue } from "../src/runtime/client.ts"
 import { createQueueCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
+import { createCloudflareQueueRuntimeClient } from "../src/internal/runtime/cloudflare-client.ts"
+import { createQueueClient } from "../src/runtime/create-client.ts"
 import { createQueueVercelServer } from "../src/runtime/vercel-vite.ts"
+import { createVercelQueueRuntimeClient } from "../src/internal/runtime/vercel-client.ts"
 import { deferQueue } from "../src/runtime/client.ts"
-import { enterQueueRuntimeEvent, getQueueRuntimeEvent, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/runtime/state.ts"
+import { enterQueueRuntimeEvent, getQueueRuntimeClientFactory, getQueueRuntimeEvent, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/runtime/state.ts"
 
 import type { VercelQueueCallbackOptions } from "../src/types.ts"
 
@@ -61,6 +64,30 @@ afterEach(() => {
 })
 
 describe("cloudflare queue runtime", () => {
+  it("clears the selected client factory when Queue support is disabled", () => {
+    setQueueRuntimeConfig({ provider: "vercel" }, createVercelQueueRuntimeClient)
+    expect(getQueueRuntimeClientFactory()).toBe(createVercelQueueRuntimeClient)
+
+    setQueueRuntimeConfig(false)
+    expect(getQueueRuntimeClientFactory()).toBeUndefined()
+  })
+
+  it("selects an explicit Queue client without generated runtime state", async () => {
+    const cloudflareSend = vi.fn(async () => {})
+    const cloudflare = await createQueueClient({ binding: { send: cloudflareSend, sendBatch: vi.fn(async () => {}) }, provider: "cloudflare" })
+    await cloudflare.send({ payload: "cloudflare" })
+    expect(cloudflareSend).toHaveBeenCalledWith("cloudflare", {})
+
+    const vercelSend = vi.fn(async () => ({ messageId: "message-1" }))
+    const vercel = await createQueueClient({
+      client: { handleCallback: vi.fn(), send: vercelSend },
+      provider: "vercel",
+      topic: "topic",
+    })
+    await vercel.send({ payload: "vercel" })
+    expect(vercelSend).toHaveBeenCalledWith("topic", "vercel", expect.any(Object))
+  })
+
   it("rejects region for single and batch sends while forwarding supported options", async () => {
     const send = vi.fn(async () => {})
     const sendBatch = vi.fn(async () => {})
@@ -420,7 +447,7 @@ describe("cloudflare queue runtime", () => {
     const waitUntil = vi.fn()
     const sendBatch = vi.fn(async () => {})
 
-    setQueueRuntimeConfig({ provider: "cloudflare" })
+    setQueueRuntimeConfig({ provider: "cloudflare" }, createCloudflareQueueRuntimeClient)
     setQueueRuntimeRegistry({
       welcome: async () => ({
         default: {
@@ -460,7 +487,7 @@ describe("cloudflare queue runtime", () => {
       },
     }
 
-    setQueueRuntimeConfig({ provider: "cloudflare" })
+    setQueueRuntimeConfig({ provider: "cloudflare" }, createCloudflareQueueRuntimeClient)
     setQueueRuntimeRegistry({
       welcome: async () => ({
         default: {
@@ -493,7 +520,7 @@ describe("cloudflare queue runtime", () => {
     const sendBatch = vi.fn(async () => {})
     const waitUntil = vi.fn()
 
-    setQueueRuntimeConfig({ provider: "cloudflare" })
+    setQueueRuntimeConfig({ provider: "cloudflare" }, createCloudflareQueueRuntimeClient)
     setQueueRuntimeRegistry({
       welcome: async () => ({
         default: {
@@ -525,6 +552,11 @@ describe("cloudflare queue runtime", () => {
 })
 
 describe("vercel provider", () => {
+  it("requires a selected client factory for default manual servers", () => {
+    expect(() => createQueueVercelServer({} as never)).toThrow("requires its generated client factory")
+    expect(() => createQueueVercelServer({ queue: false })).not.toThrow()
+  })
+
   it("uses the sdk send and callback contract", async () => {
     const send = vi.fn(async () => ({ messageId: "message-1" }))
     const handleCallback = vi.fn(() => async () => new Response("queued"))
@@ -681,7 +713,7 @@ describe("vercel provider", () => {
         return (options as VercelQueueCallbackOptions).retry?.(error, metadata)
       }
     })
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" })
+    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
     const result = await handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)
@@ -717,7 +749,7 @@ describe("vercel provider", () => {
         return (options as VercelQueueCallbackOptions).retry?.(error, metadata)
       }
     })
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" })
+    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
     const result = await handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)
@@ -756,7 +788,7 @@ describe("vercel provider", () => {
   })
 
   it("does not cache regions inferred from Vercel requests", async () => {
-    setQueueRuntimeConfig({ provider: "vercel" })
+    setQueueRuntimeConfig({ provider: "vercel" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({
       welcome: async () => ({ handler: async () => {} }),
     })
@@ -775,6 +807,7 @@ describe("vercel provider", () => {
         deferQueue("welcome-email", { email: "ava@example.com" })
         return new Response("ok")
       },
+      createClient: createVercelQueueRuntimeClient,
       queue: { provider: "vercel" },
       registry: {
         "welcome-email": async () => ({
@@ -794,6 +827,7 @@ describe("vercel provider", () => {
     const response = await fetch(`http://127.0.0.1:${address.port}/`)
     expect(await response.text()).toBe("ok")
     expect(vercelFunctionsMock.waitUntil).toHaveBeenCalledTimes(1)
+    await vercelFunctionsMock.waitUntil.mock.calls[0]?.[0]
     expect(vercelQueueMock.send).toHaveBeenCalledTimes(1)
 
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))

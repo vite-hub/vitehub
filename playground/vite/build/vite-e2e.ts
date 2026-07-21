@@ -280,7 +280,8 @@ function renderQueueRuntimeModule(file: string) {
     `export { defineQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/definition.ts")))}`,
     `export { createQueueMessageId } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/enqueue.ts")))}`,
     `export { QueueError } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/errors.ts")))}`,
-    `export { createQueueClient, deferQueue, getQueue, runQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/client.ts")))}`,
+    `export { deferQueue, getQueue, runQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/client.ts")))}`,
+    `export { createQueueClient } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/create-client.ts")))}`,
     "",
   ].join("\n")
 }
@@ -875,6 +876,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     `import { clearActiveCloudflareEnv, createCloudflareRuntimeEvent, runWithActiveCloudflareEnv, setActiveCloudflareEnv } from ${JSON.stringify(createImportPath(file, cloudflareEnv))}`,
     `import app from ${JSON.stringify(createImportPath(file, appEntry))}`,
     `import { createCloudflareQueueBatchHandler } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/providers/cloudflare.ts")))}`,
+    `import { createCloudflareQueueRuntimeClient } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/internal/runtime/cloudflare-client.ts")))}`,
     `import { createQueueJob } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/cloudflare-shared.ts")))}`,
     `import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/state.ts")))}`,
     `import { executeStaticSchedule } from ${JSON.stringify(createImportPath(file, resolve(schedulePackageDir, "src/runtime/execute.ts")))}`,
@@ -932,7 +934,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     `const blobConfig = ${JSON.stringify(options.blob || false, null, 2)}`,
     `const sandboxConfig = ${JSON.stringify(artifacts.sandboxConfig || false, null, 2)}`,
     `const workspaceConfig = ${JSON.stringify(options.workspace || false, null, 2)}`,
-    "setQueueRuntimeConfig(queueConfig)",
+    "setQueueRuntimeConfig(queueConfig, createCloudflareQueueRuntimeClient)",
     `setQueueRuntimeRegistry(${artifacts.queueRegistryFile ? "queueRegistry" : "undefined"})`,
     "setWorkflowRuntimeConfig(workflowConfig)",
     `setWorkflowRuntimeRegistry(${artifacts.workflowRegistryFile ? "workflowRegistry" : "undefined"})`,
@@ -1028,6 +1030,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     `import { H3, fromWebHandler } from "h3"`,
     `import { toNodeHandler } from "h3/node"`,
     `import { resolveAppFetch } from ${JSON.stringify(createImportPath(file, resolveApp))}`,
+    `import { createVercelQueueRuntimeClient } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/internal/runtime/vercel-client.ts")))}`,
     `import { setQueueRuntimeConfig, setQueueRuntimeRegistry, runWithQueueRuntimeEvent } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/state.ts")))}`,
     `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, runWithWorkflowRuntimeEvent } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/state.ts")))}`,
     `import { setBlobRuntimeConfig } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/runtime/state.ts")))}`,
@@ -1036,7 +1039,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     `import app from ${JSON.stringify(createImportPath(file, appEntry))}`,
   ]
   if (preloadVercelQueue) {
-    imports.push("import * as __vitehubVercelQueue from '@vercel/queue'")
+    imports.push(`import * as __vitehubVercelQueue from ${JSON.stringify(createImportPath(file, resolvePackageDependency(queuePackageDir, "@vercel/queue")))}`)
   }
 
   if (workspaceProvider === "vercel-blob") {
@@ -1064,7 +1067,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     `const blobConfig = ${JSON.stringify(options.blob || false, null, 2)}`,
     `const sandboxConfig = ${JSON.stringify(artifacts.sandboxConfig || false, null, 2)}`,
     `const workspaceConfig = ${JSON.stringify(options.workspace || false, null, 2)}`,
-    "setQueueRuntimeConfig(queueConfig)",
+    "setQueueRuntimeConfig(queueConfig, createVercelQueueRuntimeClient)",
     `setQueueRuntimeRegistry(${artifacts.queueRegistryFile ? "queueRegistry" : "undefined"})`,
     "setWorkflowRuntimeConfig(workflowConfig)",
     `setWorkflowRuntimeRegistry(${artifacts.workflowRegistryFile ? "workflowRegistry" : "undefined"})`,
@@ -1109,17 +1112,18 @@ function renderVercelQueueWrapper(file: string, queueRegistryFile: string, defin
     "import { toNodeHandler } from 'h3/node'",
   ]
   if (preloadVercelQueue) {
-    imports.push("import * as __vitehubVercelQueue from '@vercel/queue'")
+    imports.push(`import * as __vitehubVercelQueue from ${JSON.stringify(createImportPath(file, resolvePackageDependency(queuePackageDir, "@vercel/queue")))}`)
   }
 
   return [
     ...imports,
+    `import { createVercelQueueRuntimeClient } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/internal/runtime/vercel-client.ts")))}`,
     `import { handleHostedVercelQueueCallback, hostedVercelWaitUntil } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/hosted.ts")))}`,
     `import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/state.ts")))}`,
     `import queueRegistry from ${JSON.stringify(createImportPath(file, queueRegistryFile))}`,
     "",
     preloadVercelQueue ? "globalThis.__vitehubVercelQueue = __vitehubVercelQueue" : "",
-    `setQueueRuntimeConfig(${JSON.stringify(queueConfig || false, null, 2)})`,
+    `setQueueRuntimeConfig(${JSON.stringify(queueConfig || false, null, 2)}, createVercelQueueRuntimeClient)`,
     "setQueueRuntimeRegistry(queueRegistry)",
     "",
     "const app = new H3()",

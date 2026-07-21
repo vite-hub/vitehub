@@ -95,6 +95,14 @@ it("preserves Queue and Rate Limit bindings in Nitro Cloudflare output", async (
       "})",
       "",
     ].join("\n"), "utf8")
+    await writeFile(join(root, "server/api/queue.get.ts"), [
+      "export default defineEventHandler(async () => {",
+      '  const { deferQueue } = await import("vite-hub/queue")',
+      '  deferQueue("image-optimization", { payload: "queued" })',
+      '  return "queued"',
+      "})",
+      "",
+    ].join("\n"), "utf8")
     const builder = await createBuilder({
       nitro: {
         cloudflare: {

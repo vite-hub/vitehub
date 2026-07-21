@@ -11,7 +11,7 @@ import {
 import { getCloudflareQueueBindingName } from "../integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 
-import { getQueueClientCache, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent } from "./state.ts"
+import { getQueueClientCache, getQueueRuntimeClientFactory, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent } from "./state.ts"
 
 import type { CloudflareQueueClient, CloudflareQueueProviderOptions, QueueClient, QueueEnqueueInput, QueueProviderOptions, QueueSendResult, ResolvedQueueOptions, VercelQueueProviderOptions } from "../types.ts"
 
@@ -62,16 +62,6 @@ function toProviderOptions(name: string, config: ResolvedQueueOptions): QueuePro
   } satisfies VercelQueueProviderOptions
 }
 
-export async function createQueueClient(options: QueueProviderOptions): Promise<QueueClient> {
-  if (options.provider === "cloudflare") {
-    const { createCloudflareQueueClient } = await import("../providers/cloudflare.ts")
-    return createCloudflareQueueClient(options)
-  }
-
-  const { createVercelQueueClient } = await import("../providers/vercel.ts")
-  return await createVercelQueueClient(options)
-}
-
 function getActiveQueueConfig(): false | ResolvedQueueOptions {
   const config = getQueueRuntimeConfig()
   if (config === false) {
@@ -98,7 +88,11 @@ async function createNamedQueueClient(name: string): Promise<QueueClient> {
   }
 
   const provider = toProviderOptions(name, config)
-  return await runQueueProviderOperation(provider.provider, "create-client", () => createQueueClient(provider))
+  const createClient = getQueueRuntimeClientFactory()
+  if (!createClient) {
+    throw new Error("[vitehub] Queue Client is installed by generated Provider Output.")
+  }
+  return await runQueueProviderOperation(provider.provider, "create-client", () => createClient(provider))
 }
 
 export async function getQueue(name: string): Promise<QueueClient> {

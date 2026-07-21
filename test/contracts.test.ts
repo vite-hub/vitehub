@@ -194,6 +194,10 @@ describe("playground import contracts", () => {
       viteE2e.indexOf("function renderWorkspaceRuntimeModule"),
       viteE2e.indexOf("function renderWorkspaceShellRuntimeModule"),
     )
+    const vercelQueueWrapper = viteE2e.slice(
+      viteE2e.indexOf("function renderVercelQueueWrapper"),
+      viteE2e.indexOf("function renderVercelScheduleWrapper"),
+    )
     const sourceExports = [...sourceIndex.matchAll(/^export \{ (\w+) \}/gm)].map(match => match[1]).sort()
     const shimExports = [...workspaceShim.matchAll(/`export (?:\{ (\w+) \}|\* as (\w+)|const (\w+) =)/g)].map(match => match[1] || match[2] || match[3]).sort()
     const sourceShim = workspaceShim.match(/export const source = \{([^`]+)\}/)?.[1] || ""
@@ -202,6 +206,13 @@ describe("playground import contracts", () => {
     expect(shimExports).toEqual(["defineWorkspace", "source", "useWorkspace"])
     expect(shimProperties.sort()).toEqual(sourceExports)
     expect(viteE2e).toContain('alias["@vite-hub/workspace/internal/runtime/workspace"] = workspaceRuntimeFile')
+    expect(viteE2e).toContain('resolve(queuePackageDir, "src/runtime/create-client.ts")')
+    expect(viteE2e).not.toContain('export { createQueueClient, deferQueue, getQueue, runQueue }')
+    expect(viteE2e).toContain("setQueueRuntimeConfig(queueConfig, createCloudflareQueueRuntimeClient)")
+    expect(viteE2e).toContain("setQueueRuntimeConfig(queueConfig, createVercelQueueRuntimeClient)")
+    expect(vercelQueueWrapper).toContain("createVercelQueueRuntimeClient")
+    expect(vercelQueueWrapper).toContain("}, createVercelQueueRuntimeClient)`")
+    expect(viteE2e).not.toContain('"setQueueRuntimeConfig(queueConfig)"')
   })
 })
 

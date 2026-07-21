@@ -6,6 +6,7 @@ import { getCloudflareQueueName } from "../internal/cloudflare-resource-name.ts"
 import { createCloudflareQueueBatchHandler } from "../providers/cloudflare.ts"
 
 import { createCloudflareRuntimeEvent, createQueueJob, runWithActiveCloudflareEnv, type CloudflareWorkerEnv, type CloudflareWorkerExecutionContext } from "./cloudflare-shared.ts"
+import { createCloudflareQueueRuntimeClient } from "../internal/runtime/cloudflare-client.ts"
 import type { QueueApp } from "./_app.ts"
 import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "./state.ts"
 
@@ -47,7 +48,7 @@ export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOption
     : undefined
 
   const applyRuntimeState = () => {
-    setQueueRuntimeConfig(queueConfig)
+    setQueueRuntimeConfig(queueConfig, createCloudflareQueueRuntimeClient)
     setQueueRuntimeRegistry(registry)
   }
 

@@ -116,9 +116,12 @@ describe("Vite provider outputs", () => {
     expect(vercelConsumerContents).not.toContain("runWithQueueRuntimeEvent({ req, res },")
     expect(vercelConsumerContents).toContain("__vitehubVercelQueue")
     expect(vercelConsumerContents).toContain("@vercel/queue")
+    expect(vercelConsumerContents).toContain("createVercelQueueRuntimeClient")
+    expect(vercelConsumerContents).not.toContain("createCloudflareQueueRuntimeClient")
     expect(vercelConsumerContents).toContain("reportQueueMarker")
     expect(vercelServerContents).toContain("/api/tests/queue")
     expect(vercelServerContents).toContain("globalThis.__vitehubVercelQueue =")
+    expect(vercelServerContents).not.toContain("createCloudflareQueueRuntimeClient")
     expect(vercelConsumerTrigger).toEqual({
       consumer: "api_Svitehub_Squeues_Svercel_Swelcome-email_Swelcome-email_Dfunc",
       topic: "topic--77656c636f6d652d656d61696c",
@@ -348,7 +351,7 @@ describe("Vite provider outputs", () => {
     expect(await readFile(join(outputRoot, "wrangler.json"), "utf8").then(JSON.parse)).toHaveProperty("queues")
   })
 
-  it("does not preload Vercel queue without queue definitions", async () => {
+  it("preloads Vercel queue for direct clients without queue definitions", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-no-definitions-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
@@ -361,7 +364,83 @@ describe("Vite provider outputs", () => {
     })
 
     const vercelServerContents = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
-    expect(vercelServerContents).not.toContain("globalThis.__vitehubVercelQueue =")
+    expect(vercelServerContents).toContain("globalThis.__vitehubVercelQueue =")
+    expect(vercelServerContents).toContain("@vercel/queue")
+  })
+
+  it("dispatches from one generated Vercel callback to another Queue", { timeout: 90_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-vercel-nested-dispatch-")
+    const standaloneDir = await mkdtemp(join(tmpdir(), "vitehub-queue-vercel-nested-dispatch-standalone-"))
+    tempDirs.push(standaloneDir)
+    const entry = join(rootDir, "src", "server.ts")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "server", "queues"), { recursive: true })
+    await writeFile(join(rootDir, "package.json"), `${JSON.stringify({ type: "module" }, null, 2)}\n`, "utf8")
+    await writeFile(entry, "export default async () => new Response('ok')\n", "utf8")
+    await writeFile(join(rootDir, "server", "queues", "source.ts"), [
+      "import { runQueue } from '@vite-hub/queue'",
+      "export default { handler: async () => {",
+      "  await runQueue('target', { nested: true })",
+      "} }",
+      "",
+    ].join("\n"), "utf8")
+    await writeFile(join(rootDir, "server", "queues", "target.ts"), "export default { handler: async () => undefined }\n", "utf8")
+
+    await build({
+      appType: "custom",
+      build: {
+        outDir: "dist",
+        rollupOptions: {
+          input: entry,
+          output: { entryFileNames: "server.mjs" },
+        },
+        ssr: entry,
+      },
+      configFile: false,
+      logLevel: "silent",
+      nitro: { preset: "vercel" },
+      plugins: [hubQueue()],
+      queue: { provider: "vercel" },
+      root: rootDir,
+    } as never)
+
+    const callbackFunctionDir = join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "source", "source.func")
+    const callbackFunction = join(callbackFunctionDir, "index.mjs")
+    const callbackContents = await readFile(callbackFunction, "utf8")
+    expect(callbackContents).toContain("createVercelQueueRuntimeClient")
+    expect(callbackContents).not.toContain("createCloudflareQueueRuntimeClient")
+
+    await cp(callbackFunctionDir, standaloneDir, { recursive: true })
+    const handler = (await import(`${pathToFileURL(join(standaloneDir, "index.mjs")).href}?t=${Date.now()}`)).default
+    ;(globalThis as Record<string, unknown>).__vitehubVercelQueue = {
+      handleCallback: (callback: (payload: unknown, metadata: unknown) => Promise<void>) => async () => {
+        await callback({ source: true }, { deliveryCount: 1, messageId: "source-message" })
+        return new Response("handled")
+      },
+      send: async (topic: string, payload: unknown, options: unknown) => {
+        ;(globalThis as Record<string, unknown>).__vitehubNestedQueueDispatch = { options, payload, topic }
+        return { messageId: "nested-message" }
+      },
+    }
+    const server = createServer(handler)
+    server.listen(0, "127.0.0.1")
+    await once(server, "listening")
+    try {
+      const address = server.address()
+      if (!address || typeof address === "string") throw new Error("Missing Queue callback address.")
+      const response = await fetch(`http://127.0.0.1:${address.port}`, { method: "POST" })
+      expect(await response.text()).toBe("handled")
+      expect((globalThis as Record<string, unknown>).__vitehubNestedQueueDispatch).toMatchObject({
+        payload: { nested: true },
+        topic: "topic--746172676574",
+      })
+    }
+    finally {
+      server.close()
+      await once(server, "close")
+      delete (globalThis as Record<string, unknown>).__vitehubNestedQueueDispatch
+      delete (globalThis as Record<string, unknown>).__vitehubVercelQueue
+    }
   })
 
   it("closes composed Blob runtimes inside isolated Vercel queue functions", { timeout: 90_000 }, async () => {
