@@ -12,7 +12,7 @@ const records = [
   { authors: [], category: "note", id: 4, slug: "untagged", summary: "No author", title: "Untagged" },
 ]
 
-async function createCollection(name: string, items = records) {
+async function createCollection(name: string, items: unknown[] = records) {
   registerWorkspace(name, defineWorkspace({ store: { provider: "memory" } }))
   const workspace = useWorkspace(name, { mode: "write" })
   await workspace.fs.writeFile("data/items.json", JSON.stringify(items))
@@ -99,6 +99,20 @@ describe("Workspace Collections", () => {
     })).resolves.toMatchObject({ item: null })
   })
 
+  it("sorts numeric fields numerically", async () => {
+    await createCollection("collection-numeric-sort", [
+      { rank: 10 },
+      { rank: 2 },
+      { rank: 1 },
+    ])
+
+    await expect(queryWorkspaceCollection({
+      path: "data/items.json",
+      query: { sort: { field: "rank" } },
+      workspace: "collection-numeric-sort",
+    })).resolves.toMatchObject({ items: [{ rank: 1 }, { rank: 2 }, { rank: 10 }] })
+  })
+
   it("rejects malformed, query-mismatched, and content-stale cursors", async () => {
     const workspace = await createCollection("collection-cursors")
     const first = await queryWorkspaceCollection({
@@ -115,6 +129,11 @@ describe("Workspace Collections", () => {
     await expect(queryWorkspaceCollection({
       path: "data/items.json",
       query: { cursor: first.nextCursor!, limit: 1, search: "alpha", searchFields: ["title"], sort: { field: "slug" } },
+      workspace: "collection-cursors",
+    })).rejects.toMatchObject({ reason: "stale" })
+    await expect(queryWorkspaceCollection({
+      path: "data/items.json",
+      query: { cursor: first.nextCursor!, limit: 2, sort: { field: "slug" } },
       workspace: "collection-cursors",
     })).rejects.toMatchObject({ reason: "stale" })
 

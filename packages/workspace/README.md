@@ -122,7 +122,7 @@ const articles = useWorkspaceCollection("/api/articles", {
 const article = useWorkspaceCollectionItem("/api/articles", selectedSlug)
 ```
 
-Collection queries parse and cache the JSON array in the server runtime. Use this for deliberately small generated indexes; use a database when the server cannot reasonably hold and query the full source array in memory.
+Collection queries parse the JSON array in the server runtime. Use this for deliberately small generated indexes; use a database when the server cannot reasonably hold and query the full source array in memory.
 
 ```ts
 // nitro.config.ts

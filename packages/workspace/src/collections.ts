@@ -81,10 +81,8 @@ interface CollectionCursor {
   query: string
 }
 
-const collectionCache = new Map<string, LoadedCollection>()
 const defaultPageLimit = 50
 const defaultMaxLimit = 100
-const maxCachedCollections = 32
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value))
@@ -129,31 +127,16 @@ async function digest(value: string): Promise<string> {
   return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("")
 }
 
-function cacheCollection(key: string, collection: LoadedCollection): void {
-  collectionCache.delete(key)
-  collectionCache.set(key, collection)
-  if (collectionCache.size <= maxCachedCollections) return
-  const oldest = collectionCache.keys().next().value
-  if (oldest) collectionCache.delete(oldest)
-}
-
 async function readCollection<Name extends WorkspaceName>(options: WorkspaceCollectionOptions<Name>): Promise<LoadedCollection> {
   const workspace = typeof options.workspace === "string" ? useWorkspace(options.workspace) : await options.workspace
   const stat = await workspace.fs.stat(options.path as never)
   if (stat.type !== "file") throw new TypeError(`Workspace collection ${options.path} must be a file.`)
 
-  if (stat.digest) {
-    const cached = collectionCache.get(`${options.path}:${stat.digest}`)
-    if (cached) return cached
-  }
-
   const raw = await workspace.fs.readFile(options.path as never, { encoding: "utf8" })
   const parsed = JSON.parse(raw)
   if (!Array.isArray(parsed)) throw new TypeError(`Workspace collection ${options.path} must contain a JSON array.`)
   const contentDigest = stat.digest || await digest(raw)
-  const collection = { digest: contentDigest, items: parsed }
-  cacheCollection(`${options.path}:${contentDigest}`, collection)
-  return collection
+  return { digest: contentDigest, items: parsed }
 }
 
 function normalizedFilters(filters: WorkspaceCollectionQuery["filters"]): Record<string, string[]> {
@@ -163,10 +146,11 @@ function normalizedFilters(filters: WorkspaceCollectionQuery["filters"]): Record
     .map(([field, value]) => [field, (Array.isArray(value) ? value : [value]).map(item => String(item).toLocaleLowerCase()).sort()]))
 }
 
-async function queryDigest(query: WorkspaceCollectionQuery): Promise<string> {
+async function queryDigest(query: WorkspaceCollectionQuery, limit: number): Promise<string> {
   return await digest(JSON.stringify({
     facets: [...(query.facets || [])].sort(),
     filters: normalizedFilters(query.filters),
+    limit,
     search: String(query.search || "").trim().toLocaleLowerCase(),
     searchFields: [...(query.searchFields || [])].sort(),
     select: query.select || [],
@@ -217,9 +201,12 @@ function filterItems(items: unknown[], query: WorkspaceCollectionQuery): unknown
   if (query.sort?.field) {
     const direction = query.sort.direction === "desc" ? -1 : 1
     filtered = [...filtered].sort((left, right) => {
-      const leftValue = scalarValues(valueAt(left, query.sort!.field))[0] || ""
-      const rightValue = scalarValues(valueAt(right, query.sort!.field))[0] || ""
-      return leftValue.localeCompare(rightValue) * direction
+      const leftValue = valueAt(left, query.sort!.field)
+      const rightValue = valueAt(right, query.sort!.field)
+      const leftScalar = Array.isArray(leftValue) ? leftValue.flat(Infinity).find(value => value !== null && value !== undefined && typeof value !== "object") : leftValue
+      const rightScalar = Array.isArray(rightValue) ? rightValue.flat(Infinity).find(value => value !== null && value !== undefined && typeof value !== "object") : rightValue
+      if (typeof leftScalar === "number" && typeof rightScalar === "number") return (leftScalar - rightScalar) * direction
+      return String(leftScalar ?? "").localeCompare(String(rightScalar ?? "")) * direction
     })
   }
   return filtered
@@ -245,10 +232,10 @@ export async function queryWorkspaceCollection<T = Record<string, unknown>, Name
   const collection = await readCollection(options)
   const query = options.query || {}
   const filtered = filterItems(collection.items, query)
-  const signature = await queryDigest(query)
+  const limit = resolveLimit(query, options)
+  const signature = await queryDigest(query, limit)
   const offset = decodeCursor(query.cursor, { digest: collection.digest, query: signature })
   if (offset > filtered.length) throw new WorkspaceCollectionCursorError("malformed")
-  const limit = resolveLimit(query, options)
   const items = filtered.slice(offset, offset + limit).map(item => project<T>(item, query.select))
   const nextOffset = offset + items.length
   return {
