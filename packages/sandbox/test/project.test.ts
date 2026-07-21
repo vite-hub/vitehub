@@ -355,6 +355,70 @@ describe("resolveSandboxProject", () => {
     })).rejects.toThrow('workspace dependency "@fixture/helper" exposes TypeScript runtime target "./helper.ts"')
   })
 
+  it("rejects TypeScript workspace subpaths imported by dependency JavaScript", async () => {
+    const root = await createRoot()
+    const sandbox = join(root, "sandboxes/image")
+    const first = join(root, "packages/first")
+    const second = join(root, "packages/second")
+    await Promise.all([
+      mkdir(sandbox, { recursive: true }),
+      mkdir(first, { recursive: true }),
+      mkdir(join(second, "src"), { recursive: true }),
+    ])
+    await writeFile(join(root, "pnpm-workspace.yaml"), "packages: ['sandboxes/*', 'packages/*']\n")
+    await writeFile(join(sandbox, "package.json"), JSON.stringify({
+      dependencies: { "@fixture/first": "workspace:*" },
+      private: true,
+      type: "module",
+    }))
+    await writeFile(join(first, "package.json"), JSON.stringify({
+      dependencies: { "@fixture/second": "workspace:*" },
+      exports: "./index.js",
+      name: "@fixture/first",
+      type: "module",
+    }))
+    await writeFile(join(first, "index.js"), "export { default } from '@fixture/second/source'\n")
+    await writeFile(join(second, "package.json"), JSON.stringify({
+      exports: { "./source": "./src/source.ts" },
+      name: "@fixture/second",
+      type: "module",
+    }))
+    await writeFile(join(second, "src/source.ts"), "export default true\n")
+    const entry = join(sandbox, "index.ts")
+    await writeFile(entry, "import helper from '@fixture/first'\nexport default helper\n")
+    const project = await resolveSandboxProject(entry, root)
+    await expect(bundleSandboxDefinition(await readFile(entry, "utf8"), entry, {
+      execution: "module",
+      project,
+    })).rejects.toThrow('workspace dependency "@fixture/second" exposes TypeScript runtime target "./src/source.ts"')
+  })
+
+  it("validates the default index.js workspace entry", async () => {
+    const root = await createRoot()
+    const sandbox = join(root, "sandboxes/image")
+    const helper = join(root, "packages/helper")
+    await Promise.all([mkdir(sandbox, { recursive: true }), mkdir(helper, { recursive: true })])
+    await writeFile(join(root, "pnpm-workspace.yaml"), "packages: ['sandboxes/*', 'packages/*']\n")
+    await writeFile(join(sandbox, "package.json"), JSON.stringify({
+      dependencies: { "@fixture/helper": "workspace:*" },
+      private: true,
+      type: "module",
+    }))
+    await writeFile(join(helper, "package.json"), JSON.stringify({
+      name: "@fixture/helper",
+      type: "module",
+    }))
+    await writeFile(join(helper, "index.js"), "export { default } from './helper.ts'\n")
+    await writeFile(join(helper, "helper.ts"), "export default true\n")
+    const entry = join(sandbox, "index.ts")
+    await writeFile(entry, "import helper from '@fixture/helper'\nexport default helper\n")
+    const project = await resolveSandboxProject(entry, root)
+    await expect(bundleSandboxDefinition(await readFile(entry, "utf8"), entry, {
+      execution: "module",
+      project,
+    })).rejects.toThrow('workspace dependency "@fixture/helper" exposes TypeScript runtime target "./helper.ts"')
+  })
+
   it("continues past invalid workspace export array targets", async () => {
     const root = await createRoot()
     const sandbox = join(root, "sandboxes/image")

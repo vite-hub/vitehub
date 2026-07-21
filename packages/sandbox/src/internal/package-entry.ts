@@ -65,18 +65,6 @@ function selectedPackageManifest(project: SandboxProject) {
   return manifest
 }
 
-function runtimeWorkspaceDependencyNames(manifest: PackageRuntimeManifest) {
-  const sections = [manifest.dependencies, manifest.optionalDependencies, manifest.peerDependencies]
-  return [
-    ...new Set(
-      sections
-        .flatMap((section) => Object.entries(section || {}))
-        .filter(([, specifier]) => specifier.startsWith('workspace:'))
-        .map(([name]) => name),
-    ),
-  ]
-}
-
 function declaredWorkspaceDependencyNames(manifest: PackageRuntimeManifest) {
   return [
     ...new Set(
@@ -160,7 +148,7 @@ function runtimeTargetsForPackageSpecifier(
     return runtimeExportTargets(selected, patternMatch)
   }
   if (specifier !== packageName) return [`.${specifier.slice(packageName.length)}`]
-  return typeof manifest.main === 'string' ? [manifest.main] : []
+  return typeof manifest.main === 'string' ? [manifest.main] : ['./index.js']
 }
 
 function isTypeScriptRuntimeTarget(path: string) {
@@ -178,13 +166,17 @@ function validateWorkspaceJavaScriptGraph(
     .filter((target) => /\.(?:js|mjs)$/.test(target.replace(/[?#].*$/, '')))
     .map((target) => normalize(join(dirname(manifestPath), target.replace(/[?#].*$/, ''))))
   const visited = new Set<string>()
+  const runtimePackages = new Set<string>()
   while (pending.length) {
     const path = pending.shift()!
     if (visited.has(path) || !Object.hasOwn(project.files, path)) continue
     visited.add(path)
     const source = projectFileSource(project, path)
     for (const specifier of findRuntimeModuleSpecifiers(source, path)) {
-      if (!/^\.\.?\//.test(specifier)) continue
+      if (!/^\.\.?\//.test(specifier)) {
+        if (!specifier.startsWith('node:')) runtimePackages.add(specifier)
+        continue
+      }
       const target = normalize(join(dirname(path), specifier.replace(/[?#].*$/, '')))
       if (isTypeScriptRuntimeTarget(target)) {
         throw new Error(
@@ -194,6 +186,7 @@ function validateWorkspaceJavaScriptGraph(
       if (/\.(?:js|mjs)$/.test(target)) pending.push(target)
     }
   }
+  return runtimePackages
 }
 
 function validateWorkspaceRuntimeExports(
@@ -247,15 +240,16 @@ function validateWorkspaceRuntimeExports(
         `[vitehub] Sandbox workspace dependency "${packageName}" exposes TypeScript runtime target "${target}" in "${dependency.path}". Build dependencies to JavaScript before Sandbox execution.`,
       )
     }
-    validateWorkspaceJavaScriptGraph(
+    const runtimePackageEdges = validateWorkspaceJavaScriptGraph(
       project,
       packageName,
       dependency.path,
       targets,
     )
-    const transitiveWorkspacePackages = runtimeWorkspaceDependencyNames(dependency.manifest)
-    for (const name of transitiveWorkspacePackages) workspacePackages.add(name)
-    pending.push(...transitiveWorkspacePackages)
+    for (const name of declaredWorkspaceDependencyNames(dependency.manifest)) {
+      workspacePackages.add(name)
+    }
+    pending.push(...runtimePackageEdges)
   }
 }
 
