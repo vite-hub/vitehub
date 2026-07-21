@@ -167,6 +167,34 @@ function isTypeScriptRuntimeTarget(path: string) {
   return /\.[cm]?tsx?$/.test(target) && !/\.d\.[cm]?ts$/.test(target)
 }
 
+function validateWorkspaceJavaScriptGraph(
+  project: SandboxProject,
+  packageName: string,
+  manifestPath: string,
+  targets: string[],
+) {
+  const pending = targets
+    .filter((target) => /\.(?:js|mjs)$/.test(target.replace(/[?#].*$/, '')))
+    .map((target) => normalize(join(dirname(manifestPath), target.replace(/[?#].*$/, ''))))
+  const visited = new Set<string>()
+  while (pending.length) {
+    const path = pending.shift()!
+    if (visited.has(path) || !Object.hasOwn(project.files, path)) continue
+    visited.add(path)
+    const source = projectFileSource(project, path)
+    for (const specifier of findRuntimeModuleSpecifiers(source, path)) {
+      if (!/^\.\.?\//.test(specifier)) continue
+      const target = normalize(join(dirname(path), specifier.replace(/[?#].*$/, '')))
+      if (isTypeScriptRuntimeTarget(target)) {
+        throw new Error(
+          `[vitehub] Sandbox workspace dependency "${packageName}" exposes TypeScript runtime target "${specifier}" from "${path}". Build dependencies to JavaScript before Sandbox execution.`,
+        )
+      }
+      if (/\.(?:js|mjs)$/.test(target)) pending.push(target)
+    }
+  }
+}
+
 function validateWorkspaceRuntimeExports(
   project: SandboxProject,
   runtimePackages: Iterable<string>,
@@ -218,6 +246,12 @@ function validateWorkspaceRuntimeExports(
         `[vitehub] Sandbox workspace dependency "${packageName}" exposes TypeScript runtime target "${target}" in "${dependency.path}". Build dependencies to JavaScript before Sandbox execution.`,
       )
     }
+    validateWorkspaceJavaScriptGraph(
+      project,
+      packageName,
+      dependency.path,
+      targets,
+    )
     const transitiveWorkspacePackages = runtimeWorkspaceDependencyNames(dependency.manifest)
     for (const name of transitiveWorkspacePackages) workspacePackages.add(name)
     pending.push(...transitiveWorkspacePackages)
