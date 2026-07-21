@@ -58,6 +58,7 @@
     "./_internal/workspace": "./dist/_internal/workspace.js",
     "./_internal/workspace/internal/runtime/hosted": "./dist/_internal/workspace/internal/runtime/hosted.js",
     "./_internal/workspace/internal/runtime/hosted-vercel-blob": "./dist/_internal/workspace/internal/runtime/hosted-vercel-blob.js",
+    "./_internal/workspace/internal/runtime/state": "./dist/_internal/workspace/internal/runtime/state.js",
     "./_internal/workspace/runtime": "./dist/_internal/workspace/runtime.js",
     "./agent": "./dist/agent.js",
     "./agent/capabilities": "./dist/agent/capabilities.js",

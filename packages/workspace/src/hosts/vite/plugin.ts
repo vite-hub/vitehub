@@ -20,7 +20,7 @@ import { installHostedVercelBlobWorkspaceRuntime } from "../../hosted-vercel-blo
 import { configureCloudflareArtifacts } from "../../integrations/cloudflare.ts"
 import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenServerId } from "../../server.ts"
 
-import type { HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
+import type { AliasOptions, HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
@@ -345,8 +345,9 @@ function isWorkspaceRegistry(value: unknown): value is Record<string, () => Prom
   return isRecord(value) && Object.values(value).every(item => typeof item === "function")
 }
 
-function workspaceDefinitionLoaderAliases(config: ResolvedConfig): Record<string, string> {
-  return Object.fromEntries(config.resolve.alias.flatMap(alias =>
+function workspaceDefinitionLoaderAliases(aliases: AliasOptions): Record<string, string> {
+  if (!Array.isArray(aliases)) return aliases as Record<string, string>
+  return Object.fromEntries(aliases.flatMap(alias =>
     typeof alias.find === "string" ? [[alias.find, alias.replacement]] : [],
   ))
 }
@@ -815,7 +816,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       if (normalized && shouldInstallNitroWorkspacePlugin(config, runtimeOptions, normalized, definitions)) {
         const runtimeConfig = shouldConfigureRuntime(runtimeOptions, normalized) ? normalized : false
         const artifacts = await resolveCloudflareArtifactsConfigs(normalized, definitions, roots.projectRoot, {
-          aliases: config.resolve?.alias && !Array.isArray(config.resolve.alias) ? config.resolve.alias as Record<string, string> : undefined,
+          aliases: config.resolve?.alias ? workspaceDefinitionLoaderAliases(config.resolve.alias) : undefined,
           artifactsOnly: true,
           hosting,
         })
@@ -895,7 +896,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
             resolvedOptions,
             definitions,
             resolved.createResolver?.(),
-            resolved.resolve ? workspaceDefinitionLoaderAliases(resolved) : undefined,
+            resolved.resolve ? workspaceDefinitionLoaderAliases(resolved.resolve.alias) : undefined,
           ),
         ])
       },
