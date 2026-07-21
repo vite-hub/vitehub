@@ -371,14 +371,46 @@ describe("vitehub", () => {
     ["deno", "deno-deploy"],
     ["node", "node-server"],
   ] as const)("maps the %s deployment plan to Nitro %s", async (preset, nitroPreset) => {
-    const config = {} as Record<string, unknown>
+    const config = preset === "deno"
+      ? { nitro: { rollupConfig: { output: { chunkFileNames: "chunks/[name].mjs" } } } }
+      : {} as Record<string, unknown>
     const plugin = vitehub({ preset }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     const hook = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
     await hook(config, { command: "build", mode: "production" })
     expect(config.nitro).toMatchObject({ preset: nitroPreset })
     if (preset === "deno") {
-      expect(config.nitro).toMatchObject({ commands: { deploy: "node ./deploy.mjs" }, modules: [expect.any(Function)] })
+      expect(config.nitro).toMatchObject({
+        commands: { deploy: "node ./deploy.mjs" },
+        modules: [expect.any(Function)],
+        rollupConfig: { output: { chunkFileNames: "chunks/[name].mjs", entryFileNames: "index.mjs" } },
+      })
     }
+  })
+
+  it("preserves array-valued Rollup outputs for Deno", async () => {
+    const config = {
+      nitro: {
+        rollupConfig: {
+          output: [
+            { chunkFileNames: "chunks/[name].mjs" },
+            { assetFileNames: "assets/[name][extname]" },
+          ],
+        },
+      },
+    } as Record<string, unknown>
+    const plugin = vitehub({ preset: "deno" }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    const hook = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
+
+    await hook(config, { command: "build", mode: "production" })
+
+    expect(config.nitro).toMatchObject({
+      rollupConfig: {
+        output: [
+          { chunkFileNames: "chunks/[name].mjs", entryFileNames: "index.mjs" },
+          { assetFileNames: "assets/[name][extname]", entryFileNames: "index.mjs" },
+        ],
+      },
+    })
   })
 
   it("composes deployment output through a Nitro module", async () => {

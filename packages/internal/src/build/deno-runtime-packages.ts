@@ -332,7 +332,7 @@ try {
   await cp(sourceRoot, uploadRoot, { recursive: true })
 
   const common = ["--allow-node-modules", "--org", organization, "--app", app]
-  const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", "server/index.ts", "--working-directory", ".", "--region", region, ...common], uploadRoot)
+  const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", "server/index.mjs", "--working-directory", ".", "--region", region, ...common], uploadRoot)
   if (creation.code !== 0) {
     const deployment = await run(["deploy", ".", "--prod", ...common], uploadRoot)
     if (deployment.code !== 0) {
@@ -360,8 +360,14 @@ export async function finalizeDenoDeploymentOutput(
 
   const denoConfig = {
     nodeModulesDir: "manual",
-    tasks: { start: "deno run -A ./server/index.ts" },
+    tasks: { start: "deno run -A ./server/index.mjs" },
   }
+  // Existing apps may retain this entrypoint; keep its import opaque to Deno's type checker.
+  await writeFile(
+    join(serverDir, "index.ts"),
+    'await import("./index." + "mjs")\n',
+    "utf8",
+  )
   await writeFile(join(outputDir, "deno.json"), `${JSON.stringify(denoConfig, null, 2)}\n`, "utf8")
   await writeFile(join(outputDir, "deploy.mjs"), denoDeployRunnerSource, "utf8")
 }

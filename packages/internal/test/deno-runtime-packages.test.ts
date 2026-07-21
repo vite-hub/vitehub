@@ -51,7 +51,7 @@ import "real"
 
     await mkdir(join(outputDir, "server"), { recursive: true })
     await writeFile(
-      join(outputDir, "server", "index.ts"),
+      join(outputDir, "server", "index.mjs"),
       '//#region node_modules/.pnpm/sharp@9.9.9/node_modules/sharp/index.js\nvoid 0\n',
       "utf8",
     )
@@ -91,7 +91,7 @@ import "real"
       readFile(join(outputDir, "deno.json"), "utf8").then(JSON.parse),
     ).resolves.toMatchObject({ nodeModulesDir: "manual" })
     const deployRunner = await readFile(join(outputDir, "deploy.mjs"), "utf8")
-    for (const text of ["DENO_DEPLOY_ORG", '["deploy", "create"', "--do-not-use-detected-build-config", "--allow-node-modules", "server/index.ts", '["deploy", ".", "--prod"', 'const common = ["--allow-node-modules", "--org", organization, "--app", app]', "mkdtemp", "finally"]) expect(deployRunner).toContain(text)
+    for (const text of ["DENO_DEPLOY_ORG", '["deploy", "create"', "--do-not-use-detected-build-config", "--allow-node-modules", "server/index.mjs", '["deploy", ".", "--prod"', 'const common = ["--allow-node-modules", "--org", organization, "--app", app]', "mkdtemp", "finally"]) expect(deployRunner).toContain(text)
     expect(deployRunner).not.toContain("DENO_DEPLOY_NODE_MODULES_ENABLED")
   })
 
@@ -188,14 +188,14 @@ import "plain"
       await mkdir(join(output, "node_modules/@img/sharp-libvips-linux-x64/lib"), { recursive: true })
       await writeFile(join(root, ".gitignore"), ".output/\n", "utf8")
       await writeFile(join(root, "package.json"), "{}\n", "utf8")
-      await writeFile(join(output, "server/index.ts"), "void 0\n", "utf8")
+      await writeFile(join(output, "server/index.mjs"), "void 0\n", "utf8")
       await writeFile(join(output, "node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64.node"), "native", "utf8")
       await writeFile(join(output, "node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.17.3"), "native", "utf8")
       await finalizeDenoDeploymentOutput({ rootDir: root })
 
       await execFile("git", ["init", "--quiet"], { cwd: root })
-      const ignored = await execFile("git", ["check-ignore", "--no-index", ".output/server/index.ts"], { cwd: root })
-      expect(ignored.stdout.trim()).toBe(".output/server/index.ts")
+      const ignored = await execFile("git", ["check-ignore", "--no-index", ".output/server/index.mjs"], { cwd: root })
+      expect(ignored.stdout.trim()).toBe(".output/server/index.mjs")
       const uploadable = await execFile("git", ["ls-files", "--cached", "--others", "--exclude-standard", "."], { cwd: output })
       expect(uploadable.stdout.trim()).toBe("")
 
@@ -210,7 +210,8 @@ const attempts = existsSync(log) ? (await readFile(log, "utf8")).trim().split("\
 await appendFile(log, JSON.stringify({
   args: process.argv.slice(2),
   cwd: process.cwd(),
-  entry: existsSync("server/index.ts"),
+  entry: existsSync("server/index.mjs"),
+  legacyEntry: existsSync("server/index.ts"),
   sharp: existsSync("node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64.node"),
   libvips: existsSync("node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.17.3"),
 }) + "\\n")
@@ -231,6 +232,7 @@ process.exit(process.env.VITEHUB_DENO_ALWAYS_FAIL === "1" || attempts === 0 ? 1 
         args: string[]
         cwd: string
         entry: boolean
+        legacyEntry: boolean
         libvips: boolean
         sharp: boolean
       })
@@ -240,7 +242,7 @@ process.exit(process.env.VITEHUB_DENO_ALWAYS_FAIL === "1" || attempts === 0 ? 1 
       for (const invocation of invocations) {
         expect(relative(root, invocation.cwd).startsWith("..")).toBe(true)
         expect(invocation.args).toContain("--allow-node-modules")
-        expect(invocation).toMatchObject({ entry: true, libvips: true, sharp: true })
+        expect(invocation).toMatchObject({ entry: true, legacyEntry: true, libvips: true, sharp: true })
         expect(existsSync(invocation.cwd)).toBe(false)
       }
       expect(invocations[0]!.cwd).toBe(invocations[1]!.cwd)
@@ -278,7 +280,7 @@ const nativePath = require.resolve("@img/" + "sharp-linux-x64/sharp.node")
 if (!nativePath.endsWith("/sharp-linux-x64.node")) throw new Error("Sharp's x64 native package did not resolve from the output root")
 `
         : ""
-      await writeFile(join(output, "server/index.ts"), `//#region ${sharpMarker}/lib/index.js
+      await writeFile(join(output, "server/index.mjs"), `//#region ${sharpMarker}/lib/index.js
 import { createRequire } from "node:module"
 import sharp from "../node_modules/sharp/lib/index.js"
 
@@ -293,6 +295,9 @@ process.exit(0)
         expect(existsSync(join(output, "node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64.node"))).toBe(true)
         expect(existsSync(join(output, "node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.17.3"))).toBe(true)
       }
+      await execFile("deno", ["check", "server/index.mjs"], { cwd: output })
+      await execFile("deno", ["check", "server/index.ts"], { cwd: output })
+      await execFile("deno", ["run", "-A", join(output, "server/index.mjs")], { cwd: output })
       await execFile("deno", ["run", "-A", join(output, "server/index.ts")], { cwd: output })
     } finally {
       await rm(output, { force: true, recursive: true })

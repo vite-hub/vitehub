@@ -200,7 +200,7 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")("uploads and e
 import { join } from "node:path"
 import sharp from "sharp"
 
-const require = createRequire(join(process.cwd(), "server/index.ts"))
+const require = createRequire(join(process.cwd(), "server/index.mjs"))
 
 export default defineEventHandler(async () => {
   const nativePath = require.resolve("@img/" + "sharp-linux-x64/sharp.node")
@@ -242,7 +242,11 @@ export default defineEventHandler(async () => {
 
     expect(existsSync(join(output, "node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64.node"))).toBe(true)
     expect(existsSync(join(output, "node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.17.3"))).toBe(true)
-    const entry = existsSync(join(output, "server/index.ts")) ? "server/index.ts" : "server/index.mjs"
+    const entry = "server/index.mjs"
+    expect(existsSync(join(output, entry))).toBe(true)
+    expect(existsSync(join(output, "server/index.ts"))).toBe(true)
+    await execFile("deno", ["check", entry], { cwd: output, timeout: 30_000 })
+    await execFile("deno", ["check", "server/index.ts"], { cwd: output, timeout: 30_000 })
     await mkdir(bin, { recursive: true })
     const fakeDeno = join(bin, "deno")
     await writeFile(fakeDeno, `#!/usr/bin/env node
@@ -292,7 +296,7 @@ process.exit(result.status ?? 1)
         DENO_DEPLOY_APP: "existing-native-app",
         DENO_DEPLOY_ORG: "vitehub",
         PATH: `${bin}${delimiter}${process.env.PATH || ""}`,
-        VITEHUB_DENO_ENTRY: entry,
+        VITEHUB_DENO_ENTRY: "server/index.ts",
         VITEHUB_DENO_INVOCATIONS: invocationsFile,
         VITEHUB_DENO_REMOTE: remote,
         VITEHUB_REAL_DENO: realDeno,

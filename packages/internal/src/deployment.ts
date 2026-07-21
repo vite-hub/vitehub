@@ -58,7 +58,7 @@ const plans = {
   deno: {
     host: "deno-deploy",
     nitroPreset: "deno-deploy",
-    output: { directory: ".output", entry: "server/index.ts", packaging: "deno-node-modules" },
+    output: { directory: ".output", entry: "server/index.mjs", packaging: "deno-node-modules" },
     preset: "deno",
     runtime: "deno",
     services: {
