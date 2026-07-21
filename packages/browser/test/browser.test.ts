@@ -194,4 +194,13 @@ describe("Browser Sessions", () => {
     expect(serialized).not.toContain("provider-secret-session-id")
     expect(serialized).not.toContain("sensitive-user-identifier")
   })
+
+  it("closes an acquired session when tracing fails", async () => {
+    const { close, provider } = fixture()
+    const traceError = new Error("trace unavailable")
+    const browser = createBrowser({ provider, trace: vi.fn().mockRejectedValue(traceError) })
+
+    await expect(browser.open()).rejects.toBe(traceError)
+    expect(close).toHaveBeenCalledOnce()
+  })
 })

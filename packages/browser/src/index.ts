@@ -261,7 +261,21 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
     }
     const features = mergedFeatures(this.provider.features, providerSession.features)
     const session = new BrowserSessionImpl(this, providerSession, features, lease)
-    await this.emit("browser.session.acquire", session)
+    try {
+      await this.emit("browser.session.acquire", session)
+    }
+    catch (error) {
+      try {
+        await releaseResource({ lease, providerSession })
+      }
+      catch (closeError) {
+        throw new AggregateError(
+          [error, closeError],
+          "[vitehub:browser] Browser Session tracing failed and cleanup also failed.",
+        )
+      }
+      throw error
+    }
     return session
   }
 
