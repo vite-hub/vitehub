@@ -14,6 +14,7 @@ const gitMock = vi.hoisted(() => ({
   }),
   commit: vi.fn(async () => "commit-1"),
   init: vi.fn(async () => {}),
+  listServerRefs: vi.fn(async () => [] as Array<{ oid: string; ref: string }>),
   push: vi.fn(async (_options?: unknown) => ({ refs: { main: "commit-1" } })),
   remove: vi.fn(async () => {}),
   resolveRef: vi.fn(async () => "remote-sha"),
@@ -39,27 +40,58 @@ function legacyArtifactsError(code: number, message: string) {
   return Object.assign(new Error(message), { code })
 }
 
-function artifactsRepo(options: { defaultBranch?: string, lastPushAt?: string | null, source?: string | null, token?: string } = {}) {
-  return {
-    createToken: vi.fn(async () => ({
-      expiresAt: expiresIn(3_600_000),
-      plaintext: options.token || "art_v1_fresh?expires=999",
-    })),
-    defaultBranch: options.defaultBranch || "main",
-    lastPushAt: options.lastPushAt ?? null,
-    name: "vitehub-workspace-docs",
-    remote,
-    source: options.source ?? null,
-  }
+function disposable<T extends object>(value: T) {
+  const dispose = vi.fn()
+  return Object.assign(value, { [Symbol.dispose]: dispose, dispose })
 }
 
-function createdRepo(token = `art_v1_created?expires=${Math.floor((Date.now() + 3_600_000) / 1000)}`) {
-  return {
+function artifactsRepo(
+  options: {
+    defaultBranch?: string
+    infoError?: Error
+    lastPushAt?: string | null
+    source?: string | null
+    token?: string
+    tokenError?: Error
+    tokenExpiresIn?: number
+  } = {},
+) {
+  const infoResult = disposable({
+    defaultBranch: options.defaultBranch || "main",
+    remote,
+  })
+  const tokenResults: Array<
+    ReturnType<typeof disposable<{ expiresAt: string; plaintext: string }>>
+  > = []
+  const repo = disposable({
+    createToken: vi.fn(async () => {
+      if (options.tokenError) throw options.tokenError
+      const token = disposable({
+        expiresAt: expiresIn(options.tokenExpiresIn ?? 3_600_000),
+        plaintext: options.token || "art_v1_fresh?expires=999",
+      })
+      tokenResults.push(token)
+      return token
+    }),
+    info: vi.fn(async () => {
+      if (options.infoError) throw options.infoError
+      return infoResult
+    }),
+    lastPushAt: options.lastPushAt ?? null,
+    source: options.source ?? null,
+  })
+  return Object.assign(repo, { infoResult, tokenResults })
+}
+
+function createdRepo(
+  token = `art_v1_created?expires=${Math.floor((Date.now() + 3_600_000) / 1000)}`,
+) {
+  return disposable({
     defaultBranch: "main",
     name: "vitehub-workspace-docs",
     remote,
     token,
-  }
+  })
 }
 
 async function createStore(binding: unknown, options: { branch?: string } = {}) {
@@ -84,6 +116,7 @@ afterEach(() => {
   gitMock.clone.mockClear()
   gitMock.commit.mockClear()
   gitMock.init.mockClear()
+  gitMock.listServerRefs.mockClear()
   gitMock.push.mockClear()
   gitMock.remove.mockClear()
   gitMock.resolveRef.mockClear()
@@ -123,9 +156,11 @@ describe("Cloudflare Artifacts workspace store", () => {
 
   it("uses the Artifacts binding and commits snapshots", async () => {
     const repo = artifactsRepo()
+    const created = createdRepo()
     const binding = {
-      create: vi.fn(async () => createdRepo()),
-      get: vi.fn()
+      create: vi.fn(async () => created),
+      get: vi
+        .fn()
         .mockRejectedValueOnce(artifactsError("NOT_FOUND", 10200, "missing"))
         .mockResolvedValueOnce(repo),
     }
@@ -138,17 +173,24 @@ describe("Cloudflare Artifacts workspace store", () => {
     await store.writeFile("README.md", { path: "README.md", content: "changed" })
 
     expect(snapshot.id).toBe("commit-1")
-    expect(binding.create).toHaveBeenCalledWith("vitehub-workspace-docs", expect.objectContaining({
-      setDefaultBranch: "main",
-    }))
+    expect(binding.create).toHaveBeenCalledWith(
+      "vitehub-workspace-docs",
+      expect.objectContaining({
+        setDefaultBranch: "main",
+      }),
+    )
     expect(binding.get).toHaveBeenCalledTimes(2)
     expect(gitMock.clone).not.toHaveBeenCalled()
     expect(gitMock.init).toHaveBeenCalledOnce()
-    expect(gitMock.push).toHaveBeenCalledWith(expect.objectContaining({
-      ref: "main",
-      url: repo.remote,
-    }))
+    expect(gitMock.push).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ref: "main",
+        url: remote,
+      }),
+    )
     expect(repo.createToken).not.toHaveBeenCalled()
+    expect(created.dispose).toHaveBeenCalledOnce()
+    expect(repo.dispose).toHaveBeenCalledOnce()
     const pushOptions = gitMock.push.mock.calls[0]?.[0] as { onAuth(): { password: string } }
     expect(pushOptions.onAuth().password).toBe("art_v1_created")
     expect((await store.diff({ from: snapshot })).entries).toEqual([
@@ -364,8 +406,22 @@ describe("Cloudflare Artifacts workspace store", () => {
     expect(binding.create).not.toHaveBeenCalled()
   })
 
+  it("disposes the repository handle when reading its info fails", async () => {
+    const infoError = new Error("repository info unavailable")
+    const repo = artifactsRepo({ infoError })
+    const store = await createStore({
+      create: vi.fn(),
+      get: vi.fn(async () => repo),
+    })
+
+    await expect(store.readFile("README.md")).rejects.toBe(infoError)
+    expect(repo.dispose).toHaveBeenCalledOnce()
+    expect(repo.infoResult.dispose).not.toHaveBeenCalled()
+    expect(repo.createToken).not.toHaveBeenCalled()
+  })
+
   it("gets the repository created by a concurrent request", async () => {
-    const repo = artifactsRepo({ lastPushAt: "2026-07-11T00:00:00.000Z" })
+    const repo = artifactsRepo()
     const binding = {
       create: vi.fn(async () => {
         throw artifactsError("ALREADY_EXISTS", 10201, "already exists")
@@ -374,6 +430,7 @@ describe("Cloudflare Artifacts workspace store", () => {
         .mockRejectedValueOnce(artifactsError("NOT_FOUND", 10200, "missing"))
         .mockResolvedValueOnce(repo),
     }
+    gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "remote-sha", ref: "refs/heads/main" }])
     gitMock.clone.mockResolvedValueOnce(undefined)
     const store = await createStore(binding)
 
@@ -383,7 +440,22 @@ describe("Cloudflare Artifacts workspace store", () => {
     expect(gitMock.init).not.toHaveBeenCalled()
   })
 
-  it("initializes known-empty repositories but propagates clone failures for non-empty repositories", async () => {
+  it("disposes a creation result when the repository cannot be loaded", async () => {
+    const created = createdRepo()
+    const lookupError = new Error("created repository is not ready")
+    const store = await createStore({
+      create: vi.fn(async () => created),
+      get: vi
+        .fn()
+        .mockRejectedValueOnce(artifactsError("NOT_FOUND", 10200, "missing"))
+        .mockRejectedValueOnce(lookupError),
+    })
+
+    await expect(store.readFile("README.md")).rejects.toBe(lookupError)
+    expect(created.dispose).toHaveBeenCalledOnce()
+  })
+
+  it("initializes repositories without a branch but propagates clone failures for existing branches", async () => {
     const empty = artifactsRepo()
     const emptyStore = await createStore({
       create: vi.fn(),
@@ -394,8 +466,9 @@ describe("Cloudflare Artifacts workspace store", () => {
     expect(gitMock.clone).not.toHaveBeenCalled()
     expect(gitMock.init).toHaveBeenCalledOnce()
 
-    const nonEmpty = artifactsRepo({ lastPushAt: "2026-07-11T00:00:00.000Z" })
+    const nonEmpty = artifactsRepo()
     const cloneError = new Error("clone authentication failed")
+    gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "remote-sha", ref: "refs/heads/main" }])
     gitMock.clone.mockRejectedValueOnce(cloneError)
     const nonEmptyStore = await createStore({
       create: vi.fn(),
@@ -404,6 +477,24 @@ describe("Cloudflare Artifacts workspace store", () => {
 
     await expect(nonEmptyStore.readFile("README.md")).rejects.toBe(cloneError)
     expect(gitMock.init).toHaveBeenCalledOnce()
+    expect(nonEmpty.dispose).toHaveBeenCalledOnce()
+    expect(nonEmpty.infoResult.dispose).toHaveBeenCalledOnce()
+    expect(nonEmpty.tokenResults[0]?.dispose).toHaveBeenCalledOnce()
+  })
+
+  it("disposes repository RPC results when remote inspection fails", async () => {
+    const repo = artifactsRepo()
+    const inspectionError = new Error("remote inspection failed")
+    gitMock.listServerRefs.mockRejectedValueOnce(inspectionError)
+    const store = await createStore({
+      create: vi.fn(),
+      get: vi.fn(async () => repo),
+    })
+
+    await expect(store.readFile("README.md")).rejects.toBe(inspectionError)
+    expect(repo.dispose).toHaveBeenCalledOnce()
+    expect(repo.infoResult.dispose).toHaveBeenCalledOnce()
+    expect(repo.tokenResults[0]?.dispose).toHaveBeenCalledOnce()
   })
 
   it("renews a short-lived creation token through the repository handle before Git auth", async () => {
@@ -424,8 +515,52 @@ describe("Cloudflare Artifacts workspace store", () => {
     expect(pushOptions.onAuth().password).toBe("art_v1_renewed")
   })
 
+  it("reacquires and disposes a repository handle when its cached token expires", async () => {
+    const loadedRepo = artifactsRepo({ tokenExpiresIn: 30_000 })
+    const refreshRepo = artifactsRepo({ token: "art_v1_refreshed?expires=999" })
+    const binding = {
+      create: vi.fn(),
+      get: vi.fn().mockResolvedValueOnce(loadedRepo).mockResolvedValueOnce(refreshRepo),
+    }
+    const store = await createStore(binding)
+
+    await store.writeFile("README.md", { content: "hello", path: "README.md" })
+    await store.snapshot()
+
+    expect(binding.get).toHaveBeenCalledTimes(2)
+    expect(loadedRepo.dispose).toHaveBeenCalledOnce()
+    expect(loadedRepo.tokenResults[0]?.dispose).toHaveBeenCalledOnce()
+    expect(refreshRepo.dispose).toHaveBeenCalledOnce()
+    expect(refreshRepo.tokenResults[0]?.dispose).toHaveBeenCalledOnce()
+    const pushOptions = gitMock.push.mock.calls[0]?.[0] as { onAuth(): { password: string } }
+    expect(pushOptions.onAuth().password).toBe("art_v1_refreshed")
+  })
+
+  it("disposes a reacquired repository handle when token minting fails", async () => {
+    const loadedRepo = artifactsRepo({ tokenExpiresIn: 30_000 })
+    const tokenError = new Error("token minting failed")
+    const refreshRepo = artifactsRepo({ tokenError })
+    const binding = {
+      create: vi.fn(),
+      get: vi.fn().mockResolvedValueOnce(loadedRepo).mockResolvedValueOnce(refreshRepo),
+    }
+    const store = await createStore(binding)
+
+    await store.writeFile("README.md", { content: "hello", path: "README.md" })
+    await expect(store.snapshot()).rejects.toBe(tokenError)
+
+    expect(loadedRepo.dispose).toHaveBeenCalledOnce()
+    expect(loadedRepo.tokenResults[0]?.dispose).toHaveBeenCalledOnce()
+    expect(refreshRepo.dispose).toHaveBeenCalledOnce()
+    expect(refreshRepo.tokenResults).toEqual([])
+    expect(gitMock.push).not.toHaveBeenCalled()
+  })
+
   it("uses the loaded branch head and repository entries as the initial baseline", async () => {
-    const repo = artifactsRepo({ lastPushAt: "2026-07-11T00:00:00.000Z" })
+    const repo = artifactsRepo()
+    gitMock.listServerRefs.mockResolvedValueOnce([
+      { oid: "remote-commit", ref: "refs/heads/main" },
+    ])
     gitMock.resolveRef.mockResolvedValueOnce("remote-commit")
     gitMock.clone.mockImplementationOnce(async (options?: unknown) => {
       const { fs } = options as {
@@ -447,15 +582,18 @@ describe("Cloudflare Artifacts workspace store", () => {
   it("snapshots an existing repository to its default branch", async () => {
     const repo = artifactsRepo({
       defaultBranch: "trunk",
-      lastPushAt: "2026-07-11T00:00:00.000Z",
     })
+    gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "remote-sha", ref: "refs/heads/trunk" }])
     gitMock.clone.mockResolvedValueOnce(undefined)
     const { resolveCloudflareArtifactsStore } = await import("../src/config.ts")
     const options = resolveCloudflareArtifactsStore({}, {})
-    const store = await createStore({
-      create: vi.fn(),
-      get: vi.fn(async () => repo),
-    }, options)
+    const store = await createStore(
+      {
+        create: vi.fn(),
+        get: vi.fn(async () => repo),
+      },
+      options,
+    )
 
     await store.writeFile("README.md", { content: "hello", path: "README.md" })
     await store.snapshot()
@@ -486,7 +624,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     type FileEntry = { data: Uint8Array; kind: "file"; mtimeMs: number }
     let committed = new Map<string, FileEntry>()
     const emptyRepo = artifactsRepo()
-    const nonEmptyRepo = artifactsRepo({ lastPushAt: "2026-07-11T00:00:00.000Z" })
+    const nonEmptyRepo = artifactsRepo()
     const binding = {
       create: vi.fn(async () => createdRepo()),
       get: vi.fn()
@@ -494,6 +632,9 @@ describe("Cloudflare Artifacts workspace store", () => {
         .mockResolvedValueOnce(emptyRepo)
         .mockResolvedValueOnce(nonEmptyRepo),
     }
+    gitMock.listServerRefs
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ oid: "commit-1", ref: "refs/heads/main" }])
     gitMock.push.mockImplementationOnce(async (options?: unknown) => {
       const { fs } = options as { fs: { entries: Map<string, FileEntry | { kind: "dir" }> } }
       committed = new Map(
@@ -643,19 +784,54 @@ describe("Cloudflare Artifacts workspace store", () => {
     expect(gitMock.push).toHaveBeenCalledTimes(2)
   })
 
-  it("clones existing fork history that has not received a direct push", async () => {
+  it("reopens an existing branch before committing and pushing its next snapshot", async () => {
     const repo = artifactsRepo({
       lastPushAt: null,
-      source: "artifacts:namespace/base",
+      source: null,
     })
-    gitMock.clone.mockResolvedValueOnce(undefined)
+    let head: string | undefined
+    gitMock.listServerRefs.mockResolvedValueOnce([
+      { oid: "remote-commit", ref: "refs/heads/main" },
+    ])
+    gitMock.clone.mockImplementationOnce(async () => {
+      head = "remote-commit"
+    })
+    gitMock.resolveRef.mockImplementationOnce(async () => head || "")
+    gitMock.commit.mockImplementationOnce(async () => {
+      if (head !== "remote-commit") throw new Error("commit did not extend the remote head")
+      head = "next-commit"
+      return head
+    })
+    gitMock.push.mockImplementationOnce(async () => {
+      if (head !== "next-commit") throw new Error("push was not fast-forward")
+      return { refs: { main: head } }
+    })
     const store = await createStore({
       create: vi.fn(),
       get: vi.fn(async () => repo),
     })
 
-    await expect(store.readFile("README.md")).resolves.toBeUndefined()
+    await store.writeFile("README.md", { content: "next", path: "README.md" })
+    await expect(store.snapshot()).resolves.toMatchObject({ id: "next-commit" })
+    expect(gitMock.listServerRefs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prefix: "refs/heads/main",
+        url: remote,
+      }),
+    )
     expect(gitMock.clone).toHaveBeenCalledOnce()
     expect(gitMock.init).not.toHaveBeenCalled()
+    expect(gitMock.clone.mock.invocationCallOrder[0]).toBeLessThan(
+      gitMock.commit.mock.invocationCallOrder[0]!,
+    )
+    expect(gitMock.commit.mock.invocationCallOrder[0]).toBeLessThan(
+      gitMock.push.mock.invocationCallOrder[0]!,
+    )
+    expect(gitMock.push).toHaveBeenCalledWith(
+      expect.objectContaining({ ref: "main", url: remote }),
+    )
+    expect(repo.dispose).toHaveBeenCalledOnce()
+    expect(repo.infoResult.dispose).toHaveBeenCalledOnce()
+    expect(repo.tokenResults[0]?.dispose).toHaveBeenCalledOnce()
   })
 })

@@ -21,25 +21,28 @@ import type {
   WorkspaceStore,
 } from "../../core/types.ts"
 
-interface ArtifactsCreateTokenResult {
+interface DisposableRpcValue {
+  [Symbol.dispose]?: () => void
+}
+
+interface ArtifactsCreateTokenResult extends DisposableRpcValue {
   expiresAt: string
   plaintext: string
 }
 
-interface ArtifactsCreateRepoResult {
+interface ArtifactsRepoInfo extends DisposableRpcValue {
   defaultBranch: string
-  name: string
   remote: string
+}
+
+interface ArtifactsCreateRepoResult extends ArtifactsRepoInfo {
+  name: string
   token: string
 }
 
-interface ArtifactsRepo {
+interface ArtifactsRepo extends DisposableRpcValue {
   createToken(scope?: "read" | "write", ttl?: number): Promise<ArtifactsCreateTokenResult>
-  defaultBranch: string
-  lastPushAt: string | null
-  name: string
-  remote: string
-  source: string | null
+  info(): Promise<ArtifactsRepoInfo>
 }
 
 interface ArtifactsBinding {
@@ -60,6 +63,10 @@ function tokenSecret(token: string) {
 function tokenExpiresAt(token: string) {
   const expires = token.match(/[?&]expires=(\d+)(?:&|$)/)?.[1]
   return expires ? Number(expires) * 1000 : 0
+}
+
+function disposeRpc(value: DisposableRpcValue | undefined) {
+  value?.[Symbol.dispose]?.()
 }
 
 function encodeWorkspaceRepoName(workspaceName: string) {
@@ -106,7 +113,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   #fs: MemoryFS | undefined
   #head: string | undefined
   #pendingCommit: string | undefined
-  #repo: ArtifactsRepo | undefined
+  #remote: string | undefined
   #ready: Promise<void> | undefined
   #mutationQueue: Promise<void> = Promise.resolve()
   #token: { expiresAt: number, value: string } | undefined
@@ -275,7 +282,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
           http,
           onAuth: () => ({ password: token, username: "x" }),
           ref: this.#branch,
-          url: this.#repo!.remote,
+          url: this.#remote!,
         })
       }
       catch (error) {
@@ -354,11 +361,19 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     }
   }
 
-  async #writeToken(): Promise<string> {
+  async #writeToken(repo?: ArtifactsRepo): Promise<string> {
     if (this.#token && this.#token.expiresAt > Date.now() + tokenRefreshWindow) return this.#token.value
-    const token = await this.#repo!.createToken("write", 3600)
-    this.#rememberToken(token.plaintext, token.expiresAt)
-    return this.#token!.value
+    const tokenRepo = repo || await this.#getBinding().get(repoName(this.options, this.workspaceName))
+    let token: ArtifactsCreateTokenResult | undefined
+    try {
+      token = await tokenRepo.createToken("write", 3600)
+      this.#rememberToken(token.plaintext, token.expiresAt)
+      return this.#token!.value
+    }
+    finally {
+      disposeRpc(token)
+      if (!repo) disposeRpc(tokenRepo)
+    }
   }
 
   #getBinding(): ArtifactsBinding {
@@ -389,46 +404,68 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     const binding = this.#getBinding()
     const name = repoName(this.options, this.workspaceName)
     let created: ArtifactsCreateRepoResult | undefined
-    let repo: ArtifactsRepo
+    let repo: ArtifactsRepo | undefined
+    let repoInfo: ArtifactsCreateRepoResult | ArtifactsRepoInfo | undefined
     try {
-      repo = await binding.get(name)
-    }
-    catch (error) {
-      if (!hasArtifactsErrorCode(error, "NOT_FOUND", 10200)) throw error
       try {
-        created = await binding.create(name, {
-          description: `ViteHub workspace ${this.workspaceName}`,
-          readOnly: false,
-          setDefaultBranch: this.options.branch || "main",
-        })
+        repo = await binding.get(name)
       }
-      catch (createError) {
-        if (!hasArtifactsErrorCode(createError, "ALREADY_EXISTS", 10201)) throw createError
+      catch (error) {
+        if (!hasArtifactsErrorCode(error, "NOT_FOUND", 10200)) throw error
+        try {
+          created = await binding.create(name, {
+            description: `ViteHub workspace ${this.workspaceName}`,
+            readOnly: false,
+            setDefaultBranch: this.options.branch || "main",
+          })
+        }
+        catch (createError) {
+          if (!hasArtifactsErrorCode(createError, "ALREADY_EXISTS", 10201)) throw createError
+        }
+        repo = await binding.get(name)
       }
-      repo = await binding.get(name)
-    }
 
-    this.#repo = repo
-    this.#branch = this.options.branch || repo.defaultBranch || "main"
-    if (created) this.#rememberToken(created.token)
-    this.#fs = new MemoryFS()
-    await this.#fs.promises.mkdir(dir, { recursive: true })
-    if (created || (repo.lastPushAt === null && repo.source === null)) {
-      await git.init({ defaultBranch: this.#branch, dir, fs: this.#fs as never })
+      repoInfo = created || await repo.info()
+      this.#remote = repoInfo.remote
+      this.#branch = this.options.branch || repoInfo.defaultBranch || "main"
+      if (created) this.#rememberToken(created.token)
+      this.#fs = new MemoryFS()
+      await this.#fs.promises.mkdir(dir, { recursive: true })
+      const token = await this.#writeToken(repo)
+      const branchRef = `refs/heads/${this.#branch}`
+      const hasBranch = (
+        await git.listServerRefs({
+          http,
+          onAuth: () => ({ password: token, username: "x" }),
+          prefix: branchRef,
+          url: this.#remote,
+        })
+      ).some(ref => ref.ref === branchRef)
+      if (!hasBranch) {
+        await git.init({ defaultBranch: this.#branch, dir, fs: this.#fs as never })
+      }
+      else {
+        await git.clone({
+          depth: 1,
+          dir,
+          fs: this.#fs as never,
+          http,
+          onAuth: () => ({ password: token, username: "x" }),
+          ref: this.#branch,
+          singleBranch: true,
+          url: this.#remote,
+        })
+        this.#head = await git.resolveRef({ dir, fs: this.#fs as never, ref: this.#branch })
+      }
     }
-    else {
-      const token = await this.#writeToken()
-      await git.clone({
-        depth: 1,
-        dir,
-        fs: this.#fs as never,
-        http,
-        onAuth: () => ({ password: token, username: "x" }),
-        ref: this.#branch,
-        singleBranch: true,
-        url: repo.remote,
-      })
-      this.#head = await git.resolveRef({ dir, fs: this.#fs as never, ref: this.#branch })
+    finally {
+      try {
+        disposeRpc(repoInfo)
+        if (created !== repoInfo) disposeRpc(created)
+      }
+      finally {
+        disposeRpc(repo)
+      }
     }
     await this.#loadFileMetadata()
     const baseline = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }))
