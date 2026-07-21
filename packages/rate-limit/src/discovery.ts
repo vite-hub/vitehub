@@ -36,6 +36,10 @@ interface RateLimitBindings {
   namespaces: Set<string>
 }
 
+interface RateLimitScope extends RateLimitBindings {
+  shadows: Set<string>
+}
+
 function requireRateLimitBindings(program: ESTree.Program): RateLimitBindings {
   const bindings: RateLimitBindings = { direct: new Set(), namespaces: new Set() }
   for (const statement of program.body) {
@@ -50,13 +54,67 @@ function requireRateLimitBindings(program: ESTree.Program): RateLimitBindings {
   return bindings
 }
 
-function rateLimitBindingName(callee: ESTree.CallExpression["callee"], bindings: RateLimitBindings): string | undefined {
-  if (callee.type === "Identifier" && bindings.direct.has(callee.name)) return callee.name
-  if (callee.type !== "MemberExpression" || callee.object.type !== "Identifier" || !bindings.namespaces.has(callee.object.name)) return
+function resolveRateLimitBinding(name: string, kind: keyof RateLimitBindings, scopes: RateLimitScope[]): boolean {
+  for (let index = scopes.length - 1; index >= 0; index -= 1) {
+    const scope = scopes[index]!
+    if (scope[kind].has(name)) return true
+    if (scope.shadows.has(name)) return false
+  }
+  return false
+}
+
+function rateLimitBindingName(callee: ESTree.CallExpression["callee"], scopes: RateLimitScope[]): string | undefined {
+  if (callee.type === "Identifier" && resolveRateLimitBinding(callee.name, "direct", scopes)) return callee.name
+  if (callee.type !== "MemberExpression" || callee.object.type !== "Identifier" || !resolveRateLimitBinding(callee.object.name, "namespaces", scopes)) return
   const property = callee.computed
     ? callee.property.type === "Literal" ? callee.property.value : undefined
     : callee.property.type === "Identifier" ? callee.property.name : undefined
   return property === "requireRateLimit" ? callee.object.name : undefined
+}
+
+function rateLimitDynamicImport(expression: ESTree.Expression | null): boolean {
+  if (!expression) return false
+  const value = unwrapStaticExpression(expression)
+  if (value.type !== "AwaitExpression") return false
+  const imported = unwrapStaticExpression(value.argument)
+  const source = imported.type === "ImportExpression" ? staticString(imported.source)?.trim() : undefined
+  return Boolean(source && rateLimitImports.has(source))
+}
+
+function addDynamicRateLimitBindings(declaration: ESTree.VariableDeclaration, scope: RateLimitScope): void {
+  if (declaration.kind !== "const") return
+  for (const declarator of declaration.declarations) {
+    if (!rateLimitDynamicImport(declarator.init)) continue
+    if (declarator.id.type === "Identifier") {
+      scope.shadows.delete(declarator.id.name)
+      scope.namespaces.add(declarator.id.name)
+      continue
+    }
+    if (declarator.id.type !== "ObjectPattern") continue
+    for (const property of declarator.id.properties) {
+      if (property.type !== "Property") continue
+      const name = property.computed
+        ? property.key.type === "Literal" ? property.key.value : undefined
+        : property.key.type === "Identifier" ? property.key.name : undefined
+      if (name !== "requireRateLimit") continue
+      const value = property.value.type === "AssignmentPattern" ? property.value.left : property.value
+      if (value.type !== "Identifier") continue
+      scope.shadows.delete(value.name)
+      scope.direct.add(value.name)
+    }
+  }
+}
+
+function variableDeclaration(statement: ESTree.Statement | ESTree.ModuleDeclaration): ESTree.VariableDeclaration | undefined {
+  if (statement.type === "VariableDeclaration") return statement
+  if (statement.type === "ExportNamedDeclaration" && statement.declaration?.type === "VariableDeclaration") return statement.declaration
+}
+
+function addDynamicRateLimitBindingsFromStatements(statements: (ESTree.Statement | ESTree.ModuleDeclaration)[], scope: RateLimitScope): void {
+  for (const statement of statements) {
+    const declaration = variableDeclaration(statement)
+    if (declaration) addDynamicRateLimitBindings(declaration, scope)
+  }
 }
 
 function addBindingNames(pattern: ESTree.BindingPattern | ESTree.ParamPattern, names: Set<string>): void {
@@ -195,38 +253,41 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
   }
 
   const bindings = requireRateLimitBindings(parsed.program)
-  if (bindings.direct.size === 0 && bindings.namespaces.size === 0) return []
   const declarations: RateLimitDeclaration[] = []
-  const localBindings: Set<string>[] = []
+  const scopes: RateLimitScope[] = [{ ...bindings, shadows: new Set() }]
+  addDynamicRateLimitBindingsFromStatements(parsed.program.body, scopes[0]!)
+  const enterScope = (shadows: Set<string>): void => {
+    scopes.push({ direct: new Set(), namespaces: new Set(), shadows })
+  }
   const enterFunction = (node: ESTree.Function | ESTree.ArrowFunctionExpression): void => {
-    const bindings = functionBindings(node.params)
-    if (node.type === "FunctionExpression" && node.id) bindings.add(node.id.name)
-    localBindings.push(bindings)
+    const shadows = functionBindings(node.params)
+    if (node.type === "FunctionExpression" && node.id) shadows.add(node.id.name)
+    enterScope(shadows)
   }
   const exitScope = (): void => {
-    localBindings.pop()
+    scopes.pop()
   }
   const visitor = new Visitor({
     ArrowFunctionExpression: enterFunction,
     "ArrowFunctionExpression:exit": exitScope,
     BlockStatement(block) {
-      localBindings.push(blockBindings(block))
+      enterScope(blockBindings(block))
+      addDynamicRateLimitBindingsFromStatements(block.body, scopes.at(-1)!)
     },
     "BlockStatement:exit": exitScope,
     CatchClause(clause) {
       const names = new Set<string>()
       if (clause.param) addBindingNames(clause.param, names)
-      localBindings.push(names)
+      enterScope(names)
     },
     "CatchClause:exit": exitScope,
     ClassExpression(node) {
-      localBindings.push(new Set(node.id ? [node.id.name] : []))
+      enterScope(new Set(node.id ? [node.id.name] : []))
     },
     "ClassExpression:exit": exitScope,
     CallExpression(call) {
-      const calleeName = rateLimitBindingName(call.callee, bindings)
+      const calleeName = rateLimitBindingName(call.callee, scopes)
       if (!calleeName) return
-      if (localBindings.some(scope => scope.has(calleeName))) return
       if (call.arguments.length !== 3) {
         throw declarationError(file, source, call, "`requireRateLimit()` requires an event, a stable ID, and a static options object.")
       }
@@ -248,19 +309,20 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
     FunctionExpression: enterFunction,
     "FunctionExpression:exit": exitScope,
     ForInStatement(node) {
-      localBindings.push(node.left.type === "VariableDeclaration" ? variableBindings(node.left) : new Set())
+      enterScope(node.left.type === "VariableDeclaration" ? variableBindings(node.left) : new Set())
     },
     "ForInStatement:exit": exitScope,
     ForOfStatement(node) {
-      localBindings.push(node.left.type === "VariableDeclaration" ? variableBindings(node.left) : new Set())
+      enterScope(node.left.type === "VariableDeclaration" ? variableBindings(node.left) : new Set())
     },
     "ForOfStatement:exit": exitScope,
     ForStatement(node) {
-      localBindings.push(node.init?.type === "VariableDeclaration" ? variableBindings(node.init) : new Set())
+      enterScope(node.init?.type === "VariableDeclaration" ? variableBindings(node.init) : new Set())
     },
     "ForStatement:exit": exitScope,
     SwitchStatement(node) {
-      localBindings.push(switchBindings(node))
+      enterScope(switchBindings(node))
+      for (const switchCase of node.cases) addDynamicRateLimitBindingsFromStatements(switchCase.consequent, scopes.at(-1)!)
     },
     "SwitchStatement:exit": exitScope,
   })
