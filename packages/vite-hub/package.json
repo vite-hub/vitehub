@@ -107,6 +107,8 @@
     "./workflow": "./dist/workflow.js",
     "./workspace": "./dist/workspace.js",
     "./workspace/cloudflare": "./dist/workspace/cloudflare.js",
+    "./workspace/collections": "./dist/workspace/collections.js",
+    "./workspace/collections/client": "./dist/workspace/collections/client.js",
     "./workspace/loader": "./dist/workspace/loader.js",
     "./workspace/publish": "./dist/workspace/publish.js",
     "./workspace/runtime": "./dist/workspace/runtime.js",

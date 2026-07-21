@@ -109,6 +109,7 @@ describe("workspace public API", () => {
   it("keeps workspace declarations installable without optional integration peers", async () => {
     const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     const builtServer = await readFile(new URL("../dist/server.d.ts", import.meta.url), "utf8")
+    const builtCollectionsClient = await readFile(new URL("../dist/collections/client.js", import.meta.url), "utf8")
     const builtSandboxStore = await readFile(new URL("../dist/providers/vercel/blob-store.d.ts", import.meta.url), "utf8")
     const distDir = new URL("../dist/", import.meta.url)
     const distFiles = await readdir(distDir, { recursive: true })
@@ -125,8 +126,15 @@ describe("workspace public API", () => {
       "providers/vercel/blob-store.js",
     ].map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
     const effectImport = /(?:from\s*|import\s*(?:\(\s*)?)["']effect(?:\/[^"']*)?["']/
+    const vueFreeBundles = (await Promise.all(["index.js", "server.js", "collections.js"]
+      .map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
 
     expect(packageJson.dependencies?.h3).toBe("catalog:unjs")
+    expect(packageJson.dependencies?.ofetch).toBe("catalog:unjs")
+    expect(packageJson.exports).toHaveProperty("./collections")
+    expect(packageJson.exports).toHaveProperty("./collections/client")
+    expect(packageJson.peerDependencies?.vue).toBe("catalog:ui")
+    expect(packageJson.peerDependenciesMeta?.vue).toEqual({ optional: true })
     expect(packageJson.dependencies?.["files-sdk"]).toBeUndefined()
     expect(packageJson.peerDependencies?.h3).toBeUndefined()
     expect(packageJson.peerDependenciesMeta?.h3).toBeUndefined()
@@ -143,6 +151,8 @@ describe("workspace public API", () => {
     expect(declarations).not.toContain("@vite-hub/sandbox")
     expect(declarations).not.toMatch(effectImport)
     expect(effectFreeBundles).not.toMatch(effectImport)
+    expect(vueFreeBundles).not.toMatch(/from\s*["']vue["']/)
+    expect(builtCollectionsClient).toMatch(/from\s*["']vue["']/)
   })
 
   it("keeps hosted runtime setup off the public Workspace surface", async () => {
