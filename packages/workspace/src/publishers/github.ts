@@ -47,7 +47,7 @@ function resolveMessage(options: GitHubPublisherOptions, ctx: PublishContext): s
 
 async function resolveActiveGitHubStoreTarget(ctx: PublishContext): Promise<GitHubWorkspaceStoreTarget | undefined> {
   const target = await resolveWorkspaceStoreTarget(ctx.store)
-  if (target?.provider === "github") return target as GitHubWorkspaceStoreTarget
+  if (target) return target.provider === "github" ? target as GitHubWorkspaceStoreTarget : undefined
 
   const configuredStore = ctx.workspace.store
   if (configuredStore && "provider" in configuredStore && configuredStore.provider === "github") {
