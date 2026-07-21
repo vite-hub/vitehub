@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs"
 import { execFile as execFileCallback } from "node:child_process"
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { delimiter, dirname, join, relative, resolve } from "node:path"
@@ -18,6 +18,21 @@ const execFile = promisify(execFileCallback)
 async function writeJson(file: string, value: unknown): Promise<void> {
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, JSON.stringify(value), "utf8")
+}
+
+async function writeRuntimePackage(root: string, name: string, packageJson: Record<string, unknown> = {}): Promise<void> {
+  const packageDir = join(root, "node_modules", ...name.split("/"))
+  await writeJson(join(packageDir, "package.json"), { name, version: "9.9.9", ...packageJson })
+  await writeFile(join(packageDir, "marker"), name, "utf8")
+}
+
+async function directorySize(directory: string): Promise<number> {
+  let size = 0
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name)
+    size += entry.isDirectory() ? await directorySize(path) : (await stat(path)).size
+  }
+  return size
 }
 
 describe("Deno deployment output", () => {
@@ -40,6 +55,94 @@ const importText = \`import("missing-import")\`
 doThing() // import("missing-comment")
 import "real"
 `)).toEqual(["real"])
+  })
+
+  it("filters optional packages for Deno runtimes and hoists the selected closure once", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-platforms-"))
+    const outputNodeModules = join(root, ".output/node_modules")
+    await writeJson(join(root, "package.json"), {})
+    await writeRuntimePackage(root, "runtime-root", {
+      dependencies: {
+        "native-duplicate-darwin": "9.9.9",
+        "regular-parent": "9.9.9",
+      },
+      optionalDependencies: {
+        "native-any": "9.9.9",
+        "native-darwin-x64": "9.9.9",
+        "native-duplicate-darwin": "9.9.9",
+        "native-lib-linux-arm64": "9.9.9",
+        "native-lib-linux-x64": "9.9.9",
+        "native-lib-linuxmusl-x64": "9.9.9",
+        "native-linux-arm": "9.9.9",
+        "native-linux-arm64": "9.9.9",
+        "native-linux-x64": "9.9.9",
+        "native-linuxmusl-x64": "9.9.9",
+        "native-not-darwin": "9.9.9",
+        "native-wasm32": "9.9.9",
+        "native-win32-x64": "9.9.9",
+      },
+    })
+    await writeRuntimePackage(root, "required-darwin", { cpu: ["x64"], os: ["darwin"] })
+    await writeRuntimePackage(root, "regular-parent", { optionalDependencies: { "regular-native": "9.9.9" } })
+    await writeRuntimePackage(root, "regular-native", { cpu: ["x64"], os: ["linux"] })
+    await writeRuntimePackage(root, "native-any", { os: ["any"] })
+    await writeRuntimePackage(root, "native-duplicate-darwin", { cpu: ["x64"], os: ["darwin"] })
+    await writeRuntimePackage(root, "native-lib-linux-arm64", { cpu: ["arm64"], libc: ["glibc"], os: ["linux"] })
+    await writeRuntimePackage(root, "native-lib-linux-x64", { cpu: ["x64"], libc: ["glibc"], os: ["linux"] })
+    await writeRuntimePackage(root, "native-lib-linuxmusl-x64", { cpu: ["x64"], libc: ["musl"], os: ["linux"] })
+    await writeRuntimePackage(root, "native-linux-arm64", {
+      cpu: ["arm64"],
+      libc: ["glibc"],
+      optionalDependencies: { "native-lib-linux-arm64": "9.9.9" },
+      os: ["linux"],
+    })
+    await writeRuntimePackage(root, "native-linux-x64", {
+      cpu: ["x64"],
+      libc: ["glibc"],
+      optionalDependencies: { "native-lib-linux-x64": "9.9.9" },
+      os: ["linux"],
+    })
+    await writeRuntimePackage(root, "native-linuxmusl-x64", {
+      cpu: ["x64"],
+      libc: ["musl"],
+      optionalDependencies: { "native-lib-linuxmusl-x64": "9.9.9" },
+      os: ["linux"],
+    })
+    await writeRuntimePackage(root, "native-darwin-x64", { cpu: ["x64"], os: ["darwin"] })
+    await writeRuntimePackage(root, "native-linux-arm", { cpu: ["arm"], os: ["linux"] })
+    await writeRuntimePackage(root, "native-not-darwin", { os: ["!darwin"] })
+    await writeRuntimePackage(root, "native-wasm32", { cpu: ["wasm32"] })
+    await writeRuntimePackage(root, "native-win32-x64", { cpu: ["x64"], os: ["win32"] })
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(
+      join(root, ".output/server/index.mjs"),
+      '//#region node_modules/runtime-root/index.js\nimport "required-darwin"\n',
+    )
+
+    await finalizeDenoDeploymentOutput({ rootDir: root })
+
+    for (const name of [
+      "native-any",
+      "native-lib-linux-arm64",
+      "native-lib-linux-x64",
+      "native-linux-arm64",
+      "native-linux-x64",
+      "native-not-darwin",
+      "required-darwin",
+    ]) expect(existsSync(join(outputNodeModules, name, "package.json"))).toBe(true)
+    for (const name of [
+      "native-darwin-x64",
+      "native-duplicate-darwin",
+      "native-lib-linuxmusl-x64",
+      "native-linux-arm",
+      "native-linuxmusl-x64",
+      "native-wasm32",
+      "native-win32-x64",
+    ]) expect(existsSync(join(outputNodeModules, name, "package.json"))).toBe(false)
+    expect(existsSync(join(outputNodeModules, "native-linux-x64/node_modules/native-lib-linux-x64"))).toBe(false)
+    expect(existsSync(join(outputNodeModules, "native-linux-arm64/node_modules/native-lib-linux-arm64"))).toBe(false)
+    expect(existsSync(join(outputNodeModules, "runtime-root/node_modules/regular-parent/node_modules/regular-native/package.json"))).toBe(true)
+    expect(existsSync(join(outputNodeModules, "runtime-root/node_modules/regular-native"))).toBe(false)
   })
 
   it("stages reachable packages and their installed optional native dependencies", async () => {
@@ -290,6 +393,8 @@ if (png[0] !== 0x89 || png[1] !== 0x50 || png[2] !== 0x4e || png[3] !== 0x47) th
 process.exit(0)
 `, "utf8")
       await finalizeDenoDeploymentOutput({ outputDir: output, rootDir: workspaceRoot })
+      expect(await directorySize(join(output, "node_modules"))).toBeLessThan(64 * 1024 * 1024)
+      expect(existsSync(join(output, "node_modules/@img/sharp-linux-x64/node_modules/@img/sharp-libvips-linux-x64"))).toBe(false)
 
       if (process.platform === "linux" && process.arch === "x64") {
         expect(existsSync(join(output, "node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64.node"))).toBe(true)

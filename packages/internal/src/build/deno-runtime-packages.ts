@@ -8,6 +8,10 @@ const builtinModuleNames = new Set([
   ...builtinModules.map((name) => `node:${name}`),
 ])
 const runtimeExtensions = new Set([".cjs", ".js", ".mjs", ".ts"])
+const denoRuntimeTargets = [
+  { cpu: "arm64", libc: "glibc", os: "linux" },
+  { cpu: "x64", libc: "glibc", os: "linux" },
+] as const
 
 interface FinalizeDenoDeploymentOutputOptions {
   outputDir?: string
@@ -122,15 +126,26 @@ interface RuntimePackage {
   packageJsonPath?: string
 }
 
+interface RuntimePackageJson {
+  cpu?: string[]
+  dependencies?: Record<string, string>
+  libc?: string[]
+  optionalDependencies?: Record<string, string>
+  os?: string[]
+  peerDependencies?: Record<string, string>
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>
+}
+
 async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: string, packages: RuntimePackage[], rootDir: string }): Promise<void> {
   const copied = new Set<string>()
+  const staged = new Set<string>()
   const resolver = createRequire(join(options.rootDir, "package.json"))
   for (const runtimePackage of options.packages) {
-    await copyPackageToNodeModules(runtimePackage.name, resolver, options.rootDir, options.outputNodeModules, copied, runtimePackage)
+    await copyPackageToNodeModules(runtimePackage.name, resolver, options.rootDir, options.outputNodeModules, copied, staged, runtimePackage)
   }
 }
 
-async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, fromDir: string, outputNodeModules: string, copied: Set<string>, options: RuntimePackage): Promise<void> {
+async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, fromDir: string, outputNodeModules: string, copied: Set<string>, staged: Set<string>, options: RuntimePackage): Promise<void> {
   let packageJsonPath = options.packageJsonPath
   if (packageJsonPath) {
     try {
@@ -147,27 +162,33 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   }
   const resolvedPackageJsonPath = await realpath(packageJsonPath)
   const packageDir = dirname(resolvedPackageJsonPath)
-  const packageJson = JSON.parse(await readFile(resolvedPackageJsonPath, "utf8")) as {
-    dependencies?: Record<string, string>
-    optionalDependencies?: Record<string, string>
-    peerDependencies?: Record<string, string>
-    peerDependenciesMeta?: Record<string, { optional?: boolean }>
-  }
+  const packageJson = JSON.parse(await readFile(resolvedPackageJsonPath, "utf8")) as RuntimePackageJson
   if (options.onlyIfOptionalDependencies && !Object.keys(packageJson.optionalDependencies || {}).length) return
   const packageKey = name + "\0" + resolvedPackageJsonPath
   if (copied.has(packageKey)) return
-  copied.add(packageKey)
   const targetDir = join(outputNodeModules, ...name.split("/"))
+  const stagedKey = packageKey + "\0" + targetDir
+  if (staged.has(stagedKey)) return
+  copied.add(packageKey)
   await rm(targetDir, { force: true, recursive: true })
   await cp(packageDir, targetDir, {
     dereference: true,
     filter: source => relative(packageDir, source).split(sep)[0] !== "node_modules",
     recursive: true,
   })
+  staged.add(stagedKey)
   const packageRequire = createRequire(resolvedPackageJsonPath)
-  const dependencyNames = new Set(Object.keys(packageJson.dependencies || {}))
+  const optionalDependencyNames = new Set(Object.keys(packageJson.optionalDependencies || {}))
+  const dependencyNames = new Set(
+    Object.keys(packageJson.dependencies || {}).filter(dependencyName => !optionalDependencyNames.has(dependencyName)),
+  )
   if (options.includeOptionalDependencies) {
-    for (const dependencyName of Object.keys(packageJson.optionalDependencies || {})) dependencyNames.add(dependencyName)
+    for (const dependencyName of Object.keys(packageJson.optionalDependencies || {})) {
+      const dependencyPackageJsonPath = await resolvePackageJson(dependencyName, packageRequire, packageDir)
+      if (!dependencyPackageJsonPath) continue
+      const dependencyPackageJson = JSON.parse(await readFile(dependencyPackageJsonPath, "utf8")) as RuntimePackageJson
+      if (supportsDenoRuntime(dependencyPackageJson)) dependencyNames.add(dependencyName)
+    }
   }
   if (options.includePeerDependencies) {
     for (const dependencyName of Object.keys(packageJson.peerDependencies || {})) {
@@ -178,7 +199,8 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
     const dependencyNodeModules = options.hoistOptionalDependencies && packageJson.optionalDependencies?.[dependencyName]
       ? outputNodeModules
       : join(targetDir, "node_modules")
-    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, dependencyNodeModules, copied, {
+    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, dependencyNodeModules, copied, staged, {
+      hoistOptionalDependencies: options.hoistOptionalDependencies && Boolean(packageJson.optionalDependencies?.[dependencyName]),
       includeOptionalDependencies: options.includeOptionalDependencies,
       includePeerDependencies: options.includePeerDependencies,
       name: dependencyName,
@@ -186,6 +208,22 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
     })
   }
   copied.delete(packageKey)
+}
+
+function supportsDenoRuntime(packageJson: RuntimePackageJson): boolean {
+  return denoRuntimeTargets.some(target =>
+    supportsConstraint(packageJson.os, target.os)
+    && supportsConstraint(packageJson.cpu, target.cpu)
+    && supportsConstraint(packageJson.libc, target.libc),
+  )
+}
+
+function supportsConstraint(values: string[] | undefined, target: string): boolean {
+  if (!values?.length) return true
+  if (values.length === 1 && values[0] === "any") return true
+  if (values.includes(`!${target}`)) return false
+  const included = values.filter(value => !value.startsWith("!"))
+  return included.length === 0 || included.includes(target)
 }
 
 async function resolvePackageJson(name: string, resolver: NodeJS.Require, fromDir: string): Promise<string | undefined> {
