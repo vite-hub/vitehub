@@ -1,6 +1,6 @@
 import { createNoExternalMerger, hasNitroVitePlugin, isServerEnvironment } from '@vite-hub/internal/build/vite'
 import { getHostingProvider } from '@vite-hub/internal/hosting'
-import { basename, dirname, normalize, relative } from 'pathe'
+import { basename, normalize, relative } from 'pathe'
 
 import { configureCloudflareSandboxNitro } from './cloudflare'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
@@ -58,14 +58,12 @@ function isLocalSourceFile(file: string, rootDir: string | undefined) {
 
 function isSandboxProjectManifestUpdate(
   file: string,
-  definitions: DiscoveredSandboxDefinition[],
   rootDir: string | undefined,
 ) {
   if (basename(file) !== 'package.json' || !isLocalSourceFile(file, rootDir))
     return false
-  const packageRoot = normalize(dirname(file))
-  return definitions.some(definition => definition.kind === 'package-entry'
-    && normalize(dirname(definition.handler)) === packageRoot)
+  const path = normalize(relative(rootDir!, file))
+  return /(?:^|\/)(?:src\/)?server\/sandboxes\//.test(path)
 }
 
 function isSandboxDefinitionUpdate(
@@ -79,7 +77,7 @@ function isSandboxDefinitionUpdate(
     return true
   if (generatedFiles.some(file => normalize(file) === changedFile))
     return false
-  if (isSandboxProjectManifestUpdate(changedFile, definitions, rootDir))
+  if (isSandboxProjectManifestUpdate(changedFile, rootDir))
     return true
   if (!isSandboxSourceFile(changedFile))
     return false

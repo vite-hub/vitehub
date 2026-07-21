@@ -1052,6 +1052,37 @@ describe("hubSandbox", () => {
     await expect(readTimeout()).resolves.toBe(60_000)
   })
 
+  it("discovers a Sandbox when its package manifest is added during development", async () => {
+    const rootDir = await createViteRoot()
+    const projectDir = join(rootDir, "server/sandboxes/example")
+    const manifest = join(projectDir, "package.json")
+    await rm(join(rootDir, "src/tools/release-notes.sandbox.ts"))
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(join(projectDir, "index.ts"), "export default { ok: true }\n")
+
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "serve", mode: "development" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const registry = join(rootDir, ".vitehub/sandbox/runtime/sandbox-registry.mjs")
+    await expect(readFile(registry, "utf8")).resolves.not.toContain('"example"')
+    await writeFile(manifest, JSON.stringify({ private: true }))
+
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => void } }
+    }) => Promise<void>
+    await handleHotUpdate({
+      file: manifest,
+      server: { moduleGraph: { getModuleById: () => undefined, invalidateModule: () => {} } },
+    })
+
+    await expect(readFile(registry, "utf8")).resolves.toContain('"example"')
+  })
+
   it("refreshes generated artifacts when imported local modules change", async () => {
     const rootDir = await createViteRoot()
     const helper = join(rootDir, "src/tools/message.ts")

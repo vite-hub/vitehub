@@ -79,20 +79,34 @@ export async function bundleSandboxDefinition(
     }
   }
 
-  const prefix = options.project.packagePath === '.'
-    ? '.vitehub-sandbox'
-    : `${options.project.packagePath}/.vitehub-sandbox`
-  const modules = {
-    [`${prefix}/package.json`]: JSON.stringify({ private: true, type: 'module' }),
-    ...Object.fromEntries(
-      Object.entries(bundle.modules).map(([path, contents]) => [`${prefix}/${path}`, contents]),
-    ),
-  }
+  const packagePrefix = options.project.packagePath === '.'
+    ? ''
+    : `${options.project.packagePath}/`
+  const definitionPrefix = `${packagePrefix}.vitehub-sandbox`
+  const isPackageEntry = options.execution === 'module'
+  const entry = isPackageEntry
+    ? `${packagePrefix}.vitehub-sandbox-entry.mjs`
+    : `${definitionPrefix}/${bundle.entry}`
+  const modules = isPackageEntry
+    ? Object.fromEntries(Object.entries(bundle.modules).map(([path, contents]) => [
+        path === bundle.entry
+          ? entry
+          : `${packagePrefix}.vitehub-sandbox-chunks/${path.replace(/^chunks\//, '')}`,
+        path === bundle.entry
+          ? contents.replaceAll('./chunks/', './.vitehub-sandbox-chunks/')
+          : contents,
+      ]))
+    : {
+        [`${definitionPrefix}/package.json`]: JSON.stringify({ private: true, type: 'module' }),
+        ...Object.fromEntries(
+          Object.entries(bundle.modules).map(([path, contents]) => [`${definitionPrefix}/${path}`, contents]),
+        ),
+      }
   const digest = createHash('sha256')
     .update(JSON.stringify({ modules, packagePath: options.project.packagePath, project: options.project.digest }))
     .digest('hex')
   return {
-    entry: `${prefix}/${bundle.entry}`,
+    entry,
     ...(options.execution ? { execution: options.execution } : {}),
     modules,
     project: { ...options.project, digest },

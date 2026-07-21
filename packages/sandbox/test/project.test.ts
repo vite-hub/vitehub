@@ -128,6 +128,7 @@ describe("resolveSandboxProject", () => {
     await Promise.all([mkdir(sandbox, { recursive: true }), mkdir(first, { recursive: true }), mkdir(second, { recursive: true })])
     await writeFile(join(root, "pnpm-workspace.yaml"), "packages:\n  - sandboxes/*\n  - packages/*\n")
     await writeFile(join(sandbox, "package.json"), JSON.stringify({ dependencies: { "@fixture/first": "workspace:*" }, private: true }))
+    await writeFile(join(sandbox, "prompt.md"), "relative asset")
     await writeFile(join(first, "package.json"), JSON.stringify({ dependencies: { "@fixture/second": "workspace:*" }, exports: "./index.js", name: "@fixture/first", type: "module" }))
     await writeFile(join(first, "index.js"), "export { value } from '@fixture/second'\n")
     await writeFile(join(second, "package.json"), JSON.stringify({ exports: "./index.js", name: "@fixture/second", type: "module" }))
@@ -137,12 +138,14 @@ describe("resolveSandboxProject", () => {
       "import { readFile } from 'node:fs/promises'",
       "import { value } from '@fixture/first'",
       "const { payload, context } = JSON.parse(await readFile(process.argv[2], 'utf8'))",
+      "const asset = await readFile(new URL('./prompt.md', import.meta.url), 'utf8')",
       "await Promise.resolve()",
-      "export default { context, payload, value }",
+      "export default { asset, context, payload, value }",
       "",
     ].join("\n"))
 
     const project = await resolveSandboxProject(definitionFile, root)
+    expect(project.files).toHaveProperty("sandboxes/image/prompt.md")
     const bundle = await bundleSandboxDefinition(await readFile(definitionFile, "utf8"), definitionFile, {
       execution: "module",
       project,
@@ -168,6 +171,7 @@ describe("resolveSandboxProject", () => {
         { requested: true },
         { requestId: "test" },
       )).resolves.toEqual({
+        asset: "relative asset",
         context: { requestId: "test" },
         payload: { requested: true },
         value: 42,
