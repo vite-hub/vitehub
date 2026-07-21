@@ -4,12 +4,8 @@ const runtimeMocks = vi.hoisted(() => ({
   close: vi.fn(async () => {}),
   executeSandboxDefinition: vi.fn(),
   open: vi.fn(),
-  resolveBox: vi.fn(),
+  resolveProviderBox: vi.fn(),
   resolveSandboxBox: vi.fn(),
-}))
-
-vi.mock("@vite-hub/box", () => ({
-  resolveBox: runtimeMocks.resolveBox,
 }))
 
 vi.mock("../src/runtime/execute.ts", () => ({
@@ -57,15 +53,15 @@ beforeEach(() => {
   runtimeMocks.close.mockClear()
   runtimeMocks.executeSandboxDefinition.mockReset()
   runtimeMocks.open.mockReset()
-  runtimeMocks.resolveBox.mockReset()
+  runtimeMocks.resolveProviderBox.mockReset()
   runtimeMocks.resolveSandboxBox.mockReset()
   runtimeMocks.resolveSandboxBox.mockImplementation(async ({ provider }) => ({
     closeAfterRun: provider.provider === "cloudflare" ? provider.keepAlive === true : true,
     provider: provider.provider,
-    runtime: { name: provider.provider, open: vi.fn(), prepare: vi.fn() },
+    resolveBox: runtimeMocks.resolveProviderBox,
     sandboxId: provider.sandboxId,
   }))
-  runtimeMocks.resolveBox.mockResolvedValue({
+  runtimeMocks.resolveProviderBox.mockResolvedValue({
     plan: {},
     open: runtimeMocks.open,
   })
@@ -91,11 +87,7 @@ describe("Sandbox runtime lifecycle", () => {
     const result = await runSandboxRuntime("example")
 
     expect(result.isOk()).toBe(true)
-    expect(runtimeMocks.resolveBox).toHaveBeenCalledWith(
-      { runtime: expect.objectContaining({ name: "cloudflare" }) },
-      {},
-      { requires: ["node"] },
-    )
+    expect(runtimeMocks.resolveProviderBox).toHaveBeenCalledWith(["node"])
     expect(runtimeMocks.open).toHaveBeenCalledWith({
       id: expect.stringMatching(/^vitehub-example-[a-z0-9]+-definition$/),
     })
@@ -191,11 +183,7 @@ describe("Sandbox runtime lifecycle", () => {
 
     await runSandboxRuntime("example")
 
-    expect(runtimeMocks.resolveBox).toHaveBeenCalledWith(
-      expect.anything(),
-      {},
-      { requires: ["node", "pnpm"] },
-    )
+    expect(runtimeMocks.resolveProviderBox).toHaveBeenCalledWith(["node", "pnpm"])
   })
 
   it("accepts package entries stored in project files", async () => {

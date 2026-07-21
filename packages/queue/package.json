@@ -28,9 +28,9 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
-    "./nuxt": "./dist/nuxt.js",
     "./internal/runtime/cloudflare-client": "./dist/internal/runtime/cloudflare-client.js",
     "./internal/runtime/vercel-client": "./dist/internal/runtime/vercel-client.js",
+    "./nuxt": "./dist/nuxt.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/hosted": "./dist/runtime/hosted.js",
     "./runtime/state": "./dist/runtime/state.js",

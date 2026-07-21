@@ -443,6 +443,97 @@ describe("Vite provider outputs", () => {
     }
   })
 
+  it("composes contributed runtimes into isolated Vercel callbacks", { timeout: 90_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-vercel-runtime-contribution-")
+    const standaloneDir = await mkdtemp(join(tmpdir(), "vitehub-queue-vercel-runtime-contribution-standalone-"))
+    tempDirs.push(standaloneDir)
+    const runtimeFacade = join(rootDir, "runtime-facade.mjs")
+    await mkdir(join(rootDir, "server", "queues"), { recursive: true })
+    await writeFile(join(rootDir, "package.json"), `${JSON.stringify({ type: "module" }, null, 2)}\n`, "utf8")
+    await writeFile(runtimeFacade, [
+      "export async function runSandbox(name, payload) {",
+      "  return { name, payload, registry: 'contributed' }",
+      "}",
+      "",
+    ].join("\n"), "utf8")
+    await writeFile(join(rootDir, "server", "queues", "sandbox.ts"), [
+      "import { runSandbox } from 'vite-hub/sandbox'",
+      "export default { handler: async () => {",
+      "  globalThis.__vitehubQueueSandboxResult = await runSandbox('image-optimizer', { queued: true })",
+      "} }",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist",
+      providerImportAliases: { "vite-hub/sandbox": runtimeFacade },
+      queue: { provider: "vercel" },
+      rootDir,
+    })
+
+    const callbackFunctionDir = join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "sandbox", "sandbox.func")
+    const callbackFunction = join(callbackFunctionDir, "index.mjs")
+    await cp(callbackFunctionDir, standaloneDir, { recursive: true })
+    const handler = (await import(`${pathToFileURL(join(standaloneDir, "index.mjs")).href}?t=${Date.now()}`)).default
+    ;(globalThis as Record<string, unknown>).__vitehubVercelQueue = {
+      handleCallback: (callback: (payload: unknown, metadata: unknown) => Promise<void>) => async () => {
+        await callback({ queued: true }, { deliveryCount: 1, messageId: "sandbox-message" })
+        return new Response("handled")
+      },
+      send: async () => ({ messageId: "unused" }),
+    }
+    const server = createServer(handler)
+    server.listen(0, "127.0.0.1")
+    await once(server, "listening")
+    try {
+      const address = server.address()
+      if (!address || typeof address === "string") throw new Error("Missing Queue callback address.")
+      const response = await fetch(`http://127.0.0.1:${address.port}`, { method: "POST" })
+      expect(await response.text()).toBe("handled")
+      expect((globalThis as Record<string, unknown>).__vitehubQueueSandboxResult).toEqual({
+        name: "image-optimizer",
+        payload: { queued: true },
+        registry: "contributed",
+      })
+      await expect(readFile(callbackFunction, "utf8")).resolves.toContain("registry: \"contributed\"")
+    }
+    finally {
+      server.close()
+      await once(server, "close")
+      delete (globalThis as Record<string, unknown>).__vitehubQueueSandboxResult
+      delete (globalThis as Record<string, unknown>).__vitehubVercelQueue
+    }
+  })
+
+  it("keeps Cloudflare platform modules external in contributed runtimes", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-cloudflare-platform-runtime-")
+    const runtimeFacade = join(rootDir, "runtime-facade.mjs")
+    await mkdir(join(rootDir, "server", "queues"), { recursive: true })
+    await writeFile(join(rootDir, "package.json"), `${JSON.stringify({ type: "module" }, null, 2)}\n`, "utf8")
+    await writeFile(runtimeFacade, [
+      "import { env } from 'cloudflare:workers'",
+      "export function runSandbox(name) {",
+      "  return { hasEnvironment: Boolean(env), name }",
+      "}",
+      "",
+    ].join("\n"), "utf8")
+    await writeFile(join(rootDir, "server", "queues", "sandbox.ts"), [
+      "import { runSandbox } from 'vite-hub/sandbox'",
+      "export default { handler: async () => runSandbox('image-optimizer') }",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist",
+      providerImportAliases: { "vite-hub/sandbox": runtimeFacade },
+      queue: { provider: "cloudflare" },
+      rootDir,
+    })
+
+    const output = join(createDefaultCloudflareOutputRoot(rootDir), "index.js")
+    await expect(readFile(output, "utf8")).resolves.toContain("cloudflare:workers")
+  })
+
   it("closes composed Blob runtimes inside isolated Vercel queue functions", { timeout: 90_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-vercel-blob-runtime-")
     const standaloneDir = await mkdtemp(join(tmpdir(), "vitehub-queue-vercel-blob-standalone-"))

@@ -18,6 +18,44 @@ function readAlias(alias: AliasOptions | undefined, id: string) {
   return (alias as Record<string, string> | undefined)?.[id]
 }
 
+type SandboxNitroPlugin = {
+  nitro: {
+    setup: (nitro: {
+      hooks: { hook: (name: "build:before", callback: () => void) => void }
+      options: Record<string, unknown>
+    }) => void
+  }
+}
+
+function createSandboxNitroLifecycle(
+  plugin: SandboxNitroPlugin,
+  initial: Array<string | RegExp> = [],
+) {
+  const options: Record<string, unknown> = { noExternals: initial }
+  let buildBefore: (() => void) | undefined
+  plugin.nitro.setup({
+    hooks: {
+      hook(name, callback) {
+        expect(name).toBe("build:before")
+        buildBefore = callback
+      },
+    },
+    options,
+  })
+  return () => {
+    expect(buildBefore).toBeTypeOf("function")
+    buildBefore!()
+    return options
+  }
+}
+
+function readSandboxNitroNoExternals(
+  plugin: SandboxNitroPlugin,
+  initial: Array<string | RegExp> = [],
+) {
+  return createSandboxNitroLifecycle(plugin, initial)().noExternals as Array<string | RegExp>
+}
+
 async function createViteRoot() {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-sandbox-vite-"))
   tempDirs.push(rootDir)
@@ -79,13 +117,15 @@ describe("hubSandbox", () => {
 
     expect(readAlias(alias, "@vite-hub/sandbox")).toBeUndefined()
     expect(sandboxAlias).toContain(".vitehub/sandbox/runtime/sandbox.mjs")
-    expect(providerImportAliases["@vite-hub/sandbox"]).toBeUndefined()
+    expect(providerImportAliases["@vite-hub/sandbox"]).toMatch(/packages\/sandbox\/(?:src|dist)$/)
     expect(providerImportAliases["vite-hub/sandbox"]).toBe(sandboxAlias)
+    expect(providerImportAliases["vitehub-sandbox-provider-loader"]).toBe(providerLoaderAlias)
 
     await configHook({ root: rootDir, sandbox: false }, { command: "serve", mode: "development" })
     await configResolved({ root: rootDir, resolve: { alias: [] } })
     expect(providerImportAliases).not.toHaveProperty("@vite-hub/sandbox")
     expect(providerImportAliases).not.toHaveProperty("vite-hub/sandbox")
+    expect(providerImportAliases).not.toHaveProperty("vitehub-sandbox-provider-loader")
     expect(registryAlias).toContain(".vitehub/sandbox/runtime/sandbox-registry.mjs")
     expect(providerLoaderAlias).toContain(".vitehub/sandbox/runtime/sandbox-provider-loader.mjs")
     expect(readAlias(alias, "@vite-hub/sandbox/runtime/state")).toBeUndefined()
@@ -310,7 +350,7 @@ describe("hubSandbox", () => {
         rollupOptions: { input: join(rootDir, "src/server.ts") },
         write: false,
       },
-      nitro: { preset: "cloudflare-module" },
+      nitro: { preset: "cloudflare-module" } as Record<string, any>,
       plugins: [
         hubSandbox(),
         {
@@ -347,14 +387,14 @@ describe("hubSandbox", () => {
     const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
     const userConfig = {
       root: rootDir,
-      nitro: { preset: "cloudflare-module" },
+      nitro: { preset: "cloudflare-module" } as Record<string, any>,
       plugins: [{ name: "nitro:main" }],
     }
 
     await configHook(userConfig, { command: "build", mode: "production" })
     await configResolved({ ...userConfig, resolve: { alias: [] } })
 
-    expect(userConfig.nitro).toEqual({ preset: "cloudflare-module" })
+    expect(userConfig.nitro).toMatchObject({ preset: "cloudflare-module" })
     const stateId = await resolveId("#vitehub/sandbox")
     expect(await load(stateId as string)).toContain('"sandbox": false')
     await expect(readFile(join(rootDir, ".vitehub/sandbox/Dockerfile"), "utf8"))
@@ -673,12 +713,15 @@ describe("hubSandbox", () => {
     const userConfig = {
       root: rootDir,
       plugins: [{ name: "nitro:main" }],
-      nitro: { preset: "vercel" },
+      nitro: { preset: "vercel" } as Record<string, any>,
     }
 
     await configHook(userConfig, { command: "build", mode: "production" })
 
     expect(userConfig.nitro).toEqual({ preset: "vercel" })
+    const patterns = readSandboxNitroNoExternals(plugin)
+    expect(patterns).toHaveLength(2)
+    expect(patterns).toContain("@vite-hub/sandbox")
   })
 
   it("keeps a late-resolved non-Cloudflare Nitro preset authoritative", async () => {
@@ -700,6 +743,54 @@ describe("hubSandbox", () => {
     await configResolved(resolvedConfig)
 
     expect(resolvedConfig.nitro).toEqual({ preset: "vercel" })
+    expect(readSandboxNitroNoExternals(plugin)).toContain("@cloudflare/sandbox")
+  })
+
+  it.each([
+    ["cloudflare-module", "cloudflare", "@cloudflare", "vercel"],
+    ["vercel", "vercel", "@vercel", "cloudflare"],
+  ])("bundles only the %s Sandbox provider into Nitro", async (preset, provider, sdkScope, otherProvider) => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: provider as "cloudflare" | "vercel" })
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const userConfig = {
+      root: rootDir,
+      plugins: [{ name: "nitro:main" }],
+      preset,
+      nitro: {},
+    }
+    await configHook(userConfig, { command: "build", mode: "production" })
+    const runNitroBuildBefore = createSandboxNitroLifecycle(plugin, [/existing/])
+
+    const nitroOptions = runNitroBuildBefore()
+    const patterns = nitroOptions.noExternals as Array<string | RegExp>
+    const aliases = nitroOptions.alias as Record<string, string>
+    expect(patterns).toHaveLength(3)
+    expect(patterns).toContain("@vite-hub/sandbox")
+    expect(patterns).toContain(`${sdkScope}/sandbox`)
+    expect(patterns).not.toContain(`@${otherProvider}/sandbox`)
+    expect(aliases["vitehub-sandbox-provider-loader"]).toContain("sandbox-provider-loader.mjs")
+    expect(Object.keys(aliases)).toEqual(expect.arrayContaining([
+      "#vitehub-sandbox-provider-loader",
+      "@vite-hub/sandbox/runtime/provider-loader",
+      "virtual:vitehub-sandbox-provider-loader",
+      "vitehub-sandbox-provider-loader",
+    ]))
+  })
+
+  it("does not contribute Nitro Sandbox externals when Sandbox is disabled", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox(false)
+    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const userConfig = { root: rootDir, nitro: {}, preset: "vercel" }
+    await configHook(userConfig, { command: "build", mode: "production" })
+    const runNitroBuildBefore = createSandboxNitroLifecycle(plugin, [/existing/])
+
+    const nitroOptions = runNitroBuildBefore()
+    expect(nitroOptions.noExternals).toEqual([/existing/])
+    expect(nitroOptions).not.toHaveProperty("alias")
   })
 
   it("removes early environment-selected Cloudflare output when Nitro resolves away", async () => {
@@ -717,11 +808,12 @@ describe("hubSandbox", () => {
       await configHook(userConfig, { command: "build", mode: "production" })
       expect(nitro.cloudflare.wrangler.containers).toHaveLength(1)
 
-      const resolvedConfig = { ...userConfig, nitro: { preset: "vercel" }, resolve: { alias: [] } }
+      const resolvedConfig = { ...userConfig, nitro: { preset: "vercel" } as Record<string, any>, resolve: { alias: [] } }
       await configResolved(resolvedConfig)
 
       expect(nitro).toEqual({})
       expect(resolvedConfig.nitro).toEqual({ preset: "vercel" })
+      expect(readSandboxNitroNoExternals(plugin)).toContain("@cloudflare/sandbox")
     }
     finally {
       if (typeof previousPreset === "undefined") delete process.env.NITRO_PRESET

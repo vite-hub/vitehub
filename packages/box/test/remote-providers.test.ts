@@ -1,12 +1,25 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { cloudflareBox, type CloudflareSandboxStub } from "../src/cloudflare.ts";
+import { cloudflareBox, resolveCloudflareBox, type CloudflareSandboxStub } from "../src/cloudflare.ts";
 import { resolveBox } from "../src/index.ts";
 import { vercelBox, type VercelSandboxInstance } from "../src/vercel.ts";
 
 afterEach(() => vi.useRealTimers());
 
 describe("remote Box providers", () => {
+  it("resolves a selected Cloudflare runtime without the public Box root", async () => {
+    const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
+    const box = await resolveCloudflareBox({ getSandbox: () => stub, namespace: namespace(stub) }, ["node", "npm"]);
+
+    expect(box.plan.requirements).toEqual([
+      { command: "node", name: "node" },
+      { command: "npm", name: "npm" },
+    ]);
+    const session = await box.open({ id: "selected-cloudflare" });
+    expect(session.id).toBe("selected-cloudflare");
+    await session.close();
+  });
+
   it("retries transient Cloudflare transport failures", async () => {
     vi.useFakeTimers();
     let calls = 0;

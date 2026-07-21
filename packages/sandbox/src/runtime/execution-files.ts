@@ -1,4 +1,3 @@
-import { createWorkspace } from '@vite-hub/workspace/internal/runtime/workspace'
 import { dirname } from 'pathe'
 
 import type { SandboxDefinitionBundle } from '../module-types'
@@ -38,26 +37,33 @@ export function resolveSandboxModulePath(baseDir: string, modulePath: string) {
   return `${baseDir}/${modulePath}`
 }
 
+function normalizeSandboxBundlePath(path: string) {
+  const slashPath = path.replace(/\\/g, '/')
+  const normalized = slashPath.replace(/^\/+|\/+$/g, '')
+  const parts = normalized.split('/').filter(Boolean)
+  if (!normalized || slashPath.startsWith('/') || /^[A-Za-z]:\//.test(slashPath) || parts.some(part => part === '.' || part === '..'))
+    throw new Error(`[vitehub] Sandbox bundle path must stay inside the project: ${path}.`)
+  return parts.join('/')
+}
+
 export async function writeSandboxDefinitionBundle(sandbox: SandboxExecutionBox, baseDir: string, bundle: SandboxDefinitionBundle) {
-  const workspace = createWorkspace({
-    name: `sandbox-${bundle.project?.digest || Math.random().toString(36).slice(2)}`,
-    store: { provider: 'memory' },
-  })
-  const files = {
+  const files = Object.entries({
     ...(bundle.project
       ? Object.fromEntries(Object.entries(bundle.project.files).map(([path, file]) => [path, Uint8Array.from(Buffer.from(file.contents, file.encoding))]))
       : {}),
     ...bundle.modules,
-  }
-  await Promise.all(Object.entries(files).map(async ([modulePath, source]) => {
-    const parent = dirname(modulePath)
-    if (parent !== '.') await workspace.mkdir(parent, { recursive: true })
-    await workspace.writeFile(modulePath, source)
+  }).map(([path, source]) => ({ path: normalizeSandboxBundlePath(path), source }))
+  const modes = Object.entries(bundle.project?.files || {})
+    .filter(([, file]) => Boolean(file.mode))
+    .map(([path, file]) => ({ mode: file.mode!, path: normalizeSandboxBundlePath(path) }))
+  await sandbox.files.remove(baseDir, { recursive: true })
+  await sandbox.files.mkdir(baseDir, { recursive: true })
+  await Promise.all(files.map(async ({ path, source }) => {
+    const parent = dirname(path)
+    if (parent !== '.') await sandbox.files.mkdir(`${baseDir}/${parent}`, { recursive: true })
+    await sandbox.files.write(`${baseDir}/${path}`, typeof source === 'string' ? new TextEncoder().encode(source) : source)
   }))
-  await workspace.snapshot({ name: 'sandbox-bundle' })
-  const session = await workspace.startSession({ host: sandbox, target: baseDir })
-  await session.close()
-  await Promise.all(Object.entries(bundle.project?.files || {}).map(async ([path, file]) => {
-    if (file.mode) await sandbox.exec('chmod', [file.mode.toString(8), `${baseDir}/${path}`])
+  await Promise.all(modes.map(async ({ mode, path }) => {
+    await sandbox.exec('chmod', [mode.toString(8), `${baseDir}/${path}`])
   }))
 }

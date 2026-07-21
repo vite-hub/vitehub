@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const { vercelBox } = vi.hoisted(() => ({ vercelBox: vi.fn(() => ({ name: "vercel" })) }))
+const { resolveVercelBox } = vi.hoisted(() => ({
+  resolveVercelBox: vi.fn(async () => ({ open: vi.fn(), plan: {} })),
+}))
 
-vi.mock("@vite-hub/box/vercel", () => ({ vercelBox }))
+vi.mock("@vite-hub/box/vercel", () => ({ resolveVercelBox }))
 
 import { resolveSandboxBox } from "../src/runtime/providers/vercel.ts"
 
@@ -24,24 +26,26 @@ describe("resolveSandboxBox", () => {
     process.env.VERCEL_TEAM_ID = "team-from-env"
     process.env.VERCEL_PROJECT_ID = "project-from-env"
 
-    await expect(resolveSandboxBox({
+    const provider = await resolveSandboxBox({
       local: {},
       provider: {
         provider: "vercel",
         token: "token-from-config",
       },
-    })).resolves.toMatchObject({ provider: "vercel", runtime: { name: "vercel" } })
-    expect(vercelBox).toHaveBeenCalledWith(expect.objectContaining({
+    })
+    expect(provider).toMatchObject({ provider: "vercel" })
+    await provider.resolveBox(["node"])
+    expect(resolveVercelBox).toHaveBeenCalledWith(expect.objectContaining({
         token: "token-from-config",
         teamId: "team-from-env",
         projectId: "project-from-env",
-    }))
+    }), ["node"])
   })
 
   it("uses config credentials without process", async () => {
     vi.stubGlobal("process", undefined)
 
-    await expect(resolveSandboxBox({
+    const provider = await resolveSandboxBox({
       local: {},
       provider: {
         provider: "vercel",
@@ -49,11 +53,13 @@ describe("resolveSandboxBox", () => {
         teamId: "team-from-config",
         projectId: "project-from-config",
       },
-    })).resolves.toMatchObject({ provider: "vercel", runtime: { name: "vercel" } })
-    expect(vercelBox).toHaveBeenCalledWith(expect.objectContaining({
+    })
+    expect(provider).toMatchObject({ provider: "vercel" })
+    await provider.resolveBox(["node"])
+    expect(resolveVercelBox).toHaveBeenCalledWith(expect.objectContaining({
         token: "token-from-config",
         teamId: "team-from-config",
         projectId: "project-from-config",
-    }))
+    }), ["node"])
   })
 })

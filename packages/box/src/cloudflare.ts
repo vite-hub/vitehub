@@ -1,12 +1,8 @@
-import { Buffer } from "node:buffer";
-import { randomUUID } from "node:crypto";
-
-import type * as CloudflareSandbox from "@cloudflare/sandbox";
-
-import type { BoxFileEntry, BoxRuntime } from "./index.ts";
+import type { Box, BoxFileEntry, BoxRuntime } from "./index.ts";
 import {
   openRemoteBox,
   remoteBoxPlan,
+  resolveRemoteBoxRuntime,
   resolveRemoteEnvironment,
   shellQuote,
   snapshotStream,
@@ -99,7 +95,7 @@ export function cloudflareBox(options: CloudflareBoxOptions): BoxRuntime {
     },
     async open(input, openOptions) {
       const env = await resolveRemoteEnvironment(input, {});
-      const id = openOptions?.id ?? options.sandboxId ?? `vitehub-${randomUUID()}`;
+      const id = openOptions?.id ?? options.sandboxId ?? `vitehub-${crypto.randomUUID()}`;
       const getSandbox = options.getSandbox ?? await loadCloudflareSandbox();
       const stub = getSandbox(options.namespace, id, options.cloudflare);
       const runtimeSession = createCloudflareSession(id, stub, env, options.hostname);
@@ -113,10 +109,16 @@ export function cloudflareBox(options: CloudflareBoxOptions): BoxRuntime {
   };
 }
 
+export async function resolveCloudflareBox(
+  options: CloudflareBoxOptions,
+  requirements: readonly string[],
+): Promise<Box> {
+  return await resolveRemoteBoxRuntime(cloudflareBox(options), requirements);
+}
+
 async function loadCloudflareSandbox() {
   try {
-    const provider = ["@cloudflare", "sandbox"].join("/");
-    const { getSandbox } = await import(provider) as typeof CloudflareSandbox;
+    const { getSandbox } = await import("@cloudflare/sandbox");
     return getSandbox as unknown as NonNullable<CloudflareBoxOptions["getSandbox"]>;
   } catch (error) {
     throw new Error(
@@ -220,7 +222,7 @@ function createCloudflareSession(
         if (!exists) return null;
         throw new Error(`[vitehub] Cloudflare failed to read ${path}.`);
       }
-      return new Uint8Array(Buffer.from(result.content, "base64"));
+      return decodeBase64(result.content);
     },
     async removeFile({ abortSignal, path, recursive }) {
       abortSignal?.throwIfAborted();
@@ -258,12 +260,25 @@ function createCloudflareSession(
     async stop() {},
     async writeBinaryFile({ abortSignal, content, path }) {
       abortSignal?.throwIfAborted();
-      const result = await request("writeFile", async () => await stub.writeFile(path, Buffer.from(content).toString("base64"), {
+      const result = await request("writeFile", async () => await stub.writeFile(path, encodeBase64(content), {
         encoding: "base64",
       }));
       if (result && !result.success) throw new Error(`[vitehub] Cloudflare failed to write ${path}.`);
     },
   };
+}
+
+function decodeBase64(value: string) {
+  const decoded = atob(value);
+  return Uint8Array.from(decoded, character => character.charCodeAt(0));
+}
+
+function encodeBase64(value: Uint8Array) {
+  let binary = "";
+  for (let offset = 0; offset < value.length; offset += 8192) {
+    binary += String.fromCharCode(...value.subarray(offset, offset + 8192));
+  }
+  return btoa(binary);
 }
 
 function cloudflareProcess(process: Awaited<ReturnType<NonNullable<CloudflareSandboxStub["startProcess"]>>>): RuntimeProcess {

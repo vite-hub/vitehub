@@ -2,7 +2,7 @@ import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { isAbsolute, join, posix, relative, resolve, sep } from "node:path"
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
@@ -294,6 +294,36 @@ function isOptionalPackageSpecifier(specifier: string) {
   return optionalPackages.some(name => specifier === name || specifier.startsWith(`${name}/`))
 }
 
+function assertProviderRuntimeReachabilityClosed(
+  provider: string,
+  sources: Record<string, string>,
+) {
+  const output = Object.values(sources).join("\n")
+  for (const marker of [
+    "@modelcontextprotocol/sdk",
+    "@vite-hub/agent",
+    "@vite-hub/source",
+    "@vite-hub/workspace",
+    "@octokit/",
+    "mcp-resources",
+    "pkce-challenge",
+    "rollup/dist/",
+    "vite/dist/node",
+  ]) {
+    expect(output, `${provider} output must not reach ${marker}`).not.toContain(marker)
+  }
+  const forbiddenPackagePaths = [
+    "node_modules/@modelcontextprotocol/sdk/",
+    "node_modules/@vite-hub/agent/",
+    "node_modules/@vite-hub/box/",
+    "node_modules/@vite-hub/source/",
+    "node_modules/@vite-hub/workspace/",
+    "node_modules/pkce-challenge/",
+  ]
+  const reachedPackages = Object.keys(sources).filter(file => forbiddenPackagePaths.some(path => file.includes(path)))
+  expect(reachedPackages, `${provider} output must not copy forbidden runtime packages`).toEqual([])
+}
+
 async function resolveEsmSpecifiers(entries: Array<{ parent: string, specifier: string }>) {
   const script = [
     "const entries = JSON.parse(process.argv[1])",
@@ -388,14 +418,155 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await run("pnpm", ["run", "build"], appDir)
       await run("pnpm", ["run", "typecheck"], appDir)
 
+      {
+        await Promise.all([
+          rm(join(appDir, ".vercel"), { force: true, recursive: true }),
+          rm(join(appDir, ".vitehub"), { force: true, recursive: true }),
+          rm(join(appDir, "dist"), { force: true, recursive: true }),
+        ])
+        await run("pnpm", ["exec", "vite", "build"], appDir, {
+        ...process.env,
+        VITEHUB_PROVIDER_SANDBOX_CLOSURE: "1",
+        VITEHUB_PRESET: "vercel",
+      })
+      expect(existsSync(join(appDir, ".vercel", "output", "functions", "__queue.func", "index.mjs"))).toBe(true)
+      expect(existsSync(join(appDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "welcome", "welcome.func", "index.mjs"))).toBe(true)
+
+      const queueCallback = join(
+        appDir,
+        ".vercel",
+        "output",
+        "functions",
+        "api",
+        "vitehub",
+        "queues",
+        "vercel",
+        "welcome",
+        "welcome.func",
+        "index.mjs",
+      )
+      const callbackInvocation = await run(
+        "node",
+        [
+          "--input-type=module",
+          "--eval",
+          `
+        import { once } from "node:events"
+        import { createServer } from "node:http"
+        import { pathToFileURL } from "node:url"
+        const localFetch = globalThis.fetch
+        const oidcPayload = Buffer.from(JSON.stringify({ owner_id: "offline-team", project_id: "offline-project" })).toString("base64url")
+        process.env.VERCEL_OIDC_TOKEN = ["e30", oidcPayload, "offline-signature"].join(".")
+        const handler = (await import(pathToFileURL(${JSON.stringify(queueCallback)}).href)).default
+        globalThis.__vitehubVercelQueue = {
+          handleCallback: callback => async () => {
+            await callback({ queued: true }, { deliveryCount: 1, messageId: "sandbox-message" })
+            return new Response("handled")
+          },
+          send: async () => ({ messageId: "unused" }),
+        }
+        globalThis.fetch = async input => { throw new Error("offline provider proof: " + String(input)) }
+        const server = createServer(handler)
+        server.listen(0, "127.0.0.1")
+        await once(server, "listening")
+        const address = server.address()
+        const response = await localFetch("http://127.0.0.1:" + address.port, { method: "POST" })
+        const body = await response.text()
+        server.close()
+        await once(server, "close")
+        if (response.status !== 200 || body !== "handled") throw new Error("Queue callback failed: " + response.status + " " + body)
+        process.stdout.write(JSON.stringify(globalThis.__vitehubQueueSandboxResult))
+      `,
+        ],
+        appDir,
+      )
+      const sandboxResult = JSON.parse(callbackInvocation.stdout) as {
+        code?: string
+        message?: string
+        optimized?: boolean
+      }
+      expect(sandboxResult.message || "").toContain("offline provider proof:")
+      expect(sandboxResult.message || "").not.toContain('Unknown sandbox "image-optimizer"')
+      expect(sandboxResult.message || "").not.toContain("requires @vercel/sandbox")
+      expect(sandboxResult.message || "").not.toContain("Cannot find package")
+      expect(sandboxResult.code || "").not.toBe("ERR_MODULE_NOT_FOUND")
+
+      const vercelFunctionsRoot = join(appDir, ".vercel/output/functions")
+      const queueFunctionRoot = dirname(queueCallback)
+      const immediateVercelSources = await readJavaScriptSources(queueFunctionRoot)
+      const immediateVercelRuntimeSources = Object.fromEntries(Object.entries(immediateVercelSources).filter(([file]) =>
+        !/(?:^|\/)node_modules\/.*\.(?:spec|test)\.(?:m?js)$/.test(file),
+      ))
+      const immediateVercelOptionalImports = Object.entries(immediateVercelRuntimeSources).flatMap(([file, source]) =>
+        importSpecifierOccurrences(source)
+          .filter(({ specifier }) => isOptionalPackageSpecifier(specifier))
+          .map(occurrence => ({ file, ...occurrence })),
+      )
+      expect(immediateVercelOptionalImports, "Fresh Vercel functions must not ship opt-in packages").toEqual([])
+      assertProviderRuntimeReachabilityClosed("Fresh Vercel", immediateVercelRuntimeSources)
+      await assertVercelRuntimeImportsResolveInside(
+        queueFunctionRoot,
+        immediateVercelRuntimeSources,
+        "Fresh Vercel runtime imports must resolve inside their own function output",
+      )
+
+      await run("pnpm", ["exec", "vite", "build"], appDir, {
+        ...process.env,
+        VITEHUB_PROVIDER_SANDBOX_CLOSURE: "1",
+        VITEHUB_PRESET: "cloudflare",
+      })
+      expect(existsSync(join(appDir, "dist", "app", "index.js"))).toBe(true)
+
+      const [authTypes, blobPlugin, envServer, scheduleRegistryTypes] = await Promise.all([
+        readFile(join(appDir, ".vitehub/types/auth.d.ts"), "utf8"),
+        readFile(join(appDir, ".vitehub/nitro/blob/plugin.ts"), "utf8"),
+        readFile(join(appDir, ".vitehub/env/server.mjs"), "utf8"),
+        readFile(join(appDir, ".vitehub/schedule/registry.d.ts"), "utf8"),
+      ])
+      const generatedSources = await readGeneratedSources(join(appDir, ".vitehub"))
+      const bareOwnerPackageSpecifiers = Object.entries(generatedSources).flatMap(([file, source]) =>
+        file.endsWith(".d.ts")
+          ? []
+          : source.split("\n")
+              .map((line, index) => ({ file, line: index + 1, source: line.trim() }))
+              .filter(line => /["']@vite-hub\/[^"']+["']/.test(line.source)),
+      )
+      expect(bareOwnerPackageSpecifiers, "generated app-local code must not expose bare owner-package specifiers").toEqual([])
+
+      expect(authTypes).toContain("namespace ViteHub")
+      expect(authTypes).toContain("vite-hub/auth/server")
+      expect(blobPlugin).toContain("vite-hub/_internal/blob/runtime/state")
+      expect(envServer).toContain("vite-hub/env/server")
+      expect(scheduleRegistryTypes).toContain("vite-hub/_internal/schedule")
+
+      expect(existsSync(join(vercelFunctionsRoot, "__queue.func/index.mjs"))).toBe(false)
+      expect(existsSync(queueCallback)).toBe(false)
+
+      const cloudflareSources = await readJavaScriptSources(join(appDir, "dist/app"))
+      const cloudflareWrangler = JSON.parse(await readFile(join(appDir, "dist/app/wrangler.json"), "utf8")) as {
+        compatibility_flags?: string[]
+      }
+      expect(cloudflareWrangler.compatibility_flags).toContain("nodejs_compat")
+
+      const cloudflareExternalImports = Object.entries(cloudflareSources).flatMap(([file, source]) =>
+        importSpecifierOccurrences(source)
+          .filter(({ specifier }) => specifier.startsWith("@vite-hub/") || isOptionalPackageSpecifier(specifier))
+          .map(occurrence => ({ file, ...occurrence })),
+      )
+      expect(cloudflareExternalImports, "Cloudflare output must bundle owner packages and exclude opt-in packages").toEqual([])
+      expect(Object.values(cloudflareSources).join("\n")).toContain("getSandbox")
+      assertProviderRuntimeReachabilityClosed("Cloudflare", cloudflareSources)
+      }
+
+      await Promise.all([
+        rm(join(appDir, ".vercel"), { force: true, recursive: true }),
+        rm(join(appDir, ".vitehub"), { force: true, recursive: true }),
+        rm(join(appDir, "dist"), { force: true, recursive: true }),
+      ])
       await run("pnpm", ["exec", "vite", "build"], appDir, {
         ...process.env,
         VITEHUB_PRESET: "vercel",
       })
-      expect(existsSync(join(appDir, ".vercel", "output", "functions", "__server.func", "index.mjs"))).toBe(true)
-      expect(existsSync(join(appDir, ".vercel", "output", "functions", "__queue.func", "index.mjs"))).toBe(true)
-      expect(existsSync(join(appDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "welcome", "welcome.func", "index.mjs"))).toBe(true)
-
       const [agentRoute, authTypes, blobPlugin, envServer, scheduleRegistryTypes, workflowRegistry, workspacePlugin] = await Promise.all([
         readFile(join(appDir, ".vitehub/agent/chat-webhook-route.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/types/auth.d.ts"), "utf8"),
@@ -405,14 +576,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         readFile(join(appDir, ".vitehub/workflow/registry.mjs"), "utf8"),
         readFile(join(appDir, ".vitehub/nitro/workspace/plugin.ts"), "utf8"),
       ])
-      const generatedSources = await readGeneratedSources(join(appDir, ".vitehub"))
-      const bareOwnerPackageSpecifiers = Object.entries(generatedSources).flatMap(([file, source]) =>
-        source.split("\n")
-          .map((line, index) => ({ file, line: index + 1, source: line.trim() }))
-          .filter(line => /["']@vite-hub\/[^"']+["']/.test(line.source)),
-      )
-      expect(bareOwnerPackageSpecifiers, "generated app-local code must not expose bare owner-package specifiers").toEqual([])
-
       expect(agentRoute).toContain("vite-hub/_internal/agent")
       expect(agentRoute).toContain("vite-hub/_internal/workspace/runtime")
       expect(authTypes).toContain("namespace ViteHub")
@@ -430,35 +593,20 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(workflowRegistry).toContain("vite-hub/shell/workspace")
       expect(workspacePlugin).toContain("vite-hub/_internal/workspace/runtime")
 
+      await run("pnpm", ["run", "build"], appDir, process.env)
+      const smoke = await run("pnpm", ["run", "smoke"], appDir)
+      expect(smoke.stdout).toContain("vite-hub runtime smoke ok")
+
       const vercelFunctionsRoot = join(appDir, ".vercel/output/functions")
-      const [vercelSources, cloudflareSources] = await Promise.all([
-        readJavaScriptSources(vercelFunctionsRoot),
-        readJavaScriptSources(join(appDir, "dist/app")),
-      ])
+      const vercelSources = await readJavaScriptSources(vercelFunctionsRoot)
       const vercelRuntimeSources = Object.fromEntries(Object.entries(vercelSources).filter(([file]) =>
         !/(?:^|\/)node_modules\/.*\.(?:spec|test)\.(?:m?js)$/.test(file),
       ))
-      const vercelImports = Object.entries(vercelRuntimeSources).flatMap(([file, source]) =>
-        importSpecifierOccurrences(source).map(occurrence => ({ file, ...occurrence })),
-      )
-      const vercelOptionalImports = vercelImports.filter(({ specifier }) => isOptionalPackageSpecifier(specifier))
-      expect(vercelOptionalImports, "Vercel functions must not ship opt-in packages").toEqual([])
-
       await assertVercelRuntimeImportsResolveInside(
         vercelFunctionsRoot,
         vercelRuntimeSources,
         "Vercel runtime imports must resolve inside their own function output",
       )
-
-      const cloudflareExternalImports = Object.entries(cloudflareSources).flatMap(([file, source]) =>
-        importSpecifierOccurrences(source)
-          .filter(({ specifier }) => specifier.startsWith("@vite-hub/") || isOptionalPackageSpecifier(specifier))
-          .map(occurrence => ({ file, ...occurrence })),
-      )
-      expect(cloudflareExternalImports, "Cloudflare output must bundle owner packages and exclude opt-in packages").toEqual([])
-
-      const smoke = await run("pnpm", ["run", "smoke"], appDir)
-      expect(smoke.stdout).toContain("vite-hub runtime smoke ok")
 
       await run("pnpm", ["exec", "vite", "build"], appDir, {
         ...process.env,
