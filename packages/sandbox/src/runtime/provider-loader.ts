@@ -1,11 +1,11 @@
-import type { BoxRuntime } from '@vite-hub/box'
+import type { Box } from '@vite-hub/box'
 import type { SandboxDefinitionOptions, SandboxDefinitionProviderOptions } from '../module-types'
 import type { SandboxProvider } from '../module-types'
 
 export interface ResolvedSandboxBox {
   closeAfterRun?: boolean
   provider: SandboxProvider
-  runtime: BoxRuntime
+  resolveBox: (requirements: readonly string[]) => Promise<Box>
   sandboxId?: string
 }
 

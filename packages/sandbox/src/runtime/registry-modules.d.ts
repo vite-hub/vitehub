@@ -1,5 +1,5 @@
 declare module 'vitehub-sandbox-provider-loader' {
-  import type { BoxRuntime } from '@vite-hub/box'
+  import type { Box } from '@vite-hub/box'
   import type { SandboxDefinitionOptions, SandboxDefinitionProviderOptions, SandboxProvider } from '../module-types'
 
   export function loadSandboxRuntimeProvider(selectedProvider: string): Promise<{
@@ -9,7 +9,11 @@ declare module 'vitehub-sandbox-provider-loader' {
         provider: SandboxDefinitionProviderOptions & { provider: SandboxProvider }
       },
       context: { event?: unknown },
-    ) => Promise<{ provider: SandboxProvider, runtime: BoxRuntime, sandboxId?: string }>
+    ) => Promise<{
+      provider: SandboxProvider
+      resolveBox: (requirements: readonly string[]) => Promise<Box>
+      sandboxId?: string
+    }>
   }>
 }
 

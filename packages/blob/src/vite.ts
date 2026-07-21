@@ -300,6 +300,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
 
       providerArtifacts = await prepareProviderOutputs({
         blob,
+        cloudflareOwnedByNitro,
         providerOutput,
         rootDir,
       })

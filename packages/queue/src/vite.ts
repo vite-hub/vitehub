@@ -32,6 +32,10 @@ export interface QueueNitroConfigOptions {
   serverDirs?: string[]
 }
 
+type QueueViteInternalOptions = {
+  providerImportAliases?: Record<string, string>
+}
+
 export { createCloudflareQueueConfig, type CloudflareQueueConfig, type CloudflareQueueConfigOptions } from "./internal/vite-build.ts"
 
 const mergeNoExternal = createNoExternalMerger(queuePackageName)
@@ -135,6 +139,7 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
 }
 
 export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
+  const internalOptions = options as QueueModuleOptions & QueueViteInternalOptions | undefined
   let resolved: ResolvedConfig | undefined
   let queue: QueueModuleOptions | undefined = options
   let hosting = "vercel"
@@ -242,6 +247,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         clientOutDir: resolved.build.outDir,
         cloudflareOwnedByNitro: nitroOwnsCloudflareWorker || nuxtOwnsCloudflareWorker,
         definitions,
+        providerImportAliases: internalOptions?.providerImportAliases,
         providerOutput,
         queue: queue ?? (resolveNitroHosting(cloneNitroConfig((resolved as { nitro?: unknown }).nitro))
           ? { provider: (hosting === "cloudflare" ? "cloudflare" : "vercel") satisfies QueueProvider }

@@ -33,6 +33,7 @@ import type { EmailVitePluginOptions } from "@vite-hub/email/vite"
 import type { EnvIntegrationOptions } from "@vite-hub/env"
 import type { KVModuleOptions } from "@vite-hub/kv"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
+import type { QueueModuleOptions } from "@vite-hub/queue"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
 import type { SandboxPublicOptions } from "@vite-hub/sandbox/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
@@ -417,7 +418,8 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.queue && plan.services.queue.supported) {
     plugins.push(hubQueue({
       provider: plan.services.queue.adapter,
-    }))
+      providerImportAliases,
+    } as QueueModuleOptions))
   }
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit

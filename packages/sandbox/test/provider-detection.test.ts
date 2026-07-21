@@ -50,7 +50,7 @@ describe("provider detection", () => {
     const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () =>
       resolveSandboxBox({ local: {}, provider: { provider: "cloudflare" } }))
 
-    expect(provider.runtime.name).toBe("cloudflare")
+    expect(provider.resolveBox).toEqual(expect.any(Function))
   })
 
   it("does not mark platform sandboxes available when their SDK cannot resolve", async () => {

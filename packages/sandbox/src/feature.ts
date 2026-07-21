@@ -1,5 +1,5 @@
 import { deploymentPresetFromNitro } from '@vite-hub/internal/deployment'
-import { getHostingProvider, getSupportedHostingProvider } from '@vite-hub/internal/hosting'
+import { getSupportedHostingProvider } from '@vite-hub/internal/hosting'
 import { readFile } from 'node:fs/promises'
 import { createDiscoveredDefinitionCompiler, type DiscoveredDefinitionCompilerOptions } from './internal/shared/discovered-definition'
 import { toTemplateSafeName } from './internal/shared/feature-definitions'
@@ -47,8 +47,10 @@ export function resolveSandboxProviderLoaderTarget(
   return hasCloudflareSandbox ? 'cloudflare' : 'vercel'
 }
 
+export const sandboxProviderLoaderSpecifiers = ['vitehub-sandbox-provider-loader', '@vite-hub/sandbox/runtime/provider-loader', 'virtual:vitehub-sandbox-provider-loader', '#vitehub-sandbox-provider-loader'] as const
+
 function createSandboxProviderLoaderAliases(defaultProviderName: SandboxProvider | undefined): Array<{ key: string, value?: string, artifactKey?: string }> {
-  const keys = ['vitehub-sandbox-provider-loader', '@vite-hub/sandbox/runtime/provider-loader', 'virtual:vitehub-sandbox-provider-loader', '#vitehub-sandbox-provider-loader']
+  const keys = sandboxProviderLoaderSpecifiers
 
   if (defaultProviderName)
     return keys.map(key => ({ key, artifactKey: 'sandbox-provider-loader' }))

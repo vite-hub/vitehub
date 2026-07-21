@@ -1,0 +1,10 @@
+{
+  "name": "@vitehub/consumer-image-optimizer",
+  "private": true,
+  "type": "module",
+  "vitehub": {
+    "sandbox": {
+      "timeout": 100
+    }
+  }
+}

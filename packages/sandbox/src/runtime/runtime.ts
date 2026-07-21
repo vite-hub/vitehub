@@ -1,4 +1,3 @@
-import { resolveBox } from '@vite-hub/box'
 import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
 import {
   createResourceRuntime,
@@ -87,9 +86,7 @@ const sandboxPort: ProviderPort<ResolvedSandboxBox, SandboxRunner, SandboxRuntim
   },
   async create(provider, context) {
     const packageManager = context.definition.bundle.project?.install.command
-    const box = await resolveBox({ runtime: provider.runtime }, {}, {
-      requires: ['node', ...(packageManager ? [packageManager] : [])],
-    })
+    const box = await provider.resolveBox(['node', ...(packageManager ? [packageManager] : [])])
 
     return {
       name: context.name,

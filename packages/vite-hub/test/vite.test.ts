@@ -181,9 +181,15 @@ describe("vitehub", () => {
 
     integrationMocks.hubQueue.mockClear()
     expect(pluginNames(vitehub({ preset: "vercel", queue: true }))).toContain("@vite-hub/queue/vite")
-    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "vercel" })
+    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({
+      provider: "vercel",
+      providerImportAliases: expect.any(Object),
+    })
     expect(pluginNames(vitehub({ preset: "cloudflare", queue: true }))).toContain("@vite-hub/queue/vite")
-    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "cloudflare" })
+    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({
+      provider: "cloudflare",
+      providerImportAliases: expect.any(Object),
+    })
 
     integrationMocks.hubRateLimit.mockClear()
     expect(pluginNames(vitehub({ preset: "node", rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
