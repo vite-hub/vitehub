@@ -13,14 +13,14 @@ interface QueueVercelServerBaseOptions {
 }
 
 type QueueVercelServerOptions = QueueVercelServerBaseOptions & (
-  | { createClient: QueueRuntimeClientFactory, queue: ResolvedQueueOptions }
-  | { createClient?: never, queue?: false | undefined }
+  | { createClient: QueueRuntimeClientFactory, queue?: ResolvedQueueOptions }
+  | { createClient?: never, queue: false }
 )
 
 export type QueueVercelServer = (req: unknown, res: unknown) => unknown
 
-export function createQueueVercelServer(options: QueueVercelServerOptions = {}): QueueVercelServer {
-  if (options.queue && !options.createClient) {
+export function createQueueVercelServer(options: QueueVercelServerOptions): QueueVercelServer {
+  if (options.queue !== false && !options.createClient) {
     throw new TypeError("[vitehub] Enabled Vercel Queue output requires its generated client factory.")
   }
 

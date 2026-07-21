@@ -552,8 +552,8 @@ describe("cloudflare queue runtime", () => {
 })
 
 describe("vercel provider", () => {
-  it("rejects enabled generated servers without a selected client factory", () => {
-    expect(() => createQueueVercelServer({ queue: { provider: "vercel" } } as never)).toThrow("requires its generated client factory")
+  it("requires a selected client factory for default manual servers", () => {
+    expect(() => createQueueVercelServer({} as never)).toThrow("requires its generated client factory")
     expect(() => createQueueVercelServer({ queue: false })).not.toThrow()
   })
 
@@ -827,6 +827,7 @@ describe("vercel provider", () => {
     const response = await fetch(`http://127.0.0.1:${address.port}/`)
     expect(await response.text()).toBe("ok")
     expect(vercelFunctionsMock.waitUntil).toHaveBeenCalledTimes(1)
+    await vercelFunctionsMock.waitUntil.mock.calls[0]?.[0]
     expect(vercelQueueMock.send).toHaveBeenCalledTimes(1)
 
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
