@@ -79,7 +79,7 @@ async function sourceModuleUsesCloudflareArtifacts(
   visited.add(loaded.file)
   if (/\bprovider\s*:\s*["']cloudflare-artifacts["']/.test(loaded.source)) return true
 
-  const staticModuleSpecifier = /\b(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']/g
+  const staticModuleSpecifier = /\b(?:import|export)\s+(?!type\b)(?:[^"']*?\s+from\s+)?["']([^"']+)["']/g
   for (const match of loaded.source.matchAll(staticModuleSpecifier)) {
     const specifier = match[1]!
     const resolvedModule = specifier.startsWith(".")

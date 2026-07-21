@@ -142,6 +142,21 @@ describe("Workspace Nuxt module", () => {
     await expect(nitroConfigHook({})).resolves.toBeUndefined()
   })
 
+  it("ignores type-only imports when detecting Artifact Workspace Definitions", async () => {
+    const { nitroConfigHook, root } = await createNuxtHook()
+    const definitionRoot = join(root, "server", "workspaces")
+    await mkdir(definitionRoot, { recursive: true })
+    await writeFile(join(definitionRoot, "artifact-options.ts"), "export type ArtifactOptions = { provider: 'cloudflare-artifacts' }\n")
+    await writeFile(join(definitionRoot, "typed.ts"), [
+      "import type { ArtifactOptions } from './artifact-options'",
+      "import { workspaceRoot } from '#imports'",
+      "export default { root: workspaceRoot, store: { provider: 'memory' } } satisfies { store: ArtifactOptions | { provider: 'memory' } }",
+      "",
+    ].join("\n"))
+
+    await expect(nitroConfigHook({})).resolves.toBeUndefined()
+  })
+
   it("registers a Definition binding configured through a Nuxt alias", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-nuxt-alias-"))
     tempDirs.push(root)
