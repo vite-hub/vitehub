@@ -29,6 +29,19 @@ describe("hubBrowser", () => {
     expect(config).toHaveProperty("nitro.rollupConfig.external", ["existing-module", "cloudflare:workers"])
   })
 
+  it("honors top-level Browser config", () => {
+    const config: Record<string, unknown> = {
+      browser: { binding: "TOP_LEVEL_BROWSER" },
+      nitro: {},
+    }
+    const plugin = hubBrowser()
+
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+
+    expect(config).toHaveProperty("nitro.cloudflare.wrangler.browser", { binding: "TOP_LEVEL_BROWSER" })
+    expect(plugin.api.getConfig()).toEqual({ binding: "TOP_LEVEL_BROWSER", provider: "cloudflare" })
+  })
+
   it("writes and cleans owned standalone Provider Output", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-browser-vite-"))
     roots.push(root)
@@ -41,7 +54,7 @@ describe("hubBrowser", () => {
       nitro: {},
       root,
     })
-    await (plugin.closeBundle as () => Promise<void>)()
+    await (plugin.closeBundle as { handler(): Promise<void> }).handler()
 
     const output = JSON.parse(await readFile(join(root, "dist", root.split("/").at(-1)!.toLowerCase(), "wrangler.json"), "utf8"))
     expect(output).toEqual({ browser: { binding: "BROWSER" } })

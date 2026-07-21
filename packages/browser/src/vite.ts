@@ -69,27 +69,25 @@ function configureNitroBrowser(value: unknown, options: Required<BrowserModuleOp
 }
 
 export function hubBrowser(options?: BrowserModuleOptions | false): BrowserVitePlugin {
-  const enabled = options !== false
-  const resolvedOptions = resolveOptions(options)
+  let enabled = options !== false
+  let resolvedOptions = resolveOptions(options)
   let resolved: ResolvedConfig | undefined
+  const applyConfig = (config: { browser?: BrowserModuleOptions | false, nitro?: unknown }) => {
+    const configured = config.browser ?? options
+    enabled = configured !== false
+    resolvedOptions = resolveOptions(configured)
+    config.nitro = configureNitroBrowser(config.nitro, resolvedOptions, enabled)
+  }
   return {
     name: "@vite-hub/browser/vite",
     enforce: "pre",
     api: { getConfig: () => resolvedOptions },
     config(config) {
-      ;(config as { nitro?: unknown }).nitro = configureNitroBrowser(
-        (config as { nitro?: unknown }).nitro,
-        resolvedOptions,
-        enabled,
-      )
+      applyConfig(config)
     },
     configResolved(config) {
       resolved = config
-      ;(config as { nitro?: unknown }).nitro = configureNitroBrowser(
-        (config as { nitro?: unknown }).nitro,
-        resolvedOptions,
-        enabled,
-      )
+      applyConfig(config)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) return
@@ -97,14 +95,18 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
     },
-    async closeBundle() {
-      if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
-      await writeCloudflareWranglerConfig({
-        outputRoot: createDefaultCloudflareOutputRoot(resolved.root),
-        rootDir: resolved.root,
-        ...(enabled ? { wranglerConfig: { browser: { binding: resolvedOptions.binding } } } : {}),
-        wranglerConfigOwnership: { keys: ["browser"] },
-      })
+    closeBundle: {
+      order: "post",
+      sequential: true,
+      async handler() {
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        await writeCloudflareWranglerConfig({
+          outputRoot: createDefaultCloudflareOutputRoot(resolved.root),
+          rootDir: resolved.root,
+          ...(enabled ? { wranglerConfig: { browser: { binding: resolvedOptions.binding } } } : {}),
+          wranglerConfigOwnership: { keys: ["browser"] },
+        })
+      },
     },
   }
 }
