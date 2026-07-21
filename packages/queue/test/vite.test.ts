@@ -269,6 +269,30 @@ describe("hubQueue", () => {
     expect(disabled.nitro).not.toHaveProperty("cloudflare")
   })
 
+  it.each([
+    { preset: "vercel", reason: "Vercel owns Nitro" },
+    { preset: "cloudflare_module", reason: "the Nitro provider mismatches" },
+  ])("keeps Vercel provider output when $reason", async ({ preset }) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nuxt-vercel-"))
+    roots.push(root)
+    await symlink(join(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue({ provider: "vercel" })
+    const config = {
+      build: { outDir: "dist" },
+      command: "build",
+      nitro: { preset },
+      plugins: [],
+      resolve: { alias: [] },
+      root,
+    }
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config as never)
+    await plugin.vitehub?.queue?.createNitroConfig({ nitro: config.nitro, projectRoot: root, root })
+    await (plugin.closeBundle as () => Promise<void>)()
+
+    expect(existsSync(join(root, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel"))).toBe(true)
+  })
+
   it("preserves Nitro-owned Vercel output across a sequential Cloudflare build", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-provider-switch-"))
     roots.push(root)

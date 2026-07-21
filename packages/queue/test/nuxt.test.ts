@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -31,14 +31,14 @@ describe("Queue Nuxt integration", () => {
       "export default defineNuxtConfig({",
       `  modules: [[queueNuxt, ${JSON.stringify(options)}]],`,
       "  nitro: { preset: 'cloudflare_module' },",
-      ...(existingPlugin ? ["  vite: { plugins: [hubQueue({ namePrefix: 'existing', provider: 'cloudflare' })] },"] : []),
+      ...(existingPlugin ? ["  vite: { plugins: [[hubQueue({ namePrefix: 'existing', provider: 'cloudflare' })]] },"] : []),
       "})",
       "",
     ].join("\n"))
 
     const nuxt = await loadNuxt({ cwd: root, dev, ready: true })
     try {
-      expect(nuxt.options.vite.plugins).toEqual([
+      expect((nuxt.options.vite.plugins as unknown[]).flat(Infinity)).toEqual([
         expect.objectContaining({ name: "@vite-hub/queue/vite" }),
       ])
 
@@ -88,6 +88,41 @@ describe("Queue Nuxt integration", () => {
 
       await expect(readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")).resolves.toContain("cloudflare:queue")
       await expect(readFile(join(root, ".vitehub", "nitro", "queue", "middleware.ts"), "utf8")).resolves.toContain("enterQueueRuntimeEvent(event)")
+    }
+    finally {
+      await nuxt.close()
+    }
+  })
+
+  it("discovers suffix definitions from Nuxt srcDir and server queues from the project root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nuxt-src-dir-"))
+    roots.push(root)
+    await cp(join(import.meta.dirname, "../fixtures/nuxt"), root, { recursive: true })
+    await mkdir(join(root, "app"), { recursive: true })
+    await writeFile(join(root, "app", "welcome.queue.ts"), "export default {}\n")
+    const queueNuxtUrl = pathToFileURL(join(import.meta.dirname, "../src/nuxt.ts")).href
+    await writeFile(join(root, "nuxt.config.ts"), [
+      `import queueNuxt from ${JSON.stringify(queueNuxtUrl)}`,
+      "export default defineNuxtConfig({",
+      "  modules: [[queueNuxt, { provider: 'cloudflare' }]],",
+      "  nitro: { preset: 'cloudflare_module' },",
+      "  srcDir: 'app',",
+      "})",
+      "",
+    ].join("\n"))
+    const nuxt = await loadNuxt({ cwd: root, dev: false, ready: true })
+    try {
+      const nitroConfig: Record<string, unknown> = {
+        alias: {},
+        cloudflare: { wrangler: {} },
+        plugins: [],
+        preset: "cloudflare_module",
+        virtual: {},
+      }
+      await (nuxt.callHook as unknown as (name: "nitro:config", config: Record<string, unknown>) => Promise<void>)("nitro:config", nitroConfig)
+      const runtime = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+      expect(runtime).toContain('"welcome"')
+      expect(runtime).not.toContain('"app/welcome"')
     }
     finally {
       await nuxt.close()

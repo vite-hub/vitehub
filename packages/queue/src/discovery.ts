@@ -17,7 +17,7 @@ function normalizeSuffixQueueName(rootDir: string, file: string) {
 }
 
 export function discoverQueueDefinitions(options:
-  | { mode?: "vite-suffix", rootDir: string, scanDirs?: string[] }
+  | { mode?: "vite-suffix", rootDir: string, scanDirs?: string[], serverRootDirs?: string[] }
   | { mode: "server-queues", scanDirs: string[] }
 ): DiscoveredQueueDefinition[] {
   if (options.mode === "server-queues") {
@@ -27,7 +27,7 @@ export function discoverQueueDefinitions(options:
   }
 
   const roots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
-  const serverScanDirs = roots.map(root => resolve(root, "server"))
+  const serverScanDirs = [...new Set(options.serverRootDirs || roots)].map(root => resolve(root, "server"))
 
   return mergeDefinitions(
     "queue",
