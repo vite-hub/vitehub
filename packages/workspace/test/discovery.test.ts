@@ -68,6 +68,20 @@ describe("discoverServerWorkspaceDefinitions", () => {
     expect(contents).toContain("sourceRootDir: mod.default.sourceRootDir ??")
   })
 
+  it("applies resolved store overrides to Workspace Agent options", async () => {
+    const root = await createRoot()
+    const registryFile = join(root, ".vitehub", "workspace", "registry.mjs")
+    await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "docs", "agent.ts"), "export default defineAgent({ workspace: { store: { provider: 'cloudflare-artifacts' } } })\n", "utf8")
+    const definitions = discoverServerWorkspaceDefinitions(root)
+    const store = { binding: "ENV_ARTIFACTS", namespace: "environment", provider: "cloudflare-artifacts" }
+
+    const contents = createWorkspaceRegistryContents(registryFile, definitions, new Map([["docs", { store }]]))
+
+    expect(contents).toContain("workspace: { ...mod.default.__vitehubWorkspaceAgentOptions.workspace, store:")
+    expect(contents).toContain('"binding":"ENV_ARTIFACTS"')
+  })
+
   it("uses config directory when sibling workspace path is not a directory", async () => {
     const root = await createRoot()
     const directory = join(root, "server", "workspaces", "docs")

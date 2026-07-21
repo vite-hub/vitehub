@@ -7,6 +7,7 @@ export interface WorkspaceNuxtModuleOptions extends WorkspaceModuleOptions {}
 type NuxtLike = {
   hook?: (name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => void | Promise<void>) => void
   options: {
+    alias?: Record<string, string>
     dev?: boolean
     imports?: {
       imports?: Array<{ from: string, name: string }>
@@ -51,6 +52,7 @@ export default function viteHubWorkspaceNuxtModule(options: WorkspaceNuxtModuleO
   nuxt.hook?.("nitro:config", async (nitroConfig) => {
     const rootDir = nuxt.options.rootDir || process.cwd()
     const nitro = await createWorkspaceNitroConfig({
+      aliases: nuxt.options.alias,
       command: nuxt.options.dev ? "serve" : "build",
       nitro: nitroConfig,
       viteRoot: nuxt.options.srcDir || rootDir,
