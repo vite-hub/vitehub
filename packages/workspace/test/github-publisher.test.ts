@@ -234,6 +234,58 @@ describe("GitHub workspace publisher", () => {
     })
   })
 
+  it("preserves remote-only files when untracked deletion is disabled", async () => {
+    remoteTree = [
+      { path: "workspace/root/assets/audio.mp3", sha: textSha("asset"), type: "blob" },
+      { path: "workspace/root/inbox/audio.md", sha: textSha("old"), type: "blob" },
+    ]
+
+    const workspace = createWorkspace({
+      name: "docs",
+      store: { provider: "memory" },
+      publish: [github({
+        branch: "feature/audio",
+        deleteUntracked: false,
+        repo: "onmax/repo",
+        root: "workspace/root",
+        token: "token",
+      })],
+    })
+
+    await workspace.writeFile("inbox/audio.md", "hola", { mediaType: "text/markdown" })
+    await workspace.snapshot({ name: "update transcript" })
+
+    expect(requests.find(request => request.path.endsWith("/git/trees"))?.body).toMatchObject({
+      base_tree: "base-tree",
+      tree: [{
+        mode: "100644",
+        path: "workspace/root/inbox/audio.md",
+        sha: textSha("hola"),
+        type: "blob",
+      }],
+    })
+  })
+
+  it("skips publishing when deletion is disabled and only remote files are untracked", async () => {
+    remoteTree = [{ path: "workspace/root/assets/audio.mp3", sha: textSha("asset"), type: "blob" }]
+
+    const workspace = createWorkspace({
+      name: "docs",
+      store: { provider: "memory" },
+      publish: [github({
+        branch: "feature/audio",
+        deleteUntracked: false,
+        repo: "onmax/repo",
+        root: "workspace/root",
+        token: "token",
+      })],
+    })
+
+    await workspace.snapshot()
+
+    expect(requests.filter(request => request.method !== "GET")).toEqual([])
+  })
+
   it("skips unchanged snapshots after comparing the remote tree", async () => {
     const workspace = createWorkspace({
       name: "docs",

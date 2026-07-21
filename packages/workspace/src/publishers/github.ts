@@ -24,6 +24,7 @@ export type GitHubPublisherOption = GitHubWorkspaceOption
 
 export interface GitHubPublisherOptions {
   branch?: GitHubPublisherOption
+  deleteUntracked?: boolean
   message?: GitHubPublisherOption
   repo?: GitHubPublisherOption
   repository?: GitHubPublisherOption
@@ -70,9 +71,11 @@ export function github(options: GitHubPublisherOptions = {}): WorkspacePublisher
 
       const remote = await readGitHubBranchState({ branch, kind: "publisher", repository, root, token })
       const changedFiles = files.filter(file => remote.files.get(file.path)?.sha !== file.gitSha)
-      const deletePaths = [...remote.files]
-        .filter(([path]) => !nextPaths.has(path))
-        .map(([, entry]) => entry.path)
+      const deletePaths = options.deleteUntracked === false
+        ? []
+        : [...remote.files]
+            .filter(([path]) => !nextPaths.has(path))
+            .map(([, entry]) => entry.path)
 
       if (!changedFiles.length && !deletePaths.length) return
 

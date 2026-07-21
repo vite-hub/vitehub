@@ -228,6 +228,23 @@ export default defineWorkspace({
 
 Set `WORKSPACE_GITHUB_TOKEN`, `VITEHUB_WORKSPACE_GITHUB_TOKEN`, `GITHUB_TOKEN`, or a `GITHUB_TOKEN` runtime binding with permission to read and write the repository contents. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. `workspace.snapshot()` writes changed Workspace Store files as a GitHub commit. If the target branch moves after the Workspace Store loaded local changes, snapshot fails with a conflict so the caller can retry from a fresh Workspace Store.
 
+Publish a Workspace snapshot into an existing GitHub repository with the GitHub publisher:
+
+```ts
+import { github } from "@vite-hub/workspace/publish"
+
+export default defineWorkspace({
+  publish: [github({
+    repository: "owner/repo",
+    branch: "main",
+    root: "generated/docs",
+    deleteUntracked: false,
+  })],
+})
+```
+
+By default, the publisher treats `root` as an exact mirror and deletes remote paths that are absent from the Workspace snapshot. Set `deleteUntracked: false` when the publisher owns only part of `root`; Workspace files are still created and updated, while every remote-only path remains on GitHub, including files from earlier snapshots.
+
 Built on [`@vite-hub/source`](../source/README.md) and [isomorphic-git](https://isomorphic-git.org/). Shell-backed Workspace tools load `@vite-hub/shell` only when the shell tool executes.
 
 Learn more at [vitehub.dev](https://vitehub.dev).
