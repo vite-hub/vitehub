@@ -1010,6 +1010,9 @@ importers:
 
   packages/queue:
     dependencies:
+      '@vercel/functions':
+        specifier: catalog:vercel
+        version: 3.7.5(@aws-sdk/credential-provider-web-identity@3.972.65)(ws@8.21.1)
       '@vercel/queue':
         specifier: catalog:vercel
         version: 0.0.0-alpha.40
@@ -1035,9 +1038,6 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.3
-      '@vercel/functions':
-        specifier: catalog:vercel
-        version: 3.7.5(@aws-sdk/credential-provider-web-identity@3.972.65)(ws@8.21.1)
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal

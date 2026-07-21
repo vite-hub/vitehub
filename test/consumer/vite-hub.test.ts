@@ -388,6 +388,14 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await run("pnpm", ["run", "build"], appDir)
       await run("pnpm", ["run", "typecheck"], appDir)
 
+      await run("pnpm", ["exec", "vite", "build"], appDir, {
+        ...process.env,
+        VITEHUB_PRESET: "vercel",
+      })
+      expect(existsSync(join(appDir, ".vercel", "output", "functions", "__server.func", "index.mjs"))).toBe(true)
+      expect(existsSync(join(appDir, ".vercel", "output", "functions", "__queue.func", "index.mjs"))).toBe(true)
+      expect(existsSync(join(appDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "welcome", "welcome.func", "index.mjs"))).toBe(true)
+
       const [agentRoute, authTypes, blobPlugin, envServer, scheduleRegistryTypes, workflowRegistry, workspacePlugin] = await Promise.all([
         readFile(join(appDir, ".vitehub/agent/chat-webhook-route.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/types/auth.d.ts"), "utf8"),
@@ -427,7 +435,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         readJavaScriptSources(vercelFunctionsRoot),
         readJavaScriptSources(join(appDir, "dist/app")),
       ])
-      const vercelImports = Object.entries(vercelSources).flatMap(([file, source]) =>
+      const vercelRuntimeSources = Object.fromEntries(Object.entries(vercelSources).filter(([file]) =>
+        !/(?:^|\/)node_modules\/.*\.(?:spec|test)\.(?:m?js)$/.test(file),
+      ))
+      const vercelImports = Object.entries(vercelRuntimeSources).flatMap(([file, source]) =>
         importSpecifierOccurrences(source).map(occurrence => ({ file, ...occurrence })),
       )
       const vercelOptionalImports = vercelImports.filter(({ specifier }) => isOptionalPackageSpecifier(specifier))
@@ -435,7 +446,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
 
       await assertVercelRuntimeImportsResolveInside(
         vercelFunctionsRoot,
-        vercelSources,
+        vercelRuntimeSources,
         "Vercel runtime imports must resolve inside their own function output",
       )
 
