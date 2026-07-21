@@ -14,6 +14,7 @@ import {
   createGitHubBlob,
   createGitHubFileUpdate,
   gitBlobSha,
+  githubWorkspaceStoreTarget,
   joinGitPath,
   readGitHubBlob,
   readGitHubBranchState,
@@ -127,6 +128,10 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     this.#branch = resolveGitHubBranchOption(options);
     this.#root = resolveGitHubRootOption(options, workspaceName);
     this.#token = requireGitHubOption("store", "a token", resolveGitHubTokenOption(options));
+  }
+
+  [githubWorkspaceStoreTarget]() {
+    return { branch: this.#branch, repository: this.#repository };
   }
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {

@@ -255,6 +255,52 @@ describe("GitHub workspace publisher", () => {
     expect(requests.filter(request => request.method !== "GET")).toEqual([])
   })
 
+  it("keeps direct publication content-addressed", async () => {
+    const workspace = createWorkspace({
+      name: "docs",
+      store: { provider: "memory" },
+      publish: [github({
+        branch: "feature/audio",
+        repo: "onmax/repo",
+        root: "workspace/root",
+        token: "token",
+      })],
+    })
+
+    await workspace.writeFile("inbox/audio.md", "hola", { mediaType: "text/markdown" })
+    await workspace.publish({ name: "initial publish" })
+    requests.length = 0
+
+    await workspace.publish({ name: "unchanged publish" })
+
+    expect(requests.filter(request => request.method !== "GET")).toEqual([])
+  })
+
+  it("rejects direct publication to the active GitHub Store branch", async () => {
+    const workspace = createWorkspace({
+      name: "docs",
+      store: {
+        provider: "github",
+        branch: "feature/audio",
+        repository: "onmax/repo",
+        root: "workspace/store",
+        token: "token",
+      },
+      publish: [github({
+        branch: "feature/audio",
+        repository: "onmax/repo",
+        root: "workspace/publisher",
+        token: "token",
+      })],
+    })
+
+    await expect(workspace.snapshot()).resolves.toMatchObject({ id: expect.any(String) })
+    await expect(workspace.publish()).rejects.toThrow(
+      "GitHub publisher cannot publish to onmax/repo@feature/audio while it backs the active GitHub Workspace Store",
+    )
+    expect(requests.filter(request => request.method !== "GET")).toEqual([])
+  })
+
   it("skips empty snapshots with no remote files", async () => {
     const workspace = createWorkspace({
       name: "docs",

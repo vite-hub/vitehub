@@ -113,6 +113,10 @@ export interface SnapshotOptions {
   name?: string
 }
 
+export interface WorkspacePublishOptions {
+  name?: string
+}
+
 export interface DiffOptions {
   from?: WorkspaceSnapshot
 }
@@ -557,6 +561,7 @@ export interface WorkspaceLoader {
 }
 
 export interface PublishContext {
+  durable: boolean
   workspace: WorkspaceDefinition
   store: WorkspaceStore
   rootDir: string
@@ -667,6 +672,7 @@ export interface Workspace {
   exists(path: string): Promise<boolean>
   mkdir(path: string, options?: MkdirOptions): Promise<void>
   rm(path: string, options?: RmOptions): Promise<void>
+  publish(options?: WorkspacePublishOptions): Promise<void>
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
   startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>

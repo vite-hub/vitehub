@@ -2,13 +2,14 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { resetWorkspaceAssetsRegistry } from "../src/asset-registry.ts"
 import { defineWorkspace, file, useWorkspace } from "../src/index.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
+import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, useWorkspace as useRuntimeWorkspace } from "../src/runtime/state.ts"
 
 const tempDirs: string[] = []
@@ -216,6 +217,23 @@ describe("workspace public API", () => {
       sources: [expect.objectContaining({ source: "docs", status: "ready" })],
     })
     expect(await workspace.fs.readFile("README.md")).toBe("# API\n")
+  })
+
+  it("publishes from the writable facade without running definition sync", async () => {
+    const store = createMemoryWorkspaceStore()
+    const snapshot = vi.spyOn(store, "snapshot")
+    const publish = vi.fn(async () => {})
+    registerWorkspace("publish-api", defineWorkspace({
+      loaders: [{ name: "sync-probe", async load() {} }],
+      publish: [{ name: "test", publish }],
+      store,
+    }))
+
+    const workspace = useWorkspace("publish-api", { mode: "write" })
+    await workspace.publish({ name: "publish current state" })
+
+    expect(snapshot).not.toHaveBeenCalled()
+    expect(publish).toHaveBeenCalledOnce()
   })
 
   it("serves allowlisted workspace files as H3-compatible responses", async () => {

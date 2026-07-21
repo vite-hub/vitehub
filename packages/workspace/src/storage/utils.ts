@@ -1,6 +1,10 @@
 import { sha256 } from "../core/path.ts"
 
-import type { WorkspaceDiff, WorkspaceEntry, WorkspaceSnapshot } from "../core/types.ts"
+import type { WorkspaceDiff, WorkspaceEntry, WorkspaceSnapshot, WorkspaceStore } from "../core/types.ts"
+
+export async function createCurrentSnapshotFromStore(store: WorkspaceStore, name?: string): Promise<WorkspaceSnapshot> {
+  return await createSnapshotFromEntries(await store.list("", { recursive: true }), name)
+}
 
 export async function createSnapshotFromEntries(entries: WorkspaceEntry[], name?: string): Promise<WorkspaceSnapshot> {
   const snapshotEntries: WorkspaceSnapshot["entries"] = {}
