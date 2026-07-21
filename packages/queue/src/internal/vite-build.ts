@@ -156,7 +156,7 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
     }
     const entryFile = resolve(generatedDir, spec.entryFile)
     const queueConfig = resolveOutputQueueConfig(queue, spec.hosting)
-    const preloadVercelQueue = spec.name === "vercel" && definitions.length > 0 && isVercelQueueEnabled(queueConfig)
+    const preloadVercelQueue = spec.name === "vercel" && isVercelQueueEnabled(queueConfig)
     const queueDefinitions = spec.name === "cloudflare"
       ? createCloudflareQueueDefinitionNames(definitions, queueConfig !== false && queueConfig.provider === "cloudflare" ? queueConfig.namePrefix : undefined)
       : undefined
@@ -201,11 +201,10 @@ export function createCloudflareQueueBindings(definitions: DiscoveredQueueDefini
   }
 }
 
-function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig: NormalizedQueueOptions, hasDefinitions: boolean, cloudflareQueues: boolean, queueDefinitions: Record<string, string>) {
+function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig: NormalizedQueueOptions, cloudflareQueues: boolean, queueDefinitions: Record<string, string>) {
   const cloudflareRuntime = queueConfig !== false && queueConfig.provider === "cloudflare"
   const vercelRuntime = queueConfig !== false && queueConfig.provider === "vercel"
   const cloudflare = cloudflareQueues && cloudflareRuntime
-  const vercel = hasDefinitions && vercelRuntime
   const runtimeClientFactory = cloudflareRuntime
     ? "createCloudflareQueueRuntimeClient"
     : vercelRuntime
@@ -213,7 +212,7 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
       : undefined
   return [
     "import { definePlugin } from 'nitro'",
-    ...(vercel ? [`import * as __vitehubVercelQueue from ${JSON.stringify(createImportPath(pluginFile, resolvePackageDependency("@vercel/queue")))}`] : []),
+    ...(vercelRuntime ? [`import * as __vitehubVercelQueue from ${JSON.stringify(createImportPath(pluginFile, resolvePackageDependency("@vercel/queue")))}`] : []),
     ...(cloudflareRuntime ? ["import { env as vitehubEnv, waitUntil as vitehubWaitUntil } from 'cloudflare:workers'"] : []),
     ...(cloudflare ? [`import { createQueueCloudflareWorker } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("runtime/cloudflare-vite")))}`] : []),
     ...(cloudflareRuntime ? [`import { createCloudflareQueueRuntimeClient } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/cloudflare-client")))}`] : []),
@@ -221,7 +220,7 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
     `import { setQueueRuntimeConfig, setQueueRuntimeEventDefaults, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("runtime/state")))}`,
     `import queueRegistry from ${JSON.stringify(createImportPath(pluginFile, registryFile))}`,
     "",
-    ...(vercel ? ["globalThis.__vitehubVercelQueue = __vitehubVercelQueue", ""] : []),
+    ...(vercelRuntime ? ["globalThis.__vitehubVercelQueue = __vitehubVercelQueue", ""] : []),
     `const queueConfig = ${JSON.stringify(queueConfig, null, 2)}`,
     ...(cloudflare ? [`const queueDefinitions = ${JSON.stringify(queueDefinitions, null, 2)}`, "const queueWorker = createQueueCloudflareWorker({ definitions: queueDefinitions, queue: queueConfig, registry: queueRegistry })"] : []),
     "",
@@ -269,7 +268,7 @@ export async function writeQueueNitroIntegration(rootDir: string, queue: QueueMo
   ])
   await Promise.all([
     writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8"),
-    writeFile(pluginFile, renderNitroPlugin(pluginFile, registryFile, queueConfig, definitions.length > 0, cloudflareQueues, queueDefinitions), "utf8"),
+    writeFile(pluginFile, renderNitroPlugin(pluginFile, registryFile, queueConfig, cloudflareQueues, queueDefinitions), "utf8"),
     writeFile(middlewareFile, renderNitroMiddleware(middlewareFile, queueConfig, definitions.length > 0), "utf8"),
   ])
 }

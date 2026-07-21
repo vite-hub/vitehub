@@ -351,7 +351,7 @@ describe("Vite provider outputs", () => {
     expect(await readFile(join(outputRoot, "wrangler.json"), "utf8").then(JSON.parse)).toHaveProperty("queues")
   })
 
-  it("does not preload Vercel queue without queue definitions", async () => {
+  it("preloads Vercel queue for direct clients without queue definitions", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-no-definitions-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
@@ -364,7 +364,8 @@ describe("Vite provider outputs", () => {
     })
 
     const vercelServerContents = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
-    expect(vercelServerContents).not.toContain("globalThis.__vitehubVercelQueue =")
+    expect(vercelServerContents).toContain("globalThis.__vitehubVercelQueue =")
+    expect(vercelServerContents).toContain("@vercel/queue")
   })
 
   it("dispatches from one generated Vercel callback to another Queue", { timeout: 90_000 }, async () => {

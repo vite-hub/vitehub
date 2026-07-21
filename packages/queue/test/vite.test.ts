@@ -254,14 +254,15 @@ describe("hubQueue", () => {
     expect(nitroPlugin).not.toContain("const queueConfig = false")
   })
 
-  it("does not load the optional Vercel SDK without definitions", async () => {
+  it("loads the Vercel SDK for direct clients without definitions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
     roots.push(root)
     const plugin = hubQueue({})
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ queue: {}, root, nitro: { preset: "vercel" } } as never)
     const pluginFile = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     const middlewareFile = await readFile(join(root, ".vitehub", "nitro", "queue", "middleware.ts"), "utf8")
-    expect(`${pluginFile}\n${middlewareFile}`).not.toContain("@vercel/queue")
+    expect(pluginFile).toContain("@vercel/queue")
+    expect(pluginFile).toContain("globalThis.__vitehubVercelQueue =")
     expect(`${pluginFile}\n${middlewareFile}`).not.toContain("@vercel/functions")
   })
 
