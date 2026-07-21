@@ -322,6 +322,7 @@ export async function readGitHubBranchState(input: {
           input.repository,
           input.token,
           `/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(ref.object.sha)}`,
+          { headers: { accept: "application/vnd.github.object+json" } },
         );
       }
       catch (error) {

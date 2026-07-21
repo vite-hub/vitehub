@@ -291,7 +291,8 @@ describe("GitHub workspace publisher", () => {
     await workspace.writeFile("inbox/audio.md", "hola", { mediaType: "text/markdown" })
     await workspace.snapshot()
 
-    expect(requests.map(request => request.path)).toContain("/repos/onmax/repo/contents/workspace/root/inbox/audio.md")
+    const contentsRequest = requests.find(request => request.path === "/repos/onmax/repo/contents/workspace/root/inbox/audio.md")
+    expect(contentsRequest?.headers.get("accept")).toBe("application/vnd.github.object+json")
     expect(requests.some(request => request.path.endsWith("/git/trees/base-tree"))).toBe(false)
     expect(requests.filter(request => request.method !== "GET")).toEqual([])
   })
