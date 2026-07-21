@@ -12,7 +12,7 @@
     "pretest": "nuxi prepare",
     "dev": "nuxi dev",
     "build": "NODE_OPTIONS='--max-old-space-size=8192' nuxi build",
-    "deploy:cloudflare": "vp run build && vp dlx \"wrangler@4.112.0\" deploy --config .output/server/wrangler.json",
+    "deploy:cloudflare": "test -n \"$CLOUDFLARE_D1_DATABASE_ID\" && vp run test && vp run build && vp dlx \"wrangler@4.112.0\" deploy --config .output/server/wrangler.json",
     "test": "vp test",
     "typecheck": "nuxi prepare && node scripts/typecheck.mjs",
     "generate": "NODE_OPTIONS='--max-old-space-size=8192' nuxi generate",
