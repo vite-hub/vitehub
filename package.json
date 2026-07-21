@@ -14,6 +14,7 @@
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/blob": "workspace:*",
+    "@vite-hub/browser": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/devtools": "workspace:*",
     "@vite-hub/email": "workspace:*",

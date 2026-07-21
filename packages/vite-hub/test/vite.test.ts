@@ -6,6 +6,7 @@ const integrationMocks = vi.hoisted(() => ({
   hubAgent: vi.fn(() => ({ name: "@vite-hub/agent/vite" })),
   hubAuth: vi.fn(() => ({ name: "@vite-hub/auth/vite" })),
   hubBlob: vi.fn(() => ({ name: "@vite-hub/blob/vite" })),
+  hubBrowser: vi.fn(() => ({ name: "@vite-hub/browser/vite" })),
   hubEmail: vi.fn(() => ({ name: "@vite-hub/email/vite" })),
   hubEnv: vi.fn(() => ({ name: "@vite-hub/env/vite" })),
   hubKv: vi.fn(() => ({ name: "@vite-hub/kv/vite" })),
@@ -25,6 +26,7 @@ const integrationMocks = vi.hoisted(() => ({
 vi.mock("@vite-hub/agent/vite", () => ({ hubAgent: integrationMocks.hubAgent }))
 vi.mock("@vite-hub/auth/vite", () => ({ hubAuth: integrationMocks.hubAuth }))
 vi.mock("@vite-hub/blob/vite", () => ({ hubBlob: integrationMocks.hubBlob }))
+vi.mock("@vite-hub/browser/vite", () => ({ hubBrowser: integrationMocks.hubBrowser }))
 vi.mock("@vite-hub/database/vite", () => ({ hubDb: () => ({ name: "@vite-hub/database/vite" }) }))
 vi.mock("@vite-hub/devtools", () => ({ hubDevtools: () => ({ name: "@vite-hub/devtools" }) }))
 vi.mock("@vite-hub/email/vite", () => ({ hubEmail: integrationMocks.hubEmail }))
@@ -506,6 +508,13 @@ describe("vitehub", () => {
     const conflictingHook = conflicting.config as unknown as (config: Record<string, unknown>, env: { command: "build", mode: string }) => void
     expect(() => conflictingHook({ nitro: { preset: "netlify" } }, { command: "build", mode: "production" })).toThrow("conflicts with nitro.preset")
     expect(() => conflictingHook({ nitro: { preset: "vercel-edge" } }, { command: "build", mode: "production" })).toThrow("conflicts with nitro.preset")
+  })
+
+  it("composes Browser for Cloudflare and rejects unsupported presets", () => {
+    const plugins = vitehub({ browser: { binding: "AUTOMATION_BROWSER" }, preset: "cloudflare" })
+    expect(pluginNames(plugins)).toContain("@vite-hub/browser/vite")
+    expect(integrationMocks.hubBrowser).toHaveBeenLastCalledWith({ binding: "AUTOMATION_BROWSER" })
+    expect(() => vitehub({ browser: true, preset: "node" })).toThrow("requires the Cloudflare deployment preset")
   })
 
   it("can be used as one nested Vite plugin entry", () => {

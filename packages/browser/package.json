@@ -1,0 +1,59 @@
+{
+  "name": "@vite-hub/browser",
+  "version": "0.0.1",
+  "description": "Provider-agnostic Browser Session primitives and Vite integration for ViteHub.",
+  "keywords": ["browser", "cloudflare", "playwright", "vite", "vitehub"],
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/browser"
+  },
+  "files": ["dist", "package.json"],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./controllers/cdp": "./dist/controllers/cdp.js",
+    "./controllers/playwright": "./dist/controllers/playwright.js",
+    "./providers/cloudflare": "./dist/providers/cloudflare.js",
+    "./providers/local": "./dist/providers/local.js",
+    "./vite": "./dist/vite.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "test": "vp run -t @vite-hub/browser#build && vp test"
+  },
+  "dependencies": {
+    "@vite-hub/runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/playwright": "catalog:browser",
+    "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
+    "playwright-core": "catalog:browser",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
+  },
+  "peerDependencies": {
+    "@cloudflare/playwright": "catalog:browser",
+    "playwright-core": "catalog:browser",
+    "vite": "catalog:vite-compat"
+  },
+  "peerDependenciesMeta": {
+    "@cloudflare/playwright": { "optional": true },
+    "playwright-core": { "optional": true },
+    "vite": { "optional": true }
+  },
+  "engines": { "node": ">=24.15.0" }
+}
