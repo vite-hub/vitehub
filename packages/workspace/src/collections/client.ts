@@ -144,10 +144,11 @@ export function useWorkspaceCollectionItem<T = Record<string, unknown>>(
 
   async function refresh(): Promise<WorkspaceCollectionItem<T> | undefined> {
     const resolvedValue = toValue(value)
-    if (!resolvedValue) {
+    if (resolvedValue === undefined) {
       active?.abort()
       active = undefined
       data.value = null
+      error.value = null
       pending.value = false
       return
     }

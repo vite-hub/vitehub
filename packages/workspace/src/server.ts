@@ -212,7 +212,7 @@ function collectionFilters(query: Record<string, string | string[]>, allowed: st
     if (!key.startsWith("filter.")) continue
     const field = key.slice("filter.".length)
     if (!allowedFields.has(field)) throw new WorkspaceCollectionRequestError(`Workspace collection filter "${field}" is not allowed.`)
-    const values = (Array.isArray(value) ? value : [value]).flatMap(item => item.split(",")).map(item => item.trim()).filter(Boolean)
+    const values = (Array.isArray(value) ? value : [value]).map(item => item.trim()).filter(Boolean)
     if (values.length) filters[field] = values
   }
   return filters

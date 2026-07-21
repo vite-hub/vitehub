@@ -71,6 +71,18 @@ describe("defineWorkspaceCollectionHandler", () => {
     expect(body.facets).toEqual({ category: [{ count: 2, value: "guide" }] })
   })
 
+  it("preserves commas in filter values", async () => {
+    const { app, workspace } = await createApp("collection-handler-commas")
+    await workspace.fs.writeFile("data/items.json", JSON.stringify([
+      ...records,
+      { category: "Doe, Jane", slug: "comma", title: "Comma" },
+    ]))
+
+    const response = await app.request("/items?filter.category=Doe%2C%20Jane")
+    const body = await response.json() as WorkspaceCollectionPage<Record<string, unknown>>
+    expect(body.items).toEqual([{ category: "Doe, Jane", slug: "comma", title: "Comma" }])
+  })
+
   it("rejects disallowed query fields, filters, and limits", async () => {
     const { app } = await createApp("collection-handler-policy")
 

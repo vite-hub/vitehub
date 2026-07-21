@@ -132,4 +132,28 @@ describe("Workspace Collection Vue composables", () => {
     expect(calls[2]!.options.signal.aborted).toBe(true)
     expect(item.pending.value).toBe(false)
   })
+
+  it("clears stale item errors and requests empty-string keys", async () => {
+    const { calls, request } = controlledRequester()
+    const slug = ref<string | undefined>("missing")
+    const scope = effectScope()
+    let item!: UseWorkspaceCollectionItemReturn<{ slug: string }>
+    scope.run(() => {
+      item = useWorkspaceCollectionItem("/api/items", slug, { request })
+    })
+
+    calls[0]!.reject(new Error("not found"))
+    await settle()
+    expect(item.error.value).toBeInstanceOf(Error)
+
+    slug.value = undefined
+    await settle()
+    expect(item.data.value).toBeNull()
+    expect(item.error.value).toBeNull()
+
+    slug.value = ""
+    await nextTick()
+    expect(calls[1]!.options.query).toEqual({ value: "" })
+    scope.stop()
+  })
 })
