@@ -246,7 +246,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         queue: queue ?? (resolveNitroHosting(cloneNitroConfig((resolved as { nitro?: unknown }).nitro))
           ? { provider: (hosting === "cloudflare" ? "cloudflare" : "vercel") satisfies QueueProvider }
           : undefined),
-        rootDir: resolved.root,
+        rootDir: nuxtProjectRoot || resolved.root,
         serverFunctionName: resolveNitroVercelFunctionName(resolved, "queue"),
       })
     },
