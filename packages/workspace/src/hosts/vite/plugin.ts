@@ -82,7 +82,7 @@ async function sourceModuleUsesCloudflareArtifacts(
   const staticModuleSpecifier = /\b(?:import|export)\s+(?!type\b)(?:([^"']*?)\s+from\s+)?["']([^"']+)["']/g
   for (const match of loaded.source.matchAll(staticModuleSpecifier)) {
     const imports = match[1]?.trim()
-    if (imports?.startsWith("{") && imports.endsWith("}") && imports.slice(1, -1).split(",").every(entry => /^type\b/.test(entry.trim()))) continue
+    if (imports?.startsWith("{") && imports.endsWith("}") && imports.slice(1, -1).split(",").map(entry => entry.trim()).filter(Boolean).every(entry => /^type\b/.test(entry))) continue
     const specifier = match[2]!
     const resolvedModule = specifier.startsWith(".")
       ? resolve(dirname(loaded.file), specifier)

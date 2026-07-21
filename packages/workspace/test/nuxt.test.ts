@@ -150,7 +150,7 @@ describe("Workspace Nuxt module", () => {
     await mkdir(definitionRoot, { recursive: true })
     await writeFile(join(definitionRoot, "artifact-options.ts"), "export type ArtifactOptions = { provider: 'cloudflare-artifacts' }\n")
     await writeFile(join(definitionRoot, "typed.ts"), [
-      "import { type ArtifactOptions } from './artifact-options'",
+      "import { type ArtifactOptions, } from './artifact-options'",
       "import { workspaceRoot } from '#imports'",
       "export default { root: workspaceRoot, store: { provider: 'memory' } } satisfies { store: ArtifactOptions | { provider: 'memory' } }",
       "",
