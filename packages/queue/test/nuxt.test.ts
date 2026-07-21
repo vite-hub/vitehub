@@ -123,6 +123,25 @@ describe("Queue Nuxt integration", () => {
       const runtime = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
       expect(runtime).toContain('"welcome"')
       expect(runtime).not.toContain('"app/welcome"')
+
+      const plugin = (nuxt.options.vite.plugins as unknown[]).flat(Infinity)[0] as ReturnType<typeof hubQueue>
+      const viteRoot = join(root, "app")
+      await (plugin.configResolved as (config: unknown) => Promise<void>)({
+        build: { outDir: "dist" },
+        command: "serve",
+        nitro: nitroConfig,
+        plugins: [],
+        queue: { provider: "cloudflare" },
+        resolve: { alias: [] },
+        root: viteRoot,
+      } as never)
+      const addedDefinition = join(viteRoot, "added.queue.ts")
+      await writeFile(addedDefinition, "export default {}\n")
+      await (plugin.handleHotUpdate as (context: unknown) => Promise<void>)({
+        file: addedDefinition,
+        server: { config: { root: viteRoot } },
+      })
+      await expect(readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")).resolves.toContain('"added"')
     }
     finally {
       await nuxt.close()

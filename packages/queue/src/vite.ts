@@ -141,6 +141,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
   let nitroOwnsCloudflareWorker = false
   let nitroQueue: QueueModuleOptions | undefined = queue
   let nuxtConfiguredDefinitions: DiscoveredQueueDefinition[] | undefined
+  let nuxtProjectRoot: string | undefined
   let resolveNuxtDefinitions: (() => DiscoveredQueueDefinition[]) | undefined
   let nuxtOwnsCloudflareWorker = false
   let providerOutput: ComposedProviderOutput | undefined
@@ -164,6 +165,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       queue: {
         async createNitroConfig({ nitro, projectRoot, root }) {
           const config = { nitro }
+          nuxtProjectRoot = projectRoot
           resolveNuxtDefinitions = () => discoverQueueDefinitions({ rootDir: root, serverRootDirs: [projectRoot, root] })
           const definitions = resolveNuxtDefinitions()
           nuxtConfiguredDefinitions = definitions
@@ -211,7 +213,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       const file = context.file.replace(/\\/g, "/")
       if (!/\.queue\.(?:c|m)?[jt]s$/i.test(file) && !/\/server\/queues\/.*\.(?:c|m)?[jt]s$/i.test(file)) return
       resolved = context.server.config
-      await writeQueueNitroIntegration(resolved.root, nitroQueue, hosting, cloudflareQueues)
+      await writeQueueNitroIntegration(nuxtProjectRoot || resolved.root, nitroQueue, hosting, cloudflareQueues, resolveNuxtDefinitions?.())
     },
     async closeBundle() {
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
