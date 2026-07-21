@@ -99,13 +99,16 @@ describe("Queue Nuxt integration", () => {
     roots.push(root)
     await cp(join(import.meta.dirname, "../fixtures/nuxt"), root, { recursive: true })
     await mkdir(join(root, "app"), { recursive: true })
+    await mkdir(join(root, "backend", "queues"), { recursive: true })
     await writeFile(join(root, "app", "welcome.queue.ts"), "export default {}\n")
+    await writeFile(join(root, "backend", "queues", "custom.ts"), "export default {}\n")
     const queueNuxtUrl = pathToFileURL(join(import.meta.dirname, "../src/nuxt.ts")).href
     await writeFile(join(root, "nuxt.config.ts"), [
       `import queueNuxt from ${JSON.stringify(queueNuxtUrl)}`,
       "export default defineNuxtConfig({",
       "  modules: [[queueNuxt, { provider: 'cloudflare' }]],",
       "  nitro: { preset: 'cloudflare_module' },",
+      "  serverDir: 'backend',",
       "  srcDir: 'app',",
       "})",
       "",
@@ -122,6 +125,7 @@ describe("Queue Nuxt integration", () => {
       await (nuxt.callHook as unknown as (name: "nitro:config", config: Record<string, unknown>) => Promise<void>)("nitro:config", nitroConfig)
       const runtime = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
       expect(runtime).toContain('"welcome"')
+      expect(runtime).toContain('"custom"')
       expect(runtime).not.toContain('"app/welcome"')
 
       const plugin = (nuxt.options.vite.plugins as unknown[]).flat(Infinity)[0] as ReturnType<typeof hubQueue>
@@ -142,6 +146,13 @@ describe("Queue Nuxt integration", () => {
         server: { config: { root: viteRoot } },
       })
       await expect(readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")).resolves.toContain('"added"')
+      const addedServerDefinition = join(root, "backend", "queues", "added-server.ts")
+      await writeFile(addedServerDefinition, "export default {}\n")
+      await (plugin.handleHotUpdate as (context: unknown) => Promise<void>)({
+        file: addedServerDefinition,
+        server: { config: { root: viteRoot } },
+      })
+      await expect(readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")).resolves.toContain('"added-server"')
     }
     finally {
       await nuxt.close()

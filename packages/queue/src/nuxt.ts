@@ -10,6 +10,7 @@ type NuxtLike = {
   options: {
     dev?: boolean
     rootDir?: string
+    serverDir?: string
     srcDir?: string
     vite?: {
       plugins?: unknown[]
@@ -41,6 +42,7 @@ export default function viteHubQueueNuxtModule(options: QueueNuxtModuleOptions =
       nitro: nitroConfig,
       projectRoot,
       root: nuxt.options.srcDir || projectRoot,
+      serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
     })
     Object.assign(nitroConfig, nitro)
   })
