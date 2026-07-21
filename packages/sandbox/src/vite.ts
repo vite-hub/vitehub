@@ -63,8 +63,9 @@ function isSandboxProjectManifestUpdate(
 ) {
   if (basename(file) !== 'package.json' || !isLocalSourceFile(file, rootDir))
     return false
-  const packageRoot = dirname(file)
-  return definitions.some(definition => isLocalSourceFile(definition.handler, packageRoot))
+  const packageRoot = normalize(dirname(file))
+  return definitions.some(definition => definition.kind === 'package-entry'
+    && normalize(dirname(definition.handler)) === packageRoot)
 }
 
 function isSandboxDefinitionUpdate(

@@ -2,6 +2,8 @@
   "private": true,
   "type": "module",
   "vitehub": {
-    "timeout": 30000
+    "sandbox": {
+      "timeout": 30000
+    }
   }
 }

@@ -7,7 +7,7 @@ import type { SandboxExecutionBox } from "../src/runtime/execution-box.ts"
 
 type SandboxExecResult = Awaited<ReturnType<SandboxExecutionBox["exec"]>>
 
-function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, holdInstall?: boolean, provider?: "cloudflare" | "vercel" } = {}) {
+function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, holdExecution?: boolean, holdInstall?: boolean, provider?: "cloudflare" | "vercel" } = {}) {
   const files = new Map<string, Uint8Array>()
   const directories = new Set<string>(["/"])
   const normalize = (path: string) => posix.resolve("/", path)
@@ -18,7 +18,7 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
       current = posix.dirname(current)
     }
   }
-  const execCalls: Array<{ cmd: string, args: string[], options?: { cwd?: string, env?: Record<string, string> } }> = []
+  const execCalls: Array<{ cmd: string, args: string[], options?: { cwd?: string, env?: Record<string, string>, signal?: AbortSignal } }> = []
   const mkdirCalls: string[] = []
   let releaseInstall = () => {}
   const installGate = new Promise<void>(resolve => releaseInstall = resolve)
@@ -27,7 +27,7 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
     id: "fake",
     provider: options.provider ?? "vercel",
     async close() {},
-    async exec(cmd: string, args: string[] = [], execOptions?: { cwd?: string, env?: Record<string, string> }): Promise<SandboxExecResult> {
+    async exec(cmd: string, args: string[] = [], execOptions?: { cwd?: string, env?: Record<string, string>, signal?: AbortSignal }): Promise<SandboxExecResult> {
       execCalls.push({ cmd, args, options: execOptions })
       if (options.execError)
         throw options.execError
@@ -70,6 +70,11 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
           }
         }
         return { ok: true, stdout: "", stderr: "", code: 0 }
+      }
+      if (options.holdExecution && cmd === "node" && args[1] === "import(process.argv[1])") {
+        return await new Promise<SandboxExecResult>((_resolve, reject) => {
+          execOptions?.signal?.addEventListener("abort", () => reject(execOptions.signal?.reason), { once: true })
+        })
       }
       if (cmd === "rm") {
         await sandbox.files.remove(args.at(-1) || "", { recursive: true })
@@ -186,6 +191,50 @@ describe("executeSandboxDefinition", () => {
     expect(launchCalls).toHaveLength(1)
     expect(launchCalls[0]?.args.slice(0, 2)).toEqual(["-e", "import(process.argv[1])"])
     expect(launchCalls[0]?.options?.cwd).toMatch(/^\/tmp\/vitehub-sandbox\/release-notes-/)
+  })
+
+  it("awaits an executable module default export", async () => {
+    const { sandbox, execCalls } = createFakeSandbox()
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: {
+          "definition.mjs": "await Promise.resolve(); export default { ok: true }",
+        },
+      },
+    )).resolves.toEqual({ ok: true })
+
+    const launch = execCalls.find(call => call.cmd === "node")!
+    const entry = await sandbox.readFile(launch.args[2]!)
+    expect(entry).toContain("const result = await mod.default")
+    expect(entry).not.toContain("definition.run")
+  })
+
+  it("enforces timeout during executable module evaluation", async () => {
+    const { sandbox, execCalls } = createFakeSandbox({ holdExecution: true, provider: "cloudflare" })
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "release-notes",
+      { timeout: 10 },
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: {
+          "definition.mjs": "await new Promise(() => {}); export default null",
+        },
+      },
+    )).rejects.toMatchObject({
+      code: "TIMEOUT",
+      provider: "cloudflare",
+    } satisfies Partial<SandboxError>)
+
+    expect(execCalls.some(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])")).toBe(true)
   })
 
   it("prepares one package project once per digest", async () => {

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { resolveSandboxProject, resolveSandboxProjectOptions } from "../src/project.ts"
+import { resolveSandboxProject } from "../src/project.ts"
 import { bundleSandboxDefinition } from "../src/bundle.ts"
 import { executeSandboxDefinition } from "../src/runtime/execute.ts"
 import { createSandboxExecutionBox } from "../src/runtime/execution-box.ts"
@@ -23,6 +23,38 @@ afterEach(async () => {
 })
 
 describe("resolveSandboxProject", () => {
+  it("reads timeout from package metadata for executable entries", async () => {
+    const root = await createRoot()
+    const entry = join(root, "index.ts")
+    await writeFile(join(root, "package.json"), JSON.stringify({
+      private: true,
+      vitehub: { sandbox: { timeout: 60_000 } },
+    }))
+    await writeFile(entry, "export default null")
+
+    const project = await resolveSandboxProject(entry, root, { readSandboxOptions: true })
+
+    expect(project.options).toEqual({ timeout: 60_000 })
+  })
+
+  it.each([
+    [{ timeout: 0 }, "positive integer"],
+    [{ timeout: 1.5 }, "positive integer"],
+    [{ timeout: 2_147_483_648 }, "positive integer"],
+    [{ env: { MODE: "test" } }, "unsupported keys: env"],
+  ])("rejects invalid package Sandbox metadata", async (sandboxOptions, message) => {
+    const root = await createRoot()
+    const entry = join(root, "index.ts")
+    await writeFile(join(root, "package.json"), JSON.stringify({
+      private: true,
+      vitehub: { sandbox: sandboxOptions },
+    }))
+    await writeFile(entry, "export default null")
+
+    await expect(resolveSandboxProject(entry, root, { readSandboxOptions: true }))
+      .rejects.toThrow(message)
+  })
+
   it("resolves independent nearest package roots", async () => {
     const root = await createRoot()
     const first = join(root, "sandboxes/first")
@@ -41,58 +73,6 @@ describe("resolveSandboxProject", () => {
     expect(secondProject.install.command).toBe("npm")
     expect(firstProject.digest).not.toBe(secondProject.digest)
   })
-
-  it("reads timeout policy from the nearest package manifest", async () => {
-    const root = await createRoot()
-    const sandbox = join(root, "server/sandboxes/image")
-    await mkdir(sandbox, { recursive: true })
-    await writeFile(join(root, "package.json"), JSON.stringify({ private: true, vitehub: { timeout: 1_000 } }))
-    await writeFile(join(sandbox, "package.json"), JSON.stringify({ private: true, vitehub: { timeout: 30_000 } }))
-    const entry = join(sandbox, "index.ts")
-    await writeFile(entry, "export default async function run() {}")
-
-    await expect(resolveSandboxProjectOptions(entry, root)).resolves.toEqual({ timeout: 30_000 })
-  })
-
-  it.each([
-    {
-      metadata: "./legacy-entry.js",
-      message: 'field "vitehub" must be an object',
-      name: "non-object metadata",
-    },
-    {
-      metadata: { timeout: 0 },
-      message: 'field "vitehub.timeout" must be a positive finite number of milliseconds',
-      name: "non-positive timeout",
-    },
-    {
-      metadata: { timeout: "30s" },
-      message: 'field "vitehub.timeout" must be a positive finite number of milliseconds',
-      name: "non-numeric timeout",
-    },
-    {
-      metadata: { env: { SECRET: "value" } },
-      message: 'field "vitehub" supports only "timeout". Unsupported keys: env',
-      name: "unsupported project policy",
-    },
-  ])("rejects $name", async ({ metadata, message }) => {
-    const root = await createRoot()
-    const entry = join(root, "index.ts")
-    await writeFile(join(root, "package.json"), JSON.stringify({ private: true, vitehub: metadata }))
-    await writeFile(entry, "export default async function run() {}")
-
-    await expect(resolveSandboxProjectOptions(entry, root)).rejects.toThrow(message)
-  })
-
-  it("rejects malformed package metadata before importing project code", async () => {
-    const root = await createRoot()
-    const entry = join(root, "index.ts")
-    await writeFile(join(root, "package.json"), "{\"private\":true,\"vitehub\":")
-    await writeFile(entry, "throw new Error('must not execute')")
-
-    await expect(resolveSandboxProjectOptions(entry, root)).rejects.toThrow("Sandbox package manifest is invalid JSON")
-  })
-
 
   it("delegates pnpm installation to the standard workspace root", async () => {
     const root = await createRoot()
@@ -153,10 +133,20 @@ describe("resolveSandboxProject", () => {
     await writeFile(join(second, "package.json"), JSON.stringify({ exports: "./index.js", name: "@fixture/second", type: "module" }))
     await writeFile(join(second, "index.js"), "export const value = 42\n")
     const definitionFile = join(sandbox, "index.ts")
-    await writeFile(definitionFile, "import { value } from '@fixture/first'\nexport default async function run() { return value }\n")
+    await writeFile(definitionFile, [
+      "import { readFile } from 'node:fs/promises'",
+      "import { value } from '@fixture/first'",
+      "const { payload, context } = JSON.parse(await readFile(process.argv[2], 'utf8'))",
+      "await Promise.resolve()",
+      "export default { context, payload, value }",
+      "",
+    ].join("\n"))
 
     const project = await resolveSandboxProject(definitionFile, root)
-    const bundle = await bundleSandboxDefinition(await readFile(definitionFile, "utf8"), definitionFile, { project })
+    const bundle = await bundleSandboxDefinition(await readFile(definitionFile, "utf8"), definitionFile, {
+      execution: "module",
+      project,
+    })
     const box = await resolveBox({ runtime: trustedHost() }, {}, { requires: ["node", "pnpm"] })
     const session = await box.open()
     try {
@@ -170,7 +160,18 @@ describe("resolveSandboxProject", () => {
         cwd: options?.cwd && physical(options.cwd),
       })
       execution.writeFile = async (path, contents) => await writeFile(path, contents.replaceAll('/tmp/vitehub-sandbox', `${root}/tmp/vitehub-sandbox`))
-      await expect(executeSandboxDefinition(execution, "workspace-dependency", undefined, bundle)).resolves.toBe(42)
+      await expect(executeSandboxDefinition(
+        execution,
+        "workspace-dependency",
+        undefined,
+        bundle,
+        { requested: true },
+        { requestId: "test" },
+      )).resolves.toEqual({
+        context: { requestId: "test" },
+        payload: { requested: true },
+        value: 42,
+      })
     }
     finally {
       await session.close()

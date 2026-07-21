@@ -1,24 +1,38 @@
 import {
-  createDirectoryDefinitionSource,
   createSuffixDefinitionSource,
   discoverDefinitions,
+  listMatchingFiles,
   mergeDefinitions,
   normalizePathDefinitionName,
   normalizeSuffixDefinitionName,
+  registerDefinition,
   resolveDefinitionScanRoots,
+  sortDefinitions,
 } from '@vite-hub/internal/definition-catalog'
-import { basename, relative, resolve } from 'pathe'
+import { existsSync } from 'node:fs'
+import { dirname, relative, resolve } from 'pathe'
 import type { ScannedDefinition } from './internal/shared/feature-definitions'
 
 export interface DiscoveredSandboxDefinition extends ScannedDefinition {
+  kind: 'definition' | 'package-entry'
   source: 'server-sandboxes' | 'vite-suffix'
 }
 
 const sandboxSuffixPattern = /\.sandbox\.(?:c|m)?[jt]s$/i
+const sandboxEntrypointFilenames = [
+  'index.ts',
+  'index.mts',
+  'index.js',
+  'index.mjs',
+]
 
-function createDiscoveredSandboxDefinition(source: DiscoveredSandboxDefinition['source']) {
+function createDiscoveredSandboxDefinition(
+  source: DiscoveredSandboxDefinition['source'],
+  kind: DiscoveredSandboxDefinition['kind'],
+) {
   return (context: { file: string, name: string }): DiscoveredSandboxDefinition => ({
     handler: context.file,
+    kind,
     name: context.name,
     source,
     _meta: {
@@ -40,18 +54,37 @@ function normalizeSuffixSandboxName(rootDir: string, file: string) {
 }
 
 function normalizeDirectorySandboxName(directory: string, file: string) {
-  if (!/^index\.(?:c|m)?[jt]sx?$/i.test(basename(file)))
-    return undefined
   return normalizePathDefinitionName(directory, file).replace(/\.sandbox$/, '')
 }
 
 export function discoverServerSandboxDefinitions(scanDirs: string[]): DiscoveredSandboxDefinition[] {
-  return discoverDefinitions("sandbox", [
-    createDirectoryDefinitionSource<DiscoveredSandboxDefinition>("server-sandboxes", scanDirs, "sandboxes", {
-      createDefinition: createDiscoveredSandboxDefinition('server-sandboxes'),
-      normalizeName: normalizeDirectorySandboxName,
-    }),
-  ])
+  const definitions = new Map<string, DiscoveredSandboxDefinition>()
+  const createDefinition = createDiscoveredSandboxDefinition('server-sandboxes', 'package-entry')
+
+  for (const scanDir of scanDirs) {
+    const directory = resolve(scanDir, 'sandboxes')
+    for (const manifest of listMatchingFiles(directory, name => name === 'package.json')) {
+      const packageRoot = dirname(manifest)
+      const entrypoints = sandboxEntrypointFilenames
+        .map(filename => resolve(packageRoot, filename))
+        .filter(file => existsSync(file))
+      if (entrypoints.length === 0) {
+        throw new Error(
+          `[vitehub] Sandbox package "${packageRoot}" requires one ESM entrypoint: ${sandboxEntrypointFilenames.join(', ')}.`,
+        )
+      }
+      if (entrypoints.length > 1) {
+        throw new Error(
+          `[vitehub] Sandbox package "${packageRoot}" has multiple entrypoints: ${entrypoints.join(', ')}.`,
+        )
+      }
+      const file = entrypoints[0]!
+      const name = normalizeDirectorySandboxName(directory, file)
+      registerDefinition(definitions, createDefinition({ file, name }), 'sandbox')
+    }
+  }
+
+  return sortDefinitions(definitions)
 }
 
 export function discoverSandboxDefinitions(options:
@@ -68,14 +101,9 @@ export function discoverSandboxDefinitions(options:
     'sandbox',
     discoverDefinitions('sandbox', [
       createSuffixDefinitionSource('vite-suffix', roots, sandboxSuffixPattern, normalizeSuffixSandboxName, {
-        createDefinition: createDiscoveredSandboxDefinition('vite-suffix'),
+        createDefinition: createDiscoveredSandboxDefinition('vite-suffix', 'definition'),
       }),
     ]),
-    discoverDefinitions('sandbox', [
-      createDirectoryDefinitionSource('server-sandboxes', serverScanDirs, 'sandboxes', {
-        createDefinition: createDiscoveredSandboxDefinition('server-sandboxes'),
-        normalizeName: normalizeDirectorySandboxName,
-      }),
-    ]),
+    discoverServerSandboxDefinitions(serverScanDirs),
   )
 }

@@ -133,7 +133,7 @@ describe("hubSandbox", () => {
     const rootDir = await createViteRoot()
     await mkdir(join(rootDir, "server/sandboxes/tools/release-notes"), { recursive: true })
     await writeFile(join(rootDir, "server/sandboxes/tools/release-notes/index.ts"), [
-      `export default async function run() { return { ok: true } }`,
+      `export default { ok: true }`,
       ``,
     ].join("\n"))
     const { hubSandbox } = await import("../src/vite.ts")
@@ -283,18 +283,22 @@ describe("hubSandbox", () => {
     expect(definition).not.toContain("from process slash alias")
   })
 
-  it("builds a configuration-free Definition for a Cloudflare Nitro host", async () => {
+  it("builds an executable package entry for a Cloudflare Nitro host", async () => {
     const rootDir = await createViteRoot()
     await rm(join(rootDir, "src/tools/release-notes.sandbox.ts"))
-    await mkdir(join(rootDir, "server/sandboxes/example"), { recursive: true })
-    await writeFile(join(rootDir, "server/sandboxes/example/package.json"), JSON.stringify({
-      private: true,
-      vitehub: { timeout: 30_000 },
-    }))
+    const packageRoot = join(rootDir, "server/sandboxes/example")
+    await mkdir(packageRoot, { recursive: true })
     await writeFile(join(rootDir, "src/server.ts"), `export const ready = true\n`)
-    await writeFile(join(rootDir, "server/sandboxes/example/index.ts"), [
-      ``,
-      `export default async function run() { return { ok: true } }`,
+    await writeFile(join(packageRoot, "package.json"), JSON.stringify({
+      private: true,
+      vitehub: { sandbox: { timeout: 30_000 } },
+    }))
+    await writeFile(join(packageRoot, "helper.ts"), `export const ok = true\n`)
+    await writeFile(join(packageRoot, "index.ts"), [
+      `import { ok } from "./helper"`,
+      `export type SandboxPayload = { value: string }`,
+      `await Promise.resolve()`,
+      `export default { ok }`,
       ``,
     ].join("\n"))
     const { hubSandbox } = await import("../src/vite.ts")
@@ -319,14 +323,17 @@ describe("hubSandbox", () => {
       root: rootDir,
     } as never)
 
-    const generatedDefinition = await readFile(
-      join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/example.mjs"),
-      "utf8",
-    )
     expect(resolvedNitro.cloudflare.wrangler.containers).toMatchObject([{ class_name: "Sandbox" }])
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-registry.mjs"), "utf8")).resolves.toContain('"example"')
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-provider-loader.mjs"), "utf8")).resolves.toContain("resolveSandboxBox")
-    expect(JSON.parse(generatedDefinition.slice("export default ".length)).options).toEqual({ timeout: 30_000 })
+    const generatedDefinition = await readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/example.mjs"), "utf8")
+    expect(JSON.parse(generatedDefinition.slice("export default ".length))).toMatchObject({
+      bundle: { execution: "module" },
+      options: { timeout: 30_000 },
+    })
+    const generatedTypes = await readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox.d.ts"), "utf8")
+    expect(generatedTypes).toContain(".SandboxPayload")
+    expect(generatedTypes).toContain("result: Awaited<")
   })
 
   it("keeps Cloudflare output inert without Sandbox definitions", async () => {
@@ -901,8 +908,8 @@ describe("hubSandbox", () => {
     const { createSandboxFeaturePlan } = await import("../src/feature.ts")
 
     await expect(createSandboxFeaturePlan({}, [
-      { handler: "/tmp/tools/release-notes.ts", name: "tools/release-notes", _meta: { filename: "tools/release-notes", sourcePath: "/tmp/tools/release-notes.ts" } },
-      { handler: "/tmp/tools__release-notes.ts", name: "tools__release-notes", _meta: { filename: "tools__release-notes", sourcePath: "/tmp/tools__release-notes.ts" } },
+      { handler: "/tmp/tools/release-notes.ts", kind: "definition", name: "tools/release-notes", source: "vite-suffix", _meta: { filename: "tools/release-notes", sourcePath: "/tmp/tools/release-notes.ts" } },
+      { handler: "/tmp/tools__release-notes.ts", kind: "definition", name: "tools__release-notes", source: "vite-suffix", _meta: { filename: "tools__release-notes", sourcePath: "/tmp/tools__release-notes.ts" } },
     ], {
       aliasPath: "/tmp/vitehub-sandbox/index.js",
     }, {})).rejects.toThrow("generate the same artifact path")
@@ -986,9 +993,9 @@ describe("hubSandbox", () => {
     await mkdir(projectDir, { recursive: true })
     await writeFile(manifest, JSON.stringify({
       private: true,
-      vitehub: { timeout: 30_000 },
+      vitehub: { sandbox: { timeout: 30_000 } },
     }))
-    await writeFile(definition, "export default async function run() { return { ok: true } }\n")
+    await writeFile(definition, "export default { ok: true }\n")
 
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox({ provider: "vercel" })
@@ -1024,7 +1031,7 @@ describe("hubSandbox", () => {
     await expect(readTimeout()).resolves.toBe(30_000)
     await writeFile(manifest, JSON.stringify({
       private: true,
-      vitehub: { timeout: 60_000 },
+      vitehub: { sandbox: { timeout: 60_000 } },
     }))
     await handleHotUpdate({
       file: manifest,

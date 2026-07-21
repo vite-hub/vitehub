@@ -36,6 +36,26 @@ function createSourceFile(id: string, source: string) {
   return typescript.createSourceFile(id, source, typescript.ScriptTarget.Latest, true, getScriptKind(id))
 }
 
+function hasModifier(node: ts.Node, kind: ts.SyntaxKind) {
+  return typescript.canHaveModifiers(node)
+    && (typescript.getModifiers(node)?.some(modifier => modifier.kind === kind) ?? false)
+}
+
+export function hasExportedType(source: string, id: string, name: string) {
+  const sourceFile = createSourceFile(id, source)
+  return sourceFile.statements.some((statement) => {
+    if (
+      (typescript.isInterfaceDeclaration(statement) || typescript.isTypeAliasDeclaration(statement))
+      && statement.name.text === name
+    ) {
+      return hasModifier(statement, typescript.SyntaxKind.ExportKeyword)
+    }
+    if (!typescript.isExportDeclaration(statement) || !statement.exportClause || !typescript.isNamedExports(statement.exportClause))
+      return false
+    return statement.exportClause.elements.some(element => element.name.text === name && (statement.isTypeOnly || element.isTypeOnly))
+  })
+}
+
 function collectExplicitImportNames(sourceFile: ts.SourceFile) {
   const names = new Set<string>()
 

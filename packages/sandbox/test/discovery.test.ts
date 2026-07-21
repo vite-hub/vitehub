@@ -27,43 +27,59 @@ describe("discoverServerSandboxDefinitions", () => {
     await mkdir(join(rootDir, "server", "sandboxes", "billing"), { recursive: true })
     await writeFile(join(rootDir, "src", "release-notes.sandbox.ts"), "export default null\n", "utf8")
     await writeFile(join(rootDir, "src", "content", "summary.sandbox.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "server", "sandboxes", "billing", "package.json"), JSON.stringify({ private: true }), "utf8")
     await writeFile(join(rootDir, "server", "sandboxes", "billing", "index.ts"), "export default null\n", "utf8")
 
     expect(discoverSandboxDefinitions({ rootDir }).map(definition => ({
       name: definition.name,
+      kind: definition.kind,
       source: definition.source,
     }))).toEqual([
-      { name: "billing", source: "server-sandboxes" },
-      { name: "content/summary", source: "vite-suffix" },
-      { name: "release-notes", source: "vite-suffix" },
+      { kind: "package-entry", name: "billing", source: "server-sandboxes" },
+      { kind: "definition", name: "content/summary", source: "vite-suffix" },
+      { kind: "definition", name: "release-notes", source: "vite-suffix" },
     ])
   })
 
-  it("requires an index entry for canonical package projects", async () => {
+  it("does not discover free-form files inside server/sandboxes", async () => {
     const rootDir = await createTempDir("vitehub-sandbox-vite-server-suffix-")
     await mkdir(join(rootDir, "server", "sandboxes"), { recursive: true })
     await mkdir(join(rootDir, "src", "server", "sandboxes"), { recursive: true })
     await writeFile(join(rootDir, "server", "sandboxes", "release-notes.sandbox.ts"), "export default null\n", "utf8")
     await writeFile(join(rootDir, "src", "server", "sandboxes", "ignored.sandbox.ts"), "export default null\n", "utf8")
 
-    expect(discoverSandboxDefinitions({ rootDir }).map(definition => ({
-      name: definition.name,
-      source: definition.source,
-    }))).toEqual([])
+    expect(discoverSandboxDefinitions({ rootDir })).toEqual([])
   })
 
-  it("discovers sandbox names from server/sandboxes directories", async () => {
+  it("discovers package entrypoints without registering package helpers", async () => {
     const scanDir = await createTempDir("vitehub-sandbox-server-discovery-")
     await mkdir(join(scanDir, "sandboxes", "content", "summary"), { recursive: true })
     await mkdir(join(scanDir, "sandboxes", "billing"), { recursive: true })
-    await writeFile(join(scanDir, "sandboxes", "content", "summary", "index.ts"), "export default null\n", "utf8")
+    await writeFile(join(scanDir, "sandboxes", "content", "package.json"), JSON.stringify({ private: true }), "utf8")
+    await writeFile(join(scanDir, "sandboxes", "content", "index.ts"), "export default null\n", "utf8")
+    await writeFile(join(scanDir, "sandboxes", "content", "summary.ts"), "export const summary = true\n", "utf8")
+    await writeFile(join(scanDir, "sandboxes", "billing", "package.json"), JSON.stringify({ private: true }), "utf8")
     await writeFile(join(scanDir, "sandboxes", "billing", "index.ts"), "export default null\n", "utf8")
     await writeFile(join(scanDir, "sandboxes", "ignored.ts"), "export default null\n", "utf8")
 
     expect(discoverServerSandboxDefinitions([scanDir]).map(definition => definition.name)).toEqual([
       "billing",
-      "content/summary",
+      "content",
     ])
+  })
+
+  it("rejects manifest-declared packages without one ESM entrypoint", async () => {
+    const scanDir = await createTempDir("vitehub-sandbox-server-shape-")
+    const packageRoot = join(scanDir, "sandboxes", "content")
+    await mkdir(packageRoot, { recursive: true })
+    await writeFile(join(packageRoot, "package.json"), JSON.stringify({ private: true }), "utf8")
+
+    expect(() => discoverServerSandboxDefinitions([scanDir])).toThrow("requires one ESM entrypoint")
+
+    await writeFile(join(packageRoot, "index.ts"), "export default null\n", "utf8")
+    await writeFile(join(packageRoot, "index.mjs"), "export default null\n", "utf8")
+
+    expect(() => discoverServerSandboxDefinitions([scanDir])).toThrow("has multiple entrypoints")
   })
 
   it("uses a nested package folder for the Definition name and project root", async () => {
@@ -88,6 +104,8 @@ describe("discoverServerSandboxDefinitions", () => {
     const secondScanDir = await createTempDir("vitehub-sandbox-server-second-")
     await mkdir(join(firstScanDir, "sandboxes", "release-notes"), { recursive: true })
     await mkdir(join(secondScanDir, "sandboxes", "release-notes"), { recursive: true })
+    await writeFile(join(firstScanDir, "sandboxes", "release-notes", "package.json"), JSON.stringify({ private: true }), "utf8")
+    await writeFile(join(secondScanDir, "sandboxes", "release-notes", "package.json"), JSON.stringify({ private: true }), "utf8")
     await writeFile(join(firstScanDir, "sandboxes", "release-notes", "index.ts"), "export default null\n", "utf8")
     await writeFile(join(secondScanDir, "sandboxes", "release-notes", "index.ts"), "export default null\n", "utf8")
 

@@ -8,7 +8,11 @@ const SHIM_NAMESPACE = 'vitehub-sandbox-runtime-shim'
 export async function bundleSandboxDefinition(
   source: string,
   file: string,
-  options: { alias?: Record<string, string>, project?: SandboxProject } = {},
+  options: {
+    alias?: Record<string, string>
+    execution?: SandboxDefinitionBundle['execution']
+    project?: SandboxProject
+  } = {},
 ): Promise<SandboxDefinitionBundle> {
   const bundle = await bundleDiscoveredDefinitionModuleGraph({
     alias: options.alias,
@@ -68,8 +72,12 @@ export async function bundleSandboxDefinition(
       },
     ],
   })
-  if (!options.project)
-    return bundle
+  if (!options.project) {
+    return {
+      ...bundle,
+      ...(options.execution ? { execution: options.execution } : {}),
+    }
+  }
 
   const prefix = options.project.packagePath === '.'
     ? '.vitehub-sandbox'
@@ -85,6 +93,7 @@ export async function bundleSandboxDefinition(
     .digest('hex')
   return {
     entry: `${prefix}/${bundle.entry}`,
+    ...(options.execution ? { execution: options.execution } : {}),
     modules,
     project: { ...options.project, digest },
   }

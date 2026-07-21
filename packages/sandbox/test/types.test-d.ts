@@ -10,7 +10,19 @@ import {
   type SandboxRunResult,
 } from "../src/index.ts"
 import { hubSandbox } from "../src/vite.ts"
-import type { SandboxPayload, SandboxResult } from "../src/runtime/registry-types.ts"
+
+declare module "#vitehub-sandbox-registry" {
+  interface SandboxDefinitionModules {
+    "package-entry": {
+      payload: { value: string }
+      result: { length: number }
+    }
+    "unknown-package-entry": {
+      payload: unknown
+      result: string
+    }
+  }
+}
 
 describe("types", () => {
   it("augments Vite user config with sandbox options", () => {
@@ -32,16 +44,8 @@ describe("types", () => {
 
     expectTypeOf(definition).toMatchTypeOf<SandboxDefinition<{ value: string } | undefined, { value: string }>>()
     expectTypeOf(runSandbox("release-notes", { value: "ok" })).resolves.toMatchTypeOf<SandboxRunResult>()
-  })
-
-  it("infers direct package-project handlers", () => {
-    type Handler = (
-      payload: { value: string },
-      context?: Record<string, unknown>,
-    ) => Promise<{ context: boolean, value: string }>
-
-    expectTypeOf<SandboxPayload<Handler>>().toEqualTypeOf<{ value: string }>()
-    expectTypeOf<SandboxResult<Handler>>().toEqualTypeOf<{ context: boolean, value: string }>()
+    expectTypeOf(runSandbox("package-entry", { value: "ok" })).resolves.toEqualTypeOf<SandboxRunResult<{ length: number }>>()
+    expectTypeOf(runSandbox("unknown-package-entry", { anything: true })).resolves.toEqualTypeOf<SandboxRunResult<string>>()
   })
 
   it("returns a Vite plugin", () => {

@@ -1,10 +1,8 @@
 import { deploymentPresetFromNitro } from '@vite-hub/internal/deployment'
 import { getHostingProvider, getSupportedHostingProvider } from '@vite-hub/internal/hosting'
+import { readFile } from 'node:fs/promises'
 import { createDiscoveredDefinitionCompiler, type DiscoveredDefinitionCompilerOptions } from './internal/shared/discovered-definition'
-import {
-  toTemplateSafeName,
-  type ScannedDefinition,
-} from './internal/shared/feature-definitions'
+import { toTemplateSafeName } from './internal/shared/feature-definitions'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
 import type { FeatureManifest, FeatureRuntimePlan, GeneratedArtifact } from './internal/shared/runtime-artifacts'
 import { bundleSandboxDefinition } from './bundle'
@@ -16,8 +14,10 @@ import {
 import { extractSandboxDefinitionOptions } from './definition-options'
 import { getSandboxFeatureProvider } from './module-types'
 import type { AgentSandboxConfig, SandboxDefinitionOptions } from './module-types'
-import { resolveSandboxProject, resolveSandboxProjectOptions, type SandboxProject } from './project'
+import { resolveSandboxProject, type SandboxProject } from './project'
 import { createSandboxTypeTemplateContents } from './type-template'
+import { hasExportedType } from './internal/shared/discovered-definition/ast'
+import type { DiscoveredSandboxDefinition } from './discovery'
 
 export const sandboxRuntimeDependencies = [
   '@cloudflare/sandbox',
@@ -79,11 +79,9 @@ export function createSandboxManifest(aliasPath: string, typeTemplate: string): 
     },
   }
 }
-type SandboxScannedDefinition = ScannedDefinition & {
-  source?: 'server-sandboxes' | 'vite-suffix'
-}
-
 type SandboxDefinitionMetadata = {
+  hasPayloadType: boolean
+  kind: DiscoveredSandboxDefinition['kind']
   name: string
   options?: SandboxDefinitionOptions
   project: SandboxProject
@@ -107,15 +105,22 @@ function normalizeSandboxDefinitionOptions(name: string, options: SandboxDefinit
   }
 }
 
-async function loadSandboxDefinitionMetadata(definitions: SandboxScannedDefinition[], rootDir: string) {
+async function loadSandboxDefinitionMetadata(definitions: DiscoveredSandboxDefinition[], rootDir: string) {
   return await Promise.all(definitions.map(async (definition) => {
-    const options = definition.source === 'server-sandboxes'
-      ? await resolveSandboxProjectOptions(definition.handler, rootDir)
-      : await extractSandboxDefinitionOptions(definition.handler)
+    const project = await resolveSandboxProject(definition.handler, rootDir, {
+      readSandboxOptions: definition.kind === 'package-entry',
+    })
+    const source = definition.kind === 'package-entry'
+      ? await readFile(definition.handler, 'utf8')
+      : undefined
     return {
+      hasPayloadType: source ? hasExportedType(source, definition.handler, 'SandboxPayload') : false,
+      kind: definition.kind,
       name: definition.name,
-      options: normalizeSandboxDefinitionOptions(definition.name, options),
-      project: await resolveSandboxProject(definition.handler, rootDir),
+      options: definition.kind === 'package-entry'
+        ? project.options
+        : normalizeSandboxDefinitionOptions(definition.name, await extractSandboxDefinitionOptions(definition.handler)),
+      project,
     } satisfies SandboxDefinitionMetadata
   }))
 }
@@ -178,7 +183,7 @@ export function resolveSandboxFeatureConfig(sandboxConfig: AgentSandboxConfig, h
 
 export async function createSandboxFeaturePlan(
   sandboxConfig: AgentSandboxConfig,
-  definitions: SandboxScannedDefinition[],
+  definitions: DiscoveredSandboxDefinition[],
   paths: {
     aliasPath: string
   },
@@ -189,12 +194,6 @@ export async function createSandboxFeaturePlan(
   const resolvedConfig = definitions.length > 0
     ? resolveSandboxFeatureConfig(sandboxConfig, hosting)
     : { ...sandboxConfig }
-  const manifest = createSandboxManifest(paths.aliasPath, createSandboxTypeTemplateContents(definitions))
-  const {
-    bundleAlias,
-    featureImports = manifest.imports,
-    ...definitionCompilerOptions
-  } = discoveredDefinitionOptions
   const sandboxDefinitions = definitions.map(definition => ({
     ...definition,
     definitionArtifactKey: `sandbox-definition:${definition.name}`,
@@ -208,15 +207,29 @@ export async function createSandboxFeaturePlan(
     }
     definitionFileByName.set(definition.definitionFilename, definition.name)
   }
-  const definitionCompiler = await createDiscoveredDefinitionCompiler({
-    ...definitionCompilerOptions,
-    featureImports,
-  })
   const definitionMetadata = await loadSandboxDefinitionMetadata(
     definitions,
     discoveredDefinitionOptions.rootDir || process.cwd(),
   )
   const metadataByName = new Map(definitionMetadata.map(definition => [definition.name, definition] as const))
+  const manifest = createSandboxManifest(paths.aliasPath, createSandboxTypeTemplateContents(definitions.map((definition) => {
+    const metadata = metadataByName.get(definition.name)
+    return {
+      handler: definition.handler,
+      hasPayloadType: metadata?.hasPayloadType ?? false,
+      kind: definition.kind,
+      name: definition.name,
+    }
+  })))
+  const {
+    bundleAlias,
+    featureImports = manifest.imports,
+    ...definitionCompilerOptions
+  } = discoveredDefinitionOptions
+  const definitionCompiler = await createDiscoveredDefinitionCompiler({
+    ...definitionCompilerOptions,
+    featureImports,
+  })
   const defaultProvider = getSandboxFeatureProvider(resolvedConfig)
   const defaultProviderName = defaultProvider?.provider
   const sandboxArtifacts: GeneratedArtifact[] = sandboxDefinitions.map(definition => ({
@@ -224,11 +237,12 @@ export async function createSandboxFeaturePlan(
     filename: definition.definitionFilename,
     async getContents() {
       const source = await definitionCompiler.readSource(definition._meta.sourcePath)
+      const metadata = metadataByName.get(definition.name)
       const bundle = await bundleSandboxDefinition(source, definition._meta.sourcePath, {
         alias: bundleAlias,
-        project: metadataByName.get(definition.name)?.project,
+        execution: metadata?.kind === 'package-entry' ? 'module' : 'definition',
+        project: metadata?.project,
       })
-      const metadata = metadataByName.get(definition.name)
       return `export default ${JSON.stringify({
         bundle,
         options: metadata?.options,

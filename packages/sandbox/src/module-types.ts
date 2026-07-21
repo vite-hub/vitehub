@@ -45,6 +45,7 @@ export type AgentSandboxConfig =
 
 export interface SandboxDefinitionBundle {
   entry: string
+  execution?: 'definition' | 'module'
   modules: Record<string, string>
   project?: SandboxProject
 }
