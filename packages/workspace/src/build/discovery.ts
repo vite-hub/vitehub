@@ -158,10 +158,16 @@ export function discoverViteWorkspaceDefinitions(rootDir: string, options: { ser
 }
 
 function createWorkspaceRegistryEntry(definition: DiscoveredWorkspaceDefinition, importExpression: string, override?: { store: unknown }): string {
+  const renderedStore = override ? JSON.stringify(override.store) : undefined
   const defaultValue = [
     "...mod.default",
     ...(definition.sourceRootDir ? [`sourceRootDir: mod.default.sourceRootDir ?? ${JSON.stringify(definition.sourceRootDir)}`] : []),
-    ...(override ? [`store: ${JSON.stringify(override.store)}`] : []),
+    ...(renderedStore
+      ? [
+          `store: ${renderedStore}`,
+          `__vitehubWorkspaceAgentOptions: mod.default.__vitehubWorkspaceAgentOptions && typeof mod.default.__vitehubWorkspaceAgentOptions.workspace === "object" ? { ...mod.default.__vitehubWorkspaceAgentOptions, workspace: { ...mod.default.__vitehubWorkspaceAgentOptions.workspace, store: ${renderedStore} } } : mod.default.__vitehubWorkspaceAgentOptions`,
+        ]
+      : []),
   ].join(", ")
   return [
     `  ${JSON.stringify(definition.name)}: async () => {`,
