@@ -16,17 +16,20 @@ export async function copyVercelFunctionRuntimePackageDirectories(options: {
   const outputNodeModules = resolve(functionDir, "node_modules")
   const copied = new Set<string>()
   for (const runtimePackage of options.packages) {
-    try {
-      await copyPackageDirectory(runtimePackage.name, runtimePackage.resolveFrom ?? join(options.rootDir, "package.json"), outputNodeModules, copied)
-    }
-    catch (error) {
-      if (!runtimePackage.optional || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-    }
+    await copyPackageDirectory(runtimePackage.name, runtimePackage.resolveFrom ?? join(options.rootDir, "package.json"), outputNodeModules, copied, runtimePackage.optional)
   }
 }
 
-async function copyPackageDirectory(name: string, resolveFrom: string, outputNodeModules: string, copied: Set<string>): Promise<void> {
-  const packageJsonPath = await realpath(await resolvePackageJson(name, dirname(resolveFrom)))
+async function copyPackageDirectory(name: string, resolveFrom: string, outputNodeModules: string, copied: Set<string>, optional = false): Promise<void> {
+  let resolvedPackageJsonPath: string
+  try {
+    resolvedPackageJsonPath = await resolvePackageJson(name, dirname(resolveFrom))
+  }
+  catch (error) {
+    if (optional && (error as NodeJS.ErrnoException).code === "ENOENT") return
+    throw error
+  }
+  const packageJsonPath = await realpath(resolvedPackageJsonPath)
   if (copied.has(packageJsonPath)) return
   copied.add(packageJsonPath)
   const packageDir = dirname(packageJsonPath)
