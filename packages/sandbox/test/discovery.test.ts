@@ -68,6 +68,33 @@ describe("discoverServerSandboxDefinitions", () => {
     ])
   })
 
+  it("treats workspace roots and nested packages as project internals", async () => {
+    const scanDir = await createTempDir("vitehub-sandbox-server-workspace-")
+    const workspaceRoot = join(scanDir, "sandboxes")
+    const sandboxRoot = join(workspaceRoot, "image")
+    const helperRoot = join(sandboxRoot, "packages", "helper")
+    await mkdir(helperRoot, { recursive: true })
+    await writeFile(join(workspaceRoot, "package.json"), JSON.stringify({ packageManager: "pnpm@10", private: true }), "utf8")
+    await writeFile(join(workspaceRoot, "pnpm-workspace.yaml"), "packages:\n  - image\n  - image/packages/*\n", "utf8")
+    await writeFile(join(workspaceRoot, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8")
+    await writeFile(join(sandboxRoot, "package.json"), JSON.stringify({
+      dependencies: { "@fixture/helper": "workspace:*" },
+      private: true,
+    }), "utf8")
+    await writeFile(join(sandboxRoot, "index.ts"), "export default { ok: true }\n", "utf8")
+    await writeFile(join(helperRoot, "package.json"), JSON.stringify({ name: "@fixture/helper", private: true }), "utf8")
+    await writeFile(join(helperRoot, "index.ts"), "export const helper = true\n", "utf8")
+
+    const definitions = discoverServerSandboxDefinitions([scanDir])
+    expect(definitions.map(definition => definition.name)).toEqual(["image"])
+
+    const project = await resolveSandboxProject(definitions[0]!.handler, scanDir)
+    expect(project.install).toMatchObject({ command: "pnpm", cwd: "." })
+    expect(project.packagePath).toBe("image")
+    expect(project.files).toHaveProperty("image/packages/helper/package.json")
+    expect(project.files).toHaveProperty("image/packages/helper/index.ts")
+  })
+
   it("rejects manifest-declared packages without one ESM entrypoint", async () => {
     const scanDir = await createTempDir("vitehub-sandbox-server-shape-")
     const packageRoot = join(scanDir, "sandboxes", "content")

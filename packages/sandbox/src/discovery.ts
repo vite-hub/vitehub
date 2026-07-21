@@ -57,30 +57,58 @@ function normalizeDirectorySandboxName(directory: string, file: string) {
   return normalizePathDefinitionName(directory, file).replace(/\.sandbox$/, '')
 }
 
+function isNestedDirectory(parent: string, candidate: string) {
+  const path = relative(parent, candidate).replace(/\\/g, '/')
+  return path !== '' && path !== '..' && !path.startsWith('../')
+}
+
 export function discoverServerSandboxDefinitions(scanDirs: string[]): DiscoveredSandboxDefinition[] {
   const definitions = new Map<string, DiscoveredSandboxDefinition>()
   const createDefinition = createDiscoveredSandboxDefinition('server-sandboxes', 'package-entry')
 
   for (const scanDir of scanDirs) {
     const directory = resolve(scanDir, 'sandboxes')
-    for (const manifest of listMatchingFiles(directory, name => name === 'package.json')) {
-      const packageRoot = dirname(manifest)
-      const entrypoints = sandboxEntrypointFilenames
+    const packageRoots = listMatchingFiles(directory, name => name === 'package.json')
+      .map(manifest => dirname(manifest))
+      .sort((left, right) => {
+        const depth = relative(directory, left).split(/[\\/]/).length - relative(directory, right).split(/[\\/]/).length
+        return depth || left.localeCompare(right)
+      })
+    const entrypoints = new Map(packageRoots.map(packageRoot => [
+      packageRoot,
+      sandboxEntrypointFilenames
         .map(filename => resolve(packageRoot, filename))
-        .filter(file => existsSync(file))
-      if (entrypoints.length === 0) {
+        .filter(file => existsSync(file)),
+    ]))
+    const selectedRoots: string[] = []
+
+    for (const packageRoot of packageRoots) {
+      if (selectedRoots.some(root => isNestedDirectory(root, packageRoot)))
+        continue
+
+      const packageEntrypoints = entrypoints.get(packageRoot)!
+      if (packageEntrypoints.length > 1) {
         throw new Error(
-          `[vitehub] Sandbox package "${packageRoot}" requires one ESM entrypoint: ${sandboxEntrypointFilenames.join(', ')}.`,
+          `[vitehub] Sandbox package "${packageRoot}" has multiple entrypoints: ${packageEntrypoints.join(', ')}.`,
         )
       }
-      if (entrypoints.length > 1) {
-        throw new Error(
-          `[vitehub] Sandbox package "${packageRoot}" has multiple entrypoints: ${entrypoints.join(', ')}.`,
-        )
-      }
-      const file = entrypoints[0]!
+      if (packageEntrypoints.length === 0)
+        continue
+
+      const file = packageEntrypoints[0]!
       const name = normalizeDirectorySandboxName(directory, file)
       registerDefinition(definitions, createDefinition({ file, name }), 'sandbox')
+      selectedRoots.push(packageRoot)
+    }
+
+    for (const packageRoot of packageRoots) {
+      if (entrypoints.get(packageRoot)!.length > 0)
+        continue
+      if (selectedRoots.some(root => isNestedDirectory(packageRoot, root) || isNestedDirectory(root, packageRoot)))
+        continue
+      throw new Error(
+        `[vitehub] Sandbox package "${packageRoot}" requires one ESM entrypoint: ${sandboxEntrypointFilenames.join(', ')}.`,
+      )
     }
   }
 
