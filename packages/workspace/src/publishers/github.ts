@@ -46,13 +46,14 @@ function resolveMessage(options: GitHubPublisherOptions, ctx: PublishContext): s
 }
 
 async function resolveActiveGitHubStoreTarget(ctx: PublishContext): Promise<GitHubWorkspaceStoreTarget | undefined> {
+  const target = await resolveWorkspaceStoreTarget(ctx.store)
+  if (target?.provider === "github") return target as GitHubWorkspaceStoreTarget
+
   const configuredStore = ctx.workspace.store
   if (configuredStore && "provider" in configuredStore && configuredStore.provider === "github") {
     const repository = resolveGitHubRepositoryOption(configuredStore)
     if (repository) return { provider: "github", branch: resolveGitHubBranchOption(configuredStore), repository }
   }
-  const target = await resolveWorkspaceStoreTarget(ctx.store)
-  return target?.provider === "github" ? target as GitHubWorkspaceStoreTarget : undefined
 }
 
 async function readFiles(ctx: PublishContext, root: string): Promise<GitHubPublisherFile[]> {

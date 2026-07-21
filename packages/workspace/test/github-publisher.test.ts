@@ -301,6 +301,31 @@ describe("GitHub workspace publisher", () => {
     expect(requests.filter(request => request.method !== "GET")).toEqual([])
   })
 
+  it("uses the loaded GitHub Store target when dynamic options change", async () => {
+    let storeBranch = "feature/audio"
+    const workspace = createWorkspace({
+      name: "docs",
+      store: {
+        provider: "github",
+        branch: () => storeBranch,
+        repository: "onmax/repo",
+        token: "token",
+      },
+      publish: [github({
+        branch: "feature/audio",
+        repository: "onmax/repo",
+        token: "token",
+      })],
+    })
+
+    storeBranch = "other"
+
+    await expect(workspace.publish()).rejects.toThrow(
+      "GitHub publisher cannot publish to onmax/repo@feature/audio while it backs the active GitHub Workspace Store",
+    )
+    expect(requests.filter(request => request.method !== "GET")).toEqual([])
+  })
+
   it("skips empty snapshots with no remote files", async () => {
     const workspace = createWorkspace({
       name: "docs",
