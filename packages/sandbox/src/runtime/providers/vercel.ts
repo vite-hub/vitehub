@@ -1,5 +1,5 @@
 import type { SandboxDefinitionOptions, VercelSandboxProviderOptions } from '../../module-types'
-import { vercelBox } from '@vite-hub/box/vercel'
+import { resolveVercelBox } from '@vite-hub/box/vercel'
 import { readNonEmptyEnv } from '../../internal/shared/env'
 
 type SandboxOptions = {
@@ -43,18 +43,19 @@ function resolveCredentials(provider: VercelSandboxProviderOptions) {
 
 export async function resolveSandboxBox(options: SandboxOptions) {
   const credentials = resolveCredentials(options.provider)
+  const boxOptions = {
+    runtime: options.provider.runtime || 'node24',
+    timeout: typeof options.local.timeout === 'number'
+      ? options.local.timeout
+      : options.provider.timeout,
+    cpu: options.provider.cpu,
+    ports: options.provider.ports,
+    source: options.provider.source,
+    networkPolicy: options.provider.networkPolicy,
+    ...credentials,
+  }
   return {
     provider: 'vercel' as const,
-    runtime: vercelBox({
-      runtime: options.provider.runtime || 'node24',
-      timeout: typeof options.local.timeout === 'number'
-        ? options.local.timeout
-        : options.provider.timeout,
-      cpu: options.provider.cpu,
-      ports: options.provider.ports,
-      source: options.provider.source,
-      networkPolicy: options.provider.networkPolicy,
-      ...credentials,
-    }),
+    resolveBox: async (requirements: readonly string[]) => await resolveVercelBox(boxOptions, requirements),
   }
 }

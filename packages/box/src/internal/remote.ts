@@ -1,7 +1,8 @@
-import { posix } from "node:path";
-
 import type {
+  Box,
+  BoxOpenOptions,
   BoxPlan,
+  BoxRuntime,
   BoxRuntimeInput,
   BoxSession,
   ResolvedBoxRequirementInput,
@@ -15,6 +16,39 @@ interface RemoteRuntimeOptions {
   readonly runtime: string;
   readonly workspace?: string;
   readonly preserveWorkspace?: boolean;
+}
+
+export async function resolveRemoteBoxRuntime(
+  runtime: BoxRuntime,
+  requirements: readonly string[],
+): Promise<Box> {
+  const resolvedRequirements = requirements.map((command): ResolvedBoxRequirementInput => ({
+    args: [],
+    command,
+    name: command,
+  }));
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(resolvedRequirements)),
+  );
+  const input: BoxRuntimeInput = {
+    identity: Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join(""),
+    plan: {
+      env: {},
+      files: {},
+      state: [],
+    },
+    requirements: resolvedRequirements,
+  };
+  const plan = await runtime.prepare(input);
+
+  return Object.freeze({
+    async open(options?: BoxOpenOptions) {
+      options?.signal?.throwIfAborted();
+      return await runtime.open(input, options);
+    },
+    plan,
+  });
 }
 
 export function remoteBoxPlan(
@@ -70,9 +104,9 @@ export async function resolveRemoteEnvironment(
     INIT_CWD: workspace,
     OLDPWD: workspace,
     PWD: workspace,
-    XDG_CACHE_HOME: posix.join(home, ".cache"),
-    XDG_CONFIG_HOME: posix.join(home, ".config"),
-    XDG_STATE_HOME: posix.join(home, ".local/state"),
+    XDG_CACHE_HOME: joinRemotePath(home, ".cache"),
+    XDG_CONFIG_HOME: joinRemotePath(home, ".config"),
+    XDG_STATE_HOME: joinRemotePath(home, ".local/state"),
   };
   for (const [name, resolveValue] of Object.entries(input.plan.env)) env[name] = await resolveValue();
   return env;
@@ -95,13 +129,13 @@ async function materializeRemotePlan(
   for (const [path, file] of Object.entries(input.plan.files)) {
     await session.makeDirectory({
       abortSignal,
-      path: posix.dirname(posix.join(home, path)),
+      path: dirnameRemotePath(joinRemotePath(home, path)),
       recursive: true,
     });
     await session.writeBinaryFile({
       abortSignal,
       content: await file.resolve(),
-      path: posix.join(home, path),
+      path: joinRemotePath(home, path),
     });
   }
   if (input.checkout) {
@@ -119,6 +153,15 @@ async function materializeRemotePlan(
     });
   }
   await validateRequirements(session, input.requirements, workspace, abortSignal);
+}
+
+function joinRemotePath(...parts: string[]) {
+  return parts.join("/").replace(/\/{2,}/g, "/");
+}
+
+function dirnameRemotePath(path: string) {
+  const index = path.lastIndexOf("/");
+  return index <= 0 ? "/" : path.slice(0, index);
 }
 
 async function validateRequirements(
