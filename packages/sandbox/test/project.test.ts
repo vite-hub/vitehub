@@ -53,6 +53,21 @@ describe("resolveSandboxProject", () => {
     })).rejects.toThrow('imports "./helper", which is not an executable package file')
   })
 
+  it.each(["jsx", "tsx"])("rejects package %s imports that Node cannot execute directly", async (extension) => {
+    const root = await createRoot()
+    const entry = join(root, "index.ts")
+    await writeFile(join(root, "package.json"), JSON.stringify({ private: true }))
+    await writeFile(join(root, `helper.${extension}`), "export const element = <div />\n")
+    await writeFile(entry, `import { element } from './helper.${extension}'\nexport default element\n`)
+
+    const project = await resolveSandboxProject(entry, root)
+
+    await expect(bundleSandboxDefinition(await readFile(entry, "utf8"), entry, {
+      execution: "module",
+      project,
+    })).rejects.toThrow(`imports "./helper.${extension}", but Node cannot execute JSX package files directly`)
+  })
+
   it("ignores invalid imports outside the executable package graph", async () => {
     const root = await createRoot()
     const entry = join(root, "index.ts")

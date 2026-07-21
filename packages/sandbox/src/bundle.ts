@@ -27,6 +27,11 @@ function validatePackageModuleSpecifiers(project: SandboxProject, entry: string)
           `[vitehub] Sandbox package module "${path}" imports "${specifier}", which is not an executable package file. Use an explicit extension that resolves to a package file.`,
         )
       }
+      if (/\.[cm]?[jt]sx$/.test(target)) {
+        throw new Error(
+          `[vitehub] Sandbox package module "${path}" imports "${specifier}", but Node cannot execute JSX package files directly. Use a JavaScript or type-strippable TypeScript module.`,
+        )
+      }
       if (/\.(?:c|m)?[jt]sx?$/.test(target) && !/\.d\.(?:c|m)?tsx?$/.test(target))
         pending.push(target)
     }
