@@ -45,9 +45,11 @@ export class MemoryFS {
     lstat: this.lstat.bind(this),
     mkdir: this.mkdir.bind(this),
     readFile: this.readFile.bind(this),
+    readlink: this.readlink.bind(this),
     readdir: this.readdir.bind(this),
     rmdir: this.rmdir.bind(this),
     stat: this.stat.bind(this),
+    symlink: this.symlink.bind(this),
     unlink: this.unlink.bind(this),
     writeFile: this.writeFile.bind(this),
   }
@@ -135,6 +137,15 @@ export class MemoryFS {
     return this.stat(path)
   }
 
+  async readlink(path: string) {
+    this.#requireEntry(path)
+    throw memoryFsError("EINVAL", path)
+  }
+
+  async symlink(_target: string, path: string) {
+    throw memoryFsError("ENOTSUP", path)
+  }
+
   deleteTree(path: string) {
     const target = this.normalize(path)
     const removed = [...this.entries.keys()].filter(key => key === target || key.startsWith(`${target}/`))
@@ -150,7 +161,7 @@ export class MemoryFS {
 
   #requireEntry(path: string) {
     const entry = this.entries.get(this.normalize(path))
-    if (!entry) throw new Error(`ENOENT: ${path}`)
+    if (!entry) throw memoryFsError("ENOENT", path)
     return entry
   }
 
@@ -159,4 +170,8 @@ export class MemoryFS {
     if (entry.kind !== "dir") throw new Error(`ENOTDIR: ${path}`)
     return entry
   }
+}
+
+function memoryFsError(code: string, path: string) {
+  return Object.assign(new Error(`${code}: ${path}`), { code })
 }
