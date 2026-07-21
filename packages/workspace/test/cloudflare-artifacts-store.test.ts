@@ -49,8 +49,6 @@ function artifactsRepo(
   options: {
     defaultBranch?: string
     infoError?: Error
-    lastPushAt?: string | null
-    source?: string | null
     token?: string
     tokenError?: Error
     tokenExpiresIn?: number
@@ -77,8 +75,6 @@ function artifactsRepo(
       if (options.infoError) throw options.infoError
       return infoResult
     }),
-    lastPushAt: options.lastPushAt ?? null,
-    source: options.source ?? null,
   })
   return Object.assign(repo, { infoResult, tokenResults })
 }
@@ -785,10 +781,7 @@ describe("Cloudflare Artifacts workspace store", () => {
   })
 
   it("reopens an existing branch before committing and pushing its next snapshot", async () => {
-    const repo = artifactsRepo({
-      lastPushAt: null,
-      source: null,
-    })
+    const repo = artifactsRepo()
     let head: string | undefined
     gitMock.listServerRefs.mockResolvedValueOnce([
       { oid: "remote-commit", ref: "refs/heads/main" },
