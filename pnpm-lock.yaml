@@ -609,6 +609,9 @@ importers:
       '@aws-sdk/s3-request-presigner':
         specifier: ^3.700.0
         version: 3.1088.0
+      '@netlify/blobs':
+        specifier: catalog:storage
+        version: 10.7.5
       '@vercel/blob':
         specifier: catalog:storage
         version: 2.6.1

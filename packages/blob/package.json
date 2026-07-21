@@ -69,6 +69,7 @@
     "test": "vp run -t @vite-hub/blob#build && vp test"
   },
   "dependencies": {
+    "@netlify/blobs": "catalog:storage",
     "@vercel/blob": "catalog:storage",
     "aws4fetch": "catalog:storage",
     "defu": "catalog:unjs",
