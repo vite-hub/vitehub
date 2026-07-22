@@ -54,7 +54,7 @@ export function createHandlerError(message: string, provider: string, details?: 
     if (typeof value === 'string') publicDetails[key] = value.slice(0, HANDLER_DIAGNOSTIC_LENGTH)
     else if (value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) publicDetails[key] = value
   }
-  return sandboxError(message, {
+  return sandboxError(message.slice(0, HANDLER_DIAGNOSTIC_LENGTH) || 'Sandbox handler failed.', {
     code: 'SANDBOX_HANDLER_ERROR',
     provider,
     details: Object.keys(publicDetails).length ? publicDetails : undefined,

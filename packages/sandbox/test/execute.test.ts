@@ -171,7 +171,7 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
 
 describe("executeSandboxDefinition", () => {
   it("bounds handler diagnostics before constructing the public error", () => {
-    const error = createHandlerError("Sandbox definition failed.", "vercel", {
+    const error = createHandlerError("Sandbox definition failed." + "!".repeat(20_000), "vercel", {
       ignored: { private: true },
       stderr: "x".repeat(20_000),
     })
@@ -179,6 +179,7 @@ describe("executeSandboxDefinition", () => {
     expect(error).toMatchObject({
       code: "SANDBOX_HANDLER_ERROR",
       details: { provider: "vercel", stderr: "x".repeat(16_384) },
+      message: ("Sandbox definition failed." + "!".repeat(20_000)).slice(0, 16_384),
     })
     expect(error.details).not.toHaveProperty("ignored")
   })

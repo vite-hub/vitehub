@@ -13,8 +13,9 @@ export function sourceNotFoundError(name: string): ViteHubError {
 }
 
 export function sourcePathError(path: string): ViteHubError {
-  return new ViteHubError("SOURCE_PATH_INVALID", `[vitehub] Source path escapes the source root: ${JSON.stringify(path)}.`, {
-    details: { path },
+  const publicPath = path.slice(0, 4_096)
+  return new ViteHubError("SOURCE_PATH_INVALID", `[vitehub] Source path escapes the source root: ${JSON.stringify(publicPath)}.`, {
+    details: { path: publicPath },
   })
 }
 

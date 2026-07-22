@@ -8,12 +8,19 @@ import {
   registerSources,
   useSource,
 } from "../src/index.ts"
+import { sourcePathError } from "../src/core/errors.ts"
 
 afterEach(() => {
   clearSources()
 })
 
 describe("@vite-hub/source registry", () => {
+  it("bounds invalid Source paths", () => {
+    const error = sourcePathError(`../${"x".repeat(20_000)}`)
+    expect(error).toMatchObject({ code: "SOURCE_PATH_INVALID" })
+    expect(error.details?.path).toHaveLength(4_096)
+  })
+
   it("registers sources and reads through useSource", async () => {
     registerSources(defineSources({
       docs: file({ content: "# Docs\n", workspacePath: "README.md" }),

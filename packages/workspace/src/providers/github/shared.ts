@@ -52,6 +52,13 @@ class GitHubRequestError extends Error {
   }
 }
 
+function githubRequestStatus(error: unknown): number | undefined {
+  const cause = error instanceof GitHubRequestError
+    ? error
+    : error instanceof Error && error.cause instanceof GitHubRequestError ? error.cause : undefined;
+  return cause?.status;
+}
+
 export interface GitHubWorkspaceStoreTarget {
   provider: "github";
   branch: string;
@@ -229,7 +236,6 @@ export async function requestGitHubJson<T>(
       `[vitehub] GitHub workspace request failed for ${repository}: ${response.status} ${response.statusText} ${await response.text().catch(() => "")}`,
       response.status,
     );
-    if (response.status === 404) throw cause;
     throw workspaceError("[vitehub] GitHub workspace request failed.", { cause });
   }
   return (await response.json()) as T;
@@ -304,7 +310,7 @@ export async function readGitHubBranchState(input: {
     );
   }
   catch (error) {
-    if (!(error instanceof GitHubRequestError) || error.status !== 404) throw error;
+    if (githubRequestStatus(error) !== 404) throw error;
     const repository = await requestGitHubJson<{ default_branch: string }>(
       input.repository,
       input.token,
@@ -335,7 +341,7 @@ export async function readGitHubBranchState(input: {
         );
       }
       catch (error) {
-        if (error instanceof GitHubRequestError && error.status === 404) return undefined;
+        if (githubRequestStatus(error) === 404) return undefined;
         throw error;
       }
     }));
