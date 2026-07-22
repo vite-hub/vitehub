@@ -7750,6 +7750,34 @@ describe("agent message protocol", () => {
     expect(execute).not.toHaveBeenCalledWith(expect.objectContaining({ text: expect.stringContaining("Private reasoning") }))
   })
 
+  it("keeps commentary out of attachment-only response titles", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const execute = vi.fn(({ text }) => `Title: ${text}`)
+    const agent = defineAgent({
+      capabilities: [title({ execute })],
+      driver: { run: () => ({
+        fullStream: (async function* () {
+          yield { phase: "commentary", text: "Checking the image.", type: "text-delta" }
+          yield { phase: "final", text: "Public answer.", type: "text-delta" }
+          yield { type: "finish" }
+        })(),
+      }) },
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+        role: "user",
+      })],
+    }) as { fullStream: AsyncIterable<unknown> }
+    for await (const _event of result.fullStream) {
+      // Consume the response so deferred title generation completes.
+    }
+
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ text: "Public answer." }))
+    expect(execute).not.toHaveBeenCalledWith(expect.objectContaining({ text: expect.stringContaining("Checking the image") }))
+  })
+
   it("preserves readable stream results when adding title data", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     class StreamResult {

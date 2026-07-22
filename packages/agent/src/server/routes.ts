@@ -1980,7 +1980,7 @@ async function handleChatSdkMessage(
       })
       const thinkingFallback = invocation.metadata?.thinkingFallback
       try {
-        if (options?.commentary === undefined) {
+        if (options?.stream === true || options?.commentary === undefined) {
           await postChatStream(
             thread,
             streamAgentOutputToChatText(result),

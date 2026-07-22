@@ -362,6 +362,20 @@ describe("agent output helpers", () => {
     })
     expect(toAgentStreamEvent({ id: "reused", phase: "commentary", type: "text-start" }, undefined, textPhases)).toBeUndefined()
     expect(toAgentStreamEvent({ id: "reused", phase: "unsupported", text: "Unknown text.", type: "text-delta" }, undefined, textPhases)).toBeUndefined()
+    expect(toAgentStreamEvent({ id: "reused", text: "Still private.", type: "text-delta" }, undefined, textPhases)).toBeUndefined()
+
+    expect(toAgentStreamEvent({ id: "reused", phase: "final", text: "Final answer.", type: "text-delta" }, undefined, textPhases)).toEqual({
+      id: "reused",
+      phase: "final",
+      text: "Final answer.",
+      type: "text-delta",
+    })
+    expect(toAgentStreamEvent({ id: "reused", text: "Final suffix.", type: "text-delta" }, undefined, textPhases)).toEqual({
+      id: "reused",
+      phase: "final",
+      text: "Final suffix.",
+      type: "text-delta",
+    })
 
     expect(toAgentStreamEvent({ id: "reasoning-1", phase: "reasoning", type: "text-start" }, undefined, textPhases)).toBeUndefined()
     expect(toAgentStreamEvent({ delta: "Private reasoning.", id: "reasoning-1", type: "text-delta" }, undefined, textPhases)).toBeUndefined()

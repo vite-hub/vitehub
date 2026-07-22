@@ -378,6 +378,10 @@ export function toAgentStreamEvent(
     return undefined
   }
   if (type === "text-delta" || type === "text") {
+    if (textId && hasExplicitPhase) {
+      textPhases?.delete(textId)
+      textPhases?.set(textId, phase ?? "hidden")
+    }
     if (hasExplicitPhase && !phase) return undefined
     const inheritedPhase = !hasExplicitPhase && textId ? textPhases?.get(textId) : undefined
     if (inheritedPhase === "hidden") return undefined

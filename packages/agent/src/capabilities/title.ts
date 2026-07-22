@@ -609,9 +609,16 @@ function withTitleReadableStreamParallel<T>(
 
 function statefulTextDelta(): (value: unknown) => string {
   const textPhases = new Map<string, "commentary" | "final" | "hidden">()
+  let explicitTextPhaseSeen = false
   return (value) => {
+    if (value && typeof value === "object") {
+      const chunk = value as Record<string, unknown>
+      if ((chunk.type === "text" || chunk.type === "text-delta" || chunk.type === "text-start") && chunk.phase !== undefined) {
+        explicitTextPhaseSeen = true
+      }
+    }
     const event = toAgentStreamEvent(value, undefined, textPhases)
-    return event?.type === "text-delta" ? event.text : ""
+    return event?.type === "text-delta" && (!explicitTextPhaseSeen || event.phase === "final") ? event.text : ""
   }
 }
 
