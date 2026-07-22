@@ -29,6 +29,7 @@ import type {
   SandboxRunResult,
 } from '../module-types'
 import { getSandboxFeatureProvider } from '../module-types'
+import type { ExecutionAuthority } from '@vite-hub/runtime'
 
 const cloudflareRunQueues = new Map<string, Promise<void>>()
 
@@ -63,7 +64,8 @@ function isRetriableCloudflareSandboxError(error: unknown) {
   return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(collectCloudflareErrorMessages(error, extraMessage))
 }
 
-type SandboxRunner = {
+export interface SandboxRunner {
+  readonly executionAuthority: ExecutionAuthority
   name: string
   run: <TPayload = unknown, TResult = unknown>(
     payload?: TPayload,
@@ -89,6 +91,7 @@ const sandboxPort: ProviderPort<ResolvedSandboxBox, SandboxRunner, SandboxRuntim
     const box = await provider.resolveBox(['node', ...(packageManager ? [packageManager] : [])])
 
     return {
+      executionAuthority: box.plan.executionAuthority,
       name: context.name,
       async run<TPayload = unknown, TResult = unknown>(payload?: TPayload, options: SandboxExecutionOptions = {}): Promise<TResult> {
         const cloudflareSandboxId = provider.provider === 'cloudflare'

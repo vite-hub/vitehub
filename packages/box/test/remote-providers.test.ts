@@ -87,6 +87,45 @@ describe("remote Box providers", () => {
     expect(received).toBe(controller.signal);
   });
 
+  it.each([
+    [undefined, "unrestricted"],
+    ["allow-all" as const, "unrestricted"],
+    ["deny-all" as const, "none"],
+    [{ allow: ["api.example.com"] }, "restricted"],
+    [{}, "unknown"],
+    [{ allow: [] }, "unknown"],
+    [{ subnets: {} }, "unknown"],
+    [{ subnets: { deny: ["10.0.0.0/8"] } }, "restricted"],
+  ])("declares Vercel network authority for %j", async (networkPolicy, network) => {
+    const box = await resolveBox({
+      runtime: vercelBox({
+        create: async () => vercelInstance(),
+        ...(networkPolicy === undefined ? {} : { networkPolicy }),
+      }),
+    }, {});
+
+    expect(box.plan.executionAuthority).toMatchObject({
+      filesystem: { access: "read-write", scope: "sandbox" },
+      isolation: "microvm",
+      network,
+      processes: "arbitrary",
+    });
+  });
+
+  it("keeps Cloudflare network authority explicit when the namespace policy is opaque", async () => {
+    const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
+    const box = await resolveBox({
+      runtime: cloudflareBox({ getSandbox: () => stub, namespace: namespace(stub) }),
+    }, {});
+
+    expect(box.plan.executionAuthority).toMatchObject({
+      filesystem: { access: "read-write", scope: "sandbox" },
+      isolation: "container",
+      network: "unknown",
+      processes: "arbitrary",
+    });
+  });
+
   it("does not advertise undeclared Vercel ports", async () => {
     const instance = vercelInstance();
     const box = await resolveBox({ runtime: vercelBox({ create: async () => instance }) }, {});

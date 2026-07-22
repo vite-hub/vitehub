@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { unknownExecutionAuthority } from "@vite-hub/runtime"
 
 const runtimeMocks = vi.hoisted(() => ({
   close: vi.fn(async () => {}),
@@ -33,6 +34,7 @@ function createSession() {
   return {
     id: "box-session",
     cwd: "/workspace",
+    executionAuthority: unknownExecutionAuthority,
     files: {
       exists: vi.fn(),
       list: vi.fn(),
@@ -62,7 +64,7 @@ beforeEach(() => {
     sandboxId: provider.sandboxId,
   }))
   runtimeMocks.resolveProviderBox.mockResolvedValue({
-    plan: {},
+    plan: { executionAuthority: unknownExecutionAuthority },
     open: runtimeMocks.open,
   })
   runtimeMocks.open.mockResolvedValue(createSession())
@@ -130,6 +132,7 @@ describe("Sandbox runtime lifecycle", () => {
     }))
 
     const runner = await resolveSandboxRunner("example")
+    expect(runner.executionAuthority).toBe(unknownExecutionAuthority)
     const first = runner.run()
     const second = runner.run()
     await vi.waitFor(() => expect(runtimeMocks.open).toHaveBeenCalledOnce())

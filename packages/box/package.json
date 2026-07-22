@@ -36,6 +36,9 @@
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/box#build && vp test"
   },
+  "dependencies": {
+    "@vite-hub/runtime": "workspace:*"
+  },
   "devDependencies": {
     "@cloudflare/sandbox": "catalog:sandbox",
     "@types/node": "catalog:tooling",

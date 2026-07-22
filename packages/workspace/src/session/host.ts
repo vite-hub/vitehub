@@ -1,4 +1,5 @@
 import { posix } from "node:path"
+import { normalizeExecutionAuthority } from "@vite-hub/runtime"
 
 import { WorkspaceError } from "../core/errors.ts"
 import { contentToBytes, decodeFile, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
@@ -303,6 +304,13 @@ export async function createHostedWorkspaceSession(
   options: WorkspaceSessionOptions & { host: WorkspaceSessionHost },
 ): Promise<WorkspaceSession> {
   const host = options.host
+  let executionAuthority
+  try {
+    executionAuthority = normalizeExecutionAuthority(host.executionAuthority)
+  }
+  catch {
+    throw new TypeError("[vitehub] Workspace session host must declare executionAuthority.")
+  }
   const root = normalizeTarget(options.target)
   const sessionPaths = normalizeSessionPaths(options)
   let closed = false
@@ -320,6 +328,7 @@ export async function createHostedWorkspaceSession(
   }
 
   return {
+    executionAuthority,
     async readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, readOptions?: TOptions): Promise<ReadFileResult<TOptions>> {
       assertOpen()
       const target = toHostPath(root, assertPathInSessionScope(normalizeSafeWorkspacePath(path), sessionPaths, { masked: true }))

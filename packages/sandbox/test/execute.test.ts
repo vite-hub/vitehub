@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { posix } from "node:path"
+import { unknownExecutionAuthority } from "@vite-hub/runtime"
 
 import { executeSandboxDefinition } from "../src/runtime/execute.ts"
 import type { SandboxError } from "../src/sandbox/errors.ts"
@@ -24,6 +25,7 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
   const installGate = new Promise<void>(resolve => releaseInstall = resolve)
 
   const sandbox = {
+    executionAuthority: unknownExecutionAuthority,
     id: "fake",
     provider: options.provider ?? "vercel",
     async close() {},

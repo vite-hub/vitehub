@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { noExecutionAuthority, unknownExecutionAuthority } from "@vite-hub/runtime"
 
 import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade, WorkspaceSource, WorkspaceSourceInput } from "@vite-hub/workspace"
 
@@ -4298,6 +4299,7 @@ describe("defineAgent workspace option", () => {
     expect(createAgentInspectionMetadata(agent)).toEqual({
       config: {
         driver: {
+          executionAuthority: noExecutionAuthority,
           kind: "model",
           model: {
             id: "openai/gpt-test",
@@ -4327,8 +4329,8 @@ describe("defineAgent workspace option", () => {
     })
   })
 
-  it("marks unrestricted Box execution in Agent inspection metadata", async () => {
-    const { createAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
+  it("resolves Box authority without treating executable selection as isolation", async () => {
+    const { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
     const { workspaceShell } = await import("../src/capabilities.ts")
     const { trustedHost } = await import("@vite-hub/box")
     const agent = withExplicitWorkspaceName(defineAgent({
@@ -4345,6 +4347,19 @@ describe("defineAgent workspace option", () => {
         name: "workspaceShell",
       }),
     ]))
+    expect(createAgentInspectionMetadata(agent).config?.driver.executionAuthority)
+      .toBe(unknownExecutionAuthority)
+
+    expect((await resolveAgentInspectionMetadata(agent, {
+      runtime: { runtime: "vite" },
+    })).config?.driver.executionAuthority).toEqual({
+      credentials: "unknown",
+      environment: "selected",
+      filesystem: { access: "read-write", scope: "host" },
+      isolation: "none",
+      network: "unrestricted",
+      processes: "arbitrary",
+    })
   })
 
   it("composes static Agent inspection instruction metadata", async () => {
@@ -4447,6 +4462,23 @@ describe("defineAgent workspace option", () => {
       provider: "codex",
       sandboxProvider: "local-test",
     })
+    expect(metadata.config?.driver.executionAuthority).toBe(unknownExecutionAuthority)
+  })
+
+  it("reports the resolved default local harness authority", async () => {
+    const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const agent = defineAgent({ driver: { harness: { provider: "codex" } } })
+
+    expect((await resolveAgentInspectionMetadata(agent, {
+      runtime: { runtime: "vite" },
+    })).config?.driver.executionAuthority).toEqual({
+      credentials: "unknown",
+      environment: "selected",
+      filesystem: { access: "read-write", scope: "host" },
+      isolation: "none",
+      network: "unrestricted",
+      processes: "arbitrary",
+    })
   })
 
   it("adds controlled curl to resolved Agent inspection metadata when source request descriptors are visible", async () => {
@@ -4542,6 +4574,37 @@ describe("defineAgent workspace option", () => {
     await expect(resolveAgentInspectionMetadata(agent)).rejects.toThrow(
       "workspaceShell() requires an explicit workspace",
     )
+  })
+
+  it("does not resolve a dynamic model to inspect non-Workspace execution authority", async () => {
+    const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const resolveModel = vi.fn(() => ({ modelId: "test/model", provider: "test" }))
+    const agent = defineAgent({ driver: { model: resolveModel as never } })
+
+    const metadata = await resolveAgentInspectionMetadata(agent)
+
+    expect(resolveModel).not.toHaveBeenCalled()
+    expect(metadata.config?.driver).toMatchObject({
+      executionAuthority: noExecutionAuthority,
+      kind: "model",
+      model: { dynamic: true },
+    })
+  })
+
+  it("reports unknown authority for an opaque custom Agent definition", async () => {
+    const { createAgentInspectionMetadata, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const agent = {
+      async resolve() {
+        return { name: "opaque" }
+      },
+    } as never
+
+    expect(createAgentInspectionMetadata(agent).config?.driver).toEqual({
+      executionAuthority: unknownExecutionAuthority,
+      kind: "unknown",
+    })
+    expect((await resolveAgentInspectionMetadata(agent)).config?.driver.executionAuthority)
+      .toBe(unknownExecutionAuthority)
   })
 
   it("closes prepared Capabilities after Agent inspection metadata success and failure", async () => {

@@ -7,12 +7,13 @@ import type {
   BoxSession,
   ResolvedBoxRequirementInput,
 } from "../index.ts";
+import type { ExecutionAuthority } from "@vite-hub/runtime";
 import { materializeGitCheckout } from "./git-checkout.ts";
 import { createBoxSession, type RuntimeSession } from "./session.ts";
 
 interface RemoteRuntimeOptions {
+  readonly executionAuthority: ExecutionAuthority;
   readonly home?: string;
-  readonly isolation: BoxPlan["isolation"];
   readonly runtime: string;
   readonly workspace?: string;
   readonly preserveWorkspace?: boolean;
@@ -45,7 +46,10 @@ export async function resolveRemoteBoxRuntime(
   return Object.freeze({
     async open(options?: BoxOpenOptions) {
       options?.signal?.throwIfAborted();
-      return await runtime.open(input, options);
+      return await runtime.open(input, {
+        ...options,
+        executionAuthority: plan.executionAuthority,
+      });
     },
     plan,
   });
@@ -59,8 +63,8 @@ export function remoteBoxPlan(
   return {
     cache: { state: "disposable" },
     environment: { env: {} },
+    executionAuthority: options.executionAuthority,
     identity: input.identity,
-    isolation: options.isolation,
     requirements: input.requirements.map(({ command, name }) => ({ command, name })),
     runtime: options.runtime,
     workspace: {
@@ -80,6 +84,7 @@ export async function openRemoteBox(
 ) {
   assertRemoteInput(input, options.runtime);
   const session = createBoxSession(runtimeSession, {
+    executionAuthority: options.executionAuthority,
     initialize: options.initialize,
     signal: options.signal,
   });

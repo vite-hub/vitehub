@@ -1,4 +1,5 @@
 import { WorkspaceError } from "../core/errors.ts"
+import { noExecutionAuthority } from "@vite-hub/runtime"
 import { decodeFile, matchesAny, normalizeSafeWorkspacePath } from "../core/path.ts"
 import { searchText } from "../core/search.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
@@ -38,6 +39,7 @@ export async function createBasicWorkspaceSession(workspace: Workspace, options?
   await overlay.snapshot({ name: "session-baseline" })
 
   return {
+    executionAuthority: noExecutionAuthority,
     async readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, readOptions?: TOptions): Promise<ReadFileResult<TOptions>> {
       const target = assertPathInSessionScope(normalizeSessionPath(path), sessionPaths, { masked: true })
       const file = await overlay.readFile(target)

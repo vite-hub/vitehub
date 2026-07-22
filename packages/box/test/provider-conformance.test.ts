@@ -30,6 +30,9 @@ for (const provider of [cloudflareFixture, vercelFixture]) {
         workspace: { state: "disposable", workDir: "." },
       });
       const session = await box.open({ id: "provider-session" });
+      expect(session.executionAuthority).toBe(box.plan.executionAuthority);
+      expect(Object.isFrozen(box.plan.executionAuthority)).toBe(true);
+      expect(Object.isFrozen(box.plan.executionAuthority.filesystem)).toBe(true);
       expect(session.id).toBe("provider-session");
       expect(session.ports?.values).toEqual(fixture.ports);
       expect(await session.files.read("/home/vitehub/.config/vitehub/config.bin")).toEqual(

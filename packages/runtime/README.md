@@ -46,6 +46,14 @@ const decision = await resolveCapabilityPolicy("require-approval", {
 
 An omitted policy resolves to `allow`. Pass `require-approval` or `deny` when an operation needs an explicit gate.
 
+## Execution authority
+
+`ExecutionAuthority` is the normalized, provider-independent description of what one resolved execution surface grants. It records filesystem access and scope, network egress, environment inheritance, credential access, process execution, and the isolation mechanism. Read it from the resolved owner, such as `box.plan.executionAuthority`, `WorkspaceSession.executionAuthority`, `SandboxRunner.executionAuthority`, or `AgentInspectionMetadata.config.driver.executionAuthority`.
+
+Each resolved descriptor is an immutable snapshot of the authority known at resolution time. `unknown` means the provider cannot prove or did not report that dimension; it never means `none`. `isolation` identifies a mechanism such as a container or microVM, but it is not a security rank and does not imply anything about filesystem, network, credentials, or processes. Providers must report every dimension explicitly instead of inheriting a permissive default.
+
+Executable selection, fixed argument arrays, and executable allowlists are dispatch controls. They do not constrain what a selected process can read, reach, inherit, or spawn, so they are not represented as isolation.
+
 `ViteHubError` clones and freezes its JSON-safe public details at construction, and `toJSON()` always returns that immutable snapshot. Put raw provider failures in `cause`; changing the original details or the error's public fields later cannot change serialized output. Accessors, cycles, `bigint`, non-finite numbers, and oversized detail trees are rejected with a fixed `TypeError`, so callers that previously passed mutable or non-JSON detail objects must normalize them first.
 
 ## Used by

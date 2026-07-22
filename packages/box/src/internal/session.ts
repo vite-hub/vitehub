@@ -1,8 +1,8 @@
 import type {
   BoxExecOptions,
   BoxFileEntry,
-  BoxOpenOptions,
   BoxProcess,
+  BoxRuntimeOpenOptions,
   BoxSession,
 } from "../index.ts";
 
@@ -95,7 +95,7 @@ interface RuntimeCommandOptions {
 
 export function createBoxSession(
   runtime: RuntimeSession,
-  openOptions: BoxOpenOptions = {},
+  openOptions: BoxRuntimeOpenOptions,
   cwd = runtime.defaultWorkingDirectory,
 ): BoxSession {
   let closePromise: Promise<void> | undefined;
@@ -125,6 +125,7 @@ export function createBoxSession(
 
   const session: BoxSession = {
     cwd,
+    executionAuthority: openOptions.executionAuthority,
     files: {
       async exists(path, options) {
         return await runtime.existsFile({

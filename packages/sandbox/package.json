@@ -74,6 +74,7 @@
   },
   "dependencies": {
     "@vite-hub/box": "workspace:*",
+    "@vite-hub/runtime": "workspace:*",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "local-pkg": "catalog:tooling",
