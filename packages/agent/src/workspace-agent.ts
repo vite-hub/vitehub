@@ -504,7 +504,8 @@ async function resolvedDriverExecutionAuthority<
   driver: ReturnType<typeof normalizeAgentDriver<TRuntimeConfig, CALL_OPTIONS>>,
   context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<ExecutionAuthority> {
-  if (driver.kind !== "harness") return noExecutionAuthority
+  if (driver.kind === "model") return noExecutionAuthority
+  if (driver.kind !== "harness") return unknownExecutionAuthority
   if (box) {
     const { resolveBox } = await import("@vite-hub/box")
     const resolvedBox = await resolveBox(box, context, { requires: driver.requires })
@@ -652,7 +653,7 @@ function staticDriverMetadata<
       kind: "harness",
     }
   }
-  return { executionAuthority: noExecutionAuthority, kind: "run" }
+  return { executionAuthority: unknownExecutionAuthority, kind: "run" }
 }
 
 async function resolvedDriverMetadata<
@@ -686,7 +687,7 @@ async function resolvedDriverMetadata<
       kind: "harness",
     }
   }
-  return { executionAuthority: noExecutionAuthority, kind: "run" }
+  return { executionAuthority: unknownExecutionAuthority, kind: "run" }
 }
 
 function staticConfigMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(

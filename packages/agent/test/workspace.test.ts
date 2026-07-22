@@ -4607,6 +4607,20 @@ describe("defineAgent workspace option", () => {
       .toBe(unknownExecutionAuthority)
   })
 
+  it("reports unknown authority for custom run drivers", async () => {
+    const { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const agent = defineAgent({ driver: { run: () => "ok" } })
+
+    expect(createAgentInspectionMetadata(agent).config?.driver).toEqual({
+      executionAuthority: unknownExecutionAuthority,
+      kind: "run",
+    })
+    expect((await resolveAgentInspectionMetadata(agent)).config?.driver).toEqual({
+      executionAuthority: unknownExecutionAuthority,
+      kind: "run",
+    })
+  })
+
   it("closes prepared Capabilities after Agent inspection metadata success and failure", async () => {
     const { defineAgent, defineCapability, resolveAgentInspectionMetadata } = await import("../src/index.ts")
     const close = vi.fn()
