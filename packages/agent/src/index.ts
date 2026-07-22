@@ -1181,7 +1181,8 @@ export async function resolveAgent<TContext extends AgentRuntimeContext>(
   context: TContext,
 ): Promise<AgentAdapter> {
   if (hasAgentDefinition(agent)) {
-    return await agent.resolve(context as never)
+    const adapter = await agent.resolve(context as never)
+    return withResolvedAgentExecutionAuthorization(agent as never, adapter)
   }
 
   throw new TypeError("[vitehub] Invalid agent definition.")
@@ -1539,6 +1540,37 @@ async function authorizeAgentExecution<
   const name = definition?.name || context.agentIdentity?.name
   const target = name ? `Agent "${name}"` : "Agent"
   throw new Error(`[vitehub] ${target} requires execution authorization for its resolved authority (${executionAuthoritySummary(executionAuthority)}). Add defineAgent({ authorizeExecution }) and return true only when this invocation may exercise that authority.`)
+}
+
+function withResolvedAgentExecutionAuthorization<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS>,
+  adapter: AgentAdapter<CALL_OPTIONS>,
+): AgentAdapter<CALL_OPTIONS> {
+  const authorizeContext = async (context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>) => {
+    const { runtime: resolvedRuntime } = context
+    const settings = settingsFromAgentDefinition(definition)
+    const driver = settings ? normalizeAgentDriver(settings) : undefined
+    const internalDefinition = definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS>
+    const driverKind = internalDefinition[agentExecutionDriverKind] ?? internalDefinition[baseAgentDriverKind] ?? driver?.kind
+    const callbackContext = { ...resolvedRuntime, ...context, runtime: resolvedRuntime.runtime } as AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>
+    const executionSurface = await resolveAgentExecutionSurface(definition, driver, driverKind, callbackContext, resolvedRuntime)
+    await authorizeAgentExecution(definition, executionSurface.executionAuthority, callbackContext)
+    if (executionSurface.box) context.context.set("agent.execution.box", executionSurface.box, { overwrite: true })
+    return {
+      ...context,
+      box: executionSurface.box ?? context.box,
+      harnessSandboxExecutionAuthority: executionSurface.executionAuthority,
+      harnessSandboxProvider: executionSurface.harnessSandboxProvider ?? context.harnessSandboxProvider,
+    }
+  }
+  const clone = Object.create(Object.getPrototypeOf(adapter)) as AgentAdapter<CALL_OPTIONS>
+  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(adapter))
+  clone.generate = async context => adapter.generate(await authorizeContext(context as never))
+  if (adapter.stream) clone.stream = async context => adapter.stream!(await authorizeContext(context as never))
+  return clone
 }
 
 async function createAgentInvocationContext<

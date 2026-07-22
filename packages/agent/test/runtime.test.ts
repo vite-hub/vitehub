@@ -1913,6 +1913,30 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("rejects unsafe harness adapters used without invocation authorization", async () => {
+    const { defineAgent, resolveAgent } = await import("../src/index.ts")
+    const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
+    const invoker = { id: "anonymous:test", kind: "anonymous", label: "Anonymous" }
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { executionAuthority: unknownExecutionAuthority, providerId: "unsafe" },
+      },
+    })
+    const adapter = await resolveAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() })
+
+    await expect(adapter.generate({
+      actor: invoker,
+      context: createAgentInvocationContextStore(),
+      input: { prompt: "hello" },
+      invoker,
+      messages: [],
+      prompt: "hello",
+      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+    })).rejects.toThrow("requires execution authorization")
+    expect(harnessCreateSession).not.toHaveBeenCalled()
+  })
+
   it("preserves non-text chat history in harness prompts", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const session = { destroy: vi.fn() }
