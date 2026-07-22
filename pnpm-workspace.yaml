@@ -92,7 +92,6 @@ catalogs:
     vitest: ^4.1.4
     vue-tsc: ^3.3.7
   ui:
-    "@comark/vue": ^0.5.1
     comark: 0.5.1
     "@iconify-json/lucide": ^1.2.117
     "@iconify-json/ph": ^1.2.2
@@ -100,7 +99,6 @@ catalogs:
     "@iconify-json/vscode-icons": ^1.2.67
     "@vueuse/core": ^14.3.0
     motion-v: ^2.2.1
-    tailwindcss: ^4.3.2
     vue: ^3.5.0
   unjs:
     defu: ^6.1.7
