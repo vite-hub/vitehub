@@ -2896,8 +2896,7 @@ export function createChannelWebhookRouteHandler(
         const chatOptions = getChannelChatOptions(agent, registration.channelId, baseChatOptions)
         const handler = await createChatWebhookHandler(agent, context, registration, adapterName!, adapter, chatOptions, handlerOptions)
         const response = await handler(request, { waitUntil: context.waitUntil })
-        if (chatOptions?.commentary !== undefined
-          || (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent, registration.channelId))) {
+        if (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent, registration.channelId)) {
           await context.flushWaitUntil?.()
         }
         return response
