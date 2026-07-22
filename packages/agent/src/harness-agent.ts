@@ -379,7 +379,7 @@ function toHarnessTools(context: AgentAdapterRunContext): AgentToolSet | undefin
   if (!hasEntries(context.tools)) return
   return withAgentToolStepReporting(
     withJsonCompatibleToolOutputs(applyAgentToolPolicies(context.tools as AgentToolSet) || {}),
-    context.devtools?.reportToolStep,
+    context.toolStepReporter,
   )
 }
 

@@ -12,7 +12,7 @@ ViteHub uses Vite Integrations as the public integration layer, while package-ow
 
 | Layer | ViteHub expectation |
 | --- | --- |
-| Vite | Public integration layer for discovery, generated files, DevTools, and Provider Output. |
+| Vite | Public integration layer for discovery, generated files, the CLI Agent Dev Loop, and Provider Output. |
 | Nitro | Host runtime bridge when a package must register generated handlers, middleware, or runtime hooks. |
 | UnJS libraries | Useful implementation dependencies for server primitives, not public ViteHub framework identity. |
 | Application server code | Calls Runtime Helpers and stable handlers without importing generated Nitro internals. |

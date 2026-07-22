@@ -127,14 +127,6 @@ export function normalizeAgentInvokerOptions<
 }
 
 export function createFallbackAgentInvoker(run?: AgentRunMetadata): AgentInvoker {
-  if (run?.origin === "devtools") {
-    return {
-      id: "devtools",
-      kind: "devtools",
-      label: "DevTools User",
-    }
-  }
-
   const origin = run?.origin || "unknown"
   return {
     id: `anonymous:${origin}`,

@@ -11,7 +11,7 @@ ViteHub derives Discovery Identity from the discovery location. It does not ask 
 
 ## Why it exists
 
-Location-derived identity makes generated registries, Provider Output, DevTools, and runtime calls predictable. It also keeps package-owned discovery rules separate from Definition Options.
+Location-derived identity makes generated registries, Provider Output, CLI inspection, and runtime calls predictable. It also keeps package-owned discovery rules separate from Definition Options.
 
 This matters for agents because an Agent File Name or agent folder name becomes the discovered Agent identity. `defineAgent({ name })` is not the discovery identity override.
 
@@ -47,7 +47,7 @@ export default defineAgent({
 
 ## Inspect it
 
-Inspect the source file and the generated or runtime surface that consumes it. For Agents, DevTools and trigger consumers use discovered Agent names. For generated imports, use stable ViteHub import paths documented by the package instead of importing registry files directly.
+Inspect the source file and the generated or runtime surface that consumes it. For Agents, CLI inspection and trigger consumers use discovered Agent names. For generated imports, use stable ViteHub import paths documented by the package instead of importing registry files directly.
 
 ## Next steps
 

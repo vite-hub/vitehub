@@ -125,7 +125,6 @@ async function writeFixtureFiles(overrides) {
     "    },",
     "    blob: {},",
     "    database: false,",
-    "    devtools: false,",
     "    env: false,",
     "    kv: false,",
     "    sandbox: false,",

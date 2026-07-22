@@ -63,7 +63,7 @@ Set `policy: 'require-approval'` or `policy: 'deny'` when the product needs an a
 
 ## Inspect and verify
 
-Inspect the Agent tool list in DevTools.
+Run `vitehub agent info --agent <name> --json` and inspect the resolved tool list.
 Read mode should show `db_query` and `db_schema`; write-capable configurations should also show `db_exec` with the configured policy.
 
 Run a multi-statement SQL input during development.

@@ -32,8 +32,6 @@
       "@vite-hub/cli": ["packages/cli/src/index.ts"],
       "@vite-hub/database": ["packages/database/src/index.ts"],
       "@vite-hub/database/*": ["packages/database/src/*"],
-      "@vite-hub/devtools": ["packages/devtools/src/index.ts"],
-      "@vite-hub/devtools/*": ["packages/devtools/src/*"],
       "@vite-hub/email": ["packages/email/src/index.ts"],
       "@vite-hub/email/*": ["packages/email/src/*"],
       "@vite-hub/env": ["packages/env/src/index.ts"],

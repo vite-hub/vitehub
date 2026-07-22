@@ -123,11 +123,6 @@ describe("agent public types", () => {
   })
 
   it("keeps generated Channel routes out of hubAgent options", () => {
-    const options = {
-      devtools: false,
-      routes: { discordGateway: true },
-    } satisfies AgentModuleOptions
-    expectTypeOf(options.devtools).toEqualTypeOf<false>()
 
     const chatRoute: AgentModuleOptions = {
       routes: {
@@ -1203,9 +1198,6 @@ describe("agent public types", () => {
     type _PublicChannelChatRouteHandler = ServerExports["createChannelChatRouteHandler"]
     // @ts-expect-error generated route handler factories are internal Provider Output plumbing.
     type _PublicChannelWebhookRouteHandler = ServerExports["createChannelWebhookRouteHandler"]
-    // @ts-expect-error generated route handler factories are internal Provider Output plumbing.
-    type _PublicChannelDevtoolsRouteHandler = ServerExports["createChannelDevtoolsRouteHandler"]
-
     type InternalServerExports = typeof import("../src/server/internal.ts")
     type _InternalChannelChatRouteHandler = InternalServerExports["createChannelChatRouteHandler"]
   })
@@ -1731,8 +1723,8 @@ describe("agent public types", () => {
         access({
           workspace: {
             resolve({ actor, invoker }) {
-              expectTypeOf(actor.kind).toEqualTypeOf<"anonymous" | "chat" | "devtools" | (string & {}) | undefined>()
-              expectTypeOf(invoker.kind).toEqualTypeOf<"anonymous" | "chat" | "devtools" | (string & {}) | undefined>()
+              expectTypeOf(actor.kind).toEqualTypeOf<"anonymous" | "chat" | (string & {}) | undefined>()
+              expectTypeOf(invoker.kind).toEqualTypeOf<"anonymous" | "chat" | (string & {}) | undefined>()
               return actor.kind === "quiverTechnical"
                 ? { role: "admin", scope: "quiver" }
                 : { role: "viewer", scope: "acme" }

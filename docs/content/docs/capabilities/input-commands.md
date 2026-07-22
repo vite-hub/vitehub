@@ -23,7 +23,7 @@ Commands that should produce model-facing text must return it explicitly; accept
 
 ## Configuration
 
-Define lowercase stable command names. Add a description when DevTools and other inspectors should explain the command.
+Define lowercase stable command names. Add a description when CLI inspection and other inspectors should explain the command.
 The default trigger is `/`.
 
 ```ts [server/agents/support.ts]
@@ -77,7 +77,7 @@ Host Commands that change chat, session, UI, or product state belong outside thi
 Run an invocation with the configured command text.
 Inspect the final Agent Run Input and confirm the command text was replaced or the expected context value was added before the Agent Driver ran.
 
-Check DevTools metadata for the `inputCommands` Capability and its command descriptions.
+Check Agent inspection metadata for the `inputCommands` Capability and its command descriptions.
 
 ## Options
 

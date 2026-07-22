@@ -48,7 +48,7 @@ The driver object accepts exactly one concrete variant: `model`, `harness`, or `
 | `output` | `AgentOutputDefinition` | None | Decodes and validates structured Agent output with a Standard Schema. |
 | `runtime` | `false \| workflow(name?)` | Discovered Workflow | Disables hosted Workflow execution or selects an explicit Workflow binding. Direct calls without discovered Agent identity remain inline. |
 | `runEvents` | `AgentRunEvents` | None | Publishes and reads durable events scoped to the current Agent Invocation run. |
-| `version` | `string` | None | Adds a Definition version to generated and DevTools metadata. |
+| `version` | `string` | None | Adds a Definition version to generated and Agent inspection metadata. |
 | `workspace` | `WorkspaceAgentWorkspaceConfig` | None | References a named Workspace or declares an Agent-owned Workspace and access mode. |
 
 The resolved `AgentDefinition` also exposes runtime-owned `resolve()` and, when applicable, `run()`. Those are outputs of `defineAgent()`, not additional authoring fields.
@@ -166,7 +166,7 @@ export default defineAgent({
     profiles: [
       {
         id: 'dev-support',
-        kind: 'devtools',
+        kind: 'developer',
         label: 'Support developer',
         meta: { scope: 'support' },
       },

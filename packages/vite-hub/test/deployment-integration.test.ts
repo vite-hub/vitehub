@@ -17,7 +17,6 @@ describe("built-in deployment preset integration", () => {
         agent: false,
         blob: false,
         database: false,
-        devtools: false,
         env: false,
         queue: false,
         rateLimit: false,

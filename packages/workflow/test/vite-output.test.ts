@@ -132,7 +132,7 @@ describe("Vite workflow provider outputs", () => {
     const wrangler = JSON.parse(await readFile(cloudflareConfig, "utf8"))
     const className = getCloudflareWorkflowClassName("welcome")
     const agentClassName = getCloudflareWorkflowClassName("nuxt")
-    const devtoolsAgentClassName = getCloudflareWorkflowClassName("devtools-demo")
+    const cliDevAgentClassName = getCloudflareWorkflowClassName("cli-dev")
     const flatAgentClassName = getCloudflareWorkflowClassName("flat")
 
     expect(existsSync(cloudflareWorker)).toBe(true)
@@ -148,9 +148,9 @@ describe("Vite workflow provider outputs", () => {
       name: getCloudflareWorkflowName("nuxt"),
     })
     expect(wrangler.workflows).toContainEqual({
-      binding: getCloudflareWorkflowBindingName("devtools-demo"),
-      class_name: devtoolsAgentClassName,
-      name: getCloudflareWorkflowName("devtools-demo"),
+      binding: getCloudflareWorkflowBindingName("cli-dev"),
+      class_name: cliDevAgentClassName,
+      name: getCloudflareWorkflowName("cli-dev"),
     })
     expect(wrangler.workflows).toContainEqual({
       binding: getCloudflareWorkflowBindingName("flat"),
@@ -162,7 +162,7 @@ describe("Vite workflow provider outputs", () => {
     expect(cloudflareWorkerContents).toContain("waitUntil as viteHubWaitUntil")
     expect(cloudflareWorkerContents).toContain(`export class ${className} extends WorkflowEntrypoint`)
     expect(cloudflareWorkerContents).toContain(`export class ${agentClassName} extends WorkflowEntrypoint`)
-    expect(cloudflareWorkerContents).toContain(`export class ${devtoolsAgentClassName} extends WorkflowEntrypoint`)
+    expect(cloudflareWorkerContents).toContain(`export class ${cliDevAgentClassName} extends WorkflowEntrypoint`)
     expect(cloudflareWorkerContents).toContain(`export class ${flatAgentClassName} extends WorkflowEntrypoint`)
     expect(cloudflareWorkerContents).toContain('runViteHubWorkflowDefinition("welcome"')
     expect(cloudflareWorkerContents).toContain('runViteHubWorkflowDefinition("nuxt"')

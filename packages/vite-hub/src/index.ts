@@ -8,7 +8,6 @@ import { hubAuth } from "@vite-hub/auth/vite"
 import { hubBlob } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubDb } from "@vite-hub/database/vite"
-import { hubDevtools } from "@vite-hub/devtools"
 import { hubEmail } from "@vite-hub/email/vite"
 import { hubEnv } from "@vite-hub/env/vite"
 import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig } from "@vite-hub/kv/vite"
@@ -28,7 +27,6 @@ import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { BlobModuleOptions } from "@vite-hub/blob"
 import type { BrowserModuleOptions } from "@vite-hub/browser/vite"
 import type { DBModulePublicOptions } from "@vite-hub/database"
-import type { HubDevtoolsOptions } from "@vite-hub/devtools"
 import type { EmailVitePluginOptions } from "@vite-hub/email/vite"
 import type { EnvIntegrationOptions } from "@vite-hub/env"
 import type { KVModuleOptions } from "@vite-hub/kv"
@@ -51,7 +49,6 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/box": true,
   "@vite-hub/cli": false,
   "@vite-hub/database": true,
-  "@vite-hub/devtools": true,
   "@vite-hub/email": true,
   "@vite-hub/env": true,
   "@vite-hub/kv": true,
@@ -177,7 +174,6 @@ export interface ViteHubOptions {
   blob?: false | BlobModuleOptions
   browser?: boolean | BrowserModuleOptions
   database?: false | DBModulePublicOptions
-  devtools?: false | HubDevtoolsOptions
   email?: boolean | EmailVitePluginOptions
   env?: false | EnvIntegrationOptions
   kv?: boolean | KVModuleOptions
@@ -453,7 +449,5 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       importBase: `${generatedImportBase}/workspace`,
     } as WorkspaceModuleOptions))
   }
-  if (options.devtools !== false) plugins.push(hubDevtools(options.devtools))
-
   return plugins as PluginOption[]
 }

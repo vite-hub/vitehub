@@ -178,4 +178,4 @@ Workspace-backed harness execution depends on Harness Workspace Session support 
 - Read [Instructions](/docs/agents/instructions) for model-backed instruction composition.
 - Read [Boxes](/docs/agents/boxes) for trusted-host harness execution.
 - Read [Invocations](/docs/agents/invocations) for `runAgent` and `streamAgent`.
-- Read [DevTools](/docs/agents/devtools) to inspect resolved driver metadata.
+- Read [CLI inspection](/docs/development/cli) to inspect resolved driver metadata.

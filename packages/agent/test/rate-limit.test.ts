@@ -93,8 +93,8 @@ describe("rateLimit capability", () => {
       scope: "customer:acme",
     })
     await expect(runAgent(agent, runtime(), {
-      context: { invoker: { id: "user_1", kind: "devtools", meta: { customer: "acme" } } },
-    })).resolves.toMatchObject({ identity: "devtools:user_1" })
+      context: { invoker: { id: "user_1", kind: "inspection", meta: { customer: "acme" } } },
+    })).resolves.toMatchObject({ identity: "inspection:user_1" })
     await expect(runAgent(agent, runtime(), {
       context: { invoker: { id: "user_1", kind: "chat", meta: { customer: "acme" } } },
     })).rejects.toBeInstanceOf(ViteHubError)

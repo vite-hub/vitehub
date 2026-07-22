@@ -1124,7 +1124,6 @@ export async function resolveAgentCapabilities<
         registries.triggers.push({
           capabilityId: capability.id,
           definition: trigger as never,
-          devtools: trigger.devtools,
           id,
           input: trigger.input,
           invoke: input => trigger.invoke({

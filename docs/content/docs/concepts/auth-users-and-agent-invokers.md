@@ -11,7 +11,7 @@ These concepts are related, but they are not the same. Auth proves application i
 
 ## Why it exists
 
-Agents may be invoked by app users, chat adapters, DevTools, schedules, webhooks, service accounts, or anonymous local development. Collapsing those callers into Auth User would make non-user invocations awkward and would make Auth look required for every Agent.
+Agents may be invoked by app users, chat adapters, the CLI Dev Loop, schedules, webhooks, service accounts, or anonymous local development. Collapsing those callers into Auth User would make non-user invocations awkward and would make Auth look required for every Agent.
 
 ViteHub provides an origin-specific anonymous fallback when no trusted identity is supplied. Apps can then opt into stricter identity where the entry surface requires it.
 
@@ -42,7 +42,7 @@ When the default Better Auth session lookup fails, the bridge throws the shared 
 | Field | Meaning |
 | --- | --- |
 | `id` | Stable trusted caller id for the invocation. |
-| `kind` | Caller kind such as `authUser`, `chat`, `devtools`, `anonymous`, or an app-specific value. |
+| `kind` | Caller kind such as `authUser`, `chat`, `anonymous`, or an app-specific value. |
 | `label` | Optional display label for humans and inspection surfaces. |
 | `meta` | Application-owned structured metadata. |
 

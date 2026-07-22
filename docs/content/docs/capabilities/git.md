@@ -68,7 +68,7 @@ The Workspace requirement is write-mode because ViteHub may need session-local G
 
 ## Inspect and verify
 
-Inspect the Agent tool list in DevTools.
+Run `vitehub agent info --agent <name> --json` and inspect the resolved tool list.
 Run `git status --short` through `shell`, then verify unsupported commands such as `git push` are rejected.
 
 ## Reference

@@ -54,7 +54,6 @@ export default defineConfig({
       agent: false,
       blob: false,
       database: false,
-      devtools: false,
       env: false,
       kv: { driver: "fs-lite", base: ".data/kv" },
       workflow: false,

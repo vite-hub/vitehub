@@ -316,7 +316,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     })
 
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
     await configurePluginServer(plugin, server)
 
     const response = await invokeMiddleware(handlers[0]!, {
@@ -362,7 +362,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       workspace: { mode: "write" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
 
@@ -395,7 +395,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
     const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
@@ -427,7 +427,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       workspace: "shared",
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
     const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
@@ -465,7 +465,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       workspace: { mode: "write", name: "shared" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
     const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
@@ -527,7 +527,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
     const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
@@ -562,7 +562,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       workspace: { mode: "write" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
     const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
@@ -597,7 +597,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       workspace: "docs",
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
     const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
@@ -630,7 +630,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       workspace: { mode: "write", name: "shared" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
     let closeRequest: (() => void) | undefined
 
     workspaceSessionExec.mockImplementationOnce(async (command: string, args: string[] = [], options?: Record<string, unknown>) => {
@@ -719,7 +719,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     })
 
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
     await configurePluginServer(plugin, server)
 
     vi.useFakeTimers()
@@ -837,7 +837,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       workspace: { mode: "write" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
     await configurePluginServer(plugin, server)
 
     const response = await invokeMiddleware(handlers[0]!, {
@@ -901,7 +901,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     })
 
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
     await configurePluginServer(plugin, server)
 
     const response = await invokeMiddleware(handlers[0]!, {
@@ -983,7 +983,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     })
 
     const { handlers, server } = createFakeServer(root, { default: agent })
-    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
     await configurePluginServer(plugin, server)
 
     const response = await invokeMiddleware(handlers[0]!, {

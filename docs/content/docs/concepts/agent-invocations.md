@@ -11,7 +11,7 @@ The invocation is the composition boundary. An Agent Definition describes what c
 
 ## Why it exists
 
-Agents can be reached from server routes, Agent Triggers, schedules, Channels, DevTools, or other Agents. Each entry surface can supply different input, trusted caller identity, run metadata, and context without creating a different Agent Definition.
+Agents can be reached from server routes, Agent Triggers, schedules, Channels, the CLI Dev Loop, or other Agents. Each entry surface can supply different input, trusted caller identity, run metadata, and context without creating a different Agent Definition.
 
 Keeping that variation inside an invocation makes runtime behavior inspectable. ViteHub can show which Agent Actor, Capabilities, Workspace Scope, Agent Driver, and output belonged to one request instead of treating them as ambient Agent state.
 
@@ -57,7 +57,7 @@ Do not use an Agent Invocation as an implicit conversation or persistence layer.
 
 Inspect the prepared input, Agent Actor, active Channel, resolved Capabilities, visible Workspace Scope, Agent Driver, trace, usage, and final output together. These values explain the runtime request without requiring you to infer behavior from the Agent Definition alone.
 
-Agent DevTools exposes the resolved invocation state. Server code can use invocation hooks, traces, and run events when the application needs programmatic inspection or progress reporting.
+`vitehub agent info` exposes resolved Agent metadata, while `vitehub agent dev` streams a local Agent Invocation. Server code can use invocation hooks, traces, and run events when the application needs programmatic inspection or progress reporting.
 
 ## Next steps
 

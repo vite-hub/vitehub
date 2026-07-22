@@ -30,8 +30,6 @@ export type {
   AgentChannelChatRouteStandardSchemaResultSuccess,
   AgentChannelChatRouteStandardSchemaV1,
   AgentChannelChatRouteTrustedInputField,
-  AgentChannelDevtoolsRouteHandlerOptions,
-  AgentChannelDevtoolsRouteRequestOptions,
   AgentChannelWebhookRouteOptions,
   AgentDiscordGatewayRouteOptions,
 } from "./server/routes.ts"

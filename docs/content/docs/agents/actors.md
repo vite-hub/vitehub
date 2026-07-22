@@ -31,8 +31,8 @@ Both callback properties and both context-store keys contain the same normalized
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | Yes | Stable identity used by Access, rate limits, state partitioning, and inspection. Empty ids are rejected. |
-| `kind` | `string` | No | Identity family such as `anonymous`, `chat`, `devtools`, `customer`, or an app-owned value. |
-| `label` | `string` | No | Human-readable display value for DevTools and logs. |
+| `kind` | `string` | No | Identity family such as `anonymous`, `chat`, `customer`, or an app-owned value. |
+| `label` | `string` | No | Human-readable display value for CLI inspection and logs. |
 | `email` | `{ address, domain }` | No | Normalized lowercase email output. ViteHub derives `domain` from the address and omits invalid email values. |
 | `meta` | `Record<string, unknown>` | No | Application-owned trusted facts. Validate them before invocation. |
 
@@ -64,11 +64,11 @@ export default defineEventHandler(async (event) => {
 
 ViteHub trusts this value because it comes from server code. Validate signatures, sessions, and product permissions before creating it.
 
-When no Actor is supplied, ViteHub creates a fallback Actor from Agent Run metadata. DevTools uses `id: 'devtools'`; other origins use `id: 'anonymous:<origin>'`.
+When no Actor is supplied, ViteHub creates an anonymous fallback Actor from Agent Run metadata.
 
 ## Configure Actor profiles
 
-Profiles are static selectable Actors on an Agent Definition. They are useful for DevTools, local development, schedules, and trusted app routes that need a known profile id.
+Profiles are static selectable Actors on an Agent Definition. They are useful for CLI inspection, local development, schedules, and trusted app routes that need a known profile id.
 
 ```ts [server/agents/support.ts]
 import { gateway } from '@ai-sdk/gateway'
