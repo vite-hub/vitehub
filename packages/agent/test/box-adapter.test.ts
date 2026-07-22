@@ -6,6 +6,20 @@ import { shareBoxSessions } from "../src/harness/shared-box.ts"
 import type { Box, BoxSession } from "@vite-hub/box"
 
 describe("Box harness adapter", () => {
+  it("preserves a provider-specific authoritative Box cwd", async () => {
+    const exec = vi.fn(async () => ({ code: 0, ok: true, stderr: "", stdout: "" }))
+    const box: Box = {
+      plan: plan(),
+      async open() { return boxSession({ cwd: "/host/repository", exec }) },
+    }
+
+    const harness = await createBoxHarnessSandbox(box).createSession()
+    expect(harness.defaultWorkingDirectory).toBe("/host/repository")
+    await harness.run({ command: "pwd", workingDirectory: "/host/repository" })
+    expect(exec).toHaveBeenCalledWith("sh", ["-lc", "pwd"], expect.objectContaining({ cwd: "/host/repository" }))
+    await harness.destroy?.()
+  })
+
   it("opens a shared Box without a Harness driver", async () => {
     const session = boxSession()
     const open = vi.fn(async () => session)

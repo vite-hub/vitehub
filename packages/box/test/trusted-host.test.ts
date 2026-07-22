@@ -387,6 +387,38 @@ describe("trustedHost", () => {
     await session.destroy?.();
   });
 
+  it("force-kills commands that ignore abort termination", async () => {
+    if (process.platform === "win32") return;
+    const root = await temporaryRoot();
+    const marker = join(root, "ready");
+    const box = await resolveBox({ runtime: trustedHost() }, {});
+    const session = await boxProvider(box).createSession();
+    const controller = new AbortController();
+    const reason = new Error("cancelled");
+    const child = await session.spawn({
+      abortSignal: controller.signal,
+      command: `node -e "require('node:fs').writeFileSync(process.env.READY_MARKER, ''); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"`,
+      env: { READY_MARKER: marker },
+    });
+
+    try {
+      await vi.waitFor(() => expect(stat(marker)).resolves.toMatchObject({}));
+      const settled = child.wait().then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      controller.abort(reason);
+
+      await expect(Promise.race([
+        settled,
+        new Promise((resolvePromise) => setTimeout(resolvePromise, 1_500, "still-running")),
+      ])).resolves.toBe(reason);
+      await vi.waitFor(() => expect(() => process.kill(-child.pid!, 0)).toThrow());
+    } finally {
+      await session.destroy?.();
+    }
+  });
+
   it("retries seed materialization after a later boot failure", async () => {
     const root = await temporaryRoot();
     let attempts = 0;
