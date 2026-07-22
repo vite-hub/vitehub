@@ -43,7 +43,7 @@ The driver object accepts exactly one concrete variant: `model`, `harness`, or `
 | `description` | `string` | None | Adds human-readable metadata for discovery and inspection. |
 | `hooks` | Agent, Capability, and observer hook map | None | Registers `agent:input`, `agent:finish`, Capability lifecycle, or `hook:observe` callbacks. |
 | `invoker` | `AgentInvokerOptions` | None | Configures Agent Actor profiles and resolution through the current `invoker`-named API. |
-| `messages` | `AgentMessageChannelSettings` | Channel defaults | Applies shared message delivery, concurrency, session, state, and transcript settings across adapter-backed Channels. |
+| `messages` | `AgentMessageChannelSettings` | Channel defaults | Applies shared commentary, delivery, concurrency, session, state, and transcript settings across adapter-backed Channels. |
 | `name` | `string` | Discovered identity | Supplies an explicit Definition name for direct metadata and Workspace naming. Discovered host identity still comes from the file or folder path. |
 | `output` | `AgentOutputDefinition` | None | Decodes and validates structured Agent output with a Standard Schema. |
 | `runtime` | `false \| workflow(name?)` | Discovered Workflow | Disables hosted Workflow execution or selects an explicit Workflow binding. Direct calls without discovered Agent identity remain inline. |

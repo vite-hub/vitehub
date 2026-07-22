@@ -141,8 +141,10 @@ export interface Message {
   role: MessageRole
 }
 
+export type AgentMessagePhase = "commentary" | "final"
+
 export type StreamEvent =
-  | { id?: string, messageId?: string, role?: MessageRole, text: string, type: "text-delta" }
+  | { id?: string, messageId?: string, phase?: AgentMessagePhase, role?: MessageRole, text: string, type: "text-delta" }
   | { data: unknown, id?: string, messageId?: string, transient?: boolean, type: "data" | `data-${string}` }
   | { id: string, input?: unknown, messageId?: string, name: string, type: "tool-call" | "tool-input-start" }
   | { durationMs?: number, error?: string, id: string, messageId?: string, name: string, output?: unknown, type: "tool-result" }

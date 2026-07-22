@@ -2813,6 +2813,7 @@ describe("server helpers", () => {
       },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntilTasks: Promise<unknown>[] = []
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
       body: JSON.stringify({
@@ -2825,9 +2826,10 @@ describe("server helpers", () => {
         },
       }),
       method: "POST",
-    }), "discord")
+    }), "discord", { waitUntil: task => waitUntilTasks.push(task) })
 
     expect(response.status).toBe(200)
+    await Promise.all(waitUntilTasks)
     expect(agent.chat).toMatchObject({ stream: false })
     expect(adapter.postMessage).toHaveBeenCalledOnce()
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "The image shows a dental X-ray." })
@@ -2855,7 +2857,7 @@ describe("server helpers", () => {
           chat: { id: 456, type: "private" },
           date: 1781092800,
           from: { id: 123, username: "maxi" },
-          message_id: 2010,
+          message_id: 2015,
           text: "stream this",
         },
       }),
@@ -2864,6 +2866,276 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Final streamed answer." })
+  })
+
+  it("posts explicitly phased commentary and final output as separate Discord replies", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const finish = vi.fn()
+    const agent = defineAgent({
+      channels: {
+        discord: discord({
+          adapter: () => adapter as never,
+          messages: { commentary: "message" },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { id: "commentary-1", phase: "commentary", type: "text-start" }
+            yield { delta: "Checking ", id: "commentary-1", type: "text-delta" }
+            yield { delta: "private reasoning", id: "reasoning-1", type: "reasoning-delta" }
+            yield { delta: "the image.", id: "commentary-1", type: "text-delta" }
+            yield { id: "commentary-1", type: "text-end" }
+            yield { text: "Unknown pre-final text.", type: "text-delta" }
+            yield { id: "final-1", phase: "final_answer", type: "text-start" }
+            yield { delta: "The image shows ", id: "final-1", type: "text-delta" }
+            yield { delta: "a dental X-ray.", id: "final-1", type: "text-delta" }
+            yield { id: "final-1", type: "text-end" }
+          })(),
+        }),
+      },
+      hooks: { "agent:finish": finish },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const waitUntilTasks: Promise<unknown>[] = []
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { id: 123, username: "maxi" },
+          message_id: 2010,
+          text: "describe this image",
+        },
+      }),
+      method: "POST",
+    }), "discord", { waitUntil: task => waitUntilTasks.push(task) })
+
+    expect(response.status).toBe(200)
+    await Promise.all(waitUntilTasks)
+    await vi.waitFor(() => {
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "...")
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "...")
+    })
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Checking the image." })
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-2", { markdown: "The image shows a dental X-ray." })
+    expect(finish.mock.calls[0]![0].result).toMatchObject({ text: "The image shows a dental X-ray." })
+    expect(adapter.editMessage).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ markdown: expect.stringContaining("Unknown pre-final text") }),
+    )
+    expect(adapter.editMessage).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ markdown: expect.stringContaining("private reasoning") }),
+    )
+  })
+
+  it("delivers final output when the commentary reply fails", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    adapter.postMessage.mockRejectedValueOnce(new Error("progress unavailable"))
+    const agent = defineAgent({
+      channels: {
+        discord: discord({
+          adapter: () => adapter as never,
+          messages: { commentary: "message" },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { phase: "commentary", text: "Checking the image.", type: "text-delta" }
+            yield { phase: "final", text: "Final answer.", type: "text-delta" }
+          })(),
+        }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { id: 123, username: "maxi" },
+          message_id: 2016,
+          text: "describe this image",
+        },
+      }),
+      method: "POST",
+    }), "discord")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", expect.any(String), { markdown: "Final answer." })
+  })
+
+  it("delivers unphased final output when commentary is configured", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const finish = vi.fn()
+    const agent = defineAgent({
+      channels: {
+        discord: discord({
+          adapter: () => adapter as never,
+          messages: { commentary: "message" },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { phase: "upload", type: "file", url: "https://example.com/result.txt" }
+            yield { text: "Final answer.", type: "text-delta" }
+          })(),
+        }),
+      },
+      hooks: { "agent:finish": finish },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { id: 123, username: "maxi" },
+          message_id: 2013,
+          text: "describe this image",
+        },
+      }),
+      method: "POST",
+    }), "discord")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenCalledOnce()
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", expect.any(String), { markdown: "Final answer." })
+    expect(finish.mock.calls[0]![0].result).toMatchObject({ text: "Final answer." })
+  })
+
+  it("extracts JSON response text when commentary is configured", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        discord: discord({ adapter: () => adapter as never, messages: { commentary: "message" } }),
+      },
+      driver: { run: () => Response.json({ text: "Final answer." }) },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { id: 123, username: "maxi" },
+          message_id: 2014,
+          text: "describe this image",
+        },
+      }),
+      method: "POST",
+    }), "discord")
+
+    expect(response.status).toBe(200)
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", expect.any(String), { markdown: "Final answer." })
+    expect(adapter.editMessage).not.toHaveBeenCalledWith("telegram:456", expect.any(String), { markdown: JSON.stringify({ text: "Final answer." }) })
+  })
+
+  it("hides phased commentary when Channel streaming is disabled", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        discord: discord({
+          adapter: () => adapter as never,
+          messages: { commentary: "hidden", stream: false },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { phase: "commentary", text: "Checking the image.", type: "text-delta" }
+            yield { text: "Unknown pre-final text.", type: "text-delta" }
+            yield { phase: "final", text: "Final answer.", type: "text-delta" }
+          })(),
+        }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { id: 123, username: "maxi" },
+          message_id: 2012,
+          text: "describe this image",
+        },
+      }),
+      method: "POST",
+    }), "discord")
+
+    expect(response.status).toBe(200)
+    expect(adapter.postMessage).toHaveBeenCalledTimes(1)
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", expect.any(String), { markdown: "Final answer." })
+  })
+
+  it("preserves publish-all streaming when commentary is also configured", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        discord: discord({
+          adapter: () => adapter as never,
+          messages: { commentary: "message", stream: true },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { phase: "commentary", text: "Checking the image. ", type: "text-delta" }
+            yield { text: "Unknown text. ", type: "text-delta" }
+            yield { phase: "final", text: "Final answer.", type: "text-delta" }
+          })(),
+        }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { id: 123, username: "maxi" },
+          message_id: 2017,
+          text: "describe this image",
+        },
+      }),
+      method: "POST",
+    }), "discord")
+
+    expect(response.status).toBe(200)
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", expect.any(String), {
+      markdown: "Checking the image. Unknown text. Final answer.",
+    })
   })
 
   it("preserves bare async iterables for final-only Channel delivery", async () => {
@@ -2893,7 +3165,9 @@ describe("server helpers", () => {
     }), "discord")
 
     expect(response.status).toBe(200)
-    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Final streamed answer." })
+    await vi.waitFor(() => {
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "Final streamed answer." })
+    })
   })
 
   it("scopes progressive delivery to the active Channel", async () => {

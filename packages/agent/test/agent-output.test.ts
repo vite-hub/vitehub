@@ -329,6 +329,59 @@ describe("agent output helpers", () => {
     })
   })
 
+  it("preserves explicit text phases across text lifecycle events", () => {
+    const textPhases = new Map()
+
+    expect(toAgentStreamEvent({ id: "commentary-1", phase: "commentary", type: "text-start" }, undefined, textPhases)).toBeUndefined()
+    expect(toAgentStreamEvent({ delta: "Checking the image.", id: "commentary-1", type: "text-delta" }, undefined, textPhases)).toEqual({
+      id: "commentary-1",
+      phase: "commentary",
+      text: "Checking the image.",
+      type: "text-delta",
+    })
+    expect(toAgentStreamEvent({ id: "commentary-1", type: "text-end" }, undefined, textPhases)).toBeUndefined()
+    expect(toAgentStreamEvent({ delta: "Unknown text.", id: "commentary-1", type: "text-delta" }, undefined, textPhases)).toEqual({
+      id: "commentary-1",
+      text: "Unknown text.",
+      type: "text-delta",
+    })
+    expect(toAgentStreamEvent({ phase: "reasoning", text: "Private reasoning.", type: "text" })).toBeUndefined()
+    expect(toAgentStreamEvent({ phase: "final_answer", text: "Final answer.", type: "text" })).toEqual({
+      id: undefined,
+      phase: "final",
+      text: "Final answer.",
+      type: "text-delta",
+    })
+
+    expect(toAgentStreamEvent({ id: "reused", phase: "commentary", type: "text-start" }, undefined, textPhases)).toBeUndefined()
+    expect(toAgentStreamEvent({ id: "reused", type: "text-start" }, undefined, textPhases)).toBeUndefined()
+    expect(toAgentStreamEvent({ id: "reused", text: "Unknown text.", type: "text-delta" }, undefined, textPhases)).toEqual({
+      id: "reused",
+      text: "Unknown text.",
+      type: "text-delta",
+    })
+    expect(toAgentStreamEvent({ id: "reused", phase: "commentary", type: "text-start" }, undefined, textPhases)).toBeUndefined()
+    expect(toAgentStreamEvent({ id: "reused", phase: "unsupported", text: "Unknown text.", type: "text-delta" }, undefined, textPhases)).toBeUndefined()
+    expect(toAgentStreamEvent({ id: "reused", text: "Still private.", type: "text-delta" }, undefined, textPhases)).toBeUndefined()
+
+    expect(toAgentStreamEvent({ id: "reused", phase: "final", text: "Final answer.", type: "text-delta" }, undefined, textPhases)).toEqual({
+      id: "reused",
+      phase: "final",
+      text: "Final answer.",
+      type: "text-delta",
+    })
+    expect(toAgentStreamEvent({ id: "reused", text: "Final suffix.", type: "text-delta" }, undefined, textPhases)).toEqual({
+      id: "reused",
+      phase: "final",
+      text: "Final suffix.",
+      type: "text-delta",
+    })
+
+    expect(toAgentStreamEvent({ id: "reasoning-1", phase: "reasoning", type: "text-start" }, undefined, textPhases)).toBeUndefined()
+    expect(toAgentStreamEvent({ delta: "Private reasoning.", id: "reasoning-1", type: "text-delta" }, undefined, textPhases)).toBeUndefined()
+    expect(toAgentStreamEvent({ id: "reasoning-1", type: "text-end" }, undefined, textPhases)).toBeUndefined()
+  })
+
   it("normalizes stream error chunks", () => {
     expect(toAgentStreamEvent({ error: new Error("boom"), type: "error" })).toEqual({
       error: "boom",
@@ -598,7 +651,8 @@ describe("agent output helpers", () => {
 
   it("falls back to textStream when event streams have no visible text", async () => {
     const output = {
-      stream: (async function* () {
+      fullStream: (async function* () {
+        yield { phase: "upload", type: "file", url: "https://example.com/result.txt" }
         yield { finishReason: "stop", type: "finish" }
       })(),
       textStream: (async function* () {
@@ -615,6 +669,26 @@ describe("agent output helpers", () => {
       { text: "ok", type: "text-delta" },
       { reason: "stop", type: "finish" },
     ])
+  })
+
+  it("does not fall back to textStream after explicitly hidden phased text", async () => {
+    const output = {
+      fullStream: (async function* () {
+        yield { id: "reasoning-1", phase: "reasoning", type: "text-start" }
+        yield { delta: "Private reasoning.", id: "reasoning-1", type: "text-delta" }
+        yield { id: "reasoning-1", type: "text-end" }
+      })(),
+      textStream: (async function* () {
+        yield "Private reasoning."
+      })(),
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([{ type: "finish" }])
   })
 
   it("keeps visible event stream text before falling back to textStream", async () => {

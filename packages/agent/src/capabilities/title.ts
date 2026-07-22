@@ -607,9 +607,19 @@ function withTitleReadableStreamParallel<T>(
   }, { highWaterMark: 0 })))
 }
 
-function textDelta(value: unknown): string {
-  const event = toAgentStreamEvent(value)
-  return event?.type === "text-delta" ? event.text : ""
+function statefulTextDelta(): (value: unknown) => string {
+  const textPhases = new Map<string, "commentary" | "final" | "hidden">()
+  let explicitTextPhaseSeen = false
+  return (value) => {
+    if (value && typeof value === "object") {
+      const chunk = value as Record<string, unknown>
+      if ((chunk.type === "text" || chunk.type === "text-delta" || chunk.type === "text-start") && chunk.phase !== undefined) {
+        explicitTextPhaseSeen = true
+      }
+    }
+    const event = toAgentStreamEvent(value, undefined, textPhases)
+    return event?.type === "text-delta" && (!explicitTextPhaseSeen || event.phase === "final") ? event.text : ""
+  }
 }
 
 function isFinish(value: unknown): boolean {
@@ -617,7 +627,7 @@ function isFinish(value: unknown): boolean {
 }
 
 function withTitleEvent(result: AsyncIterable<StreamEvent>, title: TitleResolution): AsyncIterable<StreamEvent> {
-  return withTitleParallel(result, title, resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }), textDelta, isFinish)
+  return withTitleParallel(result, title, resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }), statefulTextDelta(), isFinish)
 }
 
 function withTitleFullStream(
@@ -625,7 +635,7 @@ function withTitleFullStream(
   title: TitleResolution,
   fallback?: StreamFallback<unknown>,
 ): AsyncIterable<unknown> {
-  return withTitleParallel(result, title, resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }), textDelta, isFinish, fallback)
+  return withTitleParallel(result, title, resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }), statefulTextDelta(), isFinish, fallback)
 }
 
 function withTitleTextStream(result: AsyncIterable<string>, title: TitleResolution): AsyncIterable<StreamEvent> {
@@ -637,7 +647,7 @@ function withTitleTextStream(result: AsyncIterable<string>, title: TitleResoluti
     })(),
     title,
     resolvedTitle => ({ data: titleData(resolvedTitle), type: "data" }),
-    textDelta,
+    statefulTextDelta(),
     isFinish,
   )
 }
@@ -647,7 +657,7 @@ function withTitleUiMessageStream(result: ReadableStream<unknown>, title: TitleR
     result,
     title,
     resolvedTitle => ({ data: titleData(resolvedTitle), type: "data-title" }),
-    textDelta,
+    statefulTextDelta(),
     isFinish,
   )
 }

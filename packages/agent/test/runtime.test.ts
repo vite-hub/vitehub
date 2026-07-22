@@ -5606,6 +5606,19 @@ describe("agent message protocol", () => {
     })).not.toThrow()
   })
 
+  it("accepts channel-local commentary delivery across multiple message-shaped channels", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { teams, telegram } = await import("../src/channels.ts")
+
+    expect(() => defineAgent({
+      channels: {
+        teams: teams({ adapter: () => ({}) as never, messages: { commentary: "hidden" } }),
+        telegram: telegram({ adapter: () => ({}) as never, messages: { commentary: "message" } }),
+      },
+      driver: { run: () => "ok" },
+    })).not.toThrow()
+  })
+
   it("applies channel-local message settings for one message-shaped channel", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
@@ -5638,7 +5651,7 @@ describe("agent message protocol", () => {
         web: webChat({ messages: { triggerHistory: "none" } }),
       },
       driver: { run: () => "ok" },
-    })).toThrow("Channel-local messages options other than stream are only supported when an Agent defines one message-shaped Channel")
+    })).toThrow("Channel-local messages options other than commentary or stream are only supported when an Agent defines one message-shaped Channel")
   })
 
   it("rejects channel-local identity across multiple message-shaped channels", async () => {
@@ -7703,6 +7716,66 @@ describe("agent message protocol", () => {
     for await (const event of result.fullStream) events.push(event)
 
     expect(events).toContainEqual({ data: { title: "Title: Text fallback", type: "title" }, type: "data" })
+  })
+
+  it("keeps hidden phased text out of attachment-only response titles", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const execute = vi.fn(({ text }) => `Title: ${text}`)
+    const agent = defineAgent({
+      capabilities: [title({ execute })],
+      driver: { run: () => ({
+        fullStream: (async function* () {
+          yield { id: "reasoning-1", phase: "reasoning", type: "text-start" }
+          yield { delta: "Private reasoning.", id: "reasoning-1", type: "text-delta" }
+          yield { id: "reasoning-1", type: "text-end" }
+          yield { id: "final-1", phase: "final", type: "text-start" }
+          yield { delta: "Public answer.", id: "final-1", type: "text-delta" }
+          yield { id: "final-1", type: "text-end" }
+          yield { type: "finish" }
+        })(),
+      }) },
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+        role: "user",
+      })],
+    }) as { fullStream: AsyncIterable<unknown> }
+    for await (const _event of result.fullStream) {
+      // Consume the response so deferred title generation completes.
+    }
+
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ text: "Public answer." }))
+    expect(execute).not.toHaveBeenCalledWith(expect.objectContaining({ text: expect.stringContaining("Private reasoning") }))
+  })
+
+  it("keeps commentary out of attachment-only response titles", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const execute = vi.fn(({ text }) => `Title: ${text}`)
+    const agent = defineAgent({
+      capabilities: [title({ execute })],
+      driver: { run: () => ({
+        fullStream: (async function* () {
+          yield { phase: "commentary", text: "Checking the image.", type: "text-delta" }
+          yield { phase: "final", text: "Public answer.", type: "text-delta" }
+          yield { type: "finish" }
+        })(),
+      }) },
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ mediaType: "image/jpeg", type: "image", url: "https://example.com/photo.jpg" }],
+        role: "user",
+      })],
+    }) as { fullStream: AsyncIterable<unknown> }
+    for await (const _event of result.fullStream) {
+      // Consume the response so deferred title generation completes.
+    }
+
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ text: "Public answer." }))
+    expect(execute).not.toHaveBeenCalledWith(expect.objectContaining({ text: expect.stringContaining("Checking the image") }))
   })
 
   it("preserves readable stream results when adding title data", async () => {

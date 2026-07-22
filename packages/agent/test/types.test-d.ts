@@ -974,6 +974,7 @@ describe("agent public types", () => {
 
   it("accepts message settings and channels from the Agent Definition", () => {
     const messages: AgentMessageChannelSettings = {
+      commentary: "hidden",
       concurrency: "queue",
       sessions: true,
       triggerHistory: { maxMessages: 20, source: "thread" },

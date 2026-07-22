@@ -32,6 +32,7 @@ import {
 } from "./channels.ts"
 import { agentInvocationCallbackContextValues, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents } from "./run-events.ts"
+import type { AgentMessagePhase } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
   normalizeAgentInvokerOptions,
@@ -396,6 +397,7 @@ export type {
 } from "./workspace-agent.ts"
 
 export type {
+  AgentMessagePhase,
   Message,
   MessageMetadata,
   MessagePart,
@@ -1812,19 +1814,32 @@ function withStreamedResult(
   fallbackUsageRecord?: Extract<StreamEvent, { type: "usage" }>["usageRecord"],
 ) {
   const toolNames = new Map<string, string>()
-  let streamedText = ""
+  const textPhases = new Map<string, AgentMessagePhase | "hidden">()
+  let explicitTextPhaseSeen = false
+  let finalText = ""
+  let unphasedText = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
   return {
     finishResult() {
-      return resultWithStreamedTextAndUsage(result, streamedText, usageRecord, fallbackUsageRecord)
+      return resultWithStreamedTextAndUsage(result, explicitTextPhaseSeen ? finalText : unphasedText, usageRecord, fallbackUsageRecord)
     },
     finishUsage() {
       return usageRecord ?? fallbackUsageRecord
     },
     stream: (async function* () {
       for await (const chunk of stream) {
-        const event = toAgentStreamEvent(chunk, toolNames)
-        if (event?.type === "text-delta" && event.text) streamedText += event.text
+        const event = toAgentStreamEvent(chunk, toolNames, textPhases)
+        const explicitlyPhasedTextChunk = chunk && typeof chunk === "object"
+          && "phase" in chunk && (chunk as { phase?: unknown }).phase !== undefined
+          && "type" in chunk && ["text", "text-delta", "text-end", "text-start"].includes(String((chunk as { type?: unknown }).type))
+        if (explicitlyPhasedTextChunk || (event?.type === "text-delta" && event.phase !== undefined)) {
+          explicitTextPhaseSeen = true
+          unphasedText = ""
+        }
+        if (event?.type === "text-delta" && event.text) {
+          if (event.phase === "final") finalText += event.text
+          else if (!explicitTextPhaseSeen && event.phase === undefined) unphasedText += event.text
+        }
         if (event?.type === "usage") usageRecord = event.usageRecord
         yield chunk
       }
@@ -1869,6 +1884,7 @@ function traceUiMessageStream<
 >(stream: ReadableStream<unknown>, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): ReadableStream<unknown> {
   const reader = stream.getReader()
   const toolNames = new Map<string, string>()
+  const textPhases = new Map<string, AgentMessagePhase | "hidden">()
   let finished = false
   let released = false
   const release = () => {
@@ -1886,7 +1902,7 @@ function traceUiMessageStream<
           controller.close()
           return
         }
-        const event = toAgentStreamEvent(result.value, toolNames)
+        const event = toAgentStreamEvent(result.value, toolNames, textPhases)
         if (event) {
           if (event.type === "finish") finished = true
           await traceAgentStreamEvent(toTraceContext(context), event)
