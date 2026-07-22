@@ -1,4 +1,4 @@
-import { SandboxError } from '../sandbox/errors'
+import { sandboxError } from '../sandbox/errors'
 import type { SandboxExecutionBox } from './execution-box'
 
 export const SANDBOX_VALUE_MARKER = 'vitehub:sandbox:value'
@@ -41,8 +41,8 @@ function tagged(value: BinaryDescriptor | ObjectDescriptor) {
 }
 
 function serializationError(message: string, details?: Record<string, unknown>, cause?: unknown) {
-  return new SandboxError(message, {
-    code: 'SERIALIZATION_ERROR',
+  return sandboxError(message, {
+    code: 'SANDBOX_SERIALIZATION_ERROR',
     cause,
     details,
   })
