@@ -27,16 +27,16 @@ import type {
   AgentCapabilityDefinition,
   AgentCapabilityMode,
   AgentDefinition,
-  AgentDevtoolsConfigMetadata,
-  AgentDevtoolsConfigValue,
-  AgentDevtoolsDriverMetadata,
-  AgentDevtoolsFileTreeItem,
-  AgentDevtoolsHarnessMetadata,
-  AgentDevtoolsMetadata,
-  AgentDevtoolsModelExecutionMetadata,
-  AgentDevtoolsModelMetadata,
-  AgentDevtoolsToolDefinition,
-  AgentDevtoolsWarning,
+  AgentInspectionConfigMetadata,
+  AgentInspectionConfigValue,
+  AgentInspectionDriverMetadata,
+  AgentInspectionFileTreeItem,
+  AgentInspectionHarnessMetadata,
+  AgentInspectionMetadata,
+  AgentInspectionModelExecutionMetadata,
+  AgentInspectionModelMetadata,
+  AgentInspectionToolDefinition,
+  AgentInspectionWarning,
   AgentDriverKind,
   AgentInvocationContextStore,
   AgentInvocationContextValues,
@@ -128,7 +128,7 @@ export interface WorkspaceAgentDefaults<Name extends WorkspaceName = WorkspaceNa
   workspace?: Name
 }
 
-export interface AgentDevtoolsMetadataResolutionOptions<
+export interface AgentInspectionMetadataResolutionOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > extends WorkspaceAgentDefaults<Name> {
@@ -136,10 +136,10 @@ export interface AgentDevtoolsMetadataResolutionOptions<
   runtime?: Partial<ResolvedAgentRuntimeContext<TRuntimeConfig>>
 }
 
-export interface AgentDevtoolsSourceMaterializationOptions<
+export interface AgentInspectionSourceMaterializationOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> extends AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name> {
+> extends AgentInspectionMetadataResolutionOptions<TRuntimeConfig, Name> {
   path?: string
   source?: string
   sources?: string[]
@@ -413,7 +413,7 @@ function workspaceShellMetadataCommands(mode: AgentCapabilityMode, sourceRequest
   return sourceRequests ? [...commands, ...sourceRequestCommands] : commands
 }
 
-function capabilityMetadataTool(capability: NormalizedCapability, options: { driverKind?: AgentDriverKind, sourceRequests?: boolean } = {}): AgentDevtoolsToolDefinition | undefined {
+function capabilityMetadataTool(capability: NormalizedCapability, options: { driverKind?: AgentDriverKind, sourceRequests?: boolean } = {}): AgentInspectionToolDefinition | undefined {
   if (capability.id === "workspace-shell") {
     const mode = normalizeMode(capability.mode, "Workspace Shell")
     const configuredCommands = (capability.metadata as { commands?: unknown } | undefined)?.commands
@@ -462,10 +462,10 @@ function capabilityMetadataTool(capability: NormalizedCapability, options: { dri
 function capabilityMetadataTools(
   capabilities: readonly AgentCapabilityDefinition[],
   options: { driverKind?: AgentDriverKind, sourceRequests?: boolean } = {},
-): AgentDevtoolsToolDefinition[] {
+): AgentInspectionToolDefinition[] {
   return normalizeCapabilities(capabilities)
     .map(capability => capabilityMetadataTool(capability, options))
-    .filter((tool): tool is AgentDevtoolsToolDefinition => Boolean(tool))
+    .filter((tool): tool is AgentInspectionToolDefinition => Boolean(tool))
     .sort((left, right) => left.name.localeCompare(right.name))
 }
 
@@ -493,7 +493,7 @@ function modelProviderFromId(id: string | undefined): string | undefined {
   return provider && provider !== id ? provider : undefined
 }
 
-function modelMetadata(model: AgentModelInput, dynamic = false): AgentDevtoolsModelMetadata {
+function modelMetadata(model: AgentModelInput, dynamic = false): AgentInspectionModelMetadata {
   const record = isRecord(model) ? model : undefined
   const id = record ? stringField(record, ["modelId", "id", "model", "name"]) : undefined
   const provider = record ? stringField(record, ["provider", "providerId"]) || modelProviderFromId(id) : undefined
@@ -504,20 +504,20 @@ function modelMetadata(model: AgentModelInput, dynamic = false): AgentDevtoolsMo
   }
 }
 
-function configValue(value: unknown): AgentDevtoolsConfigValue | undefined {
+function configValue(value: unknown): AgentInspectionConfigValue | undefined {
   if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") {
     return value
   }
 }
 
-function redactedConfigValue(key: string, value: unknown): AgentDevtoolsConfigValue | undefined {
+function redactedConfigValue(key: string, value: unknown): AgentInspectionConfigValue | undefined {
   if (/(?:api[-_]?key|authorization|credential|password|secret|token)/i.test(key)) {
     return "[redacted]"
   }
   return configValue(value)
 }
 
-function callSettingsMetadata(value: unknown): Record<string, AgentDevtoolsConfigValue> | undefined {
+function callSettingsMetadata(value: unknown): Record<string, AgentInspectionConfigValue> | undefined {
   if (!isRecord(value)) return
   const entries = Object.entries(value)
     .flatMap(([key, setting]) => {
@@ -528,8 +528,8 @@ function callSettingsMetadata(value: unknown): Record<string, AgentDevtoolsConfi
 }
 
 function workspaceFallbackMetadata(
-  value: AgentDevtoolsModelExecutionMetadata["workspaceFallback"] | boolean | undefined,
-): AgentDevtoolsModelExecutionMetadata["workspaceFallback"] | undefined {
+  value: AgentInspectionModelExecutionMetadata["workspaceFallback"] | boolean | undefined,
+): AgentInspectionModelExecutionMetadata["workspaceFallback"] | undefined {
   if (typeof value === "boolean") return { enabled: value }
   if (!isRecord(value)) return
   const enabled = typeof value.enabled === "boolean" ? value.enabled : undefined
@@ -542,7 +542,7 @@ function workspaceFallbackMetadata(
     : undefined
 }
 
-function executionMetadata(value: AgentDevtoolsDriverMetadata["execution"] | undefined): AgentDevtoolsModelExecutionMetadata | undefined {
+function executionMetadata(value: AgentInspectionDriverMetadata["execution"] | undefined): AgentInspectionModelExecutionMetadata | undefined {
   if (!value) return
   const callSettings = callSettingsMetadata(value.callSettings)
   const workspaceFallback = workspaceFallbackMetadata(value.workspaceFallback)
@@ -556,7 +556,7 @@ function executionMetadata(value: AgentDevtoolsDriverMetadata["execution"] | und
     : undefined
 }
 
-function harnessMetadata(driver: { credentials?: unknown, harness: unknown, sandbox?: unknown, sessionKey?: unknown }): AgentDevtoolsHarnessMetadata | undefined {
+function harnessMetadata(driver: { credentials?: unknown, harness: unknown, sandbox?: unknown, sessionKey?: unknown }): AgentInspectionHarnessMetadata | undefined {
   const harness = isRecord(driver.harness) ? driver.harness : undefined
   const provider = harness ? stringField(harness, ["provider", "name"]) : undefined
   const sandboxProvider = isRecord(driver.sandbox) ? stringField(driver.sandbox, ["provider", "providerId"]) : undefined
@@ -580,7 +580,7 @@ function staticDriverMetadata<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
->(settings: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined): AgentDevtoolsDriverMetadata | undefined {
+>(settings: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined): AgentInspectionDriverMetadata | undefined {
   if (!settings) return
   const driver = normalizeAgentDriver(settings)
   if (driver.kind === "model") {
@@ -608,7 +608,7 @@ async function resolvedDriverMetadata<
 >(
   settings: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined,
   context: AgentAdapterMetadataContext<TRuntimeConfig, Name>,
-): Promise<AgentDevtoolsDriverMetadata | undefined> {
+): Promise<AgentInspectionDriverMetadata | undefined> {
   if (!settings) return
   const driver = normalizeAgentDriver(settings)
   if (driver.kind === "model") {
@@ -634,7 +634,7 @@ async function resolvedDriverMetadata<
 
 function staticConfigMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-): AgentDevtoolsConfigMetadata | undefined {
+): AgentInspectionConfigMetadata | undefined {
   const driver = staticDriverMetadata(agentSettings(definition))
   return driver ? { driver } : undefined
 }
@@ -645,17 +645,17 @@ async function resolvedConfigMetadata<
 >(
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentAdapterMetadataContext<TRuntimeConfig, Name>,
-): Promise<AgentDevtoolsConfigMetadata | undefined> {
+): Promise<AgentInspectionConfigMetadata | undefined> {
   const driver = await resolvedDriverMetadata(agentSettings(definition), context)
   return driver ? { driver } : undefined
 }
 
-function agentDevtoolsMetadata<
+function agentInspectionMetadata<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 >(
   definition: Pick<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>, "invoker" | "version"> & AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-): Pick<AgentDevtoolsMetadata, "config" | "invokerProfiles" | "version"> {
+): Pick<AgentInspectionMetadata, "config" | "invokerProfiles" | "version"> {
   const invokerProfiles = normalizeAgentInvokerProfiles(definition.invoker?.profiles)
   const config = staticConfigMetadata(definition)
   return {
@@ -676,7 +676,7 @@ function sourceMountPath(source: WorkspaceSourceMetadata) {
   return source.mountPath
 }
 
-function sourceMaterialize(source: WorkspaceSourceMetadata): AgentDevtoolsFileTreeItem["materialize"] {
+function sourceMaterialize(source: WorkspaceSourceMetadata): AgentInspectionFileTreeItem["materialize"] {
   return source.materialize === "none" ? undefined : source.materialize
 }
 
@@ -685,7 +685,7 @@ function workspaceMetadataFiles<
   Name extends WorkspaceName,
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
-): AgentDevtoolsFileTreeItem[] {
+): AgentInspectionFileTreeItem[] {
   const sources = normalizedSourcesFromOptions(options)
   return sources.sort((left, right) => left.key.localeCompare(right.key)).map((source) => {
     const materialize = sourceMaterialize(source)
@@ -804,7 +804,7 @@ function sourceMountPaths<
   return normalizedSourcesFromOptions(options).map(source => sourceMountPath(source))
 }
 
-function addFileTreePath(root: AgentDevtoolsFileTreeItem, entry: WorkspaceEntry) {
+function addFileTreePath(root: AgentInspectionFileTreeItem, entry: WorkspaceEntry) {
   const path = entry.path === "instructions/AGENTS.md" ? "AGENTS.md" : entry.path
   if (path === "instructions") return
   const kind = entry.type
@@ -835,7 +835,7 @@ function addFileTreePath(root: AgentDevtoolsFileTreeItem, entry: WorkspaceEntry)
   }
 }
 
-function sortFileTree(item: AgentDevtoolsFileTreeItem) {
+function sortFileTree(item: AgentInspectionFileTreeItem) {
   item.children?.sort((left, right) => {
     if (left.kind !== right.kind) return left.kind === "directory" ? -1 : 1
     return (left.label || left.path).localeCompare(right.label || right.path)
@@ -844,7 +844,7 @@ function sortFileTree(item: AgentDevtoolsFileTreeItem) {
 }
 
 function markSourceTreeMetadata(
-  root: AgentDevtoolsFileTreeItem,
+  root: AgentInspectionFileTreeItem,
   options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>,
 ) {
   const sources = normalizedSourcesFromOptions(options)
@@ -871,7 +871,7 @@ function markSourceTreeMetadata(
   }
 }
 
-function propagateMaterializedDirectories(item: AgentDevtoolsFileTreeItem): boolean {
+function propagateMaterializedDirectories(item: AgentInspectionFileTreeItem): boolean {
   const childMaterialized = (item.children || []).map(propagateMaterializedDirectories)
   if (item.kind === "directory" && item.materialize === "lazy" && childMaterialized.some(Boolean)) {
     item.materialized = true
@@ -879,7 +879,7 @@ function propagateMaterializedDirectories(item: AgentDevtoolsFileTreeItem): bool
   return Boolean(item.materialized || item.materializedAt || childMaterialized.some(Boolean))
 }
 
-function clearReadyMaterializationHints(item: AgentDevtoolsFileTreeItem) {
+function clearReadyMaterializationHints(item: AgentInspectionFileTreeItem) {
   if (item.materialized || item.materializedAt || item.status === "ready") {
     delete item.materialize
   }
@@ -889,8 +889,8 @@ function clearReadyMaterializationHints(item: AgentDevtoolsFileTreeItem) {
 async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
   workspace: ReadonlyWorkspaceFacade<Name>,
-): Promise<AgentDevtoolsFileTreeItem[]> {
-  const root: AgentDevtoolsFileTreeItem = {
+): Promise<AgentInspectionFileTreeItem[]> {
+  const root: AgentInspectionFileTreeItem = {
     children: [],
     kind: "directory",
     label: "",
@@ -913,7 +913,7 @@ function workspaceMetadataTools<
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   toolOptions: { sourceRequests?: boolean } = {},
-): AgentDevtoolsToolDefinition[] {
+): AgentInspectionToolDefinition[] {
   const driverKind = workspaceAgentDriverKind(options)
   return capabilityMetadataTools(staticAgentCapabilities(options.capabilities), { ...toolOptions, driverKind })
 }
@@ -940,7 +940,7 @@ async function resolveWorkspaceMetadataTools<
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   workspace: ReadonlyWorkspaceFacade<Name>,
-): Promise<AgentDevtoolsToolDefinition[]> {
+): Promise<AgentInspectionToolDefinition[]> {
   return workspaceMetadataTools(options, {
     sourceRequests: await workspaceHasSourceRequestDescriptors(workspace),
   })
@@ -1033,10 +1033,10 @@ async function resolveWorkspaceMetadataInstructions<
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   workspace: ReadonlyWorkspaceFacade<Name>,
-  resolution: AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name> = {},
+  resolution: AgentInspectionMetadataResolutionOptions<TRuntimeConfig, Name> = {},
   sourceDefinition: WorkspaceDefinition = workspaceDefinitionWithNameFromOptions(options, resolution),
   compositionContext?: AgentInvocationContextStore,
-): Promise<{ instructions: string[], warnings: AgentDevtoolsWarning[] }> {
+): Promise<{ instructions: string[], warnings: AgentInspectionWarning[] }> {
   const instructionContext = {
     fs: workspace.fs,
     workspace,
@@ -1068,7 +1068,7 @@ function instructionCoverageWarnings(
   definition: WorkspaceDefinition | undefined,
   capabilities: readonly AgentCapabilityDefinition[] | undefined,
   driverKind: AgentDriverKind,
-): AgentDevtoolsWarning[] {
+): AgentInspectionWarning[] {
   return [
     ...sourceCoverageWarnings(coverage, definition),
     ...capabilityCoverageWarnings(coverage, capabilities),
@@ -1076,14 +1076,14 @@ function instructionCoverageWarnings(
   ]
 }
 
-function warning(id: string, primitive: AgentDevtoolsWarning["primitive"], message: string): AgentDevtoolsWarning {
+function warning(id: string, primitive: AgentInspectionWarning["primitive"], message: string): AgentInspectionWarning {
   return { id, kind: "instruction-coverage", message, primitive, severity: "warning" }
 }
 
 function sourceCoverageWarnings(
   coverage: ReturnType<typeof createInstructionCoverage>,
   definition: WorkspaceDefinition | undefined,
-): AgentDevtoolsWarning[] {
+): AgentInspectionWarning[] {
   return normalizeWorkspaceSourcesMetadata(definition?.sources)
     .filter(source => source.key !== colocatedAgentInstructionsSourceKey)
     .filter(source => !coverage.sources.has(source.key))
@@ -1101,7 +1101,7 @@ function capabilityCoverageKeys(id: string): string[] {
 function capabilityCoverageWarnings(
   coverage: ReturnType<typeof createInstructionCoverage>,
   capabilities: readonly AgentCapabilityDefinition[] | undefined,
-): AgentDevtoolsWarning[] {
+): AgentInspectionWarning[] {
   return normalizeCapabilities(capabilities as AgentCapabilityDefinition[] | undefined)
     .filter(capability => capability.id !== "skills" && !capability.id.startsWith("skills."))
     .filter(capability => !capabilityCoverageKeys(capability.id).some(key => coverage.capabilities.has(key)))
@@ -1120,7 +1120,7 @@ function skillCoveragePath(value: unknown): string | undefined {
 function skillCoverageWarnings(
   coverage: ReturnType<typeof createInstructionCoverage>,
   capabilities: readonly AgentCapabilityDefinition[] | undefined,
-): AgentDevtoolsWarning[] {
+): AgentInspectionWarning[] {
   return normalizeCapabilities(capabilities as AgentCapabilityDefinition[] | undefined)
     .filter(capability => capability.id === "skills" || capability.id.startsWith("skills."))
     .flatMap((capability) => {
@@ -1161,12 +1161,12 @@ function hasAccessCapability(capabilities: readonly AgentCapabilityDefinition[])
     .some(capability => capability.id === "access")
 }
 
-async function createDevtoolsMetadataWorkspace<
+async function createInspectionMetadataWorkspace<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
 >(
   definition: Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>,
-  defaultsOverride: AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name> = {},
+  defaultsOverride: AgentInspectionMetadataResolutionOptions<TRuntimeConfig, Name> = {},
   selection: {
     capabilities: readonly AgentCapabilityDefinition[]
     invocationContext: AgentInvocationContextStore
@@ -1204,11 +1204,11 @@ async function createDevtoolsMetadataWorkspace<
   }
 }
 
-function createDevtoolsMetadataRuntime<
+function createInspectionMetadataRuntime<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
 >(
-  resolution: AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name>,
+  resolution: AgentInspectionMetadataResolutionOptions<TRuntimeConfig, Name>,
 ): ResolvedAgentRuntimeContext<TRuntimeConfig> {
   const runtime = resolution.runtime || {}
   return {
@@ -1234,9 +1234,9 @@ async function resolveMetadataCapabilitySelection<
   Name extends WorkspaceName,
 >(
   settings: Pick<WorkspaceAgentOptions<TRuntimeConfig, Name>, "capabilities" | "driver" | "invoker">,
-  resolution: AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name>,
+  resolution: AgentInspectionMetadataResolutionOptions<TRuntimeConfig, Name>,
 ): Promise<MetadataCapabilitySelection<TRuntimeConfig, Name>> {
-  const runtime = createDevtoolsMetadataRuntime(resolution)
+  const runtime = createInspectionMetadataRuntime(resolution)
   const input = resolution.input || { messages: [] }
   const invocationContext: AgentInvocationContextStore = createAgentInvocationContextStore(input.context)
   const callbackContext = agentCallbackContext(runtime)
@@ -1275,7 +1275,7 @@ async function resolveWorkspaceMetadataCapabilityContext<
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   workspace: ReadonlyWorkspaceFacade<Name>,
-  resolution: AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name>,
+  resolution: AgentInspectionMetadataResolutionOptions<TRuntimeConfig, Name>,
   selection: MetadataCapabilitySelection<TRuntimeConfig, Name>,
 ) {
   const { capabilities: capabilityDefinitions, driverKind, input, invocationContext, invoker, runtime } = selection
@@ -1329,7 +1329,7 @@ async function withMetadataCapabilityCleanup<T>(
       await context.close()
     }
     catch (closeError) {
-      throw new AggregateError([error, closeError], "[vitehub] Agent DevTools metadata resolution failed and Capability cleanup also failed.")
+      throw new AggregateError([error, closeError], "[vitehub] Agent inspection metadata resolution failed and Capability cleanup also failed.")
     }
     throw error
   }
@@ -1337,15 +1337,15 @@ async function withMetadataCapabilityCleanup<T>(
   return value
 }
 
-async function resolveNonWorkspaceAgentDevtoolsMetadata<
+async function resolveNonWorkspaceAgentInspectionMetadata<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
 >(
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-  resolution: AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name>,
-): Promise<AgentDevtoolsMetadata> {
+  resolution: AgentInspectionMetadataResolutionOptions<TRuntimeConfig, Name>,
+): Promise<AgentInspectionMetadata> {
   const settings = agentSettings(definition)
-  if (!settings) return { files: [], ...agentDevtoolsMetadata(definition as never), tools: [] }
+  if (!settings) return { files: [], ...agentInspectionMetadata(definition as never), tools: [] }
 
   const selection = await resolveMetadataCapabilitySelection(settings as never, resolution)
   validateAgentCapabilityComposition(selection.capabilities, { hasWorkspace: false })
@@ -1361,41 +1361,41 @@ async function resolveNonWorkspaceAgentDevtoolsMetadata<
   })
   return await withMetadataCapabilityCleanup(capabilities, async () => ({
     files: [],
-    ...agentDevtoolsMetadata(definition as never),
+    ...agentInspectionMetadata(definition as never),
     tools: capabilityMetadataTools(selection.capabilities, { driverKind: selection.driverKind }),
   }))
 }
 
-export function createAgentDevtoolsMetadata<
+export function createAgentInspectionMetadata<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 >(
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-): AgentDevtoolsMetadata {
+): AgentInspectionMetadata {
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
   if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
-    return { files: [], ...agentDevtoolsMetadata(definition), tools: [] }
+    return { files: [], ...agentInspectionMetadata(definition), tools: [] }
   }
 
   const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
   return {
     files: workspaceMetadataFiles(options),
     instructions: workspaceMetadataInstructions(options),
-    ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
+    ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
     tools: workspaceMetadataTools(options),
   }
 }
 
-export async function resolveAgentDevtoolsMetadata<
+export async function resolveAgentInspectionMetadata<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 >(
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-  defaultsOverride: AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name> = {},
-): Promise<AgentDevtoolsMetadata> {
+  defaultsOverride: AgentInspectionMetadataResolutionOptions<TRuntimeConfig, Name> = {},
+): Promise<AgentInspectionMetadata> {
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
   if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
-    return await resolveNonWorkspaceAgentDevtoolsMetadata(definition, defaultsOverride)
+    return await resolveNonWorkspaceAgentInspectionMetadata(definition, defaultsOverride)
   }
 
   const workspaceOptions = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
@@ -1405,9 +1405,9 @@ export async function resolveAgentDevtoolsMetadata<
     hasWorkspace: true,
     workspaceMode: workspaceModeFromOptions(workspaceOptions),
   })
-  const metadataWorkspace = await createDevtoolsMetadataWorkspace(workspaceDefinition, defaultsOverride, selection)
+  const metadataWorkspace = await createInspectionMetadataWorkspace(workspaceDefinition, defaultsOverride, selection)
   if (!metadataWorkspace) {
-    return createAgentDevtoolsMetadata(definition)
+    return createAgentInspectionMetadata(definition)
   }
   const capabilityContext = await resolveWorkspaceMetadataCapabilityContext(
     metadataWorkspace.options as never,
@@ -1431,7 +1431,7 @@ export async function resolveAgentDevtoolsMetadata<
     return {
       files: await resolveWorkspaceMetadataFiles(capabilityContext.options as never, capabilityContext.workspace as never),
       instructions: instructionMetadata.instructions,
-      ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
+      ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
       ...(config ? { config } : {}),
       tools: await resolveWorkspaceMetadataTools(capabilityContext.options as never, capabilityContext.workspace as never),
       ...(instructionMetadata.warnings.length ? { warnings: instructionMetadata.warnings } : {}),
@@ -1439,16 +1439,16 @@ export async function resolveAgentDevtoolsMetadata<
   })
 }
 
-export async function materializeAgentDevtoolsSourceMetadata<
+export async function materializeAgentInspectionSourceMetadata<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 >(
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-  options: AgentDevtoolsSourceMaterializationOptions<TRuntimeConfig, Name> = {},
-): Promise<AgentDevtoolsMetadata> {
+  options: AgentInspectionSourceMaterializationOptions<TRuntimeConfig, Name> = {},
+): Promise<AgentInspectionMetadata> {
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
   if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
-    return await resolveNonWorkspaceAgentDevtoolsMetadata(definition, options)
+    return await resolveNonWorkspaceAgentInspectionMetadata(definition, options)
   }
 
   const workspaceOptions = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
@@ -1458,9 +1458,9 @@ export async function materializeAgentDevtoolsSourceMetadata<
     hasWorkspace: true,
     workspaceMode: workspaceModeFromOptions(workspaceOptions),
   })
-  const metadataWorkspace = await createDevtoolsMetadataWorkspace(workspaceDefinition, options, selection)
+  const metadataWorkspace = await createInspectionMetadataWorkspace(workspaceDefinition, options, selection)
   if (!metadataWorkspace) {
-    return createAgentDevtoolsMetadata(definition)
+    return createAgentInspectionMetadata(definition)
   }
   const capabilityContext = await resolveWorkspaceMetadataCapabilityContext(
     metadataWorkspace.options as never,
@@ -1502,7 +1502,7 @@ export async function materializeAgentDevtoolsSourceMetadata<
     return {
       files: await resolveWorkspaceMetadataFiles(capabilityContext.options as never, capabilityContext.workspace as never),
       instructions: instructionMetadata.instructions,
-      ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
+      ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
       ...(config ? { config } : {}),
       tools: await resolveWorkspaceMetadataTools(capabilityContext.options as never, capabilityContext.workspace as never),
       ...(instructionMetadata.warnings.length ? { warnings: instructionMetadata.warnings } : {}),

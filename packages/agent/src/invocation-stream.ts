@@ -1,11 +1,24 @@
 import { toAgentPublicError } from "./agent-error.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { AgentPublicErrorCode, AgentPublicErrorDetails } from "./agent-error.ts"
-import type { AgentChannelDeliveryEffectIntent, AgentRunMetadata } from "./types.ts"
+import type { AgentChannelDeliveryEffectIntent, AgentInspectionMetadata, AgentRunMetadata } from "./types.ts"
 
 export const agentInvocationStreamRoute = "/__vitehub/agent/invocation-stream"
 export const agentInvocationStreamHeader = "x-vitehub-agent-dev-loop"
 export const agentInvocationStreamHeaderValue = "1"
+
+export interface AgentDevLoopAgentSummary {
+  aliases?: string[]
+  name: string
+  triggers: string[]
+}
+
+export interface AgentDevLoopDiscoveryResponse {
+  agents: AgentDevLoopAgentSummary[]
+  inspection?: AgentInspectionMetadata
+  root: string
+  workspaceDevTokenServerId?: string
+}
 
 export interface AgentInvocationStreamErrorEvent {
   code?: AgentPublicErrorCode | (string & {})

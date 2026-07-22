@@ -30,7 +30,6 @@ instead of one root barrel.
 | `@vite-hub/browser` | Browser Session lifecycle, controllers, providers, live handoff, and Cloudflare Browser Run output | `@vite-hub/browser`, `@vite-hub/browser/controllers/*`, `@vite-hub/browser/providers/*`, `@vite-hub/browser/vite` |
 | `@vite-hub/box` | Box Definitions and provider-neutral execution sessions | `@vite-hub/box`, `@vite-hub/box/crabbox`, `@vite-hub/box/cloudflare`, `@vite-hub/box/vercel` |
 | `@vite-hub/database` | Database Definitions, Drizzle schema generation, D1 and hosted database wiring | `@vite-hub/database`, `@vite-hub/database/drizzle`, `@vite-hub/database/vite` |
-| `@vite-hub/devtools` | ViteHub DevTools Client shell integration and DevTools Feature registration helpers | `@vite-hub/devtools` |
 | `@vite-hub/email` | Email Definitions, provider-neutral outbound delivery, Dynamic Markdown composition, SMTP adapter, and test capture | `@vite-hub/email`, `@vite-hub/email/drivers/smtp`, `@vite-hub/email/markdown`, `@vite-hub/email/server`, `@vite-hub/email/test`, `@vite-hub/email/vite` |
 | `@vite-hub/env` | Env Declarations, Public Env, Server Env, Secret Env, generated env access | `@vite-hub/env`, `@vite-hub/env/vite`, `@vite-hub/env/server`, `@vite-hub/env/secret` |
 | `@vite-hub/kv` | KV Runtime Helper and configured KV Stores | `@vite-hub/kv`, `@vite-hub/kv/vite` |

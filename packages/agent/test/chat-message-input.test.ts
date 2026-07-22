@@ -176,29 +176,6 @@ describe("chat message trigger input", () => {
     expect(result.input.context?.invoker).toBeUndefined()
   })
 
-  it("uses the devtools origin as the Chat Trigger invoker kind", () => {
-    const result = createChatMessageTriggerInput({}, {
-      messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }],
-      meta: { email: "maximo@quiver.dk" },
-      run: { origin: "devtools", runId: "devtools-run" },
-      user: { email: "maximo@quiver.dk" },
-    })
-
-    expect(result.input.context?.invoker).toMatchObject({
-      email: {
-        address: "maximo@quiver.dk",
-        domain: "quiver.dk",
-      },
-      id: "devtools:maximo@quiver.dk",
-      kind: "devtools",
-      meta: { email: "maximo@quiver.dk" },
-    })
-    expect(result.input.context?.chat).not.toHaveProperty("run")
-    expect(result.input.context?.channel).toMatchObject({
-      run: { origin: "devtools", runId: "devtools-run" },
-    })
-  })
-
   it("preserves completed UI tool calls", () => {
     const result = createChatMessageTriggerInput({}, {
       messages: [{

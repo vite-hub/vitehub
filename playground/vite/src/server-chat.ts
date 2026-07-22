@@ -1,6 +1,6 @@
 import { H3 } from "h3"
 
-import agent from "../server/agents/devtools-demo"
+import agent from "../server/agents/cli-dev"
 
 const app = new H3()
 

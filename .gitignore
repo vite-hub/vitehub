@@ -30,7 +30,6 @@ test-results
 docs/types/auto-imports.d.ts
 docs/types/mdc-runtime.d.ts
 packages/*/dist
-packages/agent/devtools-client
 packages/*/*.tgz
 *.log
 .DS_Store

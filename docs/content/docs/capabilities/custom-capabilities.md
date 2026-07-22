@@ -237,7 +237,7 @@ pnpm vitehub agent dev --url http://localhost:3000 --agent support --cli invento
 
 ## Inspect and verify
 
-Run one Agent Invocation and inspect the Agent in DevTools.
+Run one Agent Invocation through `vitehub agent dev` and inspect its streamed tool events.
 Check that the custom Capability id appears once, its requirements pass, and its tools are exposed only when expected.
 
 Add an Agent Eval when the Capability changes product behavior.

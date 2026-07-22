@@ -9,6 +9,7 @@ import { vercelAiGatewayPricing, type AgentUsagePricing } from "./internal/usage
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
 
+import type { AgentDevLoopDiscoveryResponse } from "./invocation-stream.ts"
 import type { AgentEvalOptions, AgentUsageRecord } from "./types.ts"
 import type { UIMessageLike } from "./chat-message-input.ts"
 import type { WorkspaceDevTokenOptions } from "@vite-hub/workspace/server"
@@ -93,12 +94,6 @@ function startWorkspaceCommandFeedback(context: AgentCliContext): () => void {
 
 interface AgentDevCliOptions {
   fetch?: typeof fetch
-}
-
-interface AgentDevDiscovery {
-  agents?: Array<{ aliases?: unknown, name?: unknown, triggers?: unknown }>
-  root?: unknown
-  workspaceDevTokenServerId?: unknown
 }
 
 interface AgentDevTarget {
@@ -793,7 +788,7 @@ async function readDiscovery(
     return
   }
 
-  const discovery = await response.json().catch(() => ({})) as AgentDevDiscovery
+  const discovery = await response.json().catch(() => ({})) as Partial<AgentDevLoopDiscoveryResponse>
   if (typeof discovery.root === "string" && discovery.root !== context.rootDir) {
     context.stderr.write(`Compatible Vite Development Server root mismatch: ${discovery.root}\n`)
     return

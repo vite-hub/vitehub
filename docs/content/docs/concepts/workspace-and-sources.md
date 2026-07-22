@@ -57,7 +57,7 @@ export default defineWorkspace({
 
 Source use guidance for model-backed Agents belongs in Agent Driver Instructions or deterministic imported instruction Markdown. Current Source Instruction metadata does not grant access, change Workspace Scope, or make hidden Sources visible.
 
-Agent DevTools metadata warns when configured Sources are visible to an Agent but lack explicit instruction coverage.
+Agent inspection metadata warns when configured Sources are visible to an Agent but lack explicit instruction coverage.
 
 ## Agent access
 

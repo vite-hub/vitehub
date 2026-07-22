@@ -259,15 +259,15 @@ export type {
   AgentDeliveryArtifactPlacement,
   AgentDefinition,
   AgentDefinitionCliOptions,
-  AgentDevtoolsConfigMetadata,
-  AgentDevtoolsConfigValue,
-  AgentDevtoolsDriverMetadata,
-  AgentDevtoolsFileTreeItem,
-  AgentDevtoolsHarnessMetadata,
-  AgentDevtoolsMetadata,
-  AgentDevtoolsModelExecutionMetadata,
-  AgentDevtoolsModelMetadata,
-  AgentDevtoolsToolDefinition,
+  AgentInspectionConfigMetadata,
+  AgentInspectionConfigValue,
+  AgentInspectionDriverMetadata,
+  AgentInspectionFileTreeItem,
+  AgentInspectionHarnessMetadata,
+  AgentInspectionMetadata,
+  AgentInspectionModelExecutionMetadata,
+  AgentInspectionModelMetadata,
+  AgentInspectionToolDefinition,
   AgentDriver,
   AgentDriverContribution,
   AgentDriverContributionKind,
@@ -378,9 +378,9 @@ export type {
 } from "./types.ts"
 
 export {
-  createAgentDevtoolsMetadata,
-  materializeAgentDevtoolsSourceMetadata,
-  resolveAgentDevtoolsMetadata,
+  createAgentInspectionMetadata,
+  materializeAgentInspectionSourceMetadata,
+  resolveAgentInspectionMetadata,
   workspaceAgentOwnsWorkspaceDefinition,
   workspaceDefinitionFromOptions,
 } from "./workspace-agent.ts"
@@ -932,6 +932,7 @@ export {
   readAgentInvocationStream,
 } from "./invocation-stream.ts"
 export type { AgentInvocationStreamErrorEvent, AgentInvocationStreamEvent } from "./invocation-stream.ts"
+export type { AgentDevLoopAgentSummary, AgentDevLoopDiscoveryResponse } from "./invocation-stream.ts"
 
 export type {
   AgentRunEvent,
@@ -1048,7 +1049,7 @@ function defineBaseAgent<
         ? await resolveStaticCapabilityTools({ capabilities: normalizedCapabilities }, resolvedContext)
         : undefined
       const capabilityTools = Object.keys(resolvedTools || {}).length
-        ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(resolvedTools) || {}), context.devtools?.reportToolStep)
+        ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(resolvedTools) || {}), context.toolStepReporter)
         : undefined
       return capabilityTools
         ? { ...adapterInstance, tools: capabilityTools }
@@ -1310,7 +1311,7 @@ type AgentInvocationContext<
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
-  devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
+  toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   driverContributions: AgentDriverContribution[]
   finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
@@ -1618,7 +1619,7 @@ async function createAgentInvocationContext<
     }
     const transformedTools = resolveCapabilityCli ? capabilities.tools : await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
     const tools = Object.keys(transformedTools || {}).length
-      ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {}), context.devtools?.reportToolStep)
+      ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {}), context.toolStepReporter)
       : undefined
     const activeWorkspace = capabilities.workspace || workspace
     const sourceResolvedWorkspaceDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
@@ -1642,7 +1643,7 @@ async function createAgentInvocationContext<
       close: capabilities.close,
       context: invocationContext,
       deliveryEffectIntents: capabilities.registries.deliveryEffectIntents,
-      devtools: context.devtools,
+      toolStepReporter: context.toolStepReporter,
       driverContributions: capabilities.driverContributions,
       finalOutputRenderers: capabilities.registries.finalOutputRenderers,
       finishDeliveryEffectProviders: capabilities.registries.finishDeliveryEffectProviders,

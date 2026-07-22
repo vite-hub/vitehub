@@ -61,7 +61,7 @@ Set `policy: 'require-approval'` or `policy: 'deny'` when the product needs an a
 
 ## Inspect and verify
 
-Inspect the Agent tool list in DevTools.
+Run `vitehub agent info --agent <name> --json` and inspect the resolved tool list.
 Read mode should show only `kv_read`; write mode should also show `kv_edit` with the configured policy.
 
 Run one invocation against a missing KV primitive during development.

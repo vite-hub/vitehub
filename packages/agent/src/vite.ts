@@ -8,8 +8,6 @@ import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/verc
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 
-import { chatDevTools } from "./chat/devtools.ts"
-import { registerChatDevtoolsBridge } from "./chat/vite/devtools-bridge.ts"
 import { registerAgentInvocationStreamEndpoint } from "./vite/invocation-stream-endpoint.ts"
 import {
   configureCloudflareAgentState,
@@ -32,9 +30,7 @@ interface AgentCliContributingPlugin {
   }
 }
 
-export type AgentVitePlugin = Plugin & AgentCliContributingPlugin & {
-  devtools?: ReturnType<typeof chatDevTools>["devtools"]
-}
+export type AgentVitePlugin = Plugin & AgentCliContributingPlugin
 
 const agentPackageName = "@vite-hub/agent"
 const mergeNoExternal = createNoExternalMerger(agentPackageName)
@@ -598,10 +594,6 @@ function mergeNitroHandlers(nitro: NitroConfig, handlers: Array<{ handler: strin
     ...nitro,
     handlers: [...existingHandlers, ...handlers],
   }
-}
-
-function agentDevtoolsEnabled(agent: AgentModuleOptions | false | undefined): boolean {
-  return agent !== false && agent?.devtools !== false
 }
 
 function normalizeNitroRoute(route: string): string {
@@ -1456,17 +1448,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
 
   return {
     name: "@vite-hub/agent/vite",
-    devtools: {
-      setup(ctx) {
-        if (agentDevtoolsEnabled(agent)) {
-          return chatDevTools().devtools?.setup?.(ctx)
-        }
-      },
-    },
     async configureServer(server) {
-      if (agentDevtoolsEnabled(agent)) {
-        registerChatDevtoolsBridge(server)
-      }
       if (agent !== false) {
         await registerAgentInvocationStreamEndpoint(server)
       }

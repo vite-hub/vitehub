@@ -54,9 +54,7 @@ export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig =
   extends Omit<RuntimeHostContext<TRuntimeConfig>, "cloudflare" | "platform" | "runtime"> {
   agentIdentity?: AgentHostIdentity
   cloudflare?: RuntimeHostContext<TRuntimeConfig>["cloudflare"]
-  devtools?: {
-    reportToolStep?: (step: AgentToolStep) => MaybePromise<void>
-  }
+  toolStepReporter?: (step: AgentToolStep) => MaybePromise<void>
   run?: AgentRunMetadata
   runtime: AgentRuntimeName
 }
@@ -77,7 +75,7 @@ export interface AgentInvoker<TMeta extends AgentInvokerMeta = AgentInvokerMeta>
     domain: string
   }
   id: string
-  kind?: "anonymous" | "chat" | "devtools" | (string & {})
+  kind?: "anonymous" | "chat" | (string & {})
   label?: string
   meta?: TMeta
 }
@@ -400,7 +398,6 @@ export interface AgentTriggerDefinition<
   CALL_OPTIONS = unknown,
   TContext extends AgentCallbackContext<TRuntimeConfig> = AgentTriggerContext<TRuntimeConfig, Name>,
 > {
-  devtools?: boolean | Record<string, unknown>
   input?: unknown
   invoke: (context: TContext, input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   output?: "events" | "ui-message-stream" | (string & {})
@@ -415,7 +412,6 @@ export interface ResolvedAgentTriggerDefinition<
   capabilityId?: string
   channelId?: string
   definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS>
-  devtools?: boolean | Record<string, unknown>
   id: `${string}.${string}`
   input?: unknown
   invoke: (input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
@@ -1191,7 +1187,6 @@ export interface ResolvedAgentRoutesOptions {
 
 export interface AgentModuleOptions {
   cli?: false | AgentCliOptions
-  devtools?: false
   execution?: AgentExecution
   eval?: false | AgentEvalOptions
   imports?: boolean
@@ -1451,8 +1446,8 @@ export type WorkspaceAgentWorkspaceConfig<Name extends WorkspaceName = Workspace
   | WorkspaceAgentWorkspaceReference<Name>
   | WorkspaceAgentWorkspaceOptions
 
-export interface AgentDevtoolsFileTreeItem {
-  children?: AgentDevtoolsFileTreeItem[]
+export interface AgentInspectionFileTreeItem {
+  children?: AgentInspectionFileTreeItem[]
   kind: "directory" | "file"
   label?: string
   materialize?: "build" | "lazy"
@@ -1464,7 +1459,7 @@ export interface AgentDevtoolsFileTreeItem {
   updatedAt?: string
 }
 
-export interface AgentDevtoolsToolDefinition {
+export interface AgentInspectionToolDefinition {
   category?: string
   commands?: string[]
   description?: string
@@ -1474,16 +1469,16 @@ export interface AgentDevtoolsToolDefinition {
   status?: "available" | "disabled"
 }
 
-export type AgentDevtoolsConfigValue = boolean | null | number | string
+export type AgentInspectionConfigValue = boolean | null | number | string
 
-export interface AgentDevtoolsModelMetadata {
+export interface AgentInspectionModelMetadata {
   dynamic?: boolean
   id?: string
   provider?: string
 }
 
-export interface AgentDevtoolsModelExecutionMetadata {
-  callSettings?: Record<string, AgentDevtoolsConfigValue>
+export interface AgentInspectionModelExecutionMetadata {
+  callSettings?: Record<string, AgentInspectionConfigValue>
   stepLimit?: number
   workspaceFallback?: {
     enabled?: boolean
@@ -1491,36 +1486,36 @@ export interface AgentDevtoolsModelExecutionMetadata {
   }
 }
 
-export interface AgentDevtoolsHarnessMetadata {
+export interface AgentInspectionHarnessMetadata {
   credentials?: AgentHarnessCredentialSource
   provider?: string
   sandboxProvider?: string
   sessionKey?: boolean
 }
 
-export interface AgentDevtoolsDriverMetadata {
-  execution?: AgentDevtoolsModelExecutionMetadata
-  harness?: AgentDevtoolsHarnessMetadata
+export interface AgentInspectionDriverMetadata {
+  execution?: AgentInspectionModelExecutionMetadata
+  harness?: AgentInspectionHarnessMetadata
   kind: "harness" | "model" | "run"
-  model?: AgentDevtoolsModelMetadata
+  model?: AgentInspectionModelMetadata
 }
 
-export interface AgentDevtoolsConfigMetadata {
-  driver: AgentDevtoolsDriverMetadata
+export interface AgentInspectionConfigMetadata {
+  driver: AgentInspectionDriverMetadata
 }
 
-export interface AgentDevtoolsMetadata {
-  config?: AgentDevtoolsConfigMetadata
-  files?: AgentDevtoolsFileTreeItem[]
+export interface AgentInspectionMetadata {
+  config?: AgentInspectionConfigMetadata
+  files?: AgentInspectionFileTreeItem[]
   instructions?: string[]
   invokerProfiles?: AgentInvokerProfile[]
   name?: string
-  tools?: AgentDevtoolsToolDefinition[]
+  tools?: AgentInspectionToolDefinition[]
   version?: string
-  warnings?: AgentDevtoolsWarning[]
+  warnings?: AgentInspectionWarning[]
 }
 
-export interface AgentDevtoolsWarning {
+export interface AgentInspectionWarning {
   id: string
   kind: "instruction-coverage"
   message: string
@@ -1610,7 +1605,7 @@ export interface AgentAdapterRunContext<
   box?: Box
   close?: () => Promise<void>
   context: AgentInvocationContextStore
-  devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
+  toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   driverContributions?: AgentDriverContribution[]
   globalSkills?: readonly AgentGlobalSkill[]
   hasCapabilityCleanup?: boolean
@@ -1640,7 +1635,7 @@ export interface AgentAdapter<
   Name extends WorkspaceName = WorkspaceName,
 > {
   generate(context: AgentAdapterRunContext<TOptions, TRuntimeConfig, Name>): MaybePromise<AgentAdapterResult | Response | AsyncIterable<StreamEvent> | unknown>
-  metadata?(context: AgentAdapterMetadataContext<TRuntimeConfig, Name>): MaybePromise<AgentDevtoolsMetadata | undefined>
+  metadata?(context: AgentAdapterMetadataContext<TRuntimeConfig, Name>): MaybePromise<AgentInspectionMetadata | undefined>
   name: string
   stream?(context: AgentAdapterRunContext<TOptions, TRuntimeConfig, Name>): MaybePromise<Response | AsyncIterable<StreamEvent> | AgentAdapterResult | unknown>
 }

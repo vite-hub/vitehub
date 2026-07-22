@@ -17,7 +17,7 @@ Use the configuration example below as the starting point, then tighten modes, p
 
 ## What it adds
 
-The Chat Capability turns message-shaped input into Agent Invocations and exposes the trigger to DevTools.
+The Chat Capability turns message-shaped input into Agent Invocations and exposes the trigger to the CLI Dev Loop.
 Message-shaped Channels own route admission and delivery into that trigger.
 
 ## Configuration
@@ -57,8 +57,8 @@ External Chat Platform Adapters remain explicit application dependencies configu
 
 ## Inspect and verify
 
-Open Agent DevTools and confirm the Agent exposes a `chat.message` trigger.
-Send one DevTools message and verify the invocation origin, Chat Session behavior, and finish extension in the run details.
+Run `vitehub agent dev --agent <name> --prompt "hello"` and confirm the Agent responds through the configured Chat Capability.
+Send one message through `vitehub agent dev` and verify the invocation origin, Chat Session behavior, and finish extension through traces or run events.
 
 For adapter-backed delivery, inspect the Channel-generated webhook registrations for the expected route metadata.
 

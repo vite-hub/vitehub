@@ -80,5 +80,5 @@ Applications format that data when a product surface needs text, UI, notes, bill
 ## Related
 
 - [Agent Evals](/docs/agents/evals)
-- [Agent DevTools](/docs/agents/devtools)
+- [CLI inspection](/docs/development/cli)
 - [Errors and diagnostics](/docs/reference/errors-diagnostics)

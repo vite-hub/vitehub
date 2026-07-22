@@ -7,7 +7,7 @@ icon: i-lucide-play-circle
 
 An Agent Invocation is one runtime request to an Agent. It receives input, resolves the Agent Actor, applies Capabilities, runs the selected Agent Driver, records lifecycle state, and returns or streams output.
 
-Invoke Agents from server code, Agent Triggers, schedules, DevTools, or framework-owned routes. The invocation input carries prompt or message content plus trusted context values.
+Invoke Agents from server code, Agent Triggers, schedules, the CLI Dev Loop, or framework-owned routes. The invocation input carries prompt or message content plus trusted context values.
 
 Read [Agent Invocations](/docs/concepts/agent-invocations) for the request boundary and its relationship to Agent Definitions, Channels, Chat Sessions, and Workflow Runs.
 
@@ -252,4 +252,4 @@ export default defineAgent({
 
 - Read [Triggers](/docs/agents/triggers) for Channel and Capability trigger paths.
 - Read [Agent Actors](/docs/agents/actors) for trusted caller identity and exact `invoker` API names.
-- Read [DevTools](/docs/agents/devtools) to inspect Agent Invocation state.
+- Read [CLI inspection](/docs/development/cli) to inspect Agent Invocation state.

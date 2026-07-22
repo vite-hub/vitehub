@@ -74,7 +74,7 @@ Cover delegation guidance in Agent Driver Instructions with explicit Capability 
 
 ## Inspect and verify
 
-Open Agent DevTools and confirm each subagent appears as a tool with the expected name and description.
+Run `vitehub agent info --agent <name> --json` and confirm each subagent appears as a tool with the expected name and description.
 Run one delegated task and verify the child invocation id and inherited invoker metadata.
 Use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) from trusted code when the caller needs to inspect or cancel the child after start.
 

@@ -54,7 +54,7 @@ For example, a summary command can be an Input Command when it produces Agent ru
 
 ## Inspect it
 
-Inspect the trigger id, normalized messages, and Agent Run metadata. DevTools can show message-shaped runs for Agents with message-shaped Channels, while server routes can log the exact trigger input they pass to `runAgentTrigger()`.
+Inspect the trigger id, normalized messages, and Agent Run metadata through traces or run events. Server routes can also log the exact trigger input they pass to `runAgentTrigger()`.
 
 ## Next steps
 

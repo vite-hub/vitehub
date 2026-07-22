@@ -81,7 +81,7 @@ ViteHub materializes it through the normal Workspace Source flow, so it remains 
 
 ## Inspect and verify
 
-Inspect the Agent tool list in DevTools.
+Run `vitehub agent info --agent <name> --json` and inspect the resolved tool list.
 An Agent with `browser()` should expose `bash`, and the `bash` schema should list `agent-browser` as an allowed command.
 
 Inspect the Workspace Sources for `skill.browser`.

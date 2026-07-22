@@ -22,7 +22,6 @@
   "dependencies": {
     "@nuxt/content": "catalog:nuxt",
     "@nuxt/ui": "catalog:nuxt",
-    "@vitejs/devtools-kit": "catalog:vite",
     "@vueuse/core": "catalog:ui",
     "agents": "catalog:ai",
     "docus": "catalog:nuxt",

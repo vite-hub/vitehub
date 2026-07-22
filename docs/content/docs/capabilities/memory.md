@@ -70,7 +70,7 @@ It requires writable Workspace access when the Agent creates, supersedes, or del
 
 ## Inspect and verify
 
-Inspect DevTools metadata for the configured memory stores.
+Inspect Agent inspection metadata for the configured memory stores.
 Inspect the tool list and confirm write tools appear only for stores with `write.mode: 'tool'`.
 
 For the workspace JSONL store, inspect the configured Workspace file and verify records include scope and provenance.

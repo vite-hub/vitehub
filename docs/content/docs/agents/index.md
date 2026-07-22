@@ -8,7 +8,7 @@ icon: i-lucide-bot
 
 ## Agent Definitions for any host
 
-Define a server-side Agent, choose one Agent Driver, attach controlled Capabilities, and run Agent Invocations from trusted entry points. Use Agents when model execution, harness execution, custom agent code, Channels, Chat History, Workspaces, evals, or DevTools inspection become part of the product.
+Define a server-side Agent, choose one Agent Driver, attach controlled Capabilities, and run Agent Invocations from trusted entry points. Use Agents when model execution, harness execution, custom agent code, Channels, Chat History, Workspaces, evals, or CLI inspection become part of the product.
 
 Start here:
 
@@ -70,7 +70,7 @@ Channels and Agent Triggers make an Agent reachable from product events without 
 
 | Need | Read |
 | --- | --- |
-| Accept delivery from GitHub, web chat, streams, HTTP, CLI, DevTools, or chat platforms | [Channels](/docs/agents/channels) |
+| Accept delivery from GitHub, web chat, streams, HTTP, CLI, or chat platforms | [Channels](/docs/agents/channels) |
 | Map a Capability-owned or app-owned event into an Agent Invocation | [Triggers](/docs/agents/triggers) |
 | Carry trusted caller identity into one Agent Invocation | [Agent Actors](/docs/agents/actors) |
 | Bound conversational state and prior messages | [Chat History and sessions](/docs/agents/chat-history-sessions) |
@@ -104,7 +104,7 @@ Agent behavior should be inspectable without guessing which hook, Capability, Ch
 
 | Need | Read |
 | --- | --- |
-| Inspect discovery, triggers, invocations, driver metadata, Workspace context, and Capability output | [DevTools](/docs/agents/devtools) |
+| Inspect discovery, triggers, invocations, driver metadata, Workspace context, and Capability output | [CLI inspection](/docs/development/cli) |
 | Score repeatable Agent behavior outside the playground | [Evals](/docs/agents/evals) |
 | Understand approvals, runtime policy, and trace ownership | [Runtime policy, approvals, and traces](/docs/concepts/runtime-policy-approvals-and-traces) |
 | Read the event vocabulary for usage, trace, lifecycle, and stream records | [Runtime events](/docs/reference/runtime-events) |

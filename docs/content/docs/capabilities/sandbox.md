@@ -61,7 +61,7 @@ Use `workspaceShell()` for Workspace inspection and structured Workspace mutatio
 
 ## Inspect and verify
 
-Inspect the Agent tool list in DevTools and confirm `sandbox_exec` lists only the allowed executables.
+Run `vitehub agent info --agent <name> --json` and confirm `sandbox_exec` lists only the allowed executables.
 Run a disallowed command during development and verify ViteHub rejects it before the Sandbox primitive executes.
 
 ## Options
