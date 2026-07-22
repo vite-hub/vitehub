@@ -13,6 +13,8 @@ import { discoverQueueDefinitions } from "../../../packages/queue/src/discovery.
 import { getCloudflareQueueBindingName } from "../../../packages/queue/src/integrations/cloudflare.ts"
 import { getCloudflareQueueName } from "../../../packages/queue/src/internal/cloudflare-resource-name.ts"
 import { getVercelQueueTopicName } from "../../../packages/queue/src/integrations/vercel.ts"
+import { discoverRateLimitCatalog } from "../../../packages/rate-limit/src/discovery.ts"
+import { createCloudflareRateLimitBindings } from "../../../packages/rate-limit/src/internal/provider-output.ts"
 import { discoverScheduleDefinitions } from "../../../packages/schedule/src/discovery.ts"
 import { getVercelSchedulePath } from "../../../packages/schedule/src/integrations/vercel.ts"
 import { readDefinitionCrons } from "../../../packages/schedule/src/internal/provider-output.ts"
@@ -53,6 +55,7 @@ const blobPackageDir = resolve(packagesDir, "blob")
 const dbPackageDir = resolve(packagesDir, "database")
 const kvPackageDir = resolve(packagesDir, "kv")
 const queuePackageDir = resolve(packagesDir, "queue")
+const rateLimitPackageDir = resolve(packagesDir, "rate-limit")
 const schedulePackageDir = resolve(packagesDir, "schedule")
 const sandboxPackageDir = resolve(packagesDir, "sandbox")
 const workspacePackageDir = resolve(packagesDir, "workspace")
@@ -70,6 +73,7 @@ interface ViteE2EComposerOptions {
   rootDir: string
   sandbox?: false | AgentSandboxConfig
   queue?: false | ResolvedQueueOptions
+  rateLimit?: false | { namespace: string }
   schedule?: false | true
   workspace?: false | ResolvedWorkspaceModuleOptions
   workflow?: false | ResolvedWorkflowOptions
@@ -91,6 +95,7 @@ interface CloudflareWranglerConfig {
     consumers: Array<{ queue: string }>
     producers: Array<{ binding: string, queue: string }>
   }
+  ratelimits?: Array<Record<string, unknown>>
   r2_buckets?: Array<{ binding: string, bucket_name: string }>
   artifacts?: Array<{ binding: string, namespace: string }>
   triggers?: { crons: string[] }
@@ -102,6 +107,7 @@ interface GeneratedFeatureArtifacts {
   generatedDir: string
   queueDefinitions: Array<{ name: string, handler: string }>
   queueRegistryFile?: string
+  rateLimitDeclarations: ReturnType<typeof discoverRateLimitCatalog>["declarations"]
   scheduleCrons: Map<string, string>
   scheduleDefinitions: Array<{ name: string, handler: string }>
   scheduleRegistryFile?: string
@@ -686,6 +692,9 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   const queueDefinitions = options.queue
     ? discoverQueueDefinitions({ mode: "server-queues", scanDirs: [resolve(options.rootDir, "server")] })
     : []
+  const rateLimitDeclarations = options.rateLimit
+    ? discoverRateLimitCatalog({ rootDir: options.rootDir, scanDirs: [resolve(options.rootDir, "src")] }).declarations
+    : []
   const scheduleDefinitions = options.schedule
     ? discoverScheduleDefinitions({ rootDir: options.rootDir })
     : []
@@ -741,6 +750,10 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     const queueRuntimeFile = resolve(generatedDir, "queue-runtime.mjs")
     alias["@vite-hub/queue"] = queueRuntimeFile
     runtimeWrites.push(writeFile(queueRuntimeFile, renderQueueRuntimeModule(queueRuntimeFile), "utf8"))
+  }
+
+  if (options.rateLimit) {
+    alias["@vite-hub/rate-limit"] = resolve(rateLimitPackageDir, "src/index.ts")
   }
 
   if (typeof options.schedule !== "undefined") {
@@ -853,6 +866,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     generatedDir,
     queueDefinitions,
     queueRegistryFile,
+    rateLimitDeclarations,
     scheduleCrons,
     scheduleDefinitions,
     scheduleRegistryFile,
@@ -886,6 +900,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     `import { runCloudflareWorkflow } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/cloudflare-runner.ts")))}`,
     `import { runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/state.ts")))}`,
     `import { setBlobRuntimeConfig } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/runtime/state.ts")))}`,
+    `import { setRateLimitRuntimeConfig } from ${JSON.stringify(createImportPath(file, resolve(rateLimitPackageDir, "src/runtime/state.ts")))}`,
     `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(sandboxPackageDir, "src/runtime/state.ts")))}`,
     `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, workspaceRuntimeState))}`,
   ]
@@ -942,6 +957,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     "setWorkflowRuntimeConfig(workflowConfig)",
     `setWorkflowRuntimeRegistry(${artifacts.workflowRegistryFile ? "workflowRegistry" : "undefined"})`,
     "setBlobRuntimeConfig(blobConfig)",
+    ...(options.rateLimit ? ["setRateLimitRuntimeConfig({ provider: 'cloudflare' })"] : []),
     "setSandboxRuntimeConfig(sandboxConfig)",
     `setSandboxRuntimeRegistry(${artifacts.alias["#vitehub-sandbox-registry"] ? "sandboxRegistry" : "undefined"})`,
     "setWorkspaceRuntimeConfig(workspaceConfig)",
@@ -1293,6 +1309,9 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
 
   const d1Databases = createCloudflareD1Bindings(options.rootDir, options.db)
   const queueBindings = createCloudflareQueueBindings(artifacts.queueDefinitions, options.queue ? options.queue.namePrefix : "")
+  const rateLimitBindings = options.rateLimit
+    ? createCloudflareRateLimitBindings(artifacts.rateLimitDeclarations, options.rateLimit.namespace)
+    : undefined
   const r2Buckets = createCloudflareR2Bindings(options.blob)
 
   const wranglerConfig: CloudflareWranglerConfig = {
@@ -1304,6 +1323,7 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
     observability: { enabled: true },
     ...(staticIndex ? { assets: { directory: "../client", run_worker_first: ["/api/*"] } } : {}),
     ...(queueBindings ? { queues: queueBindings } : {}),
+    ...(rateLimitBindings?.length ? { ratelimits: rateLimitBindings } : {}),
     ...(artifacts.scheduleCrons.size ? { triggers: { crons: [...new Set(artifacts.scheduleCrons.values())] } } : {}),
     ...(artifacts.workflowBindings.length ? { workflows: artifacts.workflowBindings } : {}),
     ...(r2Buckets ? { r2_buckets: r2Buckets } : {}),
@@ -1504,6 +1524,7 @@ export function resolveViteE2EOptions(rootDir: string, hosting: string) {
     hosting: provider,
     kv: normalizeKVOptions(undefined, { hosting }),
     queue: normalizeQueueOptions({}, { hosting }) || false,
+    rateLimit: provider === "cloudflare" ? { namespace: "vitehub-playground-vite-e2e" } : false,
     schedule: true,
     sandbox: resolveSandboxFeatureConfig({}, hosting),
     workspace: normalizeWorkspaceOptions({}, { env: process.env, hosting, rootDir }),

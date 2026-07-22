@@ -7,6 +7,7 @@ import { databases } from "@vite-hub/database/drizzle"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { kv } from "@vite-hub/kv"
 import { deferQueue, runQueue } from "@vite-hub/queue"
+import { requireRateLimit } from "@vite-hub/rate-limit"
 import { runSandbox } from "@vite-hub/sandbox"
 import { useWorkspace } from "@vite-hub/workspace"
 import { getWorkspaceRuntimeConfig, resetWorkspaceStoreCache } from "@vite-hub/workspace/runtime"
@@ -84,6 +85,12 @@ function resolveSandboxHosting(event: { req: { runtime?: { name?: string }, wait
     hosting: "vercel",
     provider: "vercel",
     runtime: event.req.runtime?.name || (process.env.VERCEL ? "vercel" : null),
+  }
+}
+
+function assertCloudflareRateLimit(event: unknown) {
+  if (!getCloudflareEnv(event)) {
+    throw createError({ statusCode: 501, statusMessage: "Rate Limit has no native provider for this host" })
   }
 }
 
@@ -269,6 +276,28 @@ app.get("/api/tests/queue", async (event) => {
 app.post("/api/tests/queue", async (event) => {
   const body = await readValidatedBody(event, markerBody)
   await kv.set(`queue-e2e:${body.marker}`, true)
+  return { ok: true }
+})
+
+app.post("/api/tests/rate-limit", async (event) => {
+  assertCloudflareRateLimit(event)
+  const key = getQuery(event).key
+  await requireRateLimit(event, "e2e-rate-limit-key", {
+    enforcement: "best-effort",
+    key: typeof key === "string" && key.length > 0 ? key : undefined,
+    limit: 5,
+    window: "10s",
+  })
+  return { ok: true }
+})
+
+app.post("/api/tests/rate-limit/address", async (event) => {
+  assertCloudflareRateLimit(event)
+  await requireRateLimit(event, "e2e-rate-limit-address", {
+    enforcement: "best-effort",
+    limit: 1_000,
+    window: "10s",
+  })
   return { ok: true }
 })
 
