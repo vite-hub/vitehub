@@ -66,6 +66,9 @@ export async function encodeSandboxValue(
       })
     }
 
+    if (isObjectRecord(entry) && applyToJSON && typeof entry.toJSON === 'function')
+      return await encode(Reflect.apply(entry.toJSON, entry, [key]), ancestors, key, false)
+
     if (Array.isArray(entry)) {
       if (ancestors.has(entry))
         throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label })
@@ -76,9 +79,6 @@ export async function encodeSandboxValue(
     if (!isObjectRecord(entry)) return entry
     if (ancestors.has(entry))
       throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label })
-
-    if (applyToJSON && typeof entry.toJSON === 'function')
-      return await encode(Reflect.apply(entry.toJSON, entry, [key]), ancestors, key, false)
 
     const nextAncestors = new Set(ancestors).add(entry)
     const sourceEntries = Object.entries(entry).filter(([entryKey, item]) => applyToJSON || entryKey !== 'toJSON' || typeof item !== 'function')

@@ -369,6 +369,40 @@ describe("executeSandboxDefinition", () => {
     )).resolves.toBe(true)
   })
 
+  it("applies array payload toJSON before walking its elements", async () => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, read, write }) {
+        const inputPath = args.at(-2)!
+        const outputPath = args.at(-1)!
+        expect(JSON.parse(new TextDecoder().decode(read(inputPath)!))).toEqual({
+          context: {},
+          payload: { length: 1 },
+        })
+        write(outputPath, new TextEncoder().encode(JSON.stringify({ ok: true, result: true })))
+        return { code: 0, ok: true, stderr: "", stdout: "" }
+      },
+    })
+
+    class Payload extends Array<Uint8Array> {
+      toJSON() {
+        return { length: this.length }
+      }
+    }
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "array-payload",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      new Payload(Uint8Array.from([1, 2, 3])),
+      {},
+    )).resolves.toBe(true)
+  })
+
   it.each([
     ["invalid", -1, undefined, true],
     ["negative-zero", 0, "-0", true],

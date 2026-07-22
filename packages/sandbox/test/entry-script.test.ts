@@ -191,6 +191,19 @@ describe("package entry result transport", () => {
     })
   })
 
+  it("applies array result toJSON before walking its elements", async () => {
+    const execution = await executePackageEntry([
+      `class Values extends Array {`,
+      `  toJSON() { return { length: this.length } }`,
+      `}`,
+      `export default async function () { return new Values(new Uint8Array([1, 2, 3])) }`,
+      ``,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({ ok: true, result: { length: 1 } })
+  })
+
   it.each([
     ["path-like", `"../../etc/passwd"`],
     ["negative-zero", "-0"],
