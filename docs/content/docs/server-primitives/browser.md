@@ -17,7 +17,7 @@ Browser is a server primitive, not an Agent Capability. Server code calls the Br
 ### Install
 
 ```bash [Terminal]
-pnpm add @vite-hub/browser @cloudflare/playwright
+pnpm add @vite-hub/browser @cloudflare/playwright playwright-core
 ```
 
 ### Configure
@@ -67,7 +67,7 @@ export default defineEventHandler(async () => {
 | `localBrowser` from `@vite-hub/browser/providers/local` | Launch local Chromium with an isolated temporary profile. |
 | `hubBrowser` from `@vite-hub/browser/vite` | Register Cloudflare Browser Run Provider Output. |
 
-Browser session, provider, controller, policy, and error types are exported from `@vite-hub/browser`.
+Browser session, provider, controller, and policy types are exported from `@vite-hub/browser`.
 
 ## Configuration options
 
