@@ -54,7 +54,7 @@ describe("execution authority", () => {
     expect(authority).not.toBe(declaration)
     expect(Object.isFrozen(authority)).toBe(true)
     expect(Object.isFrozen(authority.filesystem)).toBe(true)
-    expect(normalizeExecutionAuthority(authority)).toEqual(authority)
+    expect(normalizeExecutionAuthority(authority)).toBe(authority)
   })
 
   it("removes provider-specific fields from normalized snapshots", () => {

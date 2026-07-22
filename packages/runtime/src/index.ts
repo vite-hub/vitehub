@@ -66,6 +66,10 @@ export function normalizeExecutionAuthority(value: unknown): ExecutionAuthority 
   if (!isExecutionAuthority(value)) {
     throw new TypeError("[vitehub] Invalid execution authority descriptor.")
   }
+  if (
+    hasCanonicalFrozenProperties(value, ["credentials", "environment", "filesystem", "isolation", "network", "processes"])
+    && hasCanonicalFrozenProperties(value.filesystem, ["access", "scope"])
+  ) return value
   return Object.freeze({
     credentials: value.credentials,
     environment: value.environment,
@@ -76,6 +80,17 @@ export function normalizeExecutionAuthority(value: unknown): ExecutionAuthority 
     isolation: value.isolation,
     network: value.network,
     processes: value.processes,
+  })
+}
+
+function hasCanonicalFrozenProperties(value: object, keys: readonly string[]): boolean {
+  const prototype = Object.getPrototypeOf(value)
+  if (!Object.isFrozen(value) || (prototype !== Object.prototype && prototype !== null)) return false
+  const ownKeys = Reflect.ownKeys(value)
+  if (ownKeys.length !== keys.length || ownKeys.some(key => typeof key !== "string" || !keys.includes(key))) return false
+  return keys.every((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    return descriptor !== undefined && "value" in descriptor && descriptor.enumerable
   })
 }
 
