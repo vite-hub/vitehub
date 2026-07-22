@@ -24,12 +24,10 @@ pnpm add @vite-hub/agent @vite-hub/workspace ai
 
 Add the AI SDK model provider you pass to `model`.
 
-For AI SDK harness drivers, add the harness package you use:
+`codexDriver()` includes the exact AI SDK harness packages that ViteHub supports. For Claude Code, add its driver package:
 
 ```sh
-pnpm add @ai-sdk/harness @ai-sdk/harness-codex
-# or
-pnpm add @ai-sdk/harness @ai-sdk/harness-claude-code
+pnpm add @ai-sdk/harness-claude-code
 ```
 
 ## Minimal API

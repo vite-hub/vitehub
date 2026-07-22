@@ -11,9 +11,9 @@ catalogs:
   effect:
     effect: 4.0.0-beta.99
   ai:
-    "@ai-sdk/harness": 1.0.0
-    "@ai-sdk/harness-claude-code": 1.0.0
-    "@ai-sdk/harness-codex": 1.0.0
+    "@ai-sdk/harness": 1.0.39
+    "@ai-sdk/harness-claude-code": 1.0.40
+    "@ai-sdk/harness-codex": 1.0.41
     "@ai-sdk/mcp": 2.0.0
     "@modelcontextprotocol/sdk": ^1.29.0
     "@types/json-schema": ^7.0.15
@@ -22,9 +22,9 @@ catalogs:
     askweb: ^0.2.0
     evalite: 1.0.0-beta.16
   ai-compat:
-    "@ai-sdk/harness": ^1.0.0
-    "@ai-sdk/harness-codex": ^1.0.0
     ai: ^6.0.0 || ^7.0.0-0
+  ai-v6:
+    ai: 6.0.228
   auth:
     better-auth: ^1.6.23
   chat:

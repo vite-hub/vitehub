@@ -118,6 +118,8 @@ ignoreDependencies = [
   "@aws-sdk/s3-request-presigner",
   "@azure/identity",
   "@azure/storage-blob",
+  # The umbrella package owns the AI SDK 6 peer required by files-sdk.
+  "ai",
   "@cloudflare/sandbox",
   "@google-cloud/storage",
   "@googleapis/drive",

@@ -7,14 +7,14 @@ settings:
 catalogs:
   ai:
     '@ai-sdk/harness':
-      specifier: 1.0.0
-      version: 1.0.0
+      specifier: 1.0.39
+      version: 1.0.39
     '@ai-sdk/harness-claude-code':
-      specifier: 1.0.0
-      version: 1.0.0
+      specifier: 1.0.40
+      version: 1.0.40
     '@ai-sdk/harness-codex':
-      specifier: 1.0.0
-      version: 1.0.0
+      specifier: 1.0.41
+      version: 1.0.41
     '@ai-sdk/mcp':
       specifier: 2.0.0
       version: 2.0.0
@@ -36,6 +36,10 @@ catalogs:
     evalite:
       specifier: 1.0.0-beta.16
       version: 1.0.0-beta.16
+  ai-v6:
+    ai:
+      specifier: 6.0.228
+      version: 6.0.228
   auth:
     better-auth:
       specifier: ^1.6.23
@@ -518,6 +522,12 @@ importers:
 
   packages/agent:
     dependencies:
+      '@ai-sdk/harness':
+        specifier: catalog:ai
+        version: 1.0.39(ws@8.21.1)(zod@4.4.3)
+      '@ai-sdk/harness-codex':
+        specifier: catalog:ai
+        version: 1.0.41(zod@4.4.3)
       '@libsql/client':
         specifier: catalog:database
         version: 0.17.4
@@ -557,6 +567,9 @@ importers:
       '@vitejs/devtools-kit':
         specifier: catalog:vite
         version: 0.2.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@voidzero-dev/vite-plus-core@0.1.24)(crossws@0.4.10(srvx@0.11.22))(esbuild@0.27.7)(rolldown@1.1.5)(rollup@4.62.2)(typescript@6.0.3)
+      ai:
+        specifier: catalog:ai
+        version: 7.0.19(zod@4.4.3)
       chat:
         specifier: catalog:chat
         version: 4.34.0(ai@7.0.19(zod@4.4.3))(zod@4.4.3)
@@ -576,15 +589,9 @@ importers:
         specifier: npm:@voidzero-dev/vite-plus-test@0.1.24
         version: '@voidzero-dev/vite-plus-test@0.1.24(741b95fc12261ed45461138d5490bd11)'
     devDependencies:
-      '@ai-sdk/harness':
-        specifier: catalog:ai
-        version: 1.0.0(ws@8.21.1)(zod@4.4.3)
       '@ai-sdk/harness-claude-code':
         specifier: catalog:ai
-        version: 1.0.0
-      '@ai-sdk/harness-codex':
-        specifier: catalog:ai
-        version: 1.0.0
+        version: 1.0.40(zod@4.4.3)
       '@ai-sdk/mcp':
         specifier: catalog:ai
         version: 2.0.0(zod@4.4.3)
@@ -606,9 +613,6 @@ importers:
       '@vite-hub/workflow':
         specifier: workspace:*
         version: link:../workflow
-      ai:
-        specifier: catalog:ai
-        version: 7.0.19(zod@4.4.3)
       askweb:
         specifier: catalog:ai
         version: 0.2.0(ai@7.0.19(zod@4.4.3))(zod@4.4.3)
@@ -1429,6 +1433,9 @@ importers:
       '@workflow/builders':
         specifier: catalog:workflow
         version: 4.0.5(@opentelemetry/api@1.9.1)(@swc/helpers@0.5.23)(ws@8.21.1)
+      ai:
+        specifier: catalog:ai-v6
+        version: 6.0.228(zod@4.4.3)
       box-typescript-sdk-gen:
         specifier: catalog:storage
         version: 1.19.1
@@ -1633,6 +1640,34 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
+  '@ai-sdk/gateway@4.0.26':
+    resolution: {integrity: sha512-b/nc3COKtk8IxzgcCi418IoZFky/Bw+Jg8+J0/SBBnu/mOXA4bkIKCu81coEtJAWuH2g5Fvvsa0ar7EpmzNWTw==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/harness-claude-code@1.0.40':
+    resolution: {integrity: sha512-9v9dCMS3+KQk9dRGopN1tH3I7Lis/PZpbzuiw2p2ofFWG7Hx+hx6d/uChRY8YKRG7xhE2Trnqn6JNpR+VXWFwQ==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/harness-codex@1.0.41':
+    resolution: {integrity: sha512-RCKFXneDT+gSaFpe8Nq5Td7XS7qAD6VSX1m5oVdVmMdgIY5ubLksnSb8m7vC7e3tbrJ70kiFW1DlP9dY0sUKKw==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/harness@1.0.39':
+    resolution: {integrity: sha512-W9QJ00W83JKMZliZ3C08TC5MkiwOCnurRKqCWzm91kKiVBFWOoRKHg3FoVPUXw3ML++qZLLfvyINUeTyAT9nVA==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      ws: ^8.21.0
+      zod: ^3.25.76 || ^4.1.8
+    peerDependenciesMeta:
+      ws:
+        optional: true
+
   '@ai-sdk/harness-claude-code@1.0.0':
     resolution: {integrity: sha512-yMqJ0F8tRbWi7zuutVOxY0nSB7SKl6SRCNPrE0L6HXTwUocuaKO6Av4kVVhVUpyUU1Kuc56x5Qc7JyTz32oREw==}
     engines: {node: '>=22'}
@@ -1670,6 +1705,12 @@ packages:
 
   '@ai-sdk/provider-utils@5.0.0':
     resolution: {integrity: sha512-zj66M02jc6ASYwIgWZowsooDUwaVngeNZQ3H10GwcPMZ+KR6gHMhcUuKl6tkai+JPXTKDyHY1pnszuxRtw2D4A==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/provider-utils@5.0.12':
+    resolution: {integrity: sha512-bbhlOgHeYwrIGheLkM6fhS8hVger8uFPmcOLg+kxc9EFh7y30XYorWhthlYAgpadO3SJhFZrIcEknN7qEqEVvA==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -8097,6 +8138,12 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
+  ai@7.0.34:
+    resolution: {integrity: sha512-jDqclWYqPGFKcUG4CQiKcBiwi5XqVMqvYy6eJdujVpvE1SDoB6j7RtjrGYz3Bn5B1dzTj1StAlrOebY//WK9/Q==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
   ajv-formats@3.0.1:
     resolution: {integrity: sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ==}
     peerDependencies:
@@ -13944,6 +13991,42 @@ snapshots:
       '@vercel/oidc': 3.2.0
       zod: 4.4.3
 
+  '@ai-sdk/gateway@4.0.26(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.3
+      '@ai-sdk/provider-utils': 5.0.12(zod@4.4.3)
+      '@vercel/oidc': 3.2.0
+      zod: 4.4.3
+
+  '@ai-sdk/harness-claude-code@1.0.40(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/harness': 1.0.39(ws@8.21.1)(zod@4.4.3)
+      '@ai-sdk/provider-utils': 5.0.12(zod@4.4.3)
+      ws: 8.21.1
+      zod: 4.4.3
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  '@ai-sdk/harness-codex@1.0.41(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/harness': 1.0.39(ws@8.21.1)(zod@4.4.3)
+      '@ai-sdk/provider-utils': 5.0.12(zod@4.4.3)
+      ws: 8.21.1
+      zod: 4.4.3
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  '@ai-sdk/harness@1.0.39(ws@8.21.1)(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.3
+      '@ai-sdk/provider-utils': 5.0.12(zod@4.4.3)
+      ai: 7.0.34(zod@4.4.3)
+      zod: 4.4.3
+    optionalDependencies:
+      ws: 8.21.1
+
   '@ai-sdk/harness-claude-code@1.0.0':
     dependencies:
       '@ai-sdk/harness': 1.0.0(ws@8.21.1)(zod@3.25.76)
@@ -14016,6 +14099,14 @@ snapshots:
   '@ai-sdk/provider-utils@5.0.0(zod@4.4.3)':
     dependencies:
       '@ai-sdk/provider': 4.0.0
+      '@standard-schema/spec': 1.1.0
+      '@workflow/serde': 4.1.0
+      eventsource-parser: 3.1.0
+      zod: 4.4.3
+
+  '@ai-sdk/provider-utils@5.0.12(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.3
       '@standard-schema/spec': 1.1.0
       '@workflow/serde': 4.1.0
       eventsource-parser: 3.1.0
@@ -21530,6 +21621,13 @@ snapshots:
       '@ai-sdk/gateway': 4.0.15(zod@4.4.3)
       '@ai-sdk/provider': 4.0.3
       '@ai-sdk/provider-utils': 5.0.7(zod@4.4.3)
+      zod: 4.4.3
+
+  ai@7.0.34(zod@4.4.3):
+    dependencies:
+      '@ai-sdk/gateway': 4.0.26(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.3
+      '@ai-sdk/provider-utils': 5.0.12(zod@4.4.3)
       zod: 4.4.3
 
   ajv-formats@3.0.1(ajv@8.20.0):
