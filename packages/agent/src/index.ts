@@ -1597,9 +1597,16 @@ async function createAgentInvocationContext<
       invoker,
       run: context.run,
     } satisfies AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>
-    const executionSurface = await resolveAgentExecutionSurface(definition, driver, executionDriverKind, runCallbackContext, runtimeContext)
-    await authorizeAgentExecution(definition, executionSurface.executionAuthority, runCallbackContext)
-    const { box, harnessSandboxProvider } = executionSurface
+    const deferHarnessSandboxResolution = !definition?.box
+      && executionDriverKind === "harness"
+      && driver?.kind === "harness"
+      && typeof driver.sandbox === "function"
+    const executionSurface = deferHarnessSandboxResolution
+      ? undefined
+      : await resolveAgentExecutionSurface(definition, driver, executionDriverKind, runCallbackContext, runtimeContext)
+    if (executionSurface) await authorizeAgentExecution(definition, executionSurface.executionAuthority, runCallbackContext)
+    const box = executionSurface?.box
+    let harnessSandboxProvider = executionSurface?.harnessSandboxProvider
     if (box) invocationContext.set("agent.execution.box", box, { overwrite: true })
     const capabilitiesResolver = internalDefinition?.[baseAgentCapabilitiesResolver]
     const invocationResolvedCapabilities = capabilitiesResolver
@@ -1664,6 +1671,31 @@ async function createAgentInvocationContext<
       resolveCapabilityCli,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
+    if (deferHarnessSandboxResolution) {
+      const preparedRunCallbackContext = {
+        ...agentInvocationCallbackContextValues(invocationContext),
+        ...callbackContext,
+        actor: invoker,
+        context: invocationContext,
+        input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
+        invoker,
+        run: context.run,
+      } satisfies AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>
+      try {
+        const preparedExecutionSurface = await resolveAgentExecutionSurface(definition, driver, executionDriverKind, preparedRunCallbackContext, runtimeContext)
+        await authorizeAgentExecution(definition, preparedExecutionSurface.executionAuthority, preparedRunCallbackContext)
+        harnessSandboxProvider = preparedExecutionSurface.harnessSandboxProvider
+      }
+      catch (error) {
+        try {
+          await capabilities.close()
+        }
+        catch (closeError) {
+          throw new AggregateError([error, closeError], "[vitehub] Agent execution authorization failed and Capability cleanup also failed.")
+        }
+        throw error
+      }
+    }
     const inputHook = definition?.hooks?.["agent:input"]
     if (inputHook && !capabilities.response) {
       try {

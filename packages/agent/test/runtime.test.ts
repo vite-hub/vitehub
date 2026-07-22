@@ -116,11 +116,11 @@ describe("agent message protocol", () => {
     expect(run).toHaveBeenCalledOnce()
   })
 
-  it("rejects unresolved execution authority before Agent-controlled work", async () => {
+  it("rejects unresolved static execution authority before Agent-controlled work", async () => {
     const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
     const capabilityResolver = vi.fn(() => [defineCapability({ id: "unsafe", prepare: vi.fn() })])
     const inputHook = vi.fn()
-    const sandbox = vi.fn(() => ({ executionAuthority: unknownExecutionAuthority, providerId: "unsafe" }))
+    const sandbox = { executionAuthority: unknownExecutionAuthority, providerId: "unsafe" }
     const agent = defineAgent({
       capabilities: capabilityResolver,
       driver: { harness: { harnessId: "fixture" }, sandbox },
@@ -135,7 +135,6 @@ describe("agent message protocol", () => {
     }, {
       context: { authorizeExecution: true },
     })).rejects.toThrow('Agent "public-shell" requires execution authorization')
-    expect(sandbox).toHaveBeenCalledOnce()
     expect(capabilityResolver).not.toHaveBeenCalled()
     expect(inputHook).not.toHaveBeenCalled()
     expect(harnessGenerate).not.toHaveBeenCalled()
@@ -1800,15 +1799,24 @@ describe("agent message protocol", () => {
   })
 
   it("resolves function-valued driver.sandbox for each invocation", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
     const session = { destroy: vi.fn() }
     const provider = { providerId: "local-test", runId: "run-1" }
-    const sandbox = vi.fn(() => provider)
+    const sandbox = vi.fn(({ context }) => {
+      expect(context.get("sandbox-selection")).toBe("prepared")
+      return provider
+    })
     harnessCreateSession.mockResolvedValueOnce(session)
     harnessGenerate.mockResolvedValueOnce({ text: "ok" })
 
     const agent = defineAgent({
       authorizeExecution: () => true,
+      capabilities: [defineCapability({
+        id: "sandbox-selection",
+        prepare({ context }) {
+          context.set("sandbox-selection", "prepared")
+        },
+      })],
       driver: {
         harness: { provider: "codex" },
         sandbox,
