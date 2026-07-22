@@ -392,7 +392,7 @@ describe("executeSandboxDefinition", () => {
       { toJSON() { throw new Error("broken JSON hook") } },
       {},
     )).rejects.toMatchObject({
-      code: "SERIALIZATION_ERROR",
+      code: "SANDBOX_SERIALIZATION_ERROR",
       cause: expect.objectContaining({ message: "broken JSON hook" }),
     })
   })
@@ -416,7 +416,7 @@ describe("executeSandboxDefinition", () => {
       payload,
       {},
     )).rejects.toMatchObject({
-      code: "SERIALIZATION_ERROR",
+      code: "SANDBOX_SERIALIZATION_ERROR",
       cause: expect.objectContaining({ message: "broken payload getter" }),
     })
   })
@@ -546,7 +546,7 @@ describe("executeSandboxDefinition", () => {
         execution: "module",
         modules: { "definition.mjs": "export default async () => true" },
       },
-    )).rejects.toMatchObject({ code: "SERIALIZATION_ERROR" })
+    )).rejects.toMatchObject({ code: "SANDBOX_SERIALIZATION_ERROR" })
   })
 
   it("enforces timeout during executable module evaluation", async () => {
@@ -621,7 +621,7 @@ describe("executeSandboxDefinition", () => {
       },
       payload,
       {},
-    )).rejects.toMatchObject({ code: "SERIALIZATION_ERROR" })
+    )).rejects.toMatchObject({ code: "SANDBOX_SERIALIZATION_ERROR" })
 
     expect(execCalls.some(call => call.cmd === "pnpm")).toBe(false)
   })
