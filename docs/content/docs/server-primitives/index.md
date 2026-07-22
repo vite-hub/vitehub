@@ -62,6 +62,7 @@ Start with the first primitive when you want a runnable path, use Concepts when 
 | Small key-addressed values, settings, flags, cursors, or lightweight state | [KV](/docs/server-primitives/kv) |
 | Relational data, constraints, joins, migrations, or queryable history | [Database](/docs/server-primitives/database) |
 | Uploads, generated artifacts, binary files, or object metadata | [Blob](/docs/server-primitives/blob) |
+| Provider-backed browser sessions, screenshots, DOM inspection, or live handoff | [Browser](/docs/server-primitives/browser) |
 | Persistent file-tree state, snapshots, diffs, rules, or sessions | [Workspace](/docs/server-primitives/workspace) |
 | Read-only retrieval from files, globs, GitHub, markdown, MCP, or custom loaders | [Source](/docs/server-primitives/source) |
 | Background delivery that should return before work finishes | [Queue](/docs/server-primitives/queue) |
@@ -119,6 +120,7 @@ Do not expose a primitive to a model just because the app uses it. Attach the re
 | Expose relational data intentionally | [Database capability](/docs/capabilities/db) |
 | Let an Agent send authorized plain-text email | [Email capability](/docs/capabilities/email) |
 | Consume a trusted budget before an Agent Invocation | [Rate Limit capability](/docs/capabilities/rate-limit) |
+| Give an Agent headless browser evidence through an allowlisted command | [Browser capability](/docs/capabilities/browser) |
 | Let an Agent manage allowed Runtime Schedules | [Schedule capability](/docs/capabilities/schedule) |
 | Expose Workspace-backed inspection or mutation | [Workspace shell](/docs/capabilities/workspace-shell) |
 | Run isolated execution from an Agent boundary | [Sandbox capability](/docs/capabilities/sandbox) |
