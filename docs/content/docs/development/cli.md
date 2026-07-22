@@ -82,7 +82,7 @@ Use `--watch` to rerun affected evals after file changes and `--no-cache` to byp
 
 ## Inspect an Agent Definition
 
-Start the app's Vite Development Server, then inspect the resolved metadata for one chat-capable Agent Definition.
+Start the app's Vite Development Server, then inspect the resolved metadata for one Agent Definition.
 The command does not invoke the Agent Driver.
 
 ```bash [Terminal]
@@ -90,9 +90,10 @@ pnpm vitehub agent info --agent support
 pnpm vitehub agent info --agent support --json
 ```
 
-The default output summarizes the selected Driver, tools, visible Workspace files and Sources, instructions, Agent Invoker Profiles, warnings, and metadata status.
-Use `--json` for the structured inspection contract and `--url` when Vite is not listening on `http://localhost:5173`.
-When multiple chat-capable Agents are discovered, `--agent` is required.
+The default output summarizes the selected Driver, its execution authority, tools, visible Workspace files and Sources, instructions, Agent Invoker Profiles, warnings, and metadata status.
+Execution authority is a resolution-time snapshot of filesystem, network, environment, credential, process, and isolation authority. An `unknown` value means the runtime or provider cannot prove that dimension during inspection; it does not mean restricted or denied. The snapshot describes runtime truth for the inspected context, not an enforcement decision or proof of safety.
+Use `--json` for the structured inspection contract at `config.driver.executionAuthority`, and `--url` when Vite is not listening on `http://localhost:5173`.
+When multiple Agents are discovered, `--agent` is required.
 `agent info` reads resolved runtime metadata from the guarded Agent Dev Loop endpoint exposed by `hubAgent()`.
 
 ## Talk to an Agent during development
