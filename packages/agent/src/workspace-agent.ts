@@ -487,6 +487,23 @@ function declaredExecutionAuthority(value: unknown): ExecutionAuthority | undefi
   return isExecutionAuthority(authority) ? normalizeExecutionAuthority(authority) : undefined
 }
 
+function boxFileUsesInvocationCallback(value: unknown): boolean {
+  return isRecord(value) && typeof value.contents === "function"
+}
+
+function boxUsesInvocationCallbacks(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  if (typeof value.cwd === "function") return true
+  if (isRecord(value.checkout) && [value.checkout.ref, value.checkout.remote, value.checkout.sha].some(field => typeof field === "function")) return true
+  if (isRecord(value.env) && Object.values(value.env).some(field => typeof field === "function")) return true
+  if (!isRecord(value.home)) return false
+  if (isRecord(value.home.files) && Object.values(value.home.files).some(boxFileUsesInvocationCallback)) return true
+  if (!isRecord(value.home.state)) return false
+  return Object.values(value.home.state).some(state => isRecord(state)
+    && isRecord(state.seed)
+    && Object.values(state.seed).some(boxFileUsesInvocationCallback))
+}
+
 function staticDriverExecutionAuthority(
   hasBox: boolean,
   driver: { kind: AgentDriverKind, sandbox?: unknown },
@@ -507,24 +524,14 @@ async function resolvedDriverExecutionAuthority<
   if (driver.kind === "model") return noExecutionAuthority
   if (driver.kind !== "harness") return unknownExecutionAuthority
   if (box) {
-    try {
-      const { resolveBox } = await import("@vite-hub/box")
-      const resolvedBox = await resolveBox(box, context, { requires: driver.requires })
-      return resolvedBox.plan.executionAuthority
-    }
-    catch {
-      return unknownExecutionAuthority
-    }
+    if (context.input.options === undefined && boxUsesInvocationCallbacks(box)) return unknownExecutionAuthority
+    const { resolveBox } = await import("@vite-hub/box")
+    const resolvedBox = await resolveBox(box, context, { requires: driver.requires })
+    return resolvedBox.plan.executionAuthority
   }
-  let provider
-  try {
-    provider = typeof driver.sandbox === "function"
-      ? await driver.sandbox(context)
-      : driver.sandbox
-  }
-  catch {
-    return unknownExecutionAuthority
-  }
+  const provider = typeof driver.sandbox === "function"
+    ? context.input.options === undefined ? undefined : await driver.sandbox(context)
+    : driver.sandbox
   if (provider !== undefined) {
     return declaredExecutionAuthority(provider) ?? unknownExecutionAuthority
   }

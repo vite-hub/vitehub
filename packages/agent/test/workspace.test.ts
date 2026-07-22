@@ -4365,13 +4365,14 @@ describe("defineAgent workspace option", () => {
   it("reports unknown authority when a dynamic Box cannot resolve inspection input", async () => {
     const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
     const { trustedHost } = await import("@vite-hub/box")
+    const resolveCwd = vi.fn(({ input }) => {
+      const options = input.options as { worktreePath?: string } | undefined
+      if (!options?.worktreePath) throw new Error("missing worktreePath")
+      return options.worktreePath
+    })
     const agent = withExplicitWorkspaceName(defineAgent({
       box: {
-        cwd: ({ input }) => {
-          const options = input.options as { worktreePath?: string } | undefined
-          if (!options?.worktreePath) throw new Error("missing worktreePath")
-          return options.worktreePath
-        },
+        cwd: resolveCwd,
         runtime: trustedHost(),
       },
       driver: { harness: {} },
@@ -4384,6 +4385,7 @@ describe("defineAgent workspace option", () => {
     })
 
     expect(metadata.config?.driver.executionAuthority).toBe(unknownExecutionAuthority)
+    expect(resolveCwd).not.toHaveBeenCalled()
   })
 
   it("composes static Agent inspection instruction metadata", async () => {
