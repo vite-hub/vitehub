@@ -632,9 +632,9 @@ describe("executeSandboxDefinition", () => {
       Uint8Array.from([1, 2, 3]),
       {},
     )).rejects.toMatchObject({
-      code: "TIMEOUT",
-      name: "SandboxError",
-      provider: "vercel",
+      code: "SANDBOX_TIMEOUT",
+      details: { provider: "vercel" },
+      name: "ViteHubError",
     })
 
     expect(execCalls.some(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])")).toBe(false)

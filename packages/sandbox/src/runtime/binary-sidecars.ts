@@ -1,4 +1,4 @@
-import { sandboxError } from '../sandbox/errors'
+import { isSandboxError, sandboxError } from '../sandbox/errors'
 import type { SandboxExecutionBox } from './execution-box'
 
 export const SANDBOX_VALUE_MARKER = 'vitehub:sandbox:value'
@@ -93,7 +93,7 @@ export async function encodeSandboxValue(
         return await encode(Reflect.apply(entry.toJSON, entry, [key]), ancestors, key, false)
       }
       catch (error) {
-        if (error instanceof SandboxError) throw error
+        if (isSandboxError(error)) throw error
         throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label }, error)
       }
     }
