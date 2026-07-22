@@ -239,5 +239,5 @@ export default defineEval({
 ## Next steps
 
 - Read [Agent Drivers](/docs/agents/agent-drivers) before using model variants.
-- Read [DevTools](/docs/agents/devtools) to inspect failed runs.
+- Use `vitehub agent dev` to reproduce a failed input locally.
 - Read [Capabilities](/docs/capabilities) for scoring tool and storage behavior.

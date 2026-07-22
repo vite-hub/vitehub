@@ -99,7 +99,7 @@ Workspace rules and Workspace Scope constrain materialization and the diff ViteH
 
 ## Inspect and verify
 
-Open DevTools and inspect the Agent's tool list.
+Run `vitehub agent info --agent <name> --json` and inspect the Agent's tool list.
 Read mode should expose inspection tools, and write mode should expose mutation tools only when the Workspace is writable.
 Agents with a command array should expose `workspace_exec` with only the configured command names.
 `commands: 'all'` should expose a free executable field only when the Agent declares a Box.

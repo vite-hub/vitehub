@@ -10,7 +10,7 @@ An instruction document is Markdown parsed through Comark that ViteHub composes 
 Model Driver Instructions are the model-backed Agent Driver field that receives the composed document. ViteHub keeps that model-facing surface separate from harness and custom-run execution.
 
 :::warning
-Free-form model-facing guidance lives in Agent Driver Instructions or deterministic imported instruction Markdown. Configured Sources, Capabilities, and Skills stay available as runtime primitives, but ViteHub warns in DevTools metadata when they lack explicit instruction coverage.
+Free-form model-facing guidance lives in Agent Driver Instructions or deterministic imported instruction Markdown. Configured Sources, Capabilities, and Skills stay available as runtime primitives, but ViteHub warns in Agent inspection metadata when they lack explicit instruction coverage.
 :::
 
 ## Add an instruction document

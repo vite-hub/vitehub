@@ -72,7 +72,7 @@ Use trusted Agent Invoker or platform identity metadata; do not treat model text
 
 ## Inspect and verify
 
-Run an Agent Invocation that includes `access()` and inspect DevTools for the `access` Capability.
+Run an Agent Invocation that includes `access()` and inspect its traces or run events for the `access` Capability.
 Verify that `access.workspaceScope` appears in invocation context and that later Workspace tools cannot read outside the selected paths.
 
 Trigger a scope failure during development.

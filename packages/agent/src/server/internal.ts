@@ -1,6 +1,5 @@
 export {
   createChannelChatRouteHandler,
-  createChannelDevtoolsRouteHandler,
   createChannelWebhookRouteHandler,
   createDiscordGatewayRouteHandler,
   hasChannelChatRoute,
@@ -22,8 +21,6 @@ export type {
   AgentChannelChatRouteStandardSchemaResultSuccess,
   AgentChannelChatRouteStandardSchemaV1,
   AgentChannelChatRouteTrustedInputField,
-  AgentChannelDevtoolsRouteHandlerOptions,
-  AgentChannelDevtoolsRouteRequestOptions,
   AgentChannelWebhookRouteOptions,
   AgentDiscordGatewayRouteOptions,
 } from "./routes.ts"

@@ -6,13 +6,13 @@ icon: i-lucide-terminal
 ---
 
 Local development proves that ViteHub primitives work before a host deploys them.
-Use it to inspect Discovered Definitions, generated runtime files, Provider Output, DevTools state, and Agent Eval results from the same Vite config your app uses.
+Use it to inspect Discovered Definitions, generated runtime files, Provider Output, resolved Agent metadata, and Agent Eval results from the same Vite config your app uses.
 
 ## Local proof map
 
 | Proof path | Use it for | Output to inspect |
 | --- | --- | --- |
-| Vite dev server | Definition discovery, runtime imports, DevTools bridges, and local providers | Terminal output, browser behavior, and DevTools Feature state |
+| Vite dev server | Definition discovery, runtime imports, Agent Invocation streams, and local providers | Terminal output, CLI behavior, and resolved Agent metadata |
 | ViteHub CLI | Package-owned command workflows such as Agent Evals and Provision | CLI exit code, concise output, optional JSON files |
 | Generated files | Runtime Registries, generated env access, generated Provider Output, and provision state | `.vitehub/**`, `.vercel/output/**`, `dist/**`, or provider config files |
 | Application tests | Runtime Helper behaviour and app-specific regressions | Test output and application fixtures |
@@ -48,7 +48,7 @@ The exact files depend on the packages installed and the Provider Selection in t
 
 ## Inspect interactive Agent behaviour
 
-Use [Agent DevTools](/docs/agents/devtools) when an Agent Invocation, Chat Capability, Workspace Scope, or DevTools Bridge needs browser inspection. The canonical Agent page covers registration, discovery, invocation details, and production boundaries.
+Use [the ViteHub CLI](/docs/development/cli) to inspect Agent metadata or run an Agent Invocation through the local Agent Dev Loop. The canonical Agent page covers registration, discovery, invocation details, and production boundaries.
 
 ## Verify before deploy
 

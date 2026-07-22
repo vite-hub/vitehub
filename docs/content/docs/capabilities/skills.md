@@ -23,7 +23,7 @@ When `shellExecution` is set, model-backed Agents receive the normal Workspace S
 When `source` is set, ViteHub adds that source to the Agent Workspace at definition time and mounts it at the skill path.
 With `scope: 'global'`, ViteHub mounts the source into the harness's global Skill directory instead. Global scope requires a source and does not require an Agent Workspace.
 
-Model-facing guidance for a Skill belongs in Agent Driver Instructions or deterministic imported instruction Markdown. Agent DevTools metadata warns when `skills()` makes a Skill available but no explicit instruction coverage names it.
+Model-facing guidance for a Skill belongs in Agent Driver Instructions or deterministic imported instruction Markdown. Agent inspection metadata warns when `skills()` makes a Skill available but no explicit instruction coverage names it.
 
 ## Configuration
 
@@ -95,7 +95,7 @@ The Capability metadata includes the directory path and the resolved `SKILL.md` 
 Model-facing Skill guidance belongs in Agent Driver Instructions or deterministic imported instruction Markdown with an explicit `::skill{path="..."}` coverage block.
 For harness-backed drivers, `skills()` contributes the skill directory to the Harness Workspace Session instead of adding model-facing instructions or tools.
 With `shellExecution: 'write'`, model-backed Workspace Shell writes commit Workspace Session changes back into the Workspace.
-With `source`, ViteHub still uses normal Workspace Source materialization, visibility, and DevTools metadata. `skills()` does not fetch source files at invocation time.
+With `source`, ViteHub still uses normal Workspace Source materialization, visibility, and Agent inspection metadata. `skills()` does not fetch source files at invocation time.
 Global sources are materialized into an ephemeral harness profile for the session. Codex receives an isolated `CODEX_HOME` containing those Skills, an empty `config.toml`, and only the available authentication file from the configured Box or host profile.
 
 ## Requirements
@@ -120,7 +120,7 @@ Run the Agent with the configured Workspace.
 A missing skill file should fail before model execution with a Workspace path requirement error.
 
 Inspect Capability metadata for the normalized `path` and `skillPath` values.
-Agent DevTools metadata warns when a configured Skill lacks explicit instruction coverage.
+Agent inspection metadata warns when a configured Skill lacks explicit instruction coverage.
 The warning clears when Agent Driver Instructions or a deterministic imported instruction file covers the Skill.
 
 ## Options

@@ -117,7 +117,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-The `run` fields are Agent Run metadata. They help DevTools, traces, and finish hooks explain where the invocation came from.
+The `run` fields are Agent Run metadata. They help CLI output, traces, and finish hooks explain where the invocation came from.
 
 Message-shaped Channels also record a canonical `channel` Agent Invocation Context Value. Capability callbacks, dynamic model metadata callbacks, and Source resolvers receive it directly as `context.channel`; instruction composition can read it as `context.channel`. It contains the current `message`, `meta`, `run`, `session`, and `user` values when available.
 

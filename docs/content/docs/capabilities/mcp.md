@@ -110,10 +110,10 @@ The external MCP Server owns its own credentials, availability, and tool behavio
 
 ## Inspect and verify
 
-Successful invocations expose normalized MCP tools and tool steps in DevTools.
+Successful invocations expose normalized MCP tools through `agent info` and stream tool steps through `agent dev`.
 MCP tools should use normalized names such as `mcp_docs_search`.
 
-Integrity checks run during invocation resolution. Static DevTools metadata does not connect to MCP Servers or claim that a configured baseline currently matches.
+Integrity checks run during invocation resolution. Static Agent inspection metadata does not connect to MCP Servers or claim that a configured baseline currently matches.
 
 Run one invocation with a duplicate normalized tool name during development.
 The Capability should fail before model execution.

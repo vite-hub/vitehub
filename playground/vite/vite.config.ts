@@ -146,13 +146,11 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.chat) {
-    const { DevTools } = await import("@vitejs/devtools")
     const { hubAgent } = await import("@vite-hub/agent/vite")
-    const { hubDevtools } = await import("@vite-hub/devtools")
     return {
       ...baseConfig,
       agent: {},
-      plugins: [...await DevTools(), hubDevtools(), hubAgent()],
+      plugins: [hubAgent()],
     }
   }
 

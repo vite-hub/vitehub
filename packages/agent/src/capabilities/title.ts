@@ -269,7 +269,7 @@ function titleAdapterRunContext(
   return {
     actor: context.actor,
     context: context.context,
-    devtools: context.runtimeContext.devtools,
+    toolStepReporter: context.runtimeContext.toolStepReporter,
     input: titleDriverInput(input, prompt),
     invoker: context.invoker,
     messages: [],

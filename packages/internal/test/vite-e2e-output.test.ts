@@ -12,7 +12,7 @@ import { collectViteHubProvisionSteps } from "../src/cli.ts"
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const repoRoot = resolve(playgroundDir, "../..")
-const workspacePackages = ["runtime", "shell", "source", "sandbox", "workspace", "agent", "auth", "blob", "cli", "database", "devtools", "env", "kv", "queue", "schedule", "workflow"] as const
+const workspacePackages = ["runtime", "shell", "source", "sandbox", "workspace", "agent", "auth", "blob", "cli", "database", "env", "kv", "queue", "schedule", "workflow"] as const
 const tempDirs: string[] = []
 const execMaxBuffer = 16 * 1024 * 1024
 
@@ -166,7 +166,6 @@ describe("unified vite e2e hosted outputs", () => {
     expect(cloudflareWorkerContents).not.toMatch(/require\(["']@vercel\/functions["']\)/)
     expect(cloudflareWorkerContents).not.toMatch(/from\s+["']@cloudflare\/sandbox["']/)
     expect(cloudflareWorkerContents).not.toMatch(/require\(["']@cloudflare\/sandbox["']\)/)
-    expect(cloudflareWorkerContents).not.toContain("@vitejs/devtools")
     expect(cloudflareWorkerContents).not.toContain('import("vite")')
     expect(cloudflareWorkerContents).not.toContain("createRequire(import.meta.url)")
     expect(cloudflareConfig.kv_namespaces).toContainEqual({
@@ -297,7 +296,6 @@ describe("unified vite e2e hosted outputs", () => {
     expect(vercelServerContents).not.toContain("requires files-sdk")
     expect(vercelServerContents).not.toContain('from "@vercel/blob"')
     expect(vercelServerContents).not.toContain("from '@vercel/blob'")
-    expect(vercelServerContents).not.toContain("@vitejs/devtools")
     expect(vercelServerContents).not.toContain('import("vite")')
     expect(vercelServerConfig.runtime).toBe("nodejs22.x")
     expect(vercelConsumerContents).toContain("waitUntil")
@@ -340,7 +338,7 @@ describe("unified vite e2e hosted outputs", () => {
 
     const chatOutput = await readGeneratedJavaScript(join(chatRoot, "dist"))
     expect(chatOutput).toContain("playground-mock")
-    expect(chatOutput).toContain("DevTools Demo Agent")
+    expect(chatOutput).toContain("CLI Dev Agent")
   }, 45_000)
 
   it("writes Netlify agent HTTP function output from the chat playground", async () => {

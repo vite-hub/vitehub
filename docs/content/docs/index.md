@@ -51,7 +51,7 @@ Agents may compose Server Primitives through explicit Capabilities and Workspace
 | A fresh installation or first proof path | [Start](/docs/getting-started) |
 | The difference between Definitions, Runtime Helpers, Provider Output, Capabilities, Workspaces, and Sources | [Concepts](/docs/concepts) |
 | Application user identity, storage, background work, schedules, sandboxes, or environment handling | [Server primitives](/docs/server-primitives) |
-| Model-backed server actors, Agent Invocations, triggers, Chat History, evals, or DevTools inspection | [Agents](/docs/agents) |
+| Model-backed server actors, Agent Invocations, triggers, Chat History, evals, or CLI inspection | [Agents](/docs/agents) |
 | Model-facing storage, Workspace, MCP, web search, transcription, rate limits, or product abilities | [Capabilities](/docs/capabilities) |
 | Current host support, generated output, provisioning, or live-proof maturity | [Runtime and host support](/docs/frameworks-hosts/support-matrix) |
 

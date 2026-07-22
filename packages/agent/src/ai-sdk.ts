@@ -724,7 +724,7 @@ async function composeInstructions(
   return await composeInstructionDocument(instructions, { context: context.context.toJSON(), workspace })
 }
 
-async function resolveTools(options: AiSdkAdapterOptions, context: AgentAdapterMetadataContext, reportToolStep?: AgentAdapterRunContext["devtools"] extends infer T ? T extends { reportToolStep?: infer R } ? R : never : never) {
+async function resolveTools(options: AiSdkAdapterOptions, context: AgentAdapterMetadataContext, reportToolStep?: AgentAdapterRunContext["toolStepReporter"]) {
   if (!options.tools) return undefined
   const resolved = await resolveValue(options.tools as never, context)
   const tools = withJsonCompatibleToolOutputs(applyAgentToolPolicies(resolved as AgentToolSet | undefined) || {})
@@ -987,7 +987,7 @@ async function createAgent(
     metadataContext,
     context.workspaceInstructionBindings,
   )
-  const adapterTools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep)
+  const adapterTools = await resolveTools(options, metadataContext, context.toolStepReporter)
   const resolvedTools = withDefaultToolInputSchemas(withWorkspaceFallbackToolEvidence(await applyCapabilityToolTransforms({
     ...context.tools,
     ...adapterTools,
@@ -1046,7 +1046,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         : undefined
       const { agent, model, tools } = await createAgent(options, context, fallbackCapture)
       if (context.workspace && tools && "materialize_sources" in tools) {
-        await reportWorkspaceMaterialization(tools as AgentToolSet, context.devtools?.reportToolStep)
+        await reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter)
       }
       const usageCapture = createUsageCapture()
       const result = withResolvedModelMetadata(withCapturedUsage(await agent.generate({

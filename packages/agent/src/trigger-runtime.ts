@@ -129,7 +129,6 @@ export async function resolveAgentTriggers<
       triggers[id] = {
         capabilityId: capability.id,
         definition: trigger as never,
-        devtools: trigger.devtools,
         id,
         input: trigger.input,
         invoke: input => trigger.invoke({
@@ -168,7 +167,6 @@ export async function resolveAgentTriggers<
       triggers[id] = {
         channelId,
         definition: trigger as never,
-        devtools: trigger.devtools,
         id,
         input: trigger.input,
         invoke: input => trigger.invoke({

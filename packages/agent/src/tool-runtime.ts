@@ -110,7 +110,7 @@ export function withJsonCompatibleToolOutputs<TTools extends AgentToolSet>(tools
   })) as TTools
 }
 
-type AgentToolStepReporter = NonNullable<AgentRuntimeContext["devtools"]>["reportToolStep"]
+type AgentToolStepReporter = AgentRuntimeContext["toolStepReporter"]
 
 function createToolCallId(name: string): string {
   return `${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`

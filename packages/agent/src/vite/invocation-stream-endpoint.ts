@@ -10,7 +10,7 @@ import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInv
 import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
-import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent } from "../index.ts"
+import { isResolvedAgentTriggerHandledInvocation, resolveAgentInspectionMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent } from "../index.ts"
 import { workspaceAgentOwnsWorkspaceDefinition, workspaceModeFromOptions, workspaceNameFromOptions } from "../workspace-agent.ts"
 import {
   createViteAgentDiscoveryContext,
@@ -23,7 +23,7 @@ import {
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { ViteDevServer } from "vite"
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
-import type { AgentInvocationStreamEvent } from "../invocation-stream.ts"
+import type { AgentDevLoopDiscoveryResponse, AgentInvocationStreamEvent } from "../invocation-stream.ts"
 import type {
   AgentChannelDeliveryEffectContext,
   AgentCapabilityCliExecutionInput,
@@ -563,15 +563,27 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
   const entries = await discoverStreamAgents(server)
   if (req.method === "GET") {
     await ensureWorkspaceDevToken(server.config.root, tokenOptions)
-    return Response.json({
+    const url = new URL(req.url || "/", "http://localhost")
+    const inspect = url.searchParams.get("inspect") === "1"
+    const entry = inspect ? selectedEntry(entries, url.searchParams.get("agent") || undefined) : undefined
+    const run = entry ? devRun(entry.name) : undefined
+    const inspection = entry && run
+      ? await resolveAgentInspectionMetadata(entry.agent as never, {
+          input: { messages: [] },
+          runtime: createViteAgentRuntimeContext(server, req, entry.identity, { fallbackRoute: agentInvocationStreamRoute, run }),
+        })
+      : undefined
+    const response = {
       agents: entries.map(entry => ({
         ...(entry.aliases?.length ? { aliases: entry.aliases } : {}),
         name: entry.name,
         triggers: Object.keys(entry.triggers),
       })),
+      ...(inspection && entry ? { inspection: { ...inspection, name: entry.name } } : {}),
       root: server.config.root,
       workspaceDevTokenServerId: tokenOptions.serverId,
-    })
+    } satisfies AgentDevLoopDiscoveryResponse
+    return Response.json(response)
   }
 
   const body = parseBody(await readRequestBody(req))

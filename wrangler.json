@@ -1,8 +1,0 @@
-{
-  "name": "vitehub-chat-devtools",
-  "compatibility_date": "2026-05-26",
-  "assets": {
-    "directory": "./packages/devtools/devtools/chat/.output/public",
-    "not_found_handling": "single-page-application"
-  }
-}

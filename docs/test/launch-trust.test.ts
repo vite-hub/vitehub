@@ -52,13 +52,11 @@ describe("launch documentation trust boundaries", () => {
     expect(docs).not.toContain("/Users/maxi/");
   });
 
-  it("keeps Agent Evals and DevTools on their canonical Agent pages", () => {
+  it("keeps Agent Evals on its canonical Agent page", () => {
     const docs = readOwnedDocs();
 
     expect(existsSync(resolve(docsRoot, "development/agent-evals.md"))).toBe(false);
-    expect(existsSync(resolve(docsRoot, "development/devtools.md"))).toBe(false);
     expect(docs).not.toContain("/docs/development/agent-evals");
-    expect(docs).not.toContain("/docs/development/devtools");
   });
 
   it("keeps canonical documentation links resolvable", () => {
