@@ -1,7 +1,7 @@
 import { SandboxError } from '../sandbox/errors'
 import type { SandboxExecutionBox } from './execution-box'
 
-export const SANDBOX_VALUE_MARKER = '__vitehubSandboxValue'
+export const SANDBOX_VALUE_MARKER = 'vitehub:sandbox:value'
 
 type BinaryDescriptor = {
   id: number

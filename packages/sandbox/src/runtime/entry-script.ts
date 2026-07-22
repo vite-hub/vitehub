@@ -37,7 +37,7 @@ export function createEntrySource(definitionPath: string, execution: 'definition
     `  }`,
     `}`,
     ``,
-    `const valueMarker = ${JSON.stringify('__vitehubSandboxValue')}`,
+    `const valueMarker = ${JSON.stringify('vitehub:sandbox:value')}`,
     ``,
     `function isPlainObject(value) {`,
     `  if (!value || typeof value !== 'object') return false`,
