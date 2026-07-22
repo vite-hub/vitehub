@@ -1815,11 +1815,13 @@ function withStreamedResult(
 ) {
   const toolNames = new Map<string, string>()
   const textPhases = new Map<string, AgentMessagePhase | "hidden">()
-  let streamedText = ""
+  let explicitTextPhaseSeen = false
+  let finalText = ""
+  let unphasedText = ""
   let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
   return {
     finishResult() {
-      return resultWithStreamedTextAndUsage(result, streamedText, usageRecord, fallbackUsageRecord)
+      return resultWithStreamedTextAndUsage(result, explicitTextPhaseSeen ? finalText : unphasedText, usageRecord, fallbackUsageRecord)
     },
     finishUsage() {
       return usageRecord ?? fallbackUsageRecord
@@ -1827,7 +1829,14 @@ function withStreamedResult(
     stream: (async function* () {
       for await (const chunk of stream) {
         const event = toAgentStreamEvent(chunk, toolNames, textPhases)
-        if (event?.type === "text-delta" && event.text) streamedText += event.text
+        if (chunk && typeof chunk === "object" && "phase" in chunk && (chunk as { phase?: unknown }).phase !== undefined) {
+          explicitTextPhaseSeen = true
+          unphasedText = ""
+        }
+        if (event?.type === "text-delta" && event.text) {
+          if (event.phase === "final") finalText += event.text
+          else if (!explicitTextPhaseSeen && event.phase === undefined) unphasedText += event.text
+        }
         if (event?.type === "usage") usageRecord = event.usageRecord
         yield chunk
       }

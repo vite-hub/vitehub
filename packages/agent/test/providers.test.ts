@@ -2873,6 +2873,7 @@ describe("server helpers", () => {
     const { discord } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
+    const finish = vi.fn()
     const agent = defineAgent({
       channels: {
         discord: discord({
@@ -2896,6 +2897,7 @@ describe("server helpers", () => {
           })(),
         }),
       },
+      hooks: { "agent:finish": finish },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
     const waitUntilTasks: Promise<unknown>[] = []
@@ -2921,6 +2923,7 @@ describe("server helpers", () => {
     })
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "Checking the image." })
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-2", { markdown: "The image shows a dental X-ray." })
+    expect(finish.mock.calls[0]![0].result).toMatchObject({ text: "The image shows a dental X-ray." })
     expect(adapter.editMessage).not.toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
