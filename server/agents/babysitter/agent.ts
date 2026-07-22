@@ -43,7 +43,7 @@ export default defineAgent({
       'pnpm',
     ],
   },
-  driver: codexDriver<{ checkout: string }>(),
+  driver: codexDriver<{ checkout: string }>({ model: 'gpt-5.6-sol' }),
 })
 
 async function readGitConfig(key: string) {
