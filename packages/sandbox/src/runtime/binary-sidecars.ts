@@ -102,7 +102,13 @@ export async function encodeSandboxValue(
       throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label })
 
     const nextAncestors = new Set(ancestors).add(entry)
-    const sourceEntries = Object.entries(entry).filter(([entryKey, item]) => applyToJSON || entryKey !== 'toJSON' || typeof item !== 'function')
+    let sourceEntries: Array<[string, unknown]>
+    try {
+      sourceEntries = Object.entries(entry).filter(([entryKey, item]) => applyToJSON || entryKey !== 'toJSON' || typeof item !== 'function')
+    }
+    catch (error) {
+      throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label }, error)
+    }
     const entries = await Promise.all(sourceEntries.map(async ([entryKey, item]) => [entryKey, await encode(item, nextAncestors, entryKey)] as [string, unknown]))
     return hasMarker(entry) ? tagged({ entries, tag: 'object' }) : Object.fromEntries(entries)
   }
