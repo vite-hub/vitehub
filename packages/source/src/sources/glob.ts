@@ -1,6 +1,6 @@
 import { glob as tinyglobby } from "tinyglobby"
 
-import { SourceError } from "../core/errors.ts"
+import { sourceError } from "../core/errors.ts"
 import { matchesAny, normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
 
 import type { Source, SourceContext, SourceItem } from "../core/types.ts"
@@ -70,10 +70,10 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
     const keys = await getKnownKeys(ctx)
     if (keys.includes(key)) return
     if (options.keyCache !== false) {
-      throw new SourceError(`[vitehub] glob could not find ${JSON.stringify(key)}.`)
+      throw sourceError(`[vitehub] glob could not find ${JSON.stringify(key)}.`)
     }
     if ((await refreshKeys(ctx)).includes(key)) return
-    throw new SourceError(`[vitehub] glob could not find ${JSON.stringify(key)}.`)
+    throw sourceError(`[vitehub] glob could not find ${JSON.stringify(key)}.`)
   }
 
   const source: Source<TKey> = {
@@ -130,7 +130,7 @@ async function resolveCwd(rootDir: string, cwd = "."): Promise<string> {
   const resolvedCwd = await realpath(resolvedCwdPath)
   const rel = relative(resolvedRoot, resolvedCwd)
   if (rel && (rel.startsWith("..") || isAbsolute(rel))) {
-    throw new SourceError(`[vitehub] glob cwd escapes the source root: ${JSON.stringify(cwd)}.`)
+    throw sourceError(`[vitehub] glob cwd escapes the source root: ${JSON.stringify(cwd)}.`)
   }
   return resolvedCwd
 }

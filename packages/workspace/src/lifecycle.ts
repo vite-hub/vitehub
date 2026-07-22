@@ -1,5 +1,5 @@
 import { useWorkspaceAssets } from "./asset-registry.ts"
-import { WorkspaceNotFoundError } from "./core/errors.ts"
+import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { files as filesLoader } from "./loaders/files.ts"
 import { normalizeWorkspacePath } from "./core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, type ResolvedWorkspaceSource } from "./sources/config.ts"
@@ -107,7 +107,7 @@ async function syncRuntimeBuildAssets(definition: WorkspaceDefinition, store: Wo
     assets = useWorkspaceAssets(definition.name)
   }
   catch (error) {
-    if (error instanceof WorkspaceNotFoundError) return undefined
+    if (getViteHubErrorShape(error)?.code === "WORKSPACE_NOT_FOUND") return undefined
     throw error
   }
 

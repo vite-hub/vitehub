@@ -115,7 +115,8 @@ Applications should use the canonical `vite-hub` paths for framework and provide
 | Import | Runtime values | Public types |
 | --- | --- | --- |
 | `vite-hub` | `vitehub` | Framework Vite Integration options. |
-| `vite-hub/email` | `createEmail`, `defineEmail`, `EmailError` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailMessage`, `EmailDriver`, `EmailDriverResult`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode`, `EmailErrorOptions` |
+| `vite-hub/email` | `createEmail`, `defineEmail` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailMessage`, `EmailDriver`, `EmailDriverResult`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode` |
+| `@vite-hub/runtime` | `ViteHubError`, `getViteHubErrorShape` | Shared operational error contract. |
 | `vite-hub/email/server` | `email` | — |
 | `vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmailMarkdown` |
 | `@vite-hub/email/drivers/smtp` | `smtp` | Nodemailer owns the accepted SMTP option types. |
@@ -226,12 +227,8 @@ SMTP is a Node.js adapter, not the provider-neutral contract. Keep credentials i
 An `EmailDriver` has a non-empty `name` and one `send(message)` method that resolves to `{ id }`. The example below assumes an application-owned HTTP endpoint that accepts `EmailMessage`; adapt the request and response mapping to your provider's actual API.
 
 ```ts [server/email.ts]
-import {
-  defineEmail,
-  EmailError,
-  type EmailDriver,
-  type EmailMessage,
-} from 'vite-hub/email'
+import { ViteHubError } from '@vite-hub/runtime'
+import { defineEmail, type EmailDriver, type EmailMessage } from 'vite-hub/email'
 
 const endpoint = process.env.EMAIL_API_URL
 const token = process.env.EMAIL_API_TOKEN
@@ -248,8 +245,8 @@ async function send(message: EmailMessage): Promise<{ id: string }> {
   })
 
   if (response.status === 401) {
-    throw new EmailError('authentication', '[vitehub] Email provider rejected its credentials.', {
-      driver: 'http',
+    throw new ViteHubError('EMAIL_AUTHENTICATION', '[vitehub] Email provider rejected its credentials.', {
+      details: { driver: 'http' },
     })
   }
   if (!response.ok) throw new Error(`Email provider returned ${response.status}`)
@@ -266,7 +263,7 @@ const driver = { name: 'http', send } satisfies EmailDriver
 export default defineEmail({ driver })
 ```
 
-`createEmail()` preserves an `EmailError` thrown by a driver. A custom driver must give that error a safe public message and put the raw provider failure in `cause` when protected diagnostics need it. Any other thrown value becomes an `EmailError` with `code: 'provider'`, and an empty driver message ID also becomes a provider failure. Keep provider SDK types and response payloads inside the adapter.
+`createEmail()` preserves a ViteHub error with an `EMAIL_*` code thrown by a driver. A custom driver must give that error a safe public message and put the raw provider failure in `cause` when protected diagnostics need it. Any other thrown value becomes `EMAIL_PROVIDER_FAILED`, and an empty driver message ID also becomes a provider failure. Keep provider SDK types and response payloads inside the adapter.
 
 ## Test without delivery
 
@@ -294,10 +291,11 @@ Use `createMemoryEmailDriver()` when another client or test harness should own t
 
 ## Handle delivery errors
 
-Use `EmailError.code` for control flow and `driver` to identify the failing adapter. SMTP and core-wrapped provider failures keep the raw failure in `cause` and expose a safe message. A custom driver owns the same safety boundary when it throws `EmailError` directly.
+Use the `EMAIL_*` code for control flow and `details.driver` to identify the failing adapter. SMTP and core-wrapped provider failures keep the raw failure in `cause` and expose a safe message. A custom driver owns the same safety boundary when it throws `ViteHubError` directly.
 
 ```ts [server/send.ts]
-import { EmailError, type EmailMessage } from 'vite-hub/email'
+import { getViteHubErrorShape } from '@vite-hub/runtime'
+import { type EmailMessage } from 'vite-hub/email'
 import { email } from 'vite-hub/email/server'
 
 export async function send(message: EmailMessage) {
@@ -305,10 +303,11 @@ export async function send(message: EmailMessage) {
     return await email.send(message)
   }
   catch (error) {
-    if (error instanceof EmailError) {
+    const shape = getViteHubErrorShape(error)
+    if (shape?.code.startsWith('EMAIL_')) {
       console.error('Email delivery failed', {
-        code: error.code,
-        driver: error.driver,
+        code: shape.code,
+        driver: shape.details?.driver,
       })
     }
     throw error
@@ -320,15 +319,15 @@ Inspect `cause` only in protected server-side diagnostics because provider error
 
 | Code | Produced by | Meaning | Retry guidance |
 | --- | --- | --- | --- |
-| `invalid-message` | Core client | A portable field, body, or attachment is invalid. | Fix the message; do not retry unchanged. |
-| `not-configured` | Discovered Runtime Helper | No Email Definition was discovered. | Fix discovery; do not retry unchanged. |
-| `authentication` | SMTP or a custom driver | Delivery credentials were rejected. | Fix credentials before retrying. |
-| `rate-limit` | SMTP or a custom driver | The provider reported throttling. | Apply an application-owned retry policy. |
-| `timeout` | SMTP or a custom driver | Delivery did not complete before the transport timeout. | Treat the outcome as uncertain before retrying. |
-| `network` | SMTP or a custom driver | The driver could not reach its provider. | Treat the outcome as uncertain before retrying. |
-| `provider` | Core client, SMTP, or a custom driver | Delivery failed outside a more specific portable category. | Inspect protected diagnostics and provider delivery logs. |
+| `EMAIL_INVALID_MESSAGE` | Core client | A portable field, body, or attachment is invalid. | Fix the message; do not retry unchanged. |
+| `EMAIL_NOT_CONFIGURED` | Discovered Runtime Helper | No Email Definition was discovered. | Fix discovery; do not retry unchanged. |
+| `EMAIL_AUTHENTICATION` | SMTP or a custom driver | Delivery credentials were rejected. | Fix credentials before retrying. |
+| `EMAIL_RATE_LIMITED` | SMTP or a custom driver | The provider reported throttling. | Apply an application-owned retry policy. |
+| `EMAIL_TIMEOUT` | SMTP or a custom driver | Delivery did not complete before the transport timeout. | Treat the outcome as uncertain before retrying. |
+| `EMAIL_NETWORK` | SMTP or a custom driver | The driver could not reach its provider. | Treat the outcome as uncertain before retrying. |
+| `EMAIL_PROVIDER_FAILED` | Core client, SMTP, or a custom driver | Delivery failed outside a more specific portable category. | Inspect protected diagnostics and provider delivery logs. |
 
-The core client itself produces `invalid-message` and `provider`; the discovered Runtime Helper also produces `not-configured`. SMTP maps common Nodemailer signals into the other codes. A custom driver must throw `EmailError` when it can classify a failure more precisely.
+The core client itself produces `EMAIL_INVALID_MESSAGE` and `EMAIL_PROVIDER_FAILED`; the discovered Runtime Helper also produces `EMAIL_NOT_CONFIGURED`. SMTP maps common Nodemailer signals into the other codes. A custom driver should throw `ViteHubError` when it can classify a failure more precisely.
 
 The package does not retry automatically. A timeout or disconnected response can occur after a provider accepted the message, so a blind retry can send a duplicate. Put retry and idempotency policy in Queue, Workflow, or the provider adapter that has enough information to make that decision.
 
@@ -363,7 +362,7 @@ The error lists every matching file. Remove or rename the duplicate so only one 
 
 ### `SMTP delivery failed.`
 
-Read `EmailError.code` first. For `authentication`, verify the username, password, sender authorization, port, and TLS mode. For `network` or `timeout`, verify DNS and outbound connectivity from the deployed server. Inspect `cause` and provider logs only on the server, then send to a real verified recipient and confirm the provider records the message.
+Read the `EMAIL_*` code first. For `EMAIL_AUTHENTICATION`, verify the username, password, sender authorization, port, and TLS mode. For `EMAIL_NETWORK` or `EMAIL_TIMEOUT`, verify DNS and outbound connectivity from the deployed server. Inspect `cause` and provider logs only on the server, then send to a real verified recipient and confirm the provider records the message.
 
 ### `Email message must include non-empty html or text`
 

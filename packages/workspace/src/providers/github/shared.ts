@@ -1,6 +1,6 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env";
 
-import { WorkspaceError } from "../../core/errors.ts";
+import { workspaceError } from "../../core/errors.ts";
 import { contentToBytes, normalizeWorkspacePath } from "../../core/path.ts";
 
 import type { GitHubWorkspaceOption, WorkspaceEntry } from "../../core/types.ts";
@@ -45,9 +45,10 @@ export interface GitHubCommitResult {
   treeSha: string;
 }
 
-class GitHubRequestError extends WorkspaceError {
+class GitHubRequestError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
+    this.name = "GitHubRequestError";
   }
 }
 
@@ -77,7 +78,7 @@ export function requireGitHubOption(
   label: string,
   value: string | undefined,
 ): string {
-  if (!value) throw new WorkspaceError(`[vitehub] GitHub workspace ${kind} requires ${label}.`);
+  if (!value) throw workspaceError(`[vitehub] GitHub workspace ${kind} requires ${label}.`);
   return value;
 }
 
@@ -87,7 +88,7 @@ export function splitGitHubRepository(
 ): { owner: string; repo: string } {
   const [owner, repo] = repository.split("/");
   if (!owner || !repo) {
-    throw new WorkspaceError(
+    throw workspaceError(
       `[vitehub] GitHub workspace ${kind} requires a repository in owner/repo format.`,
     );
   }
@@ -250,14 +251,14 @@ export async function requestGitHubBytes(
   });
 
   if (!response.ok) {
-    throw new WorkspaceError(
+    throw workspaceError(
       `[vitehub] GitHub workspace request failed for ${repository}: ${response.status} ${response.statusText} ${await response.text().catch(() => "")}`,
     );
   }
   if (response.headers.get("content-type")?.includes("application/json")) {
     const blob = await response.json() as { content?: unknown; encoding?: unknown };
     if (blob.encoding === "base64" && typeof blob.content === "string") return fromBase64(blob.content);
-    throw new WorkspaceError(`[vitehub] GitHub workspace request for ${repository} returned unsupported byte response.`);
+    throw workspaceError(`[vitehub] GitHub workspace request for ${repository} returned unsupported byte response.`);
   }
   return new Uint8Array(await response.arrayBuffer());
 }
@@ -268,7 +269,7 @@ export function findGitHubRemoteFiles(
   kind: "publisher" | "store",
 ): Map<string, GitHubTreeEntry> {
   if (tree.truncated) {
-    throw new WorkspaceError(
+    throw workspaceError(
       `[vitehub] GitHub workspace ${kind} could not compare the remote tree because GitHub returned a truncated tree.`,
     );
   }

@@ -1,6 +1,6 @@
 import { defu } from "defu"
 
-import { WorkspaceError } from "../core/errors.ts"
+import { workspaceError } from "../core/errors.ts"
 import { decodeFile, normalizeSafeWorkspacePath } from "../core/path.ts"
 import { fetch as fetchSource } from "./fetch.ts"
 import { getLiveWorkspaceSourcePaths, markLiveWorkspaceSource } from "./live.ts"
@@ -92,7 +92,7 @@ function createSourceContextWorkspaceFiles(store: WorkspaceStore): SourceContext
   async function readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>> {
     const workspacePath = normalizeSafeWorkspacePath(path)
     const file = await store.readFile(workspacePath)
-    if (!file) throw new WorkspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
+    if (!file) throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
     return decodeFile(file.content, options)
   }
 

@@ -6182,7 +6182,7 @@ describe("server helpers", () => {
   it("posts default and configured rate-limit messages to chat", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
-    const { RateLimitRejectedError } = await import("../src/capabilities.ts")
+    const { ViteHubError } = await import("@vite-hub/runtime")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
 
@@ -6198,7 +6198,7 @@ describe("server helpers", () => {
           ],
           driver: {
             run: () => {
-              throw new RateLimitRejectedError("rate-limit", {} as never, message)
+              throw new ViteHubError("RATE_LIMIT_REJECTED", message || "Rate limit exceeded. Try again later.")
             },
           },
         })

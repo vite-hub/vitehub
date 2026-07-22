@@ -3,7 +3,7 @@ import { posix } from "node:path"
 
 import { executeSandboxDefinition } from "../src/runtime/execute.ts"
 import { SANDBOX_VALUE_MARKER } from "../src/runtime/binary-sidecars.ts"
-import type { SandboxError } from "../src/sandbox/errors.ts"
+import type { ViteHubError } from "@vite-hub/runtime"
 import type { SandboxExecutionBox } from "../src/runtime/execution-box.ts"
 
 type SandboxExecResult = Awaited<ReturnType<SandboxExecutionBox["exec"]>>
@@ -186,9 +186,9 @@ describe("executeSandboxDefinition", () => {
         },
       },
     )).rejects.toMatchObject({
-      code: "TIMEOUT",
-      provider: "cloudflare",
-    } satisfies Partial<SandboxError>)
+      code: "SANDBOX_TIMEOUT",
+      details: { provider: "cloudflare", timeout: 10 },
+    } satisfies Partial<ViteHubError>)
 
     finishSetup?.()
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -564,9 +564,9 @@ describe("executeSandboxDefinition", () => {
         },
       },
     )).rejects.toMatchObject({
-      code: "TIMEOUT",
-      provider: "cloudflare",
-    } satisfies Partial<SandboxError>)
+      code: "SANDBOX_TIMEOUT",
+      details: { provider: "cloudflare", timeout: 10 },
+    } satisfies Partial<ViteHubError>)
 
     expect(execCalls.some(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])")).toBe(true)
   })
@@ -813,14 +813,14 @@ describe("executeSandboxDefinition", () => {
         },
       },
     )).rejects.toMatchObject({
-      name: "SandboxError",
+      name: "ViteHubError",
       code: "SANDBOX_HANDLER_ERROR",
-      provider: "vercel",
       details: {
         exitCode: 127,
+        provider: "vercel",
         stderrPreview: "runtime command failed",
         stdoutPreview: "booted",
       },
-    } satisfies Partial<SandboxError>)
+    } satisfies Partial<ViteHubError>)
   })
 })

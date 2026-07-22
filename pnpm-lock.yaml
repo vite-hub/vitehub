@@ -903,6 +903,9 @@ importers:
       '@vite-hub/markdown-template':
         specifier: workspace:*
         version: link:../markdown-template
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       comark:
         specifier: catalog:ui
         version: 0.5.1(shiki@4.3.1)
@@ -1162,6 +1165,9 @@ importers:
       '@vite-hub/box':
         specifier: workspace:*
         version: link:../box
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       esbuild:
         specifier: catalog:tooling
         version: 0.28.1
@@ -1282,6 +1288,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: catalog:ai
         version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       effect:
         specifier: catalog:effect
         version: 4.0.0-beta.99
@@ -1646,11 +1655,19 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
+  '@ai-sdk/harness-claude-code@1.0.0':
+    resolution: {integrity: sha512-yMqJ0F8tRbWi7zuutVOxY0nSB7SKl6SRCNPrE0L6HXTwUocuaKO6Av4kVVhVUpyUU1Kuc56x5Qc7JyTz32oREw==}
+    engines: {node: '>=22'}
+
   '@ai-sdk/harness-claude-code@1.0.40':
     resolution: {integrity: sha512-9v9dCMS3+KQk9dRGopN1tH3I7Lis/PZpbzuiw2p2ofFWG7Hx+hx6d/uChRY8YKRG7xhE2Trnqn6JNpR+VXWFwQ==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/harness-codex@1.0.0':
+    resolution: {integrity: sha512-nQ1LbFVq8FKiRTqecimmYobFPW9fEY3qcwCuduavBRZ60jtaPaICjJ3Abemf3X7hJgXR02beTs3CAeomBv/Avw==}
+    engines: {node: '>=22'}
 
   '@ai-sdk/harness-codex@1.0.41':
     resolution: {integrity: sha512-RCKFXneDT+gSaFpe8Nq5Td7XS7qAD6VSX1m5oVdVmMdgIY5ubLksnSb8m7vC7e3tbrJ70kiFW1DlP9dY0sUKKw==}
@@ -1658,29 +1675,21 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
+  '@ai-sdk/harness@1.0.0':
+    resolution: {integrity: sha512-XNAnCdw0nFt2qCzzdpDCDCMJStbTbQWUrpv1iy0MCrvZVBCRg7xrXNXEurakVaKuykac8JyxBzUS/s3QDIJP+g==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      ws: ^8.21.0
+    peerDependenciesMeta:
+      ws:
+        optional: true
+
   '@ai-sdk/harness@1.0.39':
     resolution: {integrity: sha512-W9QJ00W83JKMZliZ3C08TC5MkiwOCnurRKqCWzm91kKiVBFWOoRKHg3FoVPUXw3ML++qZLLfvyINUeTyAT9nVA==}
     engines: {node: '>=22'}
     peerDependencies:
       ws: ^8.21.0
       zod: ^3.25.76 || ^4.1.8
-    peerDependenciesMeta:
-      ws:
-        optional: true
-
-  '@ai-sdk/harness-claude-code@1.0.0':
-    resolution: {integrity: sha512-yMqJ0F8tRbWi7zuutVOxY0nSB7SKl6SRCNPrE0L6HXTwUocuaKO6Av4kVVhVUpyUU1Kuc56x5Qc7JyTz32oREw==}
-    engines: {node: '>=22'}
-
-  '@ai-sdk/harness-codex@1.0.0':
-    resolution: {integrity: sha512-nQ1LbFVq8FKiRTqecimmYobFPW9fEY3qcwCuduavBRZ60jtaPaICjJ3Abemf3X7hJgXR02beTs3CAeomBv/Avw==}
-    engines: {node: '>=22'}
-
-  '@ai-sdk/harness@1.0.0':
-    resolution: {integrity: sha512-XNAnCdw0nFt2qCzzdpDCDCMJStbTbQWUrpv1iy0MCrvZVBCRg7xrXNXEurakVaKuykac8JyxBzUS/s3QDIJP+g==}
-    engines: {node: '>=22'}
-    peerDependencies:
-      ws: ^8.21.0
     peerDependenciesMeta:
       ws:
         optional: true
@@ -13998,35 +14007,6 @@ snapshots:
       '@vercel/oidc': 3.2.0
       zod: 4.4.3
 
-  '@ai-sdk/harness-claude-code@1.0.40(zod@4.4.3)':
-    dependencies:
-      '@ai-sdk/harness': 1.0.39(ws@8.21.1)(zod@4.4.3)
-      '@ai-sdk/provider-utils': 5.0.12(zod@4.4.3)
-      ws: 8.21.1
-      zod: 4.4.3
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
-
-  '@ai-sdk/harness-codex@1.0.41(zod@4.4.3)':
-    dependencies:
-      '@ai-sdk/harness': 1.0.39(ws@8.21.1)(zod@4.4.3)
-      '@ai-sdk/provider-utils': 5.0.12(zod@4.4.3)
-      ws: 8.21.1
-      zod: 4.4.3
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
-
-  '@ai-sdk/harness@1.0.39(ws@8.21.1)(zod@4.4.3)':
-    dependencies:
-      '@ai-sdk/provider': 4.0.3
-      '@ai-sdk/provider-utils': 5.0.12(zod@4.4.3)
-      ai: 7.0.34(zod@4.4.3)
-      zod: 4.4.3
-    optionalDependencies:
-      ws: 8.21.1
-
   '@ai-sdk/harness-claude-code@1.0.0':
     dependencies:
       '@ai-sdk/harness': 1.0.0(ws@8.21.1)(zod@3.25.76)
@@ -14037,12 +14017,32 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
+  '@ai-sdk/harness-claude-code@1.0.40(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/harness': 1.0.39(ws@8.21.1)(zod@4.4.3)
+      '@ai-sdk/provider-utils': 5.0.12(zod@4.4.3)
+      ws: 8.21.1
+      zod: 4.4.3
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
   '@ai-sdk/harness-codex@1.0.0':
     dependencies:
       '@ai-sdk/harness': 1.0.0(ws@8.21.1)(zod@3.25.76)
       '@ai-sdk/provider-utils': 5.0.0(zod@3.25.76)
       ws: 8.21.1
       zod: 3.25.76
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  '@ai-sdk/harness-codex@1.0.41(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/harness': 1.0.39(ws@8.21.1)(zod@4.4.3)
+      '@ai-sdk/provider-utils': 5.0.12(zod@4.4.3)
+      ws: 8.21.1
+      zod: 4.4.3
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -14066,6 +14066,15 @@ snapshots:
       ws: 8.21.1
     transitivePeerDependencies:
       - zod
+
+  '@ai-sdk/harness@1.0.39(ws@8.21.1)(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.3
+      '@ai-sdk/provider-utils': 5.0.12(zod@4.4.3)
+      ai: 7.0.34(zod@4.4.3)
+      zod: 4.4.3
+    optionalDependencies:
+      ws: 8.21.1
 
   '@ai-sdk/mcp@1.0.62(zod@4.4.3)':
     dependencies:

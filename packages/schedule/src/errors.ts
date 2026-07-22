@@ -1,5 +1,7 @@
 import { ViteHubError } from "@vite-hub/runtime"
 
+import type { ViteHubErrorOptions } from "@vite-hub/runtime"
+
 const scheduleErrorCodes = [
   "SCHEDULE_ALREADY_EXISTS",
   "SCHEDULE_DISABLED",
@@ -17,46 +19,15 @@ const scheduleErrorCodes = [
   "SCHEDULE_TARGET_NOT_FOUND",
 ] as const
 
-const scheduleErrorFields = [
-  "cron",
-  "enabled",
-  "id",
-  "input",
-  "options",
-  "scheduledAt",
-  "target",
-  "timeZone",
-] as const
-
-const scheduleErrorValueTypes = [
-  "array",
-  "bigint",
-  "boolean",
-  "date",
-  "function",
-  "null",
-  "number",
-  "object",
-  "string",
-  "symbol",
-  "undefined",
-  "unknown",
-] as const
+const scheduleErrorFields = ["cron", "enabled", "id", "input", "options", "scheduledAt", "target", "timeZone"] as const
+const scheduleErrorValueTypes = ["array", "bigint", "boolean", "date", "function", "null", "number", "object", "string", "symbol", "undefined", "unknown"] as const
 
 export type ScheduleErrorCode = typeof scheduleErrorCodes[number]
 export type ScheduleErrorField = typeof scheduleErrorFields[number]
 export type ScheduleErrorValueType = typeof scheduleErrorValueTypes[number]
 export type ScheduleValidationErrorCode = Extract<ScheduleErrorCode, `SCHEDULE_INVALID_${string}`>
-
-export type ScheduleErrorDetails = {
-  field: ScheduleErrorField
-  valueType: ScheduleErrorValueType
-}
-
-export type ScheduleErrorOptions<TCode extends ScheduleErrorCode = ScheduleErrorCode> = ErrorOptions & {
-  requestId?: string
-  retryable?: boolean
-} & (TCode extends ScheduleValidationErrorCode ? { details?: ScheduleErrorDetails } : { details?: never })
+export type ScheduleErrorDetails = { field: ScheduleErrorField, valueType: ScheduleErrorValueType }
+export type ScheduleErrorOptions = ViteHubErrorOptions<ScheduleErrorDetails>
 
 const scheduleErrorMessages: Record<ScheduleErrorCode, string> = {
   SCHEDULE_ALREADY_EXISTS: "Runtime Schedule already exists.",
@@ -73,64 +44,6 @@ const scheduleErrorMessages: Record<ScheduleErrorCode, string> = {
   SCHEDULE_RUN_NOT_FOUND: "Schedule Run was not found.",
   SCHEDULE_TARGET_NOT_ELIGIBLE: "Runtime Schedule target is not eligible.",
   SCHEDULE_TARGET_NOT_FOUND: "Runtime Schedule target was not found.",
-}
-
-const scheduleErrorHttpStatuses: Record<ScheduleErrorCode, number> = {
-  SCHEDULE_ALREADY_EXISTS: 409,
-  SCHEDULE_DISABLED: 409,
-  SCHEDULE_INVALID_CRON: 400,
-  SCHEDULE_INVALID_ENABLED: 400,
-  SCHEDULE_INVALID_ID: 400,
-  SCHEDULE_INVALID_INPUT: 400,
-  SCHEDULE_INVALID_SCHEDULED_AT: 400,
-  SCHEDULE_INVALID_TARGET: 400,
-  SCHEDULE_INVALID_TIME_ZONE: 400,
-  SCHEDULE_NOT_DUE: 409,
-  SCHEDULE_NOT_FOUND: 404,
-  SCHEDULE_RUN_NOT_FOUND: 500,
-  SCHEDULE_TARGET_NOT_ELIGIBLE: 400,
-  SCHEDULE_TARGET_NOT_FOUND: 404,
-}
-
-const scheduleErrorCodeSet = new Set<string>(scheduleErrorCodes)
-const scheduleErrorFieldSet = new Set<string>(scheduleErrorFields)
-const scheduleErrorValueTypeSet = new Set<string>(scheduleErrorValueTypes)
-
-function readProperty(value: object, key: PropertyKey): unknown {
-  try {
-    return Reflect.get(value, key)
-  }
-  catch {
-    return undefined
-  }
-}
-
-function normalizeScheduleErrorCode(code: unknown): ScheduleErrorCode {
-  if (typeof code !== "string" || !scheduleErrorCodeSet.has(code)) {
-    throw new TypeError("[vitehub] ScheduleError requires a supported Schedule error code.")
-  }
-  return code as ScheduleErrorCode
-}
-
-function normalizeScheduleErrorDetails(value: unknown): ScheduleErrorDetails | undefined {
-  if (typeof value !== "object" || value === null) return undefined
-  const field = readProperty(value, "field")
-  const valueType = readProperty(value, "valueType")
-  if (typeof field !== "string" || !scheduleErrorFieldSet.has(field)) return undefined
-  if (typeof valueType !== "string" || !scheduleErrorValueTypeSet.has(valueType)) return undefined
-  return { field: field as ScheduleErrorField, valueType: valueType as ScheduleErrorValueType }
-}
-
-function normalizeScheduleErrorOptions(code: ScheduleErrorCode, value: unknown): Required<Pick<ErrorOptions, "cause">> & { details?: ScheduleErrorDetails, requestId?: string, retryable?: boolean } {
-  if (typeof value !== "object" || value === null) return { cause: undefined }
-  const requestId = readProperty(value, "requestId")
-  const retryable = readProperty(value, "retryable")
-  return {
-    cause: readProperty(value, "cause"),
-    ...(code.startsWith("SCHEDULE_INVALID_") ? { details: normalizeScheduleErrorDetails(readProperty(value, "details")) } : {}),
-    ...(typeof requestId === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(requestId) ? { requestId } : {}),
-    ...(typeof retryable === "boolean" ? { retryable } : {}),
-  }
 }
 
 export function invalidScheduleValueDetails(field: ScheduleErrorField, value: unknown): ScheduleErrorDetails {
@@ -150,42 +63,17 @@ export function invalidScheduleValueDetails(field: ScheduleErrorField, value: un
   return { field, valueType }
 }
 
+export function createScheduleError<TCode extends ScheduleErrorCode>(
+  code: TCode,
+  options: ScheduleErrorOptions = {},
+): ViteHubError<TCode, ScheduleErrorDetails> {
+  return new ViteHubError(code, scheduleErrorMessages[code], options)
+}
+
 export function assertRuntimeScheduleId(id: unknown): asserts id is string {
   if (typeof id !== "string" || !id.trim()) {
-    throw new ScheduleError("SCHEDULE_INVALID_ID", {
+    throw createScheduleError("SCHEDULE_INVALID_ID", {
       details: invalidScheduleValueDetails("id", id),
     })
-  }
-}
-
-export class ScheduleError<TCode extends ScheduleErrorCode = ScheduleErrorCode> extends ViteHubError<TCode, ScheduleErrorDetails> {
-  readonly httpStatus: number
-
-  constructor(code: TCode, options?: ScheduleErrorOptions<TCode>) {
-    const normalizedCode = normalizeScheduleErrorCode(code)
-    const normalizedOptions = normalizeScheduleErrorOptions(normalizedCode, options)
-    super(normalizedCode as TCode, scheduleErrorMessages[normalizedCode], normalizedOptions)
-    this.name = "ScheduleError"
-    this.httpStatus = scheduleErrorHttpStatuses[normalizedCode]
-    sealScheduleError(this)
-  }
-}
-
-function sealScheduleError(error: ScheduleError): void {
-  if (error.details) Object.freeze(error.details)
-  if (!Object.getOwnPropertyDescriptor(error, "toJSON")) {
-    const snapshot = Object.freeze(error.toJSON())
-    Object.defineProperty(error, "toJSON", {
-      configurable: false,
-      enumerable: false,
-      value: () => snapshot,
-      writable: false,
-    })
-  }
-  for (const key of ["code", "details", "httpStatus", "message", "name", "requestId", "retryable"] as const) {
-    const descriptor = Object.getOwnPropertyDescriptor(error, key)
-    if (descriptor && "writable" in descriptor) {
-      Object.defineProperty(error, key, { ...descriptor, configurable: false, writable: false })
-    }
   }
 }

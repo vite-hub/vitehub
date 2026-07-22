@@ -1,12 +1,8 @@
 export { normalizeWorkflowOptions } from "./config.ts"
 export { defineWorkflow } from "./definition.ts"
 export {
-  ApplicationWorkflowError,
-  WorkflowError,
-  type ApplicationWorkflowErrorOptions,
   type WorkflowErrorCode,
   type WorkflowErrorDetails,
-  type WorkflowErrorOptions,
   type WorkflowOperationName,
   type WorkflowProviderName,
 } from "./errors.ts"

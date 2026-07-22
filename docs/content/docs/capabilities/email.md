@@ -134,7 +134,7 @@ Capability-owned validation and runtime failures happen before the Email driver 
 | Empty `to`, `subject`, or `text` | Tool execution rejects before calling the Email primitive. |
 | Recipient outside `recipients` | Policy denies the entire tool call before calling the Email primitive. |
 
-After the Capability calls the Email primitive, handle `EmailError.code` according to the delivery state:
+After the Capability calls the Email primitive, handle the `EMAIL_*` ViteHub error code according to the delivery state:
 
 | Failure | What to do |
 | --- | --- |
@@ -145,7 +145,7 @@ After the Capability calls the Email primitive, handle `EmailError.code` accordi
 | `network` or `timeout` | Treat delivery as uncertain. Check provider delivery logs before retrying, because the provider may already have accepted the message. |
 | `provider` | Inspect protected server logs and provider delivery records. Never expose `cause` to the model. |
 
-ViteHub-produced `EmailError.message` values are safe for the public runtime boundary.
+ViteHub-produced `ViteHubError.message` values are safe for the public runtime boundary.
 ViteHub-wrapped provider failures remain in `cause` for protected server-side diagnostics and may contain addresses, credentials, or response content; custom drivers must preserve the same rule.
 
 ## Keep Dynamic Markdown application-owned

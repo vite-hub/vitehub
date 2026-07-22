@@ -1,4 +1,4 @@
-import { ApprovalRequiredError } from "@vite-hub/runtime"
+import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
 import { readAgentUsageMetadata } from "./internal/agent-usage-metadata.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
@@ -393,9 +393,17 @@ export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, strin
     return { approved: value.approved === true, decidedAt: value.decidedAt as Date | string | undefined, id: String(value.id), ...optionalMessageId(messageId), reason: typeof value.reason === "string" ? value.reason : undefined, type: "approval-decision" }
   }
   if (type === "error") {
-    if (value.error instanceof ApprovalRequiredError) {
-      const { request } = value.error
-      return { id: request.id, input: request.input, ...optionalMessageId(messageId), name: request.capability || request.id, reason: request.reason, type: "approval-request" }
+    const approvalRequest = getViteHubErrorShape(value.error)?.code === "APPROVAL_REQUIRED"
+      && value.error instanceof Error
+      && isRecord(value.error.cause)
+      ? value.error.cause
+      : undefined
+    const approvalId = approvalRequest?.id
+    if (approvalRequest && typeof approvalId === "string") {
+      const request = approvalRequest
+      const capability = typeof request.capability === "string" ? request.capability : approvalId
+      const reason = typeof request.reason === "string" ? request.reason : undefined
+      return { id: approvalId, input: request.input, ...optionalMessageId(messageId), name: capability, reason, type: "approval-request" }
     }
     return { error: value.error instanceof Error ? value.error.message : String(value.error || "Unknown error"), ...(typeof value.id === "string" ? { id: value.id } : {}), ...optionalMessageId(messageId), ...(value.recoverable === true ? { recoverable: true } : {}), type: "error" }
   }

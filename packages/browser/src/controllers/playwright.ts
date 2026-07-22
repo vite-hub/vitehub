@@ -1,4 +1,4 @@
-import { BrowserProviderError } from "../errors.ts"
+import { browserProviderError } from "../errors.ts"
 
 import type {
   Browser,
@@ -27,7 +27,7 @@ async function loadChromium(): Promise<Pick<BrowserType, "connectOverCDP">> {
     return (await import("playwright-core")).chromium
   }
   catch (error) {
-    throw new BrowserProviderError("playwright", "load playwright-core", { cause: error })
+    throw browserProviderError("playwright", "load playwright-core", { cause: error })
   }
 }
 
@@ -36,7 +36,7 @@ async function loadCloudflare(): Promise<NonNullable<PlaywrightControllerOptions
     return await import("@cloudflare/playwright") as unknown as NonNullable<PlaywrightControllerOptions["cloudflare"]>
   }
   catch (error) {
-    throw new BrowserProviderError("playwright", "load @cloudflare/playwright", { cause: error })
+    throw browserProviderError("playwright", "load @cloudflare/playwright", { cause: error })
   }
 }
 

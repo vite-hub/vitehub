@@ -1,4 +1,4 @@
-import { WorkspaceError } from "../../core/errors.ts"
+import { workspaceError } from "../../core/errors.ts"
 import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
 import { resolveRuntimeVercelBlobWorkspaceStore } from "../../storage/provider.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts"
@@ -127,7 +127,7 @@ async function importVercelBlobPeer(): Promise<VercelBlobModule> {
 
 function handleVercelBlobImportError(error: unknown): never {
   if (isMissingVercelBlobError(error)) {
-    throw new WorkspaceError("[vitehub] @vercel/blob is required for the Vercel Blob Workspace Store. Package: @vercel/blob.", { cause: error })
+    throw workspaceError("[vitehub] @vercel/blob is required for the Vercel Blob Workspace Store. Package: @vercel/blob.", { cause: error })
   }
   throw error
 }
@@ -261,7 +261,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
 
     if (!targets.length) {
       if (options.force) return
-      throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
+      throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
     }
 
     await Promise.all(targets.map(target => client.delete(target)))

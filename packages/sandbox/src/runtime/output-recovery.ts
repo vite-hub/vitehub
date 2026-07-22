@@ -1,6 +1,7 @@
 import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
 import { sleep } from '../internal/shared/utils'
-import { SandboxError } from '../sandbox/errors'
+import { sandboxError } from '../sandbox/errors'
+import { readSandboxErrorMetadata } from './error-normalization'
 import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script'
 
 import type { SandboxExecutionBox } from './execution-box'
@@ -35,19 +36,19 @@ function getErrorMessage(error: unknown) {
 }
 
 function isRecoverableCloudflareExecError(error: unknown) {
-  const sandboxError = error instanceof SandboxError ? error : undefined
+  const metadata = readSandboxErrorMetadata(error)
 
-  if (sandboxError?.provider && sandboxError.provider !== 'cloudflare')
+  if (metadata?.provider && metadata.provider !== 'cloudflare')
     return false
 
-  if (sandboxError?.code === 'TIMEOUT' || sandboxError?.code === 'SANDBOX_TRANSPORT_ERROR')
+  if (metadata?.code === 'SANDBOX_TIMEOUT' || metadata?.code === 'SANDBOX_TRANSPORT_ERROR')
     return true
 
   return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(collectCloudflareErrorMessages(error))
 }
 
 export function createHandlerError(message: string, provider: string, details?: Record<string, unknown>) {
-  return new SandboxError(message, {
+  return sandboxError(message, {
     code: 'SANDBOX_HANDLER_ERROR',
     provider,
     details,
@@ -55,8 +56,8 @@ export function createHandlerError(message: string, provider: string, details?: 
 }
 
 export function createTimeoutError(provider: string, timeout: number) {
-  return new SandboxError(`Sandbox definition timed out after ${timeout}ms.`, {
-    code: 'TIMEOUT',
+  return sandboxError(`Sandbox definition timed out after ${timeout}ms.`, {
+    code: 'SANDBOX_TIMEOUT',
     provider,
     details: { timeout },
   })

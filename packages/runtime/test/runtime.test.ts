@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
 import {
-  ApprovalRequiredError,
-  CapabilityDeniedError,
-  CapabilityNotFoundError,
   createExecutionContext,
   createTraceEventLog,
   deriveTraceRuns,
@@ -78,23 +75,6 @@ describe("@vite-hub/runtime", () => {
       state: "approved",
     }
 
-    const error = new ApprovalRequiredError(request)
-
-    expect(error.request).toEqual(request)
-    expect(error).toMatchObject({
-      code: "APPROVAL_REQUIRED",
-      details: { capability: "refund", requestId: "approval-1" },
-      requestId: "approval-1",
-      retryable: false,
-    })
-    expect(error.toJSON()).toEqual({
-      code: "APPROVAL_REQUIRED",
-      details: { capability: "refund", requestId: "approval-1" },
-      message: '[vitehub:runtime] Approval is required for "refund".',
-      requestId: "approval-1",
-      retryable: false,
-    })
-    expect(JSON.stringify(error)).not.toContain("secret")
     expect(decision).toMatchObject({ approved: true, state: "approved" })
   })
 
@@ -109,7 +89,6 @@ describe("@vite-hub/runtime", () => {
       cause,
       details,
       requestId: "request-1",
-      retryable: true,
     }), {
       providerResponse: { authorization: "secret" },
     })
@@ -122,7 +101,6 @@ describe("@vite-hub/runtime", () => {
       details: { value: { provider: "mutated-secret" } },
       message: { value: "Bearer mutated-secret" },
       requestId: { value: "mutated-secret" },
-      retryable: { value: false },
     })
     expect(Reflect.set(error, "toJSON", () => ({ message: "mutated-secret" }))).toBe(false)
 
@@ -134,8 +112,8 @@ describe("@vite-hub/runtime", () => {
         provider: "fixture",
       },
       message: "The provider request failed.",
+      name: "ViteHubError",
       requestId: "request-1",
-      retryable: true,
     })
     expect(Object.isFrozen(error.toJSON())).toBe(true)
     expect(Object.isFrozen(error.toJSON().details)).toBe(true)
@@ -170,7 +148,7 @@ describe("@vite-hub/runtime", () => {
       code: "STRUCTURAL_FAILURE",
       details: { provider: "fixture" },
       message: "The structural operation failed.",
-      retryable: false,
+      name: "ViteHubError" as const,
       toJSON: ViteHubError.prototype.toJSON,
     }
 
@@ -178,7 +156,7 @@ describe("@vite-hub/runtime", () => {
       code: "STRUCTURAL_FAILURE",
       details: { provider: "fixture" },
       message: "The structural operation failed.",
-      retryable: false,
+      name: "ViteHubError",
     })
     structural.message = "Bearer mutated-secret"
     structural.details.provider = "mutated-secret"
@@ -197,33 +175,19 @@ describe("@vite-hub/runtime", () => {
     expect(error.toJSON()).toEqual({
       code: "SPECIALIZED_FAILURE",
       message: "The specialized operation failed.",
+      name: "ViteHubError",
       specialized: true,
     })
     expect(Reflect.set(error, "toJSON", () => ({ message: "mutated-secret" }))).toBe(false)
   })
 
-  it("gives runtime capability failures stable codes and allowlisted details", () => {
-    expect(new CapabilityNotFoundError("kv")).toMatchObject({
+  it("gives runtime capability lookup failures a stable ViteHub code", () => {
+    const context = createExecutionContext({ memo: vi.fn(), runtime: "vite", waitUntil: vi.fn() })
+    expect(() => getCapability(context, "kv")).toThrow(expect.objectContaining({
       code: "CAPABILITY_NOT_FOUND",
       details: { capability: "kv" },
-      retryable: false,
-    })
-    expect(new CapabilityDeniedError("email", { safeReason: "Policy rejected this operation." })).toMatchObject({
-      code: "CAPABILITY_DENIED",
-      details: { capability: "email", reason: "Policy rejected this operation." },
-      retryable: false,
-    })
-
-    const cause = new Error("policy secret: allow-internal-only")
-    const denied = new CapabilityDeniedError("email", { cause })
-    expect(denied.cause).toBe(cause)
-    expect(JSON.parse(JSON.stringify(denied))).toEqual({
-      code: "CAPABILITY_DENIED",
-      details: { capability: "email" },
-      message: '[vitehub:runtime] Capability "email" was denied.',
-      retryable: false,
-    })
-    expect(JSON.stringify(denied)).not.toContain("allow-internal-only")
+      name: "ViteHubError",
+    }))
   })
 
   it("resolves policy decisions", async () => {
@@ -233,7 +197,6 @@ describe("@vite-hub/runtime", () => {
       capability: "refund",
       input: { amount: 100 },
     })).resolves.toBe("require-approval")
-    expect(new CapabilityDeniedError("email")).toBeInstanceOf(Error)
   })
 
   it("models lease acquisition and release", async () => {

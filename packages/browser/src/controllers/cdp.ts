@@ -1,4 +1,4 @@
-import { BrowserProviderError } from "../errors.ts"
+import { browserProviderError } from "../errors.ts"
 
 import type { BrowserController } from "../types.ts"
 import type { PlaywrightBrowserConnection } from "../internal/connections.ts"
@@ -23,7 +23,7 @@ async function cloudflareSocket(
 ): Promise<CDPSocket> {
   const binding = connection.binding as { fetch?: typeof fetch }
   if (typeof binding?.fetch !== "function") {
-    throw new BrowserProviderError("cdp", "connect through the Cloudflare Browser binding")
+    throw browserProviderError("cdp", "connect through the Cloudflare Browser binding")
   }
   const response = await binding.fetch(`http://fake.host/v1/devtools/browser/${encodeURIComponent(connection.sessionId)}`, {
     headers: {
@@ -32,7 +32,7 @@ async function cloudflareSocket(
     },
   }) as Response & { webSocket?: CDPSocket | null }
   if (!response.webSocket) {
-    throw new BrowserProviderError("cdp", "connect through the Cloudflare Browser binding", { status: response.status })
+    throw browserProviderError("cdp", "connect through the Cloudflare Browser binding", { status: response.status })
   }
   response.webSocket.accept?.()
   return response.webSocket
@@ -42,12 +42,12 @@ async function localSocket(
   connection: Extract<PlaywrightBrowserConnection, { kind: "cdp" }>,
 ): Promise<CDPSocket> {
   if (connection.headers && Object.keys(connection.headers).length > 0) {
-    throw new BrowserProviderError("cdp", "connect with authenticated WebSocket headers")
+    throw browserProviderError("cdp", "connect with authenticated WebSocket headers")
   }
   const socket = new WebSocket(connection.endpoint)
   await new Promise<void>((resolve, reject) => {
     socket.addEventListener("open", () => resolve(), { once: true })
-    socket.addEventListener("error", () => reject(new BrowserProviderError("cdp", "connect to the browser")), { once: true })
+    socket.addEventListener("error", () => reject(browserProviderError("cdp", "connect to the browser")), { once: true })
   })
   return socket
 }
@@ -75,18 +75,18 @@ export function cdp(options: CDPControllerOptions = {}): BrowserController<CDPCl
         const request = pending.get(message.id)
         if (!request) return
         pending.delete(message.id)
-        if (message.error) request.reject(new BrowserProviderError("cdp", message.error.message || "run a CDP command"))
+        if (message.error) request.reject(browserProviderError("cdp", message.error.message || "run a CDP command"))
         else request.resolve(message.result)
       })
       socket.addEventListener("close", () => {
-        for (const request of pending.values()) request.reject(new BrowserProviderError("cdp", "complete a command before disconnect"))
+        for (const request of pending.values()) request.reject(browserProviderError("cdp", "complete a command before disconnect"))
         pending.clear()
       })
 
       return {
         client: {
           async send<TResult>(method: string, params: object = {}, sessionId?: string): Promise<TResult> {
-            if (released) throw new BrowserProviderError("cdp", "send a command after release")
+            if (released) throw browserProviderError("cdp", "send a command after release")
             return await new Promise<TResult>((resolve, reject) => {
               const id = ++nextId
               pending.set(id, { reject, resolve: value => resolve(value as TResult) })

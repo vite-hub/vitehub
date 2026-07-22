@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createMessage } from "@vite-hub/agent"
+import { ViteHubError } from "@vite-hub/runtime"
 import { createRateLimiter } from "@vite-hub/rate-limit"
 import { memoryRateLimitDriver } from "@vite-hub/rate-limit/drivers/memory"
 import {
   rateLimit,
-  RateLimitRejectedError,
 } from "../src/capabilities.ts"
 import { toHttpErrorResponse } from "../src/http-error.ts"
 
@@ -62,16 +62,9 @@ describe("rateLimit capability", () => {
       used: 2,
     })
     await expect(runAgent(agent, runtime(), {})).rejects.toMatchObject({
-      decision: {
-        allowed: false,
-        identity: "user_1",
-        limit: 2,
-        remaining: 0,
-        used: 2,
-      },
-      name: "RateLimitRejectedError",
-      retryAfter: expect.any(Number),
-      statusCode: 429,
+      code: "RATE_LIMIT_REJECTED",
+      details: { capabilityId: "rate-limit", reason: "limited", retryAfter: expect.any(Number) },
+      name: "ViteHubError",
     })
     expect(run).toHaveBeenCalledTimes(2)
   })
@@ -104,7 +97,7 @@ describe("rateLimit capability", () => {
     })).resolves.toMatchObject({ identity: "devtools:user_1" })
     await expect(runAgent(agent, runtime(), {
       context: { invoker: { id: "user_1", kind: "chat", meta: { customer: "acme" } } },
-    })).rejects.toBeInstanceOf(RateLimitRejectedError)
+    })).rejects.toBeInstanceOf(ViteHubError)
   })
 
   it("resolves a user's preferred limiter from Agent Invocation Context", async () => {
@@ -132,7 +125,7 @@ describe("rateLimit capability", () => {
     })).resolves.toMatchObject({ limit: 1, remaining: 0 })
     await expect(runAgent(agent, runtime(), {
       context: { invoker: { id: "user_2" } },
-    })).rejects.toBeInstanceOf(RateLimitRejectedError)
+    })).rejects.toBeInstanceOf(ViteHubError)
   })
 
   it("runs callbacks with the Agent decision and resolved limiter", async () => {
@@ -155,7 +148,7 @@ describe("rateLimit capability", () => {
     })
 
     await expect(runAgent(agent, runtime(), {})).resolves.toBe("ok")
-    await expect(runAgent(agent, runtime(), {})).rejects.toBeInstanceOf(RateLimitRejectedError)
+    await expect(runAgent(agent, runtime(), {})).rejects.toBeInstanceOf(ViteHubError)
 
     expect(onDecision).toHaveBeenCalledTimes(2)
     expect(onAllowed).toHaveBeenCalledTimes(1)
@@ -300,7 +293,7 @@ describe("rateLimit capability", () => {
     })
 
     const error = await runAgent(agent, runtime(), {}).catch(error => error)
-    expect(error).toMatchObject({ cause, statusCode: 503 })
+    expect(error).toMatchObject({ cause, code: "RATE_LIMIT_UNAVAILABLE", name: "ViteHubError" })
     const response = toHttpErrorResponse(error)
     expect(response?.status).toBe(503)
     await expect(response?.json()).resolves.toEqual({

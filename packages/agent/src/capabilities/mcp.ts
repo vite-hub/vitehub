@@ -1,6 +1,7 @@
 import {
   defineCapability,
 } from "../capability-runtime.ts"
+import { ViteHubError } from "@vite-hub/runtime"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 
 import type {
@@ -19,21 +20,11 @@ interface McpToolDrift {
   removed: string[]
 }
 
-export class McpToolDefinitionDriftError extends Error {
-  readonly added: string[]
-  readonly changed: string[]
-  readonly removed: string[]
-  readonly server: string
-
-  constructor(server: string, drift: McpToolDrift) {
-    const format = (names: string[]) => names.length ? names.map(name => JSON.stringify(name)).join(", ") : "none"
-    super(`[vitehub] MCP tool-definition drift for server "${server}". Added: ${format(drift.added)}. Changed: ${format(drift.changed)}. Removed: ${format(drift.removed)}. Review the server tools before updating mcp({ integrity }).`)
-    this.name = "McpToolDefinitionDriftError"
-    this.added = [...drift.added]
-    this.changed = [...drift.changed]
-    this.removed = [...drift.removed]
-    this.server = server
-  }
+function mcpToolDefinitionDriftError(server: string, drift: McpToolDrift) {
+  const format = (names: string[]) => names.length ? names.map(name => JSON.stringify(name)).join(", ") : "none"
+  return new ViteHubError("MCP_TOOL_DEFINITION_DRIFT", `[vitehub] MCP tool-definition drift for server "${server}". Added: ${format(drift.added)}. Changed: ${format(drift.changed)}. Removed: ${format(drift.removed)}. Review the server tools before updating mcp({ integrity }).`, {
+    details: { server, ...drift },
+  })
 }
 
 function normalizeMcpToolName(serverName: string, toolName: string) {
@@ -86,7 +77,7 @@ async function assertMcpToolIntegrity(server: string, tools: Record<string, unkn
   const current = await aiSdk.fingerprintTools(tools as never)
   const drift = aiSdk.detectToolDrift(current, baseline)
   if (drift.added.length || drift.changed.length) {
-    throw new McpToolDefinitionDriftError(server, drift)
+    throw mcpToolDefinitionDriftError(server, drift)
   }
 }
 

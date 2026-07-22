@@ -1459,7 +1459,8 @@ describe("agent message protocol", () => {
   })
 
   it("rejects malformed JSON from structured harness results", async () => {
-    const { defineAgent, runAgent, AgentOutputValidationError } = await import("../src/index.ts")
+    const { ViteHubError } = await import("@vite-hub/runtime")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
     harnessGenerate.mockResolvedValueOnce({ text: "hello" })
     const agent = defineAgent({
@@ -1476,7 +1477,7 @@ describe("agent message protocol", () => {
       runtime: false,
     })
 
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).rejects.toBeInstanceOf(AgentOutputValidationError)
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).rejects.toBeInstanceOf(ViteHubError)
   })
 
   it("requires explicit harness sandboxes on runtimes without local processes", async () => {
@@ -9255,19 +9256,22 @@ describe("agent message protocol", () => {
   })
 
   it("maps approval-required stream errors to approval request events", async () => {
-    const { ApprovalRequiredError } = await import("@vite-hub/runtime")
+    const { ViteHubError } = await import("@vite-hub/runtime")
     const { streamAgent } = await import("../src/index.ts")
     const agent = {
       generate: vi.fn(),
       stream: vi.fn(async () => ({
         fullStream: (async function* () {
           yield {
-            error: new ApprovalRequiredError({
-              capability: "refund",
-              id: "approval-1",
-              input: { orderId: "ord_123" },
-              reason: "Refunds require review",
-              state: "awaiting-approval",
+            error: new ViteHubError("APPROVAL_REQUIRED", "Approval required.", {
+              cause: {
+                capability: "refund",
+                id: "approval-1",
+                input: { orderId: "ord_123" },
+                reason: "Refunds require review",
+                state: "awaiting-approval",
+              },
+              requestId: "approval-1",
             }),
             type: "error",
           }
@@ -9519,11 +9523,14 @@ describe("agent message protocol", () => {
     const resolved = await agent.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
 
     await expect(resolved.tools.refund!.execute({ amount: 100 })).rejects.toMatchObject({
-      request: {
+      cause: {
         capability: "refund",
         input: { amount: 100 },
         state: "awaiting-approval",
       },
+      code: "APPROVAL_REQUIRED",
+      details: { capability: "refund", requestId: expect.any(String) },
+      name: "ViteHubError",
     })
     expect(execute).not.toHaveBeenCalled()
   })

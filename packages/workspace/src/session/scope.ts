@@ -1,4 +1,4 @@
-import { WorkspaceError } from "../core/errors.ts"
+import { workspaceError } from "../core/errors.ts"
 
 import type { WorkspaceDiff, WorkspaceEntry, WorkspaceSearchQuery } from "../core/types.ts"
 
@@ -23,7 +23,7 @@ export function assertPathInSessionScope(path: string, paths: string[] | undefin
     ? mkdirPathInSessionScope(path, paths)
     : pathInSessionScope(path, paths)
   if (!valid) {
-    throw new WorkspaceError(options.masked
+    throw workspaceError(options.masked
       ? `[vitehub] Workspace file does not exist: ${path}.`
       : `[vitehub] Workspace session path ${path} is outside the session scope.`)
   }
@@ -33,7 +33,7 @@ export function assertPathInSessionScope(path: string, paths: string[] | undefin
 export function assertDiffInsideSessionPaths(diff: WorkspaceDiff, paths: string[] | undefined) {
   if (!paths) return
   const entry = diff.entries.find(entry => !diffEntryInSessionScope(entry, paths))
-  if (entry) throw new WorkspaceError(`[vitehub] Workspace session path ${entry.path} is outside the session scope.`)
+  if (entry) throw workspaceError(`[vitehub] Workspace session path ${entry.path} is outside the session scope.`)
 }
 
 export function filterSessionEntries(entries: WorkspaceEntry[], paths: string[] | undefined): WorkspaceEntry[] {

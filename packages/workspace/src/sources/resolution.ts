@@ -1,5 +1,5 @@
 import { createWorkspaceTools } from "../ai.ts"
-import { WorkspaceError } from "../core/errors.ts"
+import { workspaceError } from "../core/errors.ts"
 import { normalizeWorkspacePath } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
@@ -726,7 +726,7 @@ function scopedWorkspaceSource(
     getItem: async (key, ctx) => {
       const path = sourceItemWorkspacePath(source, key)
       if (!selectedScopeCanRead(scope, path)) {
-        throw new WorkspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
+        throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
       }
       return await source.source.getItem(key, ctx)
     },

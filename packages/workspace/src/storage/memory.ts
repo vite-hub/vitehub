@@ -1,4 +1,4 @@
-import { WorkspaceError } from "../core/errors.ts"
+import { workspaceError } from "../core/errors.ts"
 import { normalizeWorkspacePath, matchesAny, sha256 } from "../core/path.ts"
 
 import type {
@@ -92,12 +92,12 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     const node = this.#nodes.get(normalized)
     if (!node) {
       if (options.force) return
-      throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
+      throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
     }
     if (node.type === "directory" && !options.recursive) {
       for (const key of this.#nodes.keys()) {
         if (key.startsWith(`${normalized}/`)) {
-          throw new WorkspaceError(`[vitehub] Workspace directory is not empty: ${path}.`)
+          throw workspaceError(`[vitehub] Workspace directory is not empty: ${path}.`)
         }
       }
     }

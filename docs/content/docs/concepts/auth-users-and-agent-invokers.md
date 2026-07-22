@@ -33,9 +33,9 @@ export default defineAgent({
 
 `authenticated()` is opt-in at the Agent or Entry Surface boundary. Merely defining Auth does not make every Agent Invocation require Auth.
 
-When a required Auth Session is missing, the bridge throws `AuthenticationRequiredError` with code `AUTHENTICATION_REQUIRED` and `statusCode: 401`, so Agent and HTTP entry surfaces can recognize the same failure without parsing its message.
+When a required Auth Session is missing, the bridge throws `ViteHubError` with code `AUTHENTICATION_REQUIRED`, so Agent and HTTP entry surfaces can recognize the same failure without parsing its message. HTTP adapters map that code to `401`.
 
-When the default Better Auth session lookup fails, the bridge throws `AuthenticationProviderError` with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. Existing Auth errors, structural `AbortError` objects, and application-owned `source` exceptions keep their identity. Malformed provider responses remain `TypeError` contract failures.
+When the default Better Auth session lookup fails, the bridge throws the shared error with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. Existing ViteHub errors, structural `AbortError` objects, and application-owned `source` exceptions keep their identity. Malformed provider responses remain `TypeError` contract failures.
 
 ## What Agent Invoker carries
 

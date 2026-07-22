@@ -40,7 +40,7 @@ export interface EnvErrorOptions<TCode extends EnvErrorCode = EnvErrorCode>
 const envSourceIdentifierSet = new Set<EnvSourceIdentifier>(envSourceIdentifiers)
 
 function invalidOptions(): never {
-  throw new TypeError("[vitehub] EnvError requires valid error options.")
+  throw new TypeError("[vitehub] Invalid Env error options.")
 }
 
 function own(value: unknown, key: PropertyKey): unknown {
@@ -56,32 +56,28 @@ function own(value: unknown, key: PropertyKey): unknown {
   }
 }
 
-export class EnvError<TCode extends EnvErrorCode = EnvErrorCode>
-  extends ViteHubError<TCode, EnvErrorDetails<TCode>> {
-  constructor(options: EnvErrorOptions<TCode>) {
-    const code = own(options, "code")
-    if (typeof code !== "string" || !Object.hasOwn(envErrorMessages, code)) invalidOptions()
-    const cause = own(options, "cause")
-    const details = normalizeDetails(code as TCode, own(options, "details"))
-    super(code as TCode, envErrorMessages[code as TCode], {
-      ...(cause === undefined ? {} : { cause }),
-      ...(details === undefined ? {} : { details }),
-    })
-    this.name = "EnvError"
-  }
+function createEnvError<TCode extends EnvErrorCode>(options: EnvErrorOptions<TCode>): ViteHubError<TCode, EnvErrorDetails<TCode>> {
+  const code = own(options, "code")
+  if (typeof code !== "string" || !Object.hasOwn(envErrorMessages, code)) invalidOptions()
+  const cause = own(options, "cause")
+  const details = normalizeDetails(code as TCode, own(options, "details"))
+  return new ViteHubError(code as TCode, envErrorMessages[code as TCode], {
+    ...(cause === undefined ? {} : { cause }),
+    ...(details === undefined ? {} : { details }),
+  })
 }
 
-export function invalidEnvDeclaration(path: string, diagnostic: string): EnvError<"ENV_DECLARATION_INVALID"> {
-  return new EnvError({
+export function invalidEnvDeclaration(path: string, diagnostic: string): ViteHubError<"ENV_DECLARATION_INVALID", EnvErrorDetails<"ENV_DECLARATION_INVALID">> {
+  return createEnvError({
     cause: new TypeError(diagnostic),
     code: "ENV_DECLARATION_INVALID",
     details: optionalPath(path),
   })
 }
 
-export function missingRequiredEnv(source: string, diagnostic: string, path?: string): EnvError<"ENV_REQUIRED_MISSING"> {
+export function missingRequiredEnv(source: string, diagnostic: string, path?: string): ViteHubError<"ENV_REQUIRED_MISSING", EnvErrorDetails<"ENV_REQUIRED_MISSING">> {
   const pathDetails = optionalPath(path)
-  return new EnvError({
+  return createEnvError({
     cause: new Error(diagnostic),
     code: "ENV_REQUIRED_MISSING",
     details: {
@@ -91,16 +87,16 @@ export function missingRequiredEnv(source: string, diagnostic: string, path?: st
   })
 }
 
-export function invalidRuntimeEnvValue(source: string, diagnostic: string): EnvError<"ENV_RUNTIME_VALUE_INVALID"> {
-  return new EnvError({
+export function invalidRuntimeEnvValue(source: string, diagnostic: string): ViteHubError<"ENV_RUNTIME_VALUE_INVALID", EnvErrorDetails<"ENV_RUNTIME_VALUE_INVALID">> {
+  return createEnvError({
     cause: new TypeError(diagnostic),
     code: "ENV_RUNTIME_VALUE_INVALID",
     details: { source: publicSourceIdentifier(source) },
   })
 }
 
-export function envSourceFailed(source: string, cause: unknown): EnvError<"ENV_SOURCE_FAILED"> {
-  return new EnvError({
+export function envSourceFailed(source: string, cause: unknown): ViteHubError<"ENV_SOURCE_FAILED", EnvErrorDetails<"ENV_SOURCE_FAILED">> {
+  return createEnvError({
     cause,
     code: "ENV_SOURCE_FAILED",
     details: { source: publicSourceIdentifier(source) },

@@ -31,11 +31,9 @@ export {
   inputCommands,
 } from "./input-commands.ts"
 export {
-  LlmGateRejectedError,
   llmGate,
 } from "./llm-gate.ts"
 export {
-  RateLimitRejectedError,
   rateLimit,
 } from "./rate-limit.ts"
 export {
@@ -77,7 +75,6 @@ export {
 } from "./transcribe.ts"
 export {
   createTranscription,
-  TranscriptionError,
 } from "./transcription.ts"
 export {
   elevenLabsScribe,
@@ -103,7 +100,6 @@ export {
 } from "./memory.ts"
 export {
   mcp,
-  McpToolDefinitionDriftError,
 } from "./mcp.ts"
 export {
   webSearch,
@@ -307,8 +303,6 @@ export type {
   TranscriptionDriverSubmission,
   TranscriptionErrorCode,
   TranscriptionErrorDetails,
-  TranscriptionErrorJSON,
-  TranscriptionErrorOptions,
   TranscriptionFailedCompletion,
   TranscriptionMetadata,
   TranscriptionSource,

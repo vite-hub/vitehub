@@ -49,6 +49,7 @@
   "dependencies": {
     "@types/nodemailer": "catalog:email",
     "@vite-hub/markdown-template": "workspace:*",
+    "@vite-hub/runtime": "workspace:*",
     "comark": "catalog:ui"
   },
   "devDependencies": {

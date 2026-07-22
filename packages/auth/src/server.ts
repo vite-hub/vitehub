@@ -19,12 +19,6 @@ import type {
   ViteHubAuth,
 } from "./types.ts"
 
-export { AuthenticationProviderError } from "./errors.ts"
-export type {
-  AuthenticationProviderErrorOptions,
-  AuthenticationProviderOperation,
-} from "./errors.ts"
-
 type AuthRuntimeEnvResolver = (event?: unknown) => Record<string, unknown>
 
 function hasRuntimeOptions(options: AuthRuntimeOptions | undefined): boolean {

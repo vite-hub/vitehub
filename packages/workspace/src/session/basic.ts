@@ -1,4 +1,4 @@
-import { WorkspaceError } from "../core/errors.ts"
+import { workspaceError } from "../core/errors.ts"
 import { decodeFile, matchesAny, normalizeSafeWorkspacePath } from "../core/path.ts"
 import { searchText } from "../core/search.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
@@ -7,7 +7,7 @@ import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDi
 import type { ExecOptions, ExecResult, MkdirOptions, ReadFileOptions, ReadFileResult, Workspace, WorkspaceSearchHit, WorkspaceSession, WorkspaceSessionOptions } from "../core/types.ts"
 
 function unsupportedExec(): never {
-  throw new WorkspaceError("[vitehub] Workspace exec requires a Box session host. Pass the active Box session to workspace.startSession({ host }).")
+  throw workspaceError("[vitehub] Workspace exec requires a Box session host. Pass the active Box session to workspace.startSession({ host }).")
 }
 
 function normalizeSessionPaths(options?: WorkspaceSessionOptions): string[] | undefined {
@@ -41,7 +41,7 @@ export async function createBasicWorkspaceSession(workspace: Workspace, options?
     async readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, readOptions?: TOptions): Promise<ReadFileResult<TOptions>> {
       const target = assertPathInSessionScope(normalizeSessionPath(path), sessionPaths, { masked: true })
       const file = await overlay.readFile(target)
-      if (!file) throw new WorkspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
+      if (!file) throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
       return decodeFile(file.content, readOptions)
     },
     async writeFile(path, content, writeOptions) {

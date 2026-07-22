@@ -37,7 +37,7 @@ interface QueueDeliveryErrorReport extends Omit<QueueDeliveryErrorContext, "id" 
 
 export function isNonRetryableQueueError(error: unknown): boolean {
   const shape = getQueueErrorPublicShape(error)
-  return shape?.retryable === false || (shape !== undefined && nonRetryableBuiltInCodes.has(shape.code))
+  return shape !== undefined && nonRetryableBuiltInCodes.has(shape.code)
 }
 
 export function createQueueDeliveryErrorReport(error: unknown, context: QueueDeliveryErrorContext): QueueDeliveryErrorReport {
@@ -52,7 +52,7 @@ export function createQueueDeliveryErrorReport(error: unknown, context: QueueDel
     error: {
       ...(queueError ? { code: queueError.code, details: queueError.details } : {}),
       message: queueError?.message ?? "[vitehub] Queue Delivery failed.",
-      name: queueError ? "QueueError" : "Error",
+      name: queueError ? "ViteHubError" : "Error",
     },
     retryable: !isNonRetryableQueueError(error),
   }

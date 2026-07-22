@@ -1,5 +1,4 @@
 export { defineSandbox } from './registry'
-export { SandboxError } from '../sandbox/errors'
 export type { SandboxExecutionOptions, SandboxRunResult } from '../module-types'
 import { runSandboxRuntime } from './runtime'
 import type {

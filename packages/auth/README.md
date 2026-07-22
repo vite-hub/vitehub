@@ -175,12 +175,12 @@ export default defineAgent({
 
 By default, the Auth Package reads the same-app Better Auth session from the request and maps the Auth User to an Agent Invoker with `kind: "authUser"`. Customize `id`, `kind`, `label`, or `meta` for normal identity shaping, and use `source` or `map` when the Agent consumes JWTs, bearer tokens, OAuth/OIDC provider output, or product-specific identity.
 
-When authentication is required but unavailable, `authenticated()` throws `AuthenticationRequiredError` with code `AUTHENTICATION_REQUIRED` and `statusCode: 401`. The class keeps its existing string constructor and accepts a protected `cause` through its object form.
+When authentication is required but unavailable, `authenticated()` throws `ViteHubError` with code `AUTHENTICATION_REQUIRED`. HTTP adapters map that code to `401`; the transport status is not part of the error object.
 
 ```ts
-import { AuthenticationRequiredError } from "@vite-hub/auth/agent"
+import { ViteHubError } from "@vite-hub/runtime"
 
-const error = new AuthenticationRequiredError("Sign in to use this Agent.")
+const error = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in to use this Agent.")
 ```
 
-`error.toJSON()` includes `code` and `message`, while omitting `cause` and stack data. If a default Better Auth request or session operation fails, `authenticated()` and `requireAuth()` throw `AuthenticationProviderError` with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. Existing Auth errors and structural `AbortError` objects keep their identity. Missing APIs, malformed responses, invalid Auth configuration, and invalid custom callback results are programmer or provider-contract defects, so ViteHub keeps those `TypeError`s outside the operational provider boundary.
+`error.toJSON()` includes `name`, `code`, and `message`, while omitting `cause` and stack data. If a default Better Auth request or session operation fails, `authenticated()` and `requireAuth()` throw the same shared error with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. Existing ViteHub errors and structural `AbortError` objects keep their identity. Missing APIs, malformed responses, invalid Auth configuration, and invalid custom callback results are programmer or provider-contract defects, so ViteHub keeps those `TypeError`s outside the operational provider boundary.

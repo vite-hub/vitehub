@@ -1,4 +1,8 @@
 import {
+  getViteHubErrorShape,
+} from "@vite-hub/runtime"
+
+import {
   readAgentErrorProperty,
   toAgentPublicError,
 } from "./agent-error.ts"
@@ -18,6 +22,12 @@ export class AgentHttpError extends Error {
 export function getHttpErrorStatusCode(error: unknown): number | undefined {
   const statusCode = readAgentErrorProperty(error, "statusCode")
   if (typeof statusCode === "number" && statusCode >= 400 && statusCode <= 599) return statusCode
+  const code = getViteHubErrorShape(error)?.code
+  if (code === "AUTHENTICATION_REQUIRED") return 401
+  if (code === "RATE_LIMIT_REJECTED") return 429
+  if (code === "RATE_LIMIT_UNAVAILABLE") return 503
+  if (code === "LLM_GATE_REJECTED" || code === "CAPABILITY_DENIED") return 403
+  if (code === "CAPABILITY_NOT_FOUND") return 404
 }
 
 function isAgentHttpError(error: unknown): error is AgentHttpError {

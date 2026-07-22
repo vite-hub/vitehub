@@ -3,9 +3,9 @@ import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/c
 import { normalizeQueueOptions } from "../config.ts"
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
 import {
+  createQueueError,
   isQueueBoundaryIdentity,
   normalizePublicQueueIdentifier,
-  QueueError,
   runQueueProviderOperation,
 } from "../errors.ts"
 import { getCloudflareQueueBindingName } from "../integrations/cloudflare.ts"
@@ -15,10 +15,9 @@ import { getQueueClientCache, getQueueRuntimeClientFactory, getQueueRuntimeConfi
 
 import type { CloudflareQueueClient, CloudflareQueueProviderOptions, QueueClient, QueueEnqueueInput, QueueProviderOptions, QueueSendResult, ResolvedQueueOptions, VercelQueueProviderOptions } from "../types.ts"
 
-function createQueueDefinitionNotFoundError(name: string): QueueError<"QUEUE_DEFINITION_NOT_FOUND"> {
+function createQueueDefinitionNotFoundError(name: string) {
   const queue = normalizePublicQueueIdentifier(name)
-  return new QueueError<"QUEUE_DEFINITION_NOT_FOUND">({
-    code: "QUEUE_DEFINITION_NOT_FOUND",
+  return createQueueError("QUEUE_DEFINITION_NOT_FOUND", {
     details: queue ? { queue } : undefined,
   })
 }
@@ -30,9 +29,8 @@ async function loadNamedQueueDefinition(name: string) {
   catch (cause) {
     if (isQueueBoundaryIdentity(cause)) throw cause
     const queue = normalizePublicQueueIdentifier(name)
-    throw new QueueError<"QUEUE_DEFINITION_LOAD_FAILED">({
+    throw createQueueError("QUEUE_DEFINITION_LOAD_FAILED", {
       cause,
-      code: "QUEUE_DEFINITION_LOAD_FAILED",
       details: queue ? { queue } : undefined,
     })
   }
@@ -82,9 +80,7 @@ function hasRequestScopedVercelRegion(config: ResolvedQueueOptions): boolean {
 async function createNamedQueueClient(name: string): Promise<QueueClient> {
   const config = getActiveQueueConfig()
   if (config === false) {
-    throw new QueueError<"QUEUE_DISABLED">({
-      code: "QUEUE_DISABLED",
-    })
+    throw createQueueError("QUEUE_DISABLED")
   }
 
   const provider = toProviderOptions(name, config)

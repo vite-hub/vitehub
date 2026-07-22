@@ -72,27 +72,25 @@ export default defineEventHandler(async (event) => {
 
 `getWorkflowRun()` normalizes provider run and step state, including timestamps, attempts, and failures. `cancelWorkflow()` cancels a durable run, and `resumeWorkflowSignal()` forwards an opaque signal token created inside the native workflow. Providers that cannot perform an operation fail explicitly instead of simulating it.
 
-Throw `ApplicationWorkflowError` when app callers need a stable, inspectable failure instead of parsing log output or provider-specific messages. `WorkflowError` is reserved for ViteHub-owned failures with fixed codes, messages, and detail shapes.
+Throw `ViteHubError` when app callers need a stable, inspectable Workflow failure instead of parsing log output or provider-specific messages. ViteHub-owned failures use the package's fixed `WorkflowErrorCode` vocabulary.
 
 ```ts
-import { ApplicationWorkflowError } from "@vite-hub/workflow"
+import { ViteHubError } from "@vite-hub/runtime"
 
 async function transcribe(recordingId: string) {
   try {
     return await transcribeRecording(recordingId)
   }
   catch (cause) {
-    throw new ApplicationWorkflowError({
+    throw new ViteHubError("TRANSCRIPTION_FAILED", "Transcription failed.", {
       cause,
-      code: "TRANSCRIPTION_FAILED",
       details: { recordingId },
-      message: "Transcription failed.",
     })
   }
 }
 ```
 
-`code` and `message` are required and remain available through `error.toJSON()`. Application codes use non-reserved SCREAMING_SNAKE_CASE strings. Keep `details` JSON-safe and free of secrets; `toJSON()` omits `cause`, which remains available only on the in-memory error. ViteHub's built-in codes are typed as `WorkflowErrorCode` and use `WorkflowError` with code-derived messages and code-specific details. Workflow Step retry behavior belongs in the Step's retry options rather than the error.
+`code` and `message` remain available through `error.toJSON()`. Keep `details` JSON-safe and free of secrets; `toJSON()` omits `cause`, which remains available only on the in-memory error. ViteHub's built-in codes are typed as `WorkflowErrorCode` and use code-derived messages and code-specific details. Workflow Step retry behavior belongs in the Step's retry options rather than the error.
 
 ```ts
 // vite.config.ts

@@ -285,7 +285,6 @@ function renderQueueRuntimeModule(file: string) {
   return [
     `export { defineQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/definition.ts")))}`,
     `export { createQueueMessageId } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/enqueue.ts")))}`,
-    `export { QueueError } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/errors.ts")))}`,
     `export { deferQueue, getQueue, runQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/client.ts")))}`,
     `export { createQueueClient } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/create-client.ts")))}`,
     "",
@@ -312,7 +311,6 @@ function renderSandboxRuntimeModule(file: string) {
 function renderWorkflowRuntimeModule(file: string) {
   return [
     `export { defineWorkflow } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/definition.ts")))}`,
-    `export { ApplicationWorkflowError, WorkflowError } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/errors.ts")))}`,
     `export { createWorkflow, deferWorkflow, getWorkflowRun, runWorkflow } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/client.ts")))}`,
     `export { readRequestPayload, readValidatedPayload, validatePayload } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/payload.ts")))}`,
     "",

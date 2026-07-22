@@ -39,7 +39,7 @@ export default defineAgent({
 
 The Capability runs during the input phase. It derives a stable key from the Capability id, scope, and trusted identity, then calls the `RateLimiter` exactly once.
 
-A rejected decision throws `RateLimitRejectedError` with status code `429`. The error includes `retry-after` headers only when the selected driver reports `retryAfter`; Cloudflare native enforcement does not return portable quota metadata.
+A rejected decision throws `ViteHubError` with code `RATE_LIMIT_REJECTED`; the HTTP boundary maps that code to `429`. The response includes `retry-after` only when the selected driver reports `retryAfter`; Cloudflare native enforcement does not return portable quota metadata.
 
 The decision is stored under the Capability id in Agent Invocation Context and exposed as a finish extension. It contains the primitive decision plus `capabilityId`, `identity`, `identitySource`, `key`, and `scope`.
 
@@ -128,7 +128,7 @@ There is no compatibility shim. `memoryRateLimitStore()` and `RateLimitStore` ar
 
 ## Verify it
 
-Run repeated Agent Invocations with the same identity. The first `limit` invocations should reach the Agent Driver; the next should fail with `RateLimitRejectedError` before model, harness, or custom-run execution.
+Run repeated Agent Invocations with the same identity. The first `limit` invocations should reach the Agent Driver; the next should fail with code `RATE_LIMIT_REJECTED` before model, harness, or custom-run execution.
 
 For local tests, use a dedicated memory driver instance. For Cloudflare, resolve the request binding in the limiter resolver and test the deployed binding because the native decision depends on request-scoped Worker environment.
 

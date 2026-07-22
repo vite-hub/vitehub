@@ -1,6 +1,6 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
 
-import { assertRuntimeScheduleId, invalidScheduleValueDetails, ScheduleError } from "../errors.ts"
+import { assertRuntimeScheduleId, invalidScheduleValueDetails, createScheduleError } from "../errors.ts"
 import { isRuntimeScheduleDue } from "./due.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 import { createLocalWaitUntil } from "./wait-until.ts"
@@ -43,7 +43,7 @@ interface ExecuteRuntimeScheduleWakeOptions {
 
 function assertRuntimeExecuteOptionsObject(options: unknown): asserts options is ExecuteRuntimeScheduleOptions {
   if (typeof options !== "object" || options === null || Array.isArray(options)) {
-    throw new ScheduleError("SCHEDULE_INVALID_INPUT", {
+    throw createScheduleError("SCHEDULE_INVALID_INPUT", {
       details: invalidScheduleValueDetails("options", options),
     })
   }
@@ -59,7 +59,7 @@ function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: string, s
 
 function validateScheduledAt(scheduledAt: Date): Date {
   if (!(scheduledAt instanceof Date) || Number.isNaN(scheduledAt.getTime())) {
-    throw new ScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
+    throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
       details: invalidScheduleValueDetails("scheduledAt", scheduledAt),
     })
   }
@@ -79,7 +79,7 @@ function toRunError(error: unknown): ScheduleRunError {
 
 function requireUpdatedRun(run: ScheduleRunRecord | undefined): ScheduleRunRecord {
   if (!run) {
-    throw new ScheduleError("SCHEDULE_RUN_NOT_FOUND")
+    throw createScheduleError("SCHEDULE_RUN_NOT_FOUND")
   }
   return run
 }
@@ -239,7 +239,7 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
 async function loadRequiredRuntimeSchedule(id: string, store: RuntimeScheduleStore = getRuntimeScheduleStore()): Promise<RuntimeScheduleRecord> {
   const schedule = await store.get(id)
   if (!schedule) {
-    throw new ScheduleError("SCHEDULE_NOT_FOUND")
+    throw createScheduleError("SCHEDULE_NOT_FOUND")
   }
   return schedule
 }
@@ -259,17 +259,17 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
 
   const schedule = await loadRequiredRuntimeSchedule(id, runtimeScheduleStore)
   if (!schedule.enabled) {
-    throw new ScheduleError("SCHEDULE_DISABLED")
+    throw createScheduleError("SCHEDULE_DISABLED")
   }
   if (runtimeOptions.requireDue && !isRuntimeScheduleDue(schedule, scheduledAt)) {
-    throw new ScheduleError("SCHEDULE_NOT_DUE")
+    throw createScheduleError("SCHEDULE_NOT_DUE")
   }
   const definition = await loadScheduleDefinition(schedule.target)
   if (!definition) {
-    throw new ScheduleError("SCHEDULE_TARGET_NOT_FOUND")
+    throw createScheduleError("SCHEDULE_TARGET_NOT_FOUND")
   }
   if (definition.options?.allowRuntimeSchedules !== true) {
-    throw new ScheduleError("SCHEDULE_TARGET_NOT_ELIGIBLE")
+    throw createScheduleError("SCHEDULE_TARGET_NOT_ELIGIBLE")
   }
 
   return await executeSchedule({

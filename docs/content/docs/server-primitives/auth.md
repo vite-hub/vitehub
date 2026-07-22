@@ -52,8 +52,7 @@ export default defineAuth({
 | `handleAuth`, `handleAuthRequest`, `createAuthHandler` from `@vite-hub/auth/server` | Mount or call the Auth handler manually. |
 | `requireAuth` from `@vite-hub/auth/server` | Guard server routes with an Auth Session. |
 | `authenticated` from `@vite-hub/auth/agent` | Map a Better Auth session into an Agent Invoker. |
-| `AuthenticationRequiredError` from `@vite-hub/auth/agent` | Handle missing authentication with a stable code and HTTP status. |
-| `AuthenticationProviderError` from `@vite-hub/auth/agent` | Handle default Better Auth request and session operation failures without exposing provider diagnostics. |
+| `getViteHubErrorShape` from `@vite-hub/runtime` | Handle missing authentication and provider failures by stable Auth code. |
 | `hubAuth` from `@vite-hub/auth/vite` | Register Auth discovery, route exposure, and generated server aliases. |
 
 Create one Primary Auth Definition. ViteHub discovers `server/auth.ts` or `server.auth.ts`.
@@ -221,17 +220,17 @@ Read [Auth Users and Agent Invokers](/docs/concepts/auth-users-and-agent-invoker
 
 ### Handle required authentication
 
-`authenticated()` throws `AuthenticationRequiredError` when no required Auth Session exists. The error has code `AUTHENTICATION_REQUIRED`, preserves `statusCode: 401` for HTTP adapters, and serializes its public message without its cause or stack.
+`authenticated()` throws `ViteHubError` with code `AUTHENTICATION_REQUIRED` when no required Auth Session exists. HTTP adapters map that code to `401`; the error serializes its public message without its cause or stack.
 
 ```ts
-import { AuthenticationRequiredError } from '@vite-hub/auth/agent'
+import { ViteHubError } from '@vite-hub/runtime'
 
-const error = new AuthenticationRequiredError('Sign in to use this Agent.')
+const error = new ViteHubError('AUTHENTICATION_REQUIRED', 'Sign in to use this Agent.')
 
 console.log(error.toJSON())
 ```
 
-The string constructor remains available for custom messages. When a default Better Auth request or session operation fails, the boundary throws `AuthenticationProviderError` with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. Existing Auth errors and structural `AbortError` objects keep their identity. Missing APIs, malformed responses, invalid Auth Definitions, invalid `authenticated()` configuration, and invalid custom callback results are programmer or provider-contract errors, so they continue to throw `TypeError` rather than authentication failures.
+When a default Better Auth request or session operation fails, the boundary throws the same shared error with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. Existing ViteHub errors and structural `AbortError` objects keep their identity. Missing APIs, malformed responses, invalid Auth Definitions, invalid `authenticated()` configuration, and invalid custom callback results are programmer or provider-contract errors, so they continue to throw `TypeError` rather than authentication failures.
 
 ## Next steps
 

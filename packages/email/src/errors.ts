@@ -1,25 +1,37 @@
+import { getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
+
 export type EmailErrorCode =
-  | "authentication"
-  | "invalid-message"
-  | "network"
-  | "not-configured"
-  | "provider"
-  | "rate-limit"
-  | "timeout"
+  | "EMAIL_AUTHENTICATION"
+  | "EMAIL_INVALID_MESSAGE"
+  | "EMAIL_NETWORK"
+  | "EMAIL_NOT_CONFIGURED"
+  | "EMAIL_PROVIDER_FAILED"
+  | "EMAIL_RATE_LIMITED"
+  | "EMAIL_TIMEOUT"
 
 export interface EmailErrorOptions {
   cause?: unknown
   driver?: string
 }
 
-export class EmailError extends Error {
-  readonly code: EmailErrorCode
-  readonly driver?: string
+const emailErrorCodes = new Set<EmailErrorCode>([
+  "EMAIL_AUTHENTICATION",
+  "EMAIL_INVALID_MESSAGE",
+  "EMAIL_NETWORK",
+  "EMAIL_NOT_CONFIGURED",
+  "EMAIL_PROVIDER_FAILED",
+  "EMAIL_RATE_LIMITED",
+  "EMAIL_TIMEOUT",
+])
 
-  constructor(code: EmailErrorCode, message: string, options: EmailErrorOptions = {}) {
-    super(message, { cause: options.cause })
-    this.name = "EmailError"
-    this.code = code
-    this.driver = options.driver
-  }
+export function emailError(code: EmailErrorCode, message: string, options: EmailErrorOptions = {}): ViteHubError {
+  return new ViteHubError(code, message, {
+    cause: options.cause,
+    details: options.driver ? { driver: options.driver } : undefined,
+  })
+}
+
+export function isEmailError(value: unknown): boolean {
+  const code = getViteHubErrorShape(value)?.code
+  return typeof code === "string" && emailErrorCodes.has(code as EmailErrorCode)
 }

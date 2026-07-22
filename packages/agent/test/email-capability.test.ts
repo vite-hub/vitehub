@@ -109,12 +109,12 @@ describe("email capability", () => {
       subject: "Hello",
       text: "Hi",
       to: ["owner@example.com", "other@example.com"],
-    })).rejects.toMatchObject({ name: "CapabilityDeniedError" })
+    })).rejects.toMatchObject({ code: "CAPABILITY_DENIED", name: "ViteHubError" })
     await expect(tool.execute?.({
       subject: "Hello",
       text: "Hi",
       to: Array(1) as string[],
-    })).rejects.toMatchObject({ name: "CapabilityDeniedError" })
+    })).rejects.toMatchObject({ code: "CAPABILITY_DENIED", name: "ViteHubError" })
     expect(send).toHaveBeenCalledOnce()
     expect(policy).toHaveBeenCalledOnce()
   })
@@ -127,7 +127,7 @@ describe("email capability", () => {
     const tool = applyAgentToolPolicies({ email_send: resolved.tools!.email_send! })!.email_send!
 
     expect(tool.description).toContain("Sending is disabled because the configured recipient allowlist is empty.")
-    await expect(tool.execute?.({ subject: "Hello", text: "Hi", to: "owner@example.com" })).rejects.toMatchObject({ name: "CapabilityDeniedError" })
+    await expect(tool.execute?.({ subject: "Hello", text: "Hi", to: "owner@example.com" })).rejects.toMatchObject({ code: "CAPABILITY_DENIED", name: "ViteHubError" })
     expect(send).not.toHaveBeenCalled()
   })
 
@@ -142,8 +142,8 @@ describe("email capability", () => {
     }, runtime({ email: { send } }), {})
     const tool = applyAgentToolPolicies({ email_send: resolved.tools!.email_send! })!.email_send!
 
-    await expect(tool.execute?.({ subject: "Hello", text: "Hi", to: "owner@example.com" })).rejects.toMatchObject({ name: "ApprovalRequiredError" })
-    await expect(tool.execute?.({ subject: "Hello", text: "Hi", to: "other@example.com" })).rejects.toMatchObject({ name: "CapabilityDeniedError" })
+    await expect(tool.execute?.({ subject: "Hello", text: "Hi", to: "owner@example.com" })).rejects.toMatchObject({ code: "APPROVAL_REQUIRED", name: "ViteHubError" })
+    await expect(tool.execute?.({ subject: "Hello", text: "Hi", to: "other@example.com" })).rejects.toMatchObject({ code: "CAPABILITY_DENIED", name: "ViteHubError" })
     expect(send).not.toHaveBeenCalled()
   })
 

@@ -3,7 +3,7 @@ import { createReadStream, createWriteStream } from "node:fs"
 import { Readable, Transform } from "node:stream"
 import { pipeline } from "node:stream/promises"
 
-import { WorkspaceError } from "../core/errors.ts"
+import { workspaceError } from "../core/errors.ts"
 import { contentStreamChunks, contentToBytes, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 
 import type {
@@ -330,6 +330,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
 }
 
 export function createLocalWorkspaceStore(root: string): WorkspaceStore {
-  if (!root) throw new WorkspaceError("[vitehub] Local workspace store requires a root directory.")
+  if (!root) throw workspaceError("[vitehub] Local workspace store requires a root directory.")
   return new LocalWorkspaceStore(root)
 }

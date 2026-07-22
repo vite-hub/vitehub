@@ -87,14 +87,14 @@ describe("LLM decision capabilities", () => {
       await expect(runAgent(agent, runtime(), {
         messages: [createMessage({ role: "user", text: "Do something unsafe." })],
       })).rejects.toMatchObject({
-        decision: {
-          allowed: false,
+        code: "LLM_GATE_REJECTED",
+        details: {
+          capabilityId: "support-scope",
           category: "unsafe",
           reason: "The request is unsafe.",
         },
         message: "Rejected: unsafe",
-        name: "LlmGateRejectedError",
-        statusCode: 403,
+        name: "ViteHubError",
       })
     }
     finally {

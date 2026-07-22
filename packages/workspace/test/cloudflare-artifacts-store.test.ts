@@ -772,10 +772,11 @@ describe("Cloudflare Artifacts workspace store", () => {
     gitMock.push.mockRejectedValueOnce(rejection).mockRejectedValueOnce(rejection)
 
     await expect(store.snapshot()).rejects.toMatchObject({
+      code: "WORKSPACE_FAILED",
       message: expect.stringContaining("changed remotely"),
-      name: "WorkspaceError",
+      name: "ViteHubError",
     })
-    await expect(store.snapshot()).rejects.toMatchObject({ name: "WorkspaceError" })
+    await expect(store.snapshot()).rejects.toMatchObject({ code: "WORKSPACE_FAILED", name: "ViteHubError" })
     expect(gitMock.commit).toHaveBeenCalledOnce()
     expect(gitMock.push).toHaveBeenCalledTimes(2)
   })

@@ -6,7 +6,6 @@ import {
   defineSources,
   file,
   registerSources,
-  SourceNotFoundError,
   useSource,
 } from "../src/index.ts"
 
@@ -41,7 +40,7 @@ describe("@vite-hub/source registry", () => {
   })
 
   it("throws a source-specific error for missing registrations", () => {
-    expect(() => useSource("missing" as any)).toThrow(SourceNotFoundError)
+    expect(() => useSource("missing" as any)).toThrow(expect.objectContaining({ code: "SOURCE_NOT_FOUND", name: "ViteHubError" }))
   })
 
   it("passes the abort signal to custom Source methods", async () => {

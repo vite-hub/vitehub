@@ -1,6 +1,6 @@
 import { getCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'
 import { createProviderDetector, isCloudflare, isVercel } from '../internal/shared/provider-detection'
-import { SandboxError } from '../sandbox/errors'
+import { sandboxError } from '../sandbox/errors'
 import { loadSandboxProviderRuntime } from './provider-loader-resolver'
 
 import type {
@@ -95,7 +95,7 @@ export function resolveRuntimeProvider(provider?: SandboxDefinitionProviderOptio
   if (detected.type === 'cloudflare' || detected.type === 'vercel')
     return detected.type
 
-  throw new SandboxError('Sandbox provider could not be inferred. Configure `sandbox.provider` as `cloudflare` or `vercel`.', {
+  throw sandboxError('Sandbox provider could not be inferred. Configure `sandbox.provider` as `cloudflare` or `vercel`.', {
     code: 'SANDBOX_PROVIDER_REQUIRED',
   })
 }

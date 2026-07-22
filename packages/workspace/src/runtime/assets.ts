@@ -1,4 +1,4 @@
-import { WorkspaceError } from "../core/errors.ts"
+import { isWorkspaceError, workspaceError } from "../core/errors.ts"
 import { decodeFile, matchesAny, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { searchText } from "../core/search.ts"
 
@@ -21,7 +21,7 @@ interface WorkspaceAssetFile {
 type WorkspaceAssetFiles<TKey extends string = string> = Record<TKey, WorkspaceAssetFile>
 
 function createMissingPathError(path: string) {
-  return new WorkspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
+  return workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
 }
 
 function createPathMap<TKey extends string>(files: WorkspaceAssetFiles<TKey>) {
@@ -144,7 +144,7 @@ export function createWorkspaceAssets<TKey extends string = string>(files: Works
         return true
       }
       catch (error) {
-        if (error instanceof WorkspaceError) return false
+        if (isWorkspaceError(error)) return false
         throw error
       }
     },
