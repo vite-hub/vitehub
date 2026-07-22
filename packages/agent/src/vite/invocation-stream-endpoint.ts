@@ -569,7 +569,10 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
     const run = entry ? devRun(entry.name) : undefined
     const inspection = entry && run
       ? await resolveAgentInspectionMetadata(entry.agent as never, {
-          input: { messages: [] },
+          input: {
+            context: { invoker: { id: "inspection", kind: "inspection" } },
+            messages: [],
+          },
           runtime: createViteAgentRuntimeContext(server, req, entry.identity, { fallbackRoute: agentInvocationStreamRoute, run }),
         })
       : undefined

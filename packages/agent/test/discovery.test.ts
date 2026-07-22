@@ -1681,12 +1681,13 @@ describe("agent chat capability discovery", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
 
-    const { chat } = await import("../src/capabilities.ts")
-    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const { handlers, server } = createFakeServer(root, {
       default: defineAgent({
-        capabilities: [chat()],
+        capabilities: ({ actor }) => actor.kind === "inspection"
+          ? [defineCapability({ id: "inspection-only", tools: { inspect: { name: "inspect" } } })]
+          : [],
         name: "support",
         driver: { run: () => "ok" },
       }),
@@ -1707,6 +1708,7 @@ describe("agent chat capability discovery", () => {
       inspection: {
         config: { driver: { kind: "run" } },
         name: "support",
+        tools: [{ name: "inspection-only" }],
       },
       root,
     })
