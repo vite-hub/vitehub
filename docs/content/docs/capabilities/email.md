@@ -138,12 +138,12 @@ After the Capability calls the Email primitive, handle the `EMAIL_*` ViteHub err
 
 | Failure | What to do |
 | --- | --- |
-| `invalid-message` | Fix the message before retrying. The driver was not called. |
-| `not-configured` | Enable the Email integration and confirm exactly one Email Definition is discoverable. |
-| `authentication` | Fix provider credentials or sender authorization before retrying. |
-| `rate-limit` | Apply an application-owned backoff or queue policy. |
-| `network` or `timeout` | Treat delivery as uncertain. Check provider delivery logs before retrying, because the provider may already have accepted the message. |
-| `provider` | Inspect protected server logs and provider delivery records. Never expose `cause` to the model. |
+| `EMAIL_INVALID_MESSAGE` | Fix the message before retrying. The driver was not called. |
+| `EMAIL_NOT_CONFIGURED` | Enable the Email integration and confirm exactly one Email Definition is discoverable. |
+| `EMAIL_AUTHENTICATION` | Fix provider credentials or sender authorization before retrying. |
+| `EMAIL_RATE_LIMITED` | Apply an application-owned backoff or queue policy. |
+| `EMAIL_NETWORK` or `EMAIL_TIMEOUT` | Treat delivery as uncertain. Check provider delivery logs before retrying, because the provider may already have accepted the message. |
+| `EMAIL_PROVIDER_FAILED` | Inspect protected server logs and provider delivery records. Never expose `cause` to the model. |
 
 ViteHub-produced `ViteHubError.message` values are safe for the public runtime boundary.
 ViteHub-wrapped provider failures remain in `cause` for protected server-side diagnostics and may contain addresses, credentials, or response content; custom drivers must preserve the same rule.

@@ -259,9 +259,11 @@ export async function requestGitHubBytes(
   });
 
   if (!response.ok) {
-    throw workspaceError(
+    const cause = new GitHubRequestError(
       `[vitehub] GitHub workspace request failed for ${repository}: ${response.status} ${response.statusText} ${await response.text().catch(() => "")}`,
+      response.status,
     );
+    throw workspaceError("[vitehub] GitHub workspace request failed.", { cause });
   }
   if (response.headers.get("content-type")?.includes("application/json")) {
     const blob = await response.json() as { content?: unknown; encoding?: unknown };

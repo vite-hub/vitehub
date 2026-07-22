@@ -104,7 +104,9 @@ async function ensureHostParent(host: WorkspaceSessionHost, path: string) {
 async function readHostSymlinkTarget(host: WorkspaceSessionHost, root: string, path: string): Promise<string> {
   const result = await host.exec("readlink", [fromHostPath(root, path)], { cwd: root })
   if (result.code !== 0)
-    throw workspaceError(`[vitehub] Failed to read workspace symlink: ${path}. ${result.stderr || "readlink failed"}`)
+    throw workspaceError(`[vitehub] Failed to read workspace symlink: ${path}.`, {
+      cause: new Error(result.stderr || "readlink failed"),
+    })
   return result.stdout.replace(/\n$/, "")
 }
 

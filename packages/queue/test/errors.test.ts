@@ -40,7 +40,7 @@ describe("Queue errors", () => {
   })
 
   it("reports application ViteHub errors without trusting their retry behavior", () => {
-    const error = new ViteHubError("WELCOME_EMAIL_REJECTED", "Welcome email was rejected.", {
+    const error = new ViteHubError("QUEUE_DISABLED", "Application queue policy rejected the message.", {
       details: { campaign: "welcome" },
     })
     const report = createQueueDeliveryErrorReport(error, {

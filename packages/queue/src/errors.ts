@@ -63,6 +63,8 @@ const queueErrorMessages: Record<QueueErrorCode, string> = {
   VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS: "[vitehub] Vercel queue does not support one or more enqueue options.",
 }
 
+const queueOwnedErrors = new WeakSet<object>()
+
 export function createQueueError<TCode extends QueueErrorCode>(
   code: TCode,
   options: QueueErrorOptions<TCode> = {},
@@ -71,7 +73,13 @@ export function createQueueError<TCode extends QueueErrorCode>(
   const message = code === "QUEUE_PROVIDER_OPERATION_FAILED" && details && "provider" in details && "operation" in details
     ? `[vitehub] ${details.provider} queue provider failed during ${details.operation}.`
     : queueErrorMessages[code]
-  return new ViteHubError(code, message, options)
+  const error = new ViteHubError(code, message, options)
+  queueOwnedErrors.add(error)
+  return error
+}
+
+export function isQueueOwnedError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && queueOwnedErrors.has(error)
 }
 
 export function getQueueErrorPublicShape(error: unknown): ViteHubErrorShape | undefined {

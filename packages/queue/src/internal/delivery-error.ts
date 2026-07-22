@@ -1,4 +1,4 @@
-import { getQueueErrorPublicShape, normalizePublicQueueIdentifier } from "../errors.ts"
+import { getQueueErrorPublicShape, isQueueOwnedError, normalizePublicQueueIdentifier } from "../errors.ts"
 import type { QueueErrorCode } from "../errors.ts"
 
 const nonRetryableBuiltInCodes = new Set<string>([
@@ -37,7 +37,7 @@ interface QueueDeliveryErrorReport extends Omit<QueueDeliveryErrorContext, "id" 
 
 export function isNonRetryableQueueError(error: unknown): boolean {
   const shape = getQueueErrorPublicShape(error)
-  return shape !== undefined && nonRetryableBuiltInCodes.has(shape.code)
+  return isQueueOwnedError(error) && shape !== undefined && nonRetryableBuiltInCodes.has(shape.code)
 }
 
 export function createQueueDeliveryErrorReport(error: unknown, context: QueueDeliveryErrorContext): QueueDeliveryErrorReport {
