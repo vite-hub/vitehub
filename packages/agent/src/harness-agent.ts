@@ -505,7 +505,7 @@ function sandboxExecutionAuthority(sandbox: object) {
   return isExecutionAuthority(authority) ? normalizeExecutionAuthority(authority) : unknownExecutionAuthority
 }
 
-function sameExecutionAuthority(left: ReturnType<typeof sandboxExecutionAuthority>, right: ReturnType<typeof sandboxExecutionAuthority>): boolean {
+export function executionAuthoritiesEqual(left: ReturnType<typeof sandboxExecutionAuthority>, right: ReturnType<typeof sandboxExecutionAuthority>): boolean {
   const matches = {
     credentials: left.credentials === right.credentials,
     environment: left.environment === right.environment,
@@ -640,7 +640,7 @@ async function createHarnessAgent<
       sandbox = adaptLocalHarnessSandbox(baseSandbox, bootstrap.bootstrapDir)!
     }
   }
-  if (!sameExecutionAuthority(authorizedExecutionAuthority, sandboxExecutionAuthority(sandbox))) {
+  if (!executionAuthoritiesEqual(authorizedExecutionAuthority, sandboxExecutionAuthority(sandbox))) {
     throw new Error("[vitehub] Harness sandbox adapters must preserve the executionAuthority authorized for this invocation.")
   }
   const instructions = await resolveHarnessDriverInstructions(options.instructions, context)

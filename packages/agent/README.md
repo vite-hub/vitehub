@@ -75,6 +75,7 @@ import { codexDriver } from "@vite-hub/agent/harness/codex";
 import { file } from "@vite-hub/workspace";
 
 export default defineAgent({
+  authorizeExecution: () => true,
   driver: codexDriver({
     instructions: "Review the exact pull request head before changing code.",
     model: "gpt-5.5",
@@ -89,6 +90,8 @@ export default defineAgent({
   },
 });
 ```
+
+Harness Agents resolve their concrete sandbox or Box before invocation. If that execution authority differs from `noExecutionAuthority`, the invocation fails closed unless `authorizeExecution` returns `true`. The callback receives the invocation-scoped `executionAuthority` together with the resolved input and Agent Invoker; approve only the callers and inputs that may exercise that exact authority. Model and custom run drivers with `noExecutionAuthority` do not require approval.
 
 Put Agent-owned Skills under `server/agents/codex/skills/`; discovery materializes them into the Harness Workspace and the isolated Codex profile automatically. Use `skills()` for Workspace-backed or external Source Skills.
 
@@ -107,6 +110,7 @@ import { trustedHost } from "@vite-hub/box";
 import { useServerEnv } from "#vitehub/env/server";
 
 export default defineAgent<any, { ref: string; remote: string; sha: string }>({
+  authorizeExecution: () => true,
   box: {
     runtime: trustedHost({ stateRoot: "/var/lib/vitehub/boxes" }),
     checkout: {

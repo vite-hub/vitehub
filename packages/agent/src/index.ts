@@ -169,7 +169,7 @@ import type {
 import type { WorkflowHandle } from "@vite-hub/workflow"
 import type { Box } from "@vite-hub/box"
 import { isHarnessBoxActive, shareBoxSessions } from "./harness/shared-box.ts"
-import { createDefaultHarnessSandbox, resolveHarnessSandboxProvider } from "./harness-agent.ts"
+import { createDefaultHarnessSandbox, executionAuthoritiesEqual, resolveHarnessSandboxProvider } from "./harness-agent.ts"
 
 export type {
   AgentAccessInvocationContextValue,
@@ -1507,16 +1507,7 @@ async function resolveAgentExecutionSurface<
 }
 
 function isNoExecutionAuthority(authority: ExecutionAuthority): boolean {
-  const matches = {
-    credentials: authority.credentials === noExecutionAuthority.credentials,
-    environment: authority.environment === noExecutionAuthority.environment,
-    filesystem: authority.filesystem.access === noExecutionAuthority.filesystem.access
-      && authority.filesystem.scope === noExecutionAuthority.filesystem.scope,
-    isolation: authority.isolation === noExecutionAuthority.isolation,
-    network: authority.network === noExecutionAuthority.network,
-    processes: authority.processes === noExecutionAuthority.processes,
-  } satisfies Record<keyof ExecutionAuthority, boolean>
-  return Object.values(matches).every(Boolean)
+  return executionAuthoritiesEqual(authority, noExecutionAuthority)
 }
 
 function executionAuthoritySummary(authority: ExecutionAuthority): string {
