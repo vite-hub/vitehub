@@ -1273,7 +1273,7 @@ describe("agent message protocol", () => {
         context: expect.objectContaining({ previewUrl: "https://preview.local" }),
         invokerId: "github:onmax",
         message: "Check the product card.",
-        runId: expect.stringMatching(/^review-run:run_browser:/),
+        runId: expect.stringMatching(/^ainv_/),
       },
       text: "browser report",
     })

@@ -1,4 +1,5 @@
 import { capabilityWorkspaceSources, defineCapability } from "../capability-runtime.ts"
+import { awaitAgentInvocationResult } from "../agent-invocation.ts"
 import { withResolvedAgentInvokerInput } from "../invoker.ts"
 
 import type {
@@ -22,7 +23,6 @@ export interface SubagentToolInput<
   context?: TContext
   message: string | Message
   options?: CALL_OPTIONS
-  runId?: string
   timeout?: number
 }
 
@@ -65,7 +65,6 @@ function inputSchema(description: string): JSONSchema7 {
       context: { additionalProperties: true, description: "Structured task context for the subagent.", type: "object" },
       message: { description, type: "string" },
       options: { additionalProperties: true, description: "Agent call options for the subagent.", type: "object" },
-      runId: { description: "Optional run id for this subagent invocation.", type: "string" },
       timeout: { description: "Optional timeout in milliseconds.", type: "number" },
     },
     required: ["message"],
@@ -118,14 +117,6 @@ function subagentWorkspaceSources(
   return Object.keys(sources).length ? sources : undefined
 }
 
-function randomToken(): string {
-  return globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)
-}
-
-function childRunId(parentRunId: string | undefined, name: string, runId: string | undefined): string | undefined {
-  return runId || (parentRunId ? `${parentRunId}:${name}:${randomToken()}` : undefined)
-}
-
 function createTool<TRuntimeConfig extends AgentRuntimeConfig>(
   definition: SubagentDefinition<TRuntimeConfig>,
   name: string,
@@ -134,14 +125,14 @@ function createTool<TRuntimeConfig extends AgentRuntimeConfig>(
   return {
     description: definition.description,
     async execute(input: unknown) {
-      const { runAgent } = await import("../index.ts")
-      const { runId, ...agentInput } = input as SubagentToolInput
+      const { startAgentInvocation } = await import("../index.ts")
       const runtimeContext = (parentContext.runtimeContext || parentContext) as AgentRuntimeContext<TRuntimeConfig>
-      const nextRunId = childRunId(runtimeContext.run?.runId, name, runId)
-      return await runAgent(definition.agent, {
-        ...runtimeContext,
-        ...(nextRunId ? { run: { ...runtimeContext.run, runId: nextRunId } } : {}),
-      }, withResolvedAgentInvokerInput(agentInput as AgentRunInput, parentContext.invoker))
+      const controller = await startAgentInvocation(
+        definition.agent,
+        runtimeContext,
+        withResolvedAgentInvokerInput(input as AgentRunInput, parentContext.invoker),
+      )
+      return await awaitAgentInvocationResult(controller)
     },
     inputSchema: inputSchema(definition.description),
     name,
