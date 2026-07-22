@@ -637,7 +637,8 @@ describe("agent output helpers", () => {
 
   it("falls back to textStream when event streams have no visible text", async () => {
     const output = {
-      stream: (async function* () {
+      fullStream: (async function* () {
+        yield { phase: "upload", type: "file", url: "https://example.com/result.txt" }
         yield { finishReason: "stop", type: "finish" }
       })(),
       textStream: (async function* () {

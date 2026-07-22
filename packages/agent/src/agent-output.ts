@@ -454,12 +454,16 @@ async function* streamChunksToEvents(
   let explicitUsageEvent = false
   let finishEvent: StreamEvent | undefined
   for await (const chunk of chunks) {
-    if (chunk && typeof chunk === "object" && "phase" in chunk && (chunk as { phase?: unknown }).phase !== undefined) {
-      if (observation) observation.explicitTextPhaseSeen = true
-    }
+    const explicitlyPhasedTextChunk = chunk && typeof chunk === "object"
+      && "phase" in chunk && (chunk as { phase?: unknown }).phase !== undefined
+      && "type" in chunk && ["text", "text-delta", "text-end", "text-start"].includes(String((chunk as { type?: unknown }).type))
+    if (explicitlyPhasedTextChunk && observation) observation.explicitTextPhaseSeen = true
     if (!explicitUsageEvent) usageRecord = usageRecordFromStreamChunk(chunk, usageSource) ?? usageRecord
     const event = toAgentStreamEvent(chunk, toolNames, textPhases)
     if (!event) continue
+    if (event.type === "text-delta" && event.phase !== undefined && observation) {
+      observation.explicitTextPhaseSeen = true
+    }
     if (event.type === "usage") {
       usageRecord = withFallbackUsageMetadata(event.usageRecord, usageSource)
       explicitUsageEvent = true
