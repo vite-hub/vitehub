@@ -656,6 +656,26 @@ describe("agent output helpers", () => {
     ])
   })
 
+  it("does not fall back to textStream after explicitly hidden phased text", async () => {
+    const output = {
+      fullStream: (async function* () {
+        yield { id: "reasoning-1", phase: "reasoning", type: "text-start" }
+        yield { delta: "Private reasoning.", id: "reasoning-1", type: "text-delta" }
+        yield { id: "reasoning-1", type: "text-end" }
+      })(),
+      textStream: (async function* () {
+        yield "Private reasoning."
+      })(),
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([{ type: "finish" }])
+  })
+
   it("keeps visible event stream text before falling back to textStream", async () => {
     const output = {
       stream: (async function* () {

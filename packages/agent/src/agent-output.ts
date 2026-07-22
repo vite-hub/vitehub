@@ -443,13 +443,20 @@ export function toAgentStreamEvent(
   return undefined
 }
 
-async function* streamChunksToEvents(chunks: AsyncIterable<unknown>, usageSource?: unknown): AsyncIterable<StreamEvent> {
+async function* streamChunksToEvents(
+  chunks: AsyncIterable<unknown>,
+  usageSource?: unknown,
+  observation?: { explicitTextPhaseSeen: boolean },
+): AsyncIterable<StreamEvent> {
   const toolNames = new Map<string, string>()
   const textPhases = new Map<string, AgentMessagePhase>()
   let usageRecord: AgentUsageRecord | undefined
   let explicitUsageEvent = false
   let finishEvent: StreamEvent | undefined
   for await (const chunk of chunks) {
+    if (chunk && typeof chunk === "object" && "phase" in chunk && (chunk as { phase?: unknown }).phase !== undefined) {
+      if (observation) observation.explicitTextPhaseSeen = true
+    }
     if (!explicitUsageEvent) usageRecord = usageRecordFromStreamChunk(chunk, usageSource) ?? usageRecord
     const event = toAgentStreamEvent(chunk, toolNames, textPhases)
     if (!event) continue
@@ -476,11 +483,12 @@ async function* streamChunksToEventsWithTextFallback(
   initialTextIterator?: AsyncIterator<unknown>,
 ): AsyncIterable<StreamEvent> {
   let hasText = false
+  const observation = { explicitTextPhaseSeen: false }
   const terminalEvents: StreamEvent[] = []
   let textIterator = initialTextIterator
   let textIteratorClosed = false
   try {
-    for await (const event of streamChunksToEvents(chunks, usageSource)) {
+    for await (const event of streamChunksToEvents(chunks, usageSource, observation)) {
       if (event.type === "text-delta" && event.text) hasText = true
       if (event.type === "finish" || event.type === "usage") {
         terminalEvents.push(event)
@@ -488,7 +496,7 @@ async function* streamChunksToEventsWithTextFallback(
       }
       yield event
     }
-    if (!hasText) {
+    if (!hasText && !observation.explicitTextPhaseSeen) {
       textIterator ??= getTextIterator()
       if (!textIterator) {
         yield* terminalEvents
