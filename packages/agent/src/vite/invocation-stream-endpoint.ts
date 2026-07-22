@@ -41,7 +41,7 @@ import type { WorkspaceDevTokenOptions } from "@vite-hub/workspace/server"
 import type { ViteAgentRuntimeContext } from "./runtime-adapter.ts"
 
 const capabilityCliRunSurface = Symbol.for("vitehub.capabilityCliRunSurface")
-const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
+const agentExecutionDriverKind = Symbol.for("vitehub.agentExecutionDriverKind")
 const workspaceRegistryId = "#vitehub-workspace-registry"
 
 interface AgentInvocationStreamBody {
@@ -491,7 +491,7 @@ function exposesCapabilityCli(agent: AgentInput): boolean {
 function withCapabilityCliRun(agent: AgentInput, cli: string, execution: AgentCapabilityCliExecutionInput): AgentInput {
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
-  Object.defineProperty(clone, baseAgentDriverKind, { configurable: true, value: "run" })
+  Object.defineProperty(clone, agentExecutionDriverKind, { configurable: true, value: "run" })
   if (exposesCapabilityCli(agent)) Object.defineProperty(clone, capabilityCliRunSurface, { value: true })
   clone.run = async (context) => {
     const tool = context.tools?.[cli]
@@ -507,7 +507,7 @@ async function withWorkspaceCommandRun(agent: AgentInput, command: { abortSignal
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
   const { trustedHost } = await import("@vite-hub/box")
-  Object.defineProperty(clone, baseAgentDriverKind, { configurable: true, value: "run" })
+  Object.defineProperty(clone, agentExecutionDriverKind, { configurable: true, value: "run" })
   clone.box = { runtime: trustedHost() }
   clone.run = async (context) => {
     if (!context.workspace) throw new Error("[vitehub] Agent Dev Loop command requires an Agent with a Workspace.")

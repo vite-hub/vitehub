@@ -419,6 +419,7 @@ const syntheticWorkspaceRun = Symbol.for("vitehub.syntheticWorkspaceRun")
 const baseAgentResolve = Symbol.for("vitehub.baseAgentResolve")
 const baseAgentModel = Symbol.for("vitehub.baseAgentModel")
 const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
+const agentExecutionDriverKind = Symbol.for("vitehub.agentExecutionDriverKind")
 const baseAgentCapabilitiesResolver = Symbol.for("vitehub.baseAgentCapabilitiesResolver")
 type WorkspaceSourceNames<TWorkspace> =
   TWorkspace extends { sources: infer TSources }
@@ -560,6 +561,7 @@ type AgentDefinitionWithBaseResolve<
 > = AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput> & {
   [baseAgentCapabilitiesResolver]?: AgentCapabilitiesResolver<TRuntimeConfig, WorkspaceName, CALL_OPTIONS>
   [baseAgentDriverKind]?: AgentDriverKind
+  [agentExecutionDriverKind]?: AgentDriverKind
   [baseAgentResolve]?: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS>
   [baseAgentModel]?: AgentModelResolver<TRuntimeConfig>
   [colocatedAgentSkillsSymbol]?: ColocatedAgentSkills
@@ -1589,6 +1591,7 @@ async function createAgentInvocationContext<
     const driver = settings ? normalizeAgentDriver(settings) : undefined
     const declaredDriverKind = internalDefinition?.[baseAgentDriverKind] || driver?.kind
     const driverKind = declaredDriverKind || "model"
+    const executionDriverKind = internalDefinition?.[agentExecutionDriverKind] || declaredDriverKind
     const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
     const boxDefinition = definition?.box
     if (boxDefinition && workspaceOptions && (boxDefinition.cwd !== undefined || boxDefinition.checkout !== undefined)) {
@@ -1603,7 +1606,7 @@ async function createAgentInvocationContext<
       invoker,
       run: context.run,
     } satisfies AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>
-    const executionSurface = await resolveAgentExecutionSurface(definition, driver, declaredDriverKind, runCallbackContext, runtimeContext)
+    const executionSurface = await resolveAgentExecutionSurface(definition, driver, executionDriverKind, runCallbackContext, runtimeContext)
     await authorizeAgentExecution(definition, executionSurface.executionAuthority, runCallbackContext)
     const { box, harnessSandboxProvider } = executionSurface
     if (box) invocationContext.set("agent.execution.box", box, { overwrite: true })

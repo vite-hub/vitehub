@@ -686,6 +686,55 @@ describe("agent chat capability discovery", () => {
     })
   })
 
+  it("preserves harness driver context for invocation-resolved Capability CLI commands", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-dynamic-harness-cli-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const inventory = defineCapability({
+      cli: {
+        commands: {
+          list: {
+            output: { format: "json" },
+            run: () => [{ id: "item_1" }],
+          },
+        },
+        name: "inventory",
+      },
+      id: "inventory-runtime",
+    })
+    const agent = defineAgent({
+      authorizeExecution: () => true,
+      capabilities: context => context.driver.kind === "harness" ? [inventory] : [],
+      driver: { harness: {} as never },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "chat",
+      cli: {
+        argv: ["list", "--json"],
+        name: "inventory",
+      },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toMatchObject({
+      capability: "inventory-runtime",
+      cli: "inventory",
+      exitCode: 0,
+      json: [{ id: "item_1" }],
+    })
+  })
+
   it("respects Capability CLI opt-out through the Vite endpoint", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-cli-opt-out-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
