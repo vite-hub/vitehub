@@ -10,6 +10,8 @@ icon: i-lucide-monitor
 `browser()` lets an Agent run the `agent-browser` CLI through ViteHub's global `bash` tool.
 Use it when a model-backed Agent needs browser evidence, screenshots, or DOM inspection during an invocation.
 
+Use the [Browser server primitive](/docs/server-primitives/browser) when trusted server code needs provider-backed Browser Sessions, Cloudflare Browser Run output, or live handoff between server steps. The Capability and primitive are separate surfaces: the Capability grants a model-facing command, while the primitive owns server-side Browser Session lifecycle.
+
 ## Installation
 
 Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
@@ -23,6 +25,7 @@ The skill file explains how the Agent should call the CLI and save browser artif
 
 `browser()` does not add a custom `agent_browser` tool.
 It also does not install packages during an invocation.
+It does not claim or share `@vite-hub/browser` sessions.
 
 ## Configuration
 
@@ -98,6 +101,7 @@ Then save a screenshot under `screenshots/` and verify the Workspace contains th
 
 ## Reference
 
+- [Browser primitive](/docs/server-primitives/browser)
 - [Blob](/docs/capabilities/blob)
 - [Workspace shell](/docs/capabilities/workspace-shell)
 - [Custom capabilities](/docs/capabilities/custom-capabilities)
