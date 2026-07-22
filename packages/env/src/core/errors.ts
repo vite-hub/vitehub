@@ -32,7 +32,7 @@ interface EnvErrorDetailsByCode {
 
 export type EnvErrorDetails<TCode extends EnvErrorCode = EnvErrorCode> = EnvErrorDetailsByCode[TCode]
 
-export interface EnvErrorOptions<TCode extends EnvErrorCode = EnvErrorCode>
+interface EnvErrorOptions<TCode extends EnvErrorCode = EnvErrorCode>
   extends Pick<ViteHubErrorOptions<EnvErrorDetails<TCode>>, "cause" | "details"> {
   code: TCode
 }

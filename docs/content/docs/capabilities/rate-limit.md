@@ -39,7 +39,7 @@ export default defineAgent({
 
 The Capability runs during the input phase. It derives a stable key from the Capability id, scope, and trusted identity, then calls the `RateLimiter` exactly once.
 
-A rejected decision throws `ViteHubError` with code `RATE_LIMIT_REJECTED`; the HTTP boundary maps that code to `429`. The response includes `retry-after` only when the selected driver reports `retryAfter`; Cloudflare native enforcement does not return portable quota metadata.
+A rejected decision throws `ViteHubError` with code `RATE_LIMIT_REJECTED`; the HTTP boundary maps that code to `429` and emits `retry-after` headers only when the selected driver reports `retryAfter`. Cloudflare native enforcement does not return portable quota metadata.
 
 The decision is stored under the Capability id in Agent Invocation Context and exposed as a finish extension. It contains the primitive decision plus `capabilityId`, `identity`, `identitySource`, `key`, and `scope`.
 

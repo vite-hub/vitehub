@@ -10,7 +10,7 @@ export function invalidAuthenticationErrorOptions(): never {
   throw new TypeError("[vitehub] Invalid authentication error options.")
 }
 
-export function readAuthenticationErrorOption(value: unknown, key: PropertyKey): unknown {
+function readAuthenticationErrorOption(value: unknown, key: PropertyKey): unknown {
   if (typeof value !== "object" || value === null) invalidAuthenticationErrorOptions()
   try {
     if (Array.isArray(value)) invalidAuthenticationErrorOptions()

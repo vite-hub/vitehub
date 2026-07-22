@@ -52,7 +52,7 @@ export type WorkflowErrorDetails<TCode extends WorkflowErrorCode = WorkflowError
               : TCode extends "WORKFLOW_PROVIDER_OPERATION_FAILED" ? WorkflowProviderOperationDetails
                 : never
 
-export type WorkflowErrorOptions<TCode extends WorkflowErrorCode = WorkflowErrorCode> = ViteHubErrorOptions<WorkflowErrorDetails<TCode>> & {
+type WorkflowErrorOptions<TCode extends WorkflowErrorCode = WorkflowErrorCode> = ViteHubErrorOptions<WorkflowErrorDetails<TCode>> & {
   code: TCode
   details?: WorkflowErrorDetails<TCode>
 }
