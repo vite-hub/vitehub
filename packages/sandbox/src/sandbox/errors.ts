@@ -48,7 +48,7 @@ function sanitizeSandboxDetails(details: Record<string, unknown> | undefined) {
 
 export function sandboxError(message: string, metadata: SandboxErrorMetadata = {}): ViteHubError<`SANDBOX_${string}`> {
   const { cause, code = 'SANDBOX_RUNTIME_ERROR', details, httpStatus, method, provider } = metadata
-  return new ViteHubError(code, message, {
+  return new ViteHubError(code, message.slice(0, 16_384) || 'Sandbox execution failed.', {
     cause,
     details: sanitizeSandboxDetails({
       ...(provider === undefined ? {} : { provider }),

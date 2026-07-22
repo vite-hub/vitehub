@@ -15,6 +15,12 @@ type SandboxExecHook = (execution: {
   write: (path: string, contents: Uint8Array) => void
 }) => Promise<SandboxExecResult | undefined>
 
+it("bounds provider error messages while preserving the sandbox error", () => {
+  const error = toSandboxError(new Error("x".repeat(20_000)))
+  expect(error).toMatchObject({ code: "SANDBOX_RUNTIME_ERROR" })
+  expect(error.message).toHaveLength(16_384)
+})
+
 function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, holdExecution?: boolean, holdFileWrite?: boolean, holdInstall?: boolean, onExecute?: SandboxExecHook, provider?: "cloudflare" | "vercel" } = {}) {
   const files = new Map<string, Uint8Array>()
   const directories = new Set<string>(["/"])

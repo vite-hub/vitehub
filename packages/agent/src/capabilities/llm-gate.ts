@@ -53,7 +53,7 @@ function llmGateRejectedError(capabilityId: string, decision: Extract<LlmGateDec
       capabilityId,
       category: decision.category,
       confidence: decision.confidence,
-      reason: decision.reason,
+      reason: decision.reason?.slice(0, 16_384),
     },
   })
 }

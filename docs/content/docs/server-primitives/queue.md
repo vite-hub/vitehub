@@ -16,7 +16,7 @@ Queue is not Workflow. Queue Enqueue means the Queue Provider accepted the job; 
 ### Install
 
 ```bash [Terminal]
-pnpm add @vite-hub/queue
+pnpm add @vite-hub/queue @vite-hub/runtime
 ```
 
 For Vercel Queues, also install the provider package and ambient TypeScript types:
