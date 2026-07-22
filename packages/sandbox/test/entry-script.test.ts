@@ -134,6 +134,23 @@ describe("package entry result transport", () => {
     expect(Uint8Array.from(await execution.readOutputFile(1))).toEqual(Uint8Array.from([1, 2, 3]))
   })
 
+  it("revives and extracts Buffer sidecars as Buffer values", async () => {
+    const binary = (id: number) => ({
+      [SANDBOX_VALUE_MARKER]: { id, kind: "buffer", tag: "binary" },
+    })
+    const execution = await executePackageEntry(
+      `export default async function (payload) { if (!Buffer.isBuffer(payload)) throw new TypeError('Buffer input missing'); return Buffer.from(payload).reverse() }\n`,
+      {
+        input: { context: {}, payload: binary(0) },
+        inputFiles: { 0: Uint8Array.from([1, 2, 3]) },
+      },
+    )
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({ ok: true, result: binary(0) })
+    expect(Uint8Array.from(await execution.readOutputFile(0))).toEqual(Uint8Array.from([3, 2, 1]))
+  })
+
   it("round-trips ordinary marker-shaped objects", async () => {
     const markerObject = {
       [SANDBOX_VALUE_MARKER]: { id: 0, kind: "uint8array", tag: "binary" },

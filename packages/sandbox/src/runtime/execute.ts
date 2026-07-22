@@ -185,6 +185,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
       { payload, context },
       files.inputAssetsDir,
       'payload/context',
+      signal,
     ), 'payload/context')
     const definitionPath = resolveSandboxModulePath(bundleBaseDir, bundle.entry)
     throwIfAborted()

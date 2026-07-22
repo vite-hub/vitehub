@@ -27,7 +27,7 @@ The folder supplies the Definition name, and the adjacent manifest owns portable
 }
 ```
 
-ViteHub calls the default function with `(payload, context)` and infers the `runSandbox()` payload and result types from it. Nested `Blob` and `Uint8Array` values cross the Box boundary through binary sidecars rather than application JSON. Existing non-function default exports remain supported; their optional exported `SandboxPayload` type is the payload fallback. The entrypoint needs no `@vite-hub/sandbox` runtime dependency.
+ViteHub calls the default function with `(payload, context)` and infers the `runSandbox()` payload and result types from it. Nested `Blob` and `Uint8Array` values cross the Box boundary through binary sidecars rather than application JSON; Node.js `Buffer` values retain their `Buffer` type. Existing non-function default exports remain supported; their optional exported `SandboxPayload` type is the payload fallback. The entrypoint needs no `@vite-hub/sandbox` runtime dependency.
 
 ViteHub uses the manifest's `packageManager`, then a lockfile at that package root, then npm. A matching `pnpm-workspace.yaml` selects pnpm, moves preparation to the pnpm workspace root, and carries the transitive `workspace:*` dependency closure into the Box while the entrypoint still runs from its package directory.
 

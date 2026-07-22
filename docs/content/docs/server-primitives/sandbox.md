@@ -113,7 +113,7 @@ export default async function optimize(
 
 `runSandbox()` infers its payload and result from the default function. A zero-argument function accepts an `unknown` payload. Existing non-function default exports remain supported; those entries can export `SandboxPayload` to provide the payload type, otherwise it is `unknown`.
 
-Nested `Blob` and `Uint8Array` values in payloads and results are staged through invocation-local Box files. Application code keeps the binary values and does not convert them to base64 JSON. Other values keep the existing JSON-serialization contract.
+Nested `Blob` and `Uint8Array` values in payloads and results are staged through invocation-local Box files. Node.js `Buffer` values retain their `Buffer` type. Application code keeps the binary values and does not convert them to base64 JSON. Other values keep the existing JSON-serialization contract.
 
 The entrypoint gets normal JavaScript, package imports, top-level await, `process.cwd()`, environment variables, and a filesystem, without a runtime framework import.
 

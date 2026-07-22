@@ -13,7 +13,7 @@ type SandboxExecHook = (execution: {
   write: (path: string, contents: Uint8Array) => void
 }) => Promise<SandboxExecResult | undefined>
 
-function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, holdExecution?: boolean, holdInstall?: boolean, onExecute?: SandboxExecHook, provider?: "cloudflare" | "vercel" } = {}) {
+function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, holdExecution?: boolean, holdFileWrite?: boolean, holdInstall?: boolean, onExecute?: SandboxExecHook, provider?: "cloudflare" | "vercel" } = {}) {
   const files = new Map<string, Uint8Array>()
   const directories = new Set<string>(["/"])
   const normalize = (path: string) => posix.resolve("/", path)
@@ -131,7 +131,12 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
           for (const directory of [...directories]) if (directory.startsWith(`${target}/`)) directories.delete(directory)
         }
       },
-      async write(path: string, content: Uint8Array) {
+      async write(path: string, content: Uint8Array, writeOptions?: { signal?: AbortSignal }) {
+        if (options.holdFileWrite) {
+          await new Promise<void>((_resolve, reject) => {
+            writeOptions?.signal?.addEventListener("abort", () => reject(writeOptions.signal?.reason), { once: true })
+          })
+        }
         const target = normalize(path)
         addParents(target)
         files.set(target, content)
@@ -300,6 +305,43 @@ describe("executeSandboxDefinition", () => {
     expect(result.markerObject).toEqual(markerObject)
   })
 
+  it("preserves Buffer values through binary sidecars", async () => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, read, write }) {
+        const inputPath = args.at(-2)!
+        const outputPath = args.at(-1)!
+        const input = JSON.parse(new TextDecoder().decode(read(inputPath)!))
+        expect(input.payload.bytes[SANDBOX_VALUE_MARKER]).toEqual({
+          id: 0,
+          kind: "buffer",
+          tag: "binary",
+        })
+        write(`${outputPath}.files/0`, Uint8Array.from([4, 5, 6]))
+        write(outputPath, new TextEncoder().encode(JSON.stringify({
+          ok: true,
+          result: { [SANDBOX_VALUE_MARKER]: { id: 0, kind: "buffer", tag: "binary" } },
+        })))
+        return { code: 0, ok: true, stderr: "", stdout: "" }
+      },
+    })
+
+    const result = await executeSandboxDefinition(
+      sandbox,
+      "buffer-transform",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async bytes => bytes" },
+      },
+      { bytes: Buffer.from([1, 2, 3]) },
+      {},
+    )
+
+    expect(Buffer.isBuffer(result)).toBe(true)
+    expect(result).toEqual(Buffer.from([4, 5, 6]))
+  })
+
   it("applies payload toJSON before staging nested binary values", async () => {
     const { sandbox } = createFakeSandbox({
       async onExecute({ args, read, write }) {
@@ -333,6 +375,26 @@ describe("executeSandboxDefinition", () => {
       payload,
       {},
     )).resolves.toBe(true)
+  })
+
+  it("classifies payload toJSON failures as serialization errors", async () => {
+    const { sandbox } = createFakeSandbox()
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "invalid-json-hook",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      { toJSON() { throw new Error("broken JSON hook") } },
+      {},
+    )).rejects.toMatchObject({
+      code: "SERIALIZATION_ERROR",
+      cause: expect.objectContaining({ message: "broken JSON hook" }),
+    })
   })
 
   it("stages binary fields from JSON-visible class payloads", async () => {
@@ -483,6 +545,25 @@ describe("executeSandboxDefinition", () => {
     } satisfies Partial<SandboxError>)
 
     expect(execCalls.some(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])")).toBe(true)
+  })
+
+  it("aborts binary sidecar writes when the invocation times out", async () => {
+    const { sandbox, execCalls } = createFakeSandbox({ holdFileWrite: true })
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "binary-timeout",
+      { timeout: 10 },
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      Uint8Array.from([1, 2, 3]),
+      {},
+    )).rejects.toMatchObject({ code: "TIMEOUT" })
+
+    expect(execCalls.some(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])")).toBe(false)
   })
 
   it("prepares one package project once per digest", async () => {
