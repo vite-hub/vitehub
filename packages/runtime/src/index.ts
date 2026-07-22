@@ -46,13 +46,20 @@ export function isExecutionAuthority(value: unknown): value is ExecutionAuthorit
   const filesystem = authority.filesystem
   if (!filesystem || typeof filesystem !== "object" || Array.isArray(filesystem)) return false
   const files = filesystem as Record<string, unknown>
-  return ["ambient", "none", "provisioned", "unknown"].includes(String(authority.credentials))
-    && ["ambient", "none", "selected", "unknown"].includes(String(authority.environment))
-    && ["none", "read-only", "read-write", "unknown"].includes(String(files.access))
-    && ["host", "none", "sandbox", "unknown", "workspace"].includes(String(files.scope))
-    && ["container", "microvm", "none", "process", "unknown"].includes(String(authority.isolation))
-    && ["none", "restricted", "unrestricted", "unknown"].includes(String(authority.network))
-    && ["arbitrary", "none", "restricted", "unknown"].includes(String(authority.processes))
+  return typeof authority.credentials === "string"
+    && ["ambient", "none", "provisioned", "unknown"].includes(authority.credentials)
+    && typeof authority.environment === "string"
+    && ["ambient", "none", "selected", "unknown"].includes(authority.environment)
+    && typeof files.access === "string"
+    && ["none", "read-only", "read-write", "unknown"].includes(files.access)
+    && typeof files.scope === "string"
+    && ["host", "none", "sandbox", "unknown", "workspace"].includes(files.scope)
+    && typeof authority.isolation === "string"
+    && ["container", "microvm", "none", "process", "unknown"].includes(authority.isolation)
+    && typeof authority.network === "string"
+    && ["none", "restricted", "unrestricted", "unknown"].includes(authority.network)
+    && typeof authority.processes === "string"
+    && ["arbitrary", "none", "restricted", "unknown"].includes(authority.processes)
 }
 
 export function normalizeExecutionAuthority(value: unknown): ExecutionAuthority {

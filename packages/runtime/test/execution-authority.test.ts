@@ -31,6 +31,11 @@ describe("execution authority", () => {
     expect(Object.isFrozen(unknownExecutionAuthority.filesystem)).toBe(true)
     expect(isExecutionAuthority(noExecutionAuthority)).toBe(true)
     expect(isExecutionAuthority({ ...unknownExecutionAuthority, network: "maybe" })).toBe(false)
+    expect(isExecutionAuthority({ ...unknownExecutionAuthority, credentials: ["unknown"] })).toBe(false)
+    expect(isExecutionAuthority({
+      ...unknownExecutionAuthority,
+      network: { toString: () => "unknown" },
+    })).toBe(false)
   })
 
   it("normalizes provider declarations into immutable snapshots", () => {
