@@ -1,11 +1,12 @@
 import { spawn } from "node:child_process"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
 import { createEntrySource } from "../src/runtime/entry-script.ts"
+import { SANDBOX_VALUE_MARKER } from "../src/runtime/binary-sidecars.ts"
 
 const tempDirs: string[] = []
 
@@ -13,7 +14,11 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
-async function executePackageEntry(definitionSource: string) {
+async function executePackageEntry(definitionSource: string, options: {
+  input?: unknown
+  inputFiles?: Record<number, Uint8Array>
+  inputJson?: string
+} = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-package-entry-"))
   tempDirs.push(root)
   const definitionPath = join(root, "definition.mjs")
@@ -23,8 +28,15 @@ async function executePackageEntry(definitionSource: string) {
   await Promise.all([
     writeFile(definitionPath, definitionSource, "utf8"),
     writeFile(entryPath, createEntrySource(definitionPath, "module"), "utf8"),
-    writeFile(inputPath, JSON.stringify({ context: {}, payload: {} }), "utf8"),
+    writeFile(inputPath, options.inputJson ?? JSON.stringify(options.input ?? { context: {}, payload: {} }), "utf8"),
   ])
+  if (options.inputFiles) {
+    const assetsDir = `${inputPath}.files`
+    await mkdir(assetsDir, { recursive: true })
+    await Promise.all(Object.entries(options.inputFiles).map(async ([id, bytes]) => {
+      await writeFile(join(assetsDir, id), bytes)
+    }))
+  }
 
   const code = await new Promise<number | null>((resolve, reject) => {
     const child = spawn(process.execPath, [entryPath, inputPath, outputPath], { stdio: "ignore" })
@@ -36,22 +48,114 @@ async function executePackageEntry(definitionSource: string) {
     ok: boolean
     result?: unknown
   }
-  return { code, output }
+  return {
+    code,
+    output,
+    readOutputFile: async (id: number) => await readFile(join(`${outputPath}.files`, String(id))),
+  }
 }
 
 describe("package entry result transport", () => {
-  it("returns a present JSON result", async () => {
+  it("keeps top-level default results as a compatibility fallback", async () => {
     const execution = await executePackageEntry("await Promise.resolve(); export default { ok: true }\n")
 
-    expect(execution).toEqual({
-      code: 0,
-      output: { ok: true, result: { ok: true } },
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({ ok: true, result: { ok: true } })
+  })
+
+  it("calls the default function with payload and context", async () => {
+    const execution = await executePackageEntry(
+      "export default async function (payload, context) { return { payload, context } }\n",
+      { input: { context: { requestId: "request-1" }, payload: { value: "ready" } } },
+    )
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({
+      ok: true,
+      result: {
+        context: { requestId: "request-1" },
+        payload: { value: "ready" },
+      },
+    })
+  })
+
+  it("revives and extracts nested binary sidecars", async () => {
+    const binary = (id: number, kind: "blob" | "uint8array", type?: string) => ({
+      [SANDBOX_VALUE_MARKER]: { id, kind, ...(type ? { type } : {}), tag: "binary" },
+    })
+    const execution = await executePackageEntry([
+      `export default async function ({ image, nested }, context) {`,
+      `  if (!(image instanceof Blob) || !(nested[0] instanceof Uint8Array)) throw new TypeError("binary input missing")`,
+      `  return { context, image, nested }`,
+      `}`,
+      ``,
+    ].join("\n"), {
+      input: {
+        context: { requestId: "request-1" },
+        payload: {
+          image: binary(0, "blob", "image/jpeg"),
+          nested: [binary(1, "uint8array")],
+        },
+      },
+      inputFiles: {
+        0: Uint8Array.from([0xff, 0xd8, 0xff]),
+        1: Uint8Array.from([1, 2, 3]),
+      },
+    })
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({
+      ok: true,
+      result: {
+        context: { requestId: "request-1" },
+        image: binary(0, "blob", "image/jpeg"),
+        nested: [binary(1, "uint8array")],
+      },
+    })
+    expect(Uint8Array.from(await execution.readOutputFile(0))).toEqual(Uint8Array.from([0xff, 0xd8, 0xff]))
+    expect(Uint8Array.from(await execution.readOutputFile(1))).toEqual(Uint8Array.from([1, 2, 3]))
+  })
+
+  it("round-trips ordinary marker-shaped objects", async () => {
+    const markerObject = {
+      [SANDBOX_VALUE_MARKER]: { id: 0, kind: "uint8array", tag: "binary" },
+      path: "/etc/passwd",
+    }
+    const escaped = {
+      [SANDBOX_VALUE_MARKER]: {
+        entries: Object.entries(markerObject),
+        tag: "object",
+      },
+    }
+    const execution = await executePackageEntry(
+      "export default async function (payload) { return payload }\n",
+      { input: { context: {}, payload: escaped } },
+    )
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({ ok: true, result: escaped })
+  })
+
+  it.each([
+    ["path-like", `"../../etc/passwd"`],
+    ["negative-zero", "-0"],
+  ])("rejects %s input sidecar identifiers", async (_label, id) => {
+    const execution = await executePackageEntry(
+      "export default async function () { return { ok: true } }\n",
+      {
+        inputJson: `{"context":{},"payload":{"${SANDBOX_VALUE_MARKER}":{"id":${id},"kind":"uint8array","tag":"binary"}}}`,
+      },
+    )
+
+    expect(execution.code).toBe(1)
+    expect(execution.output).toMatchObject({
+      error: { message: "Sandbox input contains an invalid binary sidecar descriptor." },
+      ok: false,
     })
   })
 
   it.each([
     ["legacy defineSandbox export", "export default { run() {} }\n", "remove defineSandbox({ run })"],
-    ["legacy function export", "export default () => ({ ok: true })\n", "not a function"],
     ["missing default export", "export const value = true\n", "must default-export a result"],
     ["symbol result", "export default Symbol('result')\n", "unsupported symbol"],
     ["nested undefined", "export default { value: undefined }\n", "unsupported undefined"],

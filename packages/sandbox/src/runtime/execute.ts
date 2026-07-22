@@ -1,4 +1,5 @@
 import { SandboxError } from '../sandbox/errors'
+import { decodeSandboxValue, encodeSandboxValue } from './binary-sidecars'
 import { createEntrySource } from './entry-script'
 import {
   createExecutionFiles,
@@ -164,7 +165,6 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
   const bundle = normalizeSandboxDefinitionBundle(source)
 
   const files = createExecutionFiles(definitionName)
-  const inputJson = toJson({ payload, context }, 'payload/context')
   const throwIfAborted = () => {
     if (signal?.aborted)
       throw createTimeoutError(sandbox.provider, definitionOptions?.timeout || 0)
@@ -180,6 +180,12 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
     })
     if (!bundle.project)
       await writeSandboxDefinitionBundle(sandbox, bundleBaseDir, bundle)
+    const inputJson = toJson(await encodeSandboxValue(
+      sandbox,
+      { payload, context },
+      files.inputAssetsDir,
+      'payload/context',
+    ), 'payload/context')
     const definitionPath = resolveSandboxModulePath(bundleBaseDir, bundle.entry)
     throwIfAborted()
     await Promise.all([
@@ -233,7 +239,7 @@ async function executeSandboxDefinitionOnce<TPayload, TResult>(
     }
 
     if (output.ok)
-      return output.result as TResult
+      return await decodeSandboxValue(sandbox, output.result, files.outputAssetsDir, 'result') as TResult
 
     throw createHandlerError(output.error?.message || 'Sandbox definition failed.', sandbox.provider, {
       name: output.error?.name,

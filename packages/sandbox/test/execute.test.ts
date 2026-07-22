@@ -2,12 +2,18 @@ import { describe, expect, it, vi } from "vitest"
 import { posix } from "node:path"
 
 import { executeSandboxDefinition } from "../src/runtime/execute.ts"
+import { SANDBOX_VALUE_MARKER } from "../src/runtime/binary-sidecars.ts"
 import type { SandboxError } from "../src/sandbox/errors.ts"
 import type { SandboxExecutionBox } from "../src/runtime/execution-box.ts"
 
 type SandboxExecResult = Awaited<ReturnType<SandboxExecutionBox["exec"]>>
+type SandboxExecHook = (execution: {
+  args: string[]
+  read: (path: string) => Uint8Array | undefined
+  write: (path: string, contents: Uint8Array) => void
+}) => Promise<SandboxExecResult | undefined>
 
-function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, holdExecution?: boolean, holdInstall?: boolean, provider?: "cloudflare" | "vercel" } = {}) {
+function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, holdExecution?: boolean, holdInstall?: boolean, onExecute?: SandboxExecHook, provider?: "cloudflare" | "vercel" } = {}) {
   const files = new Map<string, Uint8Array>()
   const directories = new Set<string>(["/"])
   const normalize = (path: string) => posix.resolve("/", path)
@@ -75,6 +81,18 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
         return await new Promise<SandboxExecResult>((_resolve, reject) => {
           execOptions?.signal?.addEventListener("abort", () => reject(execOptions.signal?.reason), { once: true })
         })
+      }
+      if (options.onExecute && cmd === "node" && args[1] === "import(process.argv[1])") {
+        const result = await options.onExecute({
+          args,
+          read: path => files.get(normalize(path)),
+          write: (path, contents) => {
+            const target = normalize(path)
+            addParents(target)
+            files.set(target, contents)
+          },
+        })
+        if (result) return result
       }
       if (cmd === "rm") {
         await sandbox.files.remove(args.at(-1) || "", { recursive: true })
@@ -211,8 +229,106 @@ describe("executeSandboxDefinition", () => {
 
     const launch = execCalls.find(call => call.cmd === "node")!
     const entry = await sandbox.readFile(launch.args[2]!)
-    expect(entry).toContain("const result = await mod.default")
+    expect(entry).toContain("typeof exported === 'function' ? await exported(input.payload, input.context) : exported")
     expect(entry).not.toContain("definition.run")
+  })
+
+  it("stages and revives nested binary values through Box files", async () => {
+    const markerObject = {
+      [SANDBOX_VALUE_MARKER]: {
+        id: 99,
+        kind: "uint8array",
+        tag: "binary",
+      },
+      path: "/etc/passwd",
+    }
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, read, write }) {
+        const inputPath = args.at(-2)!
+        const outputPath = args.at(-1)!
+        const input = JSON.parse(new TextDecoder().decode(read(inputPath)!))
+        expect(input.payload.image[SANDBOX_VALUE_MARKER]).toEqual({
+          id: 0,
+          kind: "blob",
+          tag: "binary",
+          type: "image/jpeg",
+        })
+        expect(input.context.bytes[SANDBOX_VALUE_MARKER]).toEqual({
+          id: 1,
+          kind: "uint8array",
+          tag: "binary",
+        })
+        expect(input.payload.markerObject[SANDBOX_VALUE_MARKER]).toMatchObject({ tag: "object" })
+        expect(read(`${inputPath}.files/0`)).toEqual(Uint8Array.from([0xff, 0xd8, 0xff]))
+        expect(read(`${inputPath}.files/1`)).toEqual(Uint8Array.from([1, 2, 3]))
+
+        write(`${outputPath}.files/0`, Uint8Array.from([9, 8, 7]))
+        write(`${outputPath}.files/1`, Uint8Array.from([6, 5, 4]))
+        write(outputPath, new TextEncoder().encode(JSON.stringify({
+          ok: true,
+          result: {
+            image: { [SANDBOX_VALUE_MARKER]: { id: 0, kind: "blob", tag: "binary", type: "image/webp" } },
+            markerObject: input.payload.markerObject,
+            nested: [{ [SANDBOX_VALUE_MARKER]: { id: 1, kind: "uint8array", tag: "binary" } }],
+          },
+        })))
+        return { code: 0, ok: true, stderr: "", stdout: "" }
+      },
+    })
+
+    const result = await executeSandboxDefinition(
+      sandbox,
+      "image-optimizer",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async ({ image }) => image" },
+      },
+      {
+        image: new Blob([Uint8Array.from([0xff, 0xd8, 0xff])], { type: "image/jpeg" }),
+        markerObject,
+      },
+      { bytes: Uint8Array.from([1, 2, 3]) },
+    ) as { image: Blob, markerObject: typeof markerObject, nested: Uint8Array[] }
+
+    expect(result.image).toBeInstanceOf(Blob)
+    expect(result.image.type).toBe("image/webp")
+    expect(new Uint8Array(await result.image.arrayBuffer())).toEqual(Uint8Array.from([9, 8, 7]))
+    expect(result.nested[0]).toEqual(Uint8Array.from([6, 5, 4]))
+    expect(result.markerObject).toEqual(markerObject)
+  })
+
+  it.each([
+    ["invalid", -1, undefined, true],
+    ["negative-zero", 0, "-0", true],
+    ["missing", 7, undefined, false],
+  ])("rejects %s output sidecar identifiers", async (_label, id, rawId, writeSidecar) => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, write }) {
+        const outputPath = args.at(-1)!
+        if (writeSidecar)
+          write(`${outputPath}.files/${id}`, Uint8Array.from([1]))
+        let output = JSON.stringify({
+          ok: true,
+          result: { [SANDBOX_VALUE_MARKER]: { id, kind: "uint8array", tag: "binary" } },
+        })
+        if (rawId) output = output.replace(`"id":${id}`, `"id":${rawId}`)
+        write(outputPath, new TextEncoder().encode(output))
+        return { code: 0, ok: true, stderr: "", stdout: "" }
+      },
+    })
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "image-optimizer",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+    )).rejects.toMatchObject({ code: "SERIALIZATION_ERROR" })
   })
 
   it("enforces timeout during executable module evaluation", async () => {

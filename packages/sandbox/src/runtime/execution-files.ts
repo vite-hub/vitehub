@@ -26,7 +26,9 @@ export function createExecutionFiles(definitionName: string) {
   return {
     baseDir,
     entryPath: `${baseDir}/entry.mjs`,
+    inputAssetsDir: `${baseDir}/input.json.files`,
     inputPath: `${baseDir}/input.json`,
+    outputAssetsDir: `${baseDir}/output.json.files`,
     outputPath: `${baseDir}/output.json`,
   }
 }

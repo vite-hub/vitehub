@@ -39,17 +39,13 @@ Every discovered Definition belongs to a real package project. ViteHub never wri
 ```
 
 ```ts [server/sandboxes/release-notes/index.ts]
-import { readFile } from 'node:fs/promises'
-
-export interface SandboxPayload {
+interface SandboxPayload {
   notes?: string
 }
 
-const { payload } = JSON.parse(await readFile(process.argv[2], 'utf8')) as {
-  payload?: SandboxPayload
+export default async function releaseNotes(payload: SandboxPayload = {}) {
+  return { text: payload.notes?.toUpperCase() || 'No notes' }
 }
-
-export default { text: payload?.notes?.toUpperCase() || 'No notes' }
 ```
 
 ```ts [server/api/release-notes.post.ts]
@@ -104,21 +100,22 @@ Installation runs at the pnpm Workspace root and the Definition runs from `serve
 
 ## Package entrypoint
 
-The package `index.ts` runs as ordinary top-level ESM. ViteHub writes `{ payload, context }` to the input sidecar at `process.argv[2]`, awaits the module, and serializes its default export as the invocation result.
+The package `index.ts` default-exports an ordinary async function. ViteHub calls it with the invocation payload and context, then returns its awaited result.
 
 ```ts
-import { readFile } from 'node:fs/promises'
-
-export type SandboxPayload = { key: string }
-
-const { payload } = JSON.parse(await readFile(process.argv[2], 'utf8')) as {
-  payload: SandboxPayload
+export default async function optimize(
+  payload: { image: Blob },
+  context: { requestId: string },
+) {
+  return await optimizeImage(payload.image, context.requestId)
 }
-
-export default await optimize(payload)
 ```
 
-The optional exported `SandboxPayload` type controls the payload accepted by `runSandbox()`. Without it, the payload is `unknown`. The entrypoint gets normal JavaScript, package imports, top-level await, `process.cwd()`, environment variables, and a filesystem, without a runtime framework import.
+`runSandbox()` infers its payload and result from the default function. A zero-argument function accepts an `unknown` payload. Existing non-function default exports remain supported; those entries can export `SandboxPayload` to provide the payload type, otherwise it is `unknown`.
+
+Nested `Blob` and `Uint8Array` values in payloads and results are staged through invocation-local Box files. Application code keeps the binary values and does not convert them to base64 JSON. Other values keep the existing JSON-serialization contract.
+
+The entrypoint gets normal JavaScript, package imports, top-level await, `process.cwd()`, environment variables, and a filesystem, without a runtime framework import.
 
 The first package metadata schema contains only `vitehub.sandbox.timeout`. It must be a positive integer no greater than `2_147_483_647`, and ViteHub enforces it while preparing and executing the package.
 
@@ -130,7 +127,7 @@ Provider selection and full image overrides are application or host configuratio
 
 ## Breaking migration
 
-Move canonical Definitions into a package folder and execute them at module top level:
+Move canonical Definitions into a package folder and export the run function directly:
 
 ```ts
 // Before
@@ -142,17 +139,13 @@ export default defineSandbox({
 })
 
 // Now
-import { readFile } from 'node:fs/promises'
-
-const { payload } = JSON.parse(await readFile(process.argv[2], 'utf8'))
-
-export default await run(payload)
+export default run
 ```
 
 - Move `timeout` to `package.json#vitehub.sandbox.timeout`.
 - Remove the package entrypoint's `defineSandbox()` wrapper and `@vite-hub/sandbox` runtime dependency.
-- Read the existing input sidecar from `process.argv[2]` and default-export the result.
-- Export `SandboxPayload` when callers should receive a specific payload type.
+- Default-export the run function; its first parameter and awaited return value become the generated invocation types.
+- Keep Blob and Uint8Array values native in application payloads and results.
 
 ## Public imports
 
