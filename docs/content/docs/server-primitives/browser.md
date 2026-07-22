@@ -17,7 +17,7 @@ Browser is a server primitive, not an Agent Capability. Server code calls the Br
 ### Install
 
 ```bash [Terminal]
-pnpm add @vite-hub/browser
+pnpm add @vite-hub/browser @cloudflare/playwright
 ```
 
 ### Configure
@@ -183,7 +183,7 @@ Use the CDP controller when live session preservation matters. The Playwright co
 
 ## Provider output
 
-`hubBrowser()` writes Cloudflare Browser Run configuration to generated Provider Output and adds the required Worker compatibility behavior for the Browser binding.
+`hubBrowser()` writes Cloudflare Browser Run configuration to generated Provider Output. In Nitro-backed builds it also merges the required `nodejs_compat` Worker compatibility flag. Other Vite builds must add `nodejs_compat` to their app-owned Wrangler configuration.
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -193,7 +193,7 @@ export default defineConfig({
 })
 ```
 
-On Cloudflare, inspect the generated `wrangler.json` and verify the `browser` binding before deployment.
+On Cloudflare, inspect the generated `wrangler.json` and verify both the `browser` binding and `nodejs_compat` before deployment.
 
 ## Connect it to Agents
 

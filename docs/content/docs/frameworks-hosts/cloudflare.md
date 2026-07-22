@@ -126,7 +126,7 @@ export default defineConfig({
 })
 ```
 
-`hubBrowser()` writes the generated `browser` binding and required Worker compatibility behavior. Runtime code should keep importing Browser helpers from `@vite-hub/browser`; the generated `wrangler.json` is Provider Output, not an application import surface.
+`hubBrowser()` writes the generated `browser` binding. In Nitro-backed builds it also merges the required `nodejs_compat` flag; other Vite builds must add `nodejs_compat` to their app-owned Wrangler configuration. Runtime code should keep importing Browser helpers from `@vite-hub/browser`; the generated `wrangler.json` is Provider Output, not an application import surface.
 
 ## Production notes
 
