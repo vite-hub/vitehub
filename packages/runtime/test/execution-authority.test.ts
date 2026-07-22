@@ -56,4 +56,21 @@ describe("execution authority", () => {
     expect(Object.isFrozen(authority.filesystem)).toBe(true)
     expect(normalizeExecutionAuthority(authority)).toBe(authority)
   })
+
+  it("removes provider-specific fields from normalized snapshots", () => {
+    const authority = normalizeExecutionAuthority({
+      ...unknownExecutionAuthority,
+      filesystem: {
+        ...unknownExecutionAuthority.filesystem,
+        providerPath: ["mutable"],
+      },
+      providerMetadata: { mutable: true },
+    })
+
+    expect(authority).toEqual(unknownExecutionAuthority)
+    expect(Object.keys(authority)).toHaveLength(6)
+    expect(Object.keys(authority.filesystem)).toHaveLength(2)
+    expect(Object.isFrozen(authority)).toBe(true)
+    expect(Object.isFrozen(authority.filesystem)).toBe(true)
+  })
 })
