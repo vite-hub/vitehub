@@ -4,6 +4,8 @@ import type { HarnessV1NetworkSandboxSession, HarnessV1SandboxProvider } from "@
 import type { Box, BoxProcess, BoxSession } from "@vite-hub/box"
 import { openHarnessBox } from "./shared-box.ts"
 
+export const boxHarnessWorkDir = "workspace"
+
 function streamFromBytes(bytes: Uint8Array) {
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -31,7 +33,13 @@ async function bytesFromStream(stream: ReadableStream<Uint8Array>) {
 }
 
 function resolvePath(session: BoxSession, path: string) {
-  return path.startsWith("/") ? posix.normalize(path) : posix.resolve(session.cwd, path)
+  const resolved = path.startsWith("/") ? posix.normalize(path) : posix.resolve(session.cwd, path)
+  const harnessWorkspace = posix.join(posix.dirname(session.cwd), boxHarnessWorkDir)
+  if (resolved === harnessWorkspace) return session.cwd
+  if (resolved.startsWith(`${harnessWorkspace}/`)) {
+    return posix.join(session.cwd, resolved.slice(harnessWorkspace.length + 1))
+  }
+  return resolved
 }
 
 function adaptProcess(process: BoxProcess) {
@@ -52,7 +60,7 @@ function adaptProcess(process: BoxProcess) {
 function adaptBoxSession(session: BoxSession): HarnessV1NetworkSandboxSession {
   if (!session.spawn) throw new Error("[vitehub] Harness Agent Drivers require a Box runtime with process spawning.")
   const adapted = {
-    defaultWorkingDirectory: session.cwd,
+    defaultWorkingDirectory: posix.dirname(session.cwd),
     description: `ViteHub Box ${session.id}`,
     id: session.id,
     ports: session.ports?.values || [],
