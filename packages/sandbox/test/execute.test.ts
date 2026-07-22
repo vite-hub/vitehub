@@ -3,6 +3,7 @@ import { posix } from "node:path"
 
 import { executeSandboxDefinition } from "../src/runtime/execute.ts"
 import { createHandlerError } from "../src/runtime/output-recovery.ts"
+import { toSandboxError } from "../src/runtime/error-normalization.ts"
 import { SANDBOX_VALUE_MARKER } from "../src/runtime/binary-sidecars.ts"
 import type { ViteHubError } from "@vite-hub/runtime"
 import type { SandboxExecutionBox } from "../src/runtime/execution-box.ts"
@@ -180,6 +181,23 @@ describe("executeSandboxDefinition", () => {
       details: { provider: "vercel", stderr: "x".repeat(16_384) },
     })
     expect(error.details).not.toHaveProperty("ignored")
+  })
+
+  it("sanitizes arbitrary provider details during normalization", () => {
+    const providerError = Object.assign(new Error("Provider failed."), {
+      code: "PROVIDER_FAILED",
+      details: {
+        cyclic: undefined as unknown,
+        date: new Date(),
+        stderr: "x".repeat(20_000),
+      },
+    })
+    providerError.details.cyclic = providerError.details
+
+    expect(toSandboxError(providerError)).toMatchObject({
+      code: "SANDBOX_RUNTIME_ERROR",
+      details: { stderr: "x".repeat(16_384) },
+    })
   })
 
   it("bounds setup with the definition timeout", async () => {
